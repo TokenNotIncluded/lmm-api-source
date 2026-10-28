@@ -282,9 +282,28 @@ class TransferAndPaymentFactsTests(unittest.TestCase):
         self.assertNotIn("token", row)
 
     def test_completed_transfer_does_not_reopen_claim(self):
-        row = MODULE.map_wallet_transfers([transfer(status="claimed", recipient_id=72)], {71: 2, 72: 3})[0]
+        row = MODULE.map_wallet_transfers([transfer(status="claimed", recipient_id=72, claimed_at=1706745601)], {71: 2, 72: 3})[0]
         self.assertEqual(row["claimable_escrow_units"], 0)
         self.assertEqual(row["recipient_account_id"], 3)
+        self.assertEqual(row["blockers"], [])
+
+    def test_transfer_lifecycle_contradictions_are_blocked(self):
+        cases = [
+            ({"status": "pending", "recipient_id": 72, "claimed_at": 1706745601}, "pending_transfer_terminal_fields_present"),
+            ({"status": "pending", "cancelled_at": 1706745601}, "pending_transfer_terminal_fields_present"),
+            ({"status": "claimed", "recipient_id": 71, "claimed_at": 1706745601}, "claimed_transfer_self_claim"),
+            ({"status": "claimed", "recipient_id": 72}, "claimed_transfer_time_missing"),
+            ({"status": "claimed", "recipient_id": 72, "claimed_at": 1706745601, "cancelled_at": 1706745602}, "claimed_transfer_cancel_time_present"),
+            ({"status": "cancelled", "recipient_id": 72, "claimed_at": 1706745601, "cancelled_at": 1706745602}, "cancelled_transfer_claim_fields_present"),
+            ({"status": "cancelled"}, "cancelled_transfer_time_missing"),
+        ]
+        for fields, expected in cases:
+            with self.subTest(fields=fields):
+                row = MODULE.map_wallet_transfers([transfer(**fields)], {71: 2, 72: 3})[0]
+                self.assertIn(expected, row["blockers"])
+
+        cancelled = MODULE.map_wallet_transfers([transfer(status="cancelled", cancelled_at=1706745601)], {71: 2})[0]
+        self.assertEqual(cancelled["blockers"], [])
 
     def test_unknown_and_orphan_transfer_are_blocked(self):
         row = MODULE.map_wallet_transfers([transfer(status="mystery", recipient_id=999)], {71: 2})[0]
@@ -747,6 +766,13 @@ class OpeningPayloadTests(unittest.TestCase):
     def test_pending_transfer_cannot_be_relabelled_as_arbitrary_reserve(self):
         plan = MODULE.plan_financial(tables(wallet_transfers=[transfer()]), {71: 2}, source_sha256="a" * 64)
         with self.assertRaisesRegex(MODULE.MappingError, "pending_transfer_claim_contract_missing"):
+            self.build(plan)
+
+    def test_contradictory_terminal_transfer_blocks_opening_payload(self):
+        plan = MODULE.plan_financial(tables(wallet_transfers=[transfer(status="claimed", recipient_id=71, claimed_at=1706745601)]),
+                                     {71: 2}, source_sha256="a" * 64)
+        self.assertEqual(plan["blocker_counts"]["claimed_transfer_self_claim"], 1)
+        with self.assertRaisesRegex(MODULE.MappingError, "wallet_transfer_source_blocked"):
             self.build(plan)
 
     def test_observed_at_is_frozen_window_start_not_now_or_settlement_time(self):

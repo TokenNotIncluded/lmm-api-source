@@ -295,6 +295,8 @@ def build_opening_payloads(plan: dict, *, migration_id: str, observation: dict,
     require(set(reservations) == {row["source_user_id"] for row in wallets}, "reservation_coverage_mismatch")
     require(not any(row.get("status") == "pending" for row in plan.get("wallet_transfers", [])),
             "pending_transfer_claim_contract_missing")
+    require(not any(row.get("blockers") for row in plan.get("wallet_transfers", [])),
+            "wallet_transfer_source_blocked")
     payloads, seen_users, seen_accounts = [], set(), set()
     for row in wallets:
         uid = integer(row.get("source_user_id"), "opening_source_user_invalid", minimum=1)
@@ -435,6 +437,9 @@ def map_wallet_transfers(rows: list[dict], identities: dict[int, int]) -> list[d
         sender = integer(row.get("sender_id"), "transfer_sender_id_invalid", minimum=1)
         recipient = integer(row.get("recipient_id"), "transfer_recipient_id_invalid", minimum=0)
         amount = integer(row.get("quota"), "transfer_amount_invalid", minimum=1)
+        created_at = integer(row.get("created_at"), "transfer_time_invalid")
+        claimed_at = integer(row.get("claimed_at"), "transfer_time_invalid")
+        cancelled_at = integer(row.get("cancelled_at"), "transfer_time_invalid")
         require(transfer_id not in seen, "transfer_id_duplicate")
         seen.add(transfer_id)
         status = row.get("status")
@@ -447,15 +452,27 @@ def map_wallet_transfers(rows: list[dict], identities: dict[int, int]) -> list[d
             blockers.append("orphan_transfer_recipient")
         if status == "claimed" and recipient == 0:
             blockers.append("claimed_transfer_recipient_missing")
+        if status == "pending" and (recipient != 0 or claimed_at != 0 or cancelled_at != 0):
+            blockers.append("pending_transfer_terminal_fields_present")
+        if status == "claimed":
+            if recipient == sender:
+                blockers.append("claimed_transfer_self_claim")
+            if claimed_at <= 0:
+                blockers.append("claimed_transfer_time_missing")
+            if cancelled_at != 0:
+                blockers.append("claimed_transfer_cancel_time_present")
+        if status == "cancelled":
+            if recipient != 0 or claimed_at != 0:
+                blockers.append("cancelled_transfer_claim_fields_present")
+            if cancelled_at <= 0:
+                blockers.append("cancelled_transfer_time_missing")
         result.append({"source_transfer_id": transfer_id, "sender_user_id": sender,
                        "sender_account_id": identities.get(sender), "recipient_user_id": recipient,
                        "recipient_account_id": identities.get(recipient), "amount_units": amount,
                        "status": status, "claimable_escrow_units": amount if status == "pending" else 0,
                        "sender_available_already_debited": True, "wallet_debit_to_apply": 0,
                        "original_bearer_activation_allowed": False,
-                       "created_at": integer(row.get("created_at"), "transfer_time_invalid"),
-                       "claimed_at": integer(row.get("claimed_at"), "transfer_time_invalid"),
-                       "cancelled_at": integer(row.get("cancelled_at"), "transfer_time_invalid"),
+                       "created_at": created_at, "claimed_at": claimed_at, "cancelled_at": cancelled_at,
                        "source_row_sha256": digest(row), "blockers": blockers})
     return sorted(result, key=lambda row: row["source_transfer_id"])
 
