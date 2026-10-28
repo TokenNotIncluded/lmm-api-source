@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Open-source Bounty"
+  short_description: "Publish verified bounties with escrow safeguards"
+  default_prompt: "Use $publish-open-source-bounty to draft and publish a verified open-source bounty safely."

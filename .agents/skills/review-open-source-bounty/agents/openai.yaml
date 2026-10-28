@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Open-source Bounty"
+  short_description: "Verify bounty work before rating and payment"
+  default_prompt: "Use $review-open-source-bounty to verify a submission and settle its bounty truthfully."
