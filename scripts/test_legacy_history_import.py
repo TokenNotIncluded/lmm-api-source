@@ -179,7 +179,7 @@ class DriverTests(unittest.TestCase):
             self.assertEqual(events,["attempt.private.json","executed.private.sql"])
             self.assertIn("SERIALIZABLE READ ONLY",sql)
             return 0,F.canonical({"status":"NOT_APPLIED","migration_id":"history","material_sha256":F.digest(self.m)})
-        self.assertEqual(self.call(run,original_attempt=original,write=write)["status"],"NOT_APPLIED")
+        self.assertEqual(self.call(run,original_attempt=original,write=write)["status"],"UNKNOWN")
         self.assertEqual(events[-1],"result.private.json")
         original["material_sha256"]="f"*64
         with self.assertRaises(F.Error):self.call(run,original_attempt=original)

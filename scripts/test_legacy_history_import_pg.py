@@ -31,7 +31,8 @@ class HistoryPostgreSQLTests(P.PostgreSQLTests):
         a,keys,p,review=fixture(logs)
         snapshot=json.loads(self.sql(F.snapshot_sql(self.inventory,"synthetic-history")).stdout)
         a["before_state"]=snapshot["state"]
-        a["target"]={k:snapshot[k] for k in ("instance","catalog_fingerprint_sha256","ownership_sha256","component_fingerprints")}
+        a["target"]={**self.material["target"], **{k:snapshot[k] for k in
+            ("instance","catalog_fingerprint_sha256","ownership_sha256","component_fingerprints")}}
         a["native_users"]=snapshot["native_users"]
         a["identity_import"]=snapshot["import_runs"][0]
         return H.prepare_material(a,p,review,migration_id="synthetic-history",source_files=source_files(p))
@@ -83,7 +84,7 @@ class HistoryPostgreSQLTests(P.PostgreSQLTests):
 
     def test_history_unknown_resolution_and_runtime_cannot_write(self):
         resolver=H.build_resolve_sql(self.history,"lmm-history-"+"a"*32)
-        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"NOT_APPLIED")
+        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"UNKNOWN")
         self.sql(self.history_sql)
         self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"COMMITTED")
         self.assertFalse(self.query("SELECT has_table_privilege('a03_runtime','core_history.scope_receipts','INSERT,UPDATE,DELETE,TRUNCATE')"))

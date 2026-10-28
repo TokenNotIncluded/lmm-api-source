@@ -438,7 +438,7 @@ BEGIN
  {F._guard(e)}
 END $lmm_history$;
 SELECT jsonb_build_object('status',CASE WHEN EXISTS(SELECT 1 FROM core_migration.import_runs WHERE migration_id={F.literal(m['migration_id'])})
- THEN 'COMMITTED' ELSE 'NOT_APPLIED' END,'material_sha256',{F.literal(F.digest(m))});
+ THEN 'COMMITTED' ELSE 'UNKNOWN' END,'material_sha256',{F.literal(F.digest(m))});
 COMMIT;
 """
     return _quote(sql)
@@ -500,7 +500,9 @@ def execute(m, *, approval, original_sql, connection, output, original_attempt=N
             verify_source_files(m)
             require(source_hashes()==m["tool_source_hashes"],"history_tool_changed")
             result=F.PLANNER.parse_json(stdout)
-            allowed=("COMMITTED","NOT_APPLIED") if original_attempt is not None else ("COMMITTED",)
+            # Restoring an earlier backup can remove a committed receipt while
+            # retaining the same database identity and apparent prestate.
+            allowed=("COMMITTED",)
             if type(result) is dict and set(result)==set(outcome) and result.get("status") in allowed \
                     and all(result.get(k)==outcome[k] for k in ("migration_id","material_sha256")):
                 outcome=result
