@@ -53,6 +53,14 @@ return the same public acceptance envelope and keep secrets inside a durable
 encrypted mail enqueue path. No resend payload or outbox exists in this slice;
 `Pending` cannot resend the secret and does not claim that mail was sent.
 
+`issue` currently commits its own transaction before returning `Issued`. A
+subsequent, separate outbox insert is not a safe integration: a crash between
+those commits can leave an active challenge without a recoverable delivery
+secret, while later requests only return `Pending`. Before enabling email,
+change issuance and encrypted outbox enqueue to commit in the same transaction.
+Verify that failures and crashes leave either both records or neither, and that
+resending a live challenge retains the original expiry and guessing budget.
+
 `Request::Register` cannot claim an existing authoritative or historical
 profile email, including ambiguous legacy strings and username collisions.
 `Request::Bind` requires a current personal browser bearer and stable sid,
