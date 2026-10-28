@@ -2,26 +2,26 @@
 
 [文档目录](README.md) · [贡献指南](contributing.md)
 
-GitHub 仓库名称为 [`TokenNotIncluded/lmm-api`](https://github.com/TokenNotIncluded/lmm-api)。
-重命名只改变仓库地址；长期工作区路径、开发分支、网站域名和现有 Go 模块命名空间
-保持各自原有身份，避免打断进行中的开发或改变客户端协议。
+当前实现仓库为 [`TokenNotIncluded/lmm-api-source`](https://github.com/TokenNotIncluded/lmm-api-source)，
+开发主分支和默认分支均为 `main`。配方主项目是
+[`TokenNotIncluded/lmm-api`](https://github.com/TokenNotIncluded/lmm-api)，其默认分支也是 `main`；
+它通过固定提交的子模块接入本仓库。旧单体历史保留在配方仓库的 `传统` 和 `traditional` 分支。
+源码、子模块指针、发布和部署是不同状态，分支调整不代表业务验收或生产切换完成。
 
-## 2026-10-12 主线交接
+## 2026-10-12 主线交接（历史记录）
 
-GitHub 默认开发分支为 `wip/rust-core-go-extensions`。保留这个长期共享分支名，
-不强推、重命名或改写 `main` 历史；新贡献和现有开发 PR 以微服务分支为目标。
-默认分支的变更是开发治理调整，不是产品验收、生产迁移、发布或部署。
+当时原仓库的默认开发分支为 `wip/rust-core-go-extensions`，新贡献和开发 PR 以该分支为目标。
+这段交接记录保留当时的背景，不作为当前仓库分支选择的操作指令。
 
-旧单体源码保存为 `traditional`；`main` 作为同一历史快照保留。两者冻结于：
+当时旧单体源码保存为 `traditional`，`main` 作为同一历史快照保留。两者冻结于：
 `3948a0a1ee1cefdd016a7aa45a11851545bb4b85`。
-GitHub 活跃规则集 `Freeze traditional monolith development` 禁止更新、删除和
-非快进修改这两个分支，没有绕过角色。解冻须单独获得授权并修改规则，不能通过
-临时分支或管理员绕过继续推进传统主线。
+当时的规则集 `Freeze traditional monolith development` 禁止更新、删除和
+非快进修改这两个分支，没有绕过角色。当前规则以仓库实际设置为准，不改写历史。
 
 现有本地工作区、功能分支、未推送修改、子模块指针不因默认分支改变而移动。
 旧工作区的 `main` 不自动转换为微服务源码，也不能以重新检出覆盖其他任务。
 
-## PR 与 Issue
+## 当时的 PR 与 Issue 交接
 
 指向旧 `main` 的开发 PR 改为指向微服务主线，保留原正文和历史证据；旧单体候选
 需要先移植到对应核心、扩展或 Web 路径，再做本地验收。只改 base 不会完成移植，

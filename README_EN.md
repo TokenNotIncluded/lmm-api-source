@@ -84,7 +84,7 @@ See [configuration and filesystem layout](docs/filesystem-layout.md) for ownersh
 
 ## Branches
 
-Day-to-day development happens on `wip/rust-core-go-extensions`. The legacy monolith branches `main` and `traditional` are frozen and kept for history. [Branch promotion](docs/development-branches.md) isn't deployment or acceptance. [Extore product sync](docs/extore-shop-binding-followup.md) is still unfinished — please don't deploy it.
+Day-to-day implementation development happens on this repository's `main`. The parent [Recipkg project](https://github.com/TokenNotIncluded/lmm-api) also uses `main` and retains the legacy monolith in its `传统` and `traditional` branches. The [branch policy](docs/development-branches.md) does not imply deployment or acceptance. [Extore product sync](docs/extore-shop-binding-followup.md) is still unfinished — please don't deploy it.
 
 ## Getting involved
 
