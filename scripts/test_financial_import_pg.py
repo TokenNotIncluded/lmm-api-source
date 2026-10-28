@@ -386,7 +386,7 @@ class PostgreSQLTests(unittest.TestCase):
             self.assertNotEqual(process.returncode, 0)
         self.assertEqual(self.full_state(), self.before)
         resolved = json.loads(self.sql(F.build_resolve_sql(self.material, app)).stdout)
-        self.assertEqual(resolved["status"], "NOT_APPLIED")
+        self.assertEqual(resolved["status"], "UNKNOWN")
         self.assertEqual(self.full_state(), self.before)
         self.assertEqual(json.loads(self.sql(self.apply_sql).stdout)["status"], "COMMITTED")
 
@@ -401,7 +401,7 @@ class PostgreSQLTests(unittest.TestCase):
     def test_absent_receipt_requires_exact_pre_state(self):
         app = "lmm-financial-" + uuid.uuid4().hex
         resolver = F.build_resolve_sql(self.material, app)
-        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"], "NOT_APPLIED")
+        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"], "UNKNOWN")
         self.assertEqual(self.full_state(), self.before)
         self.sql("UPDATE core_identity.users SET auth_version=2 WHERE id=71;")
         self.rejected_unchanged(resolver, "financial_absence_not_proven")
@@ -435,7 +435,7 @@ class PostgreSQLTests(unittest.TestCase):
         process.stdout.close()
         process.stderr.close()
         self.assertEqual(self.full_state(), self.before)
-        self.assertEqual(json.loads(self.sql(F.build_resolve_sql(self.material, app)).stdout)["status"], "NOT_APPLIED")
+        self.assertEqual(json.loads(self.sql(F.build_resolve_sql(self.material, app)).stdout)["status"], "UNKNOWN")
 
     def test_future_ledger_transaction_prevents_strict_opening_replay(self):
         self.sql(self.apply_sql)
@@ -528,7 +528,7 @@ class PostgreSQLTests(unittest.TestCase):
             process.communicate(timeout=10)
             self.assertNotEqual(process.returncode, 0)
         self.assertEqual(self.full_state(), self.before)
-        self.assertEqual(json.loads(self.sql(F.build_resolve_sql(self.material, app)).stdout)["status"], "NOT_APPLIED")
+        self.assertEqual(json.loads(self.sql(F.build_resolve_sql(self.material, app)).stdout)["status"], "UNKNOWN")
         self.assertEqual(self.full_state(), self.before)
 
     def test_composed_readonly_resolver_matches_already_committed_batch_without_new_money(self):

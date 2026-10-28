@@ -798,7 +798,7 @@ BEGIN
  {_guard(material)}
 END $lmm_financial$;
 SELECT jsonb_build_object('status',CASE WHEN EXISTS(SELECT 1 FROM core_migration.import_runs
- WHERE migration_id={literal(material['migration_id'])}) THEN 'COMMITTED' ELSE 'NOT_APPLIED' END,
+ WHERE migration_id={literal(material['migration_id'])}) THEN 'COMMITTED' ELSE 'UNKNOWN' END,
  'migration_id',{literal(material['migration_id'])},'material_sha256',{literal(digest(material))});
 COMMIT;
 """
@@ -944,7 +944,10 @@ def execute(material: dict, *, approval: dict, original_sql: str, connection: di
             verify_source_files(material)
             require(source_hashes(escrow=escrow_profile(material)) == material["tool_source_hashes"], "financial_tool_source_changed")
             result = PLANNER.parse_json(stdout)
-            allowed = ("COMMITTED", "NOT_APPLIED") if original_attempt else ("COMMITTED",)
+            # A missing receipt and matching prestate do not prove non-commit:
+            # this database may have been restored from a snapshot predating it.
+            # Only an external history witness can make absence conclusive.
+            allowed = ("COMMITTED",)
             if type(result) is dict and set(result) == set(outcome) and result.get("status") in allowed \
                     and all(result.get(key) == outcome[key] for key in ("migration_id", "material_sha256")):
                 outcome = result

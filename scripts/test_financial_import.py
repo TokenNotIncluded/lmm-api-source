@@ -602,7 +602,7 @@ class DriverTests(unittest.TestCase):
              patch.object(F.IDENTITY, "socket_connection", return_value={}), \
              patch.object(F, "run_sql", return_value=(0, F.canonical({**self.result, "status": "NOT_APPLIED"}))) as run:
             result = self.execute(Path(root), original_attempt=attempt)
-            self.assertEqual(result["status"], "NOT_APPLIED")
+            self.assertEqual(result["status"], "UNKNOWN")
             self.assertIn("READ ONLY", run.call_args.args[1])
         with tempfile.TemporaryDirectory() as root, patch.object(F, "verify_source_files"), \
              patch.object(F.IDENTITY, "socket_connection", return_value={}), patch.object(F, "run_sql") as run:
