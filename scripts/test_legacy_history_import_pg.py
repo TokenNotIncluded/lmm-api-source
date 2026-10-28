@@ -84,9 +84,10 @@ class HistoryPostgreSQLTests(P.PostgreSQLTests):
 
     def test_history_unknown_resolution_and_runtime_cannot_write(self):
         resolver=H.build_resolve_sql(self.history,"lmm-history-"+"a"*32)
-        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"UNKNOWN")
+        expected={"status":"UNKNOWN","migration_id":self.history["migration_id"],"material_sha256":F.digest(self.history)}
+        self.assertEqual(json.loads(self.sql(resolver).stdout),expected)
         self.sql(self.history_sql)
-        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"COMMITTED")
+        self.assertEqual(json.loads(self.sql(resolver).stdout),{**expected,"status":"COMMITTED"})
         self.assertFalse(self.query("SELECT has_table_privilege('a03_runtime','core_history.scope_receipts','INSERT,UPDATE,DELETE,TRUNCATE')"))
         self.sql("DELETE FROM core_history.scope_receipts WHERE token_id=500")
         self.rejected_unchanged(resolver,"history_resolution_conflict")

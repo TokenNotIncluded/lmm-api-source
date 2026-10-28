@@ -438,7 +438,7 @@ BEGIN
  {F._guard(e)}
 END $lmm_history$;
 SELECT jsonb_build_object('status',CASE WHEN EXISTS(SELECT 1 FROM core_migration.import_runs WHERE migration_id={F.literal(m['migration_id'])})
- THEN 'COMMITTED' ELSE 'UNKNOWN' END,'material_sha256',{F.literal(F.digest(m))});
+ THEN 'COMMITTED' ELSE 'UNKNOWN' END,'migration_id',{F.literal(m['migration_id'])},'material_sha256',{F.literal(F.digest(m))});
 COMMIT;
 """
     return _quote(sql)
