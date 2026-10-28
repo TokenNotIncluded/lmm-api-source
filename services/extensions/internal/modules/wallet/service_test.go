@@ -251,6 +251,104 @@ func TestACKLostRequestKeyRecoveryDoesNotCreateOrScan(t *testing.T) {
 	}
 }
 
+type historicalReadRecords struct {
+	token string
+	owner int64
+	key   string
+}
+
+func (*historicalReadRecords) PutIfAbsent(context.Context, int64, CreateInput, string) (string, error) {
+	panic("historical read attempted to create a record")
+}
+
+func (r *historicalReadRecords) Token(_ context.Context, owner int64, key string) (string, error) {
+	r.owner, r.key = owner, key
+	if r.token == "" {
+		return "", ErrNotFound
+	}
+	return r.token, nil
+}
+
+func TestHistoricalRequestKeyExactReadAndByteLimits(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		ok   bool
+	}{
+		{"minimum", strings.Repeat("a", 16), true},
+		{"maximum", strings.Repeat("a", 64), true},
+		{"punctuation", "legacy.key:123456", true},
+		{"interior whitespace", "legacy key:123456", true},
+		{"utf8 minimum bytes", strings.Repeat("\u754c", 5) + "a", true},
+		{"utf8 maximum bytes", strings.Repeat("\u754c", 21) + "a", true},
+		{"too short", strings.Repeat("a", 15), false},
+		{"too long", strings.Repeat("a", 65), false},
+		{"utf8 too short in bytes", strings.Repeat("\u754c", 5), false},
+		{"utf8 too long in bytes", strings.Repeat("\u754c", 22), false},
+		{"leading whitespace", " " + strings.Repeat("a", 16), false},
+		{"trailing unicode whitespace", strings.Repeat("a", 16) + "\u00a0", false},
+		{"nul", strings.Repeat("a", 16) + "\x00", false},
+		{"invalid utf8", strings.Repeat("a", 16) + "\xff", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base, core, _ := setup(t)
+			records := &historicalReadRecords{}
+			q := &queryKeyCore{queryCore: &queryCore{testCore: core}, value: Transfer{ID: 22, RequestKey: tc.key, AmountCredits: 125, State: "claimed"}}
+			s, err := New(q, records, base.origin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.QueryTransferByRequestKey(context.Background(), "live-session", tc.key)
+			if !tc.ok {
+				if err != ErrInvalid || q.key != "" {
+					t.Fatalf("invalid key reached Core: %q %v", q.key, err)
+				}
+				return
+			}
+			if err != nil || got.RequestKey != tc.key || q.key != tc.key || got.State != "claimed" {
+				t.Fatalf("historical key changed or was rejected: %+v %q %v", got, q.key, err)
+			}
+		})
+	}
+}
+
+func TestHistoricalKeysDisplayAndDoNotRelaxCreate(t *testing.T) {
+	base, core, _ := setup(t)
+	key := "legacy.key:\u754c123456"
+	records := &historicalReadRecords{token: strings.Repeat("a", 64)}
+	q := &queryCore{testCore: core, rows: []Transfer{
+		{ID: 17, RequestKey: key, AmountCredits: 125, State: "pending"},
+		{ID: 16, RequestKey: "legacy:finished.01", AmountCredits: 125, State: "claimed"},
+	}}
+	s, err := New(q, records, base.origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.List(context.Background(), "live-session", 0)
+	if err != nil || len(rows) != 2 || rows[0].RequestKey != key || rows[0].ShareURL != base.origin+"/transfer#"+records.token || rows[1].RequestKey != q.rows[1].RequestKey || records.owner != 11 || records.key != key {
+		t.Fatalf("historical list lost a row or bearer: %+v %v", rows, err)
+	}
+	for _, key := range []string{"legacy.key:123456", "legacy key:123456", strings.Repeat("\u754c", 5) + "a"} {
+		if _, err := s.Create(context.Background(), "live-session", CreateInput{AmountCredits: 125, RequestKey: key}); err != ErrInvalid {
+			t.Fatalf("historical-only key accepted for creation: %q %v", key, err)
+		}
+	}
+	byKey := &queryKeyCore{queryCore: q, value: q.rows[0]}
+	s, err = New(byKey, records, base.origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.QueryTransferByRequestKey(context.Background(), "live-session", key)
+	if err != nil || got.ShareURL != base.origin+"/transfer#"+records.token || records.owner != 11 || records.key != key {
+		t.Fatalf("historical pending recovery failed: %+v %v", got, err)
+	}
+	records.token = ""
+	if _, err = s.QueryTransferByRequestKey(context.Background(), "live-session", key); err != ErrUnknown {
+		t.Fatalf("missing bearer must remain unknown: %v", err)
+	}
+}
+
 func TestMalformedRecipientReceiptsRemainUnknown(t *testing.T) {
 	s, _, _ := setup(t)
 	token := strings.Repeat("a", 64)

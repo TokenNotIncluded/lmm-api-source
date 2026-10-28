@@ -578,6 +578,60 @@ async fn database_guard_rejects_hold_receipt_swaps_and_fabricated_terminal_state
 }
 
 #[sqlx::test(migrations = false)]
+async fn recovery_accepts_legacy_keys_without_changing_wallet_or_owner_scope(pool: PgPool) {
+    let f = setup(&pool).await;
+    let sender: i64 =
+        sqlx::query_scalar("SELECT id FROM core_identity.users WHERE personal_account_id=$1")
+            .bind(f.account)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let keys = ["legacy.transfer:00001", "历史转账号:00000000000001"];
+    for (index, key) in keys.iter().enumerate() {
+        sqlx::query("INSERT INTO core_wallet.transfers(owner_user,payer_account,request_key,amount,token_digest) VALUES($1,$2,$3,1,$4)")
+            .bind(sender)
+            .bind(f.account)
+            .bind(key)
+            .bind(vec![index as u8; 32])
+            .execute(&pool)
+            .await
+            .unwrap();
+        let found = f.store.query_by_request_key(&f.sender, key).await.unwrap();
+        assert_eq!(found.request_key, *key);
+        assert!(matches!(
+            f.store.query_by_request_key(&f.other, key).await,
+            Err(Error::NotFound)
+        ));
+    }
+    for key in [
+        " legacy.transfer:00001",
+        "legacy.transfer:00001 ",
+        "legacy\0transfer:00001",
+        "short",
+    ] {
+        assert!(matches!(
+            f.store.query_by_request_key(&f.sender, key).await,
+            Err(Error::Invalid)
+        ));
+    }
+    assert!(matches!(
+        f.store
+            .prepare(&f.sender, 1, keys[0], &"9".repeat(64))
+            .await,
+        Err(Error::Invalid)
+    ));
+    assert_eq!(
+        f.store
+            .balance(&f.sender)
+            .await
+            .unwrap()
+            .balance
+            .spendable_units,
+        1000
+    );
+}
+
+#[sqlx::test(migrations = false)]
 async fn request_key_recovery_is_exact_sender_only_and_never_admits_funds(pool: PgPool) {
     let f = setup(&pool).await;
     let key = "a".repeat(64);

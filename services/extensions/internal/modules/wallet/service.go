@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -121,6 +122,11 @@ func validKey(s string) bool {
 	}
 	return true
 }
+
+// Historical keys retain the legacy byte limit and must reach Core unchanged.
+func validHistoricalKey(s string) bool {
+	return len(s) >= 16 && len(s) <= 64 && strings.TrimSpace(s) == s && utf8.ValidString(s) && !strings.ContainsRune(s, '\x00')
+}
 func validToken(s string) bool {
 	if len(s) != 64 {
 		return false
@@ -180,7 +186,7 @@ func (s *Service) Create(ctx context.Context, session string, in CreateInput) (T
 	return s.view(t, token)
 }
 func (s *Service) view(t Transfer, token string) (Transfer, error) {
-	if t.ID <= 0 || t.AmountCredits <= 0 || !validKey(t.RequestKey) {
+	if t.ID <= 0 || t.AmountCredits <= 0 || !validHistoricalKey(t.RequestKey) {
 		return Transfer{}, ErrUnknown
 	}
 	switch t.State {
@@ -336,7 +342,7 @@ func (s *Service) QueryCancellation(ctx context.Context, session string, id int6
 // was lost before the host learned its numeric ID. Neither a missing Core row nor
 // a missing local bearer permits another Create: the result remains UNKNOWN.
 func (s *Service) QueryTransferByRequestKey(ctx context.Context, session, key string) (Transfer, error) {
-	if !validKey(key) {
+	if !validHistoricalKey(key) {
 		return Transfer{}, ErrInvalid
 	}
 	b, err := s.Balance(ctx, session)

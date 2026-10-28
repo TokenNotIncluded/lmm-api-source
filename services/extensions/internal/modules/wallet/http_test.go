@@ -3,8 +3,10 @@ package wallet
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -217,6 +219,59 @@ func TestWebKeyRecoveryBalanceTopupAndRecipientReceipt(t *testing.T) {
 	}
 	if core.claimSession != "live-session" || core.inspectSession != "live-session" {
 		t.Fatal("recipient Session not propagated")
+	}
+}
+
+func TestWebHistoricalKeyRecoveryUsesExactCoreRead(t *testing.T) {
+	key := "legacy.key:\u754c+1234"
+	queries := 0
+	core := &CoreClient{hostToken: strings.Repeat("x", 32)}
+	core.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("X-Lmm-User-Credential") != "live-session" {
+			t.Fatal("original session not forwarded")
+		}
+		var body string
+		switch r.URL.Path {
+		case "/internal/wallet/v1/balance":
+			body = `{"owner_user_id":11,"account_id":5,"credits_per_usd":500000}`
+		case "/internal/wallet/v1/query":
+			queries++
+			var in map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil || len(in) != 1 || in["request_key"] != key {
+				t.Fatalf("historical key changed in Core request: %v %v", in, err)
+			}
+			raw, err := json.Marshal(Transfer{ID: 22, RequestKey: key, AmountCredits: 125, State: "claimed"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = string(raw)
+		default:
+			t.Fatalf("unexpected Core operation %s", r.URL.Path)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	s, err := New(core, &historicalReadRecords{}, "https://wallet.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := NewHandler(s, verifiedTestSession, "https://web.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, webRequest("GET", "/api/wallet-transfer/query?request_key="+url.QueryEscape(key), "", "", true))
+	v := responseJSON(t, w)
+	if w.Code != http.StatusOK || v["data"].(map[string]any)["request_key"] != key || queries != 1 {
+		t.Fatalf("historical HTTP recovery failed: %d %+v queries=%d", w.Code, v, queries)
+	}
+	raw, err := json.Marshal(map[string]any{"quota": 125, "request_key": key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, webRequest("POST", "/api/wallet-transfer", string(raw), "https://web.example", true))
+	if w.Code != http.StatusBadRequest || queries != 1 {
+		t.Fatalf("historical key accepted for a new transfer: %d %s", w.Code, w.Body.String())
 	}
 }
 

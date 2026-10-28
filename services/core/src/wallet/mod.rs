@@ -150,11 +150,7 @@ impl Store {
     /// ACK-lost recovery: authenticate the original Session and read only this
     /// sender's immutable key. Absence never creates or reserves anything.
     pub async fn query_by_request_key(&self, session: &str, key: &str) -> Result<Transfer, Error> {
-        if !(16..=64).contains(&key.len())
-            || !key
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        {
+        if !(16..=64).contains(&key.len()) || key.trim() != key || key.contains('\0') {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
