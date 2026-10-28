@@ -126,6 +126,71 @@ def main():
         sql("postgres", "ALTER DATABASE fence_crash ALLOW_CONNECTIONS true")
         if sql("fence_crash", "SELECT count(*),sum(id) FROM fence_probe").stdout.strip() != "1|7":
             raise RuntimeError("crashed writer changed committed data")
+
+        # A distinct importer can reconnect while the old login stays fenced.
+        sql("postgres", "CREATE ROLE fence_legacy LOGIN; CREATE ROLE fence_importer LOGIN")
+        sql("postgres", "CREATE DATABASE fence_migration")
+        sql("postgres", "REVOKE ALL ON DATABASE fence_migration FROM PUBLIC; "
+            "GRANT CONNECT ON DATABASE fence_migration TO fence_legacy,fence_importer")
+        sql("fence_migration", "CREATE TABLE fence_probe(id integer); INSERT INTO fence_probe VALUES(7); "
+            "GRANT INSERT ON fence_probe TO fence_legacy; GRANT SELECT ON fence_probe TO fence_importer")
+        writer = subprocess.Popen(
+            ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-h", str(socket), "-p", "55476",
+             "-U", "fence_legacy", "-d", "fence_migration", "-c",
+             "BEGIN; INSERT INTO fence_probe VALUES(1); SELECT pg_sleep(120); COMMIT"],
+            env={**env, "PGAPPNAME": "synthetic_legacy_writer"}, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            active = sql("postgres", "SELECT count(*) FROM pg_stat_activity WHERE "
+                         "datname='fence_migration' AND application_name='synthetic_legacy_writer' "
+                         "AND state='active' AND wait_event='PgSleep'").stdout.strip()
+            if active == "1":
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("legacy writer did not complete its insert before sleeping")
+        sql("postgres", "ALTER ROLE fence_legacy NOLOGIN")
+        if writer.poll() is not None:
+            raise RuntimeError("legacy writer unexpectedly ended before session drain")
+        terminated = sql("postgres", "SELECT count(*) FROM (SELECT pg_terminate_backend(pid,5000) AS ok "
+                         "FROM pg_stat_activity WHERE datname='fence_migration' AND "
+                         "application_name='synthetic_legacy_writer') t WHERE ok").stdout.strip()
+        if terminated != "1":
+            raise RuntimeError("legacy writer did not drain")
+        writer.communicate(timeout=10)
+        if writer.returncode == 0:
+            raise RuntimeError("drained legacy writer unexpectedly committed")
+
+        def check_migration_access():
+            old = sql("fence_migration", "SELECT 1", user="fence_legacy", check=False)
+            if old.returncode == 0 or 'role "fence_legacy" is not permitted to log in' not in old.stderr:
+                raise RuntimeError("legacy login was not rejected for the expected reason")
+            if sql("fence_migration", "SELECT count(*),sum(id) FROM fence_probe",
+                   user="fence_importer").stdout.strip() != "1|7":
+                raise RuntimeError("importer cannot read the preserved committed data")
+
+        check_migration_access()
+        run(["pg_ctl", "-D", str(data), "-m", "immediate", "-w", "stop"])
+        started = False
+        run(start)
+        started = True
+        check_migration_access()
+
+        # NOLOGIN does not prevent a different login from assuming this role.
+        sql("postgres", "CREATE ROLE fence_alias LOGIN NOINHERIT; "
+            "GRANT fence_legacy TO fence_alias WITH INHERIT FALSE, SET TRUE; "
+            "GRANT CONNECT ON DATABASE fence_migration TO fence_alias")
+        assumed = sql("fence_migration", "SET ROLE fence_legacy; "
+                      "SELECT has_table_privilege(current_user,'public.fence_probe','INSERT')",
+                      user="fence_alias")
+        if assumed.stdout.strip().splitlines()[-1] != "t":
+            raise RuntimeError("legacy role membership bypass was not reproduced")
+        sql("postgres", "REVOKE fence_legacy FROM fence_alias")
+        denied = sql("fence_migration", "SET ROLE fence_legacy", user="fence_alias", check=False)
+        if denied.returncode == 0 or "42501" not in denied.stderr:
+            raise RuntimeError("revoked legacy role was still assumable")
+        check_migration_access()
         passed = True
     finally:
         if writer is not None and writer.poll() is None:
@@ -145,8 +210,8 @@ def main():
         else:
             print("Synthetic failure fixture retained:", root)
 
-    print("PASS: terminated and crashed writers rolled back; connection fences survived crash restarts; "
-          "manual reopenings verified")
+    print("PASS: terminated and crashed writers rolled back; connection and legacy-login fences "
+          "survived crash restarts; importer access and role-membership risk verified")
 
 
 if __name__ == "__main__":
