@@ -181,15 +181,38 @@ def main():
         sql("postgres", "CREATE ROLE fence_alias LOGIN NOINHERIT; "
             "GRANT fence_legacy TO fence_alias WITH INHERIT FALSE, SET TRUE; "
             "GRANT CONNECT ON DATABASE fence_migration TO fence_alias")
-        assumed = sql("fence_migration", "SET ROLE fence_legacy; "
-                      "SELECT has_table_privilege(current_user,'public.fence_probe','INSERT')",
-                      user="fence_alias")
-        if assumed.stdout.strip().splitlines()[-1] != "t":
-            raise RuntimeError("legacy role membership bypass was not reproduced")
+        writer = subprocess.Popen(
+            ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-h", str(socket), "-p", "55476",
+             "-U", "fence_alias", "-d", "fence_migration", "-c",
+             "BEGIN; SET ROLE fence_legacy; INSERT INTO fence_probe VALUES(9); "
+             "SELECT pg_sleep(5); INSERT INTO fence_probe VALUES(10); COMMIT"],
+            env={**env, "PGAPPNAME": "synthetic_alias_writer"}, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            active = sql("postgres", "SELECT count(*) FROM pg_stat_activity WHERE "
+                         "datname='fence_migration' AND application_name='synthetic_alias_writer' "
+                         "AND state='active' AND wait_event='PgSleep'").stdout.strip()
+            if active == "1":
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("alias writer did not complete its first insert")
         sql("postgres", "REVOKE fence_legacy FROM fence_alias")
+        if sql("postgres", "SELECT count(*) FROM pg_stat_activity WHERE "
+               "datname='fence_migration' AND application_name='synthetic_alias_writer' "
+               "AND state='active' AND wait_event='PgSleep'").stdout.strip() != "1":
+            raise RuntimeError("alias writer left the barrier before membership was revoked")
+        output, _ = writer.communicate(timeout=10)
+        if writer.returncode != 0 or output.count("INSERT 0 1") != 2:
+            raise RuntimeError("existing assumed-role session did not complete both writes")
+        if sql("fence_migration", "SELECT count(*),sum(id) FROM fence_probe",
+               user="fence_importer").stdout.strip() != "3|26":
+            raise RuntimeError("assumed-role writes did not commit")
         denied = sql("fence_migration", "SET ROLE fence_legacy", user="fence_alias", check=False)
         if denied.returncode == 0 or "42501" not in denied.stderr:
             raise RuntimeError("revoked legacy role was still assumable")
+        sql("fence_migration", "DELETE FROM fence_probe WHERE id IN (9,10)")
         check_migration_access()
         passed = True
     finally:
