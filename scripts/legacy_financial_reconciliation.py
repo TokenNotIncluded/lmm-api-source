@@ -111,23 +111,6 @@ def validate_target_key_inventory(F, inventory):
 
 
 # @mark migration.financial-rights role=implementation
-def reject_known_key_secrets(F, result, tokens):
-    """Refuse metadata-carried bearer leaks as well as direct secret fields."""
-    secrets = [row["key"] for row in tokens]
-    def visit(value):
-        if type(value) is str:
-            F.require(not any(secret in value for secret in secrets), "reconciliation_key_secret_in_output")
-        elif type(value) is dict:
-            for key, child in value.items():
-                visit(key)
-                visit(child)
-        elif type(value) is list:
-            for child in value:
-                visit(child)
-    visit(result)
-
-
-# @mark migration.financial-rights role=implementation
 def key_quota_reconciliation(F, *, tables, identities, plan, target_key_inventory=None):
     """Bind Key counters independently; never turn a spending cap into money.
 
@@ -180,6 +163,18 @@ def key_quota_reconciliation(F, *, tables, identities, plan, target_key_inventor
             facts = source_key_comparison_facts(row, identities)
             record["mismatched_fields"] = [field for field, value in facts.items()
                 if F.digest(target[field]) != F.digest(value)]
+            # Equal malformed storage facts are not a valid policy match.
+            restrictions = facts["restrictions"]
+            boolean_fields = ("model_limits_enabled", "cross_group_retry", "oauth_managed",
+                              "account_balance_read", "one_time_reveal")
+            string_fields = ("model_limits", "allow_ips", "group", "auto_groups", "creation_source")
+            if "restrictions" not in record["mismatched_fields"] and (
+                any(restrictions[field] is not None and type(restrictions[field]) is not bool
+                    for field in boolean_fields)
+                or any(restrictions[field] is not None and type(restrictions[field]) is not str
+                       for field in string_fields)
+            ):
+                record["mismatched_fields"].append("restrictions")
             record["comparison"] = "field_mismatch" if record["mismatched_fields"] else "matched"
     for source_id, target in sorted(target_rows.items()):
         records.append({"source_key_id": source_id, "target_key_id": target["target_key_id"],
@@ -449,5 +444,5 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
             "missing_or_unindexed_reference_count": reference_counts["row_missing-or-unindexed"],
             "source_queries": 0, "target_queries": 0, "target_writes": 0,
             "reserved_zero_proven": False, "financial_rows_migrated": 0}}
-    reject_known_key_secrets(F, result, tables.get("tokens", []))
+    F.reject_known_key_secrets(result, tables.get("tokens", []))
     return result

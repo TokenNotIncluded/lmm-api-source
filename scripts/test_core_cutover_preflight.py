@@ -6,6 +6,8 @@ import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -125,6 +127,41 @@ class Checks(unittest.TestCase):
         self.assertTrue(result["safe_to_cutover"])
         self.assertEqual(result["unsafe_enablement"], [])
         self.assertEqual(result["public_edge"], {"mode": "candidate", "candidate_selected": True})
+
+    def test_cli_blocks_absent_extension_host_credential(self):
+        record = self.base()
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "evidence.json"
+            for credential, expected_exit, expected_status in (
+                ("reviewed", 0, "READY"),
+                ("absent", 1, "BLOCKED"),
+            ):
+                with self.subTest(credential=credential):
+                    record["extensions"]["host_credential"] = credential
+                    evidence.write_text(json.dumps(record), encoding="utf-8")
+                    process = subprocess.run(
+                        [sys.executable, "-B", str(Path(P.__file__)), "--evidence", str(evidence),
+                         "--expected-source-commit", record["source_commit"]],
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(process.returncode, expected_exit, process.stderr)
+                    result = json.loads(process.stdout)
+                    self.assertEqual(result["status"], expected_status)
+                    self.assertEqual(result["safe_to_cutover"], credential == "reviewed")
+                    gates = {gate["name"]: gate for gate in result["gates"]}
+                    self.assertEqual(gates["model_forwarding"]["status"], "READY")
+                    for name in ("payments", "commerce", "assistant", "assistant_tools", "tool_market"):
+                        self.assertEqual(gates[name]["status"], expected_status)
+                        self.assertEqual(
+                            "extensions.host_credential" in gates[name]["missing"],
+                            credential == "absent",
+                        )
+                    self.assertEqual(
+                        result["unsafe_enablement"],
+                        [] if credential == "reviewed" else sorted(
+                            ("payments", "commerce", "assistant", "assistant_tools", "tool_market")
+                        ),
+                    )
 
     def test_archdmit_like_disabled_record_is_blocked(self):
         record = self.base()

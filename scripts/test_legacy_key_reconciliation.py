@@ -327,6 +327,22 @@ class TargetKeyReconciliationTest(unittest.TestCase):
             inventory["records"][0]["restrictions"][field] = "corrupted"
             self.assertFalse(self.reconcile(inventory)["key_reconciliation_passed"], field)
 
+    def test_matching_invalid_restriction_types_are_not_a_valid_match(self):
+        for field, value in (("model_limits", 7), ("allow_ips", []), ("group", False),
+                             ("auto_groups", {}), ("creation_source", 1),
+                             ("cross_group_retry", "false"), ("oauth_managed", 0),
+                             ("account_balance_read", 1), ("one_time_reveal", "true")):
+            with self.subTest(field=field):
+                args = fixture([token(**{field: value})])
+                inventory = target_fixture()
+                inventory["records"][0]["restrictions"][field] = value
+                result = R.build(F, **args, target_key_inventory=inventory)
+                self.assertFalse(result["key_reconciliation_passed"])
+                row = result["key_quota_reconciliation"]["records"][0]
+                self.assertEqual(row["comparison"], "field_mismatch")
+                self.assertEqual(row["mismatched_fields"], ["restrictions"])
+                self.assertFalse(row["credential_activation_allowed"])
+
     def test_literal_decimal_tag_cannot_impersonate_numeric_target_restriction(self):
         args = fixture([token(model_limits={"$decimal": "1.0"})])
         inventory = target_fixture()
@@ -595,6 +611,19 @@ class SourceRightsCLITest(unittest.TestCase):
                 self.assert_secret_rejection_without_derived_files(self.invoke())
                 self.assertTrue(all(p.read_bytes() == raw for p, raw in before.items()))
                 del self.tables["tokens"][0][field]
+
+    def test_ordinary_planner_refuses_bearer_metadata_before_writing_plan(self):
+        self.tables["tokens"][0]["model_limits"] = "prefix:SYNTHETIC-SECRET"
+        self.reseal_source_rows()
+        before = {p: p.read_bytes() for p in self.inputs.iterdir() if p.is_file()}
+        code, output, stdout, stderr = self.invoke(preview=False)
+        self.assertEqual(code, 1)
+        self.assertIn("reconciliation_key_secret_in_output", stderr)
+        self.assertNotIn("SYNTHETIC-SECRET", stdout + stderr)
+        for name in ("financial-plan.private.json", "manifest.private.json",
+                     "financial-full-source-manifest.private.json", "report.private.json"):
+            self.assertFalse((output / name).exists(), name)
+        self.assertTrue(all(p.read_bytes() == raw for p, raw in before.items()))
 
     def test_invalid_target_cannot_publish_a_source_plan_with_bearer_metadata(self):
         self.tables["tokens"][0]["model_limits"] = "SYNTHETIC-SECRET"

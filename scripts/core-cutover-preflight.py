@@ -416,6 +416,8 @@ def evaluate(record, expected_source_commit=None):
             missing.append("extensions.modules.toolmarket")
         if name != "model_forwarding" and contract["extension"] != "reviewed":
             missing.append(name + ".extension_contract")
+        if name != "model_forwarding" and record["extensions"]["host_credential"] != "reviewed":
+            missing.append("extensions.host_credential")
         gates.append({"name": name, "status": "READY" if not missing else "BLOCKED", "missing": sorted(set(missing))})
 
     migration_missing = []

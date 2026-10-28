@@ -368,6 +368,24 @@ def build_opening_counter_payloads(plan: dict, opening: dict) -> dict:
 
 
 # @mark migration.financial-rights role=implementation
+def reject_known_key_secrets(result, tokens):
+    """Keep known bearers out of derived plans, including copied metadata."""
+    secrets = [row["key"] for row in tokens]
+
+    def visit(value):
+        if type(value) is str:
+            require(not any(secret in value for secret in secrets), "reconciliation_key_secret_in_output")
+        elif type(value) is dict:
+            for key, child in value.items():
+                visit(key)
+                visit(child)
+        elif type(value) is list:
+            for child in value:
+                visit(child)
+
+    visit(result)
+
+
 def map_key_limits(tokens: list[dict], identities: dict[int, int]) -> list[dict]:
     result, seen, bearer_hashes = [], set(), set()
     for token in tokens:
@@ -791,6 +809,7 @@ def plan_financial(tables: dict[str, list[dict]], identities: dict[int, int], *,
                               "active_financial_rows_imported": 0, "original_credentials_activated": 0,
                               "source_archive_sha256": source_sha256, "mapping_sha256": data["mapping_sha256"],
                               "blocker_counts": data["blocker_counts"], "unclassified_financial_table_count": len(unknown)}
+    reject_known_key_secrets(data, tables["tokens"])
     return data
 
 
@@ -1131,7 +1150,7 @@ def main() -> int:
             import types
             financial = types.SimpleNamespace(**globals())
             tokens = tables.get("tokens", [])
-            helper.reject_known_key_secrets(financial, {"plan": plan, "proof": proof, "manifest": manifest}, tokens)
+            reject_known_key_secrets({"plan": plan, "proof": proof, "manifest": manifest}, tokens)
             artifacts = {"source-export-proof.private.json": canonical(proof) + "\n",
                          "financial-plan.private.json": plan_text}
             inventory, inventory_bytes = None, None
@@ -1142,14 +1161,14 @@ def main() -> int:
                 helper.validate_target_key_inventory(financial, inventory)
                 # Reject bearer strings hidden in untrusted target metadata
                 # before retaining the original bytes in the private output.
-                helper.reject_known_key_secrets(financial, inventory, tokens)
+                reject_known_key_secrets(inventory, tokens)
             wallet_inventory, wallet_inventory_bytes = None, None
             if args.target_wallet_inventory is not None:
                 wallet_path = IDENTITY.private_backup_path(args.target_wallet_inventory)
                 wallet_inventory_bytes = wallet_path.read_bytes()
                 wallet_inventory = parse_json(wallet_inventory_bytes.decode("utf-8"))
                 helper.validate_target_wallet_inventory(financial, wallet_inventory)
-                helper.reject_known_key_secrets(financial, wallet_inventory, tokens)
+                reject_known_key_secrets(wallet_inventory, tokens)
             rights = helper.build(financial, tables=tables, identities=identities, plan=plan, proof=proof,
                 identity_map_file_sha256=manifest["identity_map_file_sha256"],
                 identity_manifest_file_sha256=manifest["identity_manifest_file_sha256"], tool_hashes=tool_hashes,
@@ -1162,12 +1181,12 @@ def main() -> int:
                     unit_path = IDENTITY.private_backup_path(args.escrow_unit_evidence)
                     unit_bytes = unit_path.read_bytes()
                     unit_evidence = parse_json(unit_bytes.decode("utf-8"))
-                    helper.reject_known_key_secrets(financial, unit_evidence, tokens)
+                    reject_known_key_secrets(unit_evidence, tokens)
                 if args.escrow_post_parent_claim_evidence is not None:
                     post_path = IDENTITY.private_backup_path(args.escrow_post_parent_claim_evidence)
                     post_parent_bytes = post_path.read_bytes()
                     post_parent_evidence = parse_json(post_parent_bytes.decode("utf-8"))
-                    helper.reject_known_key_secrets(financial, post_parent_evidence, tokens)
+                    reject_known_key_secrets(post_parent_evidence, tokens)
                 candidate = legacy_escrow_mapping.build(financial, tables=tables,
                     identity_records=identity_records, plan=plan, migration_id=args.migration_id,
                     observed_at=manifest["source_observation"]["observed_at"],
@@ -1217,7 +1236,7 @@ def main() -> int:
             artifacts["report.private.json"] = canonical(rights["public_summary"]) + "\n"
             # Inspect the actual serialized output too, after final manifest
             # construction and before the first derived artifact is written.
-            helper.reject_known_key_secrets(financial, artifacts, tokens)
+            reject_known_key_secrets(artifacts, tokens)
             verify_tool_source_hashes(tool_hashes)
             for name, content in artifacts.items():
                 path = IDENTITY.write_private(output, name, content)

@@ -9,8 +9,12 @@ rejected before a gate result is produced.
 
 A blocked result exits with status `1`; malformed or stale evidence exits with
 status `2`. The observation timestamp must be timezone-aware and no more than
-15 minutes old. Only `READY` with `safe_to_cutover=true` is a pass. A healthy
-Core process by itself cannot produce this result.
+15 minutes old. `READY` with `safe_to_cutover=true` means only that the trusted
+input assertions are consistent with this preflight's rules; it is not a
+production cutover approval. The preflight does not read or independently
+verify the evidence files behind the assertions or hashes. Actual runtime,
+backup and restore, financial, and provider validation remain required, along
+with independent acceptance. A healthy Core process alone is insufficient.
 
 The preflight also requires a `release` provenance block. It binds the exact
 40-character source commit to the Core and Extensions artifact digests, SBOM,
@@ -74,6 +78,9 @@ The source-level checks that enforce these boundaries are in
 `services/core/src/config.rs` and
 `services/extensions/internal/composition/{runtime.go,assistant.go,toolmarket.go}`.
 No production credential value belongs in a preflight record or repository file.
+An `extensions.host_credential` value of `absent` blocks the payments,
+commerce, assistant, assistant tools and tool market gates. `reviewed` is an
+input assertion, not proof that the credential exists or works.
 
 ## Sanitized record and command
 
@@ -251,11 +258,12 @@ is blocked.
 
 The migration block also requires four strict evidence SHA-256 bindings: the
 financial review, pending-liability preview, provider contract, and provider
-reconciliation evidence. It rejects any provider I/O or non-zero target,
-ledger, spendable, or receipt write counter. A hand-written
-`reconciliation="passed"` therefore cannot pass the cutover boundary without
-the bound evidence and a zero-write boundary. The current 82-row preview has
-no provider reconciliation evidence and remains blocked.
+reconciliation evidence. It rejects any reported provider I/O or non-zero
+target, ledger, spendable, or receipt write counter. A hand-written
+`reconciliation="passed"` with suitably shaped hashes and zero-write
+assertions can pass this consistency check without the evidence files being
+examined. The current 82-row preview has no provider reconciliation evidence
+and remains blocked.
 
 Local synthetic checks (no host access) are:
 

@@ -336,6 +336,23 @@ class FullPlannerTests(unittest.TestCase):
     def planned(self, source=None):
         return MODULE.plan_financial(source or tables(), {71: 2}, source_sha256="a" * 64)
 
+    def test_plan_rejects_bearers_embedded_in_key_metadata(self):
+        for field in ("model_limits", "allow_ips", "group", "creation_source", "deleted_at"):
+            source = tables()
+            source["tokens"][0][field] = "prefix:" + source["tokens"][0]["key"]
+            before = copy.deepcopy(source)
+            with self.subTest(field=field), self.assertRaisesRegex(
+                MODULE.MappingError, "^reconciliation_key_secret_in_output$"
+            ):
+                self.planned(source)
+            self.assertEqual(source, before)
+
+    def test_plan_checks_metadata_against_other_keys_bearers(self):
+        first, second = token(), token(9)
+        first["model_limits"] = "prefix:" + second["key"]
+        with self.assertRaisesRegex(MODULE.MappingError, "^reconciliation_key_secret_in_output$"):
+            self.planned(tables(tokens=[first, second]))
+
     def test_all_22_families_are_reported_without_active_import_claim(self):
         value = self.planned()
         self.assertEqual(len(value["families"]), 22)
