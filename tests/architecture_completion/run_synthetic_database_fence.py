@@ -32,13 +32,13 @@ def main():
                     "-h", str(socket), "-p", "55476", "-U", user,
                     "-d", database, "-c", statement], check=check)
 
-    def assert_fenced_connection():
-        result = sql("fence_synthetic", "SELECT 1", check=False)
+    def assert_fenced_connection(database):
+        result = sql(database, "SELECT 1", check=False)
         if (result.returncode == 0 or
-                'database "fence_synthetic" is not currently accepting connections' not in result.stderr):
+                f'database "{database}" is not currently accepting connections' not in result.stderr):
             raise RuntimeError("database did not reject the connection for the expected reason")
         if sql("postgres", "SELECT datallowconn FROM pg_database WHERE "
-               "datname='fence_synthetic'").stdout.strip() != "f":
+               f"datname='{database}'").stdout.strip() != "f":
             raise RuntimeError("database connection fence was not set")
 
     try:
@@ -79,7 +79,7 @@ def main():
         writer.communicate(timeout=10)
         if writer.returncode == 0:
             raise RuntimeError("fenced writer unexpectedly committed")
-        assert_fenced_connection()
+        assert_fenced_connection("fence_synthetic")
 
         run(["pg_ctl", "-D", str(data), "-m", "immediate", "-w", "stop"])
         started = False
@@ -88,10 +88,44 @@ def main():
         if sql("postgres", "SELECT datallowconn FROM pg_database WHERE "
                "datname='fence_synthetic'").stdout.strip() != "f":
             raise RuntimeError("fence did not survive crash restart")
-        assert_fenced_connection()
+        assert_fenced_connection("fence_synthetic")
         sql("postgres", "ALTER DATABASE fence_synthetic ALLOW_CONNECTIONS true")
         if sql("fence_synthetic", "SELECT count(*),sum(id) FROM fence_probe").stdout.strip() != "1|7":
             raise RuntimeError("terminated writer changed committed data")
+
+        # Separately crash while the uncommitted writer is still running.
+        sql("postgres", "CREATE DATABASE fence_crash")
+        sql("fence_crash", "CREATE TABLE fence_probe(id integer); INSERT INTO fence_probe VALUES(7); "
+            "GRANT INSERT ON fence_probe TO fence_writer")
+        writer = subprocess.Popen(
+            ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-h", str(socket), "-p", "55476",
+             "-U", "fence_writer", "-d", "fence_crash", "-c",
+             "BEGIN; INSERT INTO fence_probe VALUES(1); SELECT pg_sleep(120); COMMIT"],
+            env={**env, "PGAPPNAME": "synthetic_crash_writer"}, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            active = sql("postgres", "SELECT count(*) FROM pg_stat_activity WHERE "
+                         "datname='fence_crash' AND application_name='synthetic_crash_writer' "
+                         "AND state='active' AND wait_event='PgSleep'").stdout.strip()
+            if active == "1":
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("crash writer did not complete its insert before sleeping")
+        sql("postgres", "ALTER DATABASE fence_crash ALLOW_CONNECTIONS false")
+        assert_fenced_connection("fence_crash")
+        run(["pg_ctl", "-D", str(data), "-m", "immediate", "-w", "stop"])
+        started = False
+        writer.communicate(timeout=10)
+        if writer.returncode == 0:
+            raise RuntimeError("crashed writer unexpectedly committed")
+        run(start)
+        started = True
+        assert_fenced_connection("fence_crash")
+        sql("postgres", "ALTER DATABASE fence_crash ALLOW_CONNECTIONS true")
+        if sql("fence_crash", "SELECT count(*),sum(id) FROM fence_probe").stdout.strip() != "1|7":
+            raise RuntimeError("crashed writer changed committed data")
         passed = True
     finally:
         if writer is not None and writer.poll() is None:
@@ -111,8 +145,8 @@ def main():
         else:
             print("Synthetic failure fixture retained:", root)
 
-    print("PASS: synthetic writer rolled back; connection fence survived crash restart; "
-          "manual reopening verified")
+    print("PASS: terminated and crashed writers rolled back; connection fences survived crash restarts; "
+          "manual reopenings verified")
 
 
 if __name__ == "__main__":
