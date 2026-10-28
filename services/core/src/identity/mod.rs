@@ -20,6 +20,7 @@ mod company;
 mod compat;
 pub(crate) use compat::quota as assistant_key_quota;
 mod credentials;
+pub mod email;
 pub use company::CompanyBillingProfileInput;
 pub use compat::authorize_model_request_in_transaction;
 pub use compat::{DashboardKeyInput, DashboardKeyQuery, ProfileUpdate};
