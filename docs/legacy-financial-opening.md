@@ -258,11 +258,16 @@ writer 在同一 psql 连接中临时 `SET ROLE NONE`，以实际 LOGIN 读取�
 | 对账结果 | 含义与后续 |
 | --- | --- |
 | `opening-confirmed-committed` | 整批 receipt、完整账户/账本读回和所有序列 seal 均匹配；对账不再写入资金 |
-| `opening-confirmed-business-rollback` | 原业务前态和无关序列匹配，触达账本序列的合法前移单独记录；`new_reviewed_sequence_envelope_required=true` |
+| `opening-outcome-unknown` / `opening_history_continuity_unproven` | receipt 缺失，即使原业务前态、无关序列和触达序列约束均匹配，也无法证明历史连续；`automatic_retry=false`、`retry_permitted=false`，不得重做 |
 | 仍为 UNKNOWN / 拒绝判定 | 原 backend 未结束、metadata 缺失、材料/读回冲突或实例身份不符；保留证据并继续人工核对 |
 
-确认业务回滚后，旧 sequence envelope 也不能直接重用；若要另一次执行，必须保留原经济 payload 和 ID，重新测量并审核执行前态。
-所有路径均无自动重试。重启导致 boot 身份变化时，需资源 owner 审核恢复证据链，不能把重启当成回滚证明。
+无回执分支的原始 SQL result 同样返回 `outcome-unknown`，不再输出 `confirmed-business-rollback`，
+也不返回暗示只需重审序列即可重做的 `new_reviewed_sequence_envelope_required`。
+恢复旧备份可能保留库身份，却丢失已经提交的 receipt；库内前态、PID 已结束、advisory fence 和序列状态
+均不能替代库外持久历史连续性见证。因此无回执时，当前工具不能确认业务回滚，既不能证明从未写入，
+也不能授权重做。触达序列的观测仍保留在对账文件中，不能用它消除 UNKNOWN。
+所有路径均无自动重试。需要由资源 owner 核对库外持久历史及恢复证据链；重新测量和审核 sequence envelope
+本身不足以授权另一次执行。重启导致 boot 身份变化时继续拒绝判定，不能把重启当成回滚证明。
 
 
 ## 历史悬赏资金托管

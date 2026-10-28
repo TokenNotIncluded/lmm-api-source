@@ -236,7 +236,9 @@ class CounterApprovalTests(unittest.TestCase):
         sql = self.sql(reconcile_attempt={"prestate": self.snapshot}, original_backend=backend)
         self.assertTrue(sql.startswith("SELECT pg_advisory_lock(741803121);\nBEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY;"))
         self.assertIn("opening original backend has not ended", sql)
-        self.assertIn("confirmed-business-rollback", sql)
+        self.assertIn("'status','outcome-unknown'", sql)
+        self.assertIn("'retry_permitted',false", sql)
+        self.assertNotIn("confirmed-business-rollback", sql)
 
     def test_counter_import_does_not_allow_additional_sequences(self):
         approved = self.approval()

@@ -554,13 +554,13 @@ def build_import_sql(F, *, approval, target, contract, plan, identities, identit
   END LOOP;
 """
     backend_guard = ""
-    rollback_branch = ""
+    absent_receipt_branch = ""
     if reconcile_attempt is not None:
         R(isinstance(original_backend,dict), 'opening_original_backend_identity_incomplete')
         pid=F.integer(original_backend.get('pid'),'opening_backend_pid_invalid',minimum=1,maximum=2**31-1)
         backend_guard=f"IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid={pid}) THEN RAISE EXCEPTION 'opening original backend has not ended'; END IF;"
         prior=reconcile_attempt['prestate']
-        rollback_branch=f"""
+        absent_receipt_branch=f"""
  IF NOT replay THEN
   IF before_state-'sequence-state' IS DISTINCT FROM {J({k:v for k,v in prior.items() if k!='sequence-state'})}
   OR (before_state->'sequence-state')-ARRAY[{touched_keys}] IS DISTINCT FROM {J({k:v for k,v in prior['sequence-state'].items() if k not in TOUCHED})}
@@ -570,10 +570,13 @@ def build_import_sql(F, *, approval, target, contract, plan, identities, identit
    OR table_row.value->'owner' IS DISTINCT FROM {J(prior['sequence-state'])}->table_row.key->'owner'
    OR (table_row.value->>'last_value')::numeric < ({J(prior['sequence-state'])}->table_row.key->>'last_value')::numeric
    OR (({J(prior['sequence-state'])}->table_row.key->>'is_called')::boolean AND NOT (table_row.value->>'is_called')::boolean)
-   THEN RAISE EXCEPTION 'opening rollback sequence effects are unexpected'; END IF;
+   THEN RAISE EXCEPTION 'opening absent receipt sequence effects are unexpected'; END IF;
   END LOOP;
 {other_clients_guard_sql(final=True)}
-  PERFORM set_config('lmm.opening_result',jsonb_build_object('status','confirmed-business-rollback','poststate',before_state)::text,true);
+  -- Matching prestate cannot distinguish rollback from lost committed history.
+  PERFORM set_config('lmm.opening_result',jsonb_build_object('status','outcome-unknown',
+   'error_code','opening_history_continuity_unproven','automatic_retry',false,
+   'retry_permitted',false,'poststate',before_state)::text,true);
   RETURN;
  END IF;
 """
@@ -629,7 +632,7 @@ BEGIN
  OR EXISTS(SELECT 1 FROM core_identity.accounts WHERE kind<>'personal') THEN RAISE EXCEPTION 'opening native identity map mismatch'; END IF;
  SELECT * INTO previous FROM core_migration.import_runs WHERE migration_id={scope};
  replay := FOUND;
- {rollback_branch}
+ {absent_receipt_branch}
  IF replay THEN
   IF previous.source_archive_sha256<>{L(plan['source_archive_sha256'])} OR previous.mapping_sha256<>{L(plan['mapping_sha256'])}
   OR previous.manifest->>'scope' IS DISTINCT FROM {L(approval['scope'])}
@@ -969,8 +972,9 @@ def run(F, args, *, output, source, tables, proof, plan, planner_manifest, ident
 def reconcile(F, args, *, target, approval, snapshot, output):
     """Read-only fresh snapshot after the original backend has ended and fence.
 
-    It never retries the writer. Boot changes or missing/hidden original session
-    evidence remain UNKNOWN and need an owner reviewed recovery chain.
+    It never retries the writer. Absent receipts, boot changes or missing/hidden
+    original session evidence remain UNKNOWN and need an owner reviewed recovery
+    chain; matching prestate alone cannot prove history continuity.
     """
     I, R = F.IDENTITY, F.require
     attempt_path, attempt = read_json(F, args.opening_attempt)
@@ -999,17 +1003,17 @@ def reconcile(F, args, *, target, approval, snapshot, output):
     raw=I.psql(target['connection'],sql,readonly=True,private_dir=output,label='opening-reconcile-fenced-readback')
     I.write_private(output,'opening-reconcile.stdout.private.txt',raw)
     rows=[F.parse_json(line) for line in raw.splitlines() if line.strip().startswith('{')]
-    R(len(rows)==1 and rows[0].get('status') in ('replay-noop','confirmed-business-rollback'), 'opening_reconciliation_unconfirmed')
+    R(len(rows)==1 and rows[0].get('status') in ('replay-noop','outcome-unknown'), 'opening_reconciliation_unconfirmed')
     current=rows[0]['poststate']
     I.write_private(output,'opening-reconcile-state.private.json',F.canonical(current)+'\n')
-    result={'status':'opening-confirmed-committed' if rows[0]['status']=='replay-noop' else 'opening-confirmed-business-rollback',
+    result={'status':'opening-confirmed-committed' if rows[0]['status']=='replay-noop' else 'opening-outcome-unknown',
             'automatic_retry':False,'real_financial_import_complete':False}
     if include_counters:
         result.update(scope=COUNTER_SCOPE, historical_counter_policy=COUNTER_POLICY,
                       historical_counter_rows_verified=(len(approval["counter_payloads"])
                           if rows[0]['status']=='replay-noop' else 0), historical_usage_normalized=False)
-    if rows[0]['status']=='confirmed-business-rollback':
-        result['new_reviewed_sequence_envelope_required']=True
+    if rows[0]['status']=='outcome-unknown':
+        result.update(error_code='opening_history_continuity_unproven', retry_permitted=False)
     I.write_private(output,'opening-reconciliation.private.json',F.canonical({**result,
         'original_attempt_file_sha256':I.sha256_file(attempt_path),
         'raw_fenced_readback_sha256':hashlib.sha256(raw.encode()).hexdigest(),
