@@ -382,6 +382,11 @@ SELECT jsonb_build_object('status','COMMITTED','migration_id',{FIN.literal(mater
 
 
 def build_resolve_sql(material, original_application_name):
+    """Confirm an exact receipt; database-local absence cannot prove nonexecution.
+
+    A restored physical backup can contain the same identity and before-state.
+    Without an external continuity witness, a missing receipt remains UNKNOWN.
+    """
     validate_material(material)
     require(type(original_application_name) is str and re.fullmatch(r"lmm-routing-[0-9a-f]{32}", original_application_name),
             "routing_original_attempt_invalid")
@@ -405,7 +410,7 @@ BEGIN
  ELSIF actual IS DISTINCT FROM m->'before_state' THEN RAISE EXCEPTION 'routing_absence_not_proven'; END IF;
 END $lmm_financial$;
 SELECT jsonb_build_object('status',CASE WHEN EXISTS(SELECT 1 FROM core_migration.import_runs
- WHERE migration_id={FIN.literal(material['migration_id'])}) THEN 'COMMITTED' ELSE 'NOT_APPLIED' END,
+ WHERE migration_id={FIN.literal(material['migration_id'])}) THEN 'COMMITTED' ELSE 'UNKNOWN' END,
  'migration_id',{FIN.literal(material['migration_id'])},'material_sha256',{FIN.literal(FIN.digest(material))});
 COMMIT;
 """)

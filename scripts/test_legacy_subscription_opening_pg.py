@@ -24,8 +24,8 @@ class SubscriptionPostgreSQLTests(P.PostgreSQLTests):
         candidate, review = fixture()
         snapshot = json.loads(self.sql(F.snapshot_sql(self.inventory, "synthetic-subscription")).stdout)
         candidate["before_state"] = snapshot["state"]
-        candidate["target"] = {key:snapshot[key] for key in
-            ("instance","catalog_fingerprint_sha256","ownership_sha256","component_fingerprints")}
+        candidate["target"].update({key:snapshot[key] for key in
+            ("instance","catalog_fingerprint_sha256","ownership_sha256","component_fingerprints","trust_policy_seed")})
         candidate["native_users"] = snapshot["native_users"]
         candidate["identity_import"] = snapshot["import_runs"][0]
         self.sub = S.prepare_material(candidate, review, migration_id="synthetic-subscription")
@@ -61,12 +61,16 @@ class SubscriptionPostgreSQLTests(P.PostgreSQLTests):
         self.rejected_unchanged(bad,"division by zero")
         self.assertEqual(self.query("SELECT count(*)::int FROM core_charging.subscriptions"),0)
 
-    def test_sub_unknown_ack_resolution_uses_exact_state(self):
+    def test_sub_unknown_ack_resolution_requires_an_exact_receipt(self):
         name="lmm-subscription-"+"a"*32
         resolver=S.build_resolve_sql(self.sub,name)
-        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"NOT_APPLIED")
+        before=self.full_state()
+        self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"UNKNOWN")
+        self.assertEqual(before,self.full_state())
         self.sql(self.sql_batch)
+        committed=self.full_state()
         self.assertEqual(json.loads(self.sql(resolver).stdout)["status"],"COMMITTED")
+        self.assertEqual(committed,self.full_state())
         self.sql("BEGIN ISOLATION LEVEL SERIALIZABLE; UPDATE core_charging.subscriptions SET active=false; COMMIT;")
         self.rejected_unchanged(resolver,"subscription_resolution_conflict")
 

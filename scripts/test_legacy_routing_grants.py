@@ -371,12 +371,13 @@ class SqlTests(unittest.TestCase):
         for forbidden in ("UPDATE core_identity.users", "DELETE FROM", "UPDATE routing_active_release", "setval(", "nextval("):
             self.assertNotIn(forbidden, sql)
 
-    def test_resolve_is_read_only_and_distinguishes_commit_absence_drift_and_live_attempt(self):
+    def test_resolve_is_read_only_and_requires_receipt_for_a_known_outcome(self):
         sql = G.build_resolve_sql(prepare(), "lmm-routing-" + "1" * 32)
         self.assertTrue(sql.startswith("\\set ON_ERROR_STOP on\n"))
         for required in ("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY", "routing_original_attempt_active",
-                         "routing_resolve_conflict", "routing_absence_not_proven", "'COMMITTED'", "'NOT_APPLIED'"):
+                         "routing_resolve_conflict", "routing_absence_not_proven", "'COMMITTED'", "'UNKNOWN'"):
             self.assertIn(required, sql)
+        self.assertNotIn("'NOT_APPLIED'", sql)
         self.assertNotIn("INSERT INTO", sql)
         self.assertNotIn("DELETE FROM", sql)
         with self.assertRaisesRegex(G.Error, "routing_original_attempt_invalid"):

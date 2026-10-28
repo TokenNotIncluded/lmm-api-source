@@ -123,6 +123,8 @@ class SourceContractTests(unittest.TestCase):
         resolve=S.build_resolve_sql(m,"lmm-subscription-"+"a"*32)
         self.assertIn("SERIALIZABLE READ ONLY",resolve)
         self.assertIn("subscription_absence_not_proven",resolve)
+        self.assertIn("THEN 'COMMITTED' ELSE 'UNKNOWN' END",resolve)
+        self.assertNotIn("'NOT_APPLIED'",resolve)
         self.assertNotIn("INSERT INTO",resolve)
 
 
@@ -140,9 +142,9 @@ class ImageDiscoveryTests(unittest.TestCase):
 
     def test_tag_fallback_retains_major_and_invalid_identity_rejected(self):
         def docker(*args,**kwargs):
-            return subprocess.CompletedProcess(args,0 if args[2]=="postgres:17-alpine" else 1,
+            return subprocess.CompletedProcess(args,0 if args[2]=="postgres:18-alpine" else 1,
                                                "sha256:"+"b"*64,"")
-        self.assertEqual(installed_postgres_image(docker)[2],17)
+        self.assertEqual(installed_postgres_image(docker)[2],18)
         with self.assertRaises(AssertionError):
             installed_postgres_image(lambda *a,**k:subprocess.CompletedProcess(a,0,"bad-image", ""))
 
