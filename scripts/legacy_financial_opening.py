@@ -249,6 +249,14 @@ def target_contract(F, target, contract):
     return ident
 
 
+def other_clients_guard_sql(*, final=False):
+    error = "opening final catalog or client mismatch" if final else "opening target has another client"
+    return f""" PERFORM pg_catalog.pg_stat_clear_snapshot();
+ IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid())
+ THEN RAISE EXCEPTION '{error}'; END IF;
+"""
+
+
 def build_target_guard_sql(F, *, connection, instance_identity, contract,
                            catalog_fingerprint_sha256):
     """Return the inherited offline target guard as a PL/pgSQL statement fragment.
@@ -280,8 +288,7 @@ def build_target_guard_sql(F, *, connection, instance_identity, contract,
  OR current_setting('port')::int<>{ident['port']}
  OR current_setting('lmm.migration_instance_nonce',true) IS DISTINCT FROM {L(ident['server_instance_nonce'])}
  OR inet_server_addr() IS NOT NULL THEN RAISE EXCEPTION 'opening target identity mismatch'; END IF;
- IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid())
- THEN RAISE EXCEPTION 'opening target has another client'; END IF;
+{other_clients_guard_sql()}
  FOR table_row IN SELECT n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
   WHERE {TABLE_PREDICATE} ORDER BY n.nspname,c.relname LOOP
   EXECUTE format('LOCK TABLE %I.%I IN ACCESS EXCLUSIVE MODE',table_row.nspname,table_row.relname);
@@ -565,6 +572,7 @@ def build_import_sql(F, *, approval, target, contract, plan, identities, identit
    OR (({J(prior['sequence-state'])}->table_row.key->>'is_called')::boolean AND NOT (table_row.value->>'is_called')::boolean)
    THEN RAISE EXCEPTION 'opening rollback sequence effects are unexpected'; END IF;
   END LOOP;
+{other_clients_guard_sql(final=True)}
   PERFORM set_config('lmm.opening_result',jsonb_build_object('status','confirmed-business-rollback','poststate',before_state)::text,true);
   RETURN;
  END IF;
@@ -718,8 +726,8 @@ BEGIN
   THEN RAISE EXCEPTION 'opening sequence definition or monotonic state mismatch'; END IF;
  END LOOP;
  IF ({I.catalog_hash_sql(contract)})<>{L(target['contract']['catalog_fingerprint_sha256'])}
- OR EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid())
  THEN RAISE EXCEPTION 'opening final catalog or client mismatch'; END IF;
+{other_clients_guard_sql(final=True)}
  PERFORM set_config('lmm.opening_result',jsonb_build_object('status',CASE WHEN replay THEN 'replay-noop' ELSE 'applied' END,'projection',actual_projection,'raw_readback',raw_readback,'poststate',after_state)::text,true);
 END;
 @OPENING_DELIMITER@;
