@@ -44,6 +44,15 @@ pub enum IssueOutcome {
     Suppressed,
 }
 
+/// Delivery composition keeps the transaction open, including target budgets.
+/// A pending proof has no new secret and must have a recoverable outbox payload
+/// before a caller can promise durable mail acceptance.
+pub enum TransactionalIssue {
+    Issued(IssuedEmailChallenge),
+    Pending { id: String },
+    Suppressed,
+}
+
 #[derive(Clone)]
 pub struct EmailChallenges {
     pool: PgPool,
@@ -327,24 +336,41 @@ impl EmailChallenges {
     /// Repeated live requests never rotate a code or reset its attempt budget.
     pub async fn issue(&self, request: Request<'_>, email: &EmailAddress) -> Result<IssueOutcome> {
         let mut tx = self.transaction().await?;
-        if !self.budget(&mut tx, email, "issue").await? {
-            tx.commit().await?;
-            return Ok(IssueOutcome::Suppressed);
+        let result = self.issue_in(&mut tx, request, email).await?;
+        tx.commit().await?;
+        Ok(match result {
+            TransactionalIssue::Issued(proof) => IssueOutcome::Issued(proof),
+            TransactionalIssue::Pending { .. } => IssueOutcome::Pending,
+            TransactionalIssue::Suppressed => IssueOutcome::Suppressed,
+        })
+    }
+
+    /// Does not begin or commit. The caller must enqueue encrypted delivery in
+    /// this same transaction before committing an issued secret. Never bridge
+    /// the standalone `issue()` result into a later mail transaction.
+    pub async fn issue_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        request: Request<'_>,
+        email: &EmailAddress,
+    ) -> Result<TransactionalIssue> {
+        if !self.budget(tx, email, "issue").await? {
+            return Ok(TransactionalIssue::Suppressed);
         }
-        let Some(subject) = self.subject(&mut tx, request, email).await? else {
-            tx.commit().await?;
-            return Ok(IssueOutcome::Suppressed);
+        let Some(subject) = self.subject(tx, request, email).await? else {
+            return Ok(TransactionalIssue::Suppressed);
         };
         let scope = self.scope(request, email, &subject);
         let old = sqlx::query("SELECT *,expires_at>clock_timestamp() AS live FROM core_identity.email_challenges WHERE scope_key=$1 AND state='active' FOR UPDATE")
-            .bind(&scope).fetch_optional(&mut *tx).await?;
+            .bind(&scope).fetch_optional(&mut **tx).await?;
         if let Some(old) = old {
             if old.try_get::<bool, _>("live")? && Subject::from_row(&old)? == subject {
-                tx.commit().await?;
-                return Ok(IssueOutcome::Pending);
+                return Ok(TransactionalIssue::Pending {
+                    id: old.try_get("id")?,
+                });
             }
             sqlx::query("UPDATE core_identity.email_challenges SET state=CASE WHEN expires_at<=clock_timestamp() THEN 'expired' ELSE 'superseded' END WHERE id=$1")
-                .bind(old.try_get::<String,_>("id")?).execute(&mut *tx).await?;
+                .bind(old.try_get::<String,_>("id")?).execute(&mut **tx).await?;
         }
         let id = random_hex(16)?.to_string();
         let code = random_hex(if matches!(request, Request::PasswordReset) {
@@ -368,10 +394,9 @@ impl EmailChallenges {
         .bind(&subject.sid)
         .bind(&self.keys.id)
         .bind(self.proof_mac(&id, request.purpose(), email, &subject, &code))
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
-        tx.commit().await?;
-        Ok(IssueOutcome::Issued(IssuedEmailChallenge {
+        Ok(TransactionalIssue::Issued(IssuedEmailChallenge {
             id,
             code,
             expires_at,
@@ -387,24 +412,73 @@ impl EmailChallenges {
         id: &str,
         code: &str,
     ) -> Result<EmailMutation> {
+        self.verify_selected(request, email, ChallengeLookup::Id(id), code)
+            .await
+    }
+
+    /// Verifies without requiring a challenge identifier from a client.
+    ///
+    /// The trusted purpose, canonical email and current authenticated subject
+    /// select the unique active scope. Target guessing budget is committed
+    /// before resolving the subject or looking for a challenge, including when
+    /// no matching challenge exists.
+    pub async fn verify_current(
+        &self,
+        request: Request<'_>,
+        email: &EmailAddress,
+        code: &str,
+    ) -> Result<EmailMutation> {
+        self.verify_selected(request, email, ChallengeLookup::CurrentScope, code)
+            .await
+    }
+
+    async fn verify_selected(
+        &self,
+        request: Request<'_>,
+        email: &EmailAddress,
+        lookup: ChallengeLookup<'_>,
+        code: &str,
+    ) -> Result<EmailMutation> {
         let mut tx = self.transaction().await?;
         if !self.budget(&mut tx, email, "verify").await? {
             tx.commit().await?;
             return Err(EmailError::InvalidProof);
         }
-        let row = sqlx::query(
-            "SELECT * FROM core_identity.email_challenges
-             WHERE id=$1 AND email_key=$2 AND purpose=$3 FOR UPDATE",
-        )
-        .bind(id)
-        .bind(email.as_str())
-        .bind(request.purpose())
-        .fetch_optional(&mut *tx)
-        .await?;
+        let row = match lookup {
+            ChallengeLookup::Id(id) => {
+                sqlx::query(
+                    "SELECT * FROM core_identity.email_challenges
+                     WHERE id=$1 AND email_key=$2 AND purpose=$3 FOR UPDATE",
+                )
+                .bind(id)
+                .bind(email.as_str())
+                .bind(request.purpose())
+                .fetch_optional(&mut *tx)
+                .await?
+            }
+            ChallengeLookup::CurrentScope => {
+                let subject = self
+                    .subject(&mut tx, request, email)
+                    .await?
+                    .unwrap_or_default();
+                let scope = self.scope(request, email, &subject);
+                sqlx::query(
+                    "SELECT * FROM core_identity.email_challenges
+                     WHERE scope_key=$1 AND email_key=$2 AND purpose=$3
+                         AND state='active' FOR UPDATE",
+                )
+                .bind(scope)
+                .bind(email.as_str())
+                .bind(request.purpose())
+                .fetch_optional(&mut *tx)
+                .await?
+            }
+        };
         let Some(row) = row else {
             tx.commit().await?;
             return Err(EmailError::InvalidProof);
         };
+        let id: String = row.try_get("id")?;
         if row.try_get::<String, _>("state")? != "active" {
             tx.commit().await?;
             return Err(EmailError::InvalidProof);
@@ -413,7 +487,7 @@ impl EmailChallenges {
         let live: bool = sqlx::query_scalar(
             "SELECT expires_at>clock_timestamp() FROM core_identity.email_challenges WHERE id=$1",
         )
-        .bind(id)
+        .bind(&id)
         .fetch_one(&mut *tx)
         .await?;
         let expected = Subject::from_row(&row)?;
@@ -426,7 +500,7 @@ impl EmailChallenges {
         }
         if !live {
             sqlx::query("UPDATE core_identity.email_challenges SET state=$2 WHERE id=$1")
-                .bind(id)
+                .bind(&id)
                 .bind("expired")
                 .execute(&mut *tx)
                 .await?;
@@ -443,7 +517,7 @@ impl EmailChallenges {
                 .bytes()
                 .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c));
         let actual = self.proof_mac(
-            id,
+            &id,
             request.purpose(),
             email,
             &expected,
@@ -461,11 +535,16 @@ impl EmailChallenges {
         }
         Ok(EmailMutation {
             tx,
-            id: id.to_owned(),
+            id,
             purpose: request.purpose(),
             user: expected.user,
         })
     }
+}
+
+enum ChallengeLookup<'a> {
+    Id(&'a str),
+    CurrentScope,
 }
 
 /// A proof is usable only while its transaction and authority locks are held.
@@ -481,6 +560,12 @@ impl EmailMutation {
     /// Business SQL, authority projection and notification enqueue belong here.
     pub fn connection(&mut self) -> &mut PgConnection {
         &mut self.tx
+    }
+
+    /// Challenge identity selected and verified by Core; callers must not
+    /// accept this value from request data.
+    pub fn challenge_id(&self) -> &str {
+        &self.id
     }
 
     /// Consumes once and commits with the caller's writes and a redacted audit.
