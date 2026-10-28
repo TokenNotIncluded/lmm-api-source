@@ -27,7 +27,7 @@ sys.path.insert(0,str(ROOT/'tests/architecture_completion'))
 from pg_fixture import Fixture, FixtureError, write_private
 from build_lease import private_directory
 
-PIN='f0c54764eb3d73e50790346f0dbab834587fe27b'
+PIN='01f33df1519bef9b6e55681795756e088661c175'
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
