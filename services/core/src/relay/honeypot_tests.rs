@@ -743,7 +743,7 @@ async fn truncated_stream_and_excess_provider_usage_never_emit_success_terminal(
             assert_eq!(result, Err(RelayError::Truncated));
             let body = std::str::from_utf8(&bytes).unwrap();
             assert!(body.contains("partial"));
-            assert!(body.contains("invalid_upstream_response"));
+            assert!(body.contains("upstream_truncated"));
             assert!(!body.contains("[DONE]"));
         }
         server.abort();
@@ -790,7 +790,7 @@ async fn error_control_frames_follow_actual_encoded_byte_pacing() {
         assert_eq!(result, Err(RelayError::Truncated));
         assert!(bytes.len() <= limits.output_bytes);
         let body = std::str::from_utf8(&bytes).unwrap();
-        assert!(body.contains("invalid_upstream_response"));
+        assert!(body.contains("upstream_truncated"));
         assert!(!body.contains("[DONE]"));
         assert!(!body.contains("response.completed"));
         let required = Duration::from_secs_f64(bytes.len() as f64 / f64::from(rate));

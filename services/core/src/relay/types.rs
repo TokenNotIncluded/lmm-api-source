@@ -69,7 +69,8 @@ impl RelayError {
         match self {
             Self::Invalid(_) => "invalid_request",
             Self::Unsupported(_) => "unsupported_feature",
-            Self::Protocol(_) | Self::Truncated => "invalid_upstream_response",
+            Self::Protocol(_) => "invalid_upstream_response",
+            Self::Truncated => "upstream_truncated",
             Self::Limit(_) => "relay_limit_exceeded",
             Self::Timeout(_) => "relay_timeout",
             Self::Cancelled => "request_cancelled",
