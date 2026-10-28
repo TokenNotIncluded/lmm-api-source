@@ -79,11 +79,12 @@ class CredentialImportPostgreSQLTests(unittest.TestCase):
         print("Synthetic credential chain evidence: " + str(cls.output), flush=True)
         cls.command(["initdb", "-D", str(cls.data), "--auth=trust",
                      "--username=credential_admin", "--no-locale", "--encoding=UTF8"])
-        cls.command(["pg_ctl", "-D", str(cls.data), "-l", str(cls.output / "postgres.log"),
+        cls.start_command = ["pg_ctl", "-D", str(cls.data), "-l", str(cls.output / "postgres.log"),
                      "-o", "-k " + str(cls.socket) + " -p 55474 -c listen_addresses=''"
                      " -c max_connections=10 -c shared_buffers=16MB -c autovacuum=off"
                      " -c lmm.migration_instance_nonce=" + uuid.uuid4().hex + uuid.uuid4().hex,
-                     "-w", "start"])
+                     "-w", "start"]
+        cls.command(cls.start_command)
         cls.addClassCleanup(cls.command, ["pg_ctl", "-D", str(cls.data), "-m", "fast", "-w", "stop"])
         cls.db = "postgres"
         cls.sql("CREATE ROLE credential_owner NOLOGIN; CREATE ROLE credential_installer LOGIN;"
@@ -221,6 +222,18 @@ class CredentialImportPostgreSQLTests(unittest.TestCase):
     def full_state(self):
         return self.query(F.state_sql(self.inventory, "no-such-migration"))
 
+    def execute_attempt(self, name, *, original_attempt=None):
+        output = self.output / (self.db + "-" + name)
+        output.mkdir(mode=0o700)
+        pgpass = F.write_private(output, "pgpass.private", "")
+        connection = {"socket_directory": str(self.socket), "port": 55474,
+            "database": self.db, "role": self.owner, "login_role": self.operator,
+            "set_role": self.owner, "pgpass_file": str(pgpass)}
+        outcome = C.execute(self.material, original_sql=self.apply,
+            approval=C.approval_for(self.material, self.apply, "approve-offline-credential-and-quota-import"),
+            connection=connection, output=output, original_attempt=original_attempt)
+        return outcome, output
+
     def rejected(self, sql, error):
         before = self.full_state()
         result = self.sql(sql, check=False)
@@ -267,7 +280,7 @@ class CredentialImportPostgreSQLTests(unittest.TestCase):
                          F.digest(financial["manifest"]["material"]["source_review"]))
 
     def test_commit_readonly_verify_exact_replay_and_business_rows(self):
-        self.assertEqual(self.query(self.verify)["status"], "NOT_APPLIED")
+        self.assertEqual(self.query(self.verify)["status"], "UNKNOWN")
         self.assertEqual(self.full_state(), self.before)
         committed = self.query(self.apply)
         self.assertEqual(committed["status"], "COMMITTED")
@@ -345,13 +358,13 @@ class CredentialImportPostgreSQLTests(unittest.TestCase):
         self.sql("GRANT CONNECT ON DATABASE " + self.db + " TO " + self.other, admin=True)
         self.rejected(self.apply, "financial_offline_roles_mismatch")
 
-    def test_failure_after_sequence_restart_rolls_back_and_resolves_absent(self):
+    def test_failure_after_sequence_restart_rolls_back_and_resolves_unknown(self):
         marker = "SET CONSTRAINTS ALL IMMEDIATE;"
         self.assertEqual(self.apply.count(marker), 1)
         broken = self.apply.replace(marker, "RAISE EXCEPTION 'synthetic-after-sequence';\n" + marker)
         self.rejected(broken, "synthetic-after-sequence")
         self.assertEqual(self.full_state(), self.before)
-        self.assertEqual(self.query(self.verify)["status"], "NOT_APPLIED")
+        self.assertEqual(self.query(self.verify)["status"], "UNKNOWN")
         self.assertEqual(self.query(self.apply)["status"], "COMMITTED")
 
     def test_backend_disconnect_after_sequence_restart_rolls_back(self):
@@ -392,25 +405,75 @@ class CredentialImportPostgreSQLTests(unittest.TestCase):
                     process.kill()
                     process.communicate(timeout=10)
         self.assertEqual(self.full_state(), self.before)
-        self.assertEqual(self.query(C.build_verify_sql(self.material, app))["status"], "NOT_APPLIED")
+        self.assertEqual(self.query(C.build_verify_sql(self.material, app))["status"], "UNKNOWN")
         self.assertEqual(self.full_state(), self.before)
         self.assertEqual(self.query(self.apply)["status"], "COMMITTED")
 
     def test_lost_commit_ack_resolves_readonly_without_reapplying(self):
-        app = "lmm-credential-" + uuid.uuid4().hex
-        env = dict(self.env, PGOPTIONS="-c role=" + self.owner, PGAPPNAME=app)
-        self.command(self.argv(), sql=self.apply, env=env)  # Deliberately discard client acknowledgement.
+        committed, output = self.execute_attempt("lost-ack-apply")
+        self.assertEqual(committed["status"], "COMMITTED")
+        original = C.load_json(output / "attempt.private.json")
+        (output / "result.private.json").unlink()  # Lose only the client's result.
         after = self.full_state()
-        self.assertEqual(self.query(C.build_verify_sql(self.material, app))["status"], "COMMITTED")
+        resolved, verified = self.execute_attempt("lost-ack-verify", original_attempt=original)
+        self.assertEqual(resolved, committed)
+        self.assertIn("SERIALIZABLE READ ONLY", C.private_bytes(verified / "executed.private.sql").decode())
+        self.assertEqual(C.load_json(verified / C.MAPPING_FILE), self.material["credential_receipt"])
+        self.assertEqual(C.load_json(verified / C.ARTIFACT_AUDIT_FILE)["status"], "COMMITTED")
         self.assertEqual(self.full_state(), after)
         self.assertEqual(self.query(self.apply)["status"], "COMMITTED")
         self.assertEqual(self.full_state(), after)
+
+    def test_physical_restore_missing_receipt_keeps_resolution_unknown(self):
+        backup = self.output / (self.db + "-physical-backup")
+        self.command(["pg_basebackup", "-D", str(backup), "-h", str(self.socket), "-p", "55474",
+                      "-U", "credential_admin", "--no-password", "--wal-method=stream", "--checkpoint=fast"])
+        committed, output = self.execute_attempt("physical-apply")
+        self.assertEqual(committed["status"], "COMMITTED")
+        original = C.load_json(output / "attempt.private.json")
+        self.assertNotEqual(self.full_state(), self.before)
+        self.assertEqual(self.scalar("SELECT count(*) FROM core_migration.import_runs WHERE migration_id=" +
+                                    F.literal(self.material["migration_id"])), 1)
+        self.command(["pg_ctl", "-D", str(self.data), "-m", "fast", "-w", "stop"])
+        self.data.rename(self.output / (self.db + "-committed-data"))
+        backup.rename(self.data)
+        self.command(self.start_command)
+        restored = self.query(F.instance_sql())
+        expected = self.material["target"]["instance"]
+        self.assertNotEqual(restored["postmaster_started_at"], expected["postmaster_started_at"])
+        self.assertEqual({k: v for k, v in restored.items() if k != "postmaster_started_at"},
+                         {k: v for k, v in expected.items() if k != "postmaster_started_at"})
+        self.assertEqual(self.full_state(), self.before)
+        self.assertEqual(self.scalar("SELECT count(*) FROM core_migration.import_runs WHERE migration_id=" +
+                                    F.literal(self.material["migration_id"])), 0)
+        resolved, verified = self.execute_attempt("physical-verify", original_attempt=original)
+        self.assertEqual(resolved["status"], "UNKNOWN")
+        self.assertIn("financial_target_instance_mismatch",
+                      C.private_bytes(verified / "database.stderr.private.txt").decode())
+        for name in (C.MAPPING_FILE, C.ALIAS_FILE, C.ARTIFACT_AUDIT_FILE):
+            self.assertFalse((verified / name).exists())
+        self.assertEqual(self.full_state(), self.before)
+
+        # A fresh session binding can clear the restart guard, but supplies no
+        # external history proof. Exercise that absence branch separately from
+        # resolving the original durable attempt above.
+        rebound = copy.deepcopy(self.material)
+        rebound["target"]["instance"] = restored
+        sql = C.build_verify_sql(rebound, original["application_name"])
+        absent = self.query(sql)
+        self.write(self.db + "-physical-restore.json", F.canonical({
+            "original_instance": expected, "restored_instance": restored,
+            "before_state": self.before, "restored_state": self.full_state(),
+            "committed_result": committed, "original_attempt_resolution": resolved,
+            "rebound_absence_resolution": absent}) + "\n")
+        self.assertEqual(absent["status"], "UNKNOWN")
+        self.assertEqual(self.full_state(), self.before)
 
     def test_verifier_transaction_is_readonly(self):
         self.assertEqual(self.verify.count("COMMIT;"), 1)
         probe = self.verify.replace("COMMIT;", "SELECT current_setting('transaction_read_only'); COMMIT;")
         lines = self.sql(probe).stdout.splitlines()
-        self.assertEqual(json.loads(lines[0])["status"], "NOT_APPLIED")
+        self.assertEqual(json.loads(lines[0])["status"], "UNKNOWN")
         self.assertEqual(lines[1:], ["on"])
         self.assertEqual(self.full_state(), self.before)
 

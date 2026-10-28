@@ -617,6 +617,7 @@ SELECT jsonb_build_object('status','COMMITTED','migration_id',{literal(material[
 
 
 def build_verify_sql(material: dict, application_name: str) -> str:
+    """Confirm matching receipts; absence cannot prove history survived a restore."""
     validate_material(material)
     require(type(application_name) is str and re.fullmatch(r"lmm-credential-[0-9a-f]{32}", application_name),
             "credential_original_attempt_invalid")
@@ -640,7 +641,7 @@ BEGIN
  ELSIF actual IS DISTINCT FROM m->'before_state' THEN RAISE EXCEPTION 'credential_absence_not_proven'; END IF;
 END $lmm_credential$;
 SELECT jsonb_build_object('status',CASE WHEN EXISTS(SELECT 1 FROM core_migration.import_runs
- WHERE migration_id={literal(material['migration_id'])}) THEN 'COMMITTED' ELSE 'NOT_APPLIED' END,
+ WHERE migration_id={literal(material['migration_id'])}) THEN 'COMMITTED' ELSE 'UNKNOWN' END,
  'migration_id',{literal(material['migration_id'])},'material_sha256',{literal(digest(material))});
 COMMIT;
 """)
@@ -795,7 +796,7 @@ def execute(material: dict, *, original_sql: str, approval: dict, connection: di
             require(source_hashes() == material["tool_source_hashes"], "credential_tool_source_changed")
             result = json.loads(stdout)
             if type(result) is dict and set(result) == set(outcome) and result.get("status") in (
-                    ("COMMITTED", "NOT_APPLIED") if original_attempt else ("COMMITTED",)) and all(
+                    ("COMMITTED", "UNKNOWN") if original_attempt else ("COMMITTED",)) and all(
                     result.get(k) == outcome[k] for k in ("migration_id", "material_sha256")):
                 outcome = result
         if outcome["status"] == "COMMITTED":

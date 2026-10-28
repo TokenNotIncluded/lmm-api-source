@@ -361,6 +361,8 @@ class ProducerTests(unittest.TestCase):
         self.assertIn("credential_absence_not_proven", sql)
         self.assertIn("previous.manifest->'post_state' IS DISTINCT FROM actual", sql)
         self.assertIn("credential_exact_readback_failed", sql)
+        self.assertIn("ELSE 'UNKNOWN'", sql)
+        self.assertNotIn("'NOT_APPLIED'", sql)
         self.assertNotIn("INSERT INTO", sql)
         with self.assertRaises(IMPORT.Error):
             IMPORT.build_verify_sql(material, "sql-looking-unknown-attempt")
@@ -443,24 +445,30 @@ class ProducerTests(unittest.TestCase):
             with self.assertRaisesRegex(IMPORT.Error, "credential_source_file_changed"):
                 IMPORT.build_alias_manifest(material, receipt_bytes)
 
-    def test_not_applied_verify_does_not_emit_either_core_input(self):
+    def test_unknown_or_unsupported_absence_ack_cannot_authorize_reapply_or_publish(self):
         material = material_fixture()
         sql = IMPORT.build_apply_sql(material)
-        outcome = {"status": "NOT_APPLIED", "migration_id": material["migration_id"], "material_sha256": IMPORT.digest(material)}
+        outcome = {"status": "UNKNOWN", "migration_id": material["migration_id"], "material_sha256": IMPORT.digest(material)}
         original = {"operation": "apply", "application_name": "lmm-credential-" + "a" * 32,
             "migration_id": material["migration_id"], "material_sha256": IMPORT.digest(material), "sql_sha256": IMPORT.FIN.sha(sql.encode())}
         connection = {"database": "synthetic_credential_import", "role": "synthetic_owner", "login_role": "synthetic_installer",
                       "set_role": "synthetic_owner", "port": 5432}
-        writes = []
-        with patch.object(IMPORT, "verify_source_files"), patch.object(IMPORT.IDENTITY, "socket_connection"), \
-             patch.object(IMPORT.FIN, "write_private", side_effect=lambda d, n, v: writes.append(n)), \
-             patch.object(IMPORT.FIN, "run_sql", return_value=(0, json.dumps(outcome))):
-            result = IMPORT.execute(material, original_sql=sql,
-                approval=IMPORT.approval_for(material, sql, "approve-offline-credential-and-quota-import"),
-                connection=connection, output=Path("/unused"), original_attempt=original)
-        self.assertEqual(result, outcome)
-        self.assertNotIn(IMPORT.MAPPING_FILE, writes)
-        self.assertNotIn(IMPORT.ALIAS_FILE, writes)
+        for status in ("UNKNOWN", "NOT_APPLIED"):
+            writes = []
+            with self.subTest(status=status), patch.object(IMPORT, "verify_source_files"), \
+                 patch.object(IMPORT.IDENTITY, "socket_connection"), \
+                 patch.object(IMPORT.FIN, "write_private", side_effect=lambda d, n, v: writes.append(n)), \
+                 patch.object(IMPORT.FIN, "run_sql", return_value=(0, json.dumps({**outcome, "status": status}))) as run:
+                result = IMPORT.execute(material, original_sql=sql,
+                    approval=IMPORT.approval_for(material, sql, "approve-offline-credential-and-quota-import"),
+                    connection=connection, output=Path("/unused"), original_attempt=original)
+            self.assertEqual(result, outcome)
+            run.assert_called_once()
+            self.assertIn("SERIALIZABLE READ ONLY", run.call_args.args[1])
+            self.assertNotIn("INSERT INTO", run.call_args.args[1])
+            self.assertNotIn(IMPORT.MAPPING_FILE, writes)
+            self.assertNotIn(IMPORT.ALIAS_FILE, writes)
+            self.assertNotIn(IMPORT.ARTIFACT_AUDIT_FILE, writes)
 
     def test_alias_publication_requires_commit_of_the_same_material(self):
         material = material_fixture()
