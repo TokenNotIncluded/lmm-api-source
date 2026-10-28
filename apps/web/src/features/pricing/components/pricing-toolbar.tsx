@@ -268,12 +268,15 @@ export function PricingToolbar(props: PricingToolbarProps) {
                   {sortLabels[props.sortBy as SortOption] || t('Sort')}
                 </span>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align='end' className='w-44'>
+              <DropdownMenuContent
+                align='end'
+                className='w-64 max-w-[calc(100vw-2rem)]'
+              >
                 {Object.entries(sortLabels).map(([value, label]) => (
                   <DropdownMenuItem
                     key={value}
                     onClick={() => props.onSortChange(value)}
-                    className='min-h-11 gap-2 sm:min-h-8'
+                    className='min-h-11 gap-2 whitespace-normal sm:min-h-8'
                   >
                     <Check
                       className={cn(

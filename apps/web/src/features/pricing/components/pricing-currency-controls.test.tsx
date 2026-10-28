@@ -128,14 +128,15 @@ function WalletObserver() {
 function PricingHarness() {
   const wallet = useWalletCurrency()
   const [tokenUnit, setTokenUnit] = useState<TokenUnit>('M')
+  const [sortBy, setSortBy] = useState('name')
   const ignore = () => {}
   return (
     <>
       <PricingToolbar
         filteredCount={1}
         totalCount={1}
-        sortBy='name'
-        onSortChange={ignore}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
         tokenUnit={tokenUnit}
         onTokenUnitChange={setTokenUnit}
         displayCurrency={wallet.currency}
@@ -177,6 +178,7 @@ function PricingHarness() {
         )}
       </output>
       <output aria-label='Token unit'>{tokenUnit}</output>
+      <output aria-label='Price sort'>{sortBy}</output>
       <WalletObserver />
     </>
   )
@@ -269,6 +271,34 @@ after(async () => {
   for (const [key, descriptor] of globals) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor)
     else Reflect.deleteProperty(globalThis, key)
+  }
+})
+
+test('pricing sort menu selects input, output and per-request prices in both directions', async () => {
+  const container = await render(<PricingHarness />)
+  let currentLabel = 'Name'
+  for (const [value, label] of [
+    ['input-price-low', 'Input price: Low to High'],
+    ['input-price-high', 'Input price: High to Low'],
+    ['output-price-low', 'Output price: Low to High'],
+    ['output-price-high', 'Output price: High to Low'],
+    ['request-price-low', 'Per-request price: Low to High'],
+    ['request-price-high', 'Per-request price: High to Low'],
+  ]) {
+    await act(async () => {
+      button(container, currentLabel).click()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+    const item = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]')
+    ).find((entry) => entry.textContent?.trim() === label)
+    assert.ok(item, `missing sort option ${label}`)
+    await act(async () => {
+      item.click()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    })
+    assert.equal(output(container, 'Price sort'), value)
+    currentLabel = label
   }
 })
 
