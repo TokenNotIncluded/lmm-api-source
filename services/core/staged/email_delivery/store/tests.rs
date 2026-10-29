@@ -1,4 +1,4 @@
-use super::super::{MailKeys, SmtpConfig, SmtpMailer, SmtpOutcome, SmtpTls};
+use super::super::{MailKeys, ResetSite, SmtpConfig, SmtpMailer, SmtpOutcome, SmtpTls};
 use super::*;
 use crate::identity::email::{EmailAddress, EmailChallenges, IssueOutcome, Request};
 use sha2::{Digest, Sha256};
@@ -186,14 +186,17 @@ async fn smtp_sink(mode: SinkReply) -> (u16, tokio::task::JoinHandle<String>) {
 }
 
 fn local_mailer(port: u16) -> SmtpMailer {
-    SmtpMailer::open(&SmtpConfig {
-        host: "127.0.0.1".into(),
-        port,
-        from: "sender@example.test".into(),
-        tls: SmtpTls::PlaintextLoopbackTest,
-        username: None,
-        password_file: None,
-    })
+    SmtpMailer::open(
+        &SmtpConfig {
+            host: "127.0.0.1".into(),
+            port,
+            from: "sender@example.test".into(),
+            tls: SmtpTls::PlaintextLoopbackTest,
+            username: None,
+            password_file: None,
+        },
+        ResetSite::https("https://mail-web.example.test").expect("synthetic Web origin"),
+    )
     .expect("loopback-only SMTP configuration")
 }
 
@@ -709,3 +712,6 @@ fn payload_validation_and_key_separation_reject_ambiguous_or_wrong_context() {
     }
     assert!(MailKeys::new("zero", vec![("zero".into(), vec![0; 32])]).is_err());
 }
+
+#[path = "reset_smtp_cases.rs"]
+mod reset_smtp;

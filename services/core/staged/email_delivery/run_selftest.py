@@ -62,11 +62,12 @@ try:
         "subtle": one("subtle", "libsubtle-cb0346f0159cd98d"),
         "aes_gcm": one("aes-gcm", "libaes_gcm-b9b978e0de7d34aa"),
         "lettre": one("lettre", "liblettre-2182c1b39c83f5c0"),
+        "reqwest": one("reqwest", "libreqwest-d83504b525fac7e8"),
     }
     inputs = [module / name for name in
               ("mod.rs", "crypto.rs", "smtp.rs", "store.rs", "schema.sql",
                "test_grants.sql", "README.md", "run_selftest.py")]
-    inputs += [module / "store/tests.rs"]
+    inputs += [module / "store/tests.rs", module / "store/reset_smtp_cases.rs", module / "reset_link.rs"]
     inputs += [core / "src/identity/email" / name for name in
                ("mod.rs", "address.rs", "store.rs", "schema.sql",
                 "test_grants.sql", "tests.rs")]

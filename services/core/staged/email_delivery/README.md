@@ -60,6 +60,13 @@ Challenge and notice bodies are fixed templates. No password is a payload
 field. Challenge ciphertext is erased on challenge invalidation/consumption or
 expiry; notice ciphertext expires within 24 hours.
 
+`SmtpMailer::open` requires a validated `ResetSite` derived from the configured
+Web origin. Reset mail contains the fixed `/user/reset#email=...&token=...`
+link using the existing proof and deadline. HTTPS is required except for the
+explicit local Web test profile; request headers never choose the link origin.
+The transport test decodes actual local SMTP DATA, verifies that proof against
+the restricted database, and checks single consumption without extending expiry.
+
 SMTP TLS is required except for the explicit test-only mode, which accepts only
 a numeric loopback IP and no authentication. Credential files must be absolute,
 non-symlink regular files with Unix permissions 0400 or 0600. The outbox AEAD
@@ -87,6 +94,6 @@ Run `run_selftest.py --help`. The runner compiles the unchanged locked leaf
 dependencies already present in the named target directory, starts a private
 socket-only PostgreSQL cluster, and runs both the existing challenge tests and
 these outbox tests against the same synthetic fixture. It does not use Cargo,
-CI, network access or real SMTP. SMTP acceptance tests bind only to
+CI, external network access or provider SMTP. SMTP acceptance tests bind only to
 `127.0.0.1`. Logs must never contain plaintext addresses, codes, links,
 passwords or credential values.

@@ -26,6 +26,7 @@ pub struct SmtpConfig {
 pub struct SmtpMailer {
     transport: AsyncSmtpTransport<Tokio1Executor>,
     from: Mailbox,
+    reset_site: super::ResetSite,
 }
 
 pub(crate) fn mailbox(raw: &str) -> Result<Mailbox> {
@@ -134,7 +135,7 @@ impl MailPayload {
 
 impl SmtpMailer {
     /// Constructs only; does not connect or send a readiness message.
-    pub fn open(config: &SmtpConfig) -> Result<Self> {
+    pub fn open(config: &SmtpConfig, reset_site: super::ResetSite) -> Result<Self> {
         if config.port == 0
             || config.host.is_empty()
             || config.host.len() > 253
@@ -183,6 +184,7 @@ impl SmtpMailer {
         Ok(Self {
             transport: builder.build(),
             from,
+            reset_site,
         })
     }
 
@@ -193,18 +195,24 @@ impl SmtpMailer {
         payload: &MailPayload,
     ) -> Result<SmtpOutcome> {
         payload.validate(kind)?;
-        let body = Zeroizing::new(if kind == "challenge" {
-            format!(
-                "Your LMM {} verification code is: {}\r\nThis code expires with your request. Ignore this message if you did not request it.\r\n",
-                payload.purpose.as_str(),
-                payload.code.as_str()
-            )
+        let body = if kind == "challenge" && *payload.purpose == "password_reset" {
+            let email = crate::identity::email::EmailAddress::parse(&payload.recipient)
+                .map_err(|_| MailError::Invalid)?;
+            self.reset_site.render(&email, &payload.code)?
         } else {
-            format!(
-                "Your LMM {} security change completed. If you did not request this change, use your established recovery channel.\r\nNo password or verification code is included in this notice.\r\n",
-                payload.purpose.as_str()
-            )
-        });
+            Zeroizing::new(if kind == "challenge" {
+                format!(
+                    "Your LMM {} verification code is: {}\r\nThis code expires with your request. Ignore this message if you did not request it.\r\n",
+                    payload.purpose.as_str(),
+                    payload.code.as_str()
+                )
+            } else {
+                format!(
+                    "Your LMM {} security change completed. If you did not request this change, use your established recovery channel.\r\nNo password or verification code is included in this notice.\r\n",
+                    payload.purpose.as_str()
+                )
+            })
+        };
         let message = Message::builder()
             .from(self.from.clone())
             .to(mailbox(&payload.recipient)?)

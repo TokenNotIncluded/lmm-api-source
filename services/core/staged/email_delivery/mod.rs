@@ -1,9 +1,11 @@
 //! Callable staged mail outbox. Deliberately absent from Core startup and routes.
 mod crypto;
+mod reset_link;
 mod smtp;
 mod store;
 
 pub use crypto::MailKeys;
+pub use reset_link::ResetSite;
 pub use smtp::{SmtpConfig, SmtpMailer, SmtpTls};
 pub use store::{Dispatch, Lease, Outbox};
 
