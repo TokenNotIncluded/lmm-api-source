@@ -84,6 +84,8 @@ class Fixture:
         env = dict(self.env)
         if user == "lmm_core_installer":
             env["PGPASSWORD"] = self.installer_password
+        if user == "lmm_core_runtime" and hasattr(self, "runtime_password"):
+            env["PGPASSWORD"] = self.runtime_password
         if owner:
             env["PGOPTIONS"] = "-c role=lmm_core_owner"
         r = self.run("sql", ["psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1",
@@ -154,11 +156,13 @@ class Fixture:
                  "REVOKE EXECUTE ON FUNCTION pg_control_system() FROM PUBLIC; GRANT EXECUTE ON FUNCTION pg_control_system() TO lmm_core_owner", "coretarget")
         owner = self.config("owner", self.url(self.target, "lmm_core_installer", "coretarget", self.installer_password, "&options=-c%20role%3Dlmm_core_owner"))
         self.run("previous-native-init", [self.args.previous_core, "--config", owner, "init-db"])
+        self.owner_password = "fixture-" + secrets.token_hex(16)
         receipt = json.loads(self.run("previous-native-first-owner", [self.args.previous_core, "--config", owner, "create-first-owner"],
-                  json.dumps({"username": "offlineowner", "display_name": "Synthetic owner", "password": "fixture-" + secrets.token_hex(16)}).encode()).stdout)
+                  json.dumps({"username": "offlineowner", "display_name": "Synthetic owner", "password": self.owner_password}).encode()).stdout)
         need(receipt.get("setup_completed") is True, "first_owner_setup")
         self.run("canonical-grants", ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-h", self.target["socket"],
-                 "-p", self.target["port"], "-U", "postgres", "-d", "coretarget", "-v", "enable_console=true", "-f",
+                 "-p", self.target["port"], "-U", "postgres", "-d", "coretarget", "-v", "enable_console=true",
+                 *(["-v", "enable_web_identity=true"] if getattr(self.args, "verify_runtime", False) else []), "-f",
                  self.args.source / "deployment/postgres/grant-core-runtime.sql"])
         self.sql(self.target, "UPDATE core_identity.user_profiles SET email='legacy@example.invalid',email_login_allowed=true,setting='{\"offline\":true}'; "
                  "INSERT INTO core_console.options(key,value) VALUES('Notice','kept before upgrade') ON CONFLICT(key) DO UPDATE SET value=excluded.value", "coretarget")
@@ -185,6 +189,26 @@ class Fixture:
         self.http_port = port_socket.getsockname()[1]
         port_socket.close()
         runtime = self.file("runtime.toml", f"version=1\n[server]\nlisten=\"127.0.0.1:{self.http_port}\"\nworker_threads=1\ndrain_timeout_seconds=3\n[database]\nurl_file={json.dumps(str(runtime_url))}\nmax_connections=2\n[console]\nenabled=true\n")
+        if getattr(self.args, "verify_runtime", False):
+            key = self.root / "refresh.key"
+            key.write_bytes(secrets.token_bytes(32))
+            key.chmod(0o600)
+            self.secrets.append(key)
+            runtime.write_text(runtime.read_text() + f'''[identity]
+registration_enabled=false
+password_register_enabled=false
+oauth_register_enabled=false
+registration_disabled_methods=[]
+email_verification_enabled=false
+email_domain_restriction_enabled=false
+email_domain_whitelist=[]
+[identity.web]
+origin="http://127.0.0.1:{self.http_port}"
+refresh_key_file={json.dumps(str(key))}
+local_http=true
+user_agreement_enabled=false
+privacy_policy_enabled=false
+''')
         self.unit = "lmm-offline-" + secrets.token_hex(6) + ".service"
         self.unit_file = Path(self.env["XDG_RUNTIME_DIR"]) / "systemd/user" / self.unit
         self.unit_file.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +269,94 @@ class Fixture:
                                    "database_name": "coretarget", "database_oid": identity["oid"], "system_identifier": identity["system"],
                                    "installer": "lmm_core_installer", "owner": "lmm_core_owner", "runtime": "lmm_core_runtime", "extensions": "lmm_extensions"}}
 
+    def runtime_checkpoint(self):
+        """Fixture-only opening, not product finalization or permission to open a site."""
+        need(self.args.mode == "none", "runtime_checkpoint_requires_confirmed_apply")
+        gate = self.target["hba"].read_bytes()
+        password = secrets.token_hex(24)
+        self.runtime_password = password
+        log = self.root / "upgraded-runtime.log"
+        proc = None
+        observations = []
+
+        def request(method, path, body=None, token=None):
+            headers = {"Origin": f"http://127.0.0.1:{self.http_port}"}
+            if body is not None:
+                headers["Content-Type"] = "application/json"
+            if token:
+                headers["Authorization"] = "Bearer " + token
+            conn = http.client.HTTPConnection("127.0.0.1", self.http_port, timeout=5)
+            try:
+                conn.request(method, path, json.dumps(body) if body is not None else None, headers)
+                response = conn.getresponse()
+                payload = response.read()
+                observations.append({"method": method, "path": path, "status": response.status})
+                return response.status, json.loads(payload)
+            finally:
+                conn.close()
+
+        try:
+            self.sql(self.target, f"SET password_encryption='scram-sha-256'; ALTER ROLE lmm_core_runtime LOGIN PASSWORD '{password}'; GRANT CONNECT ON DATABASE coretarget TO lmm_core_runtime")
+            self.file("runtime.url", self.url(self.target, "lmm_core_runtime", "coretarget", password))
+            self.target["hba"].write_bytes(b'local "coretarget" "lmm_core_runtime" scram-sha-256\n' + gate)
+            self.sql(self.target, "SELECT pg_reload_conf(); ALTER DATABASE coretarget ALLOW_CONNECTIONS true")
+            with log.open("wb") as output:
+                proc = subprocess.Popen([str(self.args.core), "--config", str(self.root / "runtime.toml"), "serve"],
+                                        stdout=output, stderr=subprocess.STDOUT, env=self.env)
+                deadline = time.monotonic() + 20
+                while True:
+                    need(proc.poll() is None, "upgraded_runtime_exited")
+                    try:
+                        status, _ = request("GET", "/health/live")
+                        if status == 200:
+                            break
+                    except OSError:
+                        pass
+                    need(time.monotonic() < deadline, "upgraded_runtime_not_live")
+                    time.sleep(.05)
+                actual = sha(Path(f"/proc/{proc.pid}/exe"))
+                need(actual == sha(self.args.core), "upgraded_runtime_artifact_mismatch")
+                need(self.sql(self.target, "SELECT session_user=current_user AND NOT(rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls) AND NOT pg_has_role(rolname,'lmm_core_owner','MEMBER') AND NOT has_table_privilege('core_meta.offline_upgrades','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') AND NOT has_table_privilege('core_meta.console_revisions','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') FROM pg_roles WHERE rolname=current_user", "coretarget", "lmm_core_runtime") == "t", "runtime_authority_not_restricted")
+                status, auth = request("POST", "/api/user/login", {"username": "offlineowner", "password": self.owner_password})
+                need(status == 200 and auth.get("success") is True, "upgraded_password_login_failed")
+                token = auth["data"]["access_token"]
+                value = "Saved by the actual upgraded runtime"
+                status, saved = request("PUT", "/api/option/", {"key": "Notice", "value": value}, token)
+                need(status == 200 and saved.get("success") is True and saved.get("saved") is True, "upgraded_runtime_save_failed")
+                status, current = request("GET", "/api/option/", token=token)
+                need(status == 200 and current.get("success") is True, "upgraded_runtime_read_failed")
+                need({row["key"]: row["value"] for row in current["data"]}.get("Notice") == value, "upgraded_runtime_value_not_persisted")
+                proc.terminate()
+                need(proc.wait(timeout=10) == 0, "upgraded_runtime_stop_failed")
+                self.sql(self.target, "REVOKE SELECT ON core_meta.schema_contract FROM lmm_core_runtime", "coretarget", "lmm_core_installer", True)
+                try:
+                    denied = self.run("missing-public-contract-denied", [self.args.core, "--config", self.root / "runtime.toml", "serve"], expected=1)
+                    need(b"MissingPrivileges" in denied.stderr, "missing_public_contract_not_rejected")
+                finally:
+                    self.sql(self.target, "GRANT SELECT ON core_meta.schema_contract TO lmm_core_runtime", "coretarget", "lmm_core_installer", True)
+                for privilege in ["SELECT", "SELECT(operation_id)"]:
+                    self.sql(self.target, f"GRANT {privilege} ON core_meta.offline_upgrades TO lmm_core_runtime", "coretarget", "lmm_core_installer", True)
+                    try:
+                        denied = self.run("private-receipt-overgrant-denied", [self.args.core, "--config", self.root / "runtime.toml", "serve"], expected=1)
+                        need(b"UnsafePrivileges" in denied.stderr, "private_receipt_overgrant_not_rejected")
+                    finally:
+                        self.sql(self.target, f"REVOKE {privilege} ON core_meta.offline_upgrades FROM lmm_core_runtime", "coretarget", "lmm_core_installer", True)
+                self.save("runtime-checkpoint.json", {"status": "PASS", "pid": proc.pid, "actual_executable_sha256": actual,
+                          "http": observations, "database_role": "lmm_core_runtime", "restricted_role": True,
+                          "private_upgrade_receipt_access": False, "missing_public_contract_rejected": True,
+                          "private_receipt_table_and_column_overgrants_rejected": True,
+                          "scope": "fixture administrative opening and actual upgraded Core HTTP; no product finalization or production permission"})
+        finally:
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+            self.target["hba"].write_bytes(gate)
+            self.sql(self.target, "SELECT pg_reload_conf(); ALTER ROLE lmm_core_runtime NOLOGIN; REVOKE CONNECT ON DATABASE coretarget FROM lmm_core_runtime; ALTER DATABASE coretarget ALLOW_CONNECTIONS false")
+
     def exercise(self):
         self.setup()
         if self.args.mode == "history-ack":
@@ -276,6 +388,9 @@ class Fixture:
         _, observed = self.cli("recover", self.config_path, recover)
         need(observed["status"] == ("committed_receipt_recovered" if self.args.mode == "target-ack" else "committed_history_observed"), "recovery_classification")
         need(observed["target_contract_matches"] is True, "recovery_contract_mismatch")
+        if getattr(self.args, "verify_runtime", False):
+            self.runtime_checkpoint()
+            self.assert_closed()
         self.cli("repeat-apply", self.config_path, self.request, 1)
         other = copy.deepcopy(self.request)
         other["operation_id"] = "different-" + secrets.token_hex(16)
@@ -324,6 +439,7 @@ def main():
     p.add_argument("--reference", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--mode", choices=["none", "target-ack", "history-ack"], default="none")
+    p.add_argument("--verify-runtime", action="store_true", help="After confirmed apply, explicitly open only the disposable fixture and exercise the actual new Core; not site finalization")
     args = p.parse_args()
     for name in ["core", "previous_core", "source", "reference"]:
         setattr(args, name, getattr(args, name).resolve(strict=True))

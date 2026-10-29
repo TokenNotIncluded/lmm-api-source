@@ -90,6 +90,14 @@ receipt reports `database_diverged_from_committed_history`, including after an
 old physical target restore. Missing evidence stays unknown. There is no
 automatic finalization, history reset, new generation or site opening.
 
+Normal runtime requires SELECT on the six public contract tables:
+`schema_contract`, `component_contract`, `runtime_contract`, `schema_upgrades`,
+`component_upgrades` and `ledger_revisions`. Administrative receipts
+`console_revisions` and `offline_upgrades` remain owner-only. Runtime startup
+rejects table/column SELECT on those private receipts, as well as mutation or
+owner authority. Adding an administrative table does not create a runtime
+requirement to read it.
+
 ## Local verification
 
 `scripts/test-upgrade-offline.py --help` describes the disposable process test.
@@ -100,3 +108,11 @@ reference. `--mode none`, `target-ack` and `history-ack` select normal completio
 or dropped actual COMMIT acknowledgements. Each invocation owns its units and
 databases; failures remain stopped for diagnosis. These tests are development
 evidence, separate from independent business acceptance and production proof.
+
+With `--mode none --verify-runtime`, the fixture explicitly restores access only
+to its disposable database, then starts the actual upgraded Core under its
+restricted runtime role. It tests existing password login and Notice HTTP
+save/read, missing public contract permission, and private receipt table/column
+overgrants. The fixture stops that process and restores the gate before testing
+physical restore. This manual test opening is not product finalization or
+authorization to open a real site.

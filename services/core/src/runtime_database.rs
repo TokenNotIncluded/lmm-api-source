@@ -155,7 +155,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
-            OR (n.nspname='core_meta' AND c.relname='console_revisions'
+            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades')
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
             OR (n.nspname='core_oauth' AND c.relname IN ('contract','codes')
               AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'INSERT,UPDATE')))
@@ -301,8 +301,8 @@ pub(crate) async fn check_connection(
           AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='core_identity' AND CASE WHEN c.relkind='S' THEN NOT has_sequence_privilege(c.oid,'USAGE') ELSE FALSE END)
           AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE ((n.nspname='core_meta' AND c.relname<>'console_revisions') OR (n.nspname='core_billing' AND c.relkind IN ('r','p')))
-              AND c.relkind IN ('r','p') AND NOT has_table_privilege(c.oid,'SELECT'))
+            WHERE n.nspname='core_billing' AND c.relkind IN ('r','p')
+              AND NOT has_table_privilege(c.oid,'SELECT'))
           AND (SELECT count(*)=6 AND coalesce(bool_and(has_table_privilege(c.oid,'SELECT')),false)
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='core_meta' AND c.relkind IN ('r','p') AND c.relname IN
