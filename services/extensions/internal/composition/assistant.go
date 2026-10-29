@@ -15,6 +15,9 @@ import (
 
 func validateAssistantSelection(cfg Config) error {
 	if cfg.AssistantTokenFile == "" {
+		if cfg.AssistantAgentRequired {
+			return errors.New("required assistant agent needs an independent credential")
+		}
 		return nil
 	}
 	for _, name := range cfg.Selected {
@@ -46,6 +49,9 @@ func loadAssistantCredential(cfg Config, identity, commerce, payment []byte) ([]
 
 func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db *sql.DB, authority access.Authority, token []byte) error {
 	if len(token) == 0 {
+		if cfg.AssistantAgentRequired {
+			return errors.New("required assistant agent credential unavailable")
+		}
 		return nil
 	}
 	client, err := coreclient.NewAssistantClient(cfg.Socket, token, r.Client)
@@ -55,6 +61,10 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 	// Require both durable admission and authoritative answer execution before
 	// exposing chat. An old admission-only Core leaves all new ports nil.
 	textReady, agentReady := client.Ready(ctx) == nil, client.AgentReady(ctx) == nil
+	if cfg.AssistantAgentRequired && (!textReady || !agentReady) {
+		_ = client.Close()
+		return errors.New("required assistant agent capability unavailable")
+	}
 	if !textReady && !agentReady {
 		_ = client.Close()
 		return nil

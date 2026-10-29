@@ -78,6 +78,7 @@ func Run() error {
 		ToolMarket: composition.StorageConfig{Component: "toolmarket", URLFile: cfg.ToolMarket.DatabaseURLFile, Database: cfg.ToolMarket.DatabaseName}, ToolMarketKeyFile: cfg.ToolMarket.EncryptionKeyFile, ToolMarketMeteringFile: cfg.ToolMarket.MeteringConfigFile, ToolMarketCallbackURL: cfg.ToolMarket.CallbackURL, ToolMarketSocket: cfg.ToolMarket.CoreSocket, ToolMarketTokenFile: cfg.ToolMarket.CoreTokenFile,
 		CommerceTokenFile:         cfg.Core.CommerceTokenFile,
 		AssistantTokenFile:        cfg.Core.AssistantTokenFile,
+		AssistantAgentRequired:    cfg.Assistant.AgentRequired,
 		AssistantServicesPolicies: assistant_services.PublishedLegalReader{Handler: policies},
 		PaymentTokenFile:          cfg.Core.PaymentTokenFile,
 		PaymentConfigFile:         cfg.Payments.ConfigFile,

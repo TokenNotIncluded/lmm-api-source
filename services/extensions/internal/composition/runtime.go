@@ -53,6 +53,7 @@ type Config struct {
 	Assistant                     StorageConfig
 	AssistantCursorKeyFile        string
 	AssistantTokenFile            string
+	AssistantAgentRequired        bool
 	AssistantServicesDependencies func(context.Context, *coreclient.AssistantClient) (assistant_services.Dependencies, error)
 	AssistantServicesPolicies     assistant_services.PolicyReader
 	AssistantPublicSnapshot       assistant_services.PublicSnapshotReader

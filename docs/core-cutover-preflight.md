@@ -74,6 +74,16 @@ The validator reports the following as separate gates. A schema catalog or
 | Assistant tools | All assistant prerequisites plus durable agent/tool schema, business-facts read authority, browser confirmation and tool-market authority. |
 | Tool market | Go `toolmarket` selection, dedicated storage, callback URL, socket/token, exactly 32-byte encryption key and independent host/witness/builtin credentials; Core Ready and credit-authority (`LegacyReady`) proofs. |
 
+When the release requires the assistant agent, set `agent_required = true` in
+the Extensions `[assistant]` section. The host then requires the selected
+assistant module, independent assistant credential, Core socket and identity
+credential, assistant database configuration, and cursor key. It refuses to
+start if Core does not advertise both personal-text and agent capabilities;
+it cannot silently fall back to a text-only assistant. The setting defaults
+to `false` for existing configurations. This startup check does not verify the
+agent's tool policies, financial behavior, or end-to-end readiness; those still
+need the separate assistant acceptance evidence above.
+
 The source-level checks that enforce these boundaries are in
 `services/core/src/config.rs` and
 `services/extensions/internal/composition/{runtime.go,assistant.go,toolmarket.go}`.

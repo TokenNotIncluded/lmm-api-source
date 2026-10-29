@@ -4,12 +4,15 @@ import "errors"
 
 func validateAssistantConfiguration(cfg GoConfig) error {
 	key := cfg.Core.AssistantTokenFile
-	if key == "" {
-		return nil
-	}
 	selected := false
 	for _, name := range cfg.Host.Modules {
 		selected = selected || name == "assistant"
+	}
+	if cfg.Assistant.AgentRequired && (!selected || key == "" || cfg.Core.Socket == "" || cfg.Core.IdentityTokenFile == "" || cfg.Assistant.DatabaseName == "" || cfg.Assistant.DatabaseURLFile == "" || cfg.Assistant.CursorKeyFile == "") {
+		return errors.New("required assistant agent needs the selected module, core credentials, database and cursor key")
+	}
+	if key == "" {
+		return nil
 	}
 	if !selected {
 		return errors.New("assistant RPC credential requires explicit assistant selection")

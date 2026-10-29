@@ -58,6 +58,7 @@ type AssistantConfig struct {
 	DatabaseName    string `toml:"database_name"`
 	DatabaseURLFile string `toml:"database_url_file"`
 	CursorKeyFile   string `toml:"cursor_key_file"`
+	AgentRequired   bool   `toml:"agent_required"`
 }
 
 type ScriptConfig struct {
@@ -130,7 +131,7 @@ func LoadConfig(path string) (GoConfig, error) {
 			continue
 		}
 		switch key.String() {
-		case "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file",
+		case "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"operations", "operations.database_name", "operations.database_url_file",
 			"scripts", "scripts.root", "scripts.manifest", "scripts.manifest.name", "scripts.manifest.sha256":
 			continue
