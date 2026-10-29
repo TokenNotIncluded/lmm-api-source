@@ -561,7 +561,7 @@ async fn scope_verification_needs_no_client_id_and_charges_missing_and_wrong_pro
         challenges
             .verify_current(Request::Register, &missing, "000000")
             .await,
-        Err(crate::email_challenges::EmailError::InvalidProof)
+        Err(crate::identity::email::EmailError::InvalidProof)
     ));
     let missing_budget: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM core_identity.email_rate_events WHERE kind='verify'",
@@ -591,7 +591,7 @@ async fn scope_verification_needs_no_client_id_and_charges_missing_and_wrong_pro
         challenges
             .verify_current(Request::Register, &email, wrong)
             .await,
-        Err(crate::email_challenges::EmailError::InvalidProof)
+        Err(crate::identity::email::EmailError::InvalidProof)
     ));
     let mutation = challenges
         .verify_current(Request::Register, &email, &code)

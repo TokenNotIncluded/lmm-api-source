@@ -8,6 +8,7 @@ async fn pending_mfa_storage_failure_preserves_retry_cookies() {
         .unwrap();
     let store = IdentityStore::from_pool(pool);
     let state = AuthState {
+        email: None,
         browser: BrowserAuth::new(store.clone(), &[41; 32]).unwrap(),
         store,
         config: LegacyAuthConfig::new("https://app.example", &[41; 32]).unwrap(),
