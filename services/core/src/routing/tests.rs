@@ -8,6 +8,9 @@ use sqlx::PgPool;
 use super::store::{PostgresRoutingStore, ReleaseDocument, StoreError};
 use super::*;
 
+#[path = "../../../../tests/channel_control/publish_tests.rs"]
+mod publish_tests;
+
 fn fixture(version: u64) -> (RoutingConfig, PriceConfig) {
     let speeds = vec![Speed::Standard, Speed::Fast, Speed::Ultrafast];
     let config = RoutingConfig {

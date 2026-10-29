@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use super::config::{MAX_DOCUMENT_BYTES, valid_id};
 use super::{
@@ -109,6 +109,18 @@ pub struct PostgresRoutingStore {
     pool: PgPool,
 }
 
+fn validate_versions(
+    price_version: u64,
+    expected: Option<ReleaseVersion>,
+) -> Result<(), StoreError> {
+    if !valid_id(price_version)
+        || expected.is_some_and(|v| !valid_id(v.routing) || !valid_id(v.pricing))
+    {
+        return Err(StoreError::InvalidDocument);
+    }
+    Ok(())
+}
+
 impl PostgresRoutingStore {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -154,16 +166,33 @@ impl PostgresRoutingStore {
         price_version: u64,
         expected: Option<ReleaseVersion>,
     ) -> Result<ReleaseDocument, StoreError> {
-        if !valid_id(price_version)
-            || expected.is_some_and(|v| !valid_id(v.routing) || !valid_id(v.pricing))
-        {
-            return Err(StoreError::InvalidDocument);
-        }
+        validate_versions(price_version, expected)?;
+        let mut transaction = self.pool.begin().await?;
+        let document =
+            Self::publish_in_transaction(&mut transaction, config, price_version, expected).await?;
+        transaction.commit().await?;
+        Ok(document)
+    }
+
+    /// Validate and publish within the caller's transaction without committing it.
+    ///
+    /// The caller must hold the current Session and policy authority locks in this
+    /// same transaction before invoking this for an authorized control-plane write.
+    /// This function does not authorize the caller or install an in-memory release.
+    /// The returned document describes the database release within the transaction;
+    /// it is tentative until the caller commits. The caller must roll back on error.
+    pub(crate) async fn publish_in_transaction(
+        transaction: &mut Transaction<'_, Postgres>,
+        config: RoutingConfig,
+        price_version: u64,
+        expected: Option<ReleaseVersion>,
+    ) -> Result<ReleaseDocument, StoreError> {
+        validate_versions(price_version, expected)?;
         let value: serde_json::Value = sqlx::query_scalar(
             "SELECT document FROM routing_price_versions WHERE version = $1 AND sealed",
         )
         .bind(price_version as i64)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **transaction)
         .await?
         .ok_or(StoreError::NotConfigured)?;
         let pricing: PriceConfig =
@@ -184,7 +213,7 @@ impl PostgresRoutingStore {
             .bind(price_version as i64)
             .bind(expected.map(|v| v.routing as i64))
             .bind(expected.map(|v| v.pricing as i64))
-            .execute(&self.pool)
+            .execute(&mut **transaction)
             .await?;
         Ok(document)
     }
