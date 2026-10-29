@@ -83,6 +83,37 @@ This does not enable script execution, repository fetching or an existing-site
 schema upgrade. A missing component or dependency fails, never returns invented
 successful empty content.
 
+## Offline wallet request-key schema upgrade
+
+`cmd/extensions upgrade-wallet-db` is a separate, explicit owner operation for
+the exact compiled `extension_wallet.transfer_links` character-count
+predecessor. It compares the live PostgreSQL catalog with compiled predecessor
+and target definitions, changes only the request-key length check, and records
+the stable operation ID in an owner-only journal in the same transaction.
+`--recover --operation-id <original-id>` only reads that committed receipt; it
+never retries an absent operation. Use a private installer URL over a local
+Unix socket. Ordinary startup and `install-db` do not upgrade an existing site.
+
+The database preflight and `ACCESS EXCLUSIVE` table lock protect only the
+upgrade transaction. They do not establish a durable site-wide write fence.
+Before any existing-site operation, the operator must stop the old site and all
+Go extension processes and workers, disable every runtime login, drain every
+existing database session, and keep every writer stopped until a separately
+authorized migration and recovery procedure is complete. The installer
+connection check detects some live sessions and unsafe role state at one
+instant; it cannot prevent an administrator or another installer from
+reopening writes after that check. Do not treat the schema command or its
+receipt as proof that this external fence exists or remains active.
+
+This command does not import wallet rows or bearer tokens. There is no safe
+production import path until an authorized, immutable legacy source snapshot
+can be bound to the old database/application, sender-to-Core identity mapping,
+and exact original key/token bytes; and both the Core token digest and Go bearer
+record have an idempotent, durable cross-database recovery protocol. Operator
+entered hashes and schema receipts provide none of that evidence. Do not
+reactivate writers or claim wallet migration acceptance based on this schema
+upgrade.
+
 ## Public policy documents
 
 `legal.config_file` in TOML (or `LMM_LEGAL_CONFIG_FILE` in explicit legacy mode) optionally selects an external, operator-reviewed policy snapshot. Only `/api/user-agreement`, `/api/privacy-policy` and `/api/refund-policy` are public read routes; protected module routes retain their existing authentication. Draft or missing configuration returns no policy content. Invalid published content fails startup. Policy requests never access the core or a database.
