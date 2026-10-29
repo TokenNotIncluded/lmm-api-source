@@ -20,6 +20,8 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
+  isPerformancePartial,
+  performanceCoverageNotice,
   getSuccessRateDotClass,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
@@ -48,13 +50,18 @@ export function ModelPerfStatus(props: {
   const { t } = useTranslation()
   const display = getModelPerfDisplay(props.perf)
   const successRate = props.perf?.success_rate ?? Number.NaN
-  const label = `${t('Success rate')} · 24h · ${t('All Groups')}: ${display.successRate}`
+  const partial = isPerformancePartial(props.perf)
+  const notice = performanceCoverageNotice(props.perf, t)
+  const label = `${notice ? `${notice} · ` : ''}${t('Success rate')} · 24h · ${t('All Groups')}: ${display.successRate}`
 
   return (
     <div
       title={label}
       aria-label={label}
-      className={cn('flex h-4 min-w-0 items-center gap-1', props.className)}
+      className={cn(
+        'flex min-h-4 min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5',
+        props.className
+      )}
     >
       <div aria-hidden='true' className='flex items-center gap-0.5'>
         {STATUS_BAR_SLOTS.map((slot, slotIndex) => {
@@ -67,7 +74,9 @@ export function ModelPerfStatus(props: {
                 slot.heightClass,
                 rate == null
                   ? getEmptyStatusBarClass(slotIndex)
-                  : getSuccessRateDotClass(rate)
+                  : partial
+                    ? 'bg-warning'
+                    : getSuccessRateDotClass(rate)
               )}
             />
           )
@@ -77,12 +86,19 @@ export function ModelPerfStatus(props: {
         className={cn(
           'font-mono text-[10px] leading-4 whitespace-nowrap',
           Number.isFinite(successRate)
-            ? getSuccessRateTextClass(successRate)
+            ? partial
+              ? 'text-warning'
+              : getSuccessRateTextClass(successRate)
             : 'text-muted-foreground'
         )}
       >
         {display.successRate}
       </span>
+      {partial && (
+        <span className='text-warning basis-full text-[10px] leading-4'>
+          {t('Partial performance coverage')}
+        </span>
+      )}
     </div>
   )
 }

@@ -136,3 +136,62 @@ describe('model performance observations', () => {
     assert.deepEqual(toSuccessRateSeries([invalid]), [])
   })
 })
+
+const nativePoint = (
+  overrides: Partial<PerformanceSeriesPoint> = {}
+): PerformanceSeriesPoint => ({
+  ts: 60,
+  avg_ttft_ms: null,
+  avg_latency_ms: null,
+  avg_tps: null,
+  success_rate: null,
+  request_count: 0,
+  success_count: 0,
+  latency_sum_us: '0',
+  ttft_count: 0,
+  ttft_sum_us: '0',
+  output_tokens: '0',
+  throughput_time_us: '0',
+  throughput_count: 0,
+  ...overrides,
+})
+
+test('native buckets weight TTFT and success by their own denominators', () => {
+  const groups = [
+    group([
+      nativePoint({
+        request_count: 1,
+        success_count: 1,
+        ttft_count: 1,
+        ttft_sum_us: '100000',
+      }),
+    ]),
+    group([
+      nativePoint({
+        request_count: 9,
+        success_count: 0,
+        ttft_count: 3,
+        ttft_sum_us: '900000',
+      }),
+    ]),
+  ]
+  assert.equal(toSuccessRateSeries(groups)[0].success_rate, 10)
+  assert.equal(toLatencySeries(groups)[0].ttft_ms, 250)
+})
+
+test('native zero denominators and legacy nulls remain absent, never zero', () => {
+  assert.deepEqual(toSuccessRateSeries([group([nativePoint()])]), [])
+  assert.deepEqual(toLatencySeries([group([nativePoint()])]), [])
+  assert.deepEqual(toSuccessRateSeries([group([{ success_rate: null }])]), [])
+  assert.deepEqual(toLatencySeries([group([{ avg_ttft_ms: null }])]), [])
+})
+
+test('mixed native and legacy buckets do not invent denominators', () => {
+  assert.deepEqual(
+    toSuccessRateSeries([
+      group([nativePoint({ request_count: 1, success_count: 1 })]),
+      group([{ success_rate: 0 }]),
+    ]),
+    []
+  )
+})

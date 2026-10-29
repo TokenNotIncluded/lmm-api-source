@@ -46,6 +46,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import {
+  isPerformancePartial,
+  performanceCoverageNotice,
+  RELAY_TIMING_DESCRIPTION,
   formatLatency,
   formatThroughput,
   formatUptimePct,
@@ -179,7 +182,11 @@ function TtftTrend(props: { values: number[]; label: string }) {
   )
 }
 
-function SuccessPips(props: { values: number[]; label: string }) {
+function SuccessPips(props: {
+  values: number[]
+  label: string
+  partial?: boolean
+}) {
   const values = props.values.filter(Number.isFinite).slice(-12)
   if (values.length === 0) return null
 
@@ -193,7 +200,10 @@ function SuccessPips(props: { values: number[]; label: string }) {
         <span
           key={`${index}-${value}`}
           title={formatUptimePct(value)}
-          className={cn('size-1.5 rounded-full', getSuccessRateDotClass(value))}
+          className={cn(
+            'size-1.5 rounded-full',
+            props.partial ? 'bg-warning' : getSuccessRateDotClass(value)
+          )}
           aria-hidden='true'
         />
       ))}
@@ -214,11 +224,14 @@ function statusSurfaceClass(level: SuccessRateLevel) {
 
 function GroupStatusCard(props: {
   group: StatusGroup
+  partial: boolean
   ttftTrendLabel: string
   successTrendLabel: string
 }) {
   const { t } = useTranslation()
-  const level = getSuccessRateLevel(props.group.successRate)
+  const level = props.partial
+    ? 'unknown'
+    : getSuccessRateLevel(props.group.successRate)
   const Icon = statusIcon(level)
 
   return (
@@ -259,19 +272,24 @@ function GroupStatusCard(props: {
               <Icon
                 className={cn(
                   'relative size-3.5 shrink-0',
-                  getSuccessRateTextClass(props.group.successRate)
+                  props.partial
+                    ? 'text-warning'
+                    : getSuccessRateTextClass(props.group.successRate)
                 )}
                 aria-hidden='true'
               />
             </span>
             <span className='text-foreground truncate font-medium'>
-              {statusLabel(t, level)}
+              {props.partial
+                ? t('Partial performance coverage')
+                : statusLabel(t, level)}
             </span>
             <span className='text-muted-foreground shrink-0 font-mono tabular-nums'>
               {formatUptimePct(props.group.successRate)}
             </span>
           </div>
           <SuccessPips
+            partial={props.partial}
             values={props.group.successTrend}
             label={props.successTrendLabel}
           />
@@ -412,6 +430,8 @@ export function StatusDetection() {
     () => sortStatusGroups(status.groups, 'ttft')[0],
     [status.groups]
   )
+  const partial = isPerformancePartial(status.coverage)
+  const coverageNotice = performanceCoverageNotice(status.coverage, t)
   const healthyCount = status.groups.filter((group) =>
     ['excellent', 'good'].includes(getSuccessRateLevel(group.successRate))
   ).length
@@ -466,6 +486,17 @@ export function StatusDetection() {
               {t('Refresh')}
             </Button>
           </div>
+
+          {coverageNotice && (
+            <p role='status' className='text-warning text-sm'>
+              {coverageNotice}
+            </p>
+          )}
+          {status.coverage?.coverage && (
+            <p className='text-muted-foreground text-xs'>
+              {t(RELAY_TIMING_DESCRIPTION)}
+            </p>
+          )}
 
           <div className='border-foreground/20 grid gap-3 border-y py-4 sm:grid-cols-4'>
             <Select
@@ -648,7 +679,7 @@ export function StatusDetection() {
                 <SummaryMetric
                   className='border-border/60 border-r'
                   label={t('Operational')}
-                  value={String(healthyCount)}
+                  value={partial ? '—' : String(healthyCount)}
                 />
                 <SummaryMetric
                   label={t('Models checked')}
@@ -731,6 +762,7 @@ export function StatusDetection() {
                     <GroupStatusCard
                       key={group.group}
                       group={group}
+                      partial={partial}
                       ttftTrendLabel={t('First-token trend')}
                       successTrendLabel={t('Success rate trend')}
                     />

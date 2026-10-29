@@ -28,6 +28,9 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import {
+  aggregatePerformanceMetric,
+  isPerformancePartial,
+  performanceCoverageNotice,
   formatLatency,
   formatThroughput,
   formatUptimePct,
@@ -40,52 +43,6 @@ import { cn } from '@/lib/utils'
 const PERFORMANCE_WINDOW_HOURS = 24
 const TOP_MODEL_LIMIT = 6
 
-type WeightedMetric = 'avg_latency_ms' | 'avg_tps' | 'success_rate'
-
-type PerformanceSummary = {
-  totalRequests: number
-  avgLatencyMs: number
-  avgTps: number
-  successRate: number
-}
-
-function simpleAverage(
-  rows: PerfModelSummary[],
-  metric: WeightedMetric,
-  isValid: (value: number) => boolean
-): number {
-  let total = 0
-  let count = 0
-
-  for (const row of rows) {
-    const value = Number(row[metric])
-    if (!isValid(value)) continue
-    total += value
-    count++
-  }
-
-  return count > 0 ? total / count : Number.NaN
-}
-
-function buildPerformanceSummary(rows: PerfModelSummary[]): PerformanceSummary {
-  return {
-    totalRequests: rows.length,
-    avgLatencyMs: Math.round(
-      simpleAverage(
-        rows,
-        'avg_latency_ms',
-        (value) => Number.isFinite(value) && value > 0
-      )
-    ),
-    avgTps: simpleAverage(
-      rows,
-      'avg_tps',
-      (value) => Number.isFinite(value) && value > 0
-    ),
-    successRate: simpleAverage(rows, 'success_rate', Number.isFinite),
-  }
-}
-
 export function PerformanceOverview() {
   const { t } = useTranslation()
   const metricsQuery = useQuery({
@@ -96,10 +53,21 @@ export function PerformanceOverview() {
   })
 
   const models = useMemo(
-    () => metricsQuery.data?.data.models ?? [],
+    () => metricsQuery.data?.data?.models ?? [],
     [metricsQuery.data]
   )
-  const summary = useMemo(() => buildPerformanceSummary(models), [models])
+  const summary = useMemo(() => {
+    const rows = metricsQuery.data?.data?.aggregate
+      ? [metricsQuery.data.data.aggregate]
+      : models
+    return {
+      avgLatencyMs: aggregatePerformanceMetric(rows, 'avg_latency_ms'),
+      avgTps: aggregatePerformanceMetric(rows, 'avg_tps'),
+      successRate: aggregatePerformanceMetric(rows, 'success_rate'),
+    }
+  }, [models, metricsQuery.data])
+  const partial = isPerformancePartial(metricsQuery.data)
+  const notice = performanceCoverageNotice(metricsQuery.data, t)
   const topModels = useMemo(() => models.slice(0, TOP_MODEL_LIMIT), [models])
   const loading = metricsQuery.isLoading
   const hasData = models.length > 0
@@ -118,7 +86,7 @@ export function PerformanceOverview() {
     <Card size='sm' className='gap-0 py-0'>
       <CardHeader className='flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b px-4 py-3 sm:px-5'>
         <div className='flex items-center gap-1.5'>
-          <IconBadge tone='success' size='xs'>
+          <IconBadge tone={partial ? 'warning' : 'success'} size='xs'>
             <HeartPulse />
           </IconBadge>
           <CardTitle className='text-xs whitespace-nowrap'>
@@ -143,8 +111,12 @@ export function PerformanceOverview() {
               icon={HeartPulse}
               label={t('Success rate')}
               value={formatUptimePct(summary.successRate)}
-              valueClassName={getSuccessRateTextClass(summary.successRate)}
-              tone='success'
+              valueClassName={
+                partial
+                  ? 'text-warning'
+                  : getSuccessRateTextClass(summary.successRate)
+              }
+              tone={partial ? 'warning' : 'success'}
             />
             <InlineMetric
               icon={Timer}
@@ -154,7 +126,9 @@ export function PerformanceOverview() {
             />
             <InlineMetric
               icon={Gauge}
-              label={t('Throughput')}
+              label={t(
+                metricsQuery.data?.coverage ? 'Relay throughput' : 'Throughput'
+              )}
               value={formatThroughput(summary.avgTps)}
               tone='info'
             />
@@ -165,10 +139,19 @@ export function PerformanceOverview() {
       </CardHeader>
 
       <CardContent className='px-4 py-3 sm:px-5'>
+        {notice && (
+          <p role='status' className='text-warning mb-2 text-xs'>
+            {notice}
+          </p>
+        )}
         {!loading && hasData && (
           <div className='flex flex-wrap items-center gap-1.5'>
             {topModels.map((model) => (
-              <ModelBadge key={model.model_name} model={model} />
+              <ModelBadge
+                key={model.model_name}
+                model={model}
+                partial={partial}
+              />
             ))}
           </div>
         )}
@@ -204,7 +187,7 @@ function InlineMetric(props: {
   )
 }
 
-function ModelBadge(props: { model: PerfModelSummary }) {
+function ModelBadge(props: { model: PerfModelSummary; partial: boolean }) {
   const model = props.model
 
   return (
@@ -215,14 +198,18 @@ function ModelBadge(props: { model: PerfModelSummary }) {
       <span
         className={cn(
           'size-1.5 rounded-full',
-          getSuccessRateDotClass(model.success_rate)
+          props.partial
+            ? 'bg-warning'
+            : getSuccessRateDotClass(model.success_rate)
         )}
         aria-hidden='true'
       />
       <span
         className={cn(
           'font-mono text-[11px] font-semibold tabular-nums',
-          getSuccessRateTextClass(model.success_rate)
+          props.partial
+            ? 'text-warning'
+            : getSuccessRateTextClass(model.success_rate)
         )}
       >
         {formatUptimePct(model.success_rate)}

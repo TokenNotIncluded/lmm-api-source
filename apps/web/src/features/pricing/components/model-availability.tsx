@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
+import { performanceCoverageNotice } from '@/features/performance-metrics/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useModelRuntime } from '../hooks/use-model-runtime'
@@ -52,6 +53,7 @@ export function ModelAvailability({
       : (metrics.data?.data?.groups ?? []),
     metrics.dataUpdatedAt
   )
+  const coverageNotice = performanceCoverageNotice(metrics.data, t)
   const status =
     model.performance_available === false
       ? t('No recent model status')
@@ -59,11 +61,13 @@ export function ModelAvailability({
         ? t('Loading status')
         : metrics.isError || metrics.data?.success === false
           ? t('Model status could not be loaded')
-          : observation.state === 'successful'
-            ? t('Recent calls succeeded')
-            : observation.state === 'failures'
-              ? t('Recent calls include failures')
-              : t('No recent model status')
+          : coverageNotice
+            ? coverageNotice
+            : observation.state === 'successful'
+              ? t('Recent calls succeeded')
+              : observation.state === 'failures'
+                ? t('Recent calls include failures')
+                : t('No recent model status')
   const groups = getAvailableGroups(model, usableGroup)
   const access = !user
     ? t('Sign in to check model access')

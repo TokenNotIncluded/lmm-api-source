@@ -42,6 +42,8 @@ type SuccessRateSparklineProps = {
   series: SuccessRateTimePoint[]
   size?: SparklineSize
   showOverall?: boolean
+  overallRate?: number | null
+  partial?: boolean
   emptyLabel?: string
   className?: string
 }
@@ -59,8 +61,12 @@ export function SuccessRateSparkline(props: SuccessRateSparklineProps) {
     )
   }
 
+  // Native callers supply the counter-based overall; only legacy callers use a mean.
   const overall =
-    props.series.reduce((s, p) => s + p.success_rate, 0) / props.series.length
+    props.overallRate !== undefined
+      ? props.overallRate
+      : props.series.reduce((s, p) => s + p.success_rate, 0) /
+        props.series.length
 
   const containerHeight = size === 'sm' ? 'h-3.5' : 'h-5'
   const barWidth = size === 'sm' ? 'w-[3px]' : 'w-1'
@@ -71,7 +77,7 @@ export function SuccessRateSparkline(props: SuccessRateSparklineProps) {
       <div
         className={cn('flex items-end', containerHeight, gap)}
         role='img'
-        aria-label={`${t('Success rate')} ${overall.toFixed(2)}%`}
+        aria-label={`${t('Success rate')} ${overall == null ? '—' : `${overall.toFixed(2)}%`}`}
       >
         {props.series.map((point) => (
           <Tooltip key={point.timestamp}>
@@ -90,7 +96,9 @@ export function SuccessRateSparkline(props: SuccessRateSparklineProps) {
               <div
                 className={cn(
                   'w-full rounded-sm',
-                  getSuccessRateDotClass(point.success_rate)
+                  props.partial
+                    ? 'bg-warning'
+                    : getSuccessRateDotClass(point.success_rate)
                 )}
                 style={{ height: `${point.success_rate}%`, minHeight: 1 }}
                 aria-hidden
@@ -107,10 +115,10 @@ export function SuccessRateSparkline(props: SuccessRateSparklineProps) {
         <span
           className={cn(
             'font-mono text-sm font-semibold tabular-nums',
-            getSuccessRateTextClass(overall)
+            props.partial ? 'text-warning' : getSuccessRateTextClass(overall)
           )}
         >
-          {overall.toFixed(1)}%
+          {overall == null ? '—' : `${overall.toFixed(1)}%`}
         </span>
       )}
     </div>

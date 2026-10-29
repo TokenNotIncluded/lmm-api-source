@@ -28,6 +28,10 @@ import {
 import { GroupBadge } from '@/components/group-badge'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import {
+  aggregatePerformanceMetric,
+  isPerformancePartial,
+  performanceCoverageNotice,
+  RELAY_TIMING_DESCRIPTION,
   formatLatency,
   formatThroughput,
   formatUptimePct,
@@ -78,25 +82,6 @@ function StatCard(props: {
   )
 }
 
-type PerformanceRow = {
-  group: string
-  avg_ttft_ms: number
-  avg_latency_ms: number
-  success_rate: number
-  avg_tps: number
-}
-
-function average(
-  rows: PerformanceRow[],
-  field: 'avg_ttft_ms' | 'avg_latency_ms'
-) {
-  const values = rows.map((row) => row[field]).filter((value) => value > 0)
-  if (values.length === 0) return 0
-  return Math.round(
-    values.reduce((sum, value) => sum + value, 0) / values.length
-  )
-}
-
 export function ModelDetailsPerformance(props: { model: PricingModel }) {
   const { t } = useTranslation()
   const metricsQuery = useQuery({
@@ -112,17 +97,9 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
         : (metricsQuery.data?.data.groups ?? []),
     [metricsQuery.data, props.model.performance_available]
   )
-  const performances = useMemo<PerformanceRow[]>(
-    () =>
-      groups.map((group) => ({
-        group: group.group,
-        avg_ttft_ms: group.avg_ttft_ms,
-        avg_latency_ms: group.avg_latency_ms,
-        success_rate: group.success_rate,
-        avg_tps: group.avg_tps,
-      })),
-    [groups]
-  )
+  const performances = groups
+  const partial = isPerformancePartial(metricsQuery.data)
+  const notice = performanceCoverageNotice(metricsQuery.data, t)
   const latencySeries = useMemo(() => toLatencySeries(groups), [groups])
   const successRateSeries = useMemo(() => toSuccessRateSeries(groups), [groups])
   const successRateByGroup = useMemo<
@@ -138,36 +115,44 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
   if (metricsQuery.isLoading || performances.length === 0) {
     return (
       <div className='text-muted-foreground rounded-lg border p-6 text-center text-sm'>
+        {notice && (
+          <p role='status' className='text-warning mb-2'>
+            {notice}
+          </p>
+        )}
         {t('Performance data is not yet available for this model.')}
       </div>
     )
   }
 
-  const tpsValues = performances
-    .map((p) => p.avg_tps)
-    .filter((value) => value > 0)
-  const avgTps =
-    tpsValues.length > 0
-      ? tpsValues.reduce((sum, value) => sum + value, 0) / tpsValues.length
-      : 0
-  const avgLatency = average(performances, 'avg_latency_ms')
-  const successRates = performances
-    .map((perf) => perf.success_rate)
-    .filter((value) => Number.isFinite(value))
-  const successRate =
-    successRates.length > 0
-      ? successRates.reduce((sum, value) => sum + value, 0) /
-        successRates.length
-      : 0
+  const avgTps = aggregatePerformanceMetric(groups, 'avg_tps')
+  const avgLatency = aggregatePerformanceMetric(groups, 'avg_latency_ms')
+  const successRate = aggregatePerformanceMetric(groups, 'success_rate')
 
   return (
     <div className='flex flex-col gap-4'>
+      {notice && (
+        <p role='status' className='text-warning text-sm'>
+          {notice}
+        </p>
+      )}
+      {metricsQuery.data?.coverage && (
+        <p className='text-muted-foreground text-xs'>
+          {t(RELAY_TIMING_DESCRIPTION)}
+        </p>
+      )}
       <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
         <StatCard
           icon={Timer}
-          label='TPS'
+          label={t(
+            metricsQuery.data?.coverage ? 'Relay throughput' : 'Throughput'
+          )}
           value={formatThroughput(avgTps)}
-          hint={t('Sustained tokens per second')}
+          hint={
+            metricsQuery.data?.coverage
+              ? undefined
+              : t('Sustained tokens per second')
+          }
         />
         <StatCard
           icon={Timer}
@@ -178,7 +163,9 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
           icon={HeartPulse}
           label={t('Success rate')}
           value={formatUptimePct(successRate)}
-          valueClassName={getSuccessRateTextClass(successRate)}
+          valueClassName={
+            partial ? 'text-warning' : getSuccessRateTextClass(successRate)
+          }
         />
       </div>
 
@@ -231,6 +218,8 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
               cell: (perf) => (
                 <SuccessRateSparkline
                   size='sm'
+                  overallRate={perf.success_rate}
+                  partial={partial}
                   series={successRateByGroup[perf.group] ?? []}
                 />
               ),

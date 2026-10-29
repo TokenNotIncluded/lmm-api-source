@@ -80,3 +80,35 @@ describe('ModelPerfBadge', () => {
     assert.doesNotMatch(html, /class="[^"]*\bhidden\b/)
   })
 })
+
+test('partial native coverage stays visible even with perfect sampled success', () => {
+  const html = renderBadge({
+    avg_latency_ms: null,
+    avg_tps: null,
+    success_rate: 100,
+    recent_success_rates: [null, 100],
+    availability: 'partial',
+    coverage: {
+      native_shared_relay: true,
+      historical_imports: false,
+      missing_samples: 1,
+      sampled_requests: 3,
+      window_start: 0,
+      window_end_exclusive: 60,
+    },
+  })
+  assert.match(html, /Partial performance coverage/)
+  assert.match(html, /3 sampled requests; 1 missing samples/)
+  assert.doesNotMatch(html, /forge-chart-success/)
+  assert.equal(html.match(/>—</g)?.length, 2)
+})
+
+test('null success is unknown rather than zero percent', () => {
+  const html = renderBadge({
+    avg_latency_ms: null,
+    avg_tps: null,
+    success_rate: null,
+  })
+  assert.equal(html.match(/>—</g)?.length, 3)
+  assert.doesNotMatch(html, />0(?:\.0)?%/)
+})

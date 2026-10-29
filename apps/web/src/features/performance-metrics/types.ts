@@ -16,24 +16,48 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type PerformanceSeriesPoint = {
-  ts: number
-  avg_ttft_ms: number
-  avg_latency_ms: number
-  success_rate: number
-  avg_tps: number
+/** Native counters are optional only for compatibility with legacy responses. */
+export type PerformanceCounters = {
+  request_count: number
+  success_count: number
+  latency_sum_us: string
+  ttft_count: number
+  ttft_sum_us: string
+  output_tokens: string
+  throughput_time_us: string
+  throughput_count: number
 }
 
-export type PerformanceGroup = {
+export type PerformanceStatistics = Partial<PerformanceCounters> & {
+  avg_ttft_ms?: number | null
+  avg_latency_ms: number | null
+  success_rate: number | null
+  avg_tps: number | null
+}
+
+export type PerformanceCoverage = {
+  native_shared_relay: boolean
+  historical_imports: boolean
+  missing_samples: number
+  sampled_requests: number
+  window_start: number
+  window_end_exclusive: number
+  bucket_seconds?: 60 | 300 | 3600
+}
+
+export type PerformanceAvailability = {
+  availability?: 'partial' | 'available' | 'unavailable'
+  coverage?: PerformanceCoverage
+}
+
+export type PerformanceSeriesPoint = PerformanceStatistics & { ts: number }
+
+export type PerformanceGroup = PerformanceStatistics & {
   group: string
-  avg_ttft_ms: number
-  avg_latency_ms: number
-  success_rate: number
-  avg_tps: number
   series: PerformanceSeriesPoint[]
 }
 
-export type PerformanceMetricsData = {
+export type PerformanceMetricsData = PerformanceAvailability & {
   success: boolean
   message?: string
   data: {
@@ -43,19 +67,16 @@ export type PerformanceMetricsData = {
   }
 }
 
-export type PerfModelSummary = {
+export type PerfModelSummary = PerformanceStatistics & {
   model_name: string
-  avg_latency_ms: number
-  success_rate: number
-  avg_tps: number
-  recent_success_rates?: number[]
-  request_count?: number
+  recent_success_rates?: (number | null)[]
 }
 
-export type PerfSummaryAllData = {
+export type PerfSummaryAllData = PerformanceAvailability & {
   success: boolean
   message?: string
   data: {
     models: PerfModelSummary[]
+    aggregate?: PerformanceStatistics
   }
 }

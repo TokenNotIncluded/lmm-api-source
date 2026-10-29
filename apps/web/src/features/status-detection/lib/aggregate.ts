@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import { aggregatePerformanceMetric } from '@/features/performance-metrics/lib/format'
+import type {
+  PerformanceGroup,
+  PerformanceSeriesPoint,
+} from '@/features/performance-metrics/types'
+
 import type {
   ModelPerformanceSnapshot,
   StatusGroup,
@@ -27,91 +33,63 @@ import type {
 
 type GroupAccumulator = {
   models: Set<string>
-  ttfts: number[]
-  latencies: number[]
-  throughputs: number[]
-  successRates: number[]
-  successTrendByTimestamp: Map<number, number[]>
-  ttftTrendByTimestamp: Map<number, number[]>
+  rows: PerformanceGroup[]
+  buckets: Map<number, PerformanceSeriesPoint[]>
 }
 
-function average(values: number[], predicate: (value: number) => boolean) {
-  const valid = values.filter(predicate)
-  if (valid.length === 0) return Number.NaN
-  return valid.reduce((sum, value) => sum + value, 0) / valid.length
-}
-
-/**
- * Converts per-model performance responses into one stable row per group.
- * The API does not expose request counts for each group, so values are
- * intentionally averaged per model rather than presented as weighted totals.
- */
+/** Native rows use counters; legacy rows retain their unweighted means. */
 export function aggregateStatusGroups(
   entries: ModelPerformanceSnapshot[]
 ): StatusGroup[] {
   const groups = new Map<string, GroupAccumulator>()
-
   for (const entry of entries) {
     for (const group of entry.groups) {
       const name = group.group.trim()
       if (!name) continue
       const accumulator = groups.get(name) ?? {
         models: new Set<string>(),
-        ttfts: [],
-        latencies: [],
-        throughputs: [],
-        successRates: [],
-        successTrendByTimestamp: new Map<number, number[]>(),
-        ttftTrendByTimestamp: new Map<number, number[]>(),
+        rows: [],
+        buckets: new Map<number, PerformanceSeriesPoint[]>(),
       }
-
       accumulator.models.add(entry.modelName)
-      if (Number.isFinite(group.avg_ttft_ms) && group.avg_ttft_ms > 0) {
-        accumulator.ttfts.push(group.avg_ttft_ms)
-      }
-      if (Number.isFinite(group.avg_latency_ms) && group.avg_latency_ms > 0) {
-        accumulator.latencies.push(group.avg_latency_ms)
-      }
-      if (Number.isFinite(group.avg_tps) && group.avg_tps > 0) {
-        accumulator.throughputs.push(group.avg_tps)
-      }
-      if (Number.isFinite(group.success_rate)) {
-        accumulator.successRates.push(group.success_rate)
-      }
-      for (const point of group.series ?? []) {
+      accumulator.rows.push(group)
+      for (const point of group.series) {
         if (!Number.isFinite(point.ts)) continue
-
-        if (Number.isFinite(point.success_rate)) {
-          const rates = accumulator.successTrendByTimestamp.get(point.ts) ?? []
-          rates.push(point.success_rate)
-          accumulator.successTrendByTimestamp.set(point.ts, rates)
-        }
-
-        if (Number.isFinite(point.avg_ttft_ms) && point.avg_ttft_ms > 0) {
-          const ttfts = accumulator.ttftTrendByTimestamp.get(point.ts) ?? []
-          ttfts.push(point.avg_ttft_ms)
-          accumulator.ttftTrendByTimestamp.set(point.ts, ttfts)
-        }
+        const bucket = accumulator.buckets.get(point.ts) ?? []
+        bucket.push(point)
+        accumulator.buckets.set(point.ts, bucket)
       }
       groups.set(name, accumulator)
     }
   }
-
   return [...groups.entries()]
-    .map(([group, accumulator]) => ({
-      group,
-      avgTtftMs: average(accumulator.ttfts, (value) => value > 0),
-      avgLatencyMs: average(accumulator.latencies, (value) => value > 0),
-      avgTps: average(accumulator.throughputs, (value) => value > 0),
-      successRate: average(accumulator.successRates, Number.isFinite),
-      successTrend: [...accumulator.successTrendByTimestamp.entries()]
-        .sort(([left], [right]) => left - right)
-        .map(([, rates]) => average(rates, Number.isFinite)),
-      ttftTrend: [...accumulator.ttftTrendByTimestamp.entries()]
-        .sort(([left], [right]) => left - right)
-        .map(([, ttfts]) => average(ttfts, (value) => value > 0)),
-      modelCount: accumulator.models.size,
-    }))
+    .map(([group, accumulator]) => {
+      const buckets = [...accumulator.buckets.entries()].sort(
+        ([a], [b]) => a - b
+      )
+      const trend = (metric: 'success_rate' | 'avg_ttft_ms') =>
+        buckets.flatMap(([, rows]) => {
+          const value = aggregatePerformanceMetric(rows, metric)
+          return value === null ? [] : [value]
+        })
+      return {
+        group,
+        avgTtftMs:
+          aggregatePerformanceMetric(accumulator.rows, 'avg_ttft_ms') ??
+          Number.NaN,
+        avgLatencyMs:
+          aggregatePerformanceMetric(accumulator.rows, 'avg_latency_ms') ??
+          Number.NaN,
+        avgTps:
+          aggregatePerformanceMetric(accumulator.rows, 'avg_tps') ?? Number.NaN,
+        successRate:
+          aggregatePerformanceMetric(accumulator.rows, 'success_rate') ??
+          Number.NaN,
+        successTrend: trend('success_rate'),
+        ttftTrend: trend('avg_ttft_ms'),
+        modelCount: accumulator.models.size,
+      }
+    })
     .sort((left, right) => left.group.localeCompare(right.group))
 }
 

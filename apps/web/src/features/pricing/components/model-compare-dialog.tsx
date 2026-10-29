@@ -176,7 +176,7 @@ export function ModelCompareDialog(props: ModelCompareDialogProps) {
   const numericRow = (
     key: string,
     label: string,
-    values: Array<number | undefined>,
+    values: Array<number | null | undefined>,
     direction: 'min' | 'max',
     format: (value: number) => string
   ): CompareRow | null => {

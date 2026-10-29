@@ -28,6 +28,7 @@ export function getRecentModelObservation(
         Number.isFinite(point.ts) &&
         point.ts > 0 &&
         point.ts * 1000 <= observedAtMs &&
+        point.success_rate !== null &&
         Number.isFinite(point.success_rate) &&
         point.success_rate >= 0 &&
         point.success_rate <= 100

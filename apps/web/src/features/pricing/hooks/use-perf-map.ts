@@ -20,7 +20,10 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
-import type { PerfModelSummary } from '@/features/performance-metrics/types'
+import type {
+  PerformanceAvailability,
+  PerfModelSummary,
+} from '@/features/performance-metrics/types'
 
 /** Same freshness as the model-details performance tab. */
 const PERF_SUMMARY_STALE_TIME_MS = 60 * 1000
@@ -36,12 +39,22 @@ const PERF_SUMMARY_QUERY_KEY = [
  * to an empty map instead of an error state.
  */
 export function buildPerfMap(
-  models: PerfModelSummary[] | undefined
-): Map<string, PerfModelSummary> {
-  const map = new Map<string, PerfModelSummary>()
+  models: PerfModelSummary[] | undefined,
+  availability?: PerformanceAvailability
+): Map<string, PerfModelSummary & PerformanceAvailability> {
+  const map = new Map<string, PerfModelSummary & PerformanceAvailability>()
   for (const model of models ?? []) {
     if (model.model_name.trim().length === 0) continue
-    map.set(model.model_name, model)
+    map.set(
+      model.model_name,
+      availability
+        ? {
+            ...model,
+            availability: availability.availability,
+            coverage: availability.coverage,
+          }
+        : model
+    )
   }
   return map
 }
@@ -63,7 +76,7 @@ export function usePerfMap(options?: { enabled?: boolean }) {
   })
 
   const perfMap = useMemo(
-    () => buildPerfMap(data?.success ? data.data.models : undefined),
+    () => buildPerfMap(data?.success ? data.data.models : undefined, data),
     [data]
   )
 

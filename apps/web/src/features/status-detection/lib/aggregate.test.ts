@@ -201,3 +201,63 @@ describe('aggregateStatusGroups', () => {
     )
   })
 })
+
+test('native group totals and trends aggregate actual counters across models', () => {
+  const rows = [
+    {
+      request_count: 1,
+      success_count: 1,
+      latency_sum_us: '1000000',
+      ttft_count: 1,
+      ttft_sum_us: '100000',
+      output_tokens: '100',
+      throughput_time_us: '1000000',
+      throughput_count: 1,
+    },
+    {
+      request_count: 9,
+      success_count: 0,
+      latency_sum_us: '9000000',
+      ttft_count: 3,
+      ttft_sum_us: '900000',
+      output_tokens: '0',
+      throughput_time_us: '0',
+      throughput_count: 0,
+    },
+  ]
+  const groups = aggregateStatusGroups(
+    rows.map((row, i) => ({
+      modelName: String(i),
+      groups: [
+        {
+          group: 'default',
+          ...row,
+          avg_ttft_ms: null,
+          avg_latency_ms: null,
+          avg_tps: null,
+          success_rate: null,
+          series: [
+            {
+              ...row,
+              ts: 60,
+              avg_ttft_ms: null,
+              avg_latency_ms: null,
+              avg_tps: null,
+              success_rate: null,
+            },
+          ],
+        },
+      ],
+    }))
+  )
+  assert.deepEqual(groups[0], {
+    group: 'default',
+    avgTtftMs: 250,
+    avgLatencyMs: 1000,
+    avgTps: 100,
+    successRate: 10,
+    successTrend: [10],
+    ttftTrend: [250],
+    modelCount: 2,
+  })
+})

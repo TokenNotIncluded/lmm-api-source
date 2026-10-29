@@ -18,12 +18,16 @@ import {
   formatLatency,
   formatThroughput,
 } from '@/features/performance-metrics/lib/format'
-import type { PerfModelSummary } from '@/features/performance-metrics/types'
-
-export type ModelPerfBadgeData = Pick<
+import type {
+  PerformanceAvailability,
   PerfModelSummary,
-  'avg_latency_ms' | 'success_rate' | 'avg_tps' | 'recent_success_rates'
->
+} from '@/features/performance-metrics/types'
+
+export type ModelPerfBadgeData = PerformanceAvailability &
+  Pick<
+    PerfModelSummary,
+    'avg_latency_ms' | 'success_rate' | 'avg_tps' | 'recent_success_rates'
+  >
 
 export type ModelPerfDisplay = {
   latency: string
@@ -37,11 +41,17 @@ export function getModelPerfDisplay(
 ): ModelPerfDisplay {
   let statusRates: number[] = []
   const recentRates =
-    perf?.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ?? []
+    perf?.recent_success_rates?.filter(
+      (rate): rate is number => rate !== null && Number.isFinite(rate)
+    ) ?? []
 
   if (recentRates.length > 0) {
     statusRates = recentRates.slice(-3)
-  } else if (perf && Number.isFinite(perf.success_rate)) {
+  } else if (
+    perf &&
+    perf.success_rate !== null &&
+    Number.isFinite(perf.success_rate)
+  ) {
     statusRates = [perf.success_rate]
   }
 
@@ -49,7 +59,7 @@ export function getModelPerfDisplay(
     latency: formatLatency(perf?.avg_latency_ms ?? Number.NaN),
     throughput: formatThroughput(perf?.avg_tps ?? Number.NaN),
     successRate:
-      perf && Number.isFinite(perf.success_rate)
+      perf && perf.success_rate !== null && Number.isFinite(perf.success_rate)
         ? `${perf.success_rate.toFixed(1)}%`
         : '—',
     statusBars: [

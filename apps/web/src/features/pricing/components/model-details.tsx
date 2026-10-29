@@ -72,6 +72,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import {
+  aggregatePerformanceMetric,
+  isPerformancePartial,
+  performanceCoverageNotice,
   formatLatency,
   formatThroughput,
   formatUptimePct,
@@ -223,50 +226,42 @@ function OverviewSummaryGrid(props: { model: PricingModel }) {
     props.model.performance_available === false
       ? []
       : (metricsQuery.data?.data.groups ?? [])
-  const successRates = groups
-    .map((group) => group.success_rate)
-    .filter((rate) => Number.isFinite(rate))
-  const successRate =
-    successRates.length > 0
-      ? successRates.reduce((sum, rate) => sum + rate, 0) / successRates.length
-      : Number.NaN
-  const tpsValues = groups
-    .map((group) => group.avg_tps)
-    .filter((value) => value > 0)
-  const avgTps =
-    tpsValues.length > 0
-      ? tpsValues.reduce((sum, value) => sum + value, 0) / tpsValues.length
-      : 0
-  const latencyValues = groups
-    .map((group) => group.avg_latency_ms)
-    .filter((value) => value > 0)
-  const avgLatency =
-    latencyValues.length > 0
-      ? Math.round(
-          latencyValues.reduce((sum, value) => sum + value, 0) /
-            latencyValues.length
-        )
-      : 0
+  const successRate = aggregatePerformanceMetric(groups, 'success_rate')
+  const avgTps = aggregatePerformanceMetric(groups, 'avg_tps')
+  const avgLatency = aggregatePerformanceMetric(groups, 'avg_latency_ms')
+  const partial = isPerformancePartial(metricsQuery.data)
+  const notice = performanceCoverageNotice(metricsQuery.data, t)
 
   return (
-    <div className='bg-muted/20 grid divide-y overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
-      <OverviewMetric
-        icon={Timer}
-        label='TPS'
-        value={formatThroughput(avgTps)}
-      />
-      <OverviewMetric
-        icon={Timer}
-        label={t('Average latency')}
-        value={formatLatency(avgLatency)}
-      />
-      <OverviewMetric
-        icon={HeartPulse}
-        label={t('Success rate')}
-        value={formatUptimePct(successRate)}
-        valueClassName={getSuccessRateTextClass(successRate)}
-      />
-    </div>
+    <>
+      {notice && (
+        <p role='status' className='text-warning text-sm'>
+          {notice}
+        </p>
+      )}
+      <div className='bg-muted/20 grid divide-y overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
+        <OverviewMetric
+          icon={Timer}
+          label={t(
+            metricsQuery.data?.coverage ? 'Relay throughput' : 'Throughput'
+          )}
+          value={formatThroughput(avgTps)}
+        />
+        <OverviewMetric
+          icon={Timer}
+          label={t('Average latency')}
+          value={formatLatency(avgLatency)}
+        />
+        <OverviewMetric
+          icon={HeartPulse}
+          label={t('Success rate')}
+          value={formatUptimePct(successRate)}
+          valueClassName={
+            partial ? 'text-warning' : getSuccessRateTextClass(successRate)
+          }
+        />
+      </div>
+    </>
   )
 }
 

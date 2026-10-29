@@ -108,6 +108,7 @@ export function useStatusDetection(options: StatusDetectionOptions = {}) {
   }, [detailsQuery, summaryQuery])
 
   return {
+    coverage: summaryQuery.data,
     groups,
     availableGroups: allGroups.map((group) => group.group),
     availableModels: allModelNames,

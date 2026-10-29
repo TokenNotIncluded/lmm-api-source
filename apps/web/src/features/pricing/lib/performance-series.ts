@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import {
+  aggregatePerformanceMetric,
+  type PerformanceMetric,
+} from '@/features/performance-metrics/lib/format'
 import type {
   PerformanceGroup,
   PerformanceSeriesPoint,
@@ -35,13 +39,12 @@ export type SuccessRateTimePoint = {
   success_rate: number
 }
 
-// The API supplies group means, not request counts. Average observed groups at
-// each timestamp; never infer incidents, downtime, or missing observations.
-function meanSeries(
+// Align observed UTC buckets, then combine their actual counters.
+function aggregateSeries(
   groups: PerformanceGroup[],
-  readValue: (point: PerformanceSeriesPoint) => number | null
+  metric: PerformanceMetric
 ) {
-  const buckets = new Map<number, { total: number; count: number }>()
+  const buckets = new Map<number, PerformanceSeriesPoint[]>()
   for (const group of groups) {
     for (const point of group.series) {
       if (
@@ -50,30 +53,25 @@ function meanSeries(
       ) {
         continue
       }
-      const value = readValue(point)
-      if (value === null) continue
-      const bucket = buckets.get(point.ts) ?? { total: 0, count: 0 }
-      bucket.total += value
-      bucket.count += 1
+      const bucket = buckets.get(point.ts) ?? []
+      bucket.push(point)
       buckets.set(point.ts, bucket)
     }
   }
   return [...buckets.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([ts, bucket]) => ({
-      timestamp: new Date(ts * 1000).toISOString(),
-      value: bucket.total / bucket.count,
-    }))
+    .flatMap(([ts, rows]) => {
+      const value = aggregatePerformanceMetric(rows, metric)
+      return value === null
+        ? []
+        : [{ timestamp: new Date(ts * 1000).toISOString(), value }]
+    })
 }
 
 export function toLatencySeries(
   groups: PerformanceGroup[]
 ): LatencyTimePoint[] {
-  return meanSeries(groups, (point) =>
-    Number.isFinite(point.avg_ttft_ms) && point.avg_ttft_ms > 0
-      ? point.avg_ttft_ms
-      : null
-  ).map(({ timestamp, value }) => ({
+  return aggregateSeries(groups, 'avg_ttft_ms').map(({ timestamp, value }) => ({
     timestamp,
     group: 'latency',
     ttft_ms: Math.round(value),
@@ -83,12 +81,10 @@ export function toLatencySeries(
 export function toSuccessRateSeries(
   groups: PerformanceGroup[]
 ): SuccessRateTimePoint[] {
-  return meanSeries(groups, (point) =>
-    Number.isFinite(point.success_rate)
-      ? Math.min(100, Math.max(0, point.success_rate))
-      : null
-  ).map(({ timestamp, value }) => ({
-    timestamp,
-    success_rate: Math.round(value * 100) / 100,
-  }))
+  return aggregateSeries(groups, 'success_rate').map(
+    ({ timestamp, value }) => ({
+      timestamp,
+      success_rate: Math.round(value * 100) / 100,
+    })
+  )
 }
