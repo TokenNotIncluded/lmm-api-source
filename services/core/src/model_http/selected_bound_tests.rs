@@ -628,6 +628,7 @@ fn usage(input: u64) -> relay::Usage {
 
 fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
     relay::Report {
+        timings: Default::default(),
         request_id: id.into(),
         route_id: Some(route.id.clone()),
         price_version: Some(route.price_version),

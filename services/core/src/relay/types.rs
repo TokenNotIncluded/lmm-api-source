@@ -1104,6 +1104,16 @@ pub struct Report {
     pub upstream_status: Option<u16>,
     pub upstream_bytes: usize,
     pub emitted_bytes: usize,
+    /// Monotonic relay observations; never authority for money or recovery.
+    pub timings: RelayTimings,
+}
+/// Elapsed relay time excludes finalization. First output is observed only for
+/// streaming decoded content, including thinking/tool deltas, not keepalives.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct RelayTimings {
+    pub elapsed_us: Option<u64>,
+    pub first_output_us: Option<u64>,
+    pub finished_at: Option<u64>,
 }
 #[derive(Clone, Debug)]
 pub struct Completion {

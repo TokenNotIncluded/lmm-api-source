@@ -1,6 +1,7 @@
 //! Immutable historical logs. Native receipt-backed usage remains in `usage`.
 //! Nothing here creates wallets, imports facts, replays requests or values raw
 //! opening counters. Source installation and HTTP mounting are explicit gates.
+pub(crate) mod performance;
 pub mod projection;
 use crate::identity::{self, CredentialKind, IdentityError};
 use projection::{MAX_BASES, MAX_BASIS, MAX_RECORDS, MoneyProjection};
@@ -250,22 +251,7 @@ impl HistoryStore {
                 authorize(&mut tx, secret, route).await?;
             }
             ReadRoute::SelfSession => {
-                let actor = identity::authenticate_readonly_in_transaction(&mut tx, secret).await?;
-                if actor.credential_kind != CredentialKind::Session
-                    || actor.owner.kind != crate::accounts::AccountKind::Personal
-                    || actor.owner.id != actor.user_id
-                {
-                    return Err(HistoryError::Forbidden);
-                }
-                let current_owner: i64 = sqlx::query_scalar(
-                    "SELECT personal_account_id FROM core_identity.users WHERE id=$1",
-                )
-                .bind(actor.user_id)
-                .fetch_one(&mut *tx)
-                .await?;
-                if actor.owner_account_id != current_owner {
-                    return Err(HistoryError::Forbidden);
-                }
+                personal_session(&mut tx, secret).await?;
             }
             ReadRoute::ReadOnlyKey => return Err(HistoryError::Forbidden),
         }
@@ -442,6 +428,26 @@ impl HistoryStore {
             source: "legacy_log_only",
         })
     }
+}
+
+/// The same personal Session gate is used for category and metric reads.
+pub(crate) async fn personal_session(c: &mut PgConnection, secret: &str) -> Result<i64> {
+    let actor = identity::authenticate_readonly_in_transaction(c, secret).await?;
+    if actor.credential_kind != CredentialKind::Session
+        || actor.owner.kind != crate::accounts::AccountKind::Personal
+        || actor.owner.id != actor.user_id
+    {
+        return Err(HistoryError::Forbidden);
+    }
+    let current_owner: i64 =
+        sqlx::query_scalar("SELECT personal_account_id FROM core_identity.users WHERE id=$1")
+            .bind(actor.user_id)
+            .fetch_one(&mut *c)
+            .await?;
+    if actor.owner_account_id != current_owner {
+        return Err(HistoryError::Forbidden);
+    }
+    Ok(actor.user_id)
 }
 
 async fn authorize(

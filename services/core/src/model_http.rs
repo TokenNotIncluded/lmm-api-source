@@ -896,9 +896,12 @@ async fn dispatch(
     // Finalization is owned by the relay worker and survives body drop. Keeping
     // this receiver also bounds and removes process-local credential material.
     tokio::spawn(async move {
-        let _ = completion.await;
+        let completion = completion.await;
         if let Ok(mut active) = bridge.active.lock() {
             active.remove(&complete_id);
+        }
+        if let Ok(completion) = completion {
+            crate::history_read::performance::record(&bridge.pool, &completion).await;
         }
     });
     with_request_id(

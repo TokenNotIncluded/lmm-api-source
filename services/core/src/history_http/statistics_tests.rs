@@ -46,20 +46,12 @@ async fn missing_statistics_preserve_admin_boundary_and_do_not_fabricate_totals(
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-    for (path, secret, code, missing) in [
-        (
-            "/api/finance/site-statistics",
-            admin.secret.as_str(),
-            "SITE_STATISTICS_SOURCE_UNAVAILABLE",
-            "historical_top_ups_with_original_currency_paid_and_refunded_amounts",
-        ),
-        (
-            "/api/perf-metrics/summary?hours=24",
-            user.secret.as_str(),
-            "PERFORMANCE_METRICS_SOURCE_UNAVAILABLE",
-            "historical_perf_metrics",
-        ),
-    ] {
+    for (path, secret, code, missing) in [(
+        "/api/finance/site-statistics",
+        admin.secret.as_str(),
+        "SITE_STATISTICS_SOURCE_UNAVAILABLE",
+        "historical_top_ups_with_original_currency_paid_and_refunded_amounts",
+    )] {
         let response = request(store.clone(), path, Some(secret)).await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
@@ -77,4 +69,26 @@ async fn missing_statistics_preserve_admin_boundary_and_do_not_fabricate_totals(
         assert!(value.get("data").is_none());
         assert!(value.get("models").is_none());
     }
+}
+
+#[sqlx::test(migrations = false)]
+async fn empty_native_performance_has_no_invented_measurements(pool: PgPool) {
+    crate::core_schema::init(&pool).await.unwrap();
+    let identity = crate::identity::IdentityStore::from_pool(pool.clone());
+    let user = identity.bootstrap_user(7, 1).await.unwrap();
+    let response = request(
+        HistoryStore::new(pool),
+        "/api/perf-metrics/summary",
+        Some(&user.secret),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(value["availability"], "partial");
+    assert_eq!(value["coverage"]["historical_imports"], false);
+    assert_eq!(value["data"]["models"], json!([]));
+    assert_eq!(value["data"]["aggregate"]["request_count"], 0);
+    assert!(value["data"]["aggregate"]["avg_latency_ms"].is_null());
+    assert!(value["data"]["aggregate"]["avg_tps"].is_null());
 }

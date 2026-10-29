@@ -37,6 +37,7 @@ pub fn router(store: HistoryStore) -> Router {
         .route("/api/finance/export", get(export_usage))
         .route("/api/finance/site-statistics", get(site_statistics))
         .route("/api/perf-metrics/summary", get(performance_summary))
+        .route("/api/perf-metrics", get(performance_detail))
         .route("/api/data/flow", get(dashboard::flow))
         .route("/api/data/flow/self", get(dashboard::self_flow))
         .route("/api/data/users", get(dashboard::users))
@@ -67,16 +68,40 @@ async fn site_statistics(State(store): State<HistoryStore>, headers: HeaderMap) 
     .await
 }
 
-async fn performance_summary(State(store): State<HistoryStore>, headers: HeaderMap) -> Response {
-    statistics_unavailable(
-        store,
-        headers,
-        ReadRoute::SelfSession,
-        "PERFORMANCE_METRICS_SOURCE_UNAVAILABLE",
-        "Performance statistics require imported historical metrics and native performance samples",
-        &["historical_perf_metrics", "native_performance_samples"],
-    )
-    .await
+async fn performance_summary(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<crate::history_read::performance::Query>, QueryRejection>,
+) -> Response {
+    performance_read(store, headers, query, false).await
+}
+
+async fn performance_detail(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<crate::history_read::performance::Query>, QueryRejection>,
+) -> Response {
+    performance_read(store, headers, query, true).await
+}
+
+async fn performance_read(
+    store: HistoryStore,
+    headers: HeaderMap,
+    query: Result<Query<crate::history_read::performance::Query>, QueryRejection>,
+    detail: bool,
+) -> Response {
+    let secret = match extract_bearer(&headers) {
+        Ok(v) => v,
+        Err(e) => return error_response(e),
+    };
+    let Query(query) = match query {
+        Ok(v) => v,
+        Err(_) => return error_response(HistoryError::Invalid),
+    };
+    match store.performance(secret, &query, detail).await {
+        Ok(value) => Json(value).into_response(),
+        Err(e) => error_response(e),
+    }
 }
 
 /// Keep missing observations explicit: wallet credits are not payment evidence,

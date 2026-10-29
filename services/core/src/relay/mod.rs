@@ -347,6 +347,7 @@ struct Worker {
     report: Report,
     terminal: Vec<Vec<u8>>,
     checkpoint_sequence: u64,
+    started: Instant,
 }
 impl Worker {
     fn new(
@@ -371,6 +372,7 @@ impl Worker {
             upstream_status: None,
             upstream_bytes: 0,
             emitted_bytes: 0,
+            timings: RelayTimings::default(),
         };
         let encoder = Encoder::new(&request, &context.request_id, &inner.limits);
         let deadline = Instant::now() + inner.limits.total_timeout;
@@ -389,6 +391,7 @@ impl Worker {
             report,
             terminal: Vec::new(),
             checkpoint_sequence: 0,
+            started: Instant::now(),
         }
     }
     fn send_head(&mut self) -> Result<(), RelayError> {
@@ -495,6 +498,15 @@ impl Worker {
         Ok(())
     }
     async fn events(&mut self, events: Vec<Event>) -> Result<(), RelayError> {
+        if self.request.stream
+            && self.report.timings.first_output_us.is_none()
+            && events
+                .iter()
+                .any(|event| matches!(event, Event::Delta { text, .. } if !text.is_empty()))
+        {
+            self.report.timings.first_output_us =
+                u64::try_from(self.started.elapsed().as_micros()).ok();
+        }
         let observation = events
             .iter()
             .any(|event| matches!(event, Event::Usage(_) | Event::Done));
@@ -831,6 +843,11 @@ impl Worker {
     }
     async fn run(mut self) {
         let mut error = self.execute().await.err();
+        self.report.timings.elapsed_us = u64::try_from(self.started.elapsed().as_micros()).ok();
+        self.report.timings.finished_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|time| time.as_secs());
         if let Err(stop_error) = self.stop_keepalive().await
             && error.is_none()
         {
