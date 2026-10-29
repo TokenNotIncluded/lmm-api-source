@@ -156,6 +156,13 @@ func mergeEvent(old, next Event) (Event, bool, error) {
 		return Event{}, false, ErrConflict
 	}
 	if !strongerProof(old.Evidence, next.Evidence) {
+		// Older handlers acknowledged a failed-to-succeeded refund without
+		// creating its settlement job. Revisit verified success on delivery;
+		// the semantic job key and Core receipt keep settlement idempotent.
+		if old.Status == "done" && next.Type == RefundSucceeded && next.Evidence.AcceptedProofID != "" {
+			old.Status, old.ErrorCode, old.NextAttempt = "pending", "", next.NextAttempt
+			return old, true, nil
+		}
 		return old, false, nil
 	}
 	old.Evidence = next.Evidence

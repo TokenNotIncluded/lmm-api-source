@@ -61,6 +61,10 @@ A bounded, cancelable host worker calls `Work(ctx, limit)` with limit 1–100.
 Each iteration drains stored events and performs at most one job per selected
 order. No unbounded goroutine or retry loop is created by this package.
 `Reconcile(ctx, orderID)` is a trusted worker operation, not a public endpoint.
+It can retry a conflicting settlement with its original accepted proof and key.
+After a confirmed Core release frees capacity, `Work` persists that same retry
+with the release receipt, so normal host scheduling can resume it after restart.
+Neither path requeues a provider refund POST or overrides Core authorization.
 
 ## State and recovery
 
@@ -128,17 +132,22 @@ protocol requirement, not a locally invented cross-language contract.
 The user refund flow is `hold_pending -> held -> awaiting_evidence -> committed`.
 Rust first holds funds. Go then sends a provider refund with a stable request key.
 Only independently verified success plus Rust `REFUND_COMMITTED` completes it.
-A hold may be released only after Rust returns `REFUND_RELEASED`. The current
-Rust release operation remains unavailable until provider dispatch is bound to
-the hold: one signed failed attempt cannot exclude another successful attempt.
+A hold may be released only after Rust returns `REFUND_RELEASED`. Rust requires
+the signed failure to match the original registered dispatch and rejects a
+failure that cannot exclude another accepted pending/successful attempt.
 Timeout, missing callback, API error or unsigned provider success never releases
 funds. Lost hold responses use receipt lookup; background jobs never save user
-sessions. The completed joint test covers top-up credit recovery, not refunds.
+sessions. Scoped synthetic process tests cover credit and refund recovery;
+their exact source, scope and results are recorded in the parent STATUS.md and
+[independent fixtures](../../../../../tests/payments/independent_a05/README.md).
 
 Partial refunds have separate IDs and request keys. Local locked checks cap the
 cumulative requested amount; Rust enforces the authoritative cap and holds.
-Stripe dashboard refunds use the external-refund path. Conflicting terminal
-states go to review. Refunds before credit set a local fence, while Rust must
+Stripe dashboard refunds use the external-refund path. A signed late success for
+the same released refund still goes through Core's dispatch, capacity and ledger
+checks. Capacity conflicts remain in review until the original job can settle;
+successes exceeding the original payment stay unresolved. Refunds before credit
+set a local fence, while Rust must
 atomically prevent stale credit and reconcile overlaps with existing holds.
 
 ## Provider support and limits

@@ -12,7 +12,13 @@ use axum::{
     response::Response,
 };
 use hmac::{Hmac, Mac};
-use lmm_core::{billing::ledger::Ledger, internal_rpc::pb};
+use lmm_core::{
+    billing::{
+        Credits,
+        ledger::{Action, Ledger, Outcome, Request},
+    },
+    internal_rpc::pb,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -66,6 +72,7 @@ struct Provider {
     root: PathBuf,
     posts: Arc<AtomicUsize>,
     events: Arc<Mutex<BTreeMap<String, Value>>>,
+    capacity_case: bool,
 }
 fn response(value: Value) -> Response {
     Response::builder()
@@ -96,6 +103,9 @@ async fn provider(
             json!({"id":"cs_refund_os","object":"checkout.session","mode":"payment","client_reference_id":order,"metadata":{"lmm_order_id":order,"lmm_core_intent_id":i.intent_id.to_string(),"lmm_merchant":i.merchant},"amount_total":100,"currency":"usd","livemode":false,"payment_intent":format!("pi_{}",i.intent_id),"url":"https://checkout.stripe.com/c/pay/refund-os-fixture"}),
         );
     }
+    if state.capacity_case && method == Method::GET && path == "v1/refunds" {
+        return response(json!({"data":[],"has_more":false}));
+    }
     if method == Method::GET && path.starts_with("v1/events/") {
         let id = path.trim_start_matches("v1/events/");
         let events = state.events.lock().await;
@@ -117,6 +127,45 @@ async fn provider(
         let key = headers.get("idempotency-key").unwrap().to_str().unwrap();
         let hold = &form["metadata[lmm_hold_receipt_id]"];
         assert_eq!(form["payment_intent"], format!("pi_{}", i.intent_id));
+        if state.capacity_case {
+            assert!(count <= 2, "reconciliation repeated a provider POST");
+            assert_eq!(form["amount"], if count == 1 { "40" } else { "100" });
+            let registered: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_payments.refund_dispatches WHERE intent_id=$1 AND hold_receipt_id=$2 AND operation_key=$3)")
+                .bind(i.intent_id).bind(hold).bind(key).fetch_one(&state.core).await.unwrap();
+            assert!(registered);
+            let mut evidence = json!({});
+            let mut pending = Value::Null;
+            for (field, status) in [
+                ("created", "pending"),
+                ("failed", "failed"),
+                ("late_success", "succeeded"),
+            ] {
+                let mut event = refund_event(
+                    i,
+                    &form,
+                    key,
+                    &format!("evt_capacity_{count}_{field}"),
+                    status,
+                );
+                event["data"]["object"]["id"] = json!(format!("re_capacity_{count}"));
+                event["data"]["object"]["amount"] = json!(form["amount"].parse::<i64>().unwrap());
+                state
+                    .events
+                    .lock()
+                    .await
+                    .insert(event["id"].as_str().unwrap().into(), event.clone());
+                if status == "pending" {
+                    pending = event["data"]["object"].clone();
+                }
+                evidence[field] = signed(event);
+            }
+            shared::private(
+                &state.root,
+                &format!("capacity-post-{count}.json"),
+                &serde_json::to_vec(&evidence).unwrap(),
+            );
+            return response(pending);
+        }
         assert_eq!(form["amount"], "40");
         let registered:Option<String>=sqlx::query_scalar("SELECT d.receipt_id FROM core_payments.refund_dispatches d JOIN core_payments.refund_holds h ON h.receipt_id=d.hold_receipt_id WHERE d.intent_id=$1 AND d.hold_receipt_id=$2 AND d.operation_key=$3 AND h.state='held'").bind(i.intent_id).bind(hold).bind(key).fetch_optional(&state.core).await.unwrap();
         let registered = registered.expect("provider POST preceded Core dispatch COMMIT");
@@ -293,6 +342,7 @@ async fn real_refund_dispatch_response_loss_restarts_core_and_go_worker(pool: Pg
         root: root.clone(),
         posts: Arc::new(AtomicUsize::new(0)),
         events: Arc::new(Mutex::new(events)),
+        capacity_case: false,
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let provider_url = format!("http://{}", listener.local_addr().unwrap());
@@ -376,13 +426,39 @@ async fn real_refund_dispatch_response_loss_restarts_core_and_go_worker(pool: Pg
         "recovery-evidence.json",
         &serde_json::to_vec(&observed["evidence"]).unwrap(),
     );
+    let released = marker(&root.join("released.json"), &mut go, 30).await;
+    assert_eq!(released["pid"], go.0.id());
+    assert_eq!(released["refund"]["state"], "released");
+    balances(&pool, account, 500_000, 0).await;
+    let spent = Ledger::from_pool(pool.clone())
+        .execute(&Request {
+            scope: "synthetic-usage".into(),
+            operation_key: "refund_recovery_spend_0001".into(),
+            actor_user_id: Some(101),
+            reason: "synthetic usage between refund events".into(),
+            action: Action::Charge {
+                account_id: account,
+                amount_units: Credits::try_from(500_000).unwrap(),
+            },
+        })
+        .await
+        .unwrap();
+    assert!(matches!(spent, Outcome::Posted { .. }));
+    balances(&pool, account, 0, 0).await;
+    shared::private(&root, "late-success.ready", b"ready");
     let settled = marker(&root.join("settled.json"), &mut go, 30).await;
     assert_eq!(settled["duplicate_events_checked"], true);
     assert_eq!(settled["conflicting_event_id_denied"], true);
-    assert_eq!(settled["success_after_release_denied"], true);
+    assert_eq!(settled["success_after_release_committed"], true);
+    assert_eq!(settled["legacy_done_success_replayed"], true);
     assert_eq!(settled["submit_key"], observed["key"]);
     assert_eq!(state.posts.load(Ordering::SeqCst), 1);
-    balances(&pool, account, 500_000, 0).await;
+    balances(&pool, account, -200_000, 0).await;
+    let debt = Ledger::from_pool(pool.clone())
+        .balance(account)
+        .await
+        .unwrap();
+    assert_eq!(debt.debt_units, -200_000);
     let releases: i64 =
         sqlx::query_scalar("SELECT count(*) FROM core_payments.receipts WHERE method='release'")
             .fetch_one(&pool)
@@ -394,7 +470,7 @@ async fn real_refund_dispatch_response_loss_restarts_core_and_go_worker(pool: Pg
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(commits, 0);
+    assert_eq!(commits, 1);
     let bindings: i64 =
         sqlx::query_scalar("SELECT count(*) FROM core_payments.refund_dispatch_bindings")
             .fetch_one(&pool)
@@ -409,9 +485,184 @@ async fn real_refund_dispatch_response_loss_restarts_core_and_go_worker(pool: Pg
     shared::crash(core);
     server.abort();
     let _ = server.await;
-    shared::private(&root,"refund-result.json",&serde_json::to_vec(&json!({"case":CASE,"result":"PASS","scope":"real Core main and Go payment module worker; synthetic counted TCP provider; not Go main acceptance","core_os_restart":true,"go_module_worker_os_restart":true,"provider_posts":1,"core_ack_before_provider_post":true,"unknown_original_key_preserved":true,"refund_releases":releases,"refund_commits":commits,"dispatch_bindings":bindings,"duplicate_event_replay_checked":true,"signed_event_id_payload_conflict_denied":true,"success_after_release_denied":true,"journal_balance_checked":true,"product_pids":[before_core,before_go,after_core,after_go],"children_reaped":true})).unwrap());
+    shared::private(
+        &root,
+        "refund-result.json",
+        &serde_json::to_vec(&json!({
+            "case": CASE,
+            "result": "PASS",
+            "scope": "real Core main and Go payment module worker; synthetic counted TCP provider; not Go main acceptance",
+            "core_os_restart": true,
+            "go_module_worker_os_restart": true,
+            "provider_posts": 1,
+            "core_ack_before_provider_post": true,
+            "unknown_original_key_preserved": true,
+            "refund_releases": releases,
+            "refund_commits": commits,
+            "dispatch_bindings": bindings,
+            "duplicate_event_replay_checked": true,
+            "signed_event_id_payload_conflict_denied": true,
+            "success_after_release_committed": true,
+            "legacy_done_success_replayed": true,
+            "journal_balance_checked": true,
+            "product_pids": [before_core, before_go, after_core, after_go],
+            "children_reaped": true,
+        }))
+        .unwrap(),
+    );
     // Preserve all failure state automatically. Successful outer fixture cleanup
     // is performed by the independent orchestrator after checking this receipt.
+    go_owner.close().await;
+    role.pool.close().await;
+    println!("REFUND_PROCESS_EVIDENCE {}", root.display());
+}
+
+#[sqlx::test(migrations = false)]
+async fn real_refund_capacity_reconciliation_core_and_go_worker(pool: PgPool) {
+    let f = shared::prepare_payment_fixture(&pool).await;
+    let shared::PaymentFixture {
+        root,
+        account,
+        intent,
+        role,
+        go_owner,
+        core_bin,
+        core_sha,
+        go_bin: _,
+        go_sha: _,
+        boot_bin,
+        boot_sha,
+        fixture,
+        core_config,
+        go_config: _,
+        client,
+        core_endpoint,
+        go_endpoint: _,
+        core,
+        login: _,
+    } = f;
+    // The shared bootstrap initially starts a top-up-only Core. Reap that setup
+    // process and start an explicitly refund-enabled runtime before the scenario.
+    shared::crash(core);
+    let permission = root.join("payments.toml");
+    let permission_text = fs::read_to_string(&permission).unwrap();
+    fs::write(
+        &permission,
+        permission_text.replace(
+            "credit_evidence=true",
+            "credit_evidence=true\nrefund_user=true\nrefund_evidence=true",
+        ),
+    )
+    .unwrap();
+    let mut core = shared::spawn(
+        &core_bin,
+        &core_sha,
+        &core_config,
+        &root,
+        "core-refund-initial.log",
+    );
+    shared::ready(&client, &core_endpoint, &mut core).await;
+    let initial: Value = serde_json::from_slice(&fs::read(&fixture).unwrap()).unwrap();
+    let mut events = BTreeMap::new();
+    for event in initial["events"].as_array().unwrap() {
+        let parsed: Value = serde_json::from_str(event["payload"].as_str().unwrap()).unwrap();
+        events.insert(parsed["id"].as_str().unwrap().into(), parsed);
+    }
+    let state = Provider {
+        core: pool.clone(),
+        go: go_owner.clone(),
+        intent: intent.clone(),
+        root: root.clone(),
+        posts: Arc::new(AtomicUsize::new(0)),
+        events: Arc::new(Mutex::new(events)),
+        capacity_case: true,
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let provider_url = format!("http://{}", listener.local_addr().unwrap());
+    let provider_state = state.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new()
+                .route("/{*path}", axum::routing::any(provider))
+                .with_state(provider_state),
+        )
+        .await
+        .unwrap();
+    });
+    let mut worker_fixture = initial;
+    worker_fixture["provider_url"] = json!(provider_url);
+    worker_fixture["marker_dir"] = json!(root);
+    worker_fixture["evidence_file"] = json!(root.join("recovery-evidence.json"));
+    let worker_fixture = shared::private(
+        &root,
+        "refund-worker.json",
+        &serde_json::to_vec(&worker_fixture).unwrap(),
+    );
+
+    let mut go = worker(&boot_bin, &boot_sha, &worker_fixture, &root, "capacity");
+    let blocked = marker(&root.join("capacity-blocked.json"), &mut go, 45).await;
+    assert_eq!(blocked["pid"], go.0.id());
+    balances(&pool, account, 0, 500_000).await;
+    let facts: (i64,i64,i64) = sqlx::query_as("SELECT refunded_minor,(SELECT count(*) FROM core_payments.blocked_refunds WHERE intent_id=$1),(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1) FROM core_payments.intents WHERE id=$1")
+        .bind(intent.intent_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(facts, (0, 1, 0));
+    assert_eq!(state.posts.load(Ordering::SeqCst), 2);
+    shared::private(&root, "capacity-fail-retry.ready", b"ready");
+    marker(&root.join("capacity-freed.json"), &mut go, 30).await;
+    balances(&pool, account, 500_000, 0).await;
+    let spent = Ledger::from_pool(pool.clone())
+        .execute(&Request {
+            scope: "synthetic-usage".into(),
+            operation_key: "capacity_recovery_spend_0001".into(),
+            actor_user_id: Some(101),
+            reason: "synthetic usage before quarantined success recovery".into(),
+            action: Action::Charge {
+                account_id: account,
+                amount_units: Credits::try_from(500_000).unwrap(),
+            },
+        })
+        .await
+        .unwrap();
+    assert!(matches!(spent, Outcome::Posted { .. }));
+    shared::private(&root, "capacity-spent.ready", b"ready");
+    let settled = marker(&root.join("capacity-settled.json"), &mut go, 30).await;
+    assert_eq!(settled["same_key"], true);
+    assert_eq!(settled["same_proof"], true);
+    assert_eq!(settled["replay_checked"], true);
+    balances(&pool, account, -200_000, 0).await;
+    assert_eq!(
+        Ledger::from_pool(pool.clone())
+            .balance(account)
+            .await
+            .unwrap()
+            .debt_units,
+        -200_000
+    );
+    let facts: (i64,i64,i64,i64,i64) = sqlx::query_as("SELECT refunded_minor,(SELECT count(*) FROM core_payments.blocked_refunds WHERE intent_id=$1),(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1),(SELECT count(*) FROM core_payments.receipts WHERE intent_id=$1 AND method='commit'),(SELECT count(*) FROM core_payments.receipts WHERE intent_id=$1 AND method='release') FROM core_payments.intents WHERE id=$1")
+        .bind(intent.intent_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(facts, (40, 1, 1, 1, 2));
+    let unresolved: i64 = sqlx::query_scalar("SELECT count(*) FROM core_payments.blocked_refunds b WHERE intent_id=$1 AND NOT EXISTS(SELECT 1 FROM core_payments.provider_refunds r WHERE r.channel_id=b.channel_id AND r.refund_id=b.refund_id)")
+        .bind(intent.intent_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(unresolved, 0);
+    assert_eq!(state.posts.load(Ordering::SeqCst), 2);
+    let product_pids = [core.0.id(), go.0.id()];
+    shared::record_identity(&core, "capacity-settled");
+    shared::record_identity(&go, "capacity-settled");
+    shared::crash(go);
+    shared::crash(core);
+    server.abort();
+    let _ = server.await;
+    shared::private(&root,"refund-result.json",&serde_json::to_vec(&json!({
+        "case":"real_refund_capacity_reconciliation_core_and_go_worker","result":"PASS",
+        "scope":"real Core main and Go payment module worker; synthetic counted TCP provider; not Go main acceptance",
+        "capacity_conflict_preserved_hold":true,"pending_retry_failed_closed":true,
+        "bound_failure_released_retry":true,"original_key_and_proof_reused":true,
+        "spent_funds_became_debt":true,"duplicate_event_replay_checked":true,
+        "resolved_quarantine_evidence_retained":true,"journal_balance_checked":true,
+        "provider_posts":2,"refund_commits":1,"refund_releases":2,
+        "product_pids":product_pids,"children_reaped":true
+    })).unwrap());
     go_owner.close().await;
     role.pool.close().await;
     println!("REFUND_PROCESS_EVIDENCE {}", root.display());

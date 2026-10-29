@@ -1,0 +1,271 @@
+package payments_test
+import (
+ "bytes"
+ "context"
+ "encoding/json"
+ "fmt"
+ "net/http/httptest"
+ "os"
+ "path/filepath"
+ "strings"
+ "testing"
+ "time"
+ p "github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
+)
+// Added independent acceptance cases; the historical failed harness is unchanged.
+func TestIndependentA05Automatic(t *testing.T) {
+ e := indOpen(t)
+	t.Run("both_successes_over_payment_remain_fenced", func(t *testing.T) {
+		ctx := context.Background()
+		user, i := e.prepare(t, "over_refund_case", 113)
+		e.credit(t, i, "over_refund_case")
+		a := e.hold(t, user, i, "over_A_valid", 41)
+		ra := e.bound(t, i, a, "over_A_valid", 41)
+		failed := e.accept(t, i, indEvent(i, "evt_ind_over_A_failed", ra, "failed", a.ID, "", 41))
+		_, err := e.bridge.Release(ctx, i.ID, "ind_over_release_A", a.ID, failed)
+		indMust(t, err)
+		b := e.hold(t, user, i, "over_B_valid", 113)
+		rb := e.bound(t, i, b, "over_B_valid", 113)
+		late := e.accept(t, i, indEvent(i, "evt_ind_over_A_success", ra, "succeeded", a.ID, "", 41))
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_over_commit_A", a.ID, late)
+		indDenied(t, err, "A pending capacity")
+		blocked := e.blocked(t, i, ra)
+		bSuccess := e.accept(t, i, indEvent(i, "evt_ind_over_B_success", rb, "succeeded", b.ID, "", 113))
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_over_commit_B", b.ID, bSuccess)
+		indMust(t, err)
+		for n := 0; n < 3; n++ {
+			_, err = e.bridge.Commit(ctx, i.ID, "ind_over_commit_A", a.ID, late)
+			indDenied(t, err, "over-refund retry")
+			_, err = e.bridge.ExternalRefund(ctx, i.ID, fmt.Sprintf("ind_over_external_%02d", n), late)
+			indDenied(t, err, "over-refund external entry")
+		}
+		indCheck(t, e.count(t, "SELECT refunded_minor FROM core_payments.intents WHERE id=$1", i.ID) == 113, "over-refund exceeded original payment")
+		indCheck(t, blocked == e.blocked(t, i, ra), "over-refund quarantine changed")
+		indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1", i.ID) == 1, "unsupported over-refund manufactured receipt")
+		_, err = e.bridge.Hold(ctx, user, i.ID, "ind_over_new_hold_001", 1)
+		indDenied(t, err, "new hold after unresolved over-refund")
+		e.expectMoney(t, i.AccountID, 0, 0, 0)
+		indJSON(t, filepath.Join(e.c.Root, "over-refund-result.json"), map[string]any{"intent": i.ID, "status": "FAIL_CLOSED_UNSUPPORTED_CONTRACT", "blocked": blocked})
+	})
+	t.Run("automatic_work_original_proof_expiry_crash_recovery",func(t *testing.T){indAutoJoint(t,e)})
+}
+
+func indAutoJoint(t *testing.T, e *indEnv) {
+	ctx := context.Background()
+	user, i := e.prepare(t, "joint_worker_case", 113)
+	orderID := fmt.Sprintf("top_%d", i.ID)
+	provider := &indProvider{i: i, events: map[string]map[string]any{}, e: e}
+	server := httptest.NewServer(provider)
+	defer server.Close()
+	base := indPlan{ProviderURL: server.URL, User: user, Account: i.AccountID}
+	step := 0
+	run := func(actions ...indAction) {
+		step++
+		plan := base
+		plan.Actions = actions
+		indWorker(t, e, plan, fmt.Sprintf("joint-%02d", step), true)
+	}
+	work := func(n int) {
+		a := make([]indAction, n)
+		for j := range a {
+			a[j].Kind = "work"
+		}
+		run(a...)
+	}
+	deliver := func(event map[string]any) p.Evidence {
+		provider.mu.Lock()
+		provider.events[event["id"].(string)] = event
+		provider.mu.Unlock()
+		ev := indEvidence(e.c, i, event)
+		run(indAction{Kind: "receive", Evidence: &ev})
+		return ev
+	}
+	snapshot := func() p.Order {
+		var raw []byte
+		indMust(t, e.goDB.QueryRow("SELECT snapshot FROM payment_orders WHERE id=$1", orderID).Scan(&raw))
+		var o p.Order
+		indMust(t, json.Unmarshal(raw, &o))
+		return o
+	}
+	findRefund := func(amount int64) p.Refund {
+		o := snapshot()
+		for _, r := range o.Refunds {
+			if r.AmountMinor == amount {
+				return r
+			}
+		}
+		t.Fatalf("refund amount %d missing", amount)
+		return p.Refund{}
+	}
+	run(indAction{Kind: "create", Key: i.Key, Amount: 113})
+	deliver(indEvent(i, "evt_ind_joint_credit", "", "", "", "", 0))
+	work(3)
+	e.expectMoney(t, i.AccountID, 565000, 0, 0)
+	run(indAction{Kind: "refund", Order: orderID, Key: "ind_joint_refund_A", Amount: 41})
+	work(2)
+	a := findRefund(41)
+	provider.mu.Lock()
+	postA := provider.posts[0]
+	provider.mu.Unlock()
+	indCheck(t, postA["core_dispatch_count"] == "1", "provider POST preceded committed dispatch")
+	deliver(indEvent(i, "evt_ind_joint_created_A", "re_ind_joint_1", "pending", a.HoldReceipt, postA["key"], 41))
+	deliver(indEvent(i, "evt_ind_joint_failed_A", "re_ind_joint_1", "failed", a.HoldReceipt, "", 41))
+	work(3)
+	indCheck(t, findRefund(41).State == "released", "failed A not released")
+	run(indAction{Kind: "refund", Order: orderID, Key: "ind_joint_refund_B", Amount: 101})
+	work(2)
+	b := findRefund(101)
+	provider.mu.Lock()
+	postB := provider.posts[1]
+	provider.mu.Unlock()
+	deliver(indEvent(i, "evt_ind_joint_created_B", "re_ind_joint_2", "pending", b.HoldReceipt, postB["key"], 101))
+	work(1)
+	lateEvent := indEvent(i, "evt_ind_joint_late_A", "re_ind_joint_1", "succeeded", a.HoldReceipt, "", 41)
+	late := deliver(lateEvent)
+	work(3)
+	var original p.Job
+	for _, j := range snapshot().Jobs {
+		if j.Kind == "commit" && j.RefundID == a.ID {
+			original = j
+		}
+	}
+	indCheck(t, original.State == "review" && original.ErrorCode == p.ErrConflict.Error() && original.Evidence.AcceptedProofID != "", "late A not in proof-bound review: %+v", original)
+	before := e.blocked(t, i, "re_ind_joint_1")
+	acceptedAt := time.Now()
+	var acceptedUnix int64
+	indMust(t, e.db.QueryRow("SELECT extract(epoch from accepted_at)::bigint FROM core_payments.accepted_proofs WHERE id=$1", original.Evidence.AcceptedProofID).Scan(&acceptedUnix))
+	acceptedAt = time.Unix(acceptedUnix, 0)
+	work(1)
+	work(1)
+	e.expectMoney(t, i.AccountID, 60000, 505000, 0)
+	indCheck(t, findRefund(101).State == "awaiting_evidence", "pending B reservation changed")
+
+	// Simulate the persisted old handler shape: it acknowledged success without
+	// queuing a financial job. Keep the real accepted proof and signed inbox row.
+	var oldJSON []byte
+	indMust(t, e.goDB.QueryRow("SELECT snapshot FROM payment_orders WHERE id=$1", orderID).Scan(&oldJSON))
+	var old map[string]any
+	indMust(t, json.Unmarshal(oldJSON, &old))
+	delete(old["jobs"].(map[string]any), original.Key)
+	r := old["refunds"].(map[string]any)[a.ID].(map[string]any)
+	r["provider_state"] = p.RefundFailed
+	old["error_code"] = "conflicting_refund_terminal_state"
+	bits, _ := json.Marshal(old)
+	_, err := e.goDB.Exec("UPDATE payment_orders SET snapshot=$2 WHERE id=$1", orderID, string(bits))
+	indMust(t, err)
+	indJSON(t, filepath.Join(e.c.Root, "joint-old-done-fixture.json"), map[string]any{"order": orderID, "removed_job": original.Key, "event": late.EventID, "reason": "explicit historical persisted-state fixture; Core evidence and funds unchanged"})
+	deliver(lateEvent)
+	work(2)
+	var restored p.Job
+	for _, j := range snapshot().Jobs {
+		if j.Key == original.Key {
+			restored = j
+		}
+	}
+	indCheck(t, restored.State == "review" && restored.Evidence.AcceptedProofID == original.Evidence.AcceptedProofID && bytes.Equal(restored.Evidence.Payload, original.Evidence.Payload), "old done replay did not reconstruct original settlement")
+
+	// Let the actual wall clock expire the already accepted original webhook.
+	waitStart := time.Now()
+	until := waitStart.Add(302 * time.Second)
+	_ = acceptedAt
+	indJSON(t, filepath.Join(e.c.Root, "expiry-wait-start.json"), map[string]any{"proof": original.Evidence.AcceptedProofID, "accepted_unix": acceptedUnix, "wait_until": until.Unix()})
+	for time.Now().Before(until) {
+        time.Sleep(time.Second)
+        indJSON(t, filepath.Join(e.c.Root, "expiry-progress.json"), map[string]any{"elapsed_ms":time.Since(waitStart).Milliseconds(),"proof":original.Evidence.AcceptedProofID})
+    }
+    indCheck(t, time.Since(waitStart) >= 302*time.Second, "real monotonic expiry wait too short")
+	freshless := original.Evidence
+	freshless.AcceptedProofID = ""
+	_, err = e.bridge.AcceptProof(ctx, i.ID, freshless)
+	indDenied(t, err, "expired original webhook at ingress")
+	proof, err := e.bridge.LookupProof(ctx, i.ID, original.Evidence)
+	indMust(t, err)
+	indCheck(t, proof.ID == original.Evidence.AcceptedProofID, "expired original proof lookup changed identity")
+	indJSON(t, filepath.Join(e.c.Root, "expiry-result.json"), map[string]any{"elapsed_seconds": time.Now().Unix() - acceptedUnix, "monotonic_wait_ms": time.Since(waitStart).Milliseconds(), "proof": proof.ID, "fresh_ingress_denied": true, "durable_lookup_same": true})
+	deliver(indEvent(i, "evt_ind_joint_failed_B", "re_ind_joint_2", "failed", b.HoldReceipt, "", 101))
+	work(1)
+	e.expectMoney(t, i.AccountID, 565000, 0, 0)
+	// Use the existing controlled ledger function to model already consumed
+	// funds. It is a synthetic consumption fixture, not model relay acceptance.
+	request, _ := json.Marshal(map[string]any{"scope": "independent", "operation_key": "joint_spend_before_recovery", "actor_user_id": nil,
+		"reason": "synthetic prior consumption", "action": map[string]any{"kind": "charge", "account_id": i.AccountID, "amount_units": 510000}})
+	var charged []byte
+	indMust(t, e.db.QueryRow("SELECT core_billing.post_ledger($1::jsonb)", string(request)).Scan(&charged))
+	indCheck(t, strings.Contains(string(charged), `"posted"`), "consumption fixture rejected: %s", charged)
+	e.expectMoney(t, i.AccountID, 55000, 0, 0)
+
+	o := snapshot()
+	job := o.Jobs[original.Key]
+	indCheck(t, job.State == "pending" && job.Evidence.AcceptedProofID == original.Evidence.AcceptedProofID && bytes.Equal(job.Evidence.Payload, original.Evidence.Payload), "automatic release did not queue original key/proof")
+
+	// Block the Go local receipt update AFTER Core COMMIT, then kill/reap the
+	// real worker and Core. This loses the local ACK; Core reply loss is separate.
+	_, err = e.goDB.Exec(`CREATE FUNCTION public.ind_pause() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF NEW.snapshot->'refunds'->$q$` + a.ID + `$q$->>'state'='committed' THEN PERFORM pg_sleep(45); END IF; RETURN NEW; END $$;
+CREATE TRIGGER ind_pause BEFORE UPDATE ON payment_orders FOR EACH ROW EXECUTE FUNCTION public.ind_pause();`)
+	indMust(t, err)
+	plan := base
+	plan.Actions = []indAction{{Kind: "work"}}
+	child, _ := indWorker(t, e, plan, "interrupted", false)
+	deadline := time.Now().Add(12 * time.Second)
+	for {
+		commits := e.count(t, "SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1", i.ID)
+		var sleeps int
+		indMust(t, e.goDB.QueryRow("SELECT count(*) FROM pg_stat_activity WHERE usename='a05_go' AND wait_event='PgSleep'").Scan(&sleeps))
+		if commits == 1 && sleeps > 0 {
+			break
+		}
+		indCheck(t, time.Now().Before(deadline), "did not witness Core commit before Go local receipt pause")
+		time.Sleep(20 * time.Millisecond)
+	}
+	e.expectMoney(t, i.AccountID, 0, 0, -150000)
+	window := snapshot()
+	indCheck(t, window.Jobs[original.Key].State == "running", "crash window local job not running")
+	oldPID := child.Process.Pid
+	indMust(t, child.Process.Kill())
+	indCheck(t, child.Wait() != nil, "interrupted worker unexpectedly successful")
+	_, err = os.Stat(fmt.Sprintf("/proc/%d", oldPID))
+	indCheck(t, os.IsNotExist(err), "old worker PID remains")
+	e.stop(t)
+	_, err = e.goDB.Exec("DROP TRIGGER ind_pause ON payment_orders; DROP FUNCTION public.ind_pause();")
+	indMust(t, err)
+	e.start(t)
+	leaseUntil := window.Jobs[original.Key].LeaseUntil
+	for time.Now().Before(leaseUntil.Add(time.Second)) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	work(3)
+	final := snapshot()
+	indCheck(t, final.Refunds[a.ID].State == "committed" && final.Jobs[original.Key].State == "done", "original job not recovered after OS restart")
+	indCheck(t, final.Jobs[original.Key].Evidence.AcceptedProofID == original.Evidence.AcceptedProofID, "restart replaced original proof")
+	e.expectMoney(t, i.AccountID, 0, 0, -150000)
+	indCheck(t, before == e.blocked(t, i, "re_ind_joint_1"), "blocked evidence changed after recovery")
+	indCheck(t, e.count(t, "SELECT refunded_minor FROM core_payments.intents WHERE id=$1", i.ID) == 41, "restart duplicated refund amount")
+	indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.receipts WHERE intent_id=$1 AND method='commit'", i.ID) == 1, "restart duplicated commit receipt")
+	var exactLegs []byte
+	indMust(t, e.db.QueryRow(`SELECT json_agg(json_build_object('bucket',a.bucket,'delta',x.delta_units) ORDER BY a.bucket)
+FROM core_payments.provider_refunds r JOIN core_payments.receipts p ON p.id=r.receipt_id
+JOIN core_billing.ledger_journals j ON j.id=(SELECT id FROM core_billing.ledger_journals WHERE refund_reference=$2)
+JOIN core_billing.ledger_entries x ON x.journal_id=j.id JOIN core_billing.ledger_accounts a ON a.id=x.ledger_account_id
+WHERE r.intent_id=$1`, i.ID, fmt.Sprintf("stripe:1:re_ind_joint_1")).Scan(&exactLegs))
+	var legs []struct {
+		Bucket string
+		Delta  int64
+	}
+	indMust(t, json.Unmarshal(exactLegs, &legs))
+	indCheck(t, len(legs) == 3 && legs[0].Bucket == "clearing" && legs[0].Delta == 205000 && legs[1].Bucket == "debt" && legs[1].Delta == -150000 && legs[2].Bucket == "wallet" && legs[2].Delta == -55000, "wrong exact refund legs: %s", exactLegs)
+
+    deliver(lateEvent)
+    work(3)
+    indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1", i.ID) == 1, "duplicate callback duplicated provider receipt")
+    indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.receipts WHERE intent_id=$1 AND method='commit'", i.ID) == 1, "duplicate callback duplicated commit")
+    e.expectMoney(t, i.AccountID, 0, 0, -150000)
+    indCheck(t, snapshot().Jobs[original.Key].Evidence.AcceptedProofID == original.Evidence.AcceptedProofID, "duplicate callback replaced accepted proof")
+    provider.mu.Lock()
+    posts := provider.posts
+	provider.mu.Unlock()
+	indCheck(t, len(posts) == 2, "reconciliation repeated provider write: %d POSTs", len(posts))
+	indJSON(t, filepath.Join(e.c.Root, "joint-result.json"), map[string]any{"intent": i.ID, "original_job": original, "before_crash": window, "after_restart": final,
+		"provider_posts": posts, "ledger_legs": json.RawMessage(exactLegs), "debt": e.money(t, i.AccountID), "killed_worker_pid": oldPID,
+		"scope": "real Core main + independently authored Go module workers; synthetic external provider; local receipt ACK loss"})
+}

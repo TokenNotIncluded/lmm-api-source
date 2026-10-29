@@ -1,0 +1,781 @@
+package payments_test
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	p "github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments/rustbridge"
+	_ "github.com/lib/pq"
+)
+
+// This file is an independent acceptance harness. Production source is copied
+// unchanged; only the external Stripe destination uses an owned TCP fixture.
+type indConfig struct {
+	Root, CoreBinary, CoreSHA, OwnerConfig, CoreConfig string
+	CoreURL, GoOwnerURL, GoURL, GoDatabase             string
+	Socket, Token, Secret, Endpoint                    string
+}
+
+func (c *indConfig) UnmarshalJSON(raw []byte) error {
+	var v map[string]string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	c.Root, c.CoreBinary, c.CoreSHA = v["root"], v["core_binary"], v["core_sha256"]
+	c.OwnerConfig, c.CoreConfig = v["owner_config"], v["core_config"]
+	c.CoreURL, c.GoOwnerURL, c.GoURL, c.GoDatabase = v["core_url"], v["go_owner_url"], v["go_url"], v["go_database"]
+	c.Socket, c.Token, c.Secret, c.Endpoint = v["socket"], v["token"], v["secret"], v["endpoint"]
+	return nil
+}
+
+func indMust(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+func indCheck(t *testing.T, ok bool, message string, facts ...any) {
+	t.Helper()
+	if !ok {
+		t.Fatalf(message, facts...)
+	}
+}
+func indJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	b, err := json.MarshalIndent(value, "", "  ")
+	indMust(t, err)
+	indMust(t, os.WriteFile(path, append(b, '\n'), 0600))
+}
+func indReadConfig(t *testing.T) indConfig {
+	t.Helper()
+	b, err := os.ReadFile(os.Getenv("A05_CONFIG"))
+	indMust(t, err)
+	var c indConfig
+	indMust(t, json.Unmarshal(b, &c))
+	return c
+}
+
+type indEnv struct {
+	c        indConfig
+	db, goDB *sql.DB
+	client   *coreclient.Client
+	bridge   *rustbridge.Bridge
+	core     *exec.Cmd
+	coreLog  *os.File
+	restarts int
+	seq      int
+}
+
+func (e *indEnv) start(t *testing.T) {
+	t.Helper()
+	e.restarts++
+	out, err := os.OpenFile(filepath.Join(e.c.Root, fmt.Sprintf("core-%d.log", e.restarts)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	indMust(t, err)
+	e.coreLog = out
+	e.core = exec.Command(e.c.CoreBinary, "--config", e.c.CoreConfig)
+	e.core.Env = []string{"PATH=/usr/bin:/bin", "RUST_BACKTRACE=1"}
+	e.core.Stdout, e.core.Stderr = out, out
+	indMust(t, e.core.Start())
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/exe", e.core.Process.Pid))
+	indMust(t, err)
+	got := fmt.Sprintf("%x", sha256.Sum256(data))
+	indCheck(t, got == e.c.CoreSHA, "executed Core digest mismatch: %s", got)
+	indJSON(t, filepath.Join(e.c.Root, fmt.Sprintf("core-%d-identity.json", e.restarts)), map[string]any{"pid": e.core.Process.Pid, "sha256": got})
+	httpClient := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
+	until := time.Now().Add(15 * time.Second)
+	for {
+		r, err := httpClient.Get(e.c.Endpoint + "/health/ready")
+		if err == nil {
+			io.Copy(io.Discard, r.Body)
+			r.Body.Close()
+			if r.StatusCode == 200 {
+				break
+			}
+		}
+		indCheck(t, time.Now().Before(until), "Core readiness deadline; see core log")
+		time.Sleep(30 * time.Millisecond)
+	}
+}
+func (e *indEnv) stop(t *testing.T) {
+	t.Helper()
+	if e.core != nil {
+		pid := e.core.Process.Pid
+		indMust(t, e.core.Process.Kill())
+		err := e.core.Wait()
+		indCheck(t, err != nil, "SIGKILL Core unexpectedly exited successfully")
+		_, err = os.Stat(fmt.Sprintf("/proc/%d", pid))
+		indCheck(t, os.IsNotExist(err), "old Core PID remains: %d", pid)
+		e.coreLog.Close()
+		e.core = nil
+	}
+}
+func indOpen(t *testing.T) *indEnv {
+	t.Helper()
+	c := indReadConfig(t)
+	db, err := sql.Open("postgres", c.CoreURL)
+	indMust(t, err)
+	db.SetMaxOpenConns(5)
+	goDB, err := sql.Open("postgres", c.GoOwnerURL)
+	indMust(t, err)
+	goDB.SetMaxOpenConns(4)
+	e := &indEnv{c: c, db: db, goDB: goDB}
+	t.Cleanup(func() {
+		e.stop(t)
+		db.Close()
+		goDB.Close()
+		if e.client != nil {
+			e.client.Close()
+		}
+	})
+	e.start(t)
+	e.client, err = coreclient.New(c.Socket, []byte(c.Token))
+	indMust(t, err)
+	e.bridge, err = rustbridge.New(e.client)
+	indMust(t, err)
+	return e
+}
+func (e *indEnv) user(t *testing.T) (string, int64) {
+	t.Helper()
+	e.seq++
+	cmd := exec.Command(e.c.CoreBinary, "--config", e.c.OwnerConfig, "bootstrap-user")
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Stdin = strings.NewReader(fmt.Sprintf(`{"user_id":%d,"platform_level":0}`, 8700+e.seq))
+	b, err := cmd.CombinedOutput()
+	indCheck(t, err == nil, "offline bootstrap failed: %s", string(b))
+	var issued struct{ Secret string }
+	indMust(t, json.Unmarshal(b, &issued))
+	var account int64
+	indMust(t, e.db.QueryRow("SELECT personal_account_id FROM core_identity.users WHERE id=$1", 8700+e.seq).Scan(&account))
+	_, err = e.db.Exec("SELECT core_billing.open_ledger_wallet($1)", account)
+	indMust(t, err)
+	return issued.Secret, account
+}
+func (e *indEnv) prepare(t *testing.T, label string, amount int64) (string, p.Intent) {
+	t.Helper()
+	user, account := e.user(t)
+	i, err := e.bridge.Prepare(context.Background(), user, p.PrepareRequest{Key: "ind_prepare_" + label, AccountID: account, ChannelID: 1, Currency: "USD", AmountMinor: amount})
+	indMust(t, err)
+	return user, i
+}
+func indObject(i p.Intent) map[string]any {
+	return map[string]any{"id": fmt.Sprintf("pi_%d", i.ID), "object": "payment_intent", "status": "succeeded",
+		"amount": i.AmountMinor, "amount_received": i.AmountMinor, "currency": "usd", "livemode": false,
+		"metadata": map[string]string{"lmm_core_intent_id": fmt.Sprint(i.ID), "lmm_merchant": i.Merchant, "lmm_order_id": fmt.Sprintf("top_%d", i.ID)}}
+}
+func indEvent(i p.Intent, id, refund, state, hold, requestKey string, amount int64) map[string]any {
+	kind, object := "payment_intent.succeeded", indObject(i)
+	var request any
+	if refund != "" {
+		kind = "refund.updated"
+		if requestKey != "" {
+			kind = "refund.created"
+			request = map[string]any{"id": "req_independent", "idempotency_key": requestKey}
+		}
+		meta := map[string]string{"lmm_core_intent_id": fmt.Sprint(i.ID), "lmm_merchant": i.Merchant, "lmm_order_id": fmt.Sprintf("top_%d", i.ID)}
+		if hold != "" {
+			meta["lmm_hold_receipt_id"] = hold
+		}
+		object = map[string]any{"id": refund, "object": "refund", "status": state, "amount": amount,
+			"currency": "usd", "livemode": false, "payment_intent": fmt.Sprintf("pi_%d", i.ID), "metadata": meta}
+	}
+	return map[string]any{"id": id, "type": kind, "livemode": false, "request": request, "data": map[string]any{"object": object}}
+}
+func indEvidence(c indConfig, i p.Intent, event map[string]any) p.Evidence {
+	raw, _ := json.Marshal(event)
+	now := time.Now().Unix()
+	mac := hmac.New(sha256.New, []byte(c.Secret))
+	fmt.Fprintf(mac, "%d.", now)
+	mac.Write(raw)
+	return p.Evidence{Provider: i.Provider, Merchant: i.Merchant, Environment: i.Environment, Transaction: fmt.Sprintf("pi_%d", i.ID),
+		EventID: event["id"].(string), Payload: raw, Signature: []byte(fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil))), Source: "webhook"}
+}
+func (e *indEnv) accept(t *testing.T, i p.Intent, event map[string]any) p.Evidence {
+	t.Helper()
+	v := indEvidence(e.c, i, event)
+	proof, err := e.bridge.AcceptProof(context.Background(), i.ID, v)
+	indMust(t, err)
+	v.AcceptedProofID = proof.ID
+	return v
+}
+func (e *indEnv) credit(t *testing.T, i p.Intent, label string) p.Evidence {
+	t.Helper()
+	v := e.accept(t, i, indEvent(i, "evt_ind_credit_"+label, "", "", "", "", 0))
+	r, err := e.bridge.Credit(context.Background(), i.ID, "ind_credit_"+label, v)
+	indMust(t, err)
+	indCheck(t, r.State == p.CreditApplied, "credit state %s", r.State)
+	return v
+}
+func (e *indEnv) count(t *testing.T, query string, args ...any) int64 {
+	t.Helper()
+	var n int64
+	indMust(t, e.db.QueryRow(query, args...).Scan(&n))
+	return n
+}
+func (e *indEnv) money(t *testing.T, account int64) map[string]int64 {
+	t.Helper()
+	rows, err := e.db.Query("SELECT a.bucket,s.balance_units FROM core_billing.ledger_accounts a JOIN core_billing.balance_state s ON a.id=s.ledger_account_id WHERE a.owner_account_id=$1", account)
+	indMust(t, err)
+	defer rows.Close()
+	m := map[string]int64{}
+	for rows.Next() {
+		var b string
+		var n int64
+		indMust(t, rows.Scan(&b, &n))
+		m[b] = n
+	}
+	indMust(t, rows.Err())
+	return m
+}
+func (e *indEnv) expectMoney(t *testing.T, account, wallet, reserved, debt int64) {
+	t.Helper()
+	m := e.money(t, account)
+	indCheck(t, m["wallet"] == wallet && m["reserved"] == reserved && m["debt"] == debt, "money got %v want wallet=%d reserved=%d debt=%d", m, wallet, reserved, debt)
+	indCheck(t, e.count(t, "SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) q") == 0, "unbalanced journal")
+}
+func (e *indEnv) hold(t *testing.T, user string, i p.Intent, label string, amount int64) p.Receipt {
+	t.Helper()
+	r, err := e.bridge.Hold(context.Background(), user, i.ID, "ind_hold_"+label, amount)
+	indMust(t, err)
+	indCheck(t, r.State == p.RefundHeld, "hold state %s", r.State)
+	return r
+}
+func (e *indEnv) bound(t *testing.T, i p.Intent, h p.Receipt, label string, amount int64) string {
+	t.Helper()
+	key := "ind_dispatch_" + label
+	_, err := e.bridge.BeginRefundDispatch(context.Background(), i.ID, key, h.ID)
+	indMust(t, err)
+	refund := "re_ind_" + label
+	e.accept(t, i, indEvent(i, "evt_ind_created_"+label, refund, "pending", h.ID, key, amount))
+	indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.refund_dispatch_bindings WHERE hold_receipt_id=$1 AND refund_id=$2", h.ID, refund) == 1, "binding not persisted")
+	return refund
+}
+func indDenied(t *testing.T, err error, what string) {
+	t.Helper()
+	indCheck(t, err != nil, "%s accepted unexpectedly", what)
+	t.Logf("rejected %s: %s", what, err)
+}
+func (e *indEnv) blocked(t *testing.T, i p.Intent, refund string) string {
+	t.Helper()
+	var row string
+	indMust(t, e.db.QueryRow("SELECT row_to_json(b)::text FROM core_payments.blocked_refunds b WHERE intent_id=$1 AND refund_id=$2", i.ID, refund).Scan(&row))
+	return row
+}
+
+func TestIndependentA05(t *testing.T) {
+	e := indOpen(t)
+	t.Run("binding_capacity_cross_entry_concurrency", func(t *testing.T) {
+		ctx := context.Background()
+		user, i := e.prepare(t, "binding_capacity", 113)
+		credit := e.credit(t, i, "binding_capacity")
+		a := e.hold(t, user, i, "binding_A", 41)
+		ra := e.bound(t, i, a, "binding_A", 41)
+		fa := e.accept(t, i, indEvent(i, "evt_ind_fail_A", ra, "failed", a.ID, "", 41))
+		_, err := e.bridge.Release(ctx, i.ID, "ind_release_A_001", a.ID, fa)
+		indMust(t, err)
+		b := e.hold(t, user, i, "binding_B", 101)
+		_, err = e.bridge.BeginRefundDispatch(ctx, i.ID, "ind_dispatch_binding_B", b.ID)
+		indMust(t, err)
+		rb := "re_ind_binding_B"
+		e.accept(t, i, indEvent(i, "evt_ind_wrong_request_B", rb, "pending", b.ID, "wrong_dispatch_request_123", 101))
+		fb := e.accept(t, i, indEvent(i, "evt_ind_fail_B", rb, "failed", b.ID, "", 101))
+		_, err = e.bridge.Release(ctx, i.ID, "ind_release_wrong_B", b.ID, fb)
+		indDenied(t, err, "failure without exact creation-request binding")
+		e.expectMoney(t, i.AccountID, 60000, 505000, 0)
+		e.accept(t, i, indEvent(i, "evt_ind_bound_request_B", rb, "pending", b.ID, "ind_dispatch_binding_B", 101))
+
+		successEvent := indEvent(i, "evt_ind_late_A_original", ra, "succeeded", a.ID, "", 41)
+		late := e.accept(t, i, successEvent)
+		// Independent binding mutations are tested before the genuine call.
+		for name, mutate := range map[string]func(*p.Evidence){
+			"proof":       func(v *p.Evidence) { v.AcceptedProofID = fb.AcceptedProofID },
+			"event":       func(v *p.Evidence) { v.EventID = "evt_ind_unrelated" },
+			"payment":     func(v *p.Evidence) { v.Transaction = "pi_another_payment" },
+			"provider":    func(v *p.Evidence) { v.Provider = "epay" },
+			"merchant":    func(v *p.Evidence) { v.Merchant = "acct_another_merchant" },
+			"environment": func(v *p.Evidence) { v.Environment = "live" },
+			"payload":     func(v *p.Evidence) { v.Payload = append(append([]byte(nil), v.Payload...), ' ') },
+		} {
+			v := late
+			mutate(&v)
+			_, err := e.bridge.Commit(ctx, i.ID, "ind_bad_binding_"+name, a.ID, v)
+			indDenied(t, err, name+" binding")
+		}
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_late_A_original", b.ID, late)
+		indDenied(t, err, "proof bound to another hold")
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_late_A_original", a.ID, late)
+		indDenied(t, err, "late success while B consumes capacity")
+		before := e.blocked(t, i, ra)
+		_, err = e.bridge.Hold(ctx, user, i.ID, "ind_blocked_new_hold", 1)
+		indDenied(t, err, "new hold while unresolved")
+		_, err = e.bridge.Release(ctx, i.ID, "ind_release_pending_B", b.ID, late)
+		indDenied(t, err, "success proof as release authority")
+		e.expectMoney(t, i.AccountID, 60000, 505000, 0)
+		_, err = e.bridge.Release(ctx, i.ID, "ind_bound_release_B", b.ID, fb)
+		indMust(t, err)
+		// A second genuine success event cannot replace the quarantined bytes.
+		other := e.accept(t, i, indEvent(i, "evt_ind_late_A_alternate", ra, "succeeded", a.ID, "", 41))
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_alternate_late_A", a.ID, other)
+		indDenied(t, err, "alternative event for original quarantine")
+		e.expectMoney(t, i.AccountID, 565000, 0, 0)
+
+		var wg sync.WaitGroup
+		results := make(chan string, 16)
+		for n := 0; n < 16; n++ {
+			wg.Add(1)
+			go func(n int) {
+				defer wg.Done()
+				var err error
+				if n%2 == 0 {
+					_, err = e.bridge.Commit(ctx, i.ID, fmt.Sprintf("ind_race_commit_%02d", n), a.ID, late)
+				} else {
+					_, err = e.bridge.ExternalRefund(ctx, i.ID, fmt.Sprintf("ind_race_external_%02d", n), late)
+				}
+				if err == nil {
+					results <- "posted"
+				} else {
+					results <- err.Error()
+				}
+			}(n)
+		}
+		wg.Wait()
+		close(results)
+		var accepted int
+		var statuses []string
+		for result := range results {
+			statuses = append(statuses, result)
+			if result == "posted" {
+				accepted++
+			}
+		}
+		indCheck(t, accepted == 1, "cross-entry concurrency posted %d times: %v", accepted, statuses)
+		indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1", i.ID) == 1, "provider refund duplicated")
+		indCheck(t, e.count(t, "SELECT refunded_minor FROM core_payments.intents WHERE id=$1", i.ID) == 41, "refunded amount differs")
+		indCheck(t, before == e.blocked(t, i, ra), "quarantine mutated on resolution")
+		e.expectMoney(t, i.AccountID, 360000, 0, 0)
+		newHold := e.hold(t, user, i, "after_resolution", 7)
+		e.expectMoney(t, i.AccountID, 325000, 35000, 0)
+		_, err = e.bridge.Credit(ctx, i.ID, "ind_stale_credit_new_key", credit)
+		indDenied(t, err, "stale credit after refund")
+		e.expectMoney(t, i.AccountID, 325000, 35000, 0)
+		indJSON(t, filepath.Join(e.c.Root, "binding-capacity-result.json"), map[string]any{
+			"intent": i.ID, "quarantine_before": before, "quarantine_after": e.blocked(t, i, ra),
+			"concurrent_results": statuses, "new_hold_receipt": newHold.ID, "money": e.money(t, i.AccountID)})
+	})
+	t.Run("both_successes_over_payment_remain_fenced", func(t *testing.T) {
+		ctx := context.Background()
+		user, i := e.prepare(t, "over_refund_case", 113)
+		e.credit(t, i, "over_refund_case")
+		a := e.hold(t, user, i, "over_A", 41)
+		ra := e.bound(t, i, a, "over_A", 41)
+		failed := e.accept(t, i, indEvent(i, "evt_ind_over_A_failed", ra, "failed", a.ID, "", 41))
+		_, err := e.bridge.Release(ctx, i.ID, "ind_over_release_A", a.ID, failed)
+		indMust(t, err)
+		b := e.hold(t, user, i, "over_B", 113)
+		rb := e.bound(t, i, b, "over_B", 113)
+		late := e.accept(t, i, indEvent(i, "evt_ind_over_A_success", ra, "succeeded", a.ID, "", 41))
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_over_commit_A", a.ID, late)
+		indDenied(t, err, "A pending capacity")
+		blocked := e.blocked(t, i, ra)
+		bSuccess := e.accept(t, i, indEvent(i, "evt_ind_over_B_success", rb, "succeeded", b.ID, "", 113))
+		_, err = e.bridge.Commit(ctx, i.ID, "ind_over_commit_B", b.ID, bSuccess)
+		indMust(t, err)
+		for n := 0; n < 3; n++ {
+			_, err = e.bridge.Commit(ctx, i.ID, "ind_over_commit_A", a.ID, late)
+			indDenied(t, err, "over-refund retry")
+			_, err = e.bridge.ExternalRefund(ctx, i.ID, fmt.Sprintf("ind_over_external_%02d", n), late)
+			indDenied(t, err, "over-refund external entry")
+		}
+		indCheck(t, e.count(t, "SELECT refunded_minor FROM core_payments.intents WHERE id=$1", i.ID) == 113, "over-refund exceeded original payment")
+		indCheck(t, blocked == e.blocked(t, i, ra), "over-refund quarantine changed")
+		indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1", i.ID) == 1, "unsupported over-refund manufactured receipt")
+		_, err = e.bridge.Hold(ctx, user, i.ID, "ind_over_new_hold_001", 1)
+		indDenied(t, err, "new hold after unresolved over-refund")
+		e.expectMoney(t, i.AccountID, 0, 0, 0)
+		indJSON(t, filepath.Join(e.c.Root, "over-refund-result.json"), map[string]any{"intent": i.ID, "status": "FAIL_CLOSED_UNSUPPORTED_CONTRACT", "blocked": blocked})
+	})
+	t.Run("joint_worker_replay_loss_restart_debt_and_expiry", func(t *testing.T) {
+		indJoint(t, e)
+	})
+}
+
+type indRedirect struct{ base *url.URL }
+
+func (tr indRedirect) RoundTrip(r *http.Request) (*http.Response, error) {
+	c := r.Clone(r.Context())
+	u := *r.URL
+	u.Scheme, u.Host = tr.base.Scheme, tr.base.Host
+	c.URL, c.Host = &u, tr.base.Host
+	return (&http.Transport{Proxy: nil}).RoundTrip(c)
+}
+
+type indAction struct {
+	Kind, Order, Key string
+	Amount           int64
+	Evidence         *p.Evidence
+}
+type indPlan struct {
+	ProviderURL, User string
+	Account           int64
+	Actions           []indAction
+}
+
+func indWorker(t *testing.T, e *indEnv, plan indPlan, label string, wait bool) (*exec.Cmd, string) {
+	t.Helper()
+	planPath := filepath.Join(e.c.Root, "plan-"+label+".json")
+	resultPath := filepath.Join(e.c.Root, "worker-"+label+"-result.json")
+	indJSON(t, planPath, plan)
+	binary, err := os.Executable()
+	indMust(t, err)
+	cmd := exec.Command(binary, "-test.run=^TestIndependentWorker$", "-test.v", "-test.timeout=90s")
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "GOMAXPROCS=1", "GOMEMLIMIT=128MiB",
+		"A05_CONFIG=" + os.Getenv("A05_CONFIG"), "A05_PLAN=" + planPath, "A05_RESULT=" + resultPath}
+	log, err := os.OpenFile(filepath.Join(e.c.Root, "worker-"+label+".log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	indMust(t, err)
+	cmd.Stdout, cmd.Stderr = log, log
+	indMust(t, cmd.Start())
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/exe", cmd.Process.Pid))
+	indMust(t, err)
+	indJSON(t, filepath.Join(e.c.Root, "worker-"+label+"-identity.json"), map[string]any{"pid": cmd.Process.Pid, "executed_sha256": fmt.Sprintf("%x", sha256.Sum256(data))})
+	if wait {
+		err := cmd.Wait()
+		log.Close()
+		indCheck(t, err == nil, "independent worker %s failed; see private log", label)
+	} else {
+		t.Cleanup(func() { log.Close() })
+	}
+	return cmd, resultPath
+}
+func TestIndependentWorker(t *testing.T) {
+	if os.Getenv("A05_PLAN") == "" {
+		t.Skip("private independent parent required")
+	}
+	c := indReadConfig(t)
+	var plan indPlan
+	raw, err := os.ReadFile(os.Getenv("A05_PLAN"))
+	indMust(t, err)
+	indMust(t, json.Unmarshal(raw, &plan))
+	db, err := sql.Open("postgres", c.GoURL)
+	indMust(t, err)
+	defer db.Close()
+	db.SetMaxOpenConns(3)
+	ctx := context.Background()
+	store, err := p.NewPostgres(ctx, db, c.GoDatabase)
+	indMust(t, err)
+	client, err := coreclient.New(c.Socket, []byte(c.Token))
+	indMust(t, err)
+	defer client.Close()
+	bridge, err := rustbridge.New(client)
+	indMust(t, err)
+	adapter, err := p.NewStripe(p.StripeConfig{Channel: p.Channel{ID: 1, Provider: "stripe", Merchant: "acct_independent_a05", Environment: "test", Currency: "USD", Enabled: true},
+		APIKey: "sk_test_independent_synthetic_only", APIVersion: "independent-2026-fixture", SuccessURL: "https://ind.example.invalid/success", CancelURL: "https://ind.example.invalid/cancel"})
+	indMust(t, err)
+	u, err := url.Parse(plan.ProviderURL)
+	indMust(t, err)
+	indCheck(t, u.Scheme == "http" && u.Hostname() == "127.0.0.1", "fixture destination not owned loopback")
+	p.ReplaceStripeTransportForTest(adapter, indRedirect{u})
+	service, err := p.New(store, bridge, adapter)
+	indMust(t, err)
+	var results []any
+	for _, a := range plan.Actions {
+		var result any
+		switch a.Kind {
+		case "create":
+			result, err = service.Create(ctx, plan.User, p.PrepareRequest{Key: a.Key, AccountID: plan.Account, ChannelID: 1, Currency: "USD", AmountMinor: a.Amount})
+		case "receive":
+			r := httptest.NewRequest("POST", "http://127.0.0.1/callbacks/1", bytes.NewReader(a.Evidence.Payload))
+			r.Header.Set("Stripe-Signature", string(a.Evidence.Signature))
+			err = service.Receive(ctx, 1, r)
+		case "work":
+			err = service.Work(ctx, 100)
+		case "refund":
+			result, err = service.RequestRefund(ctx, plan.User, a.Order, a.Key, a.Amount)
+		case "reconcile":
+			err = service.Reconcile(ctx, a.Order)
+		case "get":
+			result, err = store.Get(ctx, a.Order)
+		default:
+			t.Fatalf("unknown independent operation %s", a.Kind)
+		}
+		indMust(t, err)
+		results = append(results, result)
+	}
+	indJSON(t, os.Getenv("A05_RESULT"), map[string]any{"pid": os.Getpid(), "results": results})
+}
+
+type indProvider struct {
+	mu     sync.Mutex
+	i      p.Intent
+	events map[string]map[string]any
+	posts  []map[string]string
+	e      *indEnv
+}
+
+func (s *indProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	var response any
+	switch {
+	case r.Method == "GET" && r.URL.Path == "/v1/account":
+		response = map[string]any{"id": s.i.Merchant}
+	case r.Method == "GET" && r.URL.Path == fmt.Sprintf("/v1/payment_intents/pi_%d", s.i.ID):
+		response = indObject(s.i)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/events/"):
+		response = s.events[strings.TrimPrefix(r.URL.Path, "/v1/events/")]
+	case r.Method == "GET" && r.URL.Path == "/v1/refunds":
+		response = map[string]any{"data": []any{}, "has_more": false}
+	case r.Method == "POST" && r.URL.Path == "/v1/checkout/sessions":
+		response = map[string]any{"id": "cs_independent_joint", "object": "checkout.session", "mode": "payment", "client_reference_id": fmt.Sprintf("top_%d", s.i.ID),
+			"metadata": map[string]string{"lmm_order_id": fmt.Sprintf("top_%d", s.i.ID)}, "amount_total": s.i.AmountMinor, "currency": "usd", "livemode": false,
+			"payment_intent": fmt.Sprintf("pi_%d", s.i.ID), "url": "https://checkout.stripe.com/c/pay/independent"}
+	case r.Method == "POST" && r.URL.Path == "/v1/refunds":
+		r.ParseForm()
+		record := map[string]string{"key": r.Header.Get("Idempotency-Key")}
+		for k := range r.Form {
+			record[k] = r.Form.Get(k)
+		}
+		var committed int
+		err := s.e.db.QueryRow("SELECT count(*) FROM core_payments.refund_dispatches WHERE intent_id=$1 AND hold_receipt_id=$2 AND operation_key=$3", s.i.ID, r.Form.Get("metadata[lmm_hold_receipt_id]"), record["key"]).Scan(&committed)
+		record["core_dispatch_count"] = fmt.Sprint(committed)
+		if err != nil {
+			http.Error(w, "fixture observation failed", 500)
+			return
+		}
+		s.posts = append(s.posts, record)
+		amount, _ := strconv.ParseInt(r.Form.Get("amount"), 10, 64)
+		response = map[string]any{"id": fmt.Sprintf("re_ind_joint_%d", len(s.posts)), "object": "refund", "status": "pending", "amount": amount,
+			"currency": "usd", "livemode": false, "payment_intent": fmt.Sprintf("pi_%d", s.i.ID),
+			"metadata": map[string]string{"lmm_order_id": r.Form.Get("metadata[lmm_order_id]"), "lmm_refund_id": r.Form.Get("metadata[lmm_refund_id]")}}
+	default:
+		http.Error(w, "unexpected independent fixture route", 500)
+		return
+	}
+	json.NewEncoder(w).Encode(response)
+}
+func indJoint(t *testing.T, e *indEnv) {
+	ctx := context.Background()
+	user, i := e.prepare(t, "joint_worker_case", 113)
+	orderID := fmt.Sprintf("top_%d", i.ID)
+	provider := &indProvider{i: i, events: map[string]map[string]any{}, e: e}
+	server := httptest.NewServer(provider)
+	defer server.Close()
+	base := indPlan{ProviderURL: server.URL, User: user, Account: i.AccountID}
+	step := 0
+	run := func(actions ...indAction) {
+		step++
+		plan := base
+		plan.Actions = actions
+		indWorker(t, e, plan, fmt.Sprintf("joint-%02d", step), true)
+	}
+	work := func(n int) {
+		a := make([]indAction, n)
+		for j := range a {
+			a[j].Kind = "work"
+		}
+		run(a...)
+	}
+	deliver := func(event map[string]any) p.Evidence {
+		provider.mu.Lock()
+		provider.events[event["id"].(string)] = event
+		provider.mu.Unlock()
+		ev := indEvidence(e.c, i, event)
+		run(indAction{Kind: "receive", Evidence: &ev})
+		return ev
+	}
+	snapshot := func() p.Order {
+		var raw []byte
+		indMust(t, e.goDB.QueryRow("SELECT snapshot FROM payment_orders WHERE id=$1", orderID).Scan(&raw))
+		var o p.Order
+		indMust(t, json.Unmarshal(raw, &o))
+		return o
+	}
+	findRefund := func(amount int64) p.Refund {
+		o := snapshot()
+		for _, r := range o.Refunds {
+			if r.AmountMinor == amount {
+				return r
+			}
+		}
+		t.Fatalf("refund amount %d missing", amount)
+		return p.Refund{}
+	}
+	run(indAction{Kind: "create", Key: i.Key, Amount: 113})
+	deliver(indEvent(i, "evt_ind_joint_credit", "", "", "", "", 0))
+	work(3)
+	e.expectMoney(t, i.AccountID, 565000, 0, 0)
+	run(indAction{Kind: "refund", Order: orderID, Key: "ind_joint_refund_A", Amount: 41})
+	work(2)
+	a := findRefund(41)
+	provider.mu.Lock()
+	postA := provider.posts[0]
+	provider.mu.Unlock()
+	indCheck(t, postA["core_dispatch_count"] == "1", "provider POST preceded committed dispatch")
+	deliver(indEvent(i, "evt_ind_joint_created_A", "re_ind_joint_1", "pending", a.HoldReceipt, postA["key"], 41))
+	deliver(indEvent(i, "evt_ind_joint_failed_A", "re_ind_joint_1", "failed", a.HoldReceipt, "", 41))
+	work(3)
+	indCheck(t, findRefund(41).State == "released", "failed A not released")
+	run(indAction{Kind: "refund", Order: orderID, Key: "ind_joint_refund_B", Amount: 101})
+	work(2)
+	b := findRefund(101)
+	provider.mu.Lock()
+	postB := provider.posts[1]
+	provider.mu.Unlock()
+	deliver(indEvent(i, "evt_ind_joint_created_B", "re_ind_joint_2", "pending", b.HoldReceipt, postB["key"], 101))
+	work(1)
+	lateEvent := indEvent(i, "evt_ind_joint_late_A", "re_ind_joint_1", "succeeded", a.HoldReceipt, "", 41)
+	late := deliver(lateEvent)
+	work(3)
+	var original p.Job
+	for _, j := range snapshot().Jobs {
+		if j.Kind == "commit" && j.RefundID == a.ID {
+			original = j
+		}
+	}
+	indCheck(t, original.State == "review" && original.ErrorCode == p.ErrConflict.Error() && original.Evidence.AcceptedProofID != "", "late A not in proof-bound review: %+v", original)
+	before := e.blocked(t, i, "re_ind_joint_1")
+	acceptedAt := time.Now()
+	var acceptedUnix int64
+	indMust(t, e.db.QueryRow("SELECT extract(epoch from accepted_at)::bigint FROM core_payments.accepted_proofs WHERE id=$1", original.Evidence.AcceptedProofID).Scan(&acceptedUnix))
+	acceptedAt = time.Unix(acceptedUnix, 0)
+	run(indAction{Kind: "reconcile", Order: orderID})
+	work(1)
+	e.expectMoney(t, i.AccountID, 60000, 505000, 0)
+	indCheck(t, findRefund(101).State == "held", "pending B reservation changed")
+
+	// Simulate the persisted old handler shape: it acknowledged success without
+	// queuing a financial job. Keep the real accepted proof and signed inbox row.
+	var oldJSON []byte
+	indMust(t, e.goDB.QueryRow("SELECT snapshot FROM payment_orders WHERE id=$1", orderID).Scan(&oldJSON))
+	var old map[string]any
+	indMust(t, json.Unmarshal(oldJSON, &old))
+	delete(old["jobs"].(map[string]any), original.Key)
+	r := old["refunds"].(map[string]any)[a.ID].(map[string]any)
+	r["provider_state"] = p.RefundFailed
+	old["error_code"] = "conflicting_refund_terminal_state"
+	bits, _ := json.Marshal(old)
+	_, err := e.goDB.Exec("UPDATE payment_orders SET snapshot=$2 WHERE id=$1", orderID, string(bits))
+	indMust(t, err)
+	indJSON(t, filepath.Join(e.c.Root, "joint-old-done-fixture.json"), map[string]any{"order": orderID, "removed_job": original.Key, "event": late.EventID, "reason": "explicit historical persisted-state fixture; Core evidence and funds unchanged"})
+	deliver(lateEvent)
+	work(2)
+	var restored p.Job
+	for _, j := range snapshot().Jobs {
+		if j.Key == original.Key {
+			restored = j
+		}
+	}
+	indCheck(t, restored.State == "review" && restored.Evidence.AcceptedProofID == original.Evidence.AcceptedProofID && bytes.Equal(restored.Evidence.Payload, original.Evidence.Payload), "old done replay did not reconstruct original settlement")
+	deliver(indEvent(i, "evt_ind_joint_failed_B", "re_ind_joint_2", "failed", b.HoldReceipt, "", 101))
+	work(3)
+	e.expectMoney(t, i.AccountID, 565000, 0, 0)
+	// Use the existing controlled ledger function to model already consumed
+	// funds. It is a synthetic consumption fixture, not model relay acceptance.
+	request, _ := json.Marshal(map[string]any{"scope": "independent", "operation_key": "joint_spend_before_recovery", "actor_user_id": nil,
+		"reason": "synthetic prior consumption", "action": map[string]any{"kind": "charge", "account_id": i.AccountID, "amount_units": 510000}})
+	var charged []byte
+	indMust(t, e.db.QueryRow("SELECT core_billing.post_ledger($1::jsonb)", string(request)).Scan(&charged))
+	indCheck(t, strings.Contains(string(charged), `"posted"`), "consumption fixture rejected: %s", charged)
+	e.expectMoney(t, i.AccountID, 55000, 0, 0)
+
+	// Let the actual wall clock expire the already accepted original webhook.
+	until := acceptedAt.Add(303 * time.Second)
+	indJSON(t, filepath.Join(e.c.Root, "expiry-wait-start.json"), map[string]any{"proof": original.Evidence.AcceptedProofID, "accepted_unix": acceptedUnix, "wait_until": until.Unix()})
+	for time.Now().Before(until) {
+		time.Sleep(time.Second)
+	}
+	freshless := original.Evidence
+	freshless.AcceptedProofID = ""
+	_, err = e.bridge.AcceptProof(ctx, i.ID, freshless)
+	indDenied(t, err, "expired original webhook at ingress")
+	proof, err := e.bridge.LookupProof(ctx, i.ID, original.Evidence)
+	indMust(t, err)
+	indCheck(t, proof.ID == original.Evidence.AcceptedProofID, "expired original proof lookup changed identity")
+	indJSON(t, filepath.Join(e.c.Root, "expiry-result.json"), map[string]any{"elapsed_seconds": time.Now().Unix() - acceptedUnix, "proof": proof.ID, "fresh_ingress_denied": true, "durable_lookup_same": true})
+	run(indAction{Kind: "reconcile", Order: orderID})
+	o := snapshot()
+	job := o.Jobs[original.Key]
+	indCheck(t, job.State == "pending" && job.Evidence.AcceptedProofID == original.Evidence.AcceptedProofID && bytes.Equal(job.Evidence.Payload, original.Evidence.Payload), "reconcile did not reuse original key/proof")
+
+	// Block the Go local receipt update AFTER Core COMMIT, then kill/reap the
+	// real worker and Core. This loses the local ACK; Core reply loss is separate.
+	_, err = e.goDB.Exec(`CREATE FUNCTION public.ind_pause() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF NEW.snapshot->'refunds'->$q$` + a.ID + `$q$->>'state'='committed' THEN PERFORM pg_sleep(45); END IF; RETURN NEW; END $$;
+CREATE TRIGGER ind_pause BEFORE UPDATE ON payment_orders FOR EACH ROW EXECUTE FUNCTION public.ind_pause();`)
+	indMust(t, err)
+	plan := base
+	plan.Actions = []indAction{{Kind: "work"}}
+	child, _ := indWorker(t, e, plan, "interrupted", false)
+	deadline := time.Now().Add(12 * time.Second)
+	for {
+		commits := e.count(t, "SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1", i.ID)
+		var sleeps int
+		indMust(t, e.goDB.QueryRow("SELECT count(*) FROM pg_stat_activity WHERE usename='a05_go' AND wait_event='PgSleep'").Scan(&sleeps))
+		if commits == 1 && sleeps > 0 {
+			break
+		}
+		indCheck(t, time.Now().Before(deadline), "did not witness Core commit before Go local receipt pause")
+		time.Sleep(20 * time.Millisecond)
+	}
+	e.expectMoney(t, i.AccountID, 0, 0, -150000)
+	window := snapshot()
+	indCheck(t, window.Jobs[original.Key].State == "running", "crash window local job not running")
+	oldPID := child.Process.Pid
+	indMust(t, child.Process.Kill())
+	indCheck(t, child.Wait() != nil, "interrupted worker unexpectedly successful")
+	_, err = os.Stat(fmt.Sprintf("/proc/%d", oldPID))
+	indCheck(t, os.IsNotExist(err), "old worker PID remains")
+	e.stop(t)
+	_, err = e.goDB.Exec("DROP TRIGGER ind_pause ON payment_orders; DROP FUNCTION public.ind_pause();")
+	indMust(t, err)
+	e.start(t)
+	leaseUntil := window.Jobs[original.Key].LeaseUntil
+	for time.Now().Before(leaseUntil.Add(time.Second)) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	work(3)
+	final := snapshot()
+	indCheck(t, final.Refunds[a.ID].State == "committed" && final.Jobs[original.Key].State == "done", "original job not recovered after OS restart")
+	indCheck(t, final.Jobs[original.Key].Evidence.AcceptedProofID == original.Evidence.AcceptedProofID, "restart replaced original proof")
+	e.expectMoney(t, i.AccountID, 0, 0, -150000)
+	indCheck(t, before == e.blocked(t, i, "re_ind_joint_1"), "blocked evidence changed after recovery")
+	indCheck(t, e.count(t, "SELECT refunded_minor FROM core_payments.intents WHERE id=$1", i.ID) == 41, "restart duplicated refund amount")
+	indCheck(t, e.count(t, "SELECT count(*) FROM core_payments.receipts WHERE intent_id=$1 AND method='commit'", i.ID) == 1, "restart duplicated commit receipt")
+	var exactLegs []byte
+	indMust(t, e.db.QueryRow(`SELECT json_agg(json_build_object('bucket',a.bucket,'delta',x.delta_units) ORDER BY a.bucket)
+FROM core_payments.provider_refunds r JOIN core_payments.receipts p ON p.id=r.receipt_id
+JOIN core_billing.ledger_journals j ON j.id=(SELECT id FROM core_billing.ledger_journals WHERE refund_reference=$2)
+JOIN core_billing.ledger_entries x ON x.journal_id=j.id JOIN core_billing.ledger_accounts a ON a.id=x.ledger_account_id
+WHERE r.intent_id=$1`, i.ID, fmt.Sprintf("stripe:1:re_ind_joint_1")).Scan(&exactLegs))
+	var legs []struct {
+		Bucket string
+		Delta  int64
+	}
+	indMust(t, json.Unmarshal(exactLegs, &legs))
+	indCheck(t, len(legs) == 3 && legs[0].Bucket == "clearing" && legs[0].Delta == 205000 && legs[1].Bucket == "debt" && legs[1].Delta == -150000 && legs[2].Bucket == "wallet" && legs[2].Delta == -55000, "wrong exact refund legs: %s", exactLegs)
+	provider.mu.Lock()
+	posts := provider.posts
+	provider.mu.Unlock()
+	indCheck(t, len(posts) == 2, "reconciliation repeated provider write: %d POSTs", len(posts))
+	indJSON(t, filepath.Join(e.c.Root, "joint-result.json"), map[string]any{"intent": i.ID, "original_job": original, "before_crash": window, "after_restart": final,
+		"provider_posts": posts, "ledger_legs": json.RawMessage(exactLegs), "debt": e.money(t, i.AccountID), "killed_worker_pid": oldPID,
+		"scope": "real Core main + independently authored Go module workers; synthetic external provider; local receipt ACK loss"})
+}

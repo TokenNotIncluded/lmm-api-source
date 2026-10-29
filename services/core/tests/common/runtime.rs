@@ -45,6 +45,24 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#)).execute(owner).await.unwrap();
+        let email_installed: bool =
+            sqlx::query_scalar("SELECT to_regclass('core_identity.email_addresses') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if email_installed {
+            let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                .split_once(
+                    "-- Email authority and delivery: only the columns changed by the writers.\n",
+                )
+                .unwrap()
+                .1
+                .split_once("\\if :enable_oauth2\n")
+                .unwrap()
+                .0
+                .replace(":\"runtime_role\"", &name);
+            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+        }
         // Identity/ledger-only fixtures intentionally omit optional components.
         // Complete runtime provisioning/checking remains strict in production.
         let abuse_installed: bool =

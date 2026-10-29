@@ -85,9 +85,9 @@ return value only to the original economic payer. Enforce the cumulative origina
 amount cap. Hold funds before a provider refund; independently verified terminal
 success commits the bound refund. A terminal failure can release a hold only when
 Core can bind it to the original dispatch and rule out another successful send.
-The current refund-release path remains unavailable and retains the hold. Timeout,
-missing callback or unsigned success proves neither. A pre-credit refund must fence later
-stale credit replay. Ledger refund and external provider payout are separate steps.
+Timeout, missing callback or unsigned success proves neither. A pre-credit refund
+must fence later stale credit replay. Ledger refund and external provider payout
+are separate steps.
 
 Native top-up refunds use `refund_topup` against the original credit journal.
 The ledger takes available wallet units first, then restores debt for any
@@ -98,6 +98,22 @@ the original receipt. A duplicate reference is a conflict, not a new unresolved
 refund fact. Refund counters, ledger changes, hold release and receipts commit
 together. After a failed response, query/reconcile the original operation; do not
 assume rollback or create a replacement request key.
+
+A signed success can arrive after the same provider refund's failure released its
+hold. Core can settle that success only for the original dispatch binding and
+within the remaining payment capacity. A newer held refund still occupies that
+capacity. Keep a blocked success as immutable evidence; pending or UNKNOWN work
+cannot release the competing hold. Once Core confirms its bound failure/release,
+the Go worker durably requeues only the original accepted-proof settlement job
+with the same operation key. Normal host scheduling resumes it, including after
+restart; no extra provider refund POST or manual reconciliation call is required.
+Core still decides whether the capacity and ledger checks permit settlement.
+
+A matching provider-refund receipt resolves a quarantined success; its blocked
+evidence remains, and the stale-credit fence stays set. If signed successes total
+more than the original payment, retain the unresolved conflict. Individual success
+events do not establish an authoritative net settlement, reversal, or loss
+allocation, and cannot authorize exceeding the original payment or ledger cap.
 
 This bridge requires the original native credit. It does not enable historical
 refund dispatch or turn an opening balance into a replayed top-up. The legacy

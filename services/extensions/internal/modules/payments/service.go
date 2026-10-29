@@ -493,9 +493,8 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 		if r.ProviderState == RefundSucceeded && e.Type != RefundSucceeded {
 			return nil
 		} // No terminal regression.
-		if r.ProviderState == RefundFailed && e.Type == RefundSucceeded {
-			o.ErrorCode = "conflicting_refund_terminal_state"
-			return nil
+		if r.ProviderState == RefundFailed && e.Type == RefundSucceeded && o.ErrorCode == "conflicting_refund_terminal_state" {
+			o.ErrorCode = ""
 		}
 		if e.Type == RefundPending {
 			if r.ProviderState == RefundFailed {
@@ -553,5 +552,27 @@ func (s *Service) Reconcile(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return nil
+	// Explicit trusted-worker recovery retries financial settlement only, using
+	// its original accepted proof and key. Core decides whether capacity is now
+	// sufficient. Never requeue a provider write or manufacture failure evidence.
+	return s.store.Mutate(ctx, id, func(o *Order) error {
+		resumeRefundSettlements(o, s.now())
+		return nil
+	})
+}
+
+func resumeRefundSettlements(o *Order, now time.Time) {
+	for key, job := range o.Jobs {
+		if (job.Kind != "commit" && job.Kind != "external_refund") || job.State != "review" || job.ErrorCode != ErrConflict.Error() || job.Evidence.AcceptedProofID == "" {
+			continue
+		}
+		r := o.Refunds[job.RefundID]
+		if r.ProviderState != RefundSucceeded || r.State == "committed" {
+			continue
+		}
+		job.State = "pending"
+		job.ErrorCode = ""
+		job.NextAttempt = now
+		o.Jobs[key] = job
+	}
 }

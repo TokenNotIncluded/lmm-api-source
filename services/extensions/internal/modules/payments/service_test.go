@@ -324,7 +324,7 @@ func TestLegacyRefundAndExpiredIdempotencyNeverResubmitted(t *testing.T) {
 		})
 	}
 }
-func TestVerifiedTerminalFailureReleasesButLateFailureCannotUndoSuccess(t *testing.T) {
+func TestVerifiedTerminalFailureAndLateSuccessRecovery(t *testing.T) {
 	for _, successFirst := range []bool{false, true} {
 		t.Run(fmt.Sprint(successFirst), func(t *testing.T) {
 			h := setup(t)
@@ -352,10 +352,70 @@ func TestVerifiedTerminalFailureReleasesButLateFailureCannotUndoSuccess(t *testi
 				if o.Refunds[r.ID].State != "committed" || h.c.count("release") != 0 {
 					t.Fatal("late failed refund regressed")
 				}
-			} else if o.Refunds[r.ID].State != "released" || h.c.count("release") != 1 {
-				t.Fatal("verified failure not released")
+			} else {
+				if o.Refunds[r.ID].State != "released" || h.c.count("release") != 1 {
+					t.Fatal("verified failure not released")
+				}
+				wrong := h.event(o, "evt_late_success_other_refund", RefundSucceeded, 500)
+				wrong.RefundID = "re_other_attempt"
+				wrong.LocalRefundID = r.ID
+				h.send(wrong)
+				h.work()
+				inbox := h.m.events[eventKey(wrong)]
+				if inbox.Status != "review" || inbox.ErrorCode != ErrConflict.Error() {
+					t.Fatal("different provider refund was not sent for review", inbox)
+				}
+				if h.get(o.ID).Refunds[r.ID].State != "released" || h.c.count("commit") != 0 {
+					t.Fatal("different provider refund consumed the released hold")
+				}
+				late := h.event(o, "evt_late_success_same_refund", RefundSucceeded, 500)
+				late.RefundID = r.ProviderID
+				late.LocalRefundID = r.ID
+				h.send(late)
+				// Recreate the old handler's acknowledged success without a job.
+				if err := h.m.FinishEvent(context.Background(), eventKey(late), "done", "", h.s.now()); err != nil {
+					t.Fatal(err)
+				}
+				if err := h.m.Mutate(context.Background(), o.ID, func(o *Order) error {
+					o.ErrorCode = "conflicting_refund_terminal_state"
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				h.send(late)
+				h.work()
+				h.send(late)
+				h.work()
+				if h.get(o.ID).Refunds[r.ID].State != "committed" ||
+					h.get(o.ID).ErrorCode != "" || h.c.count("release") != 1 || h.c.count("commit") != 1 {
+					t.Fatal("late success did not commit once after the bound failure")
+				}
 			}
 		})
+	}
+}
+
+func TestExternalRefundFailedThenSucceededSettlesOnce(t *testing.T) {
+	h := setup(t)
+	o := h.paid()
+	failed := h.event(o, "evt_external_failed", RefundFailed, 500)
+	failed.RefundID = "re_external_late"
+	h.send(failed)
+	h.work()
+	rid := stableKey("external", o.Namespace, failed.RefundID)
+	if h.get(o.ID).Refunds[rid].State != "released" {
+		t.Fatal("external failure not recorded")
+	}
+	success := failed
+	success.Type = RefundSucceeded
+	success.Evidence.EventID = "evt_external_succeeded"
+	h.send(success)
+	h.work()
+	h.send(success)
+	h.work()
+	if h.get(o.ID).Refunds[rid].State != "committed" ||
+		h.c.count("external") != 1 || h.c.count("release") != 0 || h.c.count("commit") != 0 {
+		t.Fatal("external late success did not settle once")
 	}
 }
 func TestRefundCommitLostResponseReconciled(t *testing.T) {

@@ -357,6 +357,10 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			r := o.Refunds[j.RefundID]
 			r.State = "released"
 			o.Refunds[r.ID] = r
+			// A confirmed Core release can free a competing refund's capacity.
+			// Persist its original settlement retry with this receipt so the host
+			// worker also recovers it after a crash, without another provider POST.
+			resumeRefundSettlements(o, s.now())
 		}
 		o.Jobs[j.Key] = j
 		return nil

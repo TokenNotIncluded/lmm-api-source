@@ -156,6 +156,7 @@ struct HoldRow {
     credit_units: i64,
     reservation_journal_id: i64,
     state: String,
+    provider_refund_id: Option<String>,
 }
 
 fn valid_id(value: &str) -> bool {
@@ -846,6 +847,16 @@ impl PaymentsStore {
         Ok(receipt)
     }
 
+    async fn refund_capacity(connection: &mut PgConnection, intent: &IntentRow) -> Result<i64> {
+        let held: i64 = sqlx::query_scalar("SELECT COALESCE(sum(amount_minor),0)::bigint FROM core_payments.refund_holds WHERE intent_id=$1 AND state='held'")
+            .bind(intent.id).fetch_one(connection).await?;
+        intent
+            .amount_minor
+            .checked_sub(intent.refunded_minor)
+            .and_then(|remaining| remaining.checked_sub(held))
+            .ok_or(Error::Conflict)
+    }
+
     pub async fn hold(
         &self,
         credential: &str,
@@ -868,7 +879,7 @@ impl PaymentsStore {
             return Err(Error::Invalid);
         }
         let blocked: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM core_payments.blocked_refunds WHERE intent_id=$1)",
+            "SELECT EXISTS(SELECT 1 FROM core_payments.blocked_refunds b WHERE b.intent_id=$1 AND NOT EXISTS(SELECT 1 FROM core_payments.provider_refunds r WHERE r.channel_id=b.channel_id AND r.refund_id=b.refund_id))",
         )
         .bind(intent.id)
         .fetch_one(&mut *tx)
@@ -876,15 +887,7 @@ impl PaymentsStore {
         if blocked {
             return Err(Error::Unavailable);
         }
-        let held: i64 = sqlx::query_scalar("SELECT COALESCE(sum(amount_minor),0)::bigint FROM core_payments.refund_holds WHERE intent_id=$1 AND state='held'")
-            .bind(intent.id).fetch_one(&mut *tx).await?;
-        if request.refund_amount_minor
-            > intent
-                .amount_minor
-                .checked_sub(intent.refunded_minor)
-                .and_then(|v| v.checked_sub(held))
-                .ok_or(Error::Conflict)?
-        {
+        if request.refund_amount_minor > Self::refund_capacity(&mut tx, &intent).await? {
             return Err(Error::Conflict);
         }
         let amount = request
@@ -936,7 +939,7 @@ impl PaymentsStore {
             tx.commit().await?;
             return Ok(prior);
         }
-        let hold: HoldRow = sqlx::query_as("SELECT receipt_id,amount_minor,credit_units,reservation_journal_id,state FROM core_payments.refund_holds WHERE receipt_id=$1 AND intent_id=$2 FOR UPDATE")
+        let hold: HoldRow = sqlx::query_as("SELECT receipt_id,amount_minor,credit_units,reservation_journal_id,state,provider_refund_id FROM core_payments.refund_holds WHERE receipt_id=$1 AND intent_id=$2 FOR UPDATE")
             .bind(&request.hold_receipt_id).bind(intent.id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if hold.state != "held" || intent.credit_journal_id.is_none() {
             return Err(Error::Conflict);
@@ -1038,27 +1041,44 @@ impl PaymentsStore {
         {
             return Err(Error::Denied);
         }
-        let hold: HoldRow = sqlx::query_as("SELECT receipt_id,amount_minor,credit_units,reservation_journal_id,state FROM core_payments.refund_holds WHERE receipt_id=$1 AND intent_id=$2 FOR UPDATE")
+        let hold: HoldRow = sqlx::query_as("SELECT receipt_id,amount_minor,credit_units,reservation_journal_id,state,provider_refund_id FROM core_payments.refund_holds WHERE receipt_id=$1 AND intent_id=$2 FOR UPDATE")
             .bind(&request.hold_receipt_id).bind(intent.id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
-        if hold.state != "held"
+        let refund_id = verified.refund_id.as_deref().ok_or(Error::Invalid)?;
+        // A later success may follow a released failure; only the same bound
+        // provider refund can then debit the funds that were made available.
+        let released_dispatch_matches = commit
+            && hold.state == "released"
+            && hold.provider_refund_id.as_deref() == Some(refund_id);
+        if (hold.state != "held" && !released_dispatch_matches)
             || hold.amount_minor != verified.amount_minor
             || intent.credit_journal_id.is_none()
         {
             return Err(Error::Conflict);
         }
-        let refund_id = verified.refund_id.ok_or(Error::Invalid)?;
+        if commit {
+            Self::check_refund_recovery(&mut tx, &intent, evidence, &verified).await?;
+        }
+        if released_dispatch_matches
+            && hold.amount_minor > Self::refund_capacity(&mut tx, &intent).await?
+        {
+            Self::block_capacity(&mut tx, &intent, evidence, &verified).await?;
+            tx.commit().await?;
+            return Err(Error::Conflict);
+        }
         if !commit {
             // A failed A cannot release a hold dispatched as B. Neither a Go
             // response nor hold metadata establishes this binding: only the
             // provider-signed creation request bound it at proof ingress.
             let bound: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_payments.refund_dispatch_bindings WHERE hold_receipt_id=$1 AND channel_id=$2 AND refund_id=$3) AND NOT EXISTS(SELECT 1 FROM core_payments.accepted_proofs WHERE intent_id=$4 AND verified_facts->>'hold_receipt_id'=$1 AND verified_facts->>'refund_id' IS NOT NULL AND verified_facts->>'refund_id'<>$3 AND verified_facts->>'kind' IN ('RefundPending','RefundSucceeded'))")
-                .bind(&hold.receipt_id).bind(intent.channel_id).bind(&refund_id).bind(intent.id)
+                .bind(&hold.receipt_id).bind(intent.channel_id).bind(refund_id).bind(intent.id)
                 .fetch_one(&mut *tx).await?;
             if !bound {
                 return Err(Error::Denied);
             }
         }
-        Self::release_hold(&mut tx, &intent, key, &hold).await?;
+        if hold.state == "held" {
+            Self::release_hold(&mut tx, &intent, key, &hold).await?;
+        }
         let receipt = if commit {
             let outcome = Self::post(
                 &mut tx,
@@ -1069,7 +1089,7 @@ impl PaymentsStore {
                 Action::RefundTopup {
                     journal_id: intent.credit_journal_id.ok_or(Error::Conflict)?,
                     amount_units: units(hold.credit_units)?,
-                    refund_reference: topup_refund_reference(&intent, &refund_id)?,
+                    refund_reference: topup_refund_reference(&intent, refund_id)?,
                 },
             )
             .await?;
@@ -1105,9 +1125,9 @@ impl PaymentsStore {
             .await?
         };
         sqlx::query("UPDATE core_payments.refund_holds SET state=$2,provider_refund_id=$3 WHERE receipt_id=$1")
-            .bind(&hold.receipt_id).bind(if commit {"committed"} else {"released"}).bind(&refund_id).execute(&mut *tx).await?;
+            .bind(&hold.receipt_id).bind(if commit {"committed"} else {"released"}).bind(refund_id).execute(&mut *tx).await?;
         if commit {
-            Self::refund_event(&mut tx, &intent, &refund_id, hold.amount_minor, &receipt).await?;
+            Self::refund_event(&mut tx, &intent, refund_id, hold.amount_minor, &receipt).await?;
         }
         Self::event(&mut tx, &intent, evidence, &receipt).await?;
         tx.commit().await?;
@@ -1172,6 +1192,59 @@ impl PaymentsStore {
         Ok(())
     }
 
+    /// A capacity quarantine is immutable evidence, not an irreversible verdict.
+    /// Only its original accepted success may be retried. The normal capacity,
+    /// hold binding and ledger checks still run under the locked intent.
+    async fn check_refund_recovery(
+        tx: &mut Transaction<'_, Postgres>,
+        intent: &IntentRow,
+        evidence: &pb::ProviderEvidence,
+        verified: &stripe::Verified,
+    ) -> Result<()> {
+        let refund = verified.refund_id.as_deref().ok_or(Error::Invalid)?;
+        let settled: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_payments.provider_refunds WHERE channel_id=$1 AND refund_id=$2)")
+            .bind(intent.channel_id).bind(refund).fetch_one(&mut **tx).await?;
+        if settled {
+            return Err(Error::Conflict);
+        }
+        let blocked: Option<(i64, String, i64, Vec<u8>, String)> = sqlx::query_as(
+            "SELECT intent_id,event_id,amount_minor,payload_hash,reason FROM core_payments.blocked_refunds WHERE channel_id=$1 AND refund_id=$2",
+        )
+        .bind(intent.channel_id).bind(refund).fetch_optional(&mut **tx).await?;
+        if let Some((id, event, amount, payload, reason)) = blocked
+            && (id != intent.id
+                || event != verified.event_id
+                || amount != verified.amount_minor
+                || payload != Sha256::digest(&evidence.signed_payload).to_vec()
+                || reason != "refund_capacity_requires_reconciliation")
+        {
+            return Err(Error::Conflict);
+        }
+        Ok(())
+    }
+
+    async fn block_capacity(
+        tx: &mut Transaction<'_, Postgres>,
+        intent: &IntentRow,
+        evidence: &pb::ProviderEvidence,
+        verified: &stripe::Verified,
+    ) -> Result<()> {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_payments.blocked_refunds WHERE channel_id=$1 AND refund_id=$2)")
+            .bind(intent.channel_id).bind(verified.refund_id.as_deref().ok_or(Error::Invalid)?)
+            .fetch_one(&mut **tx).await?;
+        if !exists {
+            Self::block_external(
+                tx,
+                intent,
+                evidence,
+                verified,
+                "refund_capacity_requires_reconciliation",
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     pub async fn external_refund(
         &self,
         request: pb::ExternalRefundRequest,
@@ -1193,12 +1266,10 @@ impl PaymentsStore {
             return Err(Error::Invalid);
         }
         let refund_id = verified.refund_id.as_deref().ok_or(Error::Invalid)?;
-        let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_payments.blocked_refunds WHERE channel_id=$1 AND refund_id=$2)")
-            .bind(intent.channel_id).bind(refund_id).fetch_one(&mut *tx).await?;
-        if blocked {
-            return Err(Error::Conflict);
-        }
+        Self::check_refund_recovery(&mut tx, &intent, evidence, &verified).await?;
         if verified.amount_minor > intent.amount_minor - intent.refunded_minor {
+            Self::block_capacity(&mut tx, &intent, evidence, &verified).await?;
+            tx.commit().await?;
             return Err(Error::Conflict);
         }
         if intent.credit_journal_id.is_none() && verified.amount_minor != intent.amount_minor {
@@ -1218,22 +1289,49 @@ impl PaymentsStore {
         }
         let mut journal_id = 0;
         if let Some(credit) = intent.credit_journal_id {
-            // An event from our own held refund must resolve exactly that hold;
-            // an unbound external refund cannot arbitrarily release other holds.
-            let held: Vec<HoldRow> = sqlx::query_as("SELECT receipt_id,amount_minor,credit_units,reservation_journal_id,state FROM core_payments.refund_holds WHERE intent_id=$1 AND state='held' ORDER BY receipt_id FOR UPDATE")
+            let holds: Vec<HoldRow> = sqlx::query_as("SELECT receipt_id,amount_minor,credit_units,reservation_journal_id,state,provider_refund_id FROM core_payments.refund_holds WHERE intent_id=$1 ORDER BY receipt_id FOR UPDATE")
                 .bind(intent.id).fetch_all(&mut *tx).await?;
             if let Some(hold_id) = verified.hold_receipt_id.as_ref() {
-                let hold = held
+                let hold = holds
                     .iter()
                     .find(|h| &h.receipt_id == hold_id)
                     .ok_or(Error::Conflict)?;
                 if hold.amount_minor != verified.amount_minor {
                     return Err(Error::Conflict);
                 }
-                Self::release_hold(&mut tx, &intent, key, hold).await?;
-                sqlx::query("UPDATE core_payments.refund_holds SET state='committed',provider_refund_id=$2 WHERE receipt_id=$1")
-                    .bind(hold_id).bind(refund_id).execute(&mut *tx).await?;
-            } else if !held.is_empty() {
+                match hold.state.as_str() {
+                    "held" => {
+                        Self::release_hold(&mut tx, &intent, key, hold).await?;
+                        sqlx::query("UPDATE core_payments.refund_holds SET state='committed',provider_refund_id=$2 WHERE receipt_id=$1")
+                            .bind(hold_id).bind(refund_id).execute(&mut *tx).await?;
+                    }
+                    "released" if hold.provider_refund_id.as_deref() == Some(refund_id) => {
+                        if hold.amount_minor > Self::refund_capacity(&mut tx, &intent).await? {
+                            Self::block_capacity(&mut tx, &intent, evidence, &verified).await?;
+                            tx.commit().await?;
+                            return Err(Error::Conflict);
+                        }
+                        sqlx::query("UPDATE core_payments.refund_holds SET state='committed' WHERE receipt_id=$1")
+                            .bind(hold_id).execute(&mut *tx).await?;
+                    }
+                    "committed" if hold.provider_refund_id.as_deref() == Some(refund_id) => {
+                        return Err(Error::Conflict);
+                    }
+                    "released" | "committed" => {
+                        Self::block_external(
+                            &mut tx,
+                            &intent,
+                            evidence,
+                            &verified,
+                            "refund_hold_binding_conflict",
+                        )
+                        .await?;
+                        tx.commit().await?;
+                        return Err(Error::Conflict);
+                    }
+                    _ => return Err(Error::Conflict),
+                }
+            } else if holds.iter().any(|hold| hold.state == "held") {
                 Self::block_external(
                     &mut tx,
                     &intent,
@@ -1266,10 +1364,8 @@ impl PaymentsStore {
                 journal_id: posted, ..
             } = outcome
             else {
-                // No own hold was released on this path. Held refunds resolve
-                // through resolve() so a failed post always rolls back release.
-                // A duplicate provider refund id already posted; do not fence it
-                // as an unresolved debt fact.
+                // Roll back a matched hold transition and any release on failure.
+                // A duplicate refund must not become another unresolved debt fact.
                 if verified.hold_receipt_id.is_some()
                     || matches!(
                         outcome,

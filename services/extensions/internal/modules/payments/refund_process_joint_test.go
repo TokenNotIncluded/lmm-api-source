@@ -90,7 +90,7 @@ func TestRefundProcessWorkerFixture(t *testing.T) {
 	if path == "" {
 		t.Skip("isolated refund process orchestrator required; NOT RUN")
 	}
-	if phase != "dispatch" && phase != "recover" {
+	if phase != "dispatch" && phase != "recover" && phase != "capacity" {
 		t.Fatal("invalid refund process phase")
 	}
 	info, err := os.Stat(path)
@@ -166,6 +166,10 @@ func TestRefundProcessWorkerFixture(t *testing.T) {
 		}
 	}
 	orderID := "top_" + strconv.FormatInt(f.IntentID, 10)
+	if phase == "capacity" {
+		runCapacityRecovery(t, ctx, f, store, service, deliver)
+		return
+	}
 	if phase == "dispatch" {
 		_, err = service.Create(ctx, f.User, p.PrepareRequest{Key: f.PrepareKey, AccountID: f.Account, ChannelID: 1, Currency: "USD", AmountMinor: 100})
 		if err != nil {
@@ -258,27 +262,211 @@ func TestRefundProcessWorkerFixture(t *testing.T) {
 	if err != nil || order.Refunds[original.ID].State != "released" {
 		t.Fatal("bound failure did not release real Core hold")
 	}
+	refundPrivateJSON(t, filepath.Join(f.MarkerDir, "released.json"), map[string]any{
+		"pid":    os.Getpid(),
+		"refund": order.Refunds[original.ID],
+	})
+	for {
+		if _, err = os.Stat(filepath.Join(f.MarkerDir, "late-success.ready")); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal("cannot read late-success gate")
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("late-success gate deadline")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 	// A fresh valid signature does not make a changed payload for an existing
-	// event ID valid, nor can later success consume a previously released hold.
+	// event ID valid. A late provider success follows the real webhook route.
 	conflicting := refundEvidence(f, evidence.ConflictingID)
 	if _, err = bridge.AcceptProof(ctx, f.IntentID, conflicting); !errors.Is(err, p.ErrConflict) {
 		t.Fatalf("conflicting signed event ID accepted: %v", err)
 	}
-	late := refundEvidence(f, evidence.LateSuccess)
-	proof, err := bridge.AcceptProof(ctx, f.IntentID, late)
+	deliver(evidence.LateSuccess)
+	// Seed the old handler's durable done inbox without a settlement job.
+	// Replaying the same signed webhook must repair it through the real worker.
+	lateID := refundEvidence(f, evidence.LateSuccess).EventID
+	pending, err := store.Events(ctx, time.Now(), 100)
 	if err != nil {
-		t.Fatal("late authentic proof not retained")
+		t.Fatal(err)
 	}
-	late.AcceptedProofID = proof.ID
-	if _, err = bridge.Commit(ctx, f.IntentID, "commit_after_release_os01", original.HoldReceipt, late); !errors.Is(err, p.ErrConflict) {
-		t.Fatalf("success after release consumed reservation: %v", err)
+	found := false
+	for _, event := range pending {
+		if event.Evidence.EventID == lateID {
+			if err = store.FinishEvent(ctx, event.Key, "done", "", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			found = true
+		}
 	}
-	refundPrivateJSON(t, filepath.Join(f.MarkerDir, "settled.json"), map[string]any{"pid": os.Getpid(), "refund": order.Refunds[original.ID], "submit_key": submitKey, "duplicate_events_checked": true, "conflicting_event_id_denied": true, "success_after_release_denied": true})
+	if !found {
+		t.Fatal("accepted late success not present in durable inbox")
+	}
+	if err = store.Mutate(ctx, orderID, func(order *p.Order) error {
+		order.ErrorCode = "conflicting_refund_terminal_state"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deliver(evidence.LateSuccess)
+	for i := 0; i < 3; i++ {
+		if err = service.Work(ctx, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	order, err = store.Get(ctx, orderID)
+	if err != nil || order.Refunds[original.ID].State != "committed" || order.ErrorCode != "" {
+		t.Fatal("late success did not commit through the Go worker and Core")
+	}
+	refundPrivateJSON(t, filepath.Join(f.MarkerDir, "settled.json"), map[string]any{
+		"pid":                             os.Getpid(),
+		"refund":                          order.Refunds[original.ID],
+		"submit_key":                      submitKey,
+		"duplicate_events_checked":        true,
+		"conflicting_event_id_denied":     true,
+		"success_after_release_committed": true,
+		"legacy_done_success_replayed":    true,
+	})
 	// Keep the actual executed image alive for parent FD/PID attestation.
 	for {
 		select {
 		case <-ctx.Done():
 			t.Fatal("orchestrator did not reap settled worker")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// This additional case keeps the original response-loss case and its exact
+// assertions intact. Both competing refunds use the real module worker and Core.
+func runCapacityRecovery(t *testing.T, ctx context.Context, f refundProcessFixture, store *p.Postgres, service *p.Service, deliver func(refundSignedEvent)) {
+	t.Helper()
+	orderID := "top_" + strconv.FormatInt(f.IntentID, 10)
+	work := func() {
+		for i := 0; i < 3; i++ {
+			if err := service.Work(ctx, 100); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	wait := func(name string) {
+		for {
+			if _, err := os.Stat(filepath.Join(f.MarkerDir, name)); err == nil {
+				return
+			} else if !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("capacity checkpoint deadline")
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	}
+	evidence := func(n string) refundRecoveryEvidence {
+		raw, err := os.ReadFile(filepath.Join(f.MarkerDir, "capacity-post-"+n+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var e refundRecoveryEvidence
+		if json.Unmarshal(raw, &e) != nil {
+			t.Fatal("invalid capacity evidence")
+		}
+		return e
+	}
+	if _, err := service.Create(ctx, f.User, p.PrepareRequest{Key: f.PrepareKey, AccountID: f.Account, ChannelID: 1, Currency: "USD", AmountMinor: 100}); err != nil {
+		t.Fatal(err)
+	}
+	deliver(refundSignedEvent{Payload: f.Events[0].Payload, Signature: f.Events[0].Signature})
+	work()
+	old, err := service.RequestRefund(ctx, f.User, orderID, "capacity_old_refund_001", 40)
+	if err != nil || old.HoldReceipt == "" {
+		t.Fatal("old hold missing", err)
+	}
+	work()
+	a := evidence("1")
+	deliver(a.Created)
+	deliver(a.Failed)
+	work()
+	order, err := store.Get(ctx, orderID)
+	if err != nil || order.Refunds[old.ID].State != "released" {
+		t.Fatal("old failure did not release", err)
+	}
+	retry, err := service.RequestRefund(ctx, f.User, orderID, "capacity_new_refund_001", 100)
+	if err != nil || retry.HoldReceipt == "" {
+		t.Fatal("retry did not obtain full capacity", err)
+	}
+	work()
+	b := evidence("2")
+	deliver(b.Created)
+	work()
+	deliver(a.LateSuccess)
+	work()
+	findReview := func() p.Job {
+		order, err := store.Get(ctx, orderID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if order.Refunds[old.ID].State != "released" || order.Refunds[retry.ID].State == "released" {
+			t.Fatal("capacity conflict changed either hold")
+		}
+		for _, job := range order.Jobs {
+			if job.Kind == "commit" && job.RefundID == old.ID && job.State == "review" && job.ErrorCode == p.ErrConflict.Error() && job.Evidence.AcceptedProofID != "" {
+				return job
+			}
+		}
+		t.Fatal("capacity conflict not durably reviewable")
+		return p.Job{}
+	}
+	original := findReview()
+	// Reconciliation while B is still pending must fail closed with the same key.
+	if err := service.Reconcile(ctx, orderID); err != nil {
+		t.Fatal(err)
+	}
+	work()
+	if again := findReview(); again.Key != original.Key || again.Evidence.AcceptedProofID != original.Evidence.AcceptedProofID {
+		t.Fatal("reconciliation changed the original identity")
+	}
+	refundPrivateJSON(t, filepath.Join(f.MarkerDir, "capacity-blocked.json"), map[string]any{"pid": os.Getpid(), "old": old, "retry": retry, "job": original})
+	wait("capacity-fail-retry.ready")
+	deliver(b.Failed)
+	if err := service.Work(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	order, err = store.Get(ctx, orderID)
+	if err != nil || order.Refunds[retry.ID].State != "released" {
+		t.Fatal("bound retry failure did not release", err)
+	}
+	queued := order.Jobs[original.Key]
+	if queued.State != "pending" || queued.Evidence.AcceptedProofID != original.Evidence.AcceptedProofID {
+		t.Fatal("confirmed release did not durably resume the original settlement")
+	}
+	refundPrivateJSON(t, filepath.Join(f.MarkerDir, "capacity-freed.json"), map[string]any{"pid": os.Getpid()})
+	wait("capacity-spent.ready")
+	// Production host scheduling invokes Work, without a manual Reconcile call.
+	work()
+	// Replays and another trusted reconciliation must not create another debit.
+	deliver(a.LateSuccess)
+	work()
+	if err := service.Reconcile(ctx, orderID); err != nil {
+		t.Fatal(err)
+	}
+	work()
+	order, err = store.Get(ctx, orderID)
+	if err != nil || order.Refunds[old.ID].State != "committed" || order.Refunds[retry.ID].State != "released" {
+		t.Fatal("capacity recovery did not settle exact original refund", err)
+	}
+	final := order.Jobs[original.Key]
+	if final.State != "done" || final.Receipt == nil || final.Evidence.AcceptedProofID != original.Evidence.AcceptedProofID {
+		t.Fatal("recovered receipt or original proof lost")
+	}
+	refundPrivateJSON(t, filepath.Join(f.MarkerDir, "capacity-settled.json"), map[string]any{"pid": os.Getpid(), "same_key": final.Key == original.Key, "same_proof": true, "replay_checked": true})
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("orchestrator did not reap capacity worker")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

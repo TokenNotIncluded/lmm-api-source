@@ -2065,6 +2065,22 @@ async fn dispatch_requires_one_hold_and_signed_creation_request_before_failed_re
     assert_eq!(receipt.state, 4);
     assert_eq!(f.store.resolve(release, false).await.unwrap(), receipt);
     balance(&f, 500_000, 0).await;
+    let spent = f
+        .ledger
+        .execute(&ledger::Request {
+            scope: "synthetic-usage".into(),
+            operation_key: "spend_between_refund_events".into(),
+            actor_user_id: Some(101),
+            reason: "synthetic usage between refund events".into(),
+            action: Action::Charge {
+                account_id: f.account,
+                amount_units: Credits::try_from(500_000).unwrap(),
+            },
+        })
+        .await
+        .unwrap();
+    assert!(matches!(spent, Outcome::Posted { .. }));
+    balance(&f, 0, 0).await;
     let success_after_release = pb::ResolveRefundRequest {
         mutation: mutation("commit_after_release01"),
         intent_id: intent.intent_id,
@@ -2075,14 +2091,65 @@ async fn dispatch_requires_one_hold_and_signed_creation_request_before_failed_re
             Some(("re_bound_attempt", 40, "succeeded", Some(&hold.receipt_id))),
         ))),
     };
+    let committed = f
+        .store
+        .resolve(success_after_release.clone(), true)
+        .await
+        .unwrap();
+    assert_eq!(committed.state, 3);
     assert_eq!(
         f.store
-            .resolve(success_after_release, true)
+            .resolve(success_after_release.clone(), true)
+            .await
+            .unwrap(),
+        committed
+    );
+    assert_eq!(
+        f.store
+            .external_refund(pb::ExternalRefundRequest {
+                mutation: mutation("external_after_commit_001"),
+                intent_id: intent.intent_id,
+                evidence: success_after_release.evidence,
+            })
             .await
             .unwrap_err(),
         Error::Conflict
     );
-    balance(&f, 500_000, 0).await;
+    let actual = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (
+            actual.available_units,
+            actual.spendable_units,
+            actual.debt_units,
+            actual.reserved_units
+        ),
+        (-200_000, 0, -200_000, 0)
+    );
+    let hold_state: (String, Option<String>) = sqlx::query_as(
+        "SELECT state,provider_refund_id FROM core_payments.refund_holds WHERE receipt_id=$1",
+    )
+    .bind(&hold.receipt_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        hold_state,
+        ("committed".into(), Some("re_bound_attempt".into()))
+    );
+    let refund_state: (i64, bool, i64) = sqlx::query_as(
+        "SELECT refunded_minor,refund_fenced,(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1) FROM core_payments.intents WHERE id=$1",
+    )
+    .bind(intent.intent_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(refund_state, (40, true, 1));
+    let net: i64 =
+        sqlx::query_scalar("SELECT sum(delta_units)::bigint FROM core_billing.ledger_entries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(net, 0);
     let rows: i64 =
         sqlx::query_scalar("SELECT count(*) FROM core_payments.refund_dispatch_bindings")
             .fetch_one(&pool)
@@ -2170,4 +2237,422 @@ async fn conflicting_authentic_second_dispatch_is_retained_and_blocks_first_fail
     .await
     .unwrap();
     assert_eq!(bound, "re_conflict_a");
+}
+
+#[sqlx::test]
+async fn external_refund_recovers_same_released_hold_once_and_blocks_other_ids(pool: PgPool) {
+    let f = fresh(&pool).await;
+    let intent = prepare(&f, "prepare_ext_late_0001", 100).await;
+    credit(&f, &intent, "credit_ext_late_0001").await;
+    let hold = f
+        .store
+        .hold(
+            &f.secret,
+            pb::HoldRefundRequest {
+                mutation: mutation("hold_ext_late_00001"),
+                intent_id: intent.intent_id,
+                refund_amount_minor: 40,
+            },
+        )
+        .await
+        .unwrap();
+    f.store
+        .begin_refund_dispatch(pb::ResolveRefundRequest {
+            mutation: mutation("dispatch_ext_late_001"),
+            intent_id: intent.intent_id,
+            hold_receipt_id: hold.receipt_id.clone(),
+            evidence: None,
+        })
+        .await
+        .unwrap();
+    let mut created = event(
+        &intent,
+        "evt_ext_late_created",
+        Some(("re_ext_late", 40, "pending", Some(&hold.receipt_id))),
+    );
+    created["type"] = json!("refund.created");
+    created["request"] = json!({"idempotency_key":"dispatch_ext_late_001"});
+    f.store
+        .accept_proof(pb::AcceptProviderProofRequest {
+            intent_id: intent.intent_id,
+            evidence: Some(proof(created)),
+        })
+        .await
+        .unwrap();
+    f.store
+        .resolve(
+            pb::ResolveRefundRequest {
+                mutation: mutation("release_ext_late_001"),
+                intent_id: intent.intent_id,
+                hold_receipt_id: hold.receipt_id.clone(),
+                evidence: Some(proof(event(
+                    &intent,
+                    "evt_ext_late_failed",
+                    Some(("re_ext_late", 40, "failed", Some(&hold.receipt_id))),
+                ))),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let different_id = pb::ExternalRefundRequest {
+        mutation: mutation("external_late_other_id"),
+        intent_id: intent.intent_id,
+        evidence: Some(proof(event(
+            &intent,
+            "evt_ext_late_other_id",
+            Some(("re_other_late", 40, "succeeded", Some(&hold.receipt_id))),
+        ))),
+    };
+    assert_eq!(
+        f.store
+            .external_refund(different_id.clone())
+            .await
+            .unwrap_err(),
+        Error::Conflict
+    );
+    balance(&f, 500_000, 0).await;
+    let spent = f
+        .ledger
+        .execute(&ledger::Request {
+            scope: "synthetic-usage".into(),
+            operation_key: "spend_ext_late_between_events".into(),
+            actor_user_id: Some(101),
+            reason: "synthetic usage between refund events".into(),
+            action: Action::Charge {
+                account_id: f.account,
+                amount_units: Credits::try_from(500_000).unwrap(),
+            },
+        })
+        .await
+        .unwrap();
+    assert!(matches!(spent, Outcome::Posted { .. }));
+
+    let success = proof(event(
+        &intent,
+        "evt_ext_late_succeeded",
+        Some(("re_ext_late", 40, "succeeded", Some(&hold.receipt_id))),
+    ));
+    let request = pb::ExternalRefundRequest {
+        mutation: mutation("external_late_success_01"),
+        intent_id: intent.intent_id,
+        evidence: Some(success.clone()),
+    };
+    let receipt = f.store.external_refund(request.clone()).await.unwrap();
+    assert_eq!(receipt.state, 5);
+    assert!(receipt.journal_id > 0);
+    assert_eq!(f.store.external_refund(request).await.unwrap(), receipt);
+    assert_eq!(
+        f.store
+            .resolve(
+                pb::ResolveRefundRequest {
+                    mutation: mutation("commit_late_success_cross"),
+                    intent_id: intent.intent_id,
+                    hold_receipt_id: hold.receipt_id.clone(),
+                    evidence: Some(success),
+                },
+                true,
+            )
+            .await
+            .unwrap_err(),
+        Error::Conflict
+    );
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (
+            balance.available_units,
+            balance.spendable_units,
+            balance.debt_units,
+            balance.reserved_units
+        ),
+        (-200_000, 0, -200_000, 0)
+    );
+
+    assert_eq!(
+        f.store.external_refund(different_id).await.unwrap_err(),
+        Error::Conflict
+    );
+    let state: (i64, bool, i64, i64) = sqlx::query_as(
+        "SELECT refunded_minor,refund_fenced,(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1),(SELECT count(*) FROM core_payments.blocked_refunds WHERE intent_id=$1) FROM core_payments.intents WHERE id=$1",
+    )
+    .bind(intent.intent_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(state, (40, true, 1, 1));
+    assert_eq!(journals(&pool).await, 5);
+    let net: i64 =
+        sqlx::query_scalar("SELECT sum(delta_units)::bigint FROM core_billing.ledger_entries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(net, 0);
+}
+
+async fn failed_refund_retry_capacity(pool: PgPool, external_first: bool, retry_fails: bool) {
+    let f = fresh(&pool).await;
+    let intent = prepare(&f, "prepare_retry_capacity", 100).await;
+    credit(&f, &intent, "credit_retry_capacity").await;
+    let old = f
+        .store
+        .hold(
+            &f.secret,
+            pb::HoldRefundRequest {
+                mutation: mutation("hold_failed_capacity"),
+                intent_id: intent.intent_id,
+                refund_amount_minor: 40,
+            },
+        )
+        .await
+        .unwrap();
+    f.store
+        .begin_refund_dispatch(pb::ResolveRefundRequest {
+            mutation: mutation("dispatch_failed_capacity"),
+            intent_id: intent.intent_id,
+            hold_receipt_id: old.receipt_id.clone(),
+            evidence: None,
+        })
+        .await
+        .unwrap();
+    let mut created = event(
+        &intent,
+        "evt_capacity_created",
+        Some(("re_failed_capacity", 40, "pending", Some(&old.receipt_id))),
+    );
+    created["type"] = json!("refund.created");
+    created["request"] = json!({"idempotency_key":"dispatch_failed_capacity"});
+    f.store
+        .accept_proof(pb::AcceptProviderProofRequest {
+            intent_id: intent.intent_id,
+            evidence: Some(proof(created)),
+        })
+        .await
+        .unwrap();
+    f.store
+        .resolve(
+            pb::ResolveRefundRequest {
+                mutation: mutation("release_failed_capacity"),
+                intent_id: intent.intent_id,
+                hold_receipt_id: old.receipt_id.clone(),
+                evidence: Some(proof(event(
+                    &intent,
+                    "evt_capacity_failed",
+                    Some(("re_failed_capacity", 40, "failed", Some(&old.receipt_id))),
+                ))),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    balance(&f, 500_000, 0).await;
+    // A verified failure releases both wallet funds and the full retry capacity.
+    let retry = f
+        .store
+        .hold(
+            &f.secret,
+            pb::HoldRefundRequest {
+                mutation: mutation("hold_full_capacity_retry"),
+                intent_id: intent.intent_id,
+                refund_amount_minor: 100,
+            },
+        )
+        .await
+        .unwrap();
+    balance(&f, 0, 500_000).await;
+    let late = proof(event(
+        &intent,
+        "evt_capacity_late_success",
+        Some(("re_failed_capacity", 40, "succeeded", Some(&old.receipt_id))),
+    ));
+    for external in [external_first, !external_first] {
+        let result = if external {
+            f.store
+                .external_refund(pb::ExternalRefundRequest {
+                    mutation: mutation("external_capacity_late"),
+                    intent_id: intent.intent_id,
+                    evidence: Some(late.clone()),
+                })
+                .await
+        } else {
+            f.store
+                .resolve(
+                    pb::ResolveRefundRequest {
+                        mutation: mutation("commit_capacity_late"),
+                        intent_id: intent.intent_id,
+                        hold_receipt_id: old.receipt_id.clone(),
+                        evidence: Some(late.clone()),
+                    },
+                    true,
+                )
+                .await
+        };
+        assert_eq!(result.unwrap_err(), Error::Conflict);
+        balance(&f, 0, 500_000).await;
+    }
+    let blocked: (String, i64) = sqlx::query_as(
+        "SELECT min(reason),count(*) FROM core_payments.blocked_refunds WHERE intent_id=$1",
+    )
+    .bind(intent.intent_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        blocked,
+        ("refund_capacity_requires_reconciliation".into(), 1)
+    );
+    let old_state: String =
+        sqlx::query_scalar("SELECT state FROM core_payments.refund_holds WHERE receipt_id=$1")
+            .bind(&old.receipt_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(old_state, "released");
+    if retry_fails {
+        f.store
+            .begin_refund_dispatch(pb::ResolveRefundRequest {
+                mutation: mutation("dispatch_capacity_retry"),
+                intent_id: intent.intent_id,
+                hold_receipt_id: retry.receipt_id.clone(),
+                evidence: None,
+            })
+            .await
+            .unwrap();
+        // UNKNOWN and an unbound failure cannot release another refund's hold.
+        let failed = proof(event(
+            &intent,
+            "evt_capacity_retry_failed",
+            Some(("re_capacity_retry", 100, "failed", Some(&retry.receipt_id))),
+        ));
+        let release = pb::ResolveRefundRequest {
+            mutation: mutation("release_capacity_retry"),
+            intent_id: intent.intent_id,
+            hold_receipt_id: retry.receipt_id.clone(),
+            evidence: Some(failed),
+        };
+        assert_eq!(
+            f.store.resolve(release.clone(), false).await.unwrap_err(),
+            Error::Denied
+        );
+        balance(&f, 0, 500_000).await;
+        let mut created = event(
+            &intent,
+            "evt_capacity_retry_created",
+            Some(("re_capacity_retry", 100, "pending", Some(&retry.receipt_id))),
+        );
+        created["type"] = json!("refund.created");
+        created["request"] = json!({"idempotency_key":"dispatch_capacity_retry"});
+        f.store
+            .accept_proof(pb::AcceptProviderProofRequest {
+                intent_id: intent.intent_id,
+                evidence: Some(proof(created)),
+            })
+            .await
+            .unwrap();
+        f.store.resolve(release, false).await.unwrap();
+        balance(&f, 500_000, 0).await;
+        let hold = pb::HoldRefundRequest {
+            mutation: mutation("hold_after_capacity_recovery"),
+            intent_id: intent.intent_id,
+            refund_amount_minor: 60,
+        };
+        assert_eq!(
+            f.store.hold(&f.secret, hold.clone()).await.unwrap_err(),
+            Error::Unavailable
+        );
+        // The immutable original success is retried across both real entry
+        // points; the intent lock and provider refund uniqueness allow one post.
+        let commit = pb::ResolveRefundRequest {
+            mutation: mutation("commit_capacity_late"),
+            intent_id: intent.intent_id,
+            hold_receipt_id: old.receipt_id.clone(),
+            evidence: Some(late.clone()),
+        };
+        let external = pb::ExternalRefundRequest {
+            mutation: mutation("external_capacity_late"),
+            intent_id: intent.intent_id,
+            evidence: Some(late),
+        };
+        let (a, b) = tokio::join!(
+            f.store.resolve(commit.clone(), true),
+            f.store.external_refund(external.clone())
+        );
+        assert_ne!(a.is_ok(), b.is_ok());
+        let (settled, duplicate) = if a.is_ok() {
+            let receipt = a.unwrap();
+            assert_eq!(f.store.resolve(commit, true).await.unwrap(), receipt);
+            (receipt, b.unwrap_err())
+        } else {
+            let receipt = b.unwrap();
+            assert_eq!(f.store.external_refund(external).await.unwrap(), receipt);
+            (receipt, a.unwrap_err())
+        };
+        assert!(matches!(duplicate, Error::Conflict | Error::Unavailable));
+        assert!(settled.journal_id > 0);
+        balance(&f, 300_000, 0).await;
+        let state: (i64,i64,i64,i64) = sqlx::query_as("SELECT refunded_minor,(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1),(SELECT count(*) FROM core_payments.blocked_refunds WHERE intent_id=$1),(SELECT count(*) FROM core_billing.ledger_journals WHERE kind='refund_topup') FROM core_payments.intents WHERE id=$1")
+            .bind(intent.intent_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(state, (40, 1, 1, 1));
+        // A provider-refund receipt resolves the quarantine without deleting its
+        // original evidence or decreasing the durable stale-credit fence.
+        f.store.hold(&f.secret, hold).await.unwrap();
+        balance(&f, 0, 300_000).await;
+        let net: i64 =
+            sqlx::query_scalar("SELECT sum(delta_units)::bigint FROM core_billing.ledger_entries")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(net, 0);
+        return;
+    }
+    // The quarantined old success does not consume or release the retry's hold.
+    f.store
+        .resolve(
+            pb::ResolveRefundRequest {
+                mutation: mutation("commit_full_capacity_retry"),
+                intent_id: intent.intent_id,
+                hold_receipt_id: retry.receipt_id.clone(),
+                evidence: Some(proof(event(
+                    &intent,
+                    "evt_capacity_retry_success",
+                    Some((
+                        "re_full_capacity_retry",
+                        100,
+                        "succeeded",
+                        Some(&retry.receipt_id),
+                    )),
+                ))),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    balance(&f, 0, 0).await;
+    let refunds: (i64, i64) = sqlx::query_as(
+        "SELECT refunded_minor,(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1) FROM core_payments.intents WHERE id=$1",
+    )
+    .bind(intent.intent_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(refunds, (100, 1));
+}
+
+#[sqlx::test]
+async fn failed_refund_capacity_is_reusable_and_resolve_preserves_retry_hold(pool: PgPool) {
+    failed_refund_retry_capacity(pool, false, false).await;
+}
+
+#[sqlx::test]
+async fn failed_refund_capacity_is_reusable_and_external_preserves_retry_hold(pool: PgPool) {
+    failed_refund_retry_capacity(pool, true, false).await;
+}
+
+#[sqlx::test]
+async fn capacity_quarantine_recovers_after_bound_retry_failure_resolve_first(pool: PgPool) {
+    failed_refund_retry_capacity(pool, false, true).await;
+}
+
+#[sqlx::test]
+async fn capacity_quarantine_recovers_after_bound_retry_failure_external_first(pool: PgPool) {
+    failed_refund_retry_capacity(pool, true, true).await;
 }
