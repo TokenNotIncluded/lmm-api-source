@@ -53,6 +53,7 @@ pub(crate) mod test_runtime;
 pub mod tool_market;
 pub mod topup_info_http;
 pub mod upstream_cost;
+pub mod upgrade_history;
 pub mod usage;
 pub mod wallet;
 

@@ -28,6 +28,7 @@ pub struct Bootstrap {
 }
 
 pub enum Operation {
+    UpgradeHistory(Box<lmm_core::upgrade_history::Command>),
     InitDb,
     CompleteSetup,
     InstallToolMarketBuiltins,
@@ -40,6 +41,12 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub fn upgrade_history(input: impl Read) -> io::Result<Self> {
+        lmm_core::upgrade_history::Command::read(input)
+            .map(|request| Self::UpgradeHistory(Box::new(request)))
+            .map_err(io::Error::other)
+    }
+
     pub fn upgrade_database(input: impl Read) -> io::Result<Self> {
         lmm_core::core_schema::UpgradeRequest::read(input)
             .map(|request| Self::UpgradeDatabase(Box::new(request)))
@@ -110,6 +117,24 @@ fn approval_io(error: ApprovalError) -> io::Error {
 }
 
 pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
+    if let Operation::UpgradeHistory(request) = operation {
+        let url = config::database_url()?
+            .ok_or_else(|| io::Error::other("authority database URL required"))?;
+        match request.run(&url).await {
+            Ok(report) => {
+                serde_json::to_writer(io::stdout().lock(), &report)?;
+                println!();
+                return Ok(());
+            }
+            Err(error) => {
+                let report = serde_json::json!({"version":1,"protocol":"core.upgrade-history.v1","code":error.to_string(),"status":if matches!(error,lmm_core::upgrade_history::HistoryError::CommitUnknown){"unknown"}else{"rejected"},"retry_allowed":false,"site_open_allowed":false});
+                serde_json::to_writer(io::stdout().lock(), &report)?;
+                println!();
+                return Err(error.into());
+            }
+        }
+    }
+
     // This branch connects directly, before creating any pool/IdentityStore.
     if let Operation::UpgradeDatabase(request) = &operation {
         return schema_upgrade::run((**request).clone()).await;
@@ -123,6 +148,7 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
     let pool = config::database_pool(&url).await?;
     let store = IdentityStore::from_pool(pool.clone());
     match operation {
+        Operation::UpgradeHistory(_) => unreachable!("dedicated authority command returned above"),
         Operation::UpgradeDatabase(_) => unreachable!("dedicated schema upgrade returned above"),
         Operation::InstallUsageReceiptIndex(prior) => {
             lmm_core::core_schema::install_usage_receipt_index(&pool, prior).await?;

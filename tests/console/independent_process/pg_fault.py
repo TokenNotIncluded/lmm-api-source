@@ -1,7 +1,8 @@
 """Local fixture transport. Never log PostgreSQL payloads or credentials.
 
 Forward a real runtime connection to a private Unix-socket PostgreSQL. When
-armed, discard COMMIT responses only for a transaction using the Console writer.
+armed, discard COMMIT responses only for a transaction using the selected writer
+(default: Console).
 CommandComplete(COMMIT) and ReadyForQuery(I) must both be observed upstream.
 This does not implement a database, synthesize success, or change Core.
 """
@@ -36,7 +37,8 @@ class Proxy(socketserver.ThreadingTCPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, unix_path, user, database):
+    def __init__(self, unix_path, user, database, writer_sql=b"core_console.write_public_option", label="console"):
+        self.writer_sql, self.label = writer_sql.lower(), label
         self.unix_path, self.user, self.database = str(unix_path), user, database
         self.lock = threading.Lock()
         self.armed = False
@@ -51,14 +53,14 @@ class Proxy(socketserver.ThreadingTCPServer):
             if self.armed or self.dropped.is_set():
                 raise ValueError("fault_already_armed_or_used")
             self.armed = True
-            self.events.append("armed_for_console_write_commit")
+            self.events.append(f"armed_for_{self.label}_write_commit")
 
     def claim(self):
         with self.lock:
             if not self.armed:
                 return False
             self.armed = False
-            self.events.append("console_commit_forwarded")
+            self.events.append(f"{self.label}_commit_forwarded")
             return True
 
     def handle_error(self, request, client_address):
@@ -95,14 +97,14 @@ class Handler(socketserver.BaseRequestHandler):
                     sql = None
                     if kind == b"P":
                         name, sql, _ = data.split(b"\0", 2)
-                        statements[name] = b"core_console.write_public_option" in sql.lower()
+                        statements[name] = self.server.writer_sql in sql.lower()
                     elif kind == b"B":
                         _, name, _ = data.split(b"\0", 2)
                         state["writes"] |= statements.get(name, False)
                     elif kind == b"Q":
                         sql = data.rstrip(b"\0")
                     if sql is not None:
-                        state["writes"] |= b"core_console.write_public_option" in sql.lower()
+                        state["writes"] |= self.server.writer_sql in sql.lower()
                         if sql.strip().rstrip(b";").upper() == b"COMMIT" and state["writes"]:
                             # SQLx transaction.commit uses a simple-query message.
                             # Refuse unimplemented extended COMMIT, never claim injection.
