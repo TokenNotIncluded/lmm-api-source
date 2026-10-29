@@ -61,12 +61,12 @@ export function NoticeSection({ defaultValue }: NoticeSectionProps) {
     form.reset({ Notice: defaultValue ?? '' })
   }, [defaultValue, form])
 
-  const onSubmit = async (values: NoticeFormValues) => {
+  const onSubmit = (values: NoticeFormValues) => {
     const normalized = values.Notice ?? ''
     if (normalized === (defaultValue ?? '')) {
       return
     }
-    await updateOption.mutateAsync({
+    updateOption.mutate({
       key: 'Notice',
       value: normalized,
     })
