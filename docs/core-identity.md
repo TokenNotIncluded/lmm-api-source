@@ -59,6 +59,46 @@ stdin 读取，上限 64 KiB。它们不会启动服务、补装 schema 或授�
 已有安装不会随普通启动升级，也不能修改契约记录绕过检查。旧站细粒度权限的完整导入等价、
 真实操作者批准、管理写操作和完整业务验收仍须分别完成；当前管理员目录读取不代表这些范围通过。
 
+## 邮箱验证码、绑定与密码重置
+
+邮件由 Core 内的加密持久出箱和 SMTP worker 处理，不依赖 Go。使用正式 identity v6 的新装数据库及匹配的运行授权脚本；普通启动只检查结构和权限，不执行 DDL。存量 v5 数据库仍须独立审阅的升级流程，不能运行 staged delta 充当正式升级。
+
+在已有 Core 配置的 `[identity]` 中加入 `email_config_file`；要求注册验证邮箱时显式设置 `email_verification_enabled = true`。该开关为 true 而缺少邮件配置会拒绝启动。仅配置邮件也可用于绑定和找回密码，无需强制所有注册验证邮箱。
+
+```toml
+[identity]
+email_config_file = "/etc/lmm.conf.d/email.toml"
+email_verification_enabled = true
+```
+
+侧文件使用 TOML，例：
+
+```toml
+challenge_key_id = "proof-v1"
+proof_key_file = "/etc/lmm.conf.d/secrets/email-proof"
+rate_key_file = "/etc/lmm.conf.d/secrets/email-rate"
+active_key_id = "mail-v1"
+reset_origin = "https://app.example.com"
+local_http = false
+
+[key_files]
+mail-v1 = "/etc/lmm.conf.d/secrets/email-aead"
+
+[smtp]
+host = "smtp.example.com"
+port = 587
+from = "noreply@example.com"
+tls = "starttls"
+username = "smtp-user"
+password_file = "/etc/lmm.conf.d/secrets/smtp-password"
+```
+
+proof、限流和各出箱加密密钥使用彼此独立的非零原始 32 字节私有文件；秘密文件权限为 0400 或 0600，不能是软链接。SMTP 用户名和密码文件必须同时提供或同时省略；TLS 为 `starttls` 或 `implicit`。只有显式本地测试可用 `plaintext_loopback_test`，仅接受数字回环地址且禁止认证。`local_http = true` 同样仅用于既有本地 Web 测试范围；存在 Web 配置时，其 origin 和 local_http 必须与邮件配置一致。Legacy 环境模式使用 `LMM_CORE_EMAIL_CONFIG_FILE`，不与 TOML 来源混用。
+
+Web 使用 `POST /api/identity/email/verification/request`、`POST /api/identity/email/password-reset/request`、`POST /api/user/register`、`POST /api/oauth/email/bind` 和 `POST /api/user/reset`。原生对应接口位于 `/core/v1/identity/email/`。Web 安装关闭的原生注册入口不会因邮件适配器而重新开放；法律同意、当前会话、近期认证和 MFA 边界保持。
+
+请求验证码的统一接纳响应不泄露账号资格，也不保证投递。消费证明、账号修改与必要安全通知在同一事务中提交。重置邮件使用配置站点的 `/user/reset#email=...&token=...`，沿用原证明及过期时间；Web 在应用启动前清除地址中的证明。worker 在退出时停止新领取并等待当前发送；SMTP 最终 250 仅记为 `accepted_by_smtp`，不等于收件箱送达。丢失回执保持 UNKNOWN，不自动重发为成功。
+
 ## Google 内置登录预设
 
 Google 已归入内置 OAuth 预设，不再作为新建自定义提供者的模板。

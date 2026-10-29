@@ -1,0 +1,23 @@
+[
+  {
+    "origin": "https://console.example.test",
+    "email": "reset+tag@example.test",
+    "token": "0123456789abcdef0123456789abcdef",
+    "local_http": false,
+    "link": "https://console.example.test/user/reset#email=reset%2Btag%40example.test&token=0123456789abcdef0123456789abcdef"
+  },
+  {
+    "origin": "https://console.example.test:8443",
+    "email": "o'hare+tag/path?x=1&y@example.test",
+    "token": "abcdef0123456789abcdef0123456789",
+    "local_http": false,
+    "link": "https://console.example.test:8443/user/reset#email=o%27hare%2Btag%2Fpath%3Fx%3D1%26y%40example.test&token=abcdef0123456789abcdef0123456789"
+  },
+  {
+    "origin": "http://api.lmm.local:39001",
+    "email": "local+reset@example.test",
+    "token": "00112233445566778899aabbccddeeff",
+    "local_http": true,
+    "link": "http://api.lmm.local:39001/user/reset#email=local%2Breset%40example.test&token=00112233445566778899aabbccddeeff"
+  }
+]

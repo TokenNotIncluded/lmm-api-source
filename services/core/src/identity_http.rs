@@ -1,4 +1,5 @@
 mod auth;
+mod email;
 mod lifecycle;
 use crate::{
     accounts::{Account, AccountKind},
@@ -241,4 +242,10 @@ mod tests {
         );
         assert_eq!(bearer(&headers), Err(IdentityError::Unauthorized));
     }
+}
+
+/// Adds configured email flows to the canonical identity API.
+pub fn router_with_email(store: IdentityStore, mail: crate::email_http::EmailHttp) -> Router {
+    let mail = mail.with_identity_store(store.clone());
+    router(store.clone()).merge(email::router(store, mail))
 }

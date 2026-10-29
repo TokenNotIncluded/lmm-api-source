@@ -78,14 +78,6 @@ async fn fresh() -> (PgPool, PgPool, EmailChallenges, Outbox) {
         .execute(&owner)
         .await
         .expect("base identity schema");
-    sqlx::raw_sql(include_str!("../../../src/identity/email/schema.sql"))
-        .execute(&owner)
-        .await
-        .expect("staged challenge schema");
-    sqlx::raw_sql(include_str!("../schema.sql"))
-        .execute(&owner)
-        .await
-        .expect("staged delivery schema");
     sqlx::raw_sql(include_str!("../../../src/identity/email/test_grants.sql"))
         .execute(&owner)
         .await

@@ -59,10 +59,6 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     core_schema::init(&owner).await.unwrap();
-    sqlx::raw_sql(include_str!("../../src/identity/email/schema.sql"))
-        .execute(&owner)
-        .await
-        .unwrap();
     let grants = Command::new("psql")
         .args([
             "-X",
@@ -82,10 +78,6 @@ async fn fixture() -> Fixture {
         .output()
         .unwrap();
     assert!(grants.status.success(), "canonical runtime grants failed");
-    sqlx::raw_sql(include_str!("../../src/identity/email/test_grants.sql"))
-        .execute(&owner)
-        .await
-        .unwrap();
     // Precisely the new business writer's additional authority. Test-only until
     // the official identity revision and runtime contract are reviewed.
     sqlx::raw_sql(
@@ -877,3 +869,6 @@ async fn invalid_password_and_wrong_code_do_not_mutate_identity() {
         .await;
     assert!(cannot_ddl.is_err());
 }
+
+#[path = "../email_http/cases.rs"]
+mod http_integration;

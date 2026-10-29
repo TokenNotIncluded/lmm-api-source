@@ -22,7 +22,11 @@ pub(super) fn routes(store: IdentityStore) -> Router<IdentityStore> {
         .route("/core/v1/auth/oauth/google/callback", get(google_callback))
         .route_layer(middleware::from_fn_with_state(store, rate_limit))
 }
-async fn rate_limit(State(store): State<IdentityStore>, request: Request, next: Next) -> Response {
+pub(super) async fn rate_limit(
+    State(store): State<IdentityStore>,
+    request: Request,
+    next: Next,
+) -> Response {
     let peer = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()

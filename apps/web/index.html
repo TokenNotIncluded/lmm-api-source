@@ -2,6 +2,41 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script id="identity-email-bootstrap">
+      ;(() => {
+        if (!/^\/(?:reset|user\/reset)\/?$/.test(decodeURI(location.pathname)))
+          return
+        window.__lmmEmailResetPage = true
+        const referrer = document.createElement('meta')
+        referrer.name = 'referrer'
+        referrer.content = 'no-referrer'
+        document.head.appendChild(referrer)
+        const csp = document.createElement('meta')
+        csp.httpEquiv = 'Content-Security-Policy'
+        csp.content =
+          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src 'none'"
+        document.head.appendChild(csp)
+        const query = new URLSearchParams(location.search)
+        const fragment = new URLSearchParams(location.hash.slice(1))
+        window.history.replaceState(window.history.state, '', location.pathname)
+        const hasFragment = fragment.has('email') || fragment.has('token')
+        if (hasFragment && (query.has('email') || query.has('token'))) return
+        const credentials = hasFragment ? fragment : query
+        const email = credentials.getAll('email')
+        const token = credentials.getAll('token')
+        if (
+          email.length === 1 &&
+          email[0] &&
+          token.length === 1 &&
+          /^[0-9a-f]{32}$/.test(token[0])
+        ) {
+          Object.defineProperty(window, '__lmmEmailReset', {
+            value: { email: email[0], token: token[0] },
+            configurable: true,
+          })
+        }
+      })()
+    </script>
     <script src="/extore-callback.js"></script>
     <link rel="icon" type="image/svg+xml" href="/lmm-api-mark.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -42,6 +77,8 @@
     <script>
       // Also fail closed if the local callback bootstrap could not load.
       if (
+        !window.__lmmEmailResetPage &&
+        !/^\/(?:reset|user\/reset)\/?$/.test(decodeURI(location.pathname)) &&
         !window.__lmmExtoreCallbackPage &&
         !(location.pathname === '/store/manage' && location.search)
       ) {

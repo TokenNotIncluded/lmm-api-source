@@ -174,6 +174,10 @@ impl IdentityStore {
     pub fn oauth_registration_disabled_methods(&self) -> &[String] {
         &self.oauth_registration_disabled_methods
     }
+    pub fn registration_email_verification_required(&self) -> bool {
+        self.registration_email_verification_required
+    }
+
     pub fn with_registration_email_verification(mut self, required: bool) -> Self {
         self.registration_email_verification_required = required;
         self

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import axios from 'axios'
 import { z } from 'zod'
 
 import { parseUsageBuckets } from '@/features/dashboard/lib/usage-bucket'
@@ -259,6 +260,28 @@ export async function deleteUserAccount(
 // Account Binding APIs
 // ============================================================================
 
+function emailBindingConfig(): ApiRequestConfig {
+  const { user, session, accessToken } = useAuthStore.getState().auth
+  if (!user || !session || !accessToken) {
+    throw new axios.CanceledError('Email binding requires an active session')
+  }
+  const authorization = `Bearer ${accessToken}`
+  const adapter = axios.getAdapter(api.defaults.adapter)
+  return {
+    skipAuthRefresh: true,
+    authScope: { userId: user.id, sessionId: session.sid },
+    headers: { Authorization: authorization, 'X-Auth-Session': session.sid },
+    adapter: (config) => {
+      // The shared interceptor reads the current bearer asynchronously. Refuse
+      // a same-SID rotation rather than dispatching with a different credential.
+      if (config.headers.get('Authorization') !== authorization) {
+        throw new axios.CanceledError('Email binding authentication changed')
+      }
+      return adapter(config)
+    },
+  }
+}
+
 /**
  * Send email verification code
  */
@@ -266,11 +289,11 @@ export async function sendEmailVerification(
   email: string,
   turnstileToken?: string
 ): Promise<ApiResponse> {
-  const params = new URLSearchParams({ email })
-  if (turnstileToken) {
-    params.append('turnstile', turnstileToken)
-  }
-  const res = await api.get(`/api/verification?${params}`)
+  const res = await api.post(
+    '/api/identity/email/verification/request',
+    { email, purpose: 'bind', turnstile: turnstileToken },
+    emailBindingConfig()
+  )
   return res.data
 }
 
@@ -281,10 +304,11 @@ export async function bindEmail(
   email: string,
   code: string
 ): Promise<ApiResponse> {
-  const res = await api.post('/api/oauth/email/bind', {
-    email,
-    code,
-  })
+  const res = await api.post(
+    '/api/oauth/email/bind',
+    { email, code },
+    emailBindingConfig()
+  )
   return res.data
 }
 

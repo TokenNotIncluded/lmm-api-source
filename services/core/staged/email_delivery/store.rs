@@ -27,6 +27,22 @@ pub enum Dispatch {
     LostLease,
 }
 
+/// Identity-derived recipient roles, not arbitrary deduplication labels.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NoticeRecipient {
+    Current,
+    Previous,
+}
+
+impl NoticeRecipient {
+    fn slot(self) -> &'static str {
+        match self {
+            Self::Current => "current",
+            Self::Previous => "previous",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Outbox {
     pool: PgPool,
@@ -145,7 +161,8 @@ impl Outbox {
             bind_sid: Zeroizing::new(bind_sid.to_owned()),
         };
         payload.validate("challenge")?;
-        self.insert(tx, challenge, "challenge", &payload).await
+        self.insert(tx, challenge, "challenge", "current", &payload)
+            .await
     }
 
     /// Caller must perform its authorized mutation/consumption in this tx first.
@@ -157,10 +174,38 @@ impl Outbox {
         recipient: &str,
     ) -> Result<String> {
         let row = lock_challenge(tx, challenge).await?;
+        let slot = if recipient == row.try_get::<String, _>("email_key")? {
+            NoticeRecipient::Current
+        } else {
+            NoticeRecipient::Previous
+        };
+        self.enqueue_notice_slot_in(tx, challenge, recipient, slot)
+            .await
+    }
+
+    /// Enqueue once per recipient slot after consumption in the same tx.
+    /// Previous recipients are supplied only by trusted binding business data.
+    pub async fn enqueue_notice_slot_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        challenge: &str,
+        recipient: &str,
+        slot: NoticeRecipient,
+    ) -> Result<String> {
+        let row = lock_challenge(tx, challenge).await?;
         if row.try_get::<String, _>("state")? != "consumed"
             || row.try_get::<String, _>("purpose")? == "register"
         {
             return Err(MailError::Conflict);
+        }
+        let email: String = row.try_get("email_key")?;
+        if match slot {
+            NoticeRecipient::Current => recipient != email,
+            NoticeRecipient::Previous => {
+                row.try_get::<String, _>("purpose")? != "bind" || recipient == email
+            }
+        } {
+            return Err(MailError::Invalid);
         }
         let payload = MailPayload {
             recipient: Zeroizing::new(recipient.into()),
@@ -169,7 +214,7 @@ impl Outbox {
             bind_sid: Zeroizing::new(String::new()),
         };
         payload.validate("security_notice")?;
-        self.insert(tx, challenge, "security_notice", &payload)
+        self.insert(tx, challenge, "security_notice", slot.slot(), &payload)
             .await
     }
 
@@ -178,20 +223,21 @@ impl Outbox {
         tx: &mut Transaction<'_, Postgres>,
         challenge: &str,
         kind: &str,
+        recipient_slot: &str,
         payload: &MailPayload,
     ) -> Result<String> {
         let id = random_id()?;
         let ciphertext = self.keys.encrypt(&id, challenge, kind, &payload.encode())?;
         // Compute the deadline in PostgreSQL, without timestamp truncation.
         let inserted = sqlx::query(
-            "INSERT INTO core_identity.email_delivery_outbox(id,challenge_id,kind,key_id,payload,expires_at)
-             SELECT $1,id,$3,$4,$5,
+            "INSERT INTO core_identity.email_delivery_outbox(id,challenge_id,kind,key_id,payload,recipient_slot,expires_at)
+             SELECT $1,id,$3,$4,$5,$6,
                  CASE WHEN $3='challenge' THEN expires_at ELSE clock_timestamp()+interval '24 hours' END
              FROM core_identity.email_challenges WHERE id=$2
                  AND (($3='challenge' AND state='active' AND expires_at>clock_timestamp())
                      OR ($3='security_notice' AND state='consumed'))
              RETURNING id",
-        ).bind(&id).bind(challenge).bind(kind).bind(self.keys.active()).bind(ciphertext)
+        ).bind(&id).bind(challenge).bind(kind).bind(self.keys.active()).bind(ciphertext).bind(recipient_slot)
             .fetch_optional(&mut **tx).await?;
         if inserted.is_none() {
             return Err(MailError::Conflict);

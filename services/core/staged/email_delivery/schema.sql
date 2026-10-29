@@ -4,6 +4,9 @@ CREATE TABLE core_identity.email_delivery_outbox (
     id TEXT PRIMARY KEY CHECK (id ~ '^[a-f0-9]{32}$'),
     challenge_id TEXT NOT NULL REFERENCES core_identity.email_challenges(id),
     kind TEXT NOT NULL CHECK (kind IN ('challenge','security_notice')),
+    recipient_slot TEXT NOT NULL DEFAULT 'current'
+        CHECK (recipient_slot IN ('current','previous')),
+    CHECK (kind='security_notice' OR recipient_slot='current'),
     key_id TEXT NOT NULL CHECK (key_id ~ '^[A-Za-z0-9_-]{1,64}$'),
     payload BYTEA CHECK (octet_length(payload) BETWEEN 30 AND 2077),
     status TEXT NOT NULL DEFAULT 'pending'
@@ -24,8 +27,12 @@ CREATE TABLE core_identity.email_delivery_outbox (
     CHECK (status NOT IN ('pending','leased') OR error_class IS NULL)
 );
 CREATE UNIQUE INDEX email_delivery_one_inflight
-    ON core_identity.email_delivery_outbox(challenge_id,kind)
+    ON core_identity.email_delivery_outbox(challenge_id,kind,recipient_slot)
     WHERE status IN ('pending','leased');
+-- Security notices are not recreated after a terminal SMTP outcome.
+CREATE UNIQUE INDEX email_delivery_notice_once
+    ON core_identity.email_delivery_outbox(challenge_id,recipient_slot)
+    WHERE kind='security_notice';
 CREATE INDEX email_delivery_pending ON core_identity.email_delivery_outbox(created_at,id)
     WHERE status = 'pending';
 CREATE INDEX email_delivery_retention ON core_identity.email_delivery_outbox(expires_at)
@@ -34,8 +41,8 @@ CREATE INDEX email_delivery_retention ON core_identity.email_delivery_outbox(exp
 CREATE FUNCTION core_identity.protect_email_delivery() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
-    IF (NEW.id,NEW.challenge_id,NEW.kind,NEW.key_id,NEW.created_at,NEW.expires_at)
-        IS DISTINCT FROM (OLD.id,OLD.challenge_id,OLD.kind,OLD.key_id,OLD.created_at,OLD.expires_at)
+    IF (NEW.id,NEW.challenge_id,NEW.kind,NEW.recipient_slot,NEW.key_id,NEW.created_at,NEW.expires_at)
+        IS DISTINCT FROM (OLD.id,OLD.challenge_id,OLD.kind,OLD.recipient_slot,OLD.key_id,OLD.created_at,OLD.expires_at)
         OR (NEW.payload IS DISTINCT FROM OLD.payload AND NEW.payload IS NOT NULL)
         OR (OLD.smtp_started_at IS NOT NULL AND NEW.smtp_started_at IS DISTINCT FROM OLD.smtp_started_at)
         OR (OLD.status NOT IN ('pending','leased') AND

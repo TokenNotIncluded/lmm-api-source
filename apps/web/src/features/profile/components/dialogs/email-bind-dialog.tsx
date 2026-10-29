@@ -71,7 +71,11 @@ export function EmailBindDialog({
       const response = await sendEmailVerification(email)
 
       if (response.success) {
-        toast.success(t('Verification code sent! Please check your email.'))
+        toast.success(
+          t(
+            'If eligible, an email will be sent. Please check your inbox shortly.'
+          )
+        )
         startCountdown()
       } else {
         toast.error(response.message || t('Failed to send verification code'))

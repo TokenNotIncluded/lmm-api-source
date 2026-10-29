@@ -1,6 +1,7 @@
 //! Existing Web authentication contract backed exclusively by Rust identity.
 #[path = "identity_compat.rs"]
 mod compatibility;
+mod email;
 mod external_login;
 mod oauth2;
 mod sessions;
@@ -65,6 +66,15 @@ impl LegacyAuthConfig {
             oauth2: None,
         })
     }
+    /// Uses the same configured origin and local-transport policy as Web auth.
+    pub fn email_reset_site(&self) -> Result<crate::email_delivery::ResetSite, IdentityError> {
+        let site = if self.secure {
+            crate::email_delivery::ResetSite::https(&self.origin)
+        } else {
+            crate::email_delivery::ResetSite::local_http(&self.origin)
+        };
+        site.map_err(|_| IdentityError::Invalid)
+    }
     pub fn with_oauth2_issuer(
         mut self,
         issuer: crate::identity::grants::LmmIssuer,
@@ -113,19 +123,43 @@ impl LegacyAuthConfig {
 }
 #[derive(Clone)]
 struct AuthState {
+    email: Option<crate::email_http::EmailHttp>,
     browser: BrowserAuth,
     store: IdentityStore,
     config: LegacyAuthConfig,
 }
 pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
+    build_router(store, config, None)
+}
+/// Adds configured email flows after the host verifies installation and runtime grants.
+pub fn router_with_email(
+    store: IdentityStore,
+    config: LegacyAuthConfig,
+    mail: crate::email_http::EmailHttp,
+) -> Router {
+    let mail = mail.with_identity_store(store.clone());
+    build_router(store, config, Some(mail))
+}
+fn build_router(
+    store: IdentityStore,
+    config: LegacyAuthConfig,
+    email: Option<crate::email_http::EmailHttp>,
+) -> Router {
+    let email_enabled = email.is_some();
     let browser = BrowserAuth::new(store.clone(), &config.refresh_key)
         .expect("validated private refresh key");
     let state = AuthState {
+        email,
         browser,
         store,
         config,
     };
     Router::new()
+        .merge(if email_enabled {
+            email::routes()
+        } else {
+            Router::new()
+        })
         .merge(compatibility::routes())
         .merge(sessions::routes())
         .merge(oauth2::routes())
@@ -342,6 +376,9 @@ async fn register(
             "AUTH_LEGAL_ACCEPTANCE_REQUIRED",
             "Accept the published legal terms before registering",
         );
+    }
+    if state.email.is_some() && (!body.email.is_empty() || !body.verification_code.is_empty()) {
+        return email::register(&state, body).await;
     }
     if !body.email.trim().is_empty()
         || !body.verification_code.is_empty()

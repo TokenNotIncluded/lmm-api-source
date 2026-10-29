@@ -133,7 +133,7 @@ pub(crate) async fn check_connection(
             OR ((n.nspname='core_console' AND c.relname='announcement_reads'
                OR n.nspname='core_payments' AND c.relname IN ('receipts','provider_events','provider_refunds','blocked_refunds','accepted_proofs','refund_dispatches','refund_dispatch_bindings')
                OR n.nspname='core_charging' AND c.relname IN ('budget_checks','usage_events','refunds','policy_events','ledger_commands')
-               OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials','session_authentication')
+               OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials')
                OR n.nspname='core_commerce' AND c.relname='operations'
                OR n.nspname='core_bounties' AND c.relname='operations'
                OR n.nspname='core_tool_market' AND c.relname='quotes'
@@ -159,6 +159,10 @@ pub(crate) async fn check_connection(
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
             OR (n.nspname='core_oauth' AND c.relname IN ('contract','codes')
               AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'INSERT,UPDATE')))
+            OR (n.nspname='core_identity' AND c.relname IN ('session_authentication','email_addresses','email_challenges','email_rate_buckets','email_rate_events','email_delivery_outbox')
+              AND has_any_column_privilege(c.oid,'REFERENCES'))
+            OR (n.nspname='core_identity' AND c.relname='session_authentication'
+              AND has_table_privilege(c.oid,'UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_identity' AND c.relname='api_key_settings'
               AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_identity' AND c.relname NOT IN ('oauth_flows','auth_attempts')
@@ -170,7 +174,13 @@ pub(crate) async fn check_connection(
         OR EXISTS(SELECT FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
           JOIN pg_namespace n ON n.oid=c.relnamespace
           WHERE a.attnum>0 AND NOT a.attisdropped AND (
-            (n.nspname='core_charging' AND c.relname='external_consumption' AND a.attname<>'refunded')
+            (n.nspname='core_identity' AND c.relname='session_authentication' AND a.attname<>'user_id')
+            OR (n.nspname='core_identity' AND c.relname='email_addresses' AND a.attname NOT IN ('email_key','user_id','state','email_version','verified_at'))
+            OR (n.nspname='core_identity' AND c.relname='email_challenges' AND a.attname NOT IN ('state','attempts','consumed_at','result_user_id'))
+            OR (n.nspname='core_identity' AND c.relname='email_rate_buckets' AND a.attname<>'bucket')
+            OR (n.nspname='core_identity' AND c.relname='email_rate_events')
+            OR (n.nspname='core_identity' AND c.relname='email_delivery_outbox' AND a.attname NOT IN ('payload','status','error_class','lease_token','lease_until','smtp_started_at','finished_at'))
+            OR (n.nspname='core_charging' AND c.relname='external_consumption' AND a.attname<>'refunded')
             OR (n.nspname='core_tool_market' AND c.relname='approvals' AND a.attname NOT IN ('revoked','used_calls','used_amount'))
             OR (n.nspname='core_tool_market' AND c.relname='calls' AND a.attname NOT IN ('receipt','result_hash'))
             OR (n.nspname='core_assistant_tools' AND a.attname NOT IN ('nonce_sha256','state','confirmed_at'))
@@ -272,6 +282,16 @@ pub(crate) async fn check_connection(
           AND NOT EXISTS(SELECT FROM (VALUES ('oauth_flows'),('auth_attempts')) t(name)
             CROSS JOIN (VALUES ('SELECT'),('INSERT'),('DELETE')) p(privilege)
             WHERE NOT has_table_privilege('core_identity.'||t.name,p.privilege))
+          AND NOT EXISTS(SELECT FROM (VALUES ('email_addresses'),('email_challenges'),('email_rate_buckets'),('email_rate_events'),('email_delivery_outbox')) t(name)
+            CROSS JOIN (VALUES ('SELECT'),('INSERT')) p(privilege)
+            WHERE NOT has_table_privilege('core_identity.'||t.name,p.privilege))
+          AND NOT EXISTS(SELECT FROM (VALUES
+              ('email_addresses','email_key'),('email_addresses','user_id'),('email_addresses','state'),('email_addresses','email_version'),('email_addresses','verified_at'),
+              ('email_challenges','state'),('email_challenges','attempts'),('email_challenges','consumed_at'),('email_challenges','result_user_id'),
+              ('email_rate_buckets','bucket'),('email_delivery_outbox','payload'),('email_delivery_outbox','status'),('email_delivery_outbox','error_class'),
+              ('email_delivery_outbox','lease_token'),('email_delivery_outbox','lease_until'),('email_delivery_outbox','smtp_started_at'),('email_delivery_outbox','finished_at'),
+              ('session_authentication','user_id')) p(name,column_name)
+            WHERE NOT has_column_privilege('core_identity.'||p.name,p.column_name,'UPDATE'))
           AND has_table_privilege('core_identity.auth_attempts','UPDATE')
           AND has_table_privilege('core_identity.developer_access','SELECT')
           AND has_table_privilege('core_identity.user_routing_groups','SELECT')

@@ -280,6 +280,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut remote_store = None;
     let mut model_gateway = None;
     let mut humangrant_engine = None;
+    let mut email_runtime = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
         let pool = config::database_pool(url).await?;
@@ -333,7 +334,14 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         } else {
             store.clone()
         };
-        let mut routes = lmm_core::identity_http::router(native_store)
+        email_runtime = config::email_runtime(store.clone(), pool.clone())?;
+        let native_routes = match &email_runtime {
+            Some(mail) => {
+                lmm_core::identity_http::router_with_email(native_store, mail.http.clone())
+            }
+            None => lmm_core::identity_http::router(native_store),
+        };
+        let mut routes = native_routes
             .merge(lmm_core::abuse::admin::router(abuse))
             .merge(lmm_core::identity::admin_users::router(
                 lmm_core::identity::admin_users::AdminUsersStore::new(store.clone()),
@@ -381,6 +389,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             }
             public_status = lmm_core::http::PublicStatus {
                 password_login_enabled: true,
+                email_verification_enabled: store.registration_email_verification_required(),
                 two_factor_enabled: store.mfa_enabled(),
                 registration_enabled: store.registration_enabled(),
                 password_register_enabled: store.password_register_enabled(),
@@ -429,7 +438,12 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             routes = routes.merge(lmm_core::topup_info_http::unconfigured_router(
                 store.clone(),
             ));
-            routes = routes.merge(lmm_core::legacy_auth::router(store, config.auth));
+            routes = routes.merge(match &email_runtime {
+                Some(mail) => {
+                    lmm_core::legacy_auth::router_with_email(store, config.auth, mail.http.clone())
+                }
+                None => lmm_core::legacy_auth::router(store, config.auth),
+            });
             capabilities.legacy_web_auth = true;
         }
         if let Some(gateway) = &model_gateway {
@@ -669,6 +683,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     // All enabled components and listener binds have succeeded. The health body
     // lists capabilities; model readiness has its own explicit endpoint.
     assert!(lifecycle.mark_ready());
+    let email_mail_task = email_runtime.map(|mail| {
+        let stopped = stopped.clone();
+        tokio::spawn(async move { mail.outbox.run(&mail.mailer, stopped).await })
+    });
     let humangrant_mail_task = humangrant_engine
         .filter(|engine| engine.mail.is_some())
         .map(|engine| lmm_core::humangrant::mail::spawn_worker(engine, stopped.clone()));
@@ -744,6 +762,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         let _ = task.await;
     }
     if let Some(task) = humangrant_mail_task {
+        task.await?;
+    }
+    if let Some(task) = email_mail_task {
         task.await?;
     }
     #[cfg(unix)]

@@ -1,3 +1,6 @@
+#[path = "config_email.rs"]
+mod email_config;
+pub use email_config::{EmailRuntime, email_runtime};
 #[path = "config_market_oauth.rs"]
 mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
@@ -138,6 +141,7 @@ struct IdentityFile {
     registration_disabled_methods: Option<Vec<String>>,
     email_domain_restriction_enabled: Option<bool>,
     email_verification_enabled: Option<bool>,
+    email_config_file: Option<PathBuf>,
     email_domain_whitelist: Option<Vec<String>>,
     password_slots: u32,
     api_key_encryption_key_file: Option<PathBuf>,
@@ -161,6 +165,7 @@ impl Default for IdentityFile {
             registration_disabled_methods: None,
             email_domain_restriction_enabled: None,
             email_verification_enabled: None,
+            email_config_file: None,
             email_domain_whitelist: None,
             password_slots: one(),
             api_key_encryption_key_file: None,
@@ -384,6 +389,10 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         file.identity.email_domain_restriction_enabled,
         file.identity.email_domain_whitelist.as_deref(),
     )?;
+    email_config::require_configuration(
+        file.identity.email_verification_enabled.unwrap_or(false),
+        file.identity.email_config_file.is_some(),
+    )?;
     if file.database.is_none()
         && (file.identity.registration_enabled
             || file
@@ -399,6 +408,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.identity.telegram.is_some()
             || file.identity.api_key_encryption_key_file.is_some()
             || file.identity.mfa.is_some()
+            || file.identity.email_config_file.is_some()
             || file.identity.oauth2.is_some()
             || file.console.enabled
             || file.model.is_some()
@@ -494,6 +504,9 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     put("LMM_CORE_CONSOLE_ENABLED", file.console.enabled.to_string());
     let mut paths = Vec::new();
+    if let Some(path) = file.identity.email_config_file {
+        paths.push(("LMM_CORE_EMAIL_CONFIG_FILE", path));
+    }
     if let Some(db) = file.database {
         if !(1..=8).contains(&db.max_connections) {
             return Err(invalid_config("invalid core database connection limit"));
@@ -945,6 +958,10 @@ pub fn identity_auth(
         .with_oauth_registration_disabled_methods(disabled_methods.as_deref().unwrap_or_default())
         .map_err(|_| invalid_config("unknown registration disabled method"))?;
     let email_verification = optional_bool_setting("LMM_CORE_EMAIL_VERIFICATION_ENABLED")?;
+    email_config::require_configuration(
+        email_verification.unwrap_or(false),
+        setting_os("LMM_CORE_EMAIL_CONFIG_FILE").is_some(),
+    )?;
     let email_domain_restriction =
         optional_bool_setting("LMM_CORE_EMAIL_DOMAIN_RESTRICTION_ENABLED")?;
     let email_domains = match setting("LMM_CORE_EMAIL_DOMAIN_WHITELIST") {
@@ -1137,7 +1154,13 @@ pub fn ingress() -> io::Result<Option<crate::lifecycle::ingress::IngressAcks>> {
 }
 
 pub fn identity_database_required() -> io::Result<bool> {
+    let email_configured = setting_os("LMM_CORE_EMAIL_CONFIG_FILE").is_some();
+    email_config::require_configuration(
+        bool_setting("LMM_CORE_EMAIL_VERIFICATION_ENABLED")?,
+        email_configured,
+    )?;
     Ok(bool_setting("LMM_CORE_REGISTRATION_ENABLED")?
+        || email_configured
         || setting_os("LMM_CORE_API_KEY_ENCRYPTION_KEY_FILE").is_some()
         || setting_os("LMM_CORE_MFA_KEYRING_FILE").is_some()
         || setting_os("LMM_CORE_GOOGLE_CLIENT_ID").is_some()
@@ -3074,14 +3097,14 @@ mod tests {
     fn registration_email_domain_config_loads_and_requires_whitelist() {
         let document = r#"version = 1
 [identity]
-email_verification_enabled = true
+email_verification_enabled = false
 email_domain_restriction_enabled = true
 email_domain_whitelist = ["gmail.com", "outlook.com"]
 "#;
         let settings = parse_core_file(document.as_bytes()).unwrap();
         assert_eq!(
             settings["LMM_CORE_EMAIL_VERIFICATION_ENABLED"],
-            OsString::from("true")
+            OsString::from("false")
         );
         assert_eq!(
             settings["LMM_CORE_EMAIL_DOMAIN_RESTRICTION_ENABLED"],

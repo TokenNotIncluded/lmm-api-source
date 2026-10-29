@@ -58,14 +58,21 @@ async fn fresh() -> (PgPool, PgPool, EmailChallenges) {
     sqlx::raw_sql("DROP SCHEMA IF EXISTS core_identity CASCADE; DROP SCHEMA IF EXISTS core_billing CASCADE; DROP SCHEMA IF EXISTS core_meta CASCADE;")
         .execute(&owner).await.unwrap();
     sqlx::raw_sql(BASE).execute(&owner).await.unwrap();
-    sqlx::raw_sql(include_str!("schema.sql"))
-        .execute(&owner)
-        .await
-        .unwrap();
     sqlx::raw_sql(include_str!("test_grants.sql"))
         .execute(&owner)
         .await
         .unwrap();
+    // v6 installs the invoker-security outbox invalidation trigger even for
+    // this challenge-only fixture. Grant only its needed columns.
+    sqlx::raw_sql(
+        "GRANT SELECT(challenge_id,kind,payload,status,smtp_started_at,error_class,finished_at)
+         ON core_identity.email_delivery_outbox TO email_runtime;
+         GRANT UPDATE(payload,status,error_class,finished_at,lease_token,lease_until)
+         ON core_identity.email_delivery_outbox TO email_runtime;",
+    )
+    .execute(&owner)
+    .await
+    .unwrap();
     let runtime = pool("EMAIL_TEST_RUNTIME_URL").await;
     let roles: (bool, bool, bool) = sqlx::query_as(
         "SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user",

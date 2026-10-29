@@ -427,7 +427,9 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
                     role='status'
                     className='text-muted-foreground text-sm break-words'
                   >
-                    {t('Verification email sent')}: {verificationEmail}
+                    {t(
+                      'If eligible, an email will be sent. Please check your inbox shortly.'
+                    )}
                   </p>
                 )}
               </>

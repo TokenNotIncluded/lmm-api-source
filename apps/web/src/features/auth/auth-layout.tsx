@@ -32,9 +32,10 @@ import './auth-mobile.css'
 
 type AuthLayoutProps = {
   children: React.ReactNode
+  reloadDocument?: boolean
 }
 
-export function AuthLayout({ children }: AuthLayoutProps) {
+export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   const { systemName } = useSystemConfig()
   const { t } = useTranslation()
   const [mobileGameOpen, setMobileGameOpen] = useState(false)
@@ -51,6 +52,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
       <header className='relative z-20 flex min-h-16 shrink-0 items-center justify-between px-5 sm:min-h-20 sm:px-8 lg:absolute lg:inset-x-0 lg:top-0 lg:min-h-24'>
         <Link
           to='/'
+          reloadDocument={reloadDocument}
           className='flex items-center gap-2 transition-opacity hover:opacity-80'
         >
           <LmmBrandMark className='size-8' title={systemName} />

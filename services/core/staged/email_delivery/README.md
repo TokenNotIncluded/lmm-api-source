@@ -1,8 +1,11 @@
-# Staged email delivery outbox
+# Core email delivery outbox
 
-This is a callable development slice. It is not imported by Core, started at
-startup, exposed through HTTP, or advertised as ready. Its local delta is not
-part of the identity component contract or the production grants.
+Core imports this outbox for explicitly configured identity email flows. Formal
+identity v6 owns its DDL and the runtime grant/check contract. The executable
+constructs the HTTP adapters before binding and starts/joins the worker with
+its lifecycle. Configuration and product routes are documented in
+[`docs/core-identity.md`](../../../../docs/core-identity.md). Staged delta files
+are historical development material, not an existing-site upgrade procedure.
 
 ## Atomic issuance
 
@@ -74,19 +77,20 @@ key is an independently generated 32-byte raw file supplied through
 `MailKeys::from_files`; key rotation retains old key IDs until their ciphertext
 is erased. Do not reuse proof, MFA, session or HumanGrant keys.
 
-## Explicit limits and integration blocker
+## Delivery boundaries
 
-- The slice does not implement resend endpoints, global/IP SMTP capacity
-  controls, cleanup scheduling, formal schema versioning, production grants,
-  readiness, HTTP routes or application worker startup.
-- Callers that change an account and enqueue a security notice must perform
-  both operations in one transaction. They must not call a notice API after
-  committing the account mutation.
-- `EmailChallenges::issue` remains a standalone committed API for existing
-  callers. Until all product adapters are moved to `Outbox::issue` or a shared
-  transaction, the product has no atomic durable-mail issuance contract.
-- A locally successful SMTP-sink test is not Core integration, product
-  acceptance, production SMTP evidence or a promise of inbox delivery.
+- Issuance uses the existing source limiter and persistent target budgets;
+  the bounded worker maintains expired leases and ciphertext retention.
+  Dedicated resend or global SMTP capacity controls are not added here.
+- Product HTTP adapters consume proofs, change the account and enqueue required
+  notices through the same transaction before committing. Detached committed
+  proof APIs must not replace this composition.
+- `EmailChallenges::issue` remains a standalone committed API for non-product
+  callers. Product issuance uses `Outbox::issue`; a committed proof must never
+  be bridged into a separate delivery transaction.
+- A local SMTP-sink test proves only its recorded fixture. Actual Core process
+  acceptance, Web acceptance, existing-site upgrade and external inbox delivery
+  have separate evidence; configuration does not prove them.
 
 ## Local check
 

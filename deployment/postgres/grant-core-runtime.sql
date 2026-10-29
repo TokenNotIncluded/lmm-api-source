@@ -197,6 +197,20 @@ GRANT USAGE ON SEQUENCE core_identity.accounts_id_seq, core_identity.users_id_se
     core_identity.teams_id_seq, core_identity.credentials_id_seq,
     core_identity.invites_id_seq, core_identity.audit_id_seq TO :"runtime_role";
 
+-- Email authority and delivery: only the columns changed by the writers.
+GRANT SELECT, INSERT ON core_identity.email_addresses, core_identity.email_challenges,
+    core_identity.email_rate_buckets, core_identity.email_rate_events,
+    core_identity.email_delivery_outbox TO :"runtime_role";
+GRANT UPDATE (email_key,user_id,state,email_version,verified_at)
+    ON core_identity.email_addresses TO :"runtime_role";
+GRANT UPDATE (state,attempts,consumed_at,result_user_id)
+    ON core_identity.email_challenges TO :"runtime_role";
+GRANT UPDATE (bucket) ON core_identity.email_rate_buckets TO :"runtime_role";
+GRANT UPDATE (payload,status,error_class,lease_token,lease_until,smtp_started_at,finished_at)
+    ON core_identity.email_delivery_outbox TO :"runtime_role";
+-- PostgreSQL row locking needs UPDATE on a column even for FOR SHARE.
+GRANT UPDATE (user_id) ON core_identity.session_authentication TO :"runtime_role";
+
 \if :enable_oauth2
 -- Native OAuth issues no core credential or spending authority. Only the
 -- immutable snapshot's consumption and family scope/revocation are mutable.

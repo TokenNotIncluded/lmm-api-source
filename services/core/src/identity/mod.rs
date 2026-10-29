@@ -547,3 +547,7 @@ mod tests {
         assert_eq!(valid_ttl(MAX_TTL + 1, MAX_TTL), Err(IdentityError::Invalid));
     }
 }
+
+mod email_authority;
+pub mod email_business;
+pub(crate) mod email_notice;

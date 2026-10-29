@@ -1,4 +1,4 @@
-//! Callable staged mail outbox. Deliberately absent from Core startup and routes.
+//! Durable encrypted mail outbox for configured Core identity email flows.
 mod crypto;
 mod reset_link;
 mod smtp;
@@ -7,7 +7,7 @@ mod store;
 pub use crypto::MailKeys;
 pub use reset_link::ResetSite;
 pub use smtp::{SmtpConfig, SmtpMailer, SmtpTls};
-pub use store::{Dispatch, Lease, Outbox};
+pub use store::{Dispatch, Lease, NoticeRecipient, Outbox};
 
 use std::fmt;
 

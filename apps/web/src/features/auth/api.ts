@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import axios from 'axios'
+import { z } from 'zod'
 
 import { api } from '@/lib/api'
 import { AUTH_COOKIE_TIMEOUT_MS, withAuthCookieLock } from '@/lib/auth-cookie'
@@ -248,15 +249,43 @@ export async function logout(): Promise<ApiResponse> {
 // Password Management
 // ----------------------------------------------------------------------------
 
-// Send password reset email
+// Public email requests never refresh or inherit the current login session.
 export async function sendPasswordResetEmail(
   email: string,
   turnstile?: string
 ): Promise<ApiResponse> {
-  const res = await api.get('/api/reset_password', {
-    params: { email, turnstile },
-  })
+  const res = await api.post(
+    '/api/identity/email/password-reset/request',
+    { email, turnstile },
+    { authMode: 'anonymous', skipAuthRefresh: true }
+  )
   return res.data
+}
+
+// Recovery consumes the proof only with an explicitly chosen new password.
+export async function resetPassword(payload: {
+  email: string
+  token: string
+  new_password: string
+}) {
+  const res = await api.post<unknown>('/api/user/reset', payload, {
+    authMode: 'anonymous',
+    skipAuthRefresh: true,
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  return z
+    .discriminatedUnion('success', [
+      z.object({
+        success: z.literal(true),
+        data: z.object({
+          password_changed: z.literal(true),
+          login_required: z.literal(true),
+        }),
+      }),
+      z.object({ success: z.literal(false) }),
+    ])
+    .parse(res.data)
 }
 
 // ----------------------------------------------------------------------------
@@ -401,7 +430,8 @@ export async function telegramLogin(
 // User registration
 export async function register(payload: RegisterPayload): Promise<ApiResponse> {
   const res = await api.post(`/api/user/register`, payload, {
-    params: { turnstile: payload.turnstile ?? '' },
+    authMode: 'anonymous',
+    skipAuthRefresh: true,
   })
   return res.data
 }
@@ -411,9 +441,11 @@ export async function sendEmailVerification(
   email: string,
   turnstile?: string
 ): Promise<ApiResponse> {
-  const res = await api.get('/api/verification', {
-    params: { email, turnstile },
-  })
+  const res = await api.post(
+    '/api/identity/email/verification/request',
+    { email, purpose: 'register', turnstile },
+    { authMode: 'anonymous', skipAuthRefresh: true }
+  )
   return res.data
 }
 

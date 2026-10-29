@@ -568,9 +568,14 @@ impl EmailMutation {
         &self.id
     }
 
-    /// Consumes once and commits with the caller's writes and a redacted audit.
-    /// It grants no permission to skip registration, binding or password policy.
-    pub async fn finish(mut self, result_user_id: i64) -> Result<()> {
+    /// Compatibility completion for callers with no required notification.
+    pub async fn finish(self, result_user_id: i64) -> Result<()> {
+        self.consume(result_user_id).await?.commit().await
+    }
+
+    /// Consumes and audits in the business transaction without committing.
+    /// Required notices must be enqueued before the returned guard commits.
+    pub async fn consume(mut self, result_user_id: i64) -> Result<ConsumedEmailMutation> {
         if result_user_id <= 0 || self.user.is_some_and(|user| user != result_user_id) {
             return Err(EmailError::InvalidProof);
         }
@@ -597,6 +602,32 @@ impl EmailMutation {
         .bind(self.purpose)
         .execute(&mut *self.tx)
         .await?;
+        Ok(ConsumedEmailMutation {
+            tx: self.tx,
+            id: self.id,
+        })
+    }
+}
+
+/// Consumed proof and business writes remain invisible until commit.
+#[must_use = "dropping the guard rolls back business, proof and notices"]
+pub struct ConsumedEmailMutation {
+    tx: Transaction<'static, Postgres>,
+    id: String,
+}
+
+impl ConsumedEmailMutation {
+    /// The same transaction required by encrypted outbox enqueue APIs.
+    pub fn transaction(&mut self) -> &mut Transaction<'static, Postgres> {
+        &mut self.tx
+    }
+
+    pub fn challenge_id(&self) -> &str {
+        &self.id
+    }
+
+    /// Call only after every required notice has been enqueued successfully.
+    pub async fn commit(self) -> Result<()> {
         self.tx.commit().await?;
         Ok(())
     }

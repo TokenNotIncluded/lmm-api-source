@@ -733,3 +733,161 @@ CREATE TRIGGER imported_admin_account_guard BEFORE UPDATE ON core_identity.accou
 
 REVOKE ALL ON core_identity.privileged_import_facts, core_identity.permission_policies,
     core_identity.permission_policy_rows, core_identity.admin_activation_receipts FROM PUBLIC;
+
+-- Identity v6: email authority, challenges and encrypted delivery.
+ALTER TABLE core_identity.user_profiles
+    ADD COLUMN email_version BIGINT NOT NULL DEFAULT 0 CHECK (email_version >= 0);
+
+-- Profile text is deliberately not copied into this authority.
+CREATE TABLE core_identity.email_addresses (
+    email_key TEXT PRIMARY KEY CHECK (email_key = lower(btrim(email_key)) AND length(email_key) BETWEEN 3 AND 254),
+    user_id BIGINT UNIQUE REFERENCES core_identity.users(id),
+    state TEXT NOT NULL CHECK (state IN ('verified','legacy_unverified','conflict')),
+    email_version BIGINT NOT NULL CHECK (email_version >= 0),
+    verified_at TIMESTAMPTZ,
+    CHECK ((state = 'conflict') = (user_id IS NULL)),
+    CHECK ((state = 'verified') = (verified_at IS NOT NULL)),
+    CHECK (state <> 'verified' OR email_version > 0)
+);
+
+CREATE TABLE core_identity.email_challenges (
+    id TEXT PRIMARY KEY CHECK (id ~ '^[a-f0-9]{32}$'),
+    scope_key BYTEA NOT NULL CHECK (octet_length(scope_key) = 32),
+    purpose TEXT NOT NULL CHECK (purpose IN ('register','bind','password_reset')),
+    email_key TEXT NOT NULL CHECK (email_key = lower(btrim(email_key)) AND length(email_key) BETWEEN 3 AND 254),
+    user_id BIGINT REFERENCES core_identity.users(id),
+    user_version BIGINT CHECK (user_version > 0),
+    email_version BIGINT CHECK (email_version >= 0),
+    sid_digest BYTEA CHECK (octet_length(sid_digest) = 32),
+    key_id TEXT NOT NULL CHECK (length(key_id) BETWEEN 1 AND 64),
+    token_mac BYTEA NOT NULL CHECK (octet_length(token_mac) = 32),
+    attempts SMALLINT NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+    state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','consumed','locked','expired','superseded')),
+    issued_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp() + interval '600 seconds',
+    consumed_at TIMESTAMPTZ,
+    result_user_id BIGINT REFERENCES core_identity.users(id),
+    CHECK (expires_at > issued_at AND expires_at <= issued_at + interval '600 seconds'),
+    CHECK ((purpose = 'register' AND user_id IS NULL AND user_version IS NULL AND email_version IS NULL)
+        OR (purpose <> 'register' AND user_id IS NOT NULL AND user_version IS NOT NULL AND email_version IS NOT NULL)),
+    CHECK ((purpose = 'bind') = (sid_digest IS NOT NULL)),
+    CHECK ((state = 'consumed') = (consumed_at IS NOT NULL AND result_user_id IS NOT NULL)),
+    CHECK (state = 'consumed' OR (consumed_at IS NULL AND result_user_id IS NULL)),
+    CHECK (state <> 'consumed' OR consumed_at < expires_at),
+    CHECK (state <> 'locked' OR attempts = 5)
+);
+CREATE UNIQUE INDEX email_one_active_scope ON core_identity.email_challenges(scope_key) WHERE state = 'active';
+
+CREATE FUNCTION core_identity.protect_email_challenge() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF (NEW.id,NEW.scope_key,NEW.purpose,NEW.email_key,NEW.user_id,NEW.user_version,
+        NEW.email_version,NEW.sid_digest,NEW.key_id,NEW.token_mac,NEW.issued_at,NEW.expires_at)
+        IS DISTINCT FROM
+       (OLD.id,OLD.scope_key,OLD.purpose,OLD.email_key,OLD.user_id,OLD.user_version,
+        OLD.email_version,OLD.sid_digest,OLD.key_id,OLD.token_mac,OLD.issued_at,OLD.expires_at)
+       OR NEW.attempts < OLD.attempts
+       OR (OLD.state <> 'active' AND NEW IS DISTINCT FROM OLD) THEN
+        RAISE EXCEPTION 'email challenge identity and terminal state are immutable' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER email_challenge_guard BEFORE UPDATE ON core_identity.email_challenges
+    FOR EACH ROW EXECUTE FUNCTION core_identity.protect_email_challenge();
+
+CREATE TABLE core_identity.email_rate_buckets (
+    bucket BYTEA PRIMARY KEY CHECK (octet_length(bucket) = 32)
+);
+CREATE TABLE core_identity.email_rate_events (
+    bucket BYTEA NOT NULL REFERENCES core_identity.email_rate_buckets(bucket),
+    kind TEXT NOT NULL CHECK (kind IN ('issue','verify')),
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX email_rate_window ON core_identity.email_rate_events(bucket,kind,occurred_at);
+REVOKE ALL ON core_identity.email_addresses,core_identity.email_challenges,
+    core_identity.email_rate_buckets,core_identity.email_rate_events FROM PUBLIC;
+
+REVOKE ALL ON FUNCTION core_identity.protect_email_challenge() FROM PUBLIC;
+
+CREATE TABLE core_identity.email_delivery_outbox (
+    id TEXT PRIMARY KEY CHECK (id ~ '^[a-f0-9]{32}$'),
+    challenge_id TEXT NOT NULL REFERENCES core_identity.email_challenges(id),
+    kind TEXT NOT NULL CHECK (kind IN ('challenge','security_notice')),
+    recipient_slot TEXT NOT NULL DEFAULT 'current'
+        CHECK (recipient_slot IN ('current','previous')),
+    CHECK (kind='security_notice' OR recipient_slot='current'),
+    key_id TEXT NOT NULL CHECK (key_id ~ '^[A-Za-z0-9_-]{1,64}$'),
+    payload BYTEA CHECK (octet_length(payload) BETWEEN 30 AND 2077),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','leased','accepted_by_smtp','rejected','unknown','canceled')),
+    error_class TEXT CHECK (error_class IN ('smtp_accepted','smtp_temporary','smtp_permanent',
+        'smtp_uncertain','lease_expired','invalidated','expired','payload_unavailable')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    lease_token TEXT CHECK (lease_token ~ '^[a-f0-9]{32}$'),
+    lease_until TIMESTAMPTZ,
+    smtp_started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    CHECK (expires_at > created_at AND expires_at <= created_at + interval '24 hours'),
+    CHECK ((status = 'leased') = (lease_token IS NOT NULL AND lease_until IS NOT NULL)),
+    CHECK (status = 'leased' OR (lease_token IS NULL AND lease_until IS NULL)),
+    CHECK ((status IN ('pending','leased')) = (finished_at IS NULL)),
+    CHECK (status NOT IN ('pending','leased') OR payload IS NOT NULL),
+    CHECK (status NOT IN ('pending','leased') OR error_class IS NULL)
+);
+CREATE UNIQUE INDEX email_delivery_one_inflight
+    ON core_identity.email_delivery_outbox(challenge_id,kind,recipient_slot)
+    WHERE status IN ('pending','leased');
+-- Security notices are not recreated after a terminal SMTP outcome.
+CREATE UNIQUE INDEX email_delivery_notice_once
+    ON core_identity.email_delivery_outbox(challenge_id,recipient_slot)
+    WHERE kind='security_notice';
+CREATE INDEX email_delivery_pending ON core_identity.email_delivery_outbox(created_at,id)
+    WHERE status = 'pending';
+CREATE INDEX email_delivery_retention ON core_identity.email_delivery_outbox(expires_at)
+    WHERE payload IS NOT NULL;
+
+CREATE FUNCTION core_identity.protect_email_delivery() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF (NEW.id,NEW.challenge_id,NEW.kind,NEW.recipient_slot,NEW.key_id,NEW.created_at,NEW.expires_at)
+        IS DISTINCT FROM (OLD.id,OLD.challenge_id,OLD.kind,OLD.recipient_slot,OLD.key_id,OLD.created_at,OLD.expires_at)
+        OR (NEW.payload IS DISTINCT FROM OLD.payload AND NEW.payload IS NOT NULL)
+        OR (OLD.smtp_started_at IS NOT NULL AND NEW.smtp_started_at IS DISTINCT FROM OLD.smtp_started_at)
+        OR (OLD.status NOT IN ('pending','leased') AND
+            (NEW.status,NEW.error_class,NEW.lease_token,NEW.lease_until,NEW.finished_at)
+            IS DISTINCT FROM
+            (OLD.status,OLD.error_class,OLD.lease_token,OLD.lease_until,OLD.finished_at))
+        OR (OLD.status = 'leased' AND NEW.status = 'pending')
+        OR (OLD.status = 'leased' AND NEW.status = 'leased' AND NEW.lease_token <> OLD.lease_token)
+    THEN
+        RAISE EXCEPTION 'invalid mail transition' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER email_delivery_guard BEFORE UPDATE ON core_identity.email_delivery_outbox
+    FOR EACH ROW EXECUTE FUNCTION core_identity.protect_email_delivery();
+
+-- The challenge owner already holds its lock. Keep the same challenge -> mail
+-- lock order in enqueue, prepare, finish and maintenance.
+CREATE FUNCTION core_identity.invalidate_email_delivery() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF NEW.state <> 'active' THEN
+        UPDATE core_identity.email_delivery_outbox SET
+            payload = NULL,
+            status = CASE WHEN status IN ('pending','leased')
+                THEN CASE WHEN smtp_started_at IS NULL THEN 'canceled' ELSE 'unknown' END
+                ELSE status END,
+            error_class = CASE WHEN status IN ('pending','leased') THEN 'invalidated' ELSE error_class END,
+            finished_at = CASE WHEN status IN ('pending','leased') THEN clock_timestamp() ELSE finished_at END,
+            lease_token = NULL, lease_until = NULL
+        WHERE challenge_id = NEW.id AND kind = 'challenge' AND payload IS NOT NULL;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER email_delivery_challenge_end AFTER UPDATE OF state ON core_identity.email_challenges
+    FOR EACH ROW EXECUTE FUNCTION core_identity.invalidate_email_delivery();
+REVOKE ALL ON core_identity.email_delivery_outbox FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_identity.protect_email_delivery(),
+    core_identity.invalidate_email_delivery() FROM PUBLIC;

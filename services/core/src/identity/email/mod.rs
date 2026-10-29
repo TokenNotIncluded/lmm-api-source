@@ -9,7 +9,8 @@ mod store;
 
 pub use address::EmailAddress;
 pub use store::{
-    EmailChallenges, EmailMutation, IssueOutcome, IssuedEmailChallenge, Request, TransactionalIssue,
+    ConsumedEmailMutation, EmailChallenges, EmailMutation, IssueOutcome, IssuedEmailChallenge,
+    Request, TransactionalIssue,
 };
 
 use std::fmt;
