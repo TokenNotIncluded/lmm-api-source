@@ -337,6 +337,10 @@ def plan(root: Path, level: str, changed: list[str], output: Path) -> list[Check
     for name in ('check-docs-brand.py', 'test_docs_brand.py', 'test-docs-microservices.py',
                  'test-distribution.py', 'test-local-release-tests.py'):
         checks.append(Check(name, (PYTHON, '-B', 'scripts/' + name), tests='unittest' if name.startswith('test') else ''))
+    # The runner rejects empty/skipped suites and persists its own component
+    # report. Its nonzero exits must remain failures, not application acceptance.
+    checks.append(Check('mocklab-selftest', (PYTHON, '-B', 'scripts/mocklab.py', 'selftest',
+                                            '--output', str(output / 'mocklab-selftest'))))
     checks.append(Check('workflow-topology', ('node', '--test', 'scripts/workflow-topology.test.mjs'), tests='text'))
     for path, name in ((CORE, 'core'), (CLI, 'cli')):
         checks += [Check(name + '-lint', ('cargo', 'clippy', '--locked', '--all-targets', '--all-features', '--', '-D', 'warnings'), path),

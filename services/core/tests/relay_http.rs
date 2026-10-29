@@ -1393,19 +1393,32 @@ async fn event_output_tool_and_raw_body_limits_are_enforced() {
 #[tokio::test]
 async fn missing_terminal_invalid_utf8_and_broken_http_fail_without_replay() {
     let cases = [
-        Script::sse(first_text("partial")),
-        Script {
-            complete: false,
-            steps: vec![Step::Data(first_text("partial"))],
-            ..Script::sse(Vec::new())
-        },
-        Script::sse(b"data: \xff\n\n".to_vec()),
-        Script {
-            content_type: "text/html",
-            ..Script::sse(b"secret error page".to_vec())
-        },
+        (Script::sse(first_text("partial")), RelayError::Truncated),
+        (
+            Script::sse(b"data: {\"id\":\"unfinished".to_vec()),
+            RelayError::Truncated,
+        ),
+        (
+            Script {
+                complete: false,
+                steps: vec![Step::Data(first_text("partial"))],
+                ..Script::sse(Vec::new())
+            },
+            RelayError::UpstreamConnection,
+        ),
+        (
+            Script::sse(b"data: \xff\n\n".to_vec()),
+            RelayError::Protocol("SSE is not UTF-8"),
+        ),
+        (
+            Script {
+                content_type: "text/html",
+                ..Script::sse(b"secret error page".to_vec())
+            },
+            RelayError::Protocol("unexpected upstream content type"),
+        ),
     ];
-    for script in cases {
+    for (script, expected) in cases {
         let upstream = Upstream::start(script).await;
         let l = Limits {
             connect_retries: 2,
@@ -1413,18 +1426,32 @@ async fn missing_terminal_invalid_utf8_and_broken_http_fail_without_replay() {
         };
         let money = Arc::new(Money::default());
         let relay = relay(&upstream, UpstreamProtocol::Chat, l.clone(), money.clone());
-        let (_, body, done) = collect(
+        let (head, body, done) = collect(
             relay
                 .start(request(ClientProtocol::Chat, true, &l), context())
                 .unwrap(),
         )
         .await;
-        assert!(done.error.is_some());
-        assert_ne!(done.report.outcome, Outcome::Completed);
+        assert_eq!(done.error, Some(expected.clone()));
+        assert_eq!(done.report.outcome, Outcome::Failed);
+        assert!(!done.report.provider_complete);
+        assert_eq!(expected.status(), 502);
+        assert_ne!(expected.code(), RelayError::Cancelled.code());
+        match head {
+            Ok(_) => {
+                let error = packets(&body).pop().unwrap();
+                assert_eq!(error["error"]["code"], expected.code());
+            }
+            Err(error) => assert_eq!(error, expected),
+        }
         assert_eq!(done.report.attempts, 1);
         assert!(!body.contains("[DONE]"));
         assert!(!body.contains("secret error page"));
-        assert_eq!(money.finals.lock().unwrap().len(), 1);
+        let finals = money.finals.lock().unwrap();
+        assert_eq!(finals.len(), 1);
+        assert_eq!(finals[0].outcome, Outcome::Failed);
+        assert!(!finals[0].provider_complete);
+        assert_eq!(finals[0].usage, Usage::default());
     }
 }
 
@@ -1706,6 +1733,6 @@ async fn error_packets_obey_the_same_chunk_limit_as_model_output() {
     let done = timeout(WAIT, completion).await.unwrap().unwrap();
     assert_eq!(done.error, Some(RelayError::Truncated));
     let body = String::from_utf8(bytes).unwrap();
-    assert!(body.contains("invalid_upstream_response"));
+    assert!(body.contains("upstream_truncated"));
     assert!(!body.contains("[DONE]"));
 }

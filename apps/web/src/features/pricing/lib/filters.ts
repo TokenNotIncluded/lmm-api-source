@@ -25,7 +25,7 @@ import {
 } from '../constants'
 import type { PricingModel } from '../types'
 import { classifyBillingExpression } from './billing-expr'
-import { getTokenPriceUSD } from './price'
+import { getTokenPriceUSD, hasCanonicalPricing } from './price'
 
 // ----------------------------------------------------------------------------
 // Filter Utilities
@@ -119,21 +119,47 @@ export function filterByEndpointType(
 /**
  * Get model price for sorting
  */
-function getModelPrice(model: PricingModel): number | null {
+type SortPriceType = 'input' | 'output' | 'request'
+
+function getModelPrice(
+  model: PricingModel,
+  type?: SortPriceType
+): number | null {
   // Expressions need request context; legacy scalar fields are not a quote.
-  if (model.billing_mode === 'tiered_expr') return null
+  if (
+    !hasCanonicalPricing(model) ||
+    model.billing_mode === 'tiered_expr' ||
+    model.billing_mode === 'upstream_cost'
+  ) {
+    return null
+  }
+  // Keep legacy price-low/high URLs working; explicit modes never compare
+  // USD/request with USD/million tokens or use a missing dimension as zero.
+  const priceType =
+    type ??
+    (model.quota_type === QUOTA_TYPE_VALUES.REQUEST ? 'request' : 'input')
+  const quotaType =
+    priceType === 'request'
+      ? QUOTA_TYPE_VALUES.REQUEST
+      : QUOTA_TYPE_VALUES.TOKEN
+  if (model.quota_type !== quotaType) return null
   const price =
-    model.quota_type === 0
-      ? getTokenPriceUSD(model, 'input')
-      : model.model_price
+    priceType === 'request'
+      ? model.model_price
+      : getTokenPriceUSD(model, priceType)
   return typeof price === 'number' && Number.isFinite(price) && price >= 0
     ? price
     : null
 }
 
-function comparePrices(a: PricingModel, b: PricingModel, descending: boolean) {
-  const left = getModelPrice(a)
-  const right = getModelPrice(b)
+function comparePrices(
+  a: PricingModel,
+  b: PricingModel,
+  descending: boolean,
+  type?: SortPriceType
+) {
+  const left = getModelPrice(a, type)
+  const right = getModelPrice(b, type)
   if (left === null) return right === null ? 0 : 1
   if (right === null) return -1
   return descending ? right - left : left - right
@@ -159,6 +185,29 @@ export function sortModels(
       break
     case SORT_OPTIONS.PRICE_HIGH:
       sorted.sort((a, b) => comparePrices(a, b, true))
+      break
+    case SORT_OPTIONS.INPUT_PRICE_LOW:
+    case SORT_OPTIONS.INPUT_PRICE_HIGH:
+      sorted.sort((a, b) =>
+        comparePrices(a, b, sortBy === SORT_OPTIONS.INPUT_PRICE_HIGH, 'input')
+      )
+      break
+    case SORT_OPTIONS.OUTPUT_PRICE_LOW:
+    case SORT_OPTIONS.OUTPUT_PRICE_HIGH:
+      sorted.sort((a, b) =>
+        comparePrices(a, b, sortBy === SORT_OPTIONS.OUTPUT_PRICE_HIGH, 'output')
+      )
+      break
+    case SORT_OPTIONS.REQUEST_PRICE_LOW:
+    case SORT_OPTIONS.REQUEST_PRICE_HIGH:
+      sorted.sort((a, b) =>
+        comparePrices(
+          a,
+          b,
+          sortBy === SORT_OPTIONS.REQUEST_PRICE_HIGH,
+          'request'
+        )
+      )
       break
   }
 
