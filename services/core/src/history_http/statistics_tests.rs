@@ -32,7 +32,7 @@ async fn statistics_require_authentication_before_reporting_source_dependencies(
 }
 
 #[sqlx::test(migrations = false)]
-async fn missing_statistics_preserve_admin_boundary_and_do_not_fabricate_totals(pool: PgPool) {
+async fn site_statistics_enforce_admin_and_report_exact_native_zero_totals(pool: PgPool) {
     crate::core_schema::init(&pool).await.unwrap();
     let identity = crate::identity::IdentityStore::from_pool(pool.clone());
     let user = identity.bootstrap_user(7, 1).await.unwrap();
@@ -46,29 +46,20 @@ async fn missing_statistics_preserve_admin_boundary_and_do_not_fabricate_totals(
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-    for (path, secret, code, missing) in [(
-        "/api/finance/site-statistics",
-        admin.secret.as_str(),
-        "SITE_STATISTICS_SOURCE_UNAVAILABLE",
-        "historical_top_ups_with_original_currency_paid_and_refunded_amounts",
-    )] {
-        let response = request(store.clone(), path, Some(secret)).await;
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-        let value: Value =
-            serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
-        assert_eq!(value["success"], false);
-        assert_eq!(value["availability"], "unavailable");
-        assert_eq!(value["code"], code);
-        assert!(
-            value["missing_sources"]
-                .as_array()
-                .unwrap()
-                .contains(&json!(missing))
-        );
-        assert!(value.get("data").is_none());
-        assert!(value.get("models").is_none());
-    }
+    let response = request(store, "/api/finance/site-statistics", Some(&admin.secret)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let value: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(value["success"], true);
+    assert_eq!(value["data"]["credits_per_usd"], 500_000);
+    assert_eq!(value["data"]["total_used_credits"], "0");
+    assert_eq!(value["data"]["total_balance_credits"], "0");
+    assert_eq!(value["data"]["recharge"]["currencies"], json!([]));
+    assert_eq!(value["data"]["recharge"]["virtual_units"], json!([]));
+    assert_eq!(value["data"]["recharge"]["confirmed_orders"], 0);
+    assert_eq!(value["data"]["recharge"]["unconfirmed_orders"], 0);
+    assert_eq!(value["data"]["recharge"]["invalid_orders"], 0);
 }
 
 #[sqlx::test(migrations = false)]

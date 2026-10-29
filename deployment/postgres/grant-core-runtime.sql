@@ -136,7 +136,9 @@ GRANT SELECT ON core_meta.schema_contract, core_meta.component_contract,
 -- Historical source receipts and logs are imported offline. Runtime only reads.
 GRANT USAGE ON SCHEMA core_history TO :"runtime_role";
 GRANT SELECT ON core_history.sources, core_history.log_records,
-    core_history.scope_receipts TO :"runtime_role";
+    core_history.scope_receipts,core_history.finance_sources,
+    core_history.finance_users,core_history.finance_topups,
+    core_history.finance_native_payments TO :"runtime_role";
 -- Verified registration proof may append a qualification, never edit campaign
 -- policy, the installation HMAC key, qualification holds or reward history.
 GRANT USAGE ON SCHEMA core_gift TO :"runtime_role";

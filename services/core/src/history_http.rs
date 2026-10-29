@@ -54,18 +54,25 @@ pub fn router(store: HistoryStore) -> Router {
 }
 
 async fn site_statistics(State(store): State<HistoryStore>, headers: HeaderMap) -> Response {
-    statistics_unavailable(
-        store,
-        headers,
-        ReadRoute::Administrator,
-        "SITE_STATISTICS_SOURCE_UNAVAILABLE",
-        "Site statistics require verified historical credit totals and original payment evidence",
-        &[
-            "historical_credit_totals_with_conversion_basis",
-            "historical_top_ups_with_original_currency_paid_and_refunded_amounts",
-        ],
-    )
-    .await
+    let secret = match extract_bearer(&headers) {
+        Ok(secret) => secret,
+        Err(error) => return error_response(error),
+    };
+    match store.site_statistics(secret).await {
+        Ok(statistics) => Json(json!({"success":true,"data":statistics})).into_response(),
+        Err(HistoryError::Unavailable) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "success": false,
+                "code": "SITE_STATISTICS_SOURCE_UNAVAILABLE",
+                "availability": "unavailable",
+                "message": "Site statistics require complete verified credit totals and original payment evidence",
+                "missing_sources": ["historical_credit_totals_with_conversion_basis",
+                    "historical_top_ups_with_original_currency_paid_and_refunded_amounts"]
+            })),
+        ).into_response(),
+        Err(error) => error_response(error),
+    }
 }
 
 async fn performance_summary(
@@ -102,38 +109,6 @@ async fn performance_read(
         Ok(value) => Json(value).into_response(),
         Err(e) => error_response(e),
     }
-}
-
-/// Keep missing observations explicit: wallet credits are not payment evidence,
-/// and request settlement records do not establish latency or generation time.
-async fn statistics_unavailable(
-    store: HistoryStore,
-    headers: HeaderMap,
-    route: ReadRoute,
-    code: &'static str,
-    message: &'static str,
-    missing_sources: &'static [&'static str],
-) -> Response {
-    // @context-fold begin authenticated-statistics-source-unavailable
-    let secret = match extract_bearer(&headers) {
-        Ok(secret) => secret,
-        Err(error) => return error_response(error),
-    };
-    if let Err(error) = store.authenticate_category(secret, route).await {
-        return error_response(error);
-    }
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({
-            "success": false,
-            "code": code,
-            "availability": "unavailable",
-            "message": message,
-            "missing_sources": missing_sources
-        })),
-    )
-        .into_response()
-    // @context-fold end authenticated-statistics-source-unavailable
 }
 
 async fn unavailable_category(

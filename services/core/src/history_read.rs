@@ -3,6 +3,7 @@
 //! opening counters. Source installation and HTTP mounting are explicit gates.
 pub(crate) mod performance;
 pub mod projection;
+pub mod site_statistics;
 use crate::identity::{self, CredentialKind, IdentityError};
 use projection::{MAX_BASES, MAX_BASIS, MAX_RECORDS, MoneyProjection};
 use serde::{Deserialize, Serialize};

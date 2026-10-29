@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgConnection, Row};
 use std::{collections::BTreeMap, fmt, io::Read};
 mod additive;
+mod finance;
 mod ledger;
 
 const PROCEDURE: &str = "core-24-to-25-trust-pricing-v1";
@@ -224,6 +225,9 @@ impl UpgradeRequest {
         if self.procedure == additive::PROCEDURE {
             return additive::validate(self);
         }
+        if self.procedure == finance::PROCEDURE {
+            return finance::validate(self);
+        }
         if self.version != 1
             || self.procedure != PROCEDURE
             || !(16..=96).contains(&self.upgrade_id.len())
@@ -273,6 +277,9 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == finance::PROCEDURE {
+            return finance::authorize_target();
+        }
         let routing = COMPONENTS
             .iter()
             .find(|(name, _)| *name == "routing")
@@ -348,6 +355,8 @@ pub async fn upgrade_database(
         ledger::connected(&mut connection, &request).await
     } else if request.procedure == additive::PROCEDURE {
         additive::connected(&mut connection, &request).await
+    } else if request.procedure == finance::PROCEDURE {
+        finance::connected(&mut connection, &request).await
     } else {
         upgrade_connected(&mut connection, &request).await
     };

@@ -58,6 +58,7 @@ const COMPONENTS: &[(&str, &str)] = &[
         "assistant-agent",
         include_str!("../schema/assistant_agent.sql"),
     ),
+    ("site-finance", include_str!("../schema/site_statistics.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -102,6 +103,9 @@ WITH catalog_path AS MATERIALIZED (
 ), definitions AS (
  SELECT json_build_array('relation',n.nspname,c.relname,c.relkind)::text AS definition
  FROM pg_class c JOIN ns n ON n.oid=c.relnamespace
+ UNION ALL
+ SELECT json_build_array('view',n.nspname,c.relname,pg_get_viewdef(c.oid,true),c.reloptions)::text
+ FROM pg_class c JOIN ns n ON n.oid=c.relnamespace WHERE c.relkind IN ('v','m')
  UNION ALL
  SELECT json_build_array('column',n.nspname,c.relname,a.attnum,a.attname,
    format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,
