@@ -37,14 +37,16 @@ class Proxy(socketserver.ThreadingTCPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, unix_path, user, database, writer_sql=b"core_console.write_public_option", label="console"):
+    def __init__(self, unix_path, user, database, writer_sql=b"core_console.write_public_option", label="console", listen_socket=None):
         self.writer_sql, self.label = writer_sql.lower(), label
         self.unix_path, self.user, self.database = str(unix_path), user, database
         self.lock = threading.Lock()
         self.armed = False
         self.events, self.errors, self.connections = [], [], set()
         self.dropped = threading.Event()
-        super().__init__(("127.0.0.1", 0), Handler)
+        if listen_socket is not None:
+            self.address_family = socket.AF_UNIX
+        super().__init__(str(listen_socket) if listen_socket is not None else ("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.serve_forever, daemon=True)
         self.thread.start()
 

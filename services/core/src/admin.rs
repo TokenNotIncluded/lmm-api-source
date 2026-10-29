@@ -28,6 +28,7 @@ pub struct Bootstrap {
 }
 
 pub enum Operation {
+    UpgradeOffline(Box<lmm_core::upgrade_offline::Request>),
     UpgradeHistory(Box<lmm_core::upgrade_history::Command>),
     InitDb,
     CompleteSetup,
@@ -41,6 +42,12 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub fn upgrade_offline(input: impl Read) -> io::Result<Self> {
+        lmm_core::upgrade_offline::Request::read(input)
+            .map(|request| Self::UpgradeOffline(Box::new(request)))
+            .map_err(io::Error::other)
+    }
+
     pub fn upgrade_history(input: impl Read) -> io::Result<Self> {
         lmm_core::upgrade_history::Command::read(input)
             .map(|request| Self::UpgradeHistory(Box::new(request)))
@@ -117,6 +124,24 @@ fn approval_io(error: ApprovalError) -> io::Error {
 }
 
 pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
+    if let Operation::UpgradeOffline(request) = operation {
+        let url = config::database_url()?
+            .ok_or_else(|| io::Error::other("offline installer database URL required"))?;
+        match lmm_core::upgrade_offline::execute(&url, *request).await {
+            Ok(report) => {
+                serde_json::to_writer(io::stdout().lock(), &report)?;
+                println!();
+                return Ok(());
+            }
+            Err(error) => {
+                let report = serde_json::json!({"version":3,"status":"unconfirmed","code":error.to_string(),"site_open_allowed":false,"retry_allowed":false});
+                serde_json::to_writer(io::stdout().lock(), &report)?;
+                println!();
+                return Err(error.into());
+            }
+        }
+    }
+
     if let Operation::UpgradeHistory(request) = operation {
         let url = config::database_url()?
             .ok_or_else(|| io::Error::other("authority database URL required"))?;
@@ -148,6 +173,7 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
     let pool = config::database_pool(&url).await?;
     let store = IdentityStore::from_pool(pool.clone());
     match operation {
+        Operation::UpgradeOffline(_) => unreachable!("dedicated offline command returned above"),
         Operation::UpgradeHistory(_) => unreachable!("dedicated authority command returned above"),
         Operation::UpgradeDatabase(_) => unreachable!("dedicated schema upgrade returned above"),
         Operation::InstallUsageReceiptIndex(prior) => {

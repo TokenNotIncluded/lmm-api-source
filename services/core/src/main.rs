@@ -18,12 +18,13 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | plan-admin-activation | apply-admin-activation | schema-manifest | check-db]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | plan-admin-activation | apply-admin-activation | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
   check-db        Read-only schema/runtime authority JSON; requires explicit --config.\n\
   init-db         Initialize a new, empty core database.\n\
+  upgrade-offline Explicit native v3 schema upgrade/recovery with independent history and persistent fencing.\n\
   upgrade-history Install/query an independent history database; requires explicit authority --config and stdin JSON.\n\
   upgrade-db      Explicit offline exact Core26 ledger revision; requires owner --config and exact-target stdin JSON.\n\
                   Legacy 24->25 trust-pricing requires the preserved 25-component installer.\n\
@@ -53,6 +54,7 @@ enum Command {
     InitDb,
     UpgradeDb,
     UpgradeHistory,
+    UpgradeOffline,
     CreateFirstOwner,
     BootstrapUser,
     CompleteSetup,
@@ -97,6 +99,7 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "init-db"
                 | "upgrade-db"
                 | "upgrade-history"
+                | "upgrade-offline"
                 | "create-first-owner"
                 | "bootstrap-user"
                 | "complete-setup"
@@ -111,6 +114,7 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     Some("init-db") => Command::InitDb,
                     Some("upgrade-db") => Command::UpgradeDb,
                     Some("upgrade-history") => Command::UpgradeHistory,
+                    Some("upgrade-offline") => Command::UpgradeOffline,
                     Some("create-first-owner") => Command::CreateFirstOwner,
                     Some("bootstrap-user") => Command::BootstrapUser,
                     Some("complete-setup") => Command::CompleteSetup,
@@ -199,6 +203,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .into());
             }
             Some(admin::Operation::upgrade_database(io::stdin().lock())?)
+        }
+        Command::UpgradeOffline => {
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "upgrade-offline requires explicit offline installer --config",
+                )
+                .into());
+            }
+            Some(admin::Operation::upgrade_offline(io::stdin().lock())?)
         }
         Command::UpgradeHistory => {
             if arguments.config.is_none() || arguments.legacy_env {

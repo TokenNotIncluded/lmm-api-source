@@ -72,6 +72,8 @@ const ADDITIVE_UPGRADE_METADATA: &str = include_str!("../schema/component_upgrad
 const LEDGER_REVISION_METADATA: &str = include_str!("../schema/ledger_revision.sql");
 const CONSOLE_REVISION_METADATA: &str = include_str!("core_schema/upgrade/console_receipt.sql");
 
+const OFFLINE_REVISION_METADATA: &str = include_str!("../schema/offline_upgrade.sql");
+
 fn installer_contract_sha256() -> String {
     let mut hash = Sha256::new();
     hash.update(CONTRACT.as_bytes());
@@ -79,6 +81,7 @@ fn installer_contract_sha256() -> String {
     hash.update(ADDITIVE_UPGRADE_METADATA.as_bytes());
     hash.update(LEDGER_REVISION_METADATA.as_bytes());
     hash.update(CONSOLE_REVISION_METADATA.as_bytes());
+    hash.update(OFFLINE_REVISION_METADATA.as_bytes());
     format!("{:x}", hash.finalize())
 }
 
@@ -188,6 +191,7 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
     sqlx::raw_sql(CONSOLE_REVISION_METADATA)
         .execute(&mut *tx)
         .await?;
+    sqlx::raw_sql(OFFLINE_REVISION_METADATA).execute(&mut *tx).await?;
     // Preserve the native identity contract used by the read-only RPC service.
     IdentityStore::record_schema_contract(&mut tx).await?;
     crate::identity::grants::record_schema_contract(&mut tx).await?;
