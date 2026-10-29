@@ -161,6 +161,8 @@ fn required() -> Result<RequiredCapabilities, Rejection> {
         payments: config::payments_configured(),
         commerce: config::commerce_configured(),
         assistant: config::assistant_configured(),
+        assistant_agent: config::assistant_agent_configured()
+            .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
         assistant_tools: config::assistant_tools_enabled()
             .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
         tool_market: config::tool_market_configured(),

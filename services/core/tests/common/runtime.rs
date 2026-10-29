@@ -34,7 +34,8 @@ impl RuntimeRole {
             REVOKE CREATE ON SCHEMA public FROM PUBLIC;
             GRANT CONNECT ON DATABASE "{database}" TO {name};
             GRANT USAGE ON SCHEMA core_meta,core_identity,core_billing TO {name};
-            GRANT SELECT ON ALL TABLES IN SCHEMA core_meta,core_billing TO {name};
+            GRANT SELECT ON core_meta.schema_contract,core_meta.component_contract,core_meta.runtime_contract,core_meta.schema_upgrades,core_meta.component_upgrades,core_meta.ledger_revisions TO {name};
+            GRANT SELECT ON ALL TABLES IN SCHEMA core_billing TO {name};
             GRANT SELECT,INSERT,UPDATE ON core_identity.accounts,core_identity.users,core_identity.teams,core_identity.memberships,core_identity.credentials,core_identity.invites,core_identity.password_logins,core_identity.user_profiles,core_identity.company_billing_profiles,core_identity.web_sessions,core_identity.api_key_settings,core_identity.mfa_factors,core_identity.mfa_enrollments,core_identity.mfa_backup_codes,core_identity.mfa_challenges TO {name};
             GRANT SELECT,INSERT ON core_identity.key_funding_rules,core_identity.credential_grants,core_identity.oauth_identities,core_identity.audit,core_identity.web_session_credentials,core_identity.session_authentication TO {name};
             GRANT SELECT,INSERT,DELETE ON core_identity.oauth_flows TO {name};
@@ -164,6 +165,19 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
     }
     #[allow(dead_code)] // Importers with only the base grants do not call this.
     pub async fn optional(&self, schema: &str) {
+        if schema == "core_assistant_agent" {
+            let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
+            let sql = script
+                .split_once("-- BEGIN assistant-agent runtime grants\n")
+                .unwrap()
+                .1
+                .split_once("-- END assistant-agent runtime grants")
+                .unwrap()
+                .0
+                .replace(":\"runtime_role\"", &self.name);
+            sqlx::raw_sql(&sql).execute(&self.owner).await.unwrap();
+            return;
+        }
         if schema == "core_market_oauth" {
             sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_market_oauth TO {0}; GRANT SELECT,INSERT ON core_market_oauth.clients,core_market_oauth.requests,core_market_oauth.families,core_market_oauth.codes,core_market_oauth.tokens TO {0}; GRANT UPDATE(revoked_at) ON core_market_oauth.clients,core_market_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_market_oauth.requests,core_market_oauth.codes,core_market_oauth.tokens TO {0}; GRANT EXECUTE ON FUNCTION core_market_oauth.scope_set(text[]) TO {0}",self.name)).execute(&self.owner).await.unwrap();
             return;
@@ -199,6 +213,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
               GRANT UPDATE(revoked) ON core_assistant.grants TO {0};
               GRANT UPDATE(answer_text,completed_at,gift_receipt,gift_tool_id,gift_response_sha256) ON core_assistant.operations TO {0};
               GRANT USAGE,SELECT ON SEQUENCE core_assistant.operations_position_seq TO {0};
+              GRANT SELECT ON core_assistant.agent_turns,core_assistant.agent_rounds TO {0};
               GRANT SELECT,INSERT ON core_gift.decisions,core_gift.registration_profiles,core_gift.fingerprints TO {0};
               GRANT UPDATE(claimed_at,ledger_journal_id) ON core_gift.decisions TO {0};
               GRANT UPDATE(observed_at) ON core_gift.registration_profiles TO {0};

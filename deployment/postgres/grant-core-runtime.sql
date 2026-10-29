@@ -58,6 +58,10 @@
 \else
 \set enable_assistant false
 \endif
+\if :{?enable_assistant_agent}
+\else
+\set enable_assistant_agent false
+\endif
 \if :{?enable_tool_market}
 \else
 \set enable_tool_market false
@@ -67,6 +71,9 @@
 \set enable_support_projection false
 \endif
 -- Assistant model execution uses the existing charging/model authority.
+\if :enable_assistant_agent
+\set enable_assistant true
+\endif
 \if :enable_assistant
 \set enable_models true
 \endif
@@ -223,6 +230,8 @@ GRANT USAGE ON SCHEMA core_console TO :"runtime_role";
 GRANT SELECT ON core_console.options, core_console.initialization,
     core_console.announcement_reads TO :"runtime_role";
 GRANT INSERT ON core_console.announcement_reads TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),
+    core_console.write_public_option(text,text) TO :"runtime_role";
 \endif
 
 \if :enable_models
@@ -345,12 +354,28 @@ GRANT SELECT, INSERT ON core_assistant.conversations TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE (revoked) ON core_assistant.grants TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE (answer_text,completed_at,gift_receipt,gift_tool_id,gift_response_sha256) ON core_assistant.operations TO :"runtime_role";
 GRANT USAGE, SELECT ON SEQUENCE core_assistant.operations_position_seq TO :"runtime_role";
+-- Fresh agent charge guards also classify legacy text reservations. Read-only
+-- dependencies do not authorize creating or updating an agent turn.
+GRANT SELECT ON core_assistant.agent_turns,core_assistant.agent_rounds TO :"runtime_role";
 GRANT SELECT, INSERT ON core_gift.decisions, core_gift.registration_profiles,
     core_gift.fingerprints TO :"runtime_role";
 GRANT UPDATE (claimed_at,ledger_journal_id) ON core_gift.decisions TO :"runtime_role";
 GRANT UPDATE (observed_at) ON core_gift.registration_profiles TO :"runtime_role";
 GRANT DELETE ON core_gift.fingerprints TO :"runtime_role";
 GRANT USAGE, SELECT ON SEQUENCE core_gift.fingerprints_id_seq TO :"runtime_role";
+\endif
+\if :enable_assistant_agent
+-- BEGIN assistant-agent runtime grants
+GRANT USAGE ON SCHEMA core_assistant TO :"runtime_role";
+GRANT SELECT,INSERT ON core_assistant.agent_turns,core_assistant.agent_rounds,
+    core_assistant.agent_tool_operations,core_assistant.agent_tool_observations TO :"runtime_role";
+GRANT UPDATE(phase,revision,final_text,loaded_tools) ON core_assistant.agent_turns TO :"runtime_role";
+GRANT UPDATE(state,provider_response_json,provider_response_sha256) ON core_assistant.agent_rounds TO :"runtime_role";
+GRANT UPDATE(state,claim_key,result_json,result_sha256,domain_receipt_id)
+    ON core_assistant.agent_tool_operations TO :"runtime_role";
+GRANT USAGE,SELECT ON SEQUENCE core_assistant.operations_position_seq,
+    core_assistant.agent_tool_observations_position_seq TO :"runtime_role";
+-- END assistant-agent runtime grants
 \endif
 \if :enable_tool_market
 -- Closed fixed-price escrow uses shared budgets, without model writer grants.

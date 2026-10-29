@@ -313,6 +313,7 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             console: true,
             commerce: true,
             assistant: false,
+            assistant_agent: false,
             assistant_tools: false,
             tool_market: false,
             web_identity: true,

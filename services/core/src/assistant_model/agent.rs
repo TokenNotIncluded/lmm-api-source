@@ -207,8 +207,7 @@ async fn verify_bound_proposal(
     Ok(proposal)
 }
 
-// Installed only through the explicit agent component in a later batch. Startup
-// never executes this DDL. Isolated PostgreSQL tests apply this exact asset.
+// Fresh installation owns this asset; startup only verifies it.
 #[cfg(test)]
 const SCHEMA: &str = include_str!("../../schema/assistant_agent.sql");
 #[cfg(test)]

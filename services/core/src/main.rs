@@ -292,6 +292,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 payments: config::payments_configured(),
                 commerce: config::commerce_configured(),
                 assistant: config::assistant_configured(),
+                assistant_agent: config::assistant_agent_configured()?,
                 assistant_tools: config::assistant_tools_enabled()?,
                 tool_market: config::tool_market_configured(),
                 console: console_enabled,

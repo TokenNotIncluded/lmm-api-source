@@ -160,7 +160,6 @@ async fn setup(pool: &PgPool, tool: &str) -> (AgentService, String, i64, Provide
     );
     eprintln!("agent_schema_sha256={:x}", Sha256::digest(&disk));
     crate::core_schema::init(pool).await.unwrap();
-    sqlx::raw_sql(super::SCHEMA).execute(pool).await.unwrap();
     let identity = crate::identity::IdentityStore::from_pool(pool.clone());
     let session = identity.bootstrap_user(7, 1).await.unwrap();
     let principal = identity.authorize(&session.secret).await.unwrap();

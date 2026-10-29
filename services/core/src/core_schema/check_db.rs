@@ -60,6 +60,7 @@ struct Capabilities {
     wallet: bool,
     bounties: bool,
     assistant: bool,
+    assistant_agent: bool,
     assistant_tools: bool,
     tool_market: bool,
 }
@@ -78,6 +79,7 @@ impl From<RequiredCapabilities> for Capabilities {
             wallet: v.wallet,
             bounties: v.bounties,
             assistant: v.assistant,
+            assistant_agent: v.assistant_agent,
             assistant_tools: v.assistant_tools,
             tool_market: v.tool_market,
         }

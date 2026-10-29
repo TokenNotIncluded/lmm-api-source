@@ -84,6 +84,20 @@ to `false` for existing configurations. This startup check does not verify the
 agent's tool policies, financial behavior, or end-to-end readiness; those still
 need the separate assistant acceptance evidence above.
 
+Core enables the agent only when its version 1 assistant TOML contains an
+`[agent]` table with `registry_file`, `registry_sha256` and nested
+`[agent.policy]` / `[agent.policy.model]` tables. Personal text remains in
+`[personal_text]`. The registry is a separate private reviewed JSON artifact;
+its exact digest and the policy's model must
+match the configured personal-text model policy. Enable Core assistant tools
+and Web identity, then provision `enable_assistant_agent=true` and the required
+tools/browser authority offline. Startup loads the registry and verifies the
+installed agent journal before advertising agent capabilities. Missing or
+invalid host bindings, schema or runtime authority fail startup. Fresh installs
+contain the agent component; an existing installation requires a separate,
+reviewed upgrade and cannot acquire it through startup. This wiring still
+requires actual process, tool and financial acceptance for a release.
+
 The source-level checks that enforce these boundaries are in
 `services/core/src/config.rs` and
 `services/extensions/internal/composition/{runtime.go,assistant.go,toolmarket.go}`.

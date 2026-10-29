@@ -51,6 +51,9 @@ defaults to `lmm_core_runtime`. Feature switches default to false:
 | `enable_web_identity=true` | Budget management and read-only consumption for legacy Web identity |
 | `enable_commerce=true` | Commerce, charging and events |
 | `enable_payments=true` | Payment intents/refund holds and append-only receipts/proofs |
+| `enable_assistant=true` | Personal assistant and charging, including read dependencies of agent charge guards |
+| `enable_assistant_tools=true` | Business-facts reads and browser confirmation state |
+| `enable_assistant_agent=true` | Assistant and charging plus column-limited durable agent journals |
 
 These flags grant rights only: they do not enable HTTP modules or supply provider
 credentials. There are no wildcard grants or default ACLs for future objects.

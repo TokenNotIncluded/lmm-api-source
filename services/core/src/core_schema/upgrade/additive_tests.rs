@@ -179,8 +179,9 @@ fn compiled_25_predecessor_and_only_26_delta_match_frozen_bytes() {
     let mut stdout = serde_json::to_vec(&producer).unwrap();
     stdout.push(b'\n');
     assert_eq!(hex(&Sha256::digest(stdout)), PRE_MANIFEST);
-    assert_eq!(COMPONENTS.len(), 26);
+    assert_eq!(COMPONENTS.len(), 27);
     assert_eq!(COMPONENTS[25].0, "telegram-auth");
+    assert_eq!(COMPONENTS[26].0, "assistant-agent");
     assert_eq!(hex(&Sha256::digest(COMPONENTS[25].1)), TELEGRAM_DDL);
     assert_eq!(
         hex(&Sha256::digest(ADDITIVE_UPGRADE_METADATA)),

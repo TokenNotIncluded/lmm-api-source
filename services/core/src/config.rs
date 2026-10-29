@@ -1659,6 +1659,27 @@ pub fn assistant_configured() -> bool {
 struct AssistantConfig {
     version: u32,
     personal_text: crate::assistant_model::PersonalTextPolicy,
+    #[serde(default)]
+    agent: Option<crate::assistant_model::agent::store::AgentHostConfig>,
+}
+
+/// Select the explicit agent authority for startup and the offline DB check.
+#[cfg(unix)]
+pub fn assistant_agent_configured() -> io::Result<bool> {
+    let Some((document, _)) = rpc_configuration(
+        "LMM_CORE_ASSISTANT_CONFIG_FILE",
+        "LMM_CORE_ASSISTANT_TOKEN_FILE",
+    )?
+    else {
+        return Ok(false);
+    };
+    let config: AssistantConfig = parse_document(&document)?;
+    if config.version != 1 {
+        return Err(invalid_config(
+            "unsupported assistant configuration version",
+        ));
+    }
+    Ok(config.agent.is_some())
 }
 #[cfg(unix)]
 pub async fn assistant_rpc(
@@ -1708,6 +1729,12 @@ pub async fn assistant_rpc(
             "unsupported assistant configuration version",
         ));
     }
+    let tools_enabled = assistant_tools_enabled()?;
+    if config.agent.is_some() && !tools_enabled {
+        return Err(invalid_config(
+            "assistant agent requires enabled tools and Web identity",
+        ));
+    }
     let pool = bounded_database_pool(url, 4).await?;
     if config.personal_text.gift_tools {
         let enabled: bool = sqlx::query_scalar(
@@ -1736,13 +1763,20 @@ pub async fn assistant_rpc(
         config.personal_text,
     )
     .map_err(|_| invalid_config("invalid assistant policy or model capability"))?;
+    let agent = config
+        .agent
+        .map(|host| {
+            crate::assistant_model::agent::store::AgentService::from_host(service.clone(), host)
+        })
+        .transpose()
+        .map_err(|_| invalid_config("invalid reviewed assistant agent host configuration"))?;
     let gift_enabled = service.gift_enabled();
     let mut rpc = crate::assistant_model::rpc::AssistantRpc::new(service, &token, true)
         .map_err(|_| invalid_config("invalid assistant service configuration"))?;
     if gift_enabled {
         rpc = rpc.with_gifts(crate::gift::GiftStore::new(pool.clone()));
     }
-    if assistant_tools_enabled()? {
+    if tools_enabled {
         // Read-only startup checks: no schema creation and no synthetic Session.
         sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
             .execute(&pool).await.map_err(|_| invalid_config("assistant tools require installed durable agent schema and runtime read authority"))?;
@@ -1755,6 +1789,11 @@ pub async fn assistant_rpc(
         rpc = rpc.with_business_facts(facts).with_confirmations(
             crate::assistant_tools_core::confirmation::ConfirmationStore::new(pool.clone()),
         );
+    }
+    if let Some(agent) = agent {
+        rpc = rpc.with_agent(agent).await.map_err(|_| {
+            invalid_config("assistant agent schema or runtime authority unavailable")
+        })?;
     }
     Ok(Some(rpc))
 }

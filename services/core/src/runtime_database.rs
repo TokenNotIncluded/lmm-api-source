@@ -2,6 +2,8 @@
 //! Install/import owners must never be used by the network-facing process.
 use sqlx::{PgConnection, PgPool};
 use std::fmt;
+#[path = "runtime_assistant_agent.rs"]
+mod assistant_agent;
 #[path = "runtime_telegram.rs"]
 mod telegram;
 #[path = "runtime_tool_market_credit.rs"]
@@ -16,6 +18,7 @@ pub struct RequiredCapabilities {
     pub console: bool,
     pub commerce: bool,
     pub assistant: bool,
+    pub assistant_agent: bool,
     pub assistant_tools: bool,
     pub tool_market: bool,
     pub web_identity: bool,
@@ -141,6 +144,7 @@ pub(crate) async fn check_connection(
                 OR has_any_column_privilege(c.oid,'UPDATE,REFERENCES')))
             OR (n.nspname IN ('core_charging','core_events','core_commerce','core_payments','core_tool_market','core_assistant','core_image','core_wallet','core_bounties')
               AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
+            OR (n.nspname='core_assistant' AND has_any_column_privilege(c.oid,'REFERENCES'))
             OR (n.nspname='core_gift' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR has_any_column_privilege(c.oid,'REFERENCES')
               OR (c.relname<>'fingerprints' AND has_table_privilege(c.oid,'DELETE'))
@@ -151,6 +155,8 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
+            OR (n.nspname='core_meta' AND c.relname='console_revisions'
+              AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
             OR (n.nspname='core_oauth' AND c.relname IN ('contract','codes')
               AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'INSERT,UPDATE')))
             OR (n.nspname='core_identity' AND c.relname='api_key_settings'
@@ -170,6 +176,10 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_assistant_tools' AND a.attname NOT IN ('nonce_sha256','state','confirmed_at'))
             OR (n.nspname='core_assistant' AND c.relname='grants' AND a.attname<>'revoked')
             OR (n.nspname='core_assistant' AND c.relname='operations' AND a.attname NOT IN ('answer_text','completed_at','gift_receipt','gift_tool_id','gift_response_sha256'))
+            OR (n.nspname='core_assistant' AND c.relname='agent_turns' AND a.attname NOT IN ('phase','revision','final_text','loaded_tools'))
+            OR (n.nspname='core_assistant' AND c.relname='agent_rounds' AND a.attname NOT IN ('state','provider_response_json','provider_response_sha256'))
+            OR (n.nspname='core_assistant' AND c.relname='agent_tool_operations' AND a.attname NOT IN ('state','claim_key','result_json','result_sha256','domain_receipt_id'))
+            OR (n.nspname='core_assistant' AND c.relname='agent_tool_observations')
             OR (n.nspname='core_image' AND (c.relname<>'operations' OR a.attname NOT IN ('state','confirmed_at','confirmation_digest','confirmation_sid','charge_id','output','output_digest','image_usage','settled_credits')))
             OR (n.nspname='core_wallet' AND (c.relname<>'transfers' OR a.attname NOT IN ('state','hold_journal','final_journal','recipient_user','confirmed_at','finished_at','confirmation_digest','confirmation_sid','confirmation_kind','confirmation_expires')))
             OR (n.nspname='core_bounties' AND NOT ((c.relname='projects' AND a.attname='body') OR (c.relname='confirmations' AND a.attname IN ('approved','csrf','browser_sid'))))
@@ -206,7 +216,7 @@ pub(crate) async fn check_connection(
     if trust_function_grant {
         return Err(RuntimeDatabaseError::UnsafePrivileges);
     }
-    if required.models || required.images || required.assistant {
+    if required.models || required.images || required.assistant || required.assistant_agent {
         let trust_visible:bool=sqlx::query_scalar("SELECT COALESCE((SELECT has_schema_privilege(n.oid,'USAGE') FROM pg_namespace n WHERE n.nspname='core_trust_pricing'),false)")
             .fetch_one(&mut *connection).await?;
         if !trust_visible {
@@ -221,6 +231,7 @@ pub(crate) async fn check_connection(
 
     tool_market_credit::check(connection, required.tool_market).await?;
     telegram::check(connection, required.web_identity).await?;
+    assistant_agent::check(connection, required.assistant_agent).await?;
 
     // Identity is always mounted when the runtime has a database. Normal identity
     // operations must work; unsupported optional modules need no extra grants.
@@ -270,8 +281,12 @@ pub(crate) async fn check_connection(
           AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='core_identity' AND CASE WHEN c.relkind='S' THEN NOT has_sequence_privilege(c.oid,'USAGE') ELSE FALSE END)
           AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE (n.nspname='core_meta' OR (n.nspname='core_billing' AND c.relkind IN ('r','p')))
+            WHERE ((n.nspname='core_meta' AND c.relname<>'console_revisions') OR (n.nspname='core_billing' AND c.relkind IN ('r','p')))
               AND c.relkind IN ('r','p') AND NOT has_table_privilege(c.oid,'SELECT'))
+          AND (SELECT count(*)=6 AND coalesce(bool_and(has_table_privilege(c.oid,'SELECT')),false)
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='core_meta' AND c.relkind IN ('r','p') AND c.relname IN
+              ('schema_contract','component_contract','runtime_contract','schema_upgrades','component_upgrades','ledger_revisions'))
           AND has_table_privilege('core_billing.balance_state','SELECT')
           AND has_table_privilege('core_billing.account_policies','SELECT')
           AND has_table_privilege('core_billing.account_policies','INSERT')
@@ -347,7 +362,12 @@ pub(crate) async fn check_connection(
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
     }
-    if required.models || required.images || required.commerce || required.assistant {
+    if required.models
+        || required.images
+        || required.commerce
+        || required.assistant
+        || required.assistant_agent
+    {
         let complete: bool = sqlx::query_scalar(r#"
           SELECT has_schema_privilege('core_charging','USAGE')
             AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -542,7 +562,7 @@ pub(crate) async fn check_connection(
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
     }
-    if required.assistant {
+    if required.assistant || required.assistant_agent {
         let complete: bool = sqlx::query_scalar(
             r#"
           SELECT has_schema_privilege('core_assistant','USAGE')

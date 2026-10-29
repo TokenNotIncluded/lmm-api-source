@@ -54,6 +54,10 @@ const COMPONENTS: &[(&str, &str)] = &[
     ),
     ("trust-pricing", crate::billing::trust_pricing::SCHEMA),
     ("telegram-auth", crate::identity::TELEGRAM_AUTH_SCHEMA),
+    (
+        "assistant-agent",
+        include_str!("../schema/assistant_agent.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
