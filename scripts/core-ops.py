@@ -21,7 +21,7 @@ MAX_STDOUT = 128 << 10
 MAX_STDERR = 16 << 10
 PROTOCOL = 'core.check-db.v1'
 SCOPE = 'core-inspection-v1'
-CAPABILITIES = {'wallet','bounties','assistant_tools','market_oauth','images','models','events','payments','console','commerce','web_identity','oauth2','assistant','tool_market'}
+CAPABILITIES = {'wallet','bounties','assistant_tools','assistant_agent','market_oauth','images','models','events','payments','console','commerce','web_identity','oauth2','assistant','tool_market'}
 NOT_CHECKED = ['maintenance_fence','restore_readiness','backup_integrity',
                'physical_system_identifier','external_services','historical_migration']
 IDENTITY_FIELDS = {'name','oid','server_address','server_port','postmaster_started_at_unix_micros',
@@ -198,7 +198,10 @@ def incarnation(value):
     return value
 
 def capabilities(value):
-    closed(value,CAPABILITIES);require(all(type(v) is bool for v in value.values()),'CAPABILITY_BOOLEANS_REQUIRED');return value
+    require(type(value) is dict and set(value) in (CAPABILITIES,CAPABILITIES-{'assistant_agent'}),'CLOSED_FIELDS_REQUIRED')
+    require(all(type(v) is bool for v in value.values()),'CAPABILITY_BOOLEANS_REQUIRED')
+    normalized=dict(value);normalized.setdefault('assistant_agent',False)
+    return normalized
 
 def validate_spec(value):
     closed(value,SPEC_FIELDS);require(type(value['version']) is int and value['version']==1 and value['scope']==SCOPE,'SPEC_PROTOCOL_REQUIRED')
@@ -390,7 +393,7 @@ def validate_probe(raw,returncode,inputs,parent_execution,boot):
     require(catalog['status']=='validated' and catalog['matches_installed_receipt'] is True and catalog['fingerprint_hash_domain']=='sha256-u64be-byte-length-prefixed-utf8-v1','CATALOG_OBSERVATION_REQUIRED')
     require(sha_value(catalog['fingerprint_sha256'])==inputs.spec['database']['expected_catalog_sha256'],'CATALOG_MISMATCH',3)
     authority=closed(value['runtime_authority'],{'status','required_capabilities'})
-    require(authority['status']=='validated' and capabilities(authority['required_capabilities'])==inputs.spec['database']['expected_required_capabilities'],'RUNTIME_REQUIREMENTS_MISMATCH',3)
+    require(authority['status']=='validated' and capabilities(authority['required_capabilities'])==capabilities(inputs.spec['database']['expected_required_capabilities']),'RUNTIME_REQUIREMENTS_MISMATCH',3)
     database=closed(value['database'],IDENTITY_FIELDS|{'observed_at_unix_micros'})
     decimal(database['observed_at_unix_micros'],-(1<<63),(1<<63)-1)
     actual={k:database[k] for k in IDENTITY_FIELDS}

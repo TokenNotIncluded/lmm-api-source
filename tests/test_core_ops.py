@@ -211,6 +211,32 @@ class Contracts(unittest.TestCase):
         with ExitStack() as stack:
             inputs=ops.open_inputs(self.input,stack);dto=self.dto(inputs);dto['runtime_authority']['required_capabilities']['models']=True
             with self.assertRaisesRegex(ops.Refused,'RUNTIME_REQUIREMENTS_MISMATCH'):ops.validate_probe(ops.canonical(dto),0,inputs,self.parent_observation(inputs),self.boot)
+    def test_probe_legacy_capabilities_require_agent_disabled(self):
+        legacy=copy.deepcopy(self.input);legacy['database']['expected_required_capabilities'].pop('assistant_agent')
+        with ExitStack() as stack:
+            inputs=ops.open_inputs(legacy,stack)
+            for reported in [None,False,True]:
+                dto=copy.deepcopy(self.dto(inputs));caps=dto['runtime_authority']['required_capabilities']
+                if reported is None:caps.pop('assistant_agent')
+                else:caps['assistant_agent']=reported
+                with self.subTest(reported=reported):
+                    if reported is True:
+                        with self.assertRaisesRegex(ops.Refused,'RUNTIME_REQUIREMENTS_MISMATCH'):ops.validate_probe(ops.canonical(dto),0,inputs,self.parent_observation(inputs),self.boot)
+                    else:self.assertEqual(ops.validate_probe(ops.canonical(dto),0,inputs,self.parent_observation(inputs),self.boot),dto)
+    def test_probe_agent_requirement_needs_explicit_boolean_proof(self):
+        self.input['database']['expected_required_capabilities']['assistant_agent']=True
+        with ExitStack() as stack:
+            inputs=ops.open_inputs(self.input,stack)
+            dto=copy.deepcopy(self.dto(inputs))
+            self.assertEqual(ops.validate_probe(ops.canonical(dto),0,inputs,self.parent_observation(inputs),self.boot),dto)
+            for reported,error in [(None,'RUNTIME_REQUIREMENTS_MISMATCH'),(False,'RUNTIME_REQUIREMENTS_MISMATCH'),(1,'CAPABILITY_BOOLEANS_REQUIRED')]:
+                invalid=copy.deepcopy(dto);caps=invalid['runtime_authority']['required_capabilities']
+                if reported is None:caps.pop('assistant_agent')
+                else:caps['assistant_agent']=reported
+                with self.subTest(reported=reported):
+                    with self.assertRaisesRegex(ops.Refused,error):ops.validate_probe(ops.canonical(invalid),0,inputs,self.parent_observation(inputs),self.boot)
+            dto['runtime_authority']['required_capabilities']['unknown_capability']=False
+            with self.assertRaisesRegex(ops.Refused,'CLOSED_FIELDS_REQUIRED'):ops.validate_probe(ops.canonical(dto),0,inputs,self.parent_observation(inputs),self.boot)
     def test_probe_wrong_snapshot_and_domain_rejected(self):
         with ExitStack() as stack:
             inputs=ops.open_inputs(self.input,stack)

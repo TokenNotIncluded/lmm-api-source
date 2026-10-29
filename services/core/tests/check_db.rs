@@ -393,7 +393,7 @@ async fn full_fresh_runtime_check_is_readonly_and_never_serves_or_loads_models(p
     assert_eq!(v["runtime_authority"]["status"], "validated");
     assert_eq!(
         v["runtime_authority"]["required_capabilities"],
-        json!({"models":true,"images":false,"events":false,"payments":false,"console":false,"commerce":false,"web_identity":false,"oauth2":false,"market_oauth":false,"assistant_tools":false,"assistant":false,"tool_market":false,"wallet":false,"bounties":false})
+        json!({"models":true,"images":false,"events":false,"payments":false,"console":false,"commerce":false,"web_identity":false,"oauth2":false,"market_oauth":false,"assistant_tools":false,"assistant":false,"assistant_agent":false,"tool_market":false,"wallet":false,"bounties":false})
     );
     assert_eq!(
         v["not_checked"],
