@@ -54,6 +54,7 @@ enum Operation {
 enum Error {
     Auth(IdentityError),
     Storage,
+    CommitUnknown,
     Invalid(&'static str),
     Unsupported,
     Conflict,
@@ -161,6 +162,11 @@ async fn handle(state: OptionsHttp, headers: HeaderMap, body: Bytes, op: Operati
                     "SYSTEM_OPTIONS_STORAGE_UNAVAILABLE",
                     "Settings could not be saved; no changes were committed",
                 ),
+                Error::CommitUnknown => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "SYSTEM_OPTIONS_COMMIT_UNKNOWN",
+                    "The save result could not be confirmed; reload settings before saving again",
+                ),
                 Error::Unsupported => (
                     StatusCode::CONFLICT,
                     "SYSTEM_OPTION_NOT_WRITABLE",
@@ -228,7 +234,7 @@ async fn apply(
         ));
     }
     // Also serialize absent-row inserts and announcement aliases before CAS.
-    sqlx::query("LOCK TABLE core_console.options IN SHARE ROW EXCLUSIVE MODE")
+    sqlx::query("SELECT core_console.lock_public_options()")
         .execute(&mut *tx)
         .await?;
     let stored: BTreeMap<String, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
@@ -268,16 +274,12 @@ async fn apply(
             if stored.get(*key).is_some_and(|(old, _)| old == &value) {
                 continue;
             }
-            let revision: i64 = sqlx::query_scalar(
-                "INSERT INTO core_console.options(key,value) VALUES ($1,$2)
-                 ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,
-                 revision=core_console.options.revision+1,updated_at=statement_timestamp()
-                 RETURNING revision",
-            )
-            .bind(key)
-            .bind(&value)
-            .fetch_one(&mut *tx)
-            .await?;
+            let revision: i64 =
+                sqlx::query_scalar("SELECT core_console.write_public_option($1,$2)")
+                    .bind(key)
+                    .bind(&value)
+                    .fetch_one(&mut *tx)
+                    .await?;
             changes.push(json!({
                 "key":key,"before":stored.get(*key),"after":[value,revision]
             }));
@@ -294,7 +296,9 @@ async fn apply(
         .execute(&mut *tx)
         .await?;
     }
-    tx.commit().await?;
+    // A lost COMMIT acknowledgement does not prove rollback. Do not invite a
+    // blind retry that could overwrite another administrator's later changes.
+    tx.commit().await.map_err(|_| Error::CommitUnknown)?;
     Ok(json!({"success":true,"message":"Settings saved","saved":true}))
 }
 

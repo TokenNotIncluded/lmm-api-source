@@ -70,6 +70,7 @@ const CONTRACT: &str = "CREATE TABLE core_meta.component_contract (name TEXT PRI
 const UPGRADE_METADATA: &str = include_str!("../schema/core_upgrade.sql");
 const ADDITIVE_UPGRADE_METADATA: &str = include_str!("../schema/component_upgrade.sql");
 const LEDGER_REVISION_METADATA: &str = include_str!("../schema/ledger_revision.sql");
+const CONSOLE_REVISION_METADATA: &str = include_str!("core_schema/upgrade/console_receipt.sql");
 
 fn installer_contract_sha256() -> String {
     let mut hash = Sha256::new();
@@ -77,6 +78,7 @@ fn installer_contract_sha256() -> String {
     hash.update(UPGRADE_METADATA.as_bytes());
     hash.update(ADDITIVE_UPGRADE_METADATA.as_bytes());
     hash.update(LEDGER_REVISION_METADATA.as_bytes());
+    hash.update(CONSOLE_REVISION_METADATA.as_bytes());
     format!("{:x}", hash.finalize())
 }
 
@@ -181,6 +183,9 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
         .execute(&mut *tx)
         .await?;
     sqlx::raw_sql(LEDGER_REVISION_METADATA)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::raw_sql(CONSOLE_REVISION_METADATA)
         .execute(&mut *tx)
         .await?;
     // Preserve the native identity contract used by the read-only RPC service.

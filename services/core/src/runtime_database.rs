@@ -436,6 +436,13 @@ pub(crate) async fn check_connection(
             AND has_table_privilege('core_console.initialization','SELECT')
             AND has_table_privilege('core_console.announcement_reads','SELECT')
             AND has_table_privilege('core_console.announcement_reads','INSERT')
+            AND has_function_privilege('core_console.lock_public_options()','EXECUTE')
+            AND has_function_privilege('core_console.write_public_option(text,text)','EXECUTE')
+            AND NOT EXISTS(SELECT FROM pg_proc p
+              WHERE p.oid IN ('core_console.lock_public_options()'::regprocedure,
+                              'core_console.write_public_option(text,text)'::regprocedure)
+                AND (NOT p.prosecdef OR p.proowner<>(SELECT relowner FROM pg_class
+                  WHERE oid='core_console.options'::regclass)))
         "#,
         )
         .fetch_one(&mut *connection)

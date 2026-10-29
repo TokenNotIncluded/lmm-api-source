@@ -201,7 +201,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             return;
         }
         if schema == "core_console" {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT ON core_console.options,core_console.initialization,core_console.announcement_reads TO {0}; GRANT INSERT ON core_console.announcement_reads TO {0}",self.name))
+            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT ON core_console.options,core_console.initialization,core_console.announcement_reads TO {0}; GRANT INSERT ON core_console.announcement_reads TO {0}; GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text) TO {0}",self.name))
                 .execute(&self.owner).await.unwrap();
             return;
         }

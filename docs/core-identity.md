@@ -246,6 +246,10 @@ HTTP 的 `owner` 输入仍使用明确类型的公开标识：个人为用户 ID
 
 ## 验证和未完成项
 
+Console 公告设置的权限、原子审计、并发保存与提交结果不明语义见
+[Console public content settings](core-console-settings.md)。可写能力按接口声明，
+不能把公开内容保存当成全部系统配置或旧库升级已经完成。
+
 将 `DATABASE_URL` 指向独立测试 PostgreSQL，测试角色需可创建临时数据库。SQLx 只负责建立隔离测试数据库；测试显式调用全新安装方法，不执行旧数据库升级。缺少数据库时测试失败，不跳过。
 
 ```sh

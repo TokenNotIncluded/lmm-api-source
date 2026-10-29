@@ -5,17 +5,20 @@
 
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::State,
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
+
+mod writes;
 
 /// Public, effective configuration; never pass raw TOML or secret references.
 #[derive(Clone)]
@@ -46,10 +49,10 @@ impl OptionsHttp {
 
 pub fn router(state: OptionsHttp) -> Router {
     Router::new()
-        .route("/api/option/", get(read).put(write_unavailable))
-        .route("/api/option", get(read).put(write_unavailable))
-        .route("/api/option/bulk", post(write_unavailable))
-        .route("/api/option/validate", post(write_unavailable))
+        .route("/api/option/", get(read).put(writes::write))
+        .route("/api/option", get(read).put(writes::write))
+        .route("/api/option/bulk", post(writes::bulk))
+        .route("/api/option/validate", post(writes::validate))
         .with_state(state)
 }
 
@@ -159,28 +162,18 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         StatusCode::OK,
         json!({
             "success":true,
-            "message":"Console settings are read-only until the host configuration upgrade procedure is available.",
+            "message":"Only public notice and announcement content can be changed here.",
             "data":data,
             "capabilities":{
-                "read_only":true,
+                "read_only":false,
                 "partial":true,
-                "writable_keys":[],
+                "writable_keys":["Notice","Announcements","console_setting.announcements"],
                 "model_price_locks":false,
                 "trust_level_benefits":false
             }
         }),
     )
     // @context-fold end runtime-settings-projection
-}
-
-async fn write_unavailable(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response {
-    if let Err(error) = authorize(&state, &headers).await {
-        return auth_error(error);
-    }
-    response(
-        StatusCode::NOT_IMPLEMENTED,
-        json!({"success":false,"message":"Console settings are read-only until the host configuration upgrade procedure is available."}),
-    )
 }
 
 fn auth_error(error: IdentityError) -> Response {
@@ -289,10 +282,13 @@ mod tests {
         let (status, body) = call(&app, "GET", "/api/option/", Some(&root.secret)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["capabilities"]["partial"], true);
-        assert_eq!(body["capabilities"]["read_only"], true);
-        assert_eq!(body["capabilities"]["writable_keys"], json!([]));
+        assert_eq!(body["capabilities"]["read_only"], false);
+        assert_eq!(
+            body["capabilities"]["writable_keys"],
+            json!(["Notice", "Announcements", "console_setting.announcements"])
+        );
         let (status, _) = call(&app, "PUT", "/api/option/", Some(&root.secret)).await;
-        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         let options: std::collections::BTreeMap<String, String> =
             serde_json::from_value::<Vec<serde_json::Value>>(body["data"].clone())
                 .unwrap()
