@@ -76,6 +76,11 @@ export function PerformanceOverview() {
     return (
       <Card size='sm'>
         <CardContent className='text-muted-foreground text-center text-xs'>
+          {notice && (
+            <p role='status' className='text-warning mb-2'>
+              {notice}
+            </p>
+          )}
           {t('No performance data available')}
         </CardContent>
       </Card>
