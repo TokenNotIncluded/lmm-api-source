@@ -550,7 +550,7 @@ fn deny(reason: Denial) -> PermissionDecision {
 
 /// Shared catalog evaluation after the caller has validated current identity,
 /// credential and policy. This never authorizes a transaction by itself.
-fn catalog_decision(
+pub(crate) fn catalog_decision(
     role: PlatformRole,
     overrides: &[Override],
     action: Action,

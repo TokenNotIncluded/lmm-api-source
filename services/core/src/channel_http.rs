@@ -14,10 +14,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 use crate::{
-    history_read::{HistoryError, HistoryStore, ReadRoute},
+    accounts::AccountKind,
+    history_read::{HistoryError, HistoryStore},
+    identity::{self, CredentialKind, permissions},
     routing::{Protocol, RoutingConfig},
 };
 
@@ -234,10 +236,69 @@ async fn admit(state: &ChannelState, headers: &HeaderMap) -> Result<(), HistoryE
         .filter(|(scheme, secret)| scheme.eq_ignore_ascii_case("Bearer") && !secret.is_empty())
         .map(|(_, secret)| secret)
         .ok_or(HistoryError::Unauthorized)?;
-    state
-        .identity
-        .authenticate_category(secret, ReadRoute::Administrator)
+    let mut tx = state.identity.read_snapshot().await?;
+    let principal = identity::authenticate_readonly_in_transaction(&mut tx, secret).await?;
+    if principal.credential_kind != CredentialKind::Session
+        || principal.owner.kind != AccountKind::Personal
+        || principal.owner.id != principal.user_id
+    {
+        return Err(HistoryError::Forbidden);
+    }
+    let row = sqlx::query(
+        "SELECT u.platform_role,u.personal_account_id,u.auth_version,u.active, \
+         a.active AS account_active,c.user_version \
+         FROM core_identity.users u \
+         JOIN core_identity.accounts a ON a.id=u.personal_account_id \
+         JOIN core_identity.credentials c ON c.id=$2 AND c.user_id=u.id \
+         WHERE u.id=$1",
+    )
+    .bind(principal.user_id)
+    .bind(principal.credential_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let role = match row.try_get::<String, _>("platform_role")?.as_str() {
+        "admin" => permissions::PlatformRole::Admin,
+        "superadmin" => permissions::PlatformRole::Root,
+        _ => return Err(HistoryError::Forbidden),
+    };
+    let imported = permissions::has_privileged_import_facts(&mut tx, principal.user_id)
         .await
+        .map_err(|_| HistoryError::Unavailable)?;
+    let policy = match permissions::load_complete_policy(&mut tx, principal.user_id).await {
+        Ok(policy) => Some(policy),
+        // Match the existing native-admin baseline: ChannelRead is a default
+        // admin action. Imported privileged identities never use this fallback.
+        Err(permissions::PolicyLoadError::Missing) if !imported => None,
+        Err(permissions::PolicyLoadError::Storage) => return Err(HistoryError::Unavailable),
+        Err(_) => return Err(HistoryError::Forbidden),
+    };
+    if let Some(policy) = &policy {
+        let decision = permissions::decide(
+            &permissions::Actor {
+                user_id: principal.user_id,
+                personal_account_id: row.try_get("personal_account_id")?,
+                role,
+                credential: permissions::Credential::Session,
+                active: row.try_get("active")?,
+                account_active: row.try_get("account_active")?,
+                auth_version: row.try_get("auth_version")?,
+                credential_auth_version: row.try_get("user_version")?,
+                developer: permissions::DeveloperState::Granted,
+            },
+            &policy.as_policy(),
+            permissions::Action::ChannelRead,
+            permissions::Scope::Platform(permissions::PlatformResource::Channel),
+            None,
+        );
+        if !decision.allowed() {
+            return Err(HistoryError::Forbidden);
+        }
+    } else if !permissions::catalog_decision(role, &[], permissions::Action::ChannelRead).allowed()
+    {
+        return Err(HistoryError::Forbidden);
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 fn auth_error(error: HistoryError) -> Response {
@@ -250,7 +311,7 @@ fn auth_error(error: HistoryError) -> Response {
         HistoryError::Forbidden => (
             StatusCode::FORBIDDEN,
             "CHANNEL_FORBIDDEN",
-            "Administrator session is required",
+            "Channel read permission is required",
         ),
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -386,7 +447,7 @@ mod tests {
     };
     use tower::ServiceExt;
 
-    fn fixture() -> (RoutingConfig, PriceConfig) {
+    pub(super) fn fixture() -> (RoutingConfig, PriceConfig) {
         let config = RoutingConfig {
             version: 1,
             groups: vec![ModelGroup {
@@ -452,7 +513,10 @@ mod tests {
         (config, prices)
     }
 
-    fn serving(config: RoutingConfig, prices: PriceConfig) -> Arc<crate::routing::Router> {
+    pub(super) fn serving(
+        config: RoutingConfig,
+        prices: PriceConfig,
+    ) -> Arc<crate::routing::Router> {
         Arc::new(
             crate::routing::Router::new(config, Arc::new(PriceSnapshot::compile(prices).unwrap()))
                 .unwrap(),
@@ -577,7 +641,12 @@ mod tests {
         );
     }
 
-    async fn request(app: Router, path: &str, secret: Option<&str>, method: &str) -> Response {
+    pub(super) async fn request(
+        app: Router,
+        path: &str,
+        secret: Option<&str>,
+        method: &str,
+    ) -> Response {
         let mut request = Request::builder().uri(path).method(method);
         if let Some(secret) = secret {
             request = request.header(header::AUTHORIZATION, format!("Bearer {secret}"));
@@ -656,3 +725,7 @@ mod tests {
         assert_eq!(value["data"]["status"], 2);
     }
 }
+
+#[cfg(test)]
+#[path = "channel_http/authorization_tests.rs"]
+mod authorization_tests;
