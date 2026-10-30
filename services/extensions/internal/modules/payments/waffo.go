@@ -41,12 +41,9 @@ func NewWaffo(cfg WaffoConfig) (*Waffo, error) {
 }
 
 func (w *Waffo) Channel() Channel                { return w.cfg.Channel }
-func (*Waffo) RefundEnabled() bool               { return false }
-func (*Waffo) PartialRefunds() bool              { return false }
+func (*Waffo) RefundEnabled() bool               { return true }
+func (*Waffo) PartialRefunds() bool              { return true }
 func (*Waffo) ReplayWindow(string) time.Duration { return 0 }
-func (*Waffo) Refund(context.Context, Order, Refund, string) (RefundResult, error) {
-	return RefundResult{}, ErrUnsupported
-}
 
 func (w *Waffo) api(ctx context.Context, path string, value any) ([]byte, error) {
 	body, err := json.Marshal(value)
@@ -61,7 +58,7 @@ func (w *Waffo) api(ctx context.Context, path string, value any) ([]byte, error)
 	if w.cfg.Channel.Environment == "test" {
 		origin = "https://api-sandbox.waffo.com"
 	}
-	raw, err := requestJSONBytes(ctx, w.client, http.MethodPost, origin+"/api/v1/order/"+path, body,
+	raw, err := requestJSONBytes(ctx, w.client, http.MethodPost, origin+"/api/v1/"+path, body,
 		http.Header{"X-Api-Key": {w.cfg.APIKey}, "X-Signature": {signature}, "X-Api-Version": {"1.0.0"}})
 	if err != nil {
 		return nil, err
@@ -80,7 +77,7 @@ func (w *Waffo) Checkout(ctx context.Context, o Order, _ string) (Checkout, erro
 	if !providerOrderMatches(o, w.cfg.Channel) {
 		return Checkout{}, ErrInvalid
 	}
-	raw, err := w.api(ctx, "create", map[string]any{
+	raw, err := w.api(ctx, "order/create", map[string]any{
 		"paymentRequestId": o.ID, "merchantOrderId": o.ID,
 		"orderAmount": decimalMinor(o.Intent.AmountMinor), "orderCurrency": o.Intent.Currency,
 		"orderDescription": "LMM API account top-up", "orderRequestedAt": time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
@@ -145,16 +142,29 @@ func (w *Waffo) Verify(r *http.Request, _ time.Time) (Event, error) {
 		return Event{}, err
 	}
 	var v struct {
-		Type   string       `json:"eventType"`
-		Result waffoPayment `json:"result"`
+		Type   string          `json:"eventType"`
+		Result json.RawMessage `json:"result"`
 	}
 	if jsonObject(raw, &v) != nil {
 		return Event{}, ErrInvalid
 	}
-	if v.Type != "PAYMENT_NOTIFICATION" {
+	var e Event
+	switch v.Type {
+	case "PAYMENT_NOTIFICATION":
+		var payment waffoPayment
+		if jsonObject(v.Result, &payment) != nil {
+			return Event{}, ErrInvalid
+		}
+		e, err = w.payment(payment)
+	case "REFUND_NOTIFICATION":
+		var refund waffoRefund
+		if jsonObject(v.Result, &refund) != nil {
+			return Event{}, ErrInvalid
+		}
+		e, err = w.refundEvent(refund)
+	default:
 		return Event{}, ErrUnsupported
 	}
-	e, err := w.payment(v.Result)
 	if err != nil {
 		return Event{}, err
 	}
@@ -166,7 +176,7 @@ func (w *Waffo) Lookup(ctx context.Context, o Order) ([]Event, error) {
 	if !providerOrderMatches(o, w.cfg.Channel) {
 		return nil, ErrInvalid
 	}
-	raw, err := w.api(ctx, "inquiry", map[string]string{"paymentRequestId": o.ID})
+	raw, err := w.api(ctx, "order/inquiry", map[string]string{"paymentRequestId": o.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -174,16 +184,21 @@ func (w *Waffo) Lookup(ctx context.Context, o Order) ([]Event, error) {
 	if jsonObject(raw, &v) != nil || v.MerchantOrderID != o.ID || v.PaymentRequestID != o.ID || v.MerchantInfo.MerchantID != w.cfg.Channel.Merchant {
 		return nil, ErrConflict
 	}
-	if v.OrderStatus != "PAY_SUCCESS" {
-		return nil, nil
+	var events []Event
+	if v.OrderStatus == "PAY_SUCCESS" {
+		e, err := w.payment(v)
+		if err != nil || e.AmountMinor != o.Intent.AmountMinor || o.PaymentID != "" && e.Evidence.Transaction != o.PaymentID {
+			return nil, ErrConflict
+		}
+		e.Evidence.Payload = raw
+		apiEvidence(&e, e.Evidence.Transaction, Paid)
+		events = append(events, e)
 	}
-	e, err := w.payment(v)
-	if err != nil || e.AmountMinor != o.Intent.AmountMinor || o.PaymentID != "" && e.Evidence.Transaction != o.PaymentID {
-		return nil, ErrConflict
+	refunds, err := w.lookupRefunds(ctx, o)
+	if err != nil {
+		return nil, err
 	}
-	e.Evidence.Payload = raw
-	apiEvidence(&e, e.Evidence.Transaction, Paid)
-	return []Event{e}, nil
+	return append(events, refunds...), nil
 }
 
 // Global requires an RSA-signed acknowledgement, unlike the other gateways.

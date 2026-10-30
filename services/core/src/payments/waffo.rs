@@ -6,7 +6,7 @@ use std::time::Duration;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::{Client, header::HeaderValue, redirect::Policy};
 use rsa::{Pkcs1v15Sign, RsaPrivateKey, pkcs8::DecodePrivateKey, traits::PublicKeyParts};
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -15,6 +15,8 @@ use super::{Channel, Error, Result, providers, stripe};
 const MAX_RESPONSE: usize = 32 * 1024;
 const TEST_ENDPOINT: &str = "https://api-sandbox.waffo.com/api/v1/order/inquiry";
 const LIVE_ENDPOINT: &str = "https://api.waffo.com/api/v1/order/inquiry";
+const TEST_REFUND_ENDPOINT: &str = "https://api-sandbox.waffo.com/api/v1/refund/inquiry";
+const LIVE_REFUND_ENDPOINT: &str = "https://api.waffo.com/api/v1/refund/inquiry";
 
 /// These account credentials stay inside Core. No caller selects the URL or
 /// request body, and no inquiry credentials appear in RPC messages or logs.
@@ -22,7 +24,6 @@ pub(crate) struct Inquiry {
     client: Client,
     api_key: HeaderValue,
     private_key: RsaPrivateKey,
-    #[cfg(test)]
     test_endpoint: Option<String>,
 }
 
@@ -63,9 +64,39 @@ impl Inquiry {
                 .map_err(|_| Error::Unavailable)?,
             api_key,
             private_key: key,
-            #[cfg(test)]
             test_endpoint: None,
         })
+    }
+
+    // Explicit synthetic constructor for integration tests. This endpoint is
+    // unavailable to production configuration and cannot be used in live mode.
+    pub(crate) fn isolated_loopback_test(private_key: String, origin: &str) -> Result<Self> {
+        let url = reqwest::Url::parse(origin).map_err(|_| Error::Invalid)?;
+        if url.scheme() != "http"
+            || !url
+                .host_str()
+                .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback())
+            || url.port().is_none_or(|port| port == 0)
+            || url.username() != ""
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || url.path() != "/"
+        {
+            return Err(Error::Invalid);
+        }
+        let mut inquiry = Self::new("isolated_waffo_synthetic_key".into(), private_key)?;
+        inquiry.client = client().build().map_err(|_| Error::Unavailable)?;
+        inquiry.test_endpoint = Some(format!(
+            "{}/api/v1/order/inquiry",
+            origin.trim_end_matches('/')
+        ));
+        Ok(inquiry)
+    }
+
+    pub(super) fn allows_environment(&self, environment: &str) -> bool {
+        self.test_endpoint.is_none() || environment == "test"
     }
 
     fn endpoint(&self, environment: &str) -> Result<&str> {
@@ -74,26 +105,16 @@ impl Inquiry {
             "live" => LIVE_ENDPOINT,
             _ => return Err(Error::Invalid),
         };
-        #[cfg(test)]
         if let Some(endpoint) = &self.test_endpoint {
+            if environment != "test" {
+                return Err(Error::Invalid);
+            }
             return Ok(endpoint);
         }
         Ok(endpoint)
     }
 
-    pub(super) async fn confirm(
-        &self,
-        channel: &Channel,
-        intent_id: i64,
-        amount_minor: i64,
-        transaction: &str,
-    ) -> Result<()> {
-        if channel.provider != "waffo" || intent_id <= 0 {
-            return Err(Error::Invalid);
-        }
-        let order = format!("top_{intent_id}");
-        let body =
-            serde_json::to_vec(&json!({"paymentRequestId":order})).map_err(|_| Error::Invalid)?;
+    async fn request(&self, channel: &Channel, endpoint: &str, body: Vec<u8>) -> Result<Value> {
         let signature = self
             .private_key
             .sign_with_rng(
@@ -104,7 +125,7 @@ impl Inquiry {
             .map_err(|_| Error::Unavailable)?;
         let mut response = self
             .client
-            .post(self.endpoint(&channel.environment)?)
+            .post(endpoint)
             .header("Content-Type", "application/json")
             .header("X-API-KEY", self.api_key.clone())
             .header("X-API-VERSION", "1.0.0")
@@ -138,7 +159,72 @@ impl Inquiry {
         if response.get("code").and_then(|v| v.as_str()) != Some("0") {
             return Err(Error::Unavailable);
         }
-        let data = response.get("data").ok_or(Error::Invalid)?;
+        response.get("data").cloned().ok_or(Error::Invalid)
+    }
+
+    fn refund_endpoint(&self, environment: &str) -> Result<String> {
+        let endpoint = match environment {
+            "test" => TEST_REFUND_ENDPOINT,
+            "live" => LIVE_REFUND_ENDPOINT,
+            _ => return Err(Error::Invalid),
+        };
+        if let Some(endpoint) = &self.test_endpoint {
+            if environment != "test" {
+                return Err(Error::Invalid);
+            }
+            return Ok(endpoint.replace("/order/inquiry", "/refund/inquiry"));
+        }
+        Ok(endpoint.to_owned())
+    }
+
+    // Network verification finishes before the payment transaction begins.
+    // Refund signatures share the provider key, so the configured account must
+    // independently confirm the exact refund and original merchant payment.
+    pub(super) async fn confirm_evidence(
+        &self,
+        channel: &Channel,
+        intent_id: i64,
+        amount_minor: i64,
+        verified: &stripe::Verified,
+    ) -> Result<()> {
+        self.confirm(channel, intent_id, amount_minor, &verified.transaction)
+            .await?;
+        if verified.kind == stripe::EventKind::Credit {
+            return Ok(());
+        }
+        let request = verified.dispatch_key.as_deref().ok_or(Error::Invalid)?;
+        let refund = verified.refund_id.as_deref().ok_or(Error::Invalid)?;
+        let body = serde_json::to_vec(&json!({
+            "refundRequestId": request, "acquiringRefundOrderId": refund
+        }))
+        .map_err(|_| Error::Invalid)?;
+        let data = self
+            .request(channel, &self.refund_endpoint(&channel.environment)?, body)
+            .await?;
+        let confirmed =
+            providers::waffo_refund(&data, channel, &format!("top_{intent_id}"), amount_minor)?;
+        if &confirmed != verified {
+            return Err(Error::Conflict);
+        }
+        Ok(())
+    }
+
+    pub(super) async fn confirm(
+        &self,
+        channel: &Channel,
+        intent_id: i64,
+        amount_minor: i64,
+        transaction: &str,
+    ) -> Result<()> {
+        if channel.provider != "waffo" || intent_id <= 0 {
+            return Err(Error::Invalid);
+        }
+        let order = format!("top_{intent_id}");
+        let body =
+            serde_json::to_vec(&json!({"paymentRequestId":order})).map_err(|_| Error::Invalid)?;
+        let data = self
+            .request(channel, self.endpoint(&channel.environment)?, body)
+            .await?;
         if data.get("merchantOrderId").and_then(|v| v.as_str()) != Some(&order)
             || data.get("paymentRequestId").and_then(|v| v.as_str()) != Some(&order)
             || data.get("acquiringOrderId").and_then(|v| v.as_str()) != Some(transaction)

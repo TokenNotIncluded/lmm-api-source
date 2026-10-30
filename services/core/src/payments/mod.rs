@@ -65,6 +65,38 @@ pub(crate) struct ProviderVerification {
     pub waffo_inquiry: Option<Arc<waffo::Inquiry>>,
 }
 impl Channel {
+    /// Synthetic Waffo integration fixture, analogous to stripe_test. It has
+    /// no live mode and no production configuration path; inquiry accepts only
+    /// an explicit loopback IP and port owned by the test process.
+    pub fn waffo_isolated_test(
+        id: i64,
+        merchant: String,
+        provider_public_key: String,
+        merchant_private_key: String,
+        origin: &str,
+        maximum: i64,
+    ) -> Result<Self> {
+        let inquiry = waffo::Inquiry::isolated_loopback_test(merchant_private_key, origin)?;
+        let channel = Self {
+            id,
+            provider: "waffo".into(),
+            merchant,
+            environment: "test".into(),
+            currency: "USD".into(),
+            webhook_secrets: vec![provider_public_key],
+            credits_per_minor: 5000,
+            max_amount_minor: maximum,
+            verification: ProviderVerification {
+                waffo_inquiry: Some(Arc::new(inquiry)),
+                ..Default::default()
+            },
+        };
+        if !channel.validate() {
+            return Err(Error::Invalid);
+        }
+        Ok(channel)
+    }
+
     /// Test policy: USD cents, exactly 5000 integer credits per cent.
     pub fn stripe_test(id: i64, merchant: String, secret: String, maximum: i64) -> Self {
         Self::stripe_usd(id, merchant, secret, maximum, "test")
@@ -623,12 +655,7 @@ impl PaymentsStore {
                 .waffo_inquiry
                 .as_ref()
                 .ok_or(Error::Unavailable)?
-                .confirm(
-                    channel,
-                    snapshot.id,
-                    snapshot.amount_minor,
-                    &verified.transaction,
-                )
+                .confirm_evidence(channel, snapshot.id, snapshot.amount_minor, &verified)
                 .await?;
             inquired = Some((snapshot.channel_id, snapshot.amount_minor, verified));
         }

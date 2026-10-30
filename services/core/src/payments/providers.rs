@@ -112,7 +112,7 @@ pub(super) fn valid_channel(c: &Channel) -> bool {
                 // A provider-wide public key alone does not establish which
                 // account received funds. Both environments require Core's
                 // independent inquiry using private account credentials.
-                && v.waffo_inquiry.is_some()
+                && v.waffo_inquiry.as_ref().is_some_and(|inquiry| inquiry.allows_environment(&c.environment))
                 && c.webhook_secrets.iter().all(|key| public_key(key).is_ok())
         }
         "waffo_pancake" => {
@@ -530,6 +530,9 @@ fn verify_waffo(
     rsa_verify(&c.webhook_secrets, payload, signature)?;
     let event = stripe::unique_json(payload)?;
     let result = event.get("result").ok_or(Error::Invalid)?;
+    if text(&event, "eventType")? == "REFUND_NOTIFICATION" {
+        return waffo_refund(result, c, order, amount);
+    }
     if text(&event, "eventType")? != "PAYMENT_NOTIFICATION"
         || text(result, "orderStatus")? != "PAY_SUCCESS"
         || text(result, "merchantOrderId")? != order
@@ -550,6 +553,64 @@ fn verify_waffo(
         transaction.to_owned(),
         amount,
     ))
+}
+
+// Global refunds carry their own immutable merchant request ID. The same
+// fields are checked again against Core's authenticated refund inquiry before
+// proof admission, since the RSA verification key is shared by merchants.
+pub(super) fn waffo_refund(
+    result: &Value,
+    channel: &Channel,
+    order: &str,
+    original_amount: i64,
+) -> Result<Verified> {
+    let status = text(result, "refundStatus")?;
+    let kind = match status {
+        "REFUND_IN_PROGRESS" => EventKind::RefundPending,
+        "ORDER_PARTIALLY_REFUNDED" | "ORDER_FULLY_REFUNDED" => EventKind::RefundSucceeded,
+        "ORDER_REFUND_FAILED" => EventKind::RefundFailed,
+        _ => return Err(Error::Invalid),
+    };
+    let amount = decimal_minor(text(result, "refundAmount")?)?;
+    if amount > original_amount
+        || text(result, "origPaymentRequestId")? != order
+        || text(result, "userCurrency")? != channel.currency
+    {
+        return Err(Error::Conflict);
+    }
+    let request = id(result, "refundRequestId")?;
+    let refund = id(result, "acquiringRefundOrderId")?;
+    let transaction = id(result, "acquiringOrderId")?;
+    let extra = result
+        .get("extendInfo")
+        .filter(|v| !v.is_null())
+        .map_or(Ok(""), |v| v.as_str().ok_or(Error::Invalid))?;
+    let mut hold_receipt_id = None;
+    // Other merchants' opaque external metadata is not a local hold binding.
+    // Only the complete LMM reference pair may identify a Core reservation.
+    if let Ok(metadata) = stripe::unique_json(extra.as_bytes())
+        && (metadata.get("lmm_hold_receipt_id").is_some()
+            || metadata.get("lmm_refund_id").is_some())
+    {
+        let hold = id(&metadata, "lmm_hold_receipt_id")?;
+        let local_refund = id(&metadata, "lmm_refund_id")?;
+        if local_refund.len() < 16
+            || text(result, "merchantRefundOrderId")? != local_refund
+            || stable_key(&["submit", local_refund]) != request
+        {
+            return Err(Error::Conflict);
+        }
+        hold_receipt_id = Some(hold.to_owned());
+    }
+    Ok(Verified {
+        event_id: stable_key(&[refund, "REFUND_NOTIFICATION", status]),
+        transaction: transaction.to_owned(),
+        kind,
+        amount_minor: amount,
+        refund_id: Some(refund.to_owned()),
+        hold_receipt_id,
+        dispatch_key: Some(request.to_owned()),
+    })
 }
 
 fn verify_pancake(
