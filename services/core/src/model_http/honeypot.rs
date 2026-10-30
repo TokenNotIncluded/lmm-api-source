@@ -23,6 +23,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use subtle::ConstantTimeEq;
 use tokio::time::{Instant, timeout};
 
 /// Host-only credential and its exact permitted origins. No secret getter,
@@ -74,6 +75,14 @@ pub struct HoneypotGateway {
     ceiling: Limits,
 }
 impl HoneypotGateway {
+    pub(super) fn contains_secret(&self, secret: &str) -> bool {
+        let mut found = subtle::Choice::from(0);
+        for credential in self.credentials.values() {
+            found |= credential.secret.as_bytes().ct_eq(secret.as_bytes());
+        }
+        bool::from(found)
+    }
+
     pub(super) async fn drain(&self, grace: Duration) -> relay::DrainReport {
         self.transport.drain(grace).await
     }

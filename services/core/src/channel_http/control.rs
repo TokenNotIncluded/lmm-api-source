@@ -1,5 +1,9 @@
 //! Transactional channel controls. PostgreSQL is the publication authority;
 //! the serving snapshot changes only after its audit and release commit.
+pub(super) mod catalog;
+pub(super) mod configuration;
+pub(super) mod price_drafts;
+mod vault;
 use super::{ChannelState, auth_error, authorize_action, error_response};
 use crate::{
     history_read::HistoryError,
@@ -15,6 +19,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use configuration::Bindings;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -47,7 +52,7 @@ impl From<sqlx::Error> for ManagementError {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct Version {
+pub(super) struct Version {
     routing: u64,
     pricing: u64,
 }
@@ -74,15 +79,23 @@ pub struct ManagedChannels {
     bootstrap: ReleaseDocument,
     gateway: Option<ModelGateway>,
     publication: tokio::sync::Mutex<()>,
+    bindings: std::sync::RwLock<(u64, Bindings)>,
 }
 impl ManagedChannels {
     /// Called by the host before it exposes routes. This reads existing state;
     /// it never initializes a database or creates a publication at startup.
     pub async fn recover(pool: PgPool, gateway: ModelGateway) -> Result<Self, ManagementError> {
         let mut state = Self::from_router(pool, gateway.dashboard_routing())?;
+        state.bindings = std::sync::RwLock::new((
+            state.bootstrap.routing.version,
+            Bindings {
+                contexts: gateway.channel_contexts(),
+                ..Bindings::default()
+            },
+        ));
         state.gateway = Some(gateway);
         if let Some(document) = state.load_active().await? {
-            state.install(document)?;
+            state.install(document).await?;
         }
         Ok(state)
     }
@@ -90,12 +103,14 @@ impl ManagedChannels {
         let bootstrap = routing
             .catalog_document()
             .map_err(|_| ManagementError::Invalid)?;
+        let version = bootstrap.routing.version;
         Ok(Self {
             pool,
             routing,
             bootstrap,
             gateway: None,
             publication: tokio::sync::Mutex::new(()),
+            bindings: std::sync::RwLock::new((version, Bindings::default())),
         })
     }
     pub(super) fn routing(&self) -> Arc<ServingRouter> {
@@ -113,12 +128,58 @@ impl ManagedChannels {
     pub async fn synchronize(&self) -> Result<(), ManagementError> {
         let _guard = self.publication.lock().await;
         if let Some(document) = self.load_active().await? {
-            self.install(document)?;
+            self.install(document).await?;
         }
         Ok(())
     }
 
+    fn current_bindings(&self) -> Result<Bindings, ManagementError> {
+        self.bindings
+            .read()
+            .map(|guard| guard.1.clone())
+            .map_err(|_| ManagementError::Storage)
+    }
+
+    pub(super) fn display_names(
+        &self,
+        version: u64,
+    ) -> Result<std::collections::BTreeMap<u64, String>, ManagementError> {
+        let (current, bindings) = &*self.bindings.read().map_err(|_| ManagementError::Storage)?;
+        if *current != version {
+            return Err(ManagementError::ApplyPending);
+        }
+        Ok(bindings.names.clone())
+    }
+
+    pub(super) fn secret_storage_enabled(&self) -> bool {
+        self.gateway
+            .as_ref()
+            .and_then(|gateway| gateway.channel_secret_key())
+            .is_some()
+    }
+
     fn validate(&self, document: &ReleaseDocument) -> Result<(), ManagementError> {
+        self.validate_bindings(document, &self.current_bindings()?, &BTreeSet::new())
+    }
+
+    fn validate_bindings(
+        &self,
+        document: &ReleaseDocument,
+        bindings: &Bindings,
+        new_keys: &BTreeSet<(u64, u64)>,
+    ) -> Result<(), ManagementError> {
+        bindings.validate(document)?;
+        document
+            .clone()
+            .into_router()
+            .map_err(|_| ManagementError::Invalid)?;
+        crate::model_http::channel_operations::validate_publication_prices(document)
+            .map_err(|_| ManagementError::Invalid)?;
+        if let Some(gateway) = &self.gateway {
+            return gateway
+                .validate_channel_release(document, bindings.contexts.clone(), new_keys)
+                .map_err(|_| ManagementError::BindingChanged);
+        }
         // Runtime edits cannot create an unconfigured credential or provider
         // context. Existing keys/endpoints remain bound to the same upstream ID.
         for upstream in &document.routing.upstreams {
@@ -159,17 +220,78 @@ impl ManagedChannels {
             .map_err(|_| ManagementError::Invalid)?;
         Ok(())
     }
-    fn install(&self, document: ReleaseDocument) -> Result<(), ManagementError> {
-        self.validate(&document)?;
+
+    async fn install(&self, document: ReleaseDocument) -> Result<(), ManagementError> {
+        let raw: Option<Value> = sqlx::query_scalar("SELECT public.routing_control_bindings($1)")
+            .bind(document.routing.version as i64)
+            .fetch_one(&self.pool)
+            .await?;
+        let bindings = match raw {
+            Some(value) => serde_json::from_value(value).map_err(|_| ManagementError::Invalid)?,
+            None => Bindings {
+                contexts: self
+                    .gateway
+                    .as_ref()
+                    .map(|g| g.channel_contexts())
+                    .unwrap_or_default(),
+                ..Bindings::default()
+            },
+        };
+        let mut credentials = Vec::new();
+        if let Some(gateway) = &self.gateway {
+            for upstream in &document.routing.upstreams {
+                let reference = upstream.credential;
+                if gateway.has_channel_credential(reference) {
+                    continue;
+                }
+                let encrypted: Option<Vec<u8>> =
+                    sqlx::query_scalar("SELECT public.routing_control_secret_read($1,$2)")
+                        .bind(reference.id as i64)
+                        .bind(reference.revision as i64)
+                        .fetch_one(&self.pool)
+                        .await?;
+                if encrypted.is_none() && !upstream.enabled {
+                    continue;
+                }
+                let key = gateway
+                    .channel_secret_key()
+                    .ok_or(ManagementError::BindingChanged)?;
+                let secret = vault::decrypt(
+                    key,
+                    reference,
+                    &encrypted.ok_or(ManagementError::BindingChanged)?,
+                )?;
+                credentials.push(crate::model_http::UpstreamCredential { reference, secret });
+            }
+        }
+        let references = credentials
+            .iter()
+            .map(|c| (c.reference.id, c.reference.revision))
+            .collect();
+        self.validate_bindings(&document, &bindings, &references)?;
+        if let Some(gateway) = &self.gateway {
+            gateway
+                .install_channel_bindings(
+                    document.routing.version,
+                    credentials,
+                    bindings.contexts.clone(),
+                )
+                .map_err(|_| ManagementError::BindingChanged)?;
+        }
         let current = self
             .routing
             .catalog_document()
             .map_err(|_| ManagementError::Storage)?;
+        let version = document.routing.version;
         if current != document {
             document
                 .apply(&self.routing)
                 .map_err(|_| ManagementError::ApplyPending)?;
         }
+        *self
+            .bindings
+            .write()
+            .map_err(|_| ManagementError::Storage)? = (version, bindings);
         if let Some(gateway) = &self.gateway {
             gateway
                 .refresh_catalog()
@@ -199,14 +321,49 @@ impl ManagedChannels {
     }
     async fn publish(
         &self,
-        mut tx: Transaction<'_, Postgres>,
+        tx: Transaction<'_, Postgres>,
         principal: &identity::Principal,
         expected: Version,
         document: ReleaseDocument,
         action: &'static str,
         target: Value,
     ) -> Result<Version, Failure> {
-        self.validate(&document)?;
+        let bindings = self.current_bindings()?;
+        self.publish_bindings(
+            tx,
+            principal,
+            expected,
+            document,
+            bindings,
+            Vec::new(),
+            action,
+            target,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn publish_bindings(
+        &self,
+        mut tx: Transaction<'_, Postgres>,
+        principal: &identity::Principal,
+        expected: Version,
+        document: ReleaseDocument,
+        bindings: Bindings,
+        incoming_keys: Vec<crate::model_http::UpstreamCredential>,
+        action: &'static str,
+        target: Value,
+    ) -> Result<Version, Failure> {
+        if let Some(gateway) = &self.gateway {
+            gateway
+                .validate_channel_credentials(&incoming_keys)
+                .map_err(|_| ManagementError::Invalid)?;
+        }
+        let refs = incoming_keys
+            .iter()
+            .map(|c| (c.reference.id, c.reference.revision))
+            .collect();
+        self.validate_bindings(&document, &bindings, &refs)?;
         let active: Option<Value> = sqlx::query_scalar("SELECT public.routing_control_read()")
             .fetch_one(&mut *tx)
             .await
@@ -228,9 +385,10 @@ impl ManagedChannels {
             serde_json::to_value(&document.routing).map_err(|_| ManagementError::Invalid)?;
         let prices =
             serde_json::to_value(&document.pricing).map_err(|_| ManagementError::Invalid)?;
-        sqlx::query("SELECT public.routing_control_publish($1,$2,$3,$4)")
+        sqlx::query("SELECT public.routing_control_publish($1,$2,$3,$4,$5)")
             .bind(routing)
             .bind(prices)
+            .bind(serde_json::to_value(&bindings).map_err(|_| ManagementError::Invalid)?)
             .bind(durable.as_ref().map(|d| d.routing.version as i64))
             .bind(durable.as_ref().map(|d| d.pricing.version as i64))
             .execute(&mut *tx)
@@ -244,7 +402,7 @@ impl ManagedChannels {
             .await
             .map_err(|_| ManagementError::CommitUnknown)?;
         let version = Version::of(&document);
-        self.install(document)?;
+        self.install(document).await?;
         Ok(version)
     }
 }
@@ -415,14 +573,6 @@ async fn change_status(
             .ok_or(Failure::NotFound)?;
         channel.enabled = input.enabled;
     }
-    if input.enabled {
-        management
-            .gateway
-            .as_ref()
-            .ok_or(ManagementError::BindingChanged)?
-            .validate_channel_activation(&document, &input.ids.iter().copied().collect())
-            .map_err(|_| ManagementError::BindingChanged)?;
-    }
     let version = management
         .publish(
             tx,
@@ -456,12 +606,20 @@ pub(super) async fn remove(
     for route in &mut document.routing.routes {
         route.targets.retain(|t| t.upstream_id != id);
     }
+    let mut bindings = management.current_bindings()?;
+    bindings.names.remove(&id);
+    bindings
+        .contexts
+        .retain(|context| context.upstream_id != id);
+    bindings.discoveries.remove(&id);
     let version = management
-        .publish(
+        .publish_bindings(
             tx,
             &principal,
             input.expected_version,
             document,
+            bindings,
+            Vec::new(),
             "channel.delete",
             json!({"id":id}),
         )
@@ -474,6 +632,8 @@ pub(super) async fn prices(
 ) -> Result<Json<Value>, Failure> {
     super::admit(&state, &headers).await?;
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
+    management.synchronize().await?;
+    let _guard = management.publication.lock().await;
     let (tx, _) = management
         .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
         .await?;
@@ -517,16 +677,6 @@ pub(super) async fn publish_prices(
     }
     PriceSnapshot::compile(input.prices.clone()).map_err(|_| ManagementError::Invalid)?;
     document.pricing = input.prices;
-    // The installed routing SQL still requires a positive group multiplier.
-    // Reject before confirmation/publication until its explicit schema upgrade.
-    if document
-        .pricing
-        .rules
-        .iter()
-        .any(|rule| rule.group_multiplier_ppm == 0)
-    {
-        return Err(ManagementError::Invalid.into());
-    }
     crate::model_http::channel_operations::validate_publication_prices(&document)
         .map_err(|_| ManagementError::Invalid)?;
     let version = management
@@ -555,6 +705,8 @@ pub(super) async fn preview_prices(
 ) -> Result<Json<Value>, Failure> {
     super::admit(&state, &headers).await?;
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
+    management.synchronize().await?;
+    let _guard = management.publication.lock().await;
     let (tx, _) = management
         .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
         .await?;
@@ -565,14 +717,6 @@ pub(super) async fn preview_prices(
     let before = document.pricing.clone();
     document.pricing = input.prices;
     management.validate(&document)?;
-    if document
-        .pricing
-        .rules
-        .iter()
-        .any(|rule| rule.group_multiplier_ppm == 0)
-    {
-        return Err(ManagementError::Invalid.into());
-    }
     crate::model_http::channel_operations::validate_publication_prices(&document)
         .map_err(|_| ManagementError::Invalid)?;
     let confirmation = price_confirmation(input.expected_version, &document.pricing)?;

@@ -374,7 +374,7 @@ impl Bridge {
             upstream,
             endpoint.as_str(),
             attempt.upstream_model().to_owned(),
-            secret,
+            &secret,
             attempt.quote().version(),
         )?
         .with_count_plan(self.provider_policy.count_plan(&attempt)?)

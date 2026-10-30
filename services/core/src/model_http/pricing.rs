@@ -200,7 +200,8 @@ impl PricingSurface {
                 if gateway
                     .bridge
                     .provider_policy
-                    .validate_binding(
+                    .validate_binding_at(
+                        doc.routing.version,
                         upstream.id,
                         &target.upstream_model,
                         upstream.protocol,

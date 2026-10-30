@@ -9,6 +9,7 @@ mod billing;
 mod catalog;
 pub(crate) mod channel_operations;
 mod checkpoints;
+mod credential_registry;
 pub mod grounding_price;
 mod honeypot;
 mod image_api;
@@ -59,8 +60,6 @@ use std::{
     time::Duration,
 };
 
-use subtle::ConstantTimeEq;
-
 pub use catalog::{CatalogError, CatalogSurface, CatalogV1};
 pub use honeypot::{HoneypotCredential, HoneypotGateway};
 pub use provider_policy::{ExternalModelContext, ProviderPolicy};
@@ -91,7 +90,7 @@ struct Bridge {
     pool: PgPool,
     charging: Charging,
     routing: Arc<crate::routing::Router>,
-    credentials: BTreeMap<(u64, u64), String>,
+    credentials: credential_registry::CredentialRegistry,
     active: Mutex<BTreeMap<String, Operation>>,
     recovery_cursor: tokio::sync::Mutex<Option<String>>,
     policy: ChargePolicy,
@@ -114,17 +113,14 @@ pub struct ModelGateway {
     images: Option<image_execution::ImageService>,
     systemone: systemone::Host,
     native_http: native_http::Host,
+    channel_secret_key: Option<Arc<zeroize::Zeroizing<Vec<u8>>>>,
 }
 
 impl ModelGateway {
     /// Host-only equality check for isolated moderation credential loading.
     /// Returns no credential material and never stops at the first match.
     pub(crate) fn contains_credential(&self, secret: &str) -> bool {
-        let mut matched = subtle::Choice::from(0);
-        for credential in self.bridge.credentials.values() {
-            matched |= credential.as_bytes().ct_eq(secret.as_bytes());
-        }
-        bool::from(matched)
+        self.bridge.credentials.contains_secret(secret)
             | self
                 .images
                 .as_ref()
@@ -193,7 +189,7 @@ impl ModelGateway {
             pool: pool.clone(),
             charging: Charging::new(pool.clone(), Arc::new(TransactionalLedger)),
             routing,
-            credentials,
+            credentials: credential_registry::CredentialRegistry::new(credentials),
             active: Mutex::new(BTreeMap::new()),
             recovery_cursor: tokio::sync::Mutex::new(None),
             policy,
@@ -215,6 +211,7 @@ impl ModelGateway {
             catalog_surface,
             oauth2: None,
             images: None,
+            channel_secret_key: None,
         })
     }
 
@@ -305,12 +302,31 @@ impl ModelGateway {
 
     /// Rebuild the OAuth metadata view after an authenticated durable publication.
     pub(crate) fn refresh_catalog(&self) -> Result<(), catalog::CatalogError> {
+        let credentials = self
+            .bridge
+            .credentials
+            .snapshot()
+            .map_err(|_| CatalogError::Unavailable)?;
         self.catalog_surface.refresh(
-            &self.bridge.credentials,
+            &credentials,
             self.bridge.total_timeout,
             &self.bridge.provider_policy,
             self.bridge.policy.input_token_ceiling,
         )
+    }
+
+    /// The installer loads a dedicated private 32-byte key. Neither HTTP nor
+    /// channel records can supply or replace this encryption authority.
+    pub fn with_channel_secret_key(mut self, key: &[u8]) -> Result<Self, RelayError> {
+        if key.len() != 32 {
+            return Err(RelayError::Invalid("invalid channel secret key"));
+        }
+        self.channel_secret_key = Some(Arc::new(zeroize::Zeroizing::new(key.to_vec())));
+        Ok(self)
+    }
+
+    pub(crate) fn channel_secret_key(&self) -> Option<&[u8]> {
+        self.channel_secret_key.as_deref().map(|key| key.as_slice())
     }
 
     /// The read-only OAuth issuer receives this server-created opaque surface.

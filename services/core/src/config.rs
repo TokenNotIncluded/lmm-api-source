@@ -2483,13 +2483,29 @@ pub fn legacy_auth() -> io::Result<Option<WebAuthConfig>> {
             let key = private_file(Path::new(&path), 128)?;
             let config = crate::legacy_auth::LegacyAuthConfig::new(&origin, &key)
                 .map_err(|_| invalid_config("invalid Web authentication configuration"))?;
-            let config = if local_http {
+            let mut config = if local_http {
                 config
                     .with_insecure_local_http()
                     .map_err(|_| invalid_config("local Web HTTP origin is not allowed"))?
             } else {
                 config
             };
+            let rp_origin =
+                reqwest::Url::parse(&origin).map_err(|_| invalid_config("invalid Web origin"))?;
+            if (rp_origin.scheme() == "https" && rp_origin.domain().is_some())
+                || (rp_origin.scheme() == "http" && rp_origin.host_str() == Some("localhost"))
+            {
+                let passkeys = crate::identity::PasskeyConfig::new(
+                    rp_origin
+                        .host_str()
+                        .ok_or_else(|| invalid_config("invalid Passkey origin"))?,
+                    &rp_origin.origin().ascii_serialization(),
+                )
+                .map_err(|_| invalid_config("invalid Passkey configuration"))?;
+                config = config
+                    .with_passkeys(passkeys)
+                    .map_err(|_| invalid_config("Passkey origin must match Web origin"))?;
+            }
             Ok(Some(WebAuthConfig {
                 auth: config.with_legal_acceptance_required(
                     user_agreement_enabled || privacy_policy_enabled,
@@ -2598,6 +2614,8 @@ struct ModelConfig {
     image_providers: Vec<ImageProviderConfig>,
     #[serde(default)]
     legacy_key_aliases: Option<LegacyKeyAliasesConfig>,
+    #[serde(default)]
+    channel_secret_key_file: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -2831,6 +2849,19 @@ fn model_gateway_with_origins(
         provider_policy,
     )
     .map_err(|_| invalid_config("unsafe or incomplete model gateway configuration"))?;
+    let gateway = if let Some(path) = config.channel_secret_key_file {
+        let key = private_file(&path, 32)?;
+        if key.len() != 32 {
+            return Err(invalid_config(
+                "channel secret key must contain exactly 32 bytes",
+            ));
+        }
+        gateway
+            .with_channel_secret_key(&key)
+            .map_err(|_| invalid_config("invalid channel secret encryption key"))?
+    } else {
+        gateway
+    };
     let gateway = if let Some(aliases) = config.legacy_key_aliases {
         let (manifest, receipt) = aliases.read()?;
         gateway

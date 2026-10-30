@@ -41,12 +41,14 @@ pub mod options_http;
 #[cfg(unix)]
 pub mod payments;
 pub mod pricing_http;
+pub mod promotions;
 pub mod public_server;
 pub mod relay;
 pub mod remote_control;
 pub mod request_limits;
 pub mod routing;
 pub mod runtime_database;
+pub mod subscriptions;
 pub mod support_projection;
 pub mod system_info;
 #[cfg(test)]

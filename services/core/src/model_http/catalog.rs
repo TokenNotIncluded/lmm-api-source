@@ -258,6 +258,7 @@ impl CatalogSurface {
                             total_timeout,
                             quote,
                             provider_policy,
+                            document.routing.version,
                         )
                         .then_some(label)
                     })
@@ -529,6 +530,7 @@ fn api_supported(
     total_timeout: Duration,
     quote: PriceQuote,
     provider_policy: Option<(&super::ProviderPolicy, i64)>,
+    routing_version: u64,
 ) -> bool {
     let tool = ToolKind::from_protocol(client);
     if let Some(kind) = tool {
@@ -568,7 +570,8 @@ fn api_supported(
                                 && t.payload == PayloadPolicy::Adapt
                                 && provider_policy.is_some_and(|(policy, _)| {
                                     policy
-                                        .validate_binding(
+                                        .validate_binding_at(
+                                            routing_version,
                                             u.id,
                                             &t.upstream_model,
                                             u.protocol,
@@ -589,7 +592,8 @@ fn api_supported(
                                 && provider_policy.is_some_and(|(policy, bound)| {
                                     bound >= 65_536
                                         && policy
-                                            .validate_binding(
+                                            .validate_binding_at(
+                                                routing_version,
                                                 u.id,
                                                 &t.upstream_model,
                                                 u.protocol,
@@ -610,7 +614,8 @@ fn api_supported(
                                 && t.payload == PayloadPolicy::Adapt
                                 && provider_policy.is_some_and(|(policy, bound)| {
                                     policy
-                                        .validate_binding(
+                                        .validate_binding_at(
+                                            routing_version,
                                             u.id,
                                             &t.upstream_model,
                                             u.protocol,

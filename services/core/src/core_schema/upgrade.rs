@@ -8,6 +8,7 @@ use sqlx::{Connection, PgConnection, Row};
 use std::{collections::BTreeMap, fmt, io::Read};
 mod additive;
 mod coinbase_payments;
+mod completion;
 mod finance;
 mod ledger;
 mod payment_gateways;
@@ -222,6 +223,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == completion::PROCEDURE {
+            return completion::validate(self);
+        }
         if self.procedure == coinbase_payments::PROCEDURE {
             return coinbase_payments::validate(self);
         }
@@ -289,6 +293,9 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == completion::PROCEDURE {
+            return completion::authorize_target();
+        }
         if self.procedure == coinbase_payments::PROCEDURE {
             return coinbase_payments::authorize_target();
         }
@@ -372,7 +379,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == coinbase_payments::PROCEDURE {
+    let result = if request.procedure == completion::PROCEDURE {
+        completion::connected(&mut connection, &request).await
+    } else if request.procedure == coinbase_payments::PROCEDURE {
         coinbase_payments::connected(&mut connection, &request).await
     } else if request.procedure == request_operations::PROCEDURE {
         request_operations::connected(&mut connection, &request).await

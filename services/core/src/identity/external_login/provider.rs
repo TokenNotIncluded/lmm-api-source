@@ -323,7 +323,7 @@ impl VerifiedExternalIdentity {
         self.provider.issuer()
     }
 
-    pub(super) fn subject(&self) -> &str {
+    pub(in crate::identity) fn subject(&self) -> &str {
         &self.subject
     }
 }

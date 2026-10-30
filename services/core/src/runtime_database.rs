@@ -2,10 +2,14 @@
 //! Install/import owners must never be used by the network-facing process.
 use sqlx::{PgConnection, PgPool};
 use std::fmt;
+#[path = "runtime_account_security.rs"]
+mod account_security;
 #[path = "runtime_assistant_agent.rs"]
 mod assistant_agent;
 #[path = "runtime_operations.rs"]
 mod operations;
+#[path = "runtime_product_features.rs"]
+mod product_features;
 #[path = "runtime_telegram.rs"]
 mod telegram;
 #[path = "runtime_tool_market_credit.rs"]
@@ -157,8 +161,11 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
-            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades')
+            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades')
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
+            OR (n.nspname='public' AND c.relname IN ('channel_release_bindings','channel_secret_revisions')
+              AND (has_table_privilege(c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
+                OR has_any_column_privilege(c.oid,'SELECT,INSERT,UPDATE,REFERENCES')))
             OR (n.nspname='core_oauth' AND c.relname IN ('contract','codes')
               AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'INSERT,UPDATE')))
             OR (n.nspname='core_identity' AND c.relname IN ('session_authentication','email_addresses','email_challenges','email_rate_buckets','email_rate_events','email_delivery_outbox')
@@ -244,12 +251,16 @@ pub(crate) async fn check_connection(
     tool_market_credit::check(connection, required.tool_market).await?;
     operations::check(connection).await?;
     telegram::check(connection, required.web_identity).await?;
+    product_features::check(connection, required.console).await?;
+    account_security::check(connection, required.web_identity).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
 
     // Identity is always mounted when the runtime has a database. Normal identity
     // operations must work; unsupported optional modules need no extra grants.
     let identity_complete: bool = sqlx::query_scalar(r#"
         SELECT has_schema_privilege('core_identity','USAGE')
+          AND has_schema_privilege('core_account_links','USAGE')
+          AND has_table_privilege('core_account_links.oauth_states','SELECT')
           AND has_schema_privilege('core_abuse','USAGE')
           AND NOT EXISTS(SELECT FROM (VALUES ('settings'),('user_marks'),('previews'),('operations'),('audit'),('model_counters'),('model_leases'),('registration_observations')) t(name)
             WHERE NOT has_table_privilege('core_abuse.'||t.name,'SELECT'))
@@ -465,6 +476,12 @@ pub(crate) async fn check_connection(
             AND has_function_privilege('core_model.completed_streams_after(integer,text)','EXECUTE')
             AND has_function_privilege('public.routing_control_read()','EXECUTE')
             AND has_function_privilege('public.routing_control_publish(jsonb,jsonb,bigint,bigint)','EXECUTE')
+            AND has_function_privilege('public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint)','EXECUTE')
+            AND has_function_privilege('public.routing_control_bindings(bigint)','EXECUTE')
+            AND has_function_privilege('public.routing_control_secret_read(bigint,bigint)','EXECUTE')
+            AND has_function_privilege('public.routing_control_secret_create(bigint,bigint,bigint,text,bytea)','EXECUTE')
+            AND has_function_privilege('public.routing_control_secret_list(bigint)','EXECUTE')
+            AND has_function_privilege('public.routing_control_secret_remove(bigint,bigint,bigint)','EXECUTE')
         "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);

@@ -178,7 +178,7 @@ impl ModelGateway {
             relay::UpstreamProtocol::Chat,
             endpoint.as_str(),
             attempt.upstream_model().to_owned(),
-            secret,
+            &secret,
             attempt.quote().version(),
         )?
         .with_availability_guard(Arc::new(move || availability.is_available()));

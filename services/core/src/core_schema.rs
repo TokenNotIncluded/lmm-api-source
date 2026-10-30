@@ -76,6 +76,20 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/coinbase_payments.sql"),
     ),
     ("channel-control", crate::channel_http::SCHEMA),
+    ("channel-vault", crate::channel_http::VAULT_SCHEMA),
+    ("passkeys", crate::identity::PASSKEY_SCHEMA),
+    (
+        "account-lifecycle",
+        crate::identity::ACCOUNT_LIFECYCLE_SCHEMA,
+    ),
+    ("subscriptions", crate::subscriptions::SCHEMA),
+    ("promotions", crate::promotions::SCHEMA),
+    ("notifications", include_str!("../schema/notifications.sql")),
+    ("account-links", crate::identity::ACCOUNT_LINKS_SCHEMA),
+    (
+        "completion-upgrade",
+        include_str!("../schema/completion_upgrade.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

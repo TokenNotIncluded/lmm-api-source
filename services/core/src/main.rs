@@ -29,6 +29,7 @@ Commands:\n\
   upgrade-db      Explicit offline exact-target schema upgrade; requires installer --config and bound stdin JSON.\n\
                   core-payment-gateways-v1 requires its preserved 29-component installer for the fixed 28-to-29 transition.\n\
                   core-request-operations-v1 upgrades the fixed 29-component predecessor to 31 components.\n\
+                  core-functional-completion-v1 upgrades the fixed 32-component PostgreSQL 18 predecessor to 41 components.\n\
                   Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
@@ -310,6 +311,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut model_gateway = None;
     let mut humangrant_engine = None;
     let mut email_runtime = None;
+    let mut notification_runtime = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
         let pool = config::database_pool(url).await?;
@@ -341,6 +343,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         let mut store = config::identity_auth(IdentityStore::from_pool(pool.clone()))?
             .with_password_slots(config::password_slots()?)?
             .with_financial_profile_enabled(legacy_config.is_some())
+            .with_account_links(true)
             .with_commerce_scope_enabled(config::commerce_configured());
         capabilities.identity = true;
         // Production never silently opts out of owner-controlled user pricing.
@@ -390,9 +393,12 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         }
         capabilities.abuse_admin = true;
         if console_enabled {
-            routes = routes.merge(lmm_core::console_compat::router(
-                lmm_core::console_compat::ConsoleCompat::new(pool.clone(), store.clone()),
-            ));
+            let console = lmm_core::console_compat::ConsoleCompat::new(pool.clone(), store.clone());
+            routes = routes
+                .merge(lmm_core::console_compat::router(console.clone()))
+                .merge(lmm_core::subscriptions::router(pool.clone()))
+                .merge(lmm_core::promotions::router(pool.clone()));
+            notification_runtime = Some(console);
             capabilities.console = true;
         }
         remote_store = Some(store.clone());
@@ -424,6 +430,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 password_login_enabled: true,
                 email_verification_enabled: store.registration_email_verification_required(),
                 two_factor_enabled: store.mfa_enabled(),
+                passkey_login_enabled: config.auth.passkeys_enabled(),
+                native_account_bindings: store.account_links_enabled(),
                 registration_enabled: store.registration_enabled(),
                 password_register_enabled: store.password_register_enabled(),
                 oauth_register_enabled: store.oauth_register_enabled(),
@@ -480,11 +488,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             capabilities.legacy_web_auth = true;
         }
         if let Some(gateway) = &model_gateway {
-            let channel_management = lmm_core::channel_http::ManagedChannels::recover(
-                pool.clone(),
-                gateway.clone(),
-            )
-            .await?;
+            let channel_management =
+                lmm_core::channel_http::ManagedChannels::recover(pool.clone(), gateway.clone())
+                    .await?;
             routes = routes.merge(lmm_core::channel_http::managed_router(
                 pool.clone(),
                 channel_management,
@@ -742,6 +748,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     // All enabled components and listener binds have succeeded. The health body
     // lists capabilities; model readiness has its own explicit endpoint.
     assert!(lifecycle.mark_ready());
+    let notification_task = notification_runtime.map(|console| {
+        let stopped = stopped.clone();
+        tokio::spawn(async move { console.run_notifications(stopped).await })
+    });
     let email_mail_task = email_runtime.map(|mail| {
         let stopped = stopped.clone();
         tokio::spawn(async move { mail.outbox.run(&mail.mailer, stopped).await })
@@ -823,6 +833,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     }
     if let Some(task) = recovery_task {
         let _ = task.await;
+    }
+    if let Some(task) = notification_task {
+        task.await?;
     }
     if let Some(task) = humangrant_mail_task {
         task.await?;

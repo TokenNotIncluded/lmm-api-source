@@ -254,7 +254,8 @@ async fn execute(
     {
         return Err(RelayError::RouteUnavailable);
     }
-    gateway.bridge.provider_policy.validate_binding(
+    gateway.bridge.provider_policy.validate_binding_at(
+        attempt.version().routing,
         attempt.upstream_id(),
         attempt.upstream_model(),
         protocol,

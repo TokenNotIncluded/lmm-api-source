@@ -275,7 +275,7 @@ impl Billing for Bridge {
                 )?
                 .as_str(),
                 selected.attempt.upstream_model().to_owned(),
-                credential,
+                &credential,
                 selected.attempt.quote().version(),
             )?;
             let count_plan = self.provider_policy.count_plan(&selected.attempt)?;

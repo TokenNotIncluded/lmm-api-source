@@ -172,6 +172,9 @@ GRANT SELECT ON core_billing.ledger_accounts, core_billing.balance_state,
 -- Approval receipts and the migration registry are not runtime inputs.
 GRANT SELECT ON core_identity.privileged_import_facts,
     core_identity.permission_policies, core_identity.permission_policy_rows TO :"runtime_role";
+-- Native provider login must also respect a binding revoked through Web auth.
+GRANT USAGE ON SCHEMA core_account_links TO :"runtime_role";
+GRANT SELECT ON core_account_links.oauth_states TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE ON core_billing.account_policies TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),
     core_billing.post_ledger(jsonb),
@@ -260,11 +263,48 @@ GRANT SELECT ON core_console.options, core_console.initialization,
 GRANT INSERT ON core_console.announcement_reads TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),
     core_console.write_public_option(text,text) TO :"runtime_role";
+-- BEGIN notifications runtime grants
+GRANT USAGE ON SCHEMA core_notifications TO :"runtime_role";
+GRANT SELECT, INSERT ON core_notifications.preferences, core_notifications.inbox TO :"runtime_role";
+GRANT UPDATE(enabled,low_balance_units,below_threshold,revision,updated_at) ON core_notifications.preferences TO :"runtime_role";
+GRANT UPDATE(read_at) ON core_notifications.inbox TO :"runtime_role";
+GRANT SELECT ON core_notifications.price_events TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_notifications.inbox_id_seq TO :"runtime_role";
+-- END notifications runtime grants
+-- BEGIN subscriptions runtime grants
+GRANT USAGE ON SCHEMA core_subscriptions,core_charging TO :"runtime_role";
+GRANT SELECT, INSERT ON core_subscriptions.plans,core_subscriptions.plan_revisions,
+    core_subscriptions.commands,core_subscriptions.quotes,core_subscriptions.purchases,
+    core_subscriptions.refund_quotes TO :"runtime_role";
+GRANT UPDATE(revision,archived) ON core_subscriptions.plans TO :"runtime_role";
+GRANT UPDATE(state,result) ON core_subscriptions.quotes TO :"runtime_role";
+GRANT UPDATE(canceled_at,refund_journal_id) ON core_subscriptions.purchases TO :"runtime_role";
+GRANT UPDATE(result) ON core_subscriptions.refund_quotes TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_subscriptions.plans_id_seq,core_subscriptions.purchases_id_seq TO :"runtime_role";
+GRANT SELECT,INSERT,UPDATE(active) ON core_charging.subscriptions TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_charging.subscriptions_id_seq TO :"runtime_role";
+GRANT SELECT ON core_charging.requests,core_charging.subscription_opening_consumption TO :"runtime_role";
+-- END subscriptions runtime grants
+-- BEGIN promotions runtime grants
+GRANT USAGE ON SCHEMA core_promotions TO :"runtime_role";
+GRANT SELECT ON core_promotions.secrets TO :"runtime_role";
+GRANT SELECT, INSERT ON core_promotions.campaigns,core_promotions.commands,
+    core_promotions.issues,core_promotions.codes,core_promotions.claims TO :"runtime_role";
+GRANT UPDATE(revision,title,budget_units,spent_units,reserved_units,max_claims,claims,
+    reserved_claims,max_claims_per_user,starts_at,ends_at,enabled) ON core_promotions.campaigns TO :"runtime_role";
+GRANT UPDATE(revoked) ON core_promotions.codes TO :"runtime_role";
+-- END promotions runtime grants
 \endif
 
 \if :enable_models
 GRANT EXECUTE ON FUNCTION public.routing_control_read(),
-    public.routing_control_publish(jsonb,jsonb,bigint,bigint) TO :"runtime_role";
+    public.routing_control_publish(jsonb,jsonb,bigint,bigint),
+    public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),
+    public.routing_control_bindings(bigint),
+    public.routing_control_secret_read(bigint,bigint),
+    public.routing_control_secret_create(bigint,bigint,bigint,text,bytea),
+    public.routing_control_secret_list(bigint),
+    public.routing_control_secret_remove(bigint,bigint,bigint) TO :"runtime_role";
 \set enable_charging true
 \else
 \set enable_charging false
@@ -299,6 +339,27 @@ GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint)
 \endif
 
 \if :enable_web_identity
+-- BEGIN account-security runtime grants
+GRANT USAGE ON SCHEMA core_passkeys,core_account_lifecycle TO :"runtime_role";
+GRANT SELECT,INSERT(user_id) ON core_passkeys.user_handles TO :"runtime_role";
+GRANT SELECT,INSERT(user_id,credential_id,passkey,name),UPDATE(passkey,revision,last_used_at,revoked_at)
+    ON core_passkeys.credentials TO :"runtime_role";
+GRANT SELECT,DELETE,INSERT(digest,binding_digest,purpose,user_id,user_version,sid,state)
+    ON core_passkeys.flows TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_passkeys.credentials_id_seq TO :"runtime_role";
+GRANT SELECT,INSERT(user_id,account_id,credential_id,previous_auth_version,operation_digest)
+    ON core_account_lifecycle.closures TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_account_lifecycle.wallet_is_empty(bigint) TO :"runtime_role";
+-- Closure only inspects pending financial obligations; it cannot mutate them.
+GRANT USAGE ON SCHEMA core_charging,core_commerce,core_payments,core_wallet TO :"runtime_role";
+GRANT SELECT ON core_charging.subscriptions,core_commerce.orders,core_payments.intents,
+    core_payments.refund_holds,core_payments.blocked_refunds,core_wallet.transfers TO :"runtime_role";
+GRANT USAGE ON SCHEMA core_account_links TO :"runtime_role";
+GRANT SELECT,INSERT(issuer,subject,user_id,revoked_at),UPDATE(revision,revoked_at)
+    ON core_account_links.oauth_states TO :"runtime_role";
+GRANT SELECT,DELETE,INSERT(state_digest,issuer,binding_digest,user_id,user_version,sid)
+    ON core_account_links.bind_flows TO :"runtime_role";
+-- END account-security runtime grants
 GRANT USAGE ON SCHEMA core_telegram_auth TO :"runtime_role";
 GRANT SELECT ON core_telegram_auth.bindings, core_telegram_auth.flows,
     core_telegram_auth.assertions TO :"runtime_role";

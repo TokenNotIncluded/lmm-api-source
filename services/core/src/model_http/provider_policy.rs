@@ -1,5 +1,6 @@
-//! Reviewed, host-only external model context contracts. HTTP input cannot
-//! enable a provider or supply a model limit. These are limits, never tokenizers.
+//! Reviewed external model contracts come from host configuration or the
+//! authenticated administrative publication path. Inference payloads cannot
+//! override these limits. Each serving release retains its exact contract.
 use crate::{
     relay::{
         RelayError,
@@ -8,12 +9,15 @@ use crate::{
     },
     routing::{Attempt, Protocol},
 };
-use serde::Deserialize;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
 
-/// Host-only reservation policy. Omission preserves the full reviewed context.
+/// Reviewed reservation policy. Omission preserves the full reviewed context.
 // @context-fold begin strict-reservation-profile
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReservationProfile {
     ContextMax {},
@@ -29,7 +33,7 @@ impl Default for ReservationProfile {
 }
 // @context-fold end strict-reservation-profile
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalModelContext {
     pub upstream_id: u64,
@@ -63,8 +67,73 @@ pub struct ExternalModelContext {
 #[derive(Clone, Default)]
 pub struct ProviderPolicy {
     contexts: BTreeMap<(u64, String), ExternalModelContext>,
+    releases: Arc<RwLock<BTreeMap<u64, Arc<BTreeMap<(u64, String), ExternalModelContext>>>>>,
 }
 impl ProviderPolicy {
+    pub(super) fn context_document(&self) -> Vec<ExternalModelContext> {
+        self.contexts.values().cloned().collect()
+    }
+
+    pub(super) fn publish_contexts(
+        &self,
+        version: u64,
+        contexts: Vec<ExternalModelContext>,
+        input_ceiling: i64,
+    ) -> Result<(), RelayError> {
+        let incoming = Self::new(contexts, input_ceiling)?.contexts;
+        let mut releases = self
+            .releases
+            .write()
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        if let Some(old) = releases.get(&version) {
+            return if **old == incoming {
+                Ok(())
+            } else {
+                Err(RelayError::Conflict)
+            };
+        }
+        if releases.len() >= 100_000 {
+            return Err(RelayError::RouteUnavailable);
+        }
+        // Metadata, status and key changes usually reuse the same contract.
+        // Retain old versions for in-flight attempts without cloning the whole
+        // model map on every administrative publication.
+        let shared = releases
+            .last_key_value()
+            .and_then(|(_, previous)| (**previous == incoming).then(|| Arc::clone(previous)))
+            .unwrap_or_else(|| Arc::new(incoming));
+        releases.insert(version, shared);
+        Ok(())
+    }
+
+    fn context(
+        &self,
+        version: Option<u64>,
+        id: u64,
+        model: &str,
+    ) -> Result<Option<ExternalModelContext>, RelayError> {
+        let releases = self
+            .releases
+            .read()
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        let contexts = version
+            .and_then(|v| releases.get(&v))
+            .map(|contexts| contexts.as_ref())
+            .unwrap_or(&self.contexts);
+        Ok(contexts.get(&(id, model.to_owned())).cloned())
+    }
+
+    fn context_for_attempt(
+        &self,
+        attempt: &Attempt,
+    ) -> Result<Option<ExternalModelContext>, RelayError> {
+        self.context(
+            Some(attempt.version().routing),
+            attempt.upstream_id(),
+            attempt.upstream_model(),
+        )
+    }
+
     pub(super) fn output_bound(
         &self,
         attempt: &Attempt,
@@ -75,8 +144,7 @@ impl ProviderPolicy {
             return Ok(installation_max);
         }
         let context = self
-            .contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+            .context_for_attempt(attempt)?
             .filter(|context| {
                 context.protocol == attempt.protocol() && context.endpoint == endpoint.as_str()
             })
@@ -87,9 +155,8 @@ impl ProviderPolicy {
     pub(super) fn rejection_statuses(&self, attempt: &Attempt) -> Result<Vec<u16>, RelayError> {
         let endpoint = validate_base_url(attempt.endpoint(), true)?;
         let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
-        let context = self
-            .contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()));
+        let context = self.context_for_attempt(attempt)?;
+        let context = context.as_ref();
         if !local
             && context.is_none_or(|context| {
                 context.protocol != attempt.protocol() || context.endpoint != endpoint.as_str()
@@ -108,8 +175,7 @@ impl ProviderPolicy {
         let endpoint = validate_base_url(attempt.endpoint(), true)?;
         let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
         let context = self
-            .contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+            .context_for_attempt(attempt)?
             .filter(|context| {
                 context.protocol == Protocol::Gemini
                     && attempt.protocol() == Protocol::Gemini
@@ -136,8 +202,7 @@ impl ProviderPolicy {
             return Ok(CountPlan::ContextMax);
         }
         let context = self
-            .contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+            .context_for_attempt(attempt)?
             .ok_or(RelayError::RouteUnavailable)?;
         if context.protocol != attempt.protocol() || context.endpoint != endpoint.as_str() {
             return Err(RelayError::RouteUnavailable);
@@ -159,9 +224,8 @@ impl ProviderPolicy {
         // @context-fold begin provider-reservation-metadata
         let endpoint = validate_base_url(attempt.endpoint(), true)?;
         let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
-        let context = self
-            .contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()));
+        let context = self.context_for_attempt(attempt)?;
+        let context = context.as_ref();
         if !local
             && context
                 .is_none_or(|c| c.protocol != attempt.protocol() || c.endpoint != endpoint.as_str())
@@ -185,8 +249,9 @@ impl ProviderPolicy {
     }
 
     pub(crate) fn missing_cache_creation_is_zero(&self, attempt: &Attempt) -> bool {
-        self.contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+        self.context_for_attempt(attempt)
+            .ok()
+            .flatten()
             .is_some_and(|context| context.missing_cache_creation_tokens_is_zero)
     }
 
@@ -265,7 +330,8 @@ impl ProviderPolicy {
         reserved_input_tokens: i64,
         output_tokens: u32,
     ) -> Result<i64, RelayError> {
-        self.validate_binding(
+        self.validate_binding_at(
+            attempt.version().routing,
             attempt.upstream_id(),
             attempt.upstream_model(),
             attempt.protocol(),
@@ -277,8 +343,7 @@ impl ProviderPolicy {
         if literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback()) {
             return Ok(reserved_input_tokens);
         }
-        self.contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+        self.context_for_attempt(attempt)?
             .map(|context| i64::from(context.max_input_tokens))
             .ok_or(RelayError::RouteUnavailable)
     }
@@ -310,14 +375,57 @@ impl ProviderPolicy {
             return Ok(());
         }
         let context = self
-            .contexts
-            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+            .context_for_attempt(attempt)?
             .ok_or(RelayError::SettlementPending)?;
         context.validate_usage(usage, upstream_cost)
     }
 
     pub(crate) fn validate_binding(
         &self,
+        id: u64,
+        model: &str,
+        protocol: Protocol,
+        endpoint: &str,
+        reserved_input_tokens: i64,
+        output_tokens: u32,
+    ) -> Result<(), RelayError> {
+        self.validate_binding_version(
+            None,
+            id,
+            model,
+            protocol,
+            endpoint,
+            reserved_input_tokens,
+            output_tokens,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn validate_binding_at(
+        &self,
+        version: u64,
+        id: u64,
+        model: &str,
+        protocol: Protocol,
+        endpoint: &str,
+        reserved_input_tokens: i64,
+        output_tokens: u32,
+    ) -> Result<(), RelayError> {
+        self.validate_binding_version(
+            Some(version),
+            id,
+            model,
+            protocol,
+            endpoint,
+            reserved_input_tokens,
+            output_tokens,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn validate_binding_version(
+        &self,
+        version: Option<u64>,
         id: u64,
         model: &str,
         protocol: Protocol,
@@ -344,8 +452,7 @@ impl ProviderPolicy {
             return Ok(());
         }
         let context = self
-            .contexts
-            .get(&(id, model.to_owned()))
+            .context(version, id, model)?
             .ok_or(RelayError::Unsupported(
                 "external provider requires an explicit model context contract",
             ))?;

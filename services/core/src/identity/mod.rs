@@ -14,9 +14,15 @@ pub use permissions::{
 mod auth;
 mod browser;
 pub use browser::{
-    BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration, BrowserSessionMetadata,
+    ACCOUNT_LIFECYCLE_SCHEMA, AccountClosureOutcome, AccountClosurePreview, AccountClosureReceipt,
+    AccountClosureRequest, BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration,
+    BrowserSessionMetadata, PASSKEY_SCHEMA, PasskeyChallenge, PasskeyConfig,
 };
 mod company;
+pub use browser::{
+    ACCOUNT_LINKS_SCHEMA, AccountBindFinish, AccountBindStart, AccountLinkProvider,
+    AccountUnlinkRequest,
+};
 mod compat;
 pub(crate) use compat::quota as assistant_key_quota;
 mod credentials;
@@ -108,6 +114,7 @@ pub struct IdentityStore {
     dashboard_routing: Option<std::sync::Arc<crate::routing::Router>>,
     commerce_scope_enabled: bool,
     financial_profile_enabled: bool,
+    account_links_enabled: bool,
     api_key_encryption_key: Option<std::sync::Arc<[u8]>>,
     mfa_keys: Option<std::sync::Arc<mfa::MfaKeyring>>,
 }
@@ -182,7 +189,12 @@ fn parse_role(role: &str) -> Result<TeamRole> {
         _ => Err(IdentityError::Storage),
     }
 }
-async fn audit(c: &mut PgConnection, actor: &Principal, action: &str, target: Value) -> Result<()> {
+pub(crate) async fn audit(
+    c: &mut PgConnection,
+    actor: &Principal,
+    action: &str,
+    target: Value,
+) -> Result<()> {
     sqlx::query("INSERT INTO core_identity.audit(actor_user_id,credential_id,action,target) VALUES ($1,$2,$3,$4)")
         .bind(actor.user_id).bind(actor.credential_id).bind(action).bind(target).execute(c).await?;
     Ok(())
@@ -428,6 +440,7 @@ impl IdentityStore {
             dashboard_routing: None,
             commerce_scope_enabled: false,
             financial_profile_enabled: false,
+            account_links_enabled: false,
             api_key_encryption_key: None,
             mfa_keys: None,
         }

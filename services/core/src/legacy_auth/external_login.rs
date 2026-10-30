@@ -174,6 +174,22 @@ async fn callback(
         }
         return pending_mfa(&state, &headers).await;
     }
+    if let Ok(Query(query)) = &query {
+        match super::account_links::callback_redirect(
+            &state,
+            crate::identity::AccountLinkProvider::External(provider),
+            query.state.as_deref(),
+            query.code.as_deref(),
+            query.error.as_deref(),
+            query.iss.as_deref(),
+        )
+        .await
+        {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(error) => return auth_failure(error),
+        }
+    }
     let direct_browser = headers
         .get(header::ACCEPT)
         .and_then(|v| v.to_str().ok())

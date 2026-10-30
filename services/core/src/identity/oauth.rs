@@ -336,6 +336,9 @@ impl IdentityStore {
     ) -> Result<i64> {
         let subject = identity.subject();
         auth::lock_registration(tx).await?;
+        if !self.oauth_link_active(tx, ISSUER, subject).await? {
+            return Err(IdentityError::Unauthorized);
+        }
         let existing: Option<i64> = sqlx::query_scalar(
             "SELECT user_id FROM core_identity.oauth_identities WHERE issuer=$1 AND subject=$2",
         )

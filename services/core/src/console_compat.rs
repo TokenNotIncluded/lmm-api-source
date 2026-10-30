@@ -20,6 +20,8 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
 use std::collections::HashMap;
+mod notifications;
+pub use notifications::NotificationSweep;
 
 const BODY_LIMIT: usize = 1024;
 const ORDER_ERROR: &str =
@@ -486,9 +488,16 @@ pub fn router(state: ConsoleCompat) -> Router {
         .route("/api/setup", get(setup).post(setup_cli_only))
         .route("/api/notice", get(notice))
         .route("/api/uptime/status", get(uptime_status))
-        .route("/api/ratio-notifications", get(ratio_notifications))
-        .route("/api/todos", get(todos))
-        .route("/api/todos/read", post(todos_read))
+        .route(
+            "/api/ratio-notifications",
+            get(notifications::ratio_notifications),
+        )
+        .route("/api/todos", get(notifications::todos))
+        .route("/api/todos/read", post(notifications::mark_read))
+        .route(
+            "/core/v1/notifications/preferences",
+            get(notifications::preferences).put(notifications::update_preferences),
+        )
         .layer(middleware::from_fn(no_cache))
         .with_state(state)
 }
@@ -713,46 +722,6 @@ async fn notice(State(state): State<ConsoleCompat>) -> Response {
 }
 async fn uptime_status() -> Response {
     success(Vec::<serde_json::Value>::new())
-}
-async fn ratio_notifications(State(state): State<ConsoleCompat>, headers: HeaderMap) -> Response {
-    let secret = match bearer(&headers) {
-        Ok(secret) => secret,
-        Err(err) => return error(err),
-    };
-    if let Err(e) = state.authorize(secret).await {
-        return error(e);
-    }
-    success(Vec::<serde_json::Value>::new())
-}
-async fn todos(State(state): State<ConsoleCompat>, headers: HeaderMap) -> Response {
-    let secret = match bearer(&headers) {
-        Ok(secret) => secret,
-        Err(err) => return error(err),
-    };
-    if let Err(e) = state.authorize(secret).await {
-        return error(e);
-    }
-    success(json!({
-        "items": [],
-        "page": 1,
-        "page_size": 50,
-        "total": 0,
-        "category": "all",
-        "unread_count": 0,
-        "total_unread_count": 0,
-        "unread_by_category": {},
-        "categories": []
-    }))
-}
-async fn todos_read(State(state): State<ConsoleCompat>, headers: HeaderMap) -> Response {
-    let secret = match bearer(&headers) {
-        Ok(secret) => secret,
-        Err(err) => return error(err),
-    };
-    if let Err(e) = state.authorize(secret).await {
-        return error(e);
-    }
-    success(json!({ "marked": 0 }))
 }
 
 #[cfg(test)]

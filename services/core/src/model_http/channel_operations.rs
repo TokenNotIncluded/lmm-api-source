@@ -12,7 +12,6 @@ pub(crate) struct ChannelProbe {
     pub validation_scope: &'static str,
     pub inference_tested: bool,
 }
-
 /// A price publication must remain executable by every configured target.
 /// The ledger accepts exact integer credits or its existing typed tariffs;
 /// the looser routing-document parser alone cannot establish that contract.
@@ -138,51 +137,98 @@ fn parse_models(
     Ok(models.into_iter().collect())
 }
 impl ModelGateway {
-    /// Enabling an already known destination still requires host-loaded keys
-    /// and exact provider contracts. The HTTP body cannot invent either.
-    pub(crate) fn validate_channel_activation(
+    pub(crate) fn channel_contexts(&self) -> Vec<ExternalModelContext> {
+        self.bridge.provider_policy.context_document()
+    }
+
+    pub(crate) fn has_channel_credential(&self, reference: crate::routing::CredentialRef) -> bool {
+        self.bridge
+            .credentials
+            .contains_key(&(reference.id, reference.revision))
+    }
+
+    pub(crate) fn validate_channel_credentials(
+        &self,
+        credentials: &[UpstreamCredential],
+    ) -> Result<(), RelayError> {
+        if credentials.iter().any(|credential| {
+            credential.secret.is_empty()
+                || credential.secret.len() > 4096
+                || reqwest::header::HeaderValue::from_str(&credential.secret).is_err()
+                || self
+                    .honeypot
+                    .as_ref()
+                    .is_some_and(|gateway| gateway.contains_secret(&credential.secret))
+        }) {
+            return Err(RelayError::Invalid(
+                "invalid or isolated channel credential",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn install_channel_bindings(
+        &self,
+        version: u64,
+        credentials: Vec<UpstreamCredential>,
+        contexts: Vec<ExternalModelContext>,
+    ) -> Result<(), RelayError> {
+        self.validate_channel_credentials(&credentials)?;
+        self.bridge.credentials.append(credentials)?;
+        self.bridge.provider_policy.publish_contexts(
+            version,
+            contexts,
+            self.bridge.policy.input_token_ceiling,
+        )
+    }
+
+    /// Validate complete executable bindings before a control-plane commit.
+    /// The incoming key set contains only already validated vault revisions.
+    pub(crate) fn validate_channel_release(
         &self,
         document: &crate::routing::store::ReleaseDocument,
-        enabled: &BTreeSet<u64>,
+        contexts: Vec<ExternalModelContext>,
+        incoming_keys: &BTreeSet<(u64, u64)>,
     ) -> Result<(), RelayError> {
         use crate::routing::Protocol;
+        let policy = ProviderPolicy::new(contexts, self.bridge.policy.input_token_ceiling)?;
         let upstreams: BTreeMap<_, _> = document
             .routing
             .upstreams
             .iter()
-            .filter(|u| enabled.contains(&u.id))
             .map(|u| (u.id, u))
             .collect();
-        for upstream in upstreams.values() {
-            let key = self
-                .bridge
-                .credentials
-                .get(&(upstream.credential.id, upstream.credential.revision))
-                .ok_or(RelayError::RouteUnavailable)?;
-            if key.is_empty() || reqwest::header::HeaderValue::from_str(key.as_str()).is_err() {
+        for upstream in upstreams.values().filter(|u| u.enabled) {
+            let reference = (upstream.credential.id, upstream.credential.revision);
+            if !self.bridge.credentials.contains_key(&reference)
+                && !incoming_keys.contains(&reference)
+            {
                 return Err(RelayError::RouteUnavailable);
             }
         }
         for route in &document.routing.routes {
             for target in &route.targets {
-                let Some(upstream) = upstreams.get(&target.upstream_id) else {
+                let upstream = upstreams
+                    .get(&target.upstream_id)
+                    .ok_or(RelayError::RouteUnavailable)?;
+                if !upstream.enabled {
                     continue;
-                };
-                let tool = matches!(
+                }
+                let native_tool = matches!(
                     upstream.protocol,
                     Protocol::DeepSeekSearch | Protocol::DeepSeekFetch
                 );
-                self.bridge.provider_policy.validate_binding(
+                policy.validate_binding(
                     upstream.id,
                     &target.upstream_model,
                     upstream.protocol,
                     upstream.endpoint.as_str(),
-                    if tool {
+                    if native_tool {
                         0
                     } else {
                         self.bridge.policy.input_token_ceiling
                     },
-                    if tool || upstream.protocol.input_only() {
+                    if native_tool || upstream.protocol.input_only() {
                         0
                     } else {
                         1
@@ -233,10 +279,10 @@ impl ModelGateway {
                 .header(header::ACCEPT, "application/json");
             let request = match upstream.protocol {
                 crate::routing::Protocol::AnthropicMessages => request
-                    .header("x-api-key", credential)
+                    .header("x-api-key", &credential)
                     .header("anthropic-version", "2023-06-01"),
-                crate::routing::Protocol::Gemini => request.header("x-goog-api-key", credential),
-                _ => request.bearer_auth(credential),
+                crate::routing::Protocol::Gemini => request.header("x-goog-api-key", &credential),
+                _ => request.bearer_auth(&credential),
             };
             let response = request
                 .send()
@@ -247,7 +293,7 @@ impl ModelGateway {
             }
             let bytes =
                 native_http::read_response_bytes(&connection, response, &self.limits).await?;
-            parse_models(&bytes, upstream.protocol, credential)
+            parse_models(&bytes, upstream.protocol, &credential)
         })
         .await
         .map_err(|_| RelayError::RouteUnavailable)??;

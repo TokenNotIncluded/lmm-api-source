@@ -216,7 +216,7 @@ async fn execute(
     let upstream_request = connection
         .client()
         .post(endpoint)
-        .bearer_auth(credential)
+        .bearer_auth(&credential)
         .header(header::ACCEPT, "application/json")
         .header(header::CONTENT_TYPE, "application/json")
         .body(wire.clone())
@@ -385,8 +385,9 @@ async fn execute(
         .map_err(|_| RelayError::SettlementPending)??;
         let (output, observed) = request.response(&raw)?;
         let normalized = serde_json::to_vec(&output).map_err(|_| RelayError::SettlementPending)?;
-        if std::str::from_utf8(&raw).is_ok_and(|value| value.contains(credential))
-            || std::str::from_utf8(&normalized).is_ok_and(|value| value.contains(credential))
+        if std::str::from_utf8(&raw).is_ok_and(|value| value.contains(credential.as_str()))
+            || std::str::from_utf8(&normalized)
+                .is_ok_and(|value| value.contains(credential.as_str()))
         {
             return Err(RelayError::SettlementPending);
         }

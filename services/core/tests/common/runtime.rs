@@ -45,6 +45,15 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#)).execute(owner).await.unwrap();
+        let links_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_account_links') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if links_installed {
+            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_account_links TO {name}; GRANT SELECT ON core_account_links.oauth_states TO {name}"))
+                .execute(owner).await.unwrap();
+        }
         let email_installed: bool =
             sqlx::query_scalar("SELECT to_regclass('core_identity.email_addresses') IS NOT NULL")
                 .fetch_one(owner)
@@ -209,6 +218,41 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
     }
     #[allow(dead_code)] // Importers with only the base grants do not call this.
     pub async fn optional(&self, schema: &str) {
+        let fragments: &[&str] = match schema {
+            "core_subscriptions" => &["subscriptions"],
+            "core_promotions" => &["promotions"],
+            "core_console" => &["notifications", "subscriptions", "promotions"],
+            "web_identity" => &["account-security"],
+            _ => &[],
+        };
+        for fragment in fragments {
+            let namespace = match *fragment {
+                "account-security" => "core_passkeys".to_owned(),
+                other => format!("core_{other}"),
+            };
+            let installed: bool = sqlx::query_scalar("SELECT to_regnamespace($1) IS NOT NULL")
+                .bind(namespace)
+                .fetch_one(&self.owner)
+                .await
+                .unwrap();
+            if installed {
+                let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
+                let begin = format!("-- BEGIN {fragment} runtime grants\n");
+                let end = format!("-- END {fragment} runtime grants");
+                let sql = script
+                    .split_once(&begin)
+                    .unwrap()
+                    .1
+                    .split_once(&end)
+                    .unwrap()
+                    .0
+                    .replace(":\"runtime_role\"", &self.name);
+                sqlx::raw_sql(&sql).execute(&self.owner).await.unwrap();
+            }
+        }
+        if matches!(schema, "core_subscriptions" | "core_promotions") {
+            return;
+        }
         if schema == "core_assistant_agent" {
             let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
             let sql = script
@@ -232,7 +276,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             return;
         }
         if schema == "core_model" {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_model TO {0}; GRANT EXECUTE ON FUNCTION core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean),core_model.completed_streams_after(integer,text) TO {0}",self.name))
+            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_model TO {0}; GRANT EXECUTE ON FUNCTION core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean),core_model.completed_streams_after(integer,text) TO {0}; GRANT EXECUTE ON FUNCTION public.routing_control_read(),public.routing_control_publish(jsonb,jsonb,bigint,bigint),public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),public.routing_control_bindings(bigint),public.routing_control_secret_read(bigint,bigint),public.routing_control_secret_create(bigint,bigint,bigint,text,bytea),public.routing_control_secret_list(bigint),public.routing_control_secret_remove(bigint,bigint,bigint) TO {0}",self.name))
                 .execute(&self.owner).await.unwrap();
             return;
         }

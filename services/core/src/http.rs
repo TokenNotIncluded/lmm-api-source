@@ -111,6 +111,8 @@ pub struct PublicStatus {
     pub email_verification_enabled: bool,
     pub password_login_enabled: bool,
     pub two_factor_enabled: bool,
+    pub passkey_login_enabled: bool,
+    pub native_account_bindings: bool,
     pub registration_enabled: bool,
     pub password_register_enabled: bool,
     pub oauth_register_enabled: bool,
@@ -242,7 +244,8 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
 
     });
     let extra = json!({
-            "wechat_login":false,"passkey_login":false,"email_verification":status.email_verification_enabled,
+            "wechat_login":false,"passkey_login":status.passkey_login_enabled,"email_verification":status.email_verification_enabled,
+            "native_account_bindings":status.native_account_bindings,
             "turnstile_check":false,"two_factor_enabled":status.two_factor_enabled,"payments_enabled":false,
             "payments_test_rpc_enabled":state.capabilities.payments,
             "commerce_rpc_enabled":state.capabilities.commerce,

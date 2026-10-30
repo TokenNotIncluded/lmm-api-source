@@ -1,10 +1,12 @@
 //! Administrator-only channel reads from the same published snapshot as relay.
-//! Internal endpoints and credential references must never become HTTP fields.
+//! Standard channel projections exclude endpoints and credential references.
+//! Sensitive configuration reads require the existing sensitive-write permission.
 //! Mutations use the durable control plane when installed by the host.
 
 mod control;
 pub use control::{ManagedChannels, ManagementError};
 pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
+pub const VAULT_SCHEMA: &str = include_str!("../schema/channel_vault.sql");
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -82,6 +84,68 @@ fn routes(state: ChannelState) -> Router {
         .route(
             "/core/v1/admin/routing/prices/preview",
             axum::routing::post(control::preview_prices),
+        )
+        .route(
+            "/core/v1/admin/routing/prices/drafts",
+            get(control::price_drafts::list),
+        )
+        .route(
+            "/core/v1/admin/routing/prices/drafts/{id}",
+            axum::routing::put(control::price_drafts::save).delete(control::price_drafts::remove),
+        )
+        .route(
+            "/core/v1/admin/routing/prices/drafts/{id}/preview",
+            axum::routing::post(control::price_drafts::preview),
+        )
+        .route(
+            "/core/v1/admin/routing/prices/drafts/{id}/publish",
+            axum::routing::post(control::price_drafts::publish),
+        )
+        .route(
+            "/core/v1/admin/routing/configuration",
+            get(control::configuration::read).put(control::configuration::publish),
+        )
+        .route(
+            "/core/v1/admin/routing/configuration/preview",
+            axum::routing::post(control::configuration::preview),
+        )
+        .route(
+            "/core/v1/admin/routing/channels",
+            axum::routing::post(control::configuration::create),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}",
+            axum::routing::put(control::configuration::update).delete(control::remove),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/keys",
+            get(control::configuration::keys).post(control::configuration::change_key),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/models/synchronize",
+            axum::routing::post(control::catalog::synchronize_models),
+        )
+        .route(
+            "/core/v1/admin/routing/vendors",
+            get(control::catalog::vendors).post(control::catalog::create_vendor),
+        )
+        .route(
+            "/core/v1/admin/routing/vendors/{id}",
+            axum::routing::put(control::catalog::update_vendor)
+                .delete(control::catalog::remove_vendor),
+        )
+        .route(
+            "/core/v1/admin/routing/models",
+            get(control::catalog::models).post(control::catalog::create_model),
+        )
+        .route(
+            "/core/v1/admin/routing/models/{id}",
+            axum::routing::put(control::catalog::update_model)
+                .delete(control::catalog::remove_model),
+        )
+        .route(
+            "/core/v1/admin/routing/models/preview",
+            axum::routing::post(control::catalog::preview_model),
         )
         .with_state(state)
         .layer(middleware::from_fn(no_store))
@@ -179,7 +243,15 @@ fn channels(config: &RoutingConfig) -> Vec<Channel> {
     // @context-fold end channel-snapshot-projection
 }
 
+#[cfg(test)]
 fn page(config: &RoutingConfig, params: Params) -> Result<Value, &'static str> {
+    page_with_names(config, params, &std::collections::BTreeMap::new())
+}
+fn page_with_names(
+    config: &RoutingConfig,
+    params: Params,
+    names: &std::collections::BTreeMap<u64, String>,
+) -> Result<Value, &'static str> {
     let current_page = params.p.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(10);
     if current_page == 0 || !(1..=1000).contains(&page_size) {
@@ -203,6 +275,12 @@ fn page(config: &RoutingConfig, params: Params) -> Result<Value, &'static str> {
         _ => return Err("Only configured enabled or disabled status is available"),
     };
     let mut items = channels(config);
+    for channel in &mut items {
+        if let Some(name) = names.get(&channel.id) {
+            channel.name.clone_from(name);
+            channel.name_source = "published_channel_configuration";
+        }
+    }
     items.retain(|channel| {
         params.keyword.as_ref().is_none_or(|keyword| {
             let keyword = keyword.to_lowercase();
@@ -408,7 +486,16 @@ async fn list(
             );
         }
     };
-    match page(&document.routing, params) {
+    let names = match state
+        .management
+        .as_ref()
+        .map(|management| management.display_names(document.routing.version))
+        .transpose()
+    {
+        Ok(names) => names.unwrap_or_default(),
+        Err(error) => return control::Failure::from(error).into_response(),
+    };
+    match page_with_names(&document.routing, params, &names) {
         Ok(mut value) => {
             value["data"]["pricing_version"] = json!(document.pricing.version);
             Json(value).into_response()
@@ -435,7 +522,20 @@ async fn detail(
             .into_iter()
             .find(|channel| channel.id == id)
         {
-            Some(channel) => Json(json!({"success": true, "data": channel})).into_response(),
+            Some(mut channel) => {
+                if let Some(management) = &state.management {
+                    match management.display_names(document.routing.version) {
+                        Ok(names) => {
+                            if let Some(name) = names.get(&channel.id) {
+                                channel.name.clone_from(name);
+                                channel.name_source = "published_channel_configuration";
+                            }
+                        }
+                        Err(error) => return control::Failure::from(error).into_response(),
+                    }
+                }
+                Json(json!({"success": true, "data": channel})).into_response()
+            }
             None => error_response(
                 StatusCode::NOT_FOUND,
                 "CHANNEL_NOT_FOUND",
@@ -459,6 +559,9 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
         "data": {
             "read_only": true,
             "native_control": state.management.is_some(),
+            "native_configuration": state.management.is_some(),
+            "native_catalog": state.management.is_some(),
+            "native_secrets": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "status": state.management.is_some(),
             "remove": state.management.is_some(),
             "price_publish": state.management.is_some(),

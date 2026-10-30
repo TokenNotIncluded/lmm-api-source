@@ -1,9 +1,12 @@
 //! Existing Web authentication contract backed exclusively by Rust identity.
+mod account_lifecycle;
+mod account_links;
 #[path = "identity_compat.rs"]
 mod compatibility;
 mod email;
 mod external_login;
 mod oauth2;
+mod passkeys;
 mod sessions;
 mod telegram;
 use crate::identity::{
@@ -39,6 +42,7 @@ pub struct LegacyAuthConfig {
     secure: bool,
     require_legal_acceptance: bool,
     oauth2: Option<crate::identity::grants::LmmIssuer>,
+    passkeys: Option<Arc<crate::identity::PasskeyConfig>>,
 }
 impl LegacyAuthConfig {
     /// Use a newly generated private key, independent from old sessions. The
@@ -64,6 +68,7 @@ impl LegacyAuthConfig {
             secure: true,
             require_legal_acceptance: true,
             oauth2: None,
+            passkeys: None,
         })
     }
     /// Uses the same configured origin and local-transport policy as Web auth.
@@ -84,6 +89,19 @@ impl LegacyAuthConfig {
         }
         self.oauth2 = Some(issuer);
         Ok(self)
+    }
+    pub fn with_passkeys(
+        mut self,
+        config: crate::identity::PasskeyConfig,
+    ) -> Result<Self, IdentityError> {
+        if config.origin() != self.origin {
+            return Err(IdentityError::Invalid);
+        }
+        self.passkeys = Some(Arc::new(config));
+        Ok(self)
+    }
+    pub fn passkeys_enabled(&self) -> bool {
+        self.passkeys.is_some()
     }
     /// Only exact configured Web callbacks enable the built-in browser preset.
     /// The client ID is public; credentials and provider endpoints stay private.
@@ -165,6 +183,9 @@ fn build_router(
         .merge(oauth2::routes())
         .merge(external_login::routes())
         .merge(telegram::routes())
+        .merge(passkeys::routes())
+        .merge(account_lifecycle::routes())
+        .merge(account_links::routes())
         .route("/api/user/register", post(register))
         .route("/api/user/login", post(login))
         .route("/api/user/login/2fa", post(complete_mfa_login))
@@ -773,6 +794,7 @@ struct GoogleCallback {
     state: Option<String>,
     code: Option<String>,
     error: Option<String>,
+    iss: Option<String>,
     external_mfa: Option<String>,
 }
 async fn google_callback(
@@ -784,10 +806,30 @@ async fn google_callback(
     if let Ok(Query(query)) = &query
         && query.external_mfa.as_deref() == Some("1")
     {
-        if query.code.is_some() || query.state.is_some() || query.error.is_some() {
+        if query.code.is_some()
+            || query.state.is_some()
+            || query.error.is_some()
+            || query.iss.is_some()
+        {
             return auth_failure(IdentityError::Invalid.into());
         }
         return external_login::pending_mfa(&state, &headers).await;
+    }
+    if let Ok(Query(query)) = &query {
+        match account_links::callback_redirect(
+            &state,
+            crate::identity::AccountLinkProvider::Google,
+            query.state.as_deref(),
+            query.code.as_deref(),
+            query.error.as_deref(),
+            query.iss.as_deref(),
+        )
+        .await
+        {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(error) => return auth_failure(error),
+        }
     }
     let mfa_binding = match external_login::random_binding() {
         Ok(binding) => binding,
@@ -804,7 +846,11 @@ async fn google_callback(
             return Err(IdentityError::Forbidden.into());
         }
         let Query(query) = query.map_err(|_| IdentityError::Invalid)?;
-        if query.error.is_some() {
+        if query.error.is_some()
+            || query.iss.as_deref().is_some_and(|issuer| {
+                issuer != crate::identity::AccountLinkProvider::Google.issuer()
+            })
+        {
             return Err(IdentityError::Unauthorized.into());
         }
         let binding = google_binding_cookie(&headers, &state.config)?;

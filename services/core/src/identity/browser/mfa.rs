@@ -163,7 +163,7 @@ impl BrowserAuth {
         Ok(current)
     }
 
-    async fn rotate_mfa_family(
+    pub(in crate::identity::browser) async fn rotate_mfa_family(
         &self,
         c: &mut PgConnection,
         actor: &Principal,
@@ -186,8 +186,12 @@ impl BrowserAuth {
         .bind(sid)
         .execute(&mut *c)
         .await?;
+        // Security mutations can revoke every prior credential before this
+        // family is rotated. Preserve an existing revocation timestamp: the
+        // credential history guard intentionally makes revocation permanent.
         sqlx::query(
-            "UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1",
+            "UPDATE core_identity.credentials SET revoked_at=clock_timestamp()
+             WHERE id=$1 AND revoked_at IS NULL",
         )
         .bind(actor.credential_id)
         .execute(&mut *c)

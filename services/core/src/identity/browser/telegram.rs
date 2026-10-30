@@ -63,9 +63,7 @@ impl BrowserAuth {
         expected: Option<&str>,
     ) -> BrowserResult<TelegramFlow> {
         let mut tx = self.store.pool.begin().await?;
-        let actor = session(&mut tx, access).await?;
-        let sid:String=sqlx::query_scalar("SELECT sid FROM core_identity.web_sessions WHERE current_credential_id=$1 AND user_id=$2 AND user_version=$3 AND revoked_at IS NULL AND expires_at>clock_timestamp() AND (NOT weekly_logout OR created_at>clock_timestamp()-interval '7 days')")
-            .bind(actor.credential_id).bind(actor.user_id).bind(actor.user_version).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
+        let (actor, sid) = self.security_actor(&mut tx, access, true).await?;
         if expected.is_some_and(|expected| expected != sid) {
             return Err(BrowserAuthError::SessionMismatch);
         }
@@ -104,7 +102,7 @@ impl BrowserAuth {
         // to this exact cookie-bound flow and the still-live original family.
         // Refresh within that family is allowed; logout and generation changes
         // are terminal. No refresh cookie is read or widened to /api/oauth.
-        let credential: i64=sqlx::query_scalar("SELECT c.id FROM core_identity.web_sessions s JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1 AND u.id=$2 AND u.auth_version=$3 AND s.user_version=u.auth_version AND c.user_version=u.auth_version AND c.user_id=u.id AND c.kind='session' AND u.active AND a.active AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days') AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp() FOR UPDATE OF s,u,c NOWAIT FOR SHARE OF a NOWAIT")
+        let credential: i64=sqlx::query_scalar("SELECT c.id FROM core_identity.web_sessions s JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id JOIN core_identity.credentials c ON c.id=s.current_credential_id JOIN core_identity.session_authentication sa ON sa.credential_id=c.id WHERE s.sid=$1 AND u.id=$2 AND u.auth_version=$3 AND s.user_version=u.auth_version AND c.user_version=u.auth_version AND c.user_id=u.id AND c.kind='session' AND u.active AND a.active AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days') AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND sa.authenticated_at>clock_timestamp()-interval '10 minutes' FOR UPDATE OF s,u,c NOWAIT FOR SHARE OF a NOWAIT")
             .bind(&owner.sid).bind(owner.user_id).bind(owner.user_version).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
         super::super::mfa::require_session_assurance(
             &mut tx,
