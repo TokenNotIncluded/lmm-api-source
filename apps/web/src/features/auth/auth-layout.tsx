@@ -48,17 +48,19 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   }, [systemName])
 
   return (
-    <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(31rem,0.92fr)_minmax(31rem,1.08fr)]'>
-      <header className='relative z-20 flex min-h-16 shrink-0 items-center justify-between px-5 sm:min-h-20 sm:px-8 lg:absolute lg:inset-x-0 lg:top-0 lg:min-h-24'>
+    <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]'>
+      <header className='auth-header relative z-20 flex min-h-16 shrink-0 items-center justify-between px-5 sm:min-h-20 sm:px-8 lg:absolute lg:top-0 lg:left-0 lg:min-h-24 lg:w-[46%]'>
         <Link
           to='/'
           reloadDocument={reloadDocument}
-          className='flex items-center gap-2 transition-opacity hover:opacity-80'
+          className='flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80'
         >
           <LmmBrandMark className='size-8' title={systemName} />
-          <h1 className='text-lg font-medium sm:text-xl'>{systemName}</h1>
+          <h1 className='truncate text-base font-semibold tracking-tight sm:text-lg'>
+            {systemName}
+          </h1>
         </Link>
-        <div className='flex items-center gap-1'>
+        <div className='flex shrink-0 items-center gap-1'>
           <LanguageSwitcher />
           <ThemeSwitch />
         </div>
@@ -84,7 +86,11 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
           </div>
         </div>
       </div>
-      <div className='hidden lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1 lg:block lg:h-svh lg:min-h-0 lg:overflow-y-auto lg:p-3 lg:pl-0'>
+      <div className='auth-art-stage hidden lg:col-start-2 lg:row-start-1 lg:flex lg:h-dvh lg:min-h-0 lg:flex-col lg:overflow-y-auto'>
+        <div className='auth-art-masthead' aria-hidden='true'>
+          <span>{systemName}</span>
+          <span>{t('One endpoint')}</span>
+        </div>
         <AuthArtPanel />
       </div>
     </div>

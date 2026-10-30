@@ -64,7 +64,7 @@ export function AppSidebar() {
       data-sidebar-density={density}
       className='top-0 h-dvh'
     >
-      <SidebarHeader className='gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 group-data-[collapsible=icon]:px-1 md:pt-3'>
+      <SidebarHeader className='gap-5 px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-3 group-data-[collapsible=icon]:px-1 md:pt-5'>
         <div className='flex min-w-0 items-center gap-1'>
           <div className='min-w-0 flex-1'>
             <SystemBrand variant='navigation' />
@@ -83,7 +83,7 @@ export function AppSidebar() {
         <ConsoleSearch />
       </SidebarHeader>
       {view && <SidebarViewHeader view={view} />}
-      <SidebarContent className='gap-1 py-2 group-data-[collapsible=icon]:overflow-auto'>
+      <SidebarContent className='gap-1 py-3 group-data-[collapsible=icon]:overflow-auto'>
         <nav aria-label={t('Sidebar')}>
           <AnimatePresence mode='wait' initial={false}>
             <motion.div

@@ -40,6 +40,8 @@ import {
 import { filterByQuotaType, parseTags } from '../lib/filters'
 import type { PricingModel, PricingVendor } from '../types'
 
+import '../pricing-editorial.css'
+
 type FilterOption = {
   value: string
   label: string
@@ -94,10 +96,10 @@ function FilterChip(props: {
       onClick={props.onClick}
       aria-pressed={props.active}
       className={cn(
-        'group focus-visible:ring-ring/50 inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 sm:min-h-8 motion-reduce:transition-none',
+        'pricing-filter-option group focus-visible:ring-ring/50 inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 sm:min-h-9 motion-reduce:transition-none',
         props.active
-          ? 'border-foreground/30 bg-foreground/5 text-foreground'
-          : 'border-border/70 bg-background text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground'
+          ? 'border-foreground/20 bg-foreground/5 text-foreground'
+          : 'border-transparent bg-muted/50 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground'
       )}
       title={props.option.label}
     >
@@ -125,7 +127,7 @@ function FilterSection(props: FilterSectionProps) {
   return (
     <Collapsible
       defaultOpen
-      className='border-border/70 border-b pb-3 last:border-b-0'
+      className='border-border/60 border-b pb-5 last:border-b-0'
     >
       <CollapsibleTrigger className='group focus-visible:ring-ring/50 flex min-h-11 w-full items-center justify-between rounded-sm py-2.5 text-left outline-none focus-visible:ring-2'>
         <span className='text-foreground text-sm font-semibold'>
@@ -134,7 +136,7 @@ function FilterSection(props: FilterSectionProps) {
         <ChevronDown className='text-muted-foreground size-4 transition-transform group-data-[panel-open]:rotate-180' />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className='flex flex-wrap gap-1.5'>
+        <div className='flex flex-wrap gap-2'>
           {props.options.map((option) => (
             <FilterChip
               key={option.value}
@@ -243,7 +245,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
   ]
 
   return (
-    <aside className={cn('rounded-none border p-3', props.className)}>
+    <aside className={cn('pricing-sidebar min-w-0 p-4', props.className)}>
       <div className='mb-2.5 flex items-center justify-between gap-2'>
         <div>
           <h2 className='text-foreground text-sm font-bold'>{t('Filter')}</h2>
@@ -270,7 +272,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
         </Badge>
       )}
 
-      <div className='space-y-1'>
+      <div className='space-y-3'>
         <FilterSection
           title={t('Available groups')}
           value={props.groupFilter}

@@ -19,15 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 
 .guide-page {
-  --guide-line: color-mix(in oklch, var(--foreground) 13%, transparent);
+  --guide-line: color-mix(in oklch, var(--foreground) 11%, transparent);
   --guide-soft: color-mix(in oklch, var(--foreground) 3%, var(--background));
   font-family: var(--font-sans);
 }
 
 .guide-container {
-  max-width: 1280px;
+  max-width: 1360px;
   margin-inline: auto;
-  padding: 24px 32px 40px;
+  padding: 32px 40px 64px;
 }
 
 .guide-page :is(a, button, summary, pre, section):focus-visible {
@@ -98,8 +98,8 @@ For commercial licensing, please contact support@quantumnous.com
   --guide-line: color-mix(in oklch, var(--foreground) 15%, transparent);
   --destructive: var(--forge-destructive-dark);
   overflow: hidden;
-  border: 1px solid var(--guide-line);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 12px;
   background: var(--background);
   color: var(--foreground);
   color-scheme: dark;
@@ -107,10 +107,10 @@ For commercial licensing, please contact support@quantumnous.com
 
 .guide-hero-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   align-items: center;
-  gap: 40px;
-  padding: 38px 40px;
+  gap: 56px;
+  padding: 64px 48px;
 }
 
 .guide-kicker {
@@ -138,20 +138,20 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .guide-hero h1 {
-  max-width: 18ch;
-  margin-top: 14px;
-  font-size: clamp(30px, 3.7vw, 50px);
-  font-weight: 650;
-  line-height: 1.15;
-  letter-spacing: -0.045em;
+  max-width: 17ch;
+  margin-top: 20px;
+  font-size: clamp(34px, 4.3vw, 62px);
+  font-weight: 550;
+  line-height: 1.1;
+  letter-spacing: -0.05em;
   text-wrap: balance;
 }
 
 .guide-hero-intro {
   max-width: 54ch;
-  margin-top: 16px;
+  margin-top: 22px;
   color: var(--muted-foreground);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.9;
 }
 
@@ -176,9 +176,8 @@ For commercial licensing, please contact support@quantumnous.com
 
 .guide-connection {
   min-width: 0;
-  border: 1px solid var(--guide-line);
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  border-left: 1px solid var(--guide-line);
+  background: transparent;
 }
 
 .guide-connection-heading {
@@ -203,8 +202,8 @@ For commercial licensing, please contact support@quantumnous.com
 .guide-code {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--guide-line);
-  border-radius: 6px;
+  border: 0;
+  border-radius: 8px;
   background: var(--guide-soft);
 }
 
@@ -294,7 +293,7 @@ For commercial licensing, please contact support@quantumnous.com
 .guide-stages {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  padding: 0 40px;
+  padding: 0 48px;
   border-top: 1px solid var(--guide-line);
 }
 
@@ -302,8 +301,7 @@ For commercial licensing, please contact support@quantumnous.com
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 18px 12px;
-  border-right: 1px solid var(--guide-line);
+  padding: 22px 12px;
   font-size: 11px;
   line-height: 1.8;
 }
@@ -329,8 +327,8 @@ For commercial licensing, please contact support@quantumnous.com
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   align-items: start;
-  gap: 48px;
-  margin-top: 44px;
+  gap: 64px;
+  margin-top: 64px;
 }
 
 .guide-sidebar {
@@ -416,11 +414,11 @@ For commercial licensing, please contact support@quantumnous.com
 
 .guide-section {
   scroll-margin-top: 96px;
-  padding-bottom: 40px;
+  padding-bottom: 56px;
 }
 
 .guide-section + .guide-section {
-  padding-top: 36px;
+  padding-top: 48px;
   border-top: 1px solid var(--guide-line);
 }
 
@@ -430,8 +428,8 @@ For commercial licensing, please contact support@quantumnous.com
 
 .guide-section-heading h2 {
   margin-top: 10px;
-  font-size: 24px;
-  font-weight: 650;
+  font-size: 28px;
+  font-weight: 600;
   line-height: 1.4;
   letter-spacing: -0.025em;
   text-wrap: balance;
@@ -441,7 +439,7 @@ For commercial licensing, please contact support@quantumnous.com
   max-width: 70ch;
   margin-top: 8px;
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.9;
 }
 
@@ -600,9 +598,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .guide-human-support {
-  padding: 24px;
-  border: 1px solid var(--guide-line);
-  border-radius: 6px;
+  padding: 28px;
+  border-radius: 8px;
   background: var(--guide-soft);
 }
 
@@ -704,7 +701,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 @media (max-width: 767px) {
   .guide-container {
-    padding: 8px 20px 24px;
+    padding: 12px 20px 40px;
   }
 
   .guide-breadcrumb {
@@ -715,8 +712,8 @@ For commercial licensing, please contact support@quantumnous.com
 
   .guide-hero-main {
     grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
-    padding: 26px;
+    gap: 32px;
+    padding: 32px;
   }
 
   .guide-hero h1 {
@@ -725,7 +722,13 @@ For commercial licensing, please contact support@quantumnous.com
   }
 
   .guide-hero-intro {
-    font-size: 13px;
+    font-size: 14px;
+  }
+
+  .guide-connection {
+    border-left: 0;
+    border-top: 1px solid var(--guide-line);
+    padding-top: 12px;
   }
 
   .guide-stages,
@@ -804,7 +807,7 @@ For commercial licensing, please contact support@quantumnous.com
   }
 
   .guide-hero-main {
-    padding: 22px 18px;
+    padding: 32px 22px;
   }
 
   .guide-hero h1 {

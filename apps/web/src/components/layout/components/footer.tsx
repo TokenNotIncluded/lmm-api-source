@@ -293,10 +293,10 @@ export function Footer(props: FooterProps) {
       <footer
         className={cn('forge-footer relative z-10 border-t', props.className)}
       >
-        <div className='mx-auto w-full max-w-6xl px-4 sm:px-6 md:px-8'>
+        <div className='mx-auto w-full max-w-7xl px-5 sm:px-8 md:px-10'>
           {/* gpt.ge layout: 5-col grid — brand spans 2, then four link
            * columns under plain font-medium headings. */}
-          <div className='grid gap-12 py-8 sm:py-10 md:grid-cols-5 lg:pt-16'>
+          <div className='grid gap-12 py-12 sm:py-16 md:grid-cols-5 lg:gap-20 lg:py-20'>
             <div className='col-span-5 space-y-6 md:col-span-2 md:space-y-8'>
               <Link
                 to='/'
@@ -320,7 +320,7 @@ export function Footer(props: FooterProps) {
                   </>
                 )}
               </Link>
-              <p className='text-muted-foreground text-sm text-balance'>
+              <p className='forge-footer-muted max-w-xs text-sm leading-7 text-pretty'>
                 {t(
                   'A semi-public-interest AI gateway for high-quality, transparent access.'
                 )}
@@ -329,7 +329,7 @@ export function Footer(props: FooterProps) {
 
             <nav
               aria-label={t('Footer navigation')}
-              className='col-span-3 grid gap-6 sm:grid-cols-3'
+              className='col-span-5 grid gap-8 sm:grid-cols-3 md:col-span-3'
             >
               <div className='space-y-4 text-sm'>
                 <span className='block font-medium'>{t('Product')}</span>
@@ -414,7 +414,7 @@ export function Footer(props: FooterProps) {
     return (
       <footer
         className={cn(
-          'app-footer relative z-10 border-foreground border-t-2 bg-background text-foreground',
+          'app-footer relative z-10 border-border border-t bg-background text-foreground',
           props.className
         )}
       >
@@ -442,7 +442,7 @@ export function Footer(props: FooterProps) {
   return (
     <footer
       className={cn(
-        'app-footer relative z-10 border-foreground border-t-2 bg-background text-foreground',
+        'app-footer relative z-10 border-border border-t bg-background text-foreground',
         props.className
       )}
     >

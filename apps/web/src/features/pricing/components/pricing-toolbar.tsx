@@ -68,6 +68,8 @@ import type {
 import { PricingContextLabel } from './pricing-context-label'
 import { PricingSidebar } from './pricing-sidebar'
 
+import '../pricing-editorial.css'
+
 type SegmentOption = {
   value: string
   label?: string
@@ -116,7 +118,7 @@ function SegmentedControl(props: {
     <div
       role='group'
       aria-label={props.ariaLabel}
-      className='bg-muted/60 inline-flex min-h-11 shrink-0 items-center rounded-lg border sm:h-8 sm:min-h-0 sm:p-0.5'
+      className='pricing-segment bg-muted/60 inline-flex min-h-11 shrink-0 items-center rounded-lg p-0.5 sm:h-9 sm:min-h-0'
     >
       {props.options.map((option) => {
         const Icon = option.icon
@@ -192,7 +194,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
 
   return (
     <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-      <div>
+      <div className='pricing-toolbar'>
         <div className='flex min-w-0 items-center justify-between gap-2 sm:flex-col sm:items-stretch sm:gap-3 lg:flex-row lg:items-center'>
           <div className='flex shrink-0 items-center gap-2'>
             <SheetTrigger

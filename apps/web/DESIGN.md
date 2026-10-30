@@ -32,7 +32,7 @@ colors:
 
 - [observed] shadcn/ui is configured as `base-luma`, neutral, CSS-variable driven, with Hugeicons and an inverted subtle menu.
 - [observed] Existing primitives carry hover, focus, disabled, error, loading, light/dark, and reduced-motion behavior. Prefer them over page-local replacements.
-- [observed] Settings forms use a two-column desktop grid, full-span switch/textarea rows, square grouped control surfaces (`rounded-none border`), and compact spacing.
+- [observed] Settings forms use a two-column desktop grid, full-span switch/textarea rows, shared-radius grouped controls, and a consistent vertical rhythm.
 - [observed] Error states combine a named icon, title, optional description, and an explicit retry/action; toast is not the only recovery path.
 - [inferred confidence=high] Cards represent true grouped tools or independently actionable objects, not every row or section. Badges represent state/count only; filters use controls with real selection semantics.
 
@@ -140,3 +140,18 @@ This section consolidates the useful browser constraints from sixteen former gui
 - [observed] The cinema has a black ground (#070707), pink petals, gold centre and green stem/leaves rendered as a regular fine-point lattice. Self-hosted Bodoni Moda supplies the thin display wordmark; existing body typography and real controls carry the content. Upper-left branding, lower-left headline/actions, a large right-hand lotus and bottom chapter controls establish the desktop composition. This exception belongs to the homepage cinema, not shared header, console or L0 styling.
 - [observed] Intro → store → tool market → Pi/dsh/directory ecosystem → future makes four native-scroll transitions. Pointer strokes advect nearby points with vertical scatter; time-based critical damping restores their grid after release. Image samples morph into shop, socket and planet sculptures.
 - [observed] The renderer budgets 60fps desktop/30fps mobile, uses 2.7px/1.7px grids and cached typed buffers. Mobile, short viewports and reduced motion retain five readable chapters; static imagery, passive pointer/scroll listeners, offscreen/hidden pausing and owned cleanup support fallback behavior. Lotus provenance and the font's SIL OFL remain beside their assets.
+
+
+### HTML-in-Canvas and the quiet interface
+
+The interface uses spacing, typography and a small amount of warm metal color to make the next action clear. Default light surfaces remain warm white; default dark surfaces are deep charcoal. Named themes, user-selected radius, density and typography continue to override defaults. Operational state still uses the existing success, warning and destructive roles.
+
+The shared primitives use restrained corners and consistent spacing. Dialogs have room for their title, explanation and actions; empty states keep their named recovery action. Tables and passive cards stay still during reading. Button and row feedback belongs to the interacted control, so changing a filter no longer starts a staggered entrance for every result.
+
+The public homepage adds an interactive connection diagram between the existing cinema and connection instructions. Its six labelled links and central brand remain HTML. In supporting browsers, `content="drawable"`, `drawable` and `drawElementImage()` render the scene through the native 2D canvas pipeline. The component first renders ordinary DOM, then selects the native renderer using feature detection. Unsupported browsers and a failed snapshot keep the same readable links. Tenant logos remain ordinary images outside the snapshot, preserving cross-origin branding.
+
+The scene redraws in the canvas `paint` event; resize uses physical pixel dimensions and avoids resetting an unchanged backing store. Pointer feedback pauses when hidden, outside the viewport, explicitly paused or under reduced motion. The established five homepage chapters and account-aware calls to action retain their existing behavior. Financial forms and authentication continue to use their native controls.
+
+The login page pairs its existing form with a dark Signal Path panel on desktop and keeps the optional game disclosure on mobile. Public pricing emphasizes the actual model data, filters and units; the guide uses open sections and a readable text measure. These changes affect presentation without changing their request or confirmation paths.
+
+Implementation: `src/features/home/html-canvas-mesh.tsx`, `homepage-canvas.css`, the shared primitives and semantic theme files. The API choice follows [Chrome's stable HTML-in-Canvas announcement](https://developer.chrome.com/blog/html-in-canvas), published 2026-10-26. Native rendering and ordinary DOM fallback are separate verification targets; source support alone is not a browser result.

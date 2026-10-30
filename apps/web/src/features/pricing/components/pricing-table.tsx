@@ -32,6 +32,8 @@ import type { ModelPerfBadgeData } from '../lib/model-perf'
 import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { usePricingColumns } from './pricing-columns'
 
+import '../pricing-editorial.css'
+
 export interface PricingTableProps {
   models: PricingModel[]
   isLoading?: boolean
@@ -86,9 +88,10 @@ export function PricingTable(props: PricingTableProps) {
   )
 
   return (
-    <div className='space-y-4'>
+    <div className='pricing-table space-y-5'>
       <DataTableView
         table={table}
+        containerClassName='pricing-table-surface rounded-none border-x-0 border-t-0'
         isLoading={isLoading}
         emptyTitle={t('No Models Found')}
         emptyDescription={t('No models match your current filters.')}

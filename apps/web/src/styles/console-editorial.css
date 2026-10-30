@@ -950,7 +950,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 .console-editorial [data-slot='sidebar-menu-button'] {
   border-radius: 0.375rem;
-  color: color-mix(in oklch, var(--sidebar-foreground) 72%, transparent);
+  color: color-mix(in oklch, var(--sidebar-foreground) 76%, transparent);
   transition:
     background-color 140ms ease,
     color 140ms ease;
@@ -1016,15 +1016,15 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-group-label'] {
-  padding-block: 0.85rem 0.45rem;
-  color: color-mix(in oklch, var(--sidebar-foreground) 48%, transparent);
+  padding-block: 1.15rem 0.55rem;
+  color: color-mix(in oklch, var(--sidebar-foreground) 60%, transparent);
   font-size: 0.68rem;
   letter-spacing: 0.08em;
 }
 
 .console-editorial > [data-slot='sidebar-inset'] > header,
 .console-editorial [data-slot='sidebar-inset'] > header {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
   background: color-mix(in oklch, var(--background) 94%, transparent);
 }
 
@@ -1039,12 +1039,12 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial :where([data-slot='button']) {
-  border-radius: calc(var(--radius) * 0.55);
+  border-radius: calc(var(--radius) * 0.8);
 }
 
 .console-editorial :where(input, textarea, select) {
-  border-radius: calc(var(--radius) * 0.625);
-  background: color-mix(in oklch, var(--background) 88%, var(--card));
+  border-radius: calc(var(--radius) * 0.8);
+  background: var(--card);
 }
 
 .console-editorial :where(table thead) {
@@ -1060,18 +1060,18 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial :where(a, button, input, textarea, select):focus-visible {
-  outline: 2px solid var(--console-clay);
+  outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
 
 .assistant-prompt-input:has([data-slot='input-group-control']:focus-visible) {
-  outline: 2px solid var(--console-clay, var(--forge-clay-light));
+  outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
 
 .dark
   .assistant-prompt-input:has([data-slot='input-group-control']:focus-visible) {
-  outline-color: var(--console-clay, var(--forge-clay-dark));
+  outline-color: var(--ring);
 }
 
 .assistant-prompt-input [data-slot='input-group-control']:focus-visible {
@@ -1209,8 +1209,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial :where(h1, h2, h3) {
-  font-family: var(--font-serif);
-  font-weight: 400;
+  font-family: var(--font-body);
+  font-weight: 600;
   letter-spacing: -0.025em;
 }
 
@@ -1635,9 +1635,9 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .playground-editorial .playground-input-shell:focus-within {
-  border-color: var(--console-clay);
+  border-color: var(--ring);
   box-shadow:
-    0 0 0 3px color-mix(in oklch, var(--console-clay) 18%, transparent),
+    0 0 0 3px color-mix(in oklch, var(--ring) 18%, transparent),
     0 14px 36px color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 

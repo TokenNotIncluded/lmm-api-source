@@ -1,0 +1,141 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Public editorial rhythm; the established cinema and its five chapters retain
+   their geometry and animation contract. */
+.lmm-home.lmm-home-canvas {
+  --home-accent: var(--chart-1);
+  --home-rule: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+.lmm-home-canvas .lmm-protocols {
+  margin-top: 0;
+  padding-block: 1.6rem;
+  border-top: 0;
+  gap: 0.75rem 1.75rem;
+}
+.lmm-home-canvas .lmm-section {
+  padding-top: clamp(4.5rem, 9vw, 8.5rem);
+}
+.lmm-home-canvas .lmm-section h2 {
+  font-weight: 620;
+  letter-spacing: -0.045em;
+  line-height: 1.15;
+}
+.lmm-home-canvas .lmm-section h2::before {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-bottom: 1.5rem;
+  color: var(--home-accent);
+}
+.lmm-home-canvas .lmm-mesh-section {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: clamp(2rem, 5vw, 5rem);
+  padding-top: clamp(4rem, 6vw, 6rem);
+  padding-bottom: 1rem;
+}
+.lmm-mesh-intro > p {
+  max-width: 26ch;
+  margin: 1.7rem 0 1.5rem;
+  color: var(--muted-foreground);
+  font-size: 1rem;
+  line-height: 1.9;
+  text-wrap: pretty;
+}
+.lmm-mesh-intro .lmm-text-link {
+  border-bottom: 1px solid var(--home-rule);
+  padding-bottom: 0.35rem;
+  font-weight: 550;
+}
+.lmm-mesh-intro .lmm-text-link:hover {
+  border-color: currentColor;
+}
+.lmm-home-canvas .lmm-story {
+  margin-top: 3rem;
+}
+.lmm-home-canvas .lmm-story-step {
+  min-height: 14.5rem;
+}
+.lmm-home-canvas .lmm-story-step h3 {
+  font-weight: 550;
+}
+.lmm-home-canvas .lmm-connection-method {
+  padding: 0.3rem;
+  border: 0;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  border-radius: 0.65rem;
+}
+.lmm-home-canvas .lmm-connection-method [data-slot='button'] {
+  border-radius: 0.4rem;
+  padding-inline: 1.25rem;
+}
+.lmm-home-canvas .lmm-code-surface {
+  border-color: color-mix(in oklch, var(--foreground) 7%, transparent);
+  border-radius: 1rem;
+  box-shadow: 0 1.5rem 5rem -3rem
+    color-mix(in oklch, var(--foreground) 23%, transparent);
+}
+.lmm-home-canvas .lmm-assistant-description {
+  max-width: 29ch;
+  font-size: 0.95rem;
+}
+.lmm-home-canvas .lmm-destinations a {
+  min-height: 6.5rem;
+}
+.lmm-home-canvas .lmm-destinations a strong {
+  font-weight: 550;
+}
+.lmm-home-canvas .lmm-explore-preview {
+  border-left: 0;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+}
+.lmm-home-canvas .lmm-explore-preview strong {
+  font-weight: 600;
+}
+.lmm-home-canvas .lmm-resources summary {
+  min-height: 5.5rem;
+}
+.lmm-home-canvas .lmm-home-footer {
+  margin-top: clamp(5rem, 9vw, 9rem);
+}
+.lmm-home-canvas .lmm-footer-brand {
+  padding-block: clamp(2.5rem, 6vw, 5rem);
+}
+@media (max-width: 1000px) {
+  .lmm-home-canvas .lmm-mesh-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.25rem;
+  }
+  .lmm-mesh-intro > p {
+    max-width: 45ch;
+    margin-top: 1.4rem;
+  }
+  .lmm-mesh-figure {
+    width: min(100%, 44rem);
+    margin-inline: auto;
+  }
+}
+@media (max-width: 640px) {
+  .lmm-home-canvas .lmm-section h2 {
+    font-size: clamp(1.9rem, 8vw, 2.5rem);
+  }
+  .lmm-home-canvas .lmm-protocols {
+    gap: 0.25rem;
+    padding-block: 1rem;
+  }
+  .lmm-home-canvas .lmm-protocols > span {
+    font-size: 0.65rem;
+    padding-inline: 0.45rem;
+  }
+  .lmm-home-canvas .lmm-story-step {
+    min-height: auto;
+    padding-block: 2rem;
+  }
+  .lmm-home-canvas .lmm-destinations a {
+    min-height: 5.5rem;
+  }
+  .lmm-home-canvas .lmm-explore-preview {
+    border-radius: 0.75rem;
+  }
+}

@@ -26,6 +26,10 @@ import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 
+import { HtmlCanvasMesh } from './html-canvas-mesh'
+
+import './homepage-canvas.css'
+
 const homeClaudeUrl = new URL('./assets/claude-mark.svg', import.meta.url).href
 
 type HomeLandingProps = {
@@ -121,7 +125,7 @@ export function HomeLanding({
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
     <main
-      className='lmm-home'
+      className='lmm-home lmm-home-canvas'
       ref={rootRef}
       data-motion='loading'
       data-poster-direction='oriku-pointillist-sculpture'
@@ -282,6 +286,25 @@ export function HomeLanding({
         <span>Gemini</span>
         <span>Pi / OAuth</span>
       </div>
+
+      <section
+        className='lmm-section lmm-mesh-section'
+        aria-labelledby='lmm-mesh-title'
+      >
+        <div className='lmm-mesh-intro'>
+          <h2 id='lmm-mesh-title'>{t('One endpoint')}</h2>
+          <p>
+            {t(
+              'Chat, reasoning, vision, and audio models behind one endpoint.'
+            )}
+          </p>
+          <a className='lmm-text-link' href='/pricing'>
+            {t('Browse models')}
+            <Arrow diagonal />
+          </a>
+        </div>
+        <HtmlCanvasMesh brandName={brandName} brandLogo={brandLogo} t={t} />
+      </section>
 
       <section
         className='lmm-section lmm-connect'

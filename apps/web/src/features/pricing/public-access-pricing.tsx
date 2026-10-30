@@ -31,6 +31,8 @@ import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { PurchaseJourney } from '@/features/forge/purchase-journey'
 import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
 
+import './pricing-editorial.css'
+
 const QUESTIONS = [
   [
     'Can I pay before approval?',
@@ -56,14 +58,14 @@ export function PublicAccessPricing() {
 
   return (
     <ForgePublicShell>
-      <main className='bg-background text-foreground'>
-        <section className='border-border border-b'>
-          <div className='mx-auto grid max-w-7xl gap-10 px-5 py-12 md:px-10 md:py-20 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-16'>
+      <main className='pricing-public bg-background text-foreground'>
+        <section className='pricing-intro'>
+          <div className='mx-auto grid max-w-7xl gap-12 px-5 py-16 md:px-10 md:py-24 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-24'>
             <div>
-              <p className='text-muted-foreground mb-5 text-sm font-medium'>
+              <p className='pricing-eyebrow text-muted-foreground mb-6 text-xs font-medium'>
                 {t('Pay as you go')}
               </p>
-              <h1 className='max-w-2xl text-4xl leading-tight font-semibold tracking-tight md:text-5xl'>
+              <h1 className='max-w-2xl text-4xl leading-[1.06] font-semibold tracking-[-0.05em] text-balance md:text-6xl'>
                 {t('Know what you are buying')}
               </h1>
               <p className='text-muted-foreground mt-6 max-w-xl text-base leading-7'>
@@ -105,8 +107,8 @@ export function PublicAccessPricing() {
               </p>
             </div>
 
-            <div className='border-border bg-card divide-border divide-y rounded-xl border px-6'>
-              <div className='py-6'>
+            <div className='pricing-options divide-border/60 divide-y px-1 lg:ps-10'>
+              <div className='py-7'>
                 <div className='mb-3 flex items-center gap-3'>
                   <Coins className='size-5' aria-hidden='true' />
                   <h2 className='text-lg font-semibold'>
@@ -119,7 +121,7 @@ export function PublicAccessPricing() {
                   )}
                 </p>
               </div>
-              <div className='py-6'>
+              <div className='py-7'>
                 <div className='mb-3 flex items-center gap-3'>
                   <ReceiptText className='size-5' aria-hidden='true' />
                   <h2 className='text-lg font-semibold'>
@@ -142,10 +144,10 @@ export function PublicAccessPricing() {
         </section>
 
         <section
-          className='border-border border-b'
+          className='pricing-journey'
           aria-labelledby='purchase-steps-title'
         >
-          <div className='mx-auto max-w-7xl px-5 py-10 md:px-10 md:py-14'>
+          <div className='mx-auto max-w-7xl px-5 py-12 md:px-10 md:py-20'>
             <h2
               id='purchase-steps-title'
               className='mb-8 text-2xl font-semibold'
@@ -157,7 +159,7 @@ export function PublicAccessPricing() {
         </section>
 
         <section
-          className='mx-auto grid max-w-7xl gap-6 px-5 py-12 md:grid-cols-[1fr_2fr] md:gap-16 md:px-10 md:py-16'
+          className='mx-auto grid max-w-7xl gap-8 px-5 py-16 md:grid-cols-[1fr_2fr] md:gap-20 md:px-10 md:py-24'
           aria-labelledby='purchase-questions-title'
         >
           <h2 id='purchase-questions-title' className='text-2xl font-semibold'>
