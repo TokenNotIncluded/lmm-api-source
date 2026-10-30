@@ -434,3 +434,88 @@ async fn pricing_pg_upstream_cost_rule_is_readonly_exact_and_session_isolated(po
     assert_eq!(counts(&pool).await, before);
     role.cleanup().await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn pricing_pg_disabled_module_allows_only_root_session(pool: PgPool) {
+    let (identity, user, surface) = setup(&pool).await;
+    let root = identity.bootstrap_user(8, 6).await.unwrap();
+    let admin = identity.bootstrap_user(9, 5).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(8,'allowed',TRUE,'pricing-root-test')").execute(&pool).await.unwrap();
+    let router = PricingHttp::new(pool.clone(), surface).router();
+    let unknown = "lmms_not_a_real_root_session_token";
+    for raw in [
+        r#"{"pricing":{"enabled":false}}"#,
+        r#"{"pricing":{"enabled":false,"requireAuth":true}}"#,
+        r#"{"pricing":false}"#,
+    ] {
+        sqlx::query("INSERT INTO core_console.options(key,value) VALUES('HeaderNavModules',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").bind(raw).execute(&pool).await.unwrap();
+        let before = counts(&pool).await;
+        let (status, public) = call(&router, "/core/v1/pricing/public", None, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{public}");
+        assert_eq!(public["error"]["code"], "pricing_forbidden");
+        for (secret, code) in [
+            (Some(user.secret.as_str()), StatusCode::FORBIDDEN),
+            (Some(admin.secret.as_str()), StatusCode::FORBIDDEN),
+            (Some(unknown), StatusCode::UNAUTHORIZED),
+        ] {
+            let (status, body) = call(&router, "/core/v1/pricing/session", secret, None).await;
+            assert_eq!(status, code, "{raw} {body}");
+        }
+        let (status, own) = call(
+            &router,
+            "/core/v1/pricing/session",
+            Some(&root.secret),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{raw} {own}");
+        assert_eq!(own["visibility"], "session");
+        assert_eq!(own["invocation_authorized"], false);
+        assert_eq!(own["groups"], json!(["allowed"]));
+        let (status, runtime) = call(
+            &router,
+            "/core/v1/pricing/runtime",
+            None,
+            Some(json!({"models":["model"]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{runtime}");
+        let (status, user_runtime) = call(
+            &router,
+            "/core/v1/pricing/runtime",
+            Some(&user.secret),
+            Some(json!({"models":["model"]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{user_runtime}");
+        let (status, root_runtime) = call(
+            &router,
+            "/core/v1/pricing/runtime",
+            Some(&root.secret),
+            Some(json!({"models":["model"]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{root_runtime}");
+        assert_eq!(root_runtime["visibility"], "session");
+        assert_eq!(root_runtime["data"]["model"]["status"], "unknown");
+        assert_eq!(counts(&pool).await, before);
+    }
+    let key = identity
+        .issue_key(
+            &root.secret,
+            crate::accounts::Account {
+                kind: crate::accounts::AccountKind::Personal,
+                id: 8,
+            },
+            crate::funding::FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&router, "/core/v1/pricing/session", Some(&key.secret), None)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+}

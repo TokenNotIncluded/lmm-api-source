@@ -1,6 +1,8 @@
 //! Read-only public and personal-Session price metadata. No provider requests,
 //! reservations, mutations, OAuth adaptation, or supplier health claims.
 //! Visibility matches go-v0.2.118 middleware/header_nav.go and pricing.go.
+//! A disabled pricing module stays closed to anonymous and non-root callers.
+//! A personal root session (platform level 6) may still read it.
 use crate::{
     identity::{self, CredentialKind, IdentityError},
     model_http::pricing::{PricingProjection, PricingSurface},
@@ -212,7 +214,9 @@ impl PricingHttp {
             Some(None) => return Err(Error::Unavailable),
         };
         let policy = visibility(raw.as_deref());
-        if !policy.enabled || (secret.is_none() && policy.require_auth) {
+        // Closed square: no Authorization is forbidden before any credential lookup.
+        // A presented secret is authenticated first, so an unknown token is 401.
+        if secret.is_none() && (!policy.enabled || policy.require_auth) {
             return Err(Error::Forbidden);
         }
         let (allowed, model_filter, authority) = if let Some(secret) = secret {
@@ -220,6 +224,11 @@ impl PricingHttp {
             if actor.credential_kind != CredentialKind::Session
                 || actor.owner.kind != crate::accounts::AccountKind::Personal
             {
+                return Err(Error::Forbidden);
+            }
+            // Same exception as HeaderNavModuleAuth("pricing") + RootAuth:
+            // only the root user, not an ordinary admin session or an API key.
+            if !policy.enabled && actor.platform_level != 6 {
                 return Err(Error::Forbidden);
             }
             let groups:Vec<String>=sqlx::query_scalar("SELECT group_name FROM core_identity.user_routing_groups WHERE user_id=$1 AND enabled ORDER BY group_name").bind(actor.user_id).fetch_all(&mut *tx).await?;
