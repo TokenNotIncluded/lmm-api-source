@@ -5,6 +5,7 @@
 //! Administrator data includes all actors/accounts and marks historical imports
 //! as uncovered; neither opening counters nor archived quota become native usage.
 mod export;
+pub mod task_log;
 
 use crate::{
     billing::{
