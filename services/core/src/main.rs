@@ -480,9 +480,14 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             capabilities.legacy_web_auth = true;
         }
         if let Some(gateway) = &model_gateway {
-            routes = routes.merge(lmm_core::channel_http::router(
+            let channel_management = lmm_core::channel_http::ManagedChannels::recover(
                 pool.clone(),
-                gateway.dashboard_routing(),
+                gateway.clone(),
+            )
+            .await?;
+            routes = routes.merge(lmm_core::channel_http::managed_router(
+                pool.clone(),
+                channel_management,
             ));
             routes = routes.merge(gateway.router());
             routes = routes.merge(gateway.key_read_router(pool.clone()));

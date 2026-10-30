@@ -263,6 +263,8 @@ GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),
 \endif
 
 \if :enable_models
+GRANT EXECUTE ON FUNCTION public.routing_control_read(),
+    public.routing_control_publish(jsonb,jsonb,bigint,bigint) TO :"runtime_role";
 \set enable_charging true
 \else
 \set enable_charging false

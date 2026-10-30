@@ -16,12 +16,16 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
 
 #[derive(Clone)]
 pub struct PricingHttp {
     pool: PgPool,
-    surface: Option<Arc<PricingSurface>>,
+    surface: Arc<RwLock<Option<Arc<PricingSurface>>>>,
+    gateway: Option<crate::model_http::ModelGateway>,
 }
 #[derive(Debug)]
 pub enum Error {
@@ -155,7 +159,8 @@ impl PricingHttp {
     pub fn new(pool: PgPool, surface: Arc<PricingSurface>) -> Self {
         Self {
             pool,
-            surface: Some(surface),
+            surface: Arc::new(RwLock::new(Some(surface))),
+            gateway: None,
         }
     }
     /// A metadata projection failure must not stop an otherwise valid gateway.
@@ -163,13 +168,15 @@ impl PricingHttp {
     pub fn from_gateway(pool: PgPool, gateway: &crate::model_http::ModelGateway) -> Self {
         Self {
             pool,
-            surface: PricingSurface::from_gateway(gateway).ok().map(Arc::new),
+            surface: Arc::new(RwLock::new(None)),
+            gateway: Some(gateway.clone()),
         }
     }
     pub fn unavailable(pool: PgPool) -> Self {
         Self {
             pool,
-            surface: None,
+            surface: Arc::new(RwLock::new(None)),
+            gateway: None,
         }
     }
     pub fn router(self) -> Router {
@@ -182,6 +189,18 @@ impl PricingHttp {
             .with_state(self)
     }
     async fn read(&self, secret: Option<&str>) -> Result<PricingResponse, Error> {
+        // Rebuild once per publication, and share the immutable result across
+        // readers. Never keep a startup-only projection after routes change.
+        let mut surface = self.surface.read().map_err(|_| Error::Unavailable)?.clone();
+        if let Some(gateway) = &self.gateway {
+            if surface.as_ref().is_none_or(|s| s.check_version().is_err()) {
+                let next = Arc::new(
+                    PricingSurface::from_gateway(gateway).map_err(|_| Error::Unavailable)?,
+                );
+                *self.surface.write().map_err(|_| Error::Unavailable)? = Some(next.clone());
+                surface = Some(next);
+            }
+        }
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY")
             .execute(&mut *tx)
@@ -207,11 +226,7 @@ impl PricingHttp {
             let models = crate::abuse::public_models_in_transaction(&mut tx, actor.user_id)
                 .await
                 .map_err(|_| Error::Unavailable)?;
-            let authority = if self
-                .surface
-                .as_ref()
-                .is_some_and(|s| s.trust_pricing_enabled())
-            {
+            let authority = if surface.as_ref().is_some_and(|s| s.trust_pricing_enabled()) {
                 Some(
                     crate::billing::trust_pricing::quote_readonly_in_transaction(
                         &mut tx,
@@ -232,8 +247,7 @@ impl PricingHttp {
                 .fetch_one(&mut *tx)
                 .await?;
         let observed_at = u64::try_from(timestamp).map_err(|_| Error::Unavailable)?;
-        let mut catalog = self
-            .surface
+        let mut catalog = surface
             .as_ref()
             .ok_or(Error::Unavailable)?
             .project(allowed.as_deref(), model_filter.as_deref())

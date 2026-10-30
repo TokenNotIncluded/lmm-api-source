@@ -7,6 +7,7 @@ pub(crate) mod assistant_execution;
 pub(crate) mod assistant_gift;
 mod billing;
 mod catalog;
+pub(crate) mod channel_operations;
 mod checkpoints;
 pub mod grounding_price;
 mod honeypot;
@@ -57,6 +58,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+
 use subtle::ConstantTimeEq;
 
 pub use catalog::{CatalogError, CatalogSurface, CatalogV1};
@@ -299,6 +301,16 @@ impl ModelGateway {
     /// This exposes configuration, never upstream credential material.
     pub fn dashboard_routing(&self) -> Arc<crate::routing::Router> {
         self.bridge.routing.clone()
+    }
+
+    /// Rebuild the OAuth metadata view after an authenticated durable publication.
+    pub(crate) fn refresh_catalog(&self) -> Result<(), catalog::CatalogError> {
+        self.catalog_surface.refresh(
+            &self.bridge.credentials,
+            self.bridge.total_timeout,
+            &self.bridge.provider_policy,
+            self.bridge.policy.input_token_ceiling,
+        )
     }
 
     /// The read-only OAuth issuer receives this server-created opaque surface.

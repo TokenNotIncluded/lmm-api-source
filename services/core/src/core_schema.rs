@@ -75,6 +75,7 @@ const COMPONENTS: &[(&str, &str)] = &[
         "coinbase-payments",
         include_str!("../schema/coinbase_payments.sql"),
     ),
+    ("channel-control", crate::channel_http::SCHEMA),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

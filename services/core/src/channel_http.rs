@@ -1,6 +1,10 @@
 //! Administrator-only channel reads from the same published snapshot as relay.
 //! Internal endpoints and credential references must never become HTTP fields.
-//! Channel mutation requires durable publication and is deliberately unsupported.
+//! Mutations use the durable control plane when installed by the host.
+
+mod control;
+pub use control::{ManagedChannels, ManagementError};
+pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -27,30 +31,59 @@ use crate::{
 struct ChannelState {
     identity: HistoryStore,
     routing: Arc<crate::routing::Router>,
+    management: Option<Arc<ManagedChannels>>,
 }
 
 /// Pass `gateway.dashboard_routing()` so publication updates appear on each read.
 pub fn router(pool: PgPool, routing: Arc<crate::routing::Router>) -> Router {
+    routes(ChannelState {
+        identity: HistoryStore::new(pool),
+        routing,
+        management: None,
+    })
+}
+
+/// Enable only after the host has recovered the durable publication.
+pub fn managed_router(pool: PgPool, management: ManagedChannels) -> Router {
+    routes(ChannelState {
+        identity: HistoryStore::new(pool),
+        routing: management.routing(),
+        management: Some(Arc::new(management)),
+    })
+}
+
+fn routes(state: ChannelState) -> Router {
     Router::new()
         .route("/api/channel", get(list).post(unsupported))
         .route("/api/channel/", get(list).put(unsupported))
         .route("/api/channel/search", get(list))
         .route("/api/channel/ops", get(ops))
-        .route("/api/channel/{id}", get(detail).delete(unsupported))
-        .route("/api/channel/{id}/status", any(unsupported))
+        .route("/api/channel/{id}", get(detail).delete(control::remove))
+        .route(
+            "/api/channel/{id}/status",
+            axum::routing::put(control::status),
+        )
         .route("/api/channel/{id}/key", any(unsupported))
-        .route("/api/channel/test/{id}", any(unsupported))
+        .route("/api/channel/test/{id}", get(control::probe))
         .route("/api/channel/update_balance/{id}", any(unsupported))
-        .route("/api/channel/fetch_models/{id}", any(unsupported))
+        .route("/api/channel/fetch_models/{id}", get(control::fetch_models))
         .route("/api/channel/copy/{id}", any(unsupported))
-        .route("/api/channel/status/batch", any(unsupported))
+        .route(
+            "/api/channel/status/batch",
+            axum::routing::put(control::batch_status),
+        )
         .route("/api/channel/batch/tag", any(unsupported))
         .route("/api/channel/multi_key/manage", any(unsupported))
         .route("/api/channel/{id}/codex/{*operation}", any(unsupported))
-        .with_state(ChannelState {
-            identity: HistoryStore::new(pool),
-            routing,
-        })
+        .route(
+            "/core/v1/admin/routing/prices",
+            get(control::prices).put(control::publish_prices),
+        )
+        .route(
+            "/core/v1/admin/routing/prices/preview",
+            axum::routing::post(control::preview_prices),
+        )
+        .with_state(state)
         .layer(middleware::from_fn(no_store))
 }
 
@@ -242,6 +275,16 @@ async fn admit(state: &ChannelState, headers: &HeaderMap) -> Result<(), HistoryE
         .ok_or(HistoryError::Unauthorized)?;
     let mut tx = state.identity.read_snapshot().await?;
     let principal = identity::authenticate_readonly_in_transaction(&mut tx, secret).await?;
+    authorize_action(&mut tx, &principal, permissions::Action::ChannelRead).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn authorize_action(
+    tx: &mut sqlx::PgConnection,
+    principal: &identity::Principal,
+    action: permissions::Action,
+) -> Result<(), HistoryError> {
     if principal.credential_kind != CredentialKind::Session
         || principal.owner.kind != AccountKind::Personal
         || principal.owner.id != principal.user_id
@@ -265,10 +308,10 @@ async fn admit(state: &ChannelState, headers: &HeaderMap) -> Result<(), HistoryE
         "superadmin" => permissions::PlatformRole::Root,
         _ => return Err(HistoryError::Forbidden),
     };
-    let imported = permissions::has_privileged_import_facts(&mut tx, principal.user_id)
+    let imported = permissions::has_privileged_import_facts(&mut *tx, principal.user_id)
         .await
         .map_err(|_| HistoryError::Unavailable)?;
-    let policy = match permissions::load_complete_policy(&mut tx, principal.user_id).await {
+    let policy = match permissions::load_complete_policy(&mut *tx, principal.user_id).await {
         Ok(policy) => Some(policy),
         // Match the existing native-admin baseline: ChannelRead is a default
         // admin action. Imported privileged identities never use this fallback.
@@ -290,18 +333,16 @@ async fn admit(state: &ChannelState, headers: &HeaderMap) -> Result<(), HistoryE
                 developer: permissions::DeveloperState::Granted,
             },
             &policy.as_policy(),
-            permissions::Action::ChannelRead,
+            action,
             permissions::Scope::Platform(permissions::PlatformResource::Channel),
             None,
         );
         if !decision.allowed() {
             return Err(HistoryError::Forbidden);
         }
-    } else if !permissions::catalog_decision(role, &[], permissions::Action::ChannelRead).allowed()
-    {
+    } else if !permissions::catalog_decision(role, &[], action).allowed() {
         return Err(HistoryError::Forbidden);
     }
-    tx.commit().await?;
     Ok(())
 }
 
@@ -352,6 +393,11 @@ async fn list(
             );
         }
     };
+    if let Some(management) = &state.management {
+        if let Err(error) = management.synchronize().await {
+            return control::Failure::from(error).into_response();
+        }
+    }
     let document = match state.routing.catalog_document() {
         Ok(document) => document,
         Err(_) => {
@@ -363,7 +409,10 @@ async fn list(
         }
     };
     match page(&document.routing, params) {
-        Ok(value) => Json(value).into_response(),
+        Ok(mut value) => {
+            value["data"]["pricing_version"] = json!(document.pricing.version);
+            Json(value).into_response()
+        }
         Err(message) => error_response(StatusCode::BAD_REQUEST, "CHANNEL_QUERY_INVALID", message),
     }
 }
@@ -375,6 +424,11 @@ async fn detail(
 ) -> Response {
     if let Err(error) = admit(&state, &headers).await {
         return auth_error(error);
+    }
+    if let Some(management) = &state.management {
+        if let Err(error) = management.synchronize().await {
+            return control::Failure::from(error).into_response();
+        }
     }
     match state.routing.catalog_document() {
         Ok(document) => match channels(&document.routing)
@@ -404,6 +458,11 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
         "success": true,
         "data": {
             "read_only": true,
+            "native_control": state.management.is_some(),
+            "status": state.management.is_some(),
+            "remove": state.management.is_some(),
+            "price_publish": state.management.is_some(),
+            "catalog_probe": state.management.is_some(),
             "source": "active_routing_snapshot",
             "retry_times": null,
             "capabilities": {

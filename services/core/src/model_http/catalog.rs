@@ -9,7 +9,11 @@ use crate::routing::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
 use serde_json::Number;
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 const MAX_MODELS: usize = 4096;
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
@@ -24,7 +28,7 @@ pub enum CatalogError {
 pub struct CatalogSurface {
     inventory_router: Arc<Router>,
     trust_pricing_enabled: std::sync::atomic::AtomicBool,
-    state: SurfaceState,
+    state: RwLock<SurfaceState>,
 }
 
 enum SurfaceState {
@@ -153,7 +157,7 @@ impl CatalogSurface {
         Self::load(router.clone(), credentials, total_timeout, None).unwrap_or(Self {
             inventory_router: router,
             trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
-            state: SurfaceState::Disabled,
+            state: RwLock::new(SurfaceState::Disabled),
         })
     }
     pub(super) fn from_gateway_with_provider_policy(
@@ -172,7 +176,7 @@ impl CatalogSurface {
         .unwrap_or(Self {
             inventory_router: router,
             trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
-            state: SurfaceState::Disabled,
+            state: RwLock::new(SurfaceState::Disabled),
         })
     }
 
@@ -310,12 +314,12 @@ impl CatalogSurface {
         Ok(Self {
             inventory_router: router.clone(),
             trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
-            state: SurfaceState::Ready {
+            state: RwLock::new(SurfaceState::Ready {
                 router,
                 version,
                 groups,
                 models,
-            },
+            }),
         })
     }
 
@@ -422,18 +426,49 @@ impl CatalogSurface {
     /// groups must come from issuer ReadAuthority: token/family consent/current
     /// user policy/installation intersection, never a query or client nonce.
     /// Metadata alone grants no NativeKey or spending authority.
+    pub(super) fn refresh(
+        &self,
+        credentials: &BTreeMap<(u64, u64), String>,
+        total_timeout: Duration,
+        policy: &super::ProviderPolicy,
+        reserved_input_tokens: i64,
+    ) -> Result<(), CatalogError> {
+        let current = self
+            .inventory_router
+            .version()
+            .map_err(|_| CatalogError::Unavailable)?;
+        {
+            let state = self.state.read().map_err(|_| CatalogError::Unavailable)?;
+            if matches!(&*state, SurfaceState::Ready { version, .. } if *version == current) {
+                return Ok(());
+            }
+        }
+        let next = Self::load(
+            self.inventory_router.clone(),
+            credentials,
+            total_timeout,
+            Some((policy, reserved_input_tokens)),
+        )?;
+        *self.state.write().map_err(|_| CatalogError::Unavailable)? = next
+            .state
+            .into_inner()
+            .map_err(|_| CatalogError::Unavailable)?;
+        Ok(())
+    }
+
     pub fn project(
         &self,
         authorized_groups: &[String],
         resource: &str,
         updated_at: u64,
     ) -> Result<CatalogV1, CatalogError> {
+        let state = self.state.read().map_err(|_| CatalogError::Unavailable)?;
         let SurfaceState::Ready {
             router,
             version,
             groups,
             models,
-        } = &self.state
+        } = &*state
         else {
             return Err(CatalogError::Unavailable);
         };
@@ -831,7 +866,7 @@ mod tests {
         let disabled = CatalogSurface {
             inventory_router: s.inventory_router.clone(),
             trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
-            state: SurfaceState::Disabled,
+            state: RwLock::new(SurfaceState::Disabled),
         };
         assert_eq!(
             disabled
@@ -1208,7 +1243,7 @@ mod tests {
         let disabled = CatalogSurface {
             inventory_router: s.inventory_router.clone(),
             trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
-            state: SurfaceState::Disabled,
+            state: RwLock::new(SurfaceState::Disabled),
         };
         assert!(matches!(
             disabled.project(
@@ -1408,7 +1443,8 @@ mod tests {
             p.rules.push(price);
         }
         let (_, s) = surface(r, p);
-        let SurfaceState::Ready { models, .. } = &s.state else {
+        let state = s.state.read().unwrap();
+        let SurfaceState::Ready { models, .. } = &*state else {
             panic!("valid catalog within factory row budget must load");
         };
         assert_eq!(models.len(), MAX_MODELS);

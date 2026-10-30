@@ -372,7 +372,7 @@ impl PricingSurface {
         result.check_version()?;
         Ok(result)
     }
-    fn check_version(&self) -> Result<(), PricingError> {
+    pub(crate) fn check_version(&self) -> Result<(), PricingError> {
         let v = self
             .router
             .version()

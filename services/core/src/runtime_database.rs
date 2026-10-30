@@ -463,6 +463,8 @@ pub(crate) async fn check_connection(
           SELECT has_schema_privilege('core_model','USAGE')
             AND has_function_privilege('core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean)','EXECUTE')
             AND has_function_privilege('core_model.completed_streams_after(integer,text)','EXECUTE')
+            AND has_function_privilege('public.routing_control_read()','EXECUTE')
+            AND has_function_privilege('public.routing_control_publish(jsonb,jsonb,bigint,bigint)','EXECUTE')
         "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
