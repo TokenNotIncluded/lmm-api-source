@@ -28,6 +28,7 @@ pub(crate) struct Decoder {
     max_blocks: usize,
     event_bytes: usize,
     gemini_calls: u64,
+    gemini_grounded_requests: Option<u8>,
     continuation_token: Option<String>,
 }
 fn text(v: &Value) -> Result<&str, RelayError> {
@@ -52,6 +53,32 @@ fn counter(v: &Value, key: &str) -> Result<Option<u64>, RelayError> {
         })
         .transpose()
 }
+
+fn chat_cached_input(v: &Value, input: Option<u64>) -> Result<Option<u64>, RelayError> {
+    let canonical = counter(&v["prompt_tokens_details"], "cached_tokens")?;
+    // DeepSeek reports the same cache-read subset at the top level. Preserve
+    // actual counters; neither a model name nor a missing field proves zero.
+    let hit = counter(v, "prompt_cache_hit_tokens")?;
+    if matches!((canonical, hit), (Some(a), Some(b)) if a != b) {
+        return Err(RelayError::Protocol("inconsistent cache read usage"));
+    }
+    let cached = canonical.or(hit);
+    if let Some(missed) = counter(v, "prompt_cache_miss_tokens")? {
+        if input.is_some_and(|total| missed > total) {
+            return Err(RelayError::Protocol("cache miss usage exceeds input total"));
+        }
+        if let Some(cached) = cached {
+            let total = cached
+                .checked_add(missed)
+                .ok_or(RelayError::Protocol("usage overflow"))?;
+            if input.is_some_and(|input| total != input) {
+                return Err(RelayError::Protocol("inconsistent cache partition"));
+            }
+        }
+    }
+    Ok(cached)
+}
+
 fn add(a: Option<u64>, b: Option<u64>, c: Option<u64>) -> Result<Option<u64>, RelayError> {
     a.map(|a| {
         a.checked_add(b.unwrap_or(0))
@@ -155,7 +182,7 @@ pub(crate) fn usage_with_cache_creation_mode(
         UpstreamProtocol::Chat => {
             u.input_tokens = counter(v, "prompt_tokens")?;
             u.output_tokens = counter(v, "completion_tokens")?;
-            u.cached_input_tokens = counter(&v["prompt_tokens_details"], "cached_tokens")?;
+            u.cached_input_tokens = chat_cached_input(v, u.input_tokens)?;
             u.reasoning_output_tokens =
                 counter(&v["completion_tokens_details"], "reasoning_tokens")?;
         }
@@ -208,11 +235,28 @@ pub(crate) fn usage_with_cache_creation_mode(
             u.input_tokens = counter(v, "promptTokenCount")?;
             u.cached_input_tokens = counter(v, "cachedContentTokenCount")?;
             u.reasoning_output_tokens = counter(v, "thoughtsTokenCount")?;
+            u.tool_use_prompt_tokens = counter(v, "toolUsePromptTokenCount")?;
             u.output_tokens = add(
                 counter(v, "candidatesTokenCount")?,
                 u.reasoning_output_tokens,
                 None,
             )?;
+            if let Some(total) = counter(v, "totalTokenCount")? {
+                let known = u
+                    .input_tokens
+                    .unwrap_or(0)
+                    .checked_add(u.output_tokens.unwrap_or(0))
+                    .and_then(|tokens| tokens.checked_add(u.tool_use_prompt_tokens.unwrap_or(0)))
+                    .ok_or(RelayError::Protocol("usage overflow"))?;
+                if known > total
+                    || (u.input_tokens.is_some()
+                        && u.output_tokens.is_some()
+                        && u.tool_use_prompt_tokens.is_some()
+                        && known != total)
+                {
+                    return Err(RelayError::Protocol("inconsistent Gemini usage total"));
+                }
+            }
         }
     }
     if matches!(
@@ -351,6 +395,7 @@ impl Decoder {
             max_blocks: limits.max_blocks,
             event_bytes: limits.event_bytes,
             gemini_calls: 0,
+            gemini_grounded_requests: None,
             continuation_token: None,
         }
     }
@@ -1010,8 +1055,57 @@ impl Decoder {
     }
     fn gemini(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
         self.start(v["responseId"].as_str(), out)?;
+        if let Some(candidates) = v.get("candidates") {
+            for candidate in candidates
+                .as_array()
+                .ok_or(RelayError::Protocol("invalid Gemini candidates"))?
+            {
+                if let Some(metadata) = candidate.get("groundingMetadata") {
+                    if !metadata.is_object() {
+                        return Err(RelayError::Protocol("invalid grounding metadata"));
+                    }
+                    let queries = metadata
+                        .get("webSearchQueries")
+                        .map(|queries| {
+                            let queries = queries
+                                .as_array()
+                                .ok_or(RelayError::Protocol("invalid search queries"))?;
+                            let mut grounded = false;
+                            for query in queries {
+                                grounded |= !text(query)?.trim().is_empty();
+                            }
+                            Ok::<_, RelayError>(grounded)
+                        })
+                        .transpose()?;
+                    let mut web_grounding = false;
+                    if let Some(chunks) = metadata.get("groundingChunks") {
+                        for chunk in chunks
+                            .as_array()
+                            .ok_or(RelayError::Protocol("invalid grounding chunks"))?
+                        {
+                            if let Some(web) = chunk.get("web") {
+                                web_grounding |= !text(&web["uri"])?.trim().is_empty();
+                            }
+                        }
+                    }
+                    if let Some(grounded) = queries.or(web_grounding.then_some(true)) {
+                        let count = u8::from(grounded || web_grounding);
+                        self.gemini_grounded_requests =
+                            Some(self.gemini_grounded_requests.unwrap_or(0).max(count));
+                    }
+                    out.push(Event::GroundingMetadata(metadata.clone()));
+                }
+            }
+        }
         if let Some(u) = v.get("usageMetadata") {
-            out.push(Event::Usage(self.usage(u)?));
+            let mut usage = self.usage(u)?;
+            usage.google_search_grounded_requests = self.gemini_grounded_requests;
+            out.push(Event::Usage(usage));
+        } else if self.gemini_grounded_requests.is_some() {
+            out.push(Event::Usage(Usage {
+                google_search_grounded_requests: self.gemini_grounded_requests,
+                ..Usage::default()
+            }));
         }
         if v["promptFeedback"].get("blockReason").is_some() {
             self.finish(FinishReason::ContentFilter, out)?;
@@ -1091,6 +1185,133 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn deepseek_receipt() -> Value {
+        serde_json::json!({
+            "prompt_tokens":100,
+            "prompt_cache_hit_tokens":80,
+            "prompt_cache_miss_tokens":20,
+            "completion_tokens":10,
+            "completion_tokens_details":{"reasoning_tokens":7},
+            "total_tokens":110
+        })
+    }
+
+    #[test]
+    fn deepseek_cache_alias_normalizes_without_counting_reasoning_twice() {
+        let mut receipt = deepseek_receipt();
+        let observed = usage(UpstreamProtocol::Chat, &receipt).unwrap();
+        assert_eq!(observed.input_tokens, Some(100));
+        assert_eq!(observed.cached_input_tokens, Some(80));
+        assert_eq!(observed.output_tokens, Some(10));
+        assert_eq!(observed.reasoning_output_tokens, Some(7));
+
+        receipt["prompt_tokens_details"] = serde_json::json!({"cached_tokens":80});
+        assert_eq!(usage(UpstreamProtocol::Chat, &receipt).unwrap(), observed);
+        receipt["prompt_tokens_details"]["cached_tokens"] = serde_json::json!(79);
+        assert!(usage(UpstreamProtocol::Chat, &receipt).is_err());
+    }
+
+    #[test]
+    fn deepseek_cache_alias_requires_consistent_provider_evidence() {
+        for (field, invalid) in [
+            ("prompt_cache_hit_tokens", serde_json::json!(-1)),
+            ("prompt_cache_hit_tokens", serde_json::json!(101)),
+            ("prompt_cache_hit_tokens", serde_json::json!("80")),
+            ("prompt_cache_miss_tokens", serde_json::json!(-1)),
+            ("prompt_cache_miss_tokens", serde_json::json!(19)),
+            ("prompt_cache_miss_tokens", serde_json::json!(101)),
+            ("prompt_cache_miss_tokens", serde_json::json!(0.5)),
+        ] {
+            let mut receipt = deepseek_receipt();
+            receipt[field] = invalid;
+            assert!(
+                usage(UpstreamProtocol::Chat, &receipt).is_err(),
+                "{receipt}"
+            );
+        }
+        assert!(
+            usage(
+                UpstreamProtocol::Chat,
+                &serde_json::json!({
+                    "prompt_cache_hit_tokens":u64::MAX,"prompt_cache_miss_tokens":1
+                })
+            )
+            .is_err()
+        );
+
+        let mut partial = deepseek_receipt();
+        partial
+            .as_object_mut()
+            .unwrap()
+            .remove("prompt_cache_hit_tokens");
+        assert_eq!(
+            usage(UpstreamProtocol::Chat, &partial)
+                .unwrap()
+                .cached_input_tokens,
+            None
+        );
+        partial["prompt_cache_hit_tokens"] = Value::Null;
+        assert_eq!(
+            usage(UpstreamProtocol::Chat, &partial)
+                .unwrap()
+                .cached_input_tokens,
+            None
+        );
+        partial["prompt_cache_hit_tokens"] = serde_json::json!(0);
+        partial["prompt_cache_miss_tokens"] = serde_json::json!(100);
+        assert_eq!(
+            usage(UpstreamProtocol::Chat, &partial)
+                .unwrap()
+                .cached_input_tokens,
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn deepseek_cache_alias_survives_json_and_repeated_stream_usage() {
+        let expected = usage(UpstreamProtocol::Chat, &deepseek_receipt()).unwrap();
+        let mut decoder = Decoder::new(UpstreamProtocol::Chat, &Limits::default());
+        let events = decoder
+            .json(&completion(UpstreamProtocol::Chat, deepseek_receipt()))
+            .unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Usage(value) if *value == expected))
+        );
+        assert!(decoder.is_done());
+
+        let mut decoder = Decoder::new(UpstreamProtocol::Chat, &Limits::default());
+        let mut observed = Usage::default();
+        for chunk in [
+            serde_json::json!({"id":"synthetic-response","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}),
+            serde_json::json!({"id":"synthetic-response","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+            serde_json::json!({"id":"synthetic-response","choices":[],"usage":deepseek_receipt()}),
+            serde_json::json!({"id":"synthetic-response","choices":[],"usage":deepseek_receipt()}),
+        ] {
+            for event in decoder
+                .frame(Frame {
+                    event: None,
+                    data: chunk.to_string(),
+                })
+                .unwrap()
+            {
+                if let Event::Usage(value) = event {
+                    observed.merge(value).unwrap();
+                }
+            }
+        }
+        decoder
+            .frame(Frame {
+                event: None,
+                data: "[DONE]".into(),
+            })
+            .unwrap();
+        assert!(decoder.is_done());
+        assert_eq!(observed, expected);
+    }
+
     #[test]
     fn usage_is_not_zero_when_absent_and_cache_is_normalized() {
         assert_eq!(
@@ -1468,6 +1689,10 @@ mod tests {
     #[test]
     fn a07_usage_wire_round_trip_preserves_cache_creation() {
         let expected = Usage {
+            tool: None,
+            google_search_grounded_requests: None,
+            tool_use_prompt_tokens: None,
+
             upstream_cost_atto_usd: None,
             uncached_input_tokens: None,
             input_tokens: Some(10),

@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  exportNativeUsage,
   getAllLogs,
   getAllMidjourneyLogs,
   getAllTaskLogs,
@@ -122,7 +123,7 @@ test('history uses the exact category and self/admin endpoints with scoped, boun
     seen,
     Object.values(endpoints).flatMap((endpoint) => [
       `${endpoint}/self?p=1&page_size=20`,
-      `${endpoint}?p=1&page_size=20`,
+      `${endpoint === '/api/log' ? '/core/v1/usage/admin/logs' : endpoint}?p=1&page_size=20`,
     ])
   )
 })
@@ -149,7 +150,7 @@ test('legacy exported readers all flow through the typed category boundary', asy
     assert.equal(result.data?.kind, kinds[index])
   }
   assert.deepEqual(seen, [
-    '/api/log?p=1&page_size=20',
+    '/core/v1/usage/admin/logs?p=1&page_size=20',
     '/api/log/self?p=1&page_size=20',
     '/api/mj?p=1&page_size=20',
     '/api/mj/self?p=1&page_size=20',
@@ -414,4 +415,69 @@ test('cancellation during a read rejects both success and structured unavailable
     )
     assert.equal(reads, 1)
   }
+})
+
+test('native CSV export keeps active filters, removes pagination, and checks its session', async () => {
+  for (const isAdmin of [false, true]) {
+    login({ role: isAdmin ? 10 : 1 })
+    api.defaults.adapter = async (config) => {
+      const url = new URL(config.url ?? '', 'https://synthetic.example.invalid')
+      assert.equal(
+        url.pathname,
+        `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/export.csv`
+      )
+      assert.deepEqual(Object.fromEntries(url.searchParams), {
+        model_name: 'model/one',
+        group: 'team & self',
+        start_timestamp: '10',
+        end_timestamp: '20',
+        request_id: 'request-1',
+      })
+      assert.equal(config.responseType, 'blob')
+      assert.equal(config.skipAuthRefresh, true)
+      return {
+        ...response(config, new Blob(['"request_id"\r\n"request-1"\r\n'])),
+        headers: { 'content-type': 'text/csv; charset=utf-8' },
+      }
+    }
+    const blob = await exportNativeUsage({
+      params: {
+        p: 3,
+        page_size: 20,
+        model_name: 'model/one',
+        group: 'team & self',
+        start_timestamp: 10,
+        end_timestamp: 20,
+        request_id: 'request-1',
+      },
+      isAdmin,
+    })
+    assert.match(await blob.text(), /request-1/)
+  }
+  login()
+  api.defaults.adapter = async (config) => {
+    login({ id: 8, sid: 'other-session' })
+    return {
+      ...response(config, new Blob(['private'])),
+      headers: { 'content-type': 'text/csv' },
+    }
+  }
+  await assert.rejects(
+    exportNativeUsage({ params: {}, isAdmin: false }),
+    /session changed|Authentication changed/
+  )
+})
+
+test('historical administrator logs retain their explicit legacy endpoint', async () => {
+  login({ role: 10 })
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/api/log?p=1&page_size=20')
+    return response(config, emptyPage())
+  }
+  await readLogsPage({
+    category: 'common',
+    params: {},
+    isAdmin: true,
+    historical: true,
+  })
 })

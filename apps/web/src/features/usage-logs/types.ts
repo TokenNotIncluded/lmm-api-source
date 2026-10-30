@@ -261,7 +261,12 @@ export interface LogOtherData {
   refunded_credits?: number | null
   net_consumption_credits?: number | null
   reserved_credits?: number
-  pricing_dimension?: 'image' | 'text'
+  pricing_dimension?: 'image' | 'text' | 'tool'
+  billing_method?: string
+  tool_kind?: 'deepseek_search' | 'deepseek_fetch' | null
+  tool_requests?: number | null
+  grounded_requests?: number | null
+  tool_input_tokens?: number | null
   token_usage_available?: boolean
   output_image_count?: number | null
   platform_sponsored?: boolean
@@ -448,6 +453,7 @@ export interface GetTaskLogsParams {
  * Configuration for fetching logs by category
  */
 export interface FetchLogsConfig {
+  historical?: boolean
   logCategory: LogCategory
   isAdmin: boolean
   page: number

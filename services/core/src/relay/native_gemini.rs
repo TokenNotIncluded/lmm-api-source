@@ -324,8 +324,18 @@ pub(crate) fn parse(
         }
     }
     let mut tools = Vec::new();
+    let mut google_search = false;
     if let Some(ts) = v.get("tools") {
         for t in array(ts)? {
+            if t.get("googleSearch").is_some() {
+                keys(t, &["googleSearch"])?;
+                keys(&t["googleSearch"], &[])?;
+                if google_search || array(ts)?.len() != 1 {
+                    return Err(RelayError::Unsupported("mixed Gemini Google Search tools"));
+                }
+                google_search = true;
+                continue;
+            }
             keys(t, &["functionDeclarations"])?;
             for f in array(&t["functionDeclarations"])? {
                 keys(
@@ -350,6 +360,11 @@ pub(crate) fn parse(
         }
     }
     canonical["tools"] = json!(tools);
+    if google_search && (v.get("toolConfig").is_some() || v.get("continuationToken").is_some()) {
+        return Err(RelayError::Unsupported(
+            "Google Search tool configuration or continuation",
+        ));
+    }
     if let Some(t) = v.get("toolConfig") {
         keys(t, &["functionCallingConfig"])?;
         let f = &t["functionCallingConfig"];
@@ -375,6 +390,8 @@ pub(crate) fn parse(
     let bytes = serde_json::to_vec(&canonical)
         .map_err(|_| RelayError::Invalid("Gemini conversion failed"))?;
     let mut request = Request::parse(ClientProtocol::Chat, &bytes, limits)?;
+    request.client = ClientProtocol::Gemini;
+    request.google_search = google_search;
     request.continuation_token = continuation_token(v.get("continuationToken"), limits)?;
     if let Some(captured) = super::schema_order::gemini_schemas(body) {
         request.assign_ordered_schemas(&captured);
@@ -408,6 +425,7 @@ pub(crate) struct NativeEncoder {
     limits: Limits,
     blocks: Vec<Block>,
     usage: Usage,
+    grounding_metadata: Option<Value>,
     finish: Option<FinishReason>,
     continuation_token: Option<String>,
     started: bool,
@@ -425,6 +443,7 @@ impl NativeEncoder {
             limits: limits.clone(),
             blocks: Vec::new(),
             usage: Usage::default(),
+            grounding_metadata: None,
             finish: None,
             continuation_token: None,
             started: false,
@@ -588,6 +607,14 @@ impl NativeEncoder {
                 }
                 self.usage.merge(*u)?;
             }
+            Event::GroundingMetadata(metadata) => {
+                let bytes = serde_json::to_vec(metadata)
+                    .map_err(|_| RelayError::Protocol("invalid grounding metadata"))?;
+                if bytes.len() > self.limits.event_bytes {
+                    return Err(RelayError::Limit("grounding metadata"));
+                }
+                self.grounding_metadata = Some(metadata.clone());
+            }
             Event::StopSequence(sequence) => {
                 if !self.started
                     || self.finish.is_some()
@@ -677,6 +704,7 @@ impl NativeEncoder {
             ("promptTokenCount", self.usage.input_tokens),
             ("cachedContentTokenCount", self.usage.cached_input_tokens),
             ("thoughtsTokenCount", self.usage.reasoning_output_tokens),
+            ("toolUsePromptTokenCount", self.usage.tool_use_prompt_tokens),
         ] {
             if let Some(n) = value {
                 usage.insert(key.into(), json!(n));
@@ -693,11 +721,16 @@ impl NativeEncoder {
                 ),
             );
         }
-        if let (Some(i), Some(o)) = (self.usage.input_tokens, self.usage.output_tokens) {
+        if let (Some(i), Some(o)) = (self.usage.input_tokens, self.usage.output_tokens)
+            && (self.usage.google_search_grounded_requests.is_none()
+                || self.usage.tool_use_prompt_tokens.is_some())
+        {
             usage.insert(
                 "totalTokenCount".into(),
                 json!(
                     i.checked_add(o)
+                        .and_then(|total| total
+                            .checked_add(self.usage.tool_use_prompt_tokens.unwrap_or(0)))
                         .ok_or(RelayError::Protocol("usage overflow"))?
                 ),
             );
@@ -711,6 +744,9 @@ impl NativeEncoder {
         let mut candidate = json!({"index":0,"content":{"role":"model","parts":parts},"finishReason":finish_reason});
         if let Some(token) = &self.continuation_token {
             candidate["continuationToken"] = json!(token);
+        }
+        if let Some(metadata) = &self.grounding_metadata {
+            candidate["groundingMetadata"] = metadata.clone();
         }
         let mut response =
             json!({"responseId":self.id,"modelVersion":self.model,"candidates":[candidate]});
@@ -751,6 +787,48 @@ impl NativeEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gemini_grounding_request_is_native_and_does_not_mix_tool_semantics() {
+        let body =
+            json!({"contents":[{"parts":[{"text":"search"}]}],"tools":[{"googleSearch":{}}]});
+        let request = parse(
+            "model",
+            false,
+            &serde_json::to_vec(&body).unwrap(),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert!(request.google_search);
+        assert_eq!(
+            request
+                .upstream_to(UpstreamProtocol::Gemini, "model")
+                .unwrap()["tools"],
+            body["tools"]
+        );
+        assert!(
+            request
+                .upstream_to(UpstreamProtocol::Chat, "model")
+                .is_err()
+        );
+        for tools in [
+            json!([{"googleSearch":{}},{"functionDeclarations":[{"name":"f"}]}]),
+            json!([{"googleSearch":{},"urlContext":{}}]),
+            json!([{"googleSearch":{"maxSearchQueries":1}}]),
+        ] {
+            let mut invalid = body.clone();
+            invalid["tools"] = tools;
+            assert!(
+                parse(
+                    "model",
+                    false,
+                    &serde_json::to_vec(&invalid).unwrap(),
+                    &Limits::default()
+                )
+                .is_err()
+            );
+        }
+    }
     #[test]
     fn gemini_native_rejects_nonzero_cache_creation_details_without_aggregate() {
         for details in [

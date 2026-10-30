@@ -14,6 +14,14 @@ export function LogUsageDisplay({
 }) {
   const { t } = useTranslation()
   const usage = logUsageQuantity(log, other)
+  if (usage.kind === 'tool') {
+    return (
+      <span>
+        {t('Successful tool requests')}:{' '}
+        {usage.count?.toLocaleString() ?? t('Unknown')}
+      </span>
+    )
+  }
   if (usage.kind === 'image') {
     return (
       <span>

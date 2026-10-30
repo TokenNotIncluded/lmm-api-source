@@ -50,6 +50,18 @@ export function LogRequestSummary({
   const netBasis = hasNetConsumptionMetadata(other)
   const amounts = logNetConsumptionAmounts(log, other)
   const usage = logUsageQuantity(log, other)
+  const toolKind =
+    log.tool_kind !== undefined ? log.tool_kind : other?.tool_kind
+  const groundedRequests =
+    log.grounded_requests !== undefined
+      ? log.grounded_requests
+      : other?.grounded_requests
+  const hasGrounding = groundedRequests === 0 || groundedRequests === 1
+  const toolInputTokens = other?.tool_input_tokens
+  const hasToolInputTokens =
+    typeof toolInputTokens === 'number' &&
+    Number.isSafeInteger(toolInputTokens) &&
+    toolInputTokens >= 0
   if (![2, 5, 6].includes(log.type)) return null
   const cacheReadDetails = [
     { label: t('Text cache read tokens'), tokens: other?.cache_text_tokens },
@@ -117,6 +129,21 @@ export function LogRequestSummary({
             </dt>
             <dd>{usage.count?.toLocaleString() ?? t('Unknown')}</dd>
           </div>
+        ) : usage.kind === 'tool' ? (
+          <>
+            <div>
+              <dt className='text-muted-foreground'>
+                {t('Successful tool requests')}
+              </dt>
+              <dd>{usage.count?.toLocaleString() ?? t('Unknown')}</dd>
+            </div>
+            {toolKind && (
+              <div>
+                <dt className='text-muted-foreground'>{t('Tool')}</dt>
+                <dd>{toolKind}</dd>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div>
@@ -137,6 +164,26 @@ export function LogRequestSummary({
             </div>
           </>
         )}
+        {hasGrounding && (
+          <>
+            <div>
+              <dt className='text-muted-foreground'>
+                {t('Grounded requests')}
+              </dt>
+              <dd>{groundedRequests}</dd>
+            </div>
+            <div>
+              <dt className='text-muted-foreground'>
+                {t('Search retrieval tokens (not billed)')}
+              </dt>
+              <dd>
+                {hasToolInputTokens
+                  ? toolInputTokens.toLocaleString()
+                  : t('Not recorded')}
+              </dd>
+            </div>
+          </>
+        )}
         <div>
           <dt className='text-muted-foreground'>{t('Billing Source')}</dt>
           <dd>{t(logFundingLabel(log, other))}</dd>
@@ -153,41 +200,51 @@ export function LogRequestSummary({
             </dd>
           </div>
         )}
-        <div>
-          <dt className='text-muted-foreground'>{t('Cache read tokens')}</dt>
-          <dd>
-            {other?.cache_tokens == null
-              ? t('Not recorded')
-              : formatTokens(other.cache_tokens)}
-          </dd>
-        </div>
-        {other?.cache_read_details_status != null &&
-          cacheReadDetails.map(({ label, tokens }) => (
-            <div key={label}>
-              <dt className='text-muted-foreground'>{label}</dt>
-              <dd className='tabular-nums'>{formatCacheReadDetail(tokens)}</dd>
+        {usage.kind !== 'tool' && (
+          <>
+            <div>
+              <dt className='text-muted-foreground'>
+                {t('Cache read tokens')}
+              </dt>
+              <dd>
+                {other?.cache_tokens == null
+                  ? t('Not recorded')
+                  : formatTokens(other.cache_tokens)}
+              </dd>
             </div>
-          ))}
-        <div>
-          <dt className='text-muted-foreground'>{t('Cache write tokens')}</dt>
-          <dd>
-            {other?.cache_creation_tokens == null
-              ? t('Not recorded')
-              : formatTokens(other.cache_creation_tokens)}
-          </dd>
-        </div>
-        {other && 'cache_creation_tokens_12h' in other && (
-          <div>
-            <dt className='text-muted-foreground'>
-              {t('12-hour cache writes')}
-            </dt>
-            <dd className='tabular-nums'>
-              {cacheWrite12hQuantity(
-                other,
-                log.token_usage_available
-              )?.toLocaleString() ?? t('Unknown')}
-            </dd>
-          </div>
+            {other?.cache_read_details_status != null &&
+              cacheReadDetails.map(({ label, tokens }) => (
+                <div key={label}>
+                  <dt className='text-muted-foreground'>{label}</dt>
+                  <dd className='tabular-nums'>
+                    {formatCacheReadDetail(tokens)}
+                  </dd>
+                </div>
+              ))}
+            <div>
+              <dt className='text-muted-foreground'>
+                {t('Cache write tokens')}
+              </dt>
+              <dd>
+                {other?.cache_creation_tokens == null
+                  ? t('Not recorded')
+                  : formatTokens(other.cache_creation_tokens)}
+              </dd>
+            </div>
+            {other && 'cache_creation_tokens_12h' in other && (
+              <div>
+                <dt className='text-muted-foreground'>
+                  {t('12-hour cache writes')}
+                </dt>
+                <dd className='tabular-nums'>
+                  {cacheWrite12hQuantity(
+                    other,
+                    log.token_usage_available
+                  )?.toLocaleString() ?? t('Unknown')}
+                </dd>
+              </div>
+            )}
+          </>
         )}
         {(other?.audio_usage_status != null || audioSeconds != null) && (
           <div>

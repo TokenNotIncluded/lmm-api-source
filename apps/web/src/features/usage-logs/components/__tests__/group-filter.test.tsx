@@ -70,7 +70,8 @@ await i18n
   .init({ lng: 'en', resources: {}, fallbackLng: 'en' })
 
 function Controls() {
-  const { setSensitiveVisible, setViewScope } = useUsageLogsContext()
+  const { setSensitiveVisible, setViewScope, setUsageSource } =
+    useUsageLogsContext()
   return (
     <>
       <button type='button' onClick={() => setSensitiveVisible(false)}>
@@ -78,6 +79,12 @@ function Controls() {
       </button>
       <button type='button' onClick={() => setSensitiveVisible(true)}>
         Reveal test
+      </button>
+      <button type='button' onClick={() => setUsageSource('historical')}>
+        History test
+      </button>
+      <button type='button' onClick={() => setUsageSource('native')}>
+        Current test
       </button>
       <button type='button' onClick={() => setViewScope('self')}>
         Personal test
@@ -409,6 +416,86 @@ test('failed suggestions still allow a historical custom group to be submitted',
     await press(input, 'Enter')
     await press(input, 'Enter')
     assert.equal(fixture.router.state.location.search.group, 'historical')
+  } finally {
+    await fixture.cleanup()
+  }
+})
+
+for (const admin of [false, true]) {
+  test(`${admin ? 'admin' : 'personal'} export downloads the applied filters across pages`, async () => {
+    const fixture = await renderFilter(admin)
+    const originalCreate = URL.createObjectURL
+    const originalRevoke = URL.revokeObjectURL
+    const originalClick = dom.HTMLAnchorElement.prototype.click
+    let exported: Blob | undefined
+    let download = ''
+    let revoked = ''
+    try {
+      URL.createObjectURL = (blob) => {
+        assert.ok(blob instanceof Blob)
+        exported = blob
+        return 'blob:synthetic-native-export'
+      }
+      URL.revokeObjectURL = (url) => {
+        revoked = url
+      }
+      dom.HTMLAnchorElement.prototype.click = function () {
+        download = this.download
+      }
+      api.defaults.adapter = async (config) => {
+        const url = new URL(config.url ?? '', 'https://example.invalid')
+        assert.equal(
+          url.pathname,
+          `/core/v1/usage/${admin ? 'admin' : 'self'}/export.csv`
+        )
+        assert.equal(url.searchParams.get('group'), 'historical')
+        assert.equal(url.searchParams.has('p'), false)
+        assert.equal(url.searchParams.has('page_size'), false)
+        return {
+          config,
+          headers: { 'content-type': 'text/csv' },
+          status: 200,
+          statusText: 'OK',
+          data: new Blob(['"request_id"\r\n"one"\r\n']),
+        }
+      }
+      await clickButton('Export CSV')
+      assert.equal(download, 'lmm-native-usage.csv')
+      assert.equal(revoked, 'blob:synthetic-native-export')
+      assert.ok(exported)
+      assert.match(await exported.text(), /one/)
+      assert.equal(fixture.container.querySelector('[role="alert"]'), null)
+    } finally {
+      URL.createObjectURL = originalCreate
+      URL.revokeObjectURL = originalRevoke
+      dom.HTMLAnchorElement.prototype.click = originalClick
+      await fixture.cleanup()
+    }
+  })
+}
+
+test('historical mode retains historical statistics and hides the native export action', async () => {
+  const fixture = await renderFilter(true)
+  try {
+    await clickButton('History test')
+    assert.ok(fixture.requests.some((url) => url.startsWith('/api/log/stat?')))
+    assert.equal(
+      [...fixture.container.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Export CSV'
+      ),
+      false
+    )
+    await clickButton('Current test')
+    assert.ok(
+      fixture.requests.some((url) =>
+        url.startsWith('/core/v1/usage/admin/stats?')
+      )
+    )
+    assert.ok(
+      [...fixture.container.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Export CSV'
+      )
+    )
   } finally {
     await fixture.cleanup()
   }

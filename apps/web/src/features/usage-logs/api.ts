@@ -67,12 +67,14 @@ export async function readLogsPage({
   isAdmin,
   signal,
   scope: expectedScope,
+  historical = false,
 }: {
   category: LogCategory
   params: GetLogsParams | GetMidjourneyLogsParams | GetTaskLogsParams
   isAdmin: boolean
   signal?: AbortSignal
   scope?: UsageStatisticsScope
+  historical?: boolean
 }): Promise<LogsPage> {
   const scope = expectedScope ?? readUsageStatisticsScope()
   if (!scope) throw new Error('Usage history session unavailable')
@@ -83,21 +85,22 @@ export async function readLogsPage({
       : category === 'drawing'
         ? '/api/mj'
         : '/api/task'
+  const path =
+    category === 'common' && isAdmin && !historical
+      ? '/core/v1/usage/admin/logs'
+      : buildApiPath(endpoint, isAdmin)
   const query = buildQueryParams({ p: 1, page_size: 20, ...params })
   let payload: unknown
   try {
-    const response = await api.get<unknown>(
-      `${buildApiPath(endpoint, isAdmin)}?${query}`,
-      {
-        signal,
-        authScope: { userId: scope.userId, sessionId: scope.sessionId },
-        disableDuplicate: true,
-        skipBusinessError: true,
-        skipErrorHandler: true,
-        skipAuthRefresh: true,
-        timeout: 10_000,
-      }
-    )
+    const response = await api.get<unknown>(`${path}?${query}`, {
+      signal,
+      authScope: { userId: scope.userId, sessionId: scope.sessionId },
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+      skipAuthRefresh: true,
+      timeout: 10_000,
+    })
     payload = response.data
   } catch (error) {
     assertLogScope(scope, signal)
@@ -134,8 +137,13 @@ async function fetchLogStats<T>(
   const queryParams = buildQueryParams(
     params as unknown as Record<string, unknown>
   )
-  const path = buildApiPath(endpoint, isAdmin)
-  const res = await api.get(`${path}/stat?${queryParams}`)
+  const path =
+    isAdmin && endpoint === '/api/log'
+      ? '/core/v1/usage/admin'
+      : buildApiPath(endpoint, isAdmin)
+  const res = await api.get(
+    `${path}/${isAdmin && endpoint === '/api/log' ? 'stats' : 'stat'}?${queryParams}`
+  )
   return res.data
 }
 
@@ -183,3 +191,43 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('task', params, false)
+
+/** Export the same filters as the current native list, across every matching page. */
+export async function exportNativeUsage({
+  params,
+  isAdmin,
+  signal,
+  scope: expectedScope,
+}: {
+  params: GetLogsParams
+  isAdmin: boolean
+  signal?: AbortSignal
+  scope?: UsageStatisticsScope
+}): Promise<Blob> {
+  const scope = expectedScope ?? readUsageStatisticsScope()
+  if (!scope) throw new Error('Usage history session unavailable')
+  assertLogScope(scope, signal)
+  const { p: _page, page_size: _size, ...filters } = params
+  const query = buildQueryParams(filters)
+  const response = await api.get<Blob>(
+    `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/export.csv?${query}`,
+    {
+      responseType: 'blob',
+      signal,
+      authScope: { userId: scope.userId, sessionId: scope.sessionId },
+      disableDuplicate: true,
+      skipAuthRefresh: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+      timeout: 30_000,
+    }
+  )
+  assertLogScope(scope, signal)
+  if (
+    !(response.data instanceof Blob) ||
+    !String(response.headers['content-type']).startsWith('text/csv')
+  ) {
+    throw new Error('Usage export unavailable')
+  }
+  return response.data
+}

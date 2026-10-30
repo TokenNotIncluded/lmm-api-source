@@ -2696,10 +2696,28 @@ fn model_gateway_with_origins(
                     &target.upstream_model,
                     upstream.protocol,
                     upstream.endpoint.as_str(),
-                    config.input_token_ceiling,
-                    // Binding needs a usable positive output capacity. Each
-                    // selected request checks its actual output ceiling.
-                    1,
+                    if matches!(
+                        upstream.protocol,
+                        crate::routing::Protocol::DeepSeekSearch
+                            | crate::routing::Protocol::DeepSeekFetch
+                    ) {
+                        0
+                    } else {
+                        config.input_token_ceiling
+                    },
+                    // Input-only and native tool contracts have no output
+                    // tokens. Text requests check their actual output ceiling.
+                    if upstream.protocol.input_only()
+                        || matches!(
+                            upstream.protocol,
+                            crate::routing::Protocol::DeepSeekSearch
+                                | crate::routing::Protocol::DeepSeekFetch
+                        )
+                    {
+                        0
+                    } else {
+                        1
+                    },
                 )
                 .map_err(|_| invalid_config("invalid model provider context binding"))?;
         }
@@ -4469,6 +4487,45 @@ rules=[{{id=1,model='model',group='allowed',speed='standard',rates={{input=20000
             document.replace("key_groups=[{key_id=1,group='allowed'}]", "key_groups=[]");
         let dynamic_gateway = model_gateway(pool.clone(), dynamic_keys.as_bytes(), false).unwrap();
         let _router = dynamic_gateway.router();
+        for protocol in [
+            "openai_embeddings",
+            "jina_rerank",
+            "deepseek_search",
+            "deepseek_fetch",
+        ] {
+            let native = document
+                .replace("protocol='openai_chat'", &format!("protocol='{protocol}'"))
+                .replace(
+                    "max_output_tokens=20,contract_revision",
+                    "max_output_tokens=0,contract_revision",
+                )
+                .replace("output=4000000,cache_read=500000", "output=0,cache_read=0");
+            let native = if protocol.starts_with("deepseek_") {
+                native
+                    .replace("max_input_tokens=64", "max_input_tokens=0")
+                    .replace("input=2000000", "input=0")
+                    .replace("request=0", "request=750")
+            } else {
+                native
+            };
+            assert!(
+                model_gateway(pool.clone(), native.as_bytes(), false).is_ok(),
+                "{protocol}"
+            );
+            assert!(
+                model_gateway(
+                    pool.clone(),
+                    native
+                        .replace(
+                            "max_output_tokens=0,contract_revision",
+                            "max_output_tokens=1,contract_revision"
+                        )
+                        .as_bytes(),
+                    false
+                )
+                .is_err()
+            );
+        }
         // Empty static access never bypasses provider binding validation.
         assert!(
             model_gateway(

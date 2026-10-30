@@ -4,6 +4,8 @@
 //! exposed. Core credits are exact (500,000/USD); holds are never consumption.
 //! Administrator data includes all actors/accounts and marks historical imports
 //! as uncovered; neither opening counters nor archived quota become native usage.
+mod export;
+
 use crate::{
     billing::{
         CREDITS_PER_USD,
@@ -85,6 +87,13 @@ struct Filter {
     offset: i64,
 }
 impl UsageQuery {
+    fn validate_export(&self) -> Result<(), Error> {
+        if self.p.is_some() || self.page_size.is_some() {
+            return Err(Error::Invalid);
+        }
+        Ok(())
+    }
+
     fn validate(&self, now: i64, administrator: bool) -> Result<Filter, Error> {
         let end = self.end_timestamp.unwrap_or(now);
         let start = self
@@ -402,6 +411,8 @@ impl ValidatedRequest {
                 || event.usage.cached != usage.cached
                 || event.usage.output != usage.output
                 || event.usage.image != usage.image
+                || (price.tool.is_some() != event.usage.tool.is_some())
+                || (price.grounding.is_some() != event.usage.grounding.is_some())
                 || price.cost(event.usage).map_err(|_| Error::Storage)? != amounts.gross
             {
                 return Err(Error::Storage);
@@ -479,12 +490,20 @@ impl ValidatedRequest {
     }
     fn log(&self) -> Value {
         let image = self.price.image.is_some();
+        let tool = self.price.tool.is_some();
+        let text = !image && !tool;
         let mut other = json!({"credential_source":self.credential_source,"request_state":self.state,"usage_status":if self.settled() {"settled"}else{"incomplete"},
             "reserved_credits":if self.held() {self.reserved}else{0},
-            "pricing_dimension":if image {"image"}else{"text"},
-            "token_usage_available":self.settled() && !image,
+            "pricing_dimension":if image {"image"}else if tool {"tool"}else{"text"},
+            "billing_method":if tool {"per_successful_request"}else{"measured_usage"},
+            "tool_kind":self.price.tool.as_ref().map(|p|p.kind.protocol_name()),
+            "tool_requests":self.usage.tool.filter(|_|self.settled()).map(|u|u.successful_requests),
+            "provider_http_status":self.usage.tool.filter(|_|self.settled()).map(|u|u.http_status),
+            "grounded_requests":self.usage.grounding.filter(|_|self.settled()).map(|u|u.grounded_requests),
+            "tool_input_tokens":self.usage.grounding.filter(|_|self.settled()).and_then(|u|u.tool_input_tokens),
+            "token_usage_available":self.settled() && text,
             "output_image_count":self.usage.image.filter(|_|self.settled()).map(|u|u.output_images),
-            "cache_tokens":if self.settled() && !image {Some(self.usage.cached)}else{None},
+            "cache_tokens":if self.settled() && text {Some(self.usage.cached)}else{None},
             "billing_source":if self.subscription() {"subscription"}else{"wallet"},
             "payer_kind":self.payer_kind,"pricing_credits_per_usd":CREDITS_PER_USD,
             "platform_sponsored":self.sponsored,
@@ -497,12 +516,18 @@ impl ValidatedRequest {
             "platform_sponsored":self.sponsored,
             "quota":null,"gross_settled_credits":null,"refunded_credits":null,"net_consumption_credits":null,
             "quota_money_available":false,"billing_basis":"incomplete","wallet_debit_supported":false,
-            "pricing_dimension":if image {"image"}else{"text"},"token_usage_available":self.settled() && !image,
+            "pricing_dimension":if image {"image"}else if tool {"tool"}else{"text"},"token_usage_available":self.settled() && text,
+            "billing_method":if tool {"per_successful_request"}else{"measured_usage"},
+            "tool_kind":self.price.tool.as_ref().map(|p|p.kind.protocol_name()),
+            "tool_requests":self.usage.tool.filter(|_|self.settled()).map(|u|u.successful_requests),
+            "provider_http_status":self.usage.tool.filter(|_|self.settled()).map(|u|u.http_status),
+            "outcome":self.outcome,
+            "grounded_requests":self.usage.grounding.filter(|_|self.settled()).map(|u|u.grounded_requests),
             "output_image_count":self.usage.image.filter(|_|self.settled()).map(|u|u.output_images)});
         if self.settled() {
             self.amounts.project(&mut item);
             self.amounts.project(&mut other);
-            if !image {
+            if text {
                 item["prompt_tokens"] = json!(self.usage.input);
                 item["completion_tokens"] = json!(self.usage.output);
                 if let Some(created) = self.usage.cache_creation {
@@ -532,6 +557,51 @@ struct Summary {
     sponsored_net: i64,
     session_sources: bool,
     images: i64,
+    tool_requests: i64,
+    grounded_requests: i64,
+    cache: CacheSummary,
+}
+#[derive(Default)]
+struct CacheSummary {
+    read: i64,
+    writes: [i64; 4],
+    missing: [bool; 4],
+}
+impl CacheSummary {
+    fn include(&mut self, usage: Usage) -> Result<(), Error> {
+        add(&mut self.read, usage.cached)?;
+        let creation = usage.cache_creation;
+        for (index, count) in [
+            creation.map(|c| c.total),
+            creation.and_then(|c| c.five_minute),
+            creation.and_then(|c| c.one_hour),
+            creation.and_then(|c| c.twelve_hour),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if let Some(count) = count {
+                add(&mut self.writes[index], count)?;
+            } else {
+                self.missing[index] = true;
+            }
+        }
+        Ok(())
+    }
+    fn project(&self, value: &mut Value) {
+        value["cache_read_tokens"] = json!(self.read);
+        for (index, name) in [
+            "cache_write_tokens",
+            "cache_write_5m_tokens",
+            "cache_write_1h_tokens",
+            "cache_write_12h_tokens",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            value[name] = json!((!self.missing[index]).then_some(self.writes[index]));
+        }
+    }
 }
 fn recent(at: i64, now: i64) -> bool {
     at > now - 60 && at <= now
@@ -545,6 +615,18 @@ impl Summary {
             add(&mut self.incomplete, 1)?;
         }
         if r.settled() {
+            if r.price.image.is_none() && r.price.tool.is_none() {
+                self.cache.include(r.usage)?;
+            }
+            if let Some(tool) = r.usage.tool {
+                add(&mut self.tool_requests, i64::from(tool.successful_requests))?;
+            }
+            if let Some(grounding) = r.usage.grounding {
+                add(
+                    &mut self.grounded_requests,
+                    i64::from(grounding.grounded_requests),
+                )?;
+            }
             if let Some(image) = r.usage.image {
                 add(&mut self.images, i64::from(image.output_images))?;
             }
@@ -570,9 +652,11 @@ impl Summary {
         let mut data = json!({"rpm":self.rpm,"tpm":self.tpm,"reserved_credits":self.reserved,"incomplete_count":self.incomplete,
             "usage_scope":if self.session_sources {"actor_personal_usage"}else{"actor_personal_key"},"settlement_scope":"settled_requests","spending_scope":"all_payers","team_funded_quota":self.team_net,
             "output_image_count":self.images,"token_count_scope":"settled_text_requests",
+            "tool_requests":self.tool_requests,"grounded_requests":self.grounded_requests,
             "platform_sponsored_quota":self.sponsored_net,
             "personal_wallet_quota":self.personal_wallet_source_net,"personal_wallet_quota_basis":"wallet_source_net_consumption_not_debit"});
         self.amounts.project(&mut data);
+        self.cache.project(&mut data);
         data
     }
 }
@@ -582,7 +666,11 @@ struct Bucket {
     tokens: i64,
     count: i64,
     image_count: i64,
+    tool_requests: i64,
+    grounded_requests: i64,
     has_images: bool,
+    has_tools: bool,
+    has_grounding: bool,
     has_text: bool,
     has_session_sources: bool,
 }
@@ -592,6 +680,28 @@ enum Projection {
     Stats,
     Data,
     AdministratorData,
+    AdministratorLogs,
+    AdministratorStats,
+    Export,
+    AdministratorExport,
+}
+impl Projection {
+    fn administrator(self) -> bool {
+        matches!(
+            self,
+            Self::AdministratorData
+                | Self::AdministratorLogs
+                | Self::AdministratorStats
+                | Self::AdministratorExport
+        )
+    }
+    fn export(self) -> bool {
+        matches!(self, Self::Export | Self::AdministratorExport)
+    }
+}
+enum ReadOutput {
+    Json(Value),
+    Csv(Vec<u8>),
 }
 impl UsageStore {
     async fn read(
@@ -599,8 +709,8 @@ impl UsageStore {
         secret: &str,
         q: UsageQuery,
         projection: Projection,
-    ) -> Result<Value, Error> {
-        let administrator = matches!(projection, Projection::AdministratorData);
+    ) -> Result<ReadOutput, Error> {
+        let administrator = projection.administrator();
         let mut tx = self.pool.begin().await?;
         sqlx::query(if administrator {
             "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
@@ -638,6 +748,9 @@ impl UsageStore {
                 .fetch_one(&mut *tx)
                 .await?;
         let f = q.validate(now, administrator)?;
+        if projection.export() {
+            q.validate_export()?;
+        }
         let selected_user = if administrator {
             if let Some(username) = q.username.as_deref().filter(|name| !name.is_empty()) {
                 let user = sqlx::query_scalar::<_, i64>(
@@ -646,11 +759,9 @@ impl UsageStore {
                 .bind(username)
                 .fetch_optional(&mut *tx)
                 .await?;
-                let Some(user) = user else {
-                    tx.commit().await?;
-                    return Ok(json!([]));
-                };
-                Some(user)
+                // Zero is not a valid actor: an unknown username selects an empty
+                // result while retaining the requested projection's response shape.
+                Some(user.unwrap_or(0))
             } else {
                 None
             }
@@ -658,6 +769,10 @@ impl UsageStore {
             Some(actor.user_id)
         };
         let mut summary = Summary::default();
+        let mut csv = projection
+            .export()
+            .then(export::NativeCsv::new)
+            .transpose()?;
         let mut total = 0;
         let mut items = Vec::new();
         let mut ids = HashSet::new();
@@ -694,8 +809,13 @@ impl UsageStore {
                 // a page or aggregate, including explicit zero-cost receipts.
                 let r = ValidatedRequest::from_row(row?)?;
                 summary.include(&r, now)?;
+                if let Some(csv) = &mut csv {
+                    csv.include(&r)?;
+                }
                 match projection {
-                    Projection::Logs if total > f.offset && total <= f.offset + f.size => {
+                    Projection::Logs | Projection::AdministratorLogs
+                        if total > f.offset && total <= f.offset + f.size =>
+                    {
                         let item = r.log();
                         if !ids.insert(presentation_id(&r.id)) {
                             return Err(Error::Collision);
@@ -714,11 +834,25 @@ impl UsageStore {
                         let bucket = buckets.entry(key).or_default();
                         bucket.amounts.accumulate(r.amounts)?;
                         bucket.has_images |= r.price.image.is_some();
-                        bucket.has_text |= r.price.image.is_none();
+                        bucket.has_tools |= r.price.tool.is_some();
+                        bucket.has_grounding |= r.price.grounding.is_some();
+                        bucket.has_text |= r.price.image.is_none() && r.price.tool.is_none();
                         bucket.has_session_sources |=
                             matches!(r.credential_source, "drawing_session" | "assistant_session");
                         if let Some(image) = r.usage.image {
                             add(&mut bucket.image_count, i64::from(image.output_images))?;
+                        }
+                        if let Some(tool) = r.usage.tool {
+                            add(
+                                &mut bucket.tool_requests,
+                                i64::from(tool.successful_requests),
+                            )?;
+                        }
+                        if let Some(grounding) = r.usage.grounding {
+                            add(
+                                &mut bucket.grounded_requests,
+                                i64::from(grounding.grounded_requests),
+                            )?;
                         }
                         add(&mut bucket.tokens, r.usage.input + r.usage.output)?;
                         add(&mut bucket.count, 1)?;
@@ -730,18 +864,33 @@ impl UsageStore {
                 }
             }
         }
+        if let Some(csv) = csv {
+            tx.commit().await?;
+            return Ok(ReadOutput::Csv(csv.finish()));
+        }
         let result = match projection {
-            Projection::Logs => {
+            Projection::Logs | Projection::AdministratorLogs => {
                 json!({"items":items,"total":total,"page":f.page,"page_size":f.size})
             }
-            Projection::Stats => summary.project(),
+            Projection::Stats | Projection::AdministratorStats => {
+                let mut result = summary.project();
+                if administrator {
+                    result["usage_scope"] = json!("administrator_all_accounts");
+                }
+                result
+            }
+            Projection::Export | Projection::AdministratorExport => {
+                unreachable!("CSV returned above")
+            }
             Projection::Data | Projection::AdministratorData => {
                 // Native buckets keep the actor, funding split and exact net credits.
                 // @context-fold begin native-usage-data-buckets
                 let mut data = Vec::new();
                 for ((user, at, model, payer_kind, subscription, sponsored), bucket) in buckets {
-                    let mut item = json!({"user_id":user,"model_name":model,"created_at":at,"token_used":if bucket.has_images && !bucket.has_text {None}else{Some(bucket.tokens)},
+                    let mut item = json!({"user_id":user,"model_name":model,"created_at":at,"token_used":if (bucket.has_images || bucket.has_tools) && !bucket.has_text {None}else{Some(bucket.tokens)},
                         "output_image_count":bucket.image_count,"token_count_scope":"settled_text_requests",
+                        "tool_requests":bucket.has_tools.then_some(bucket.tool_requests),
+                        "grounded_requests":bucket.has_grounding.then_some(bucket.grounded_requests),
                         "platform_sponsored":sponsored,
                         "count":bucket.count,"payer_kind":payer_kind,"subscription_funded":subscription,"usage_scope":if administrator {"administrator_all_accounts"}else if bucket.has_session_sources {"actor_personal_usage"}else{"actor_personal_key"},"settlement_scope":"settled_requests"});
                     bucket.amounts.project(&mut item);
@@ -752,12 +901,16 @@ impl UsageStore {
             }
         };
         tx.commit().await?;
-        Ok(result)
+        Ok(ReadOutput::Json(result))
     }
 }
 
 pub fn router(store: UsageStore) -> Router {
     Router::new()
+        .route("/core/v1/usage/admin/logs", get(administrator_logs))
+        .route("/core/v1/usage/admin/stats", get(administrator_stats))
+        .route("/core/v1/usage/admin/export.csv", get(administrator_export))
+        .route("/core/v1/usage/self/export.csv", get(self_export))
         .route("/api/log/self", get(logs))
         .route("/api/log/self/stat", get(stats))
         .route("/api/data/self", get(data))
@@ -784,7 +937,7 @@ async fn respond(
     query: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
     projection: Projection,
 ) -> Response {
-    let administrator = matches!(projection, Projection::AdministratorData);
+    let administrator = projection.administrator();
     let result = async {
         if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
             return Err(IdentityError::Unauthorized.into());
@@ -802,7 +955,20 @@ async fn respond(
     }
     .await;
     match result {
-        Ok(data) => {
+        Ok(ReadOutput::Csv(bytes)) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"lmm-native-usage.csv\"",
+                ),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Ok(ReadOutput::Json(data)) => {
             let mut response = json!({"success":true,"message":"","data":data});
             if administrator {
                 response["availability"] = json!("partial");
@@ -885,6 +1051,35 @@ async fn administrator_data(
     q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     respond(s, h, q, Projection::AdministratorData).await
+}
+
+async fn administrator_logs(
+    State(s): State<UsageStore>,
+    h: HeaderMap,
+    q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    respond(s, h, q, Projection::AdministratorLogs).await
+}
+async fn administrator_stats(
+    State(s): State<UsageStore>,
+    h: HeaderMap,
+    q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    respond(s, h, q, Projection::AdministratorStats).await
+}
+async fn administrator_export(
+    State(s): State<UsageStore>,
+    h: HeaderMap,
+    q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    respond(s, h, q, Projection::AdministratorExport).await
+}
+async fn self_export(
+    State(s): State<UsageStore>,
+    h: HeaderMap,
+    q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    respond(s, h, q, Projection::Export).await
 }
 
 /// Scoped OAuth-family activity from real immutable, source-checked ledger
@@ -1104,3 +1299,6 @@ mod tests {
         assert_eq!(presentation_id("one"), presentation_id("one"));
     }
 }
+
+#[cfg(test)]
+mod export_tests;

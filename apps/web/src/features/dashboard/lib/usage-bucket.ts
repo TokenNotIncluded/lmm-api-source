@@ -20,6 +20,8 @@ const bucketShape = {
   quota_money_available: z.boolean().optional(),
   quota_money_basis: z.string().optional(),
   output_image_count: counter.nullable().optional(),
+  tool_requests: counter.nullable().optional(),
+  grounded_requests: counter.nullable().optional(),
   token_count_scope: z.literal('settled_text_requests').optional(),
   usage_scope: usageScopeSchema.optional(),
   settlement_scope: z.literal('settled_requests').optional(),
@@ -64,7 +66,9 @@ const nativeBucketSchema = z
     (bucket) =>
       bucket.quota === bucket.net_consumption_credits &&
       bucket.gross_settled_credits - bucket.refunded_credits === bucket.quota &&
-      (bucket.token_used !== null || bucket.output_image_count > 0),
+      (bucket.token_used !== null ||
+        bucket.output_image_count > 0 ||
+        bucket.tool_requests != null),
     'Invalid native consumption receipt'
   )
 
@@ -76,6 +80,8 @@ export const usageBucketSchema = z
       bucket.token_count_scope !== undefined ||
       bucket.settlement_scope !== undefined ||
       bucket.output_image_count !== undefined ||
+      bucket.tool_requests !== undefined ||
+      bucket.grounded_requests !== undefined ||
       bucket.platform_sponsored !== undefined ||
       bucket.wallet_debit_supported !== undefined
     if (native && !nativeBucketSchema.safeParse(bucket).success) {

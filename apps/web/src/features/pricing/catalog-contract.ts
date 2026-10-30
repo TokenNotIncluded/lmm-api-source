@@ -107,14 +107,14 @@ const cacheWrite12hTiers = z
 export const nativeTokenPriceSchema = z
   .object({
     currency: z.literal('USD'),
-    unit: z.literal('million_tokens'),
+    unit: z.enum(['million_tokens', 'successful_requests']),
     rate_basis: rateBasis,
     group_multiplier: z.number().finite().nonnegative(),
     input: amount,
     output: amount,
     cache_read: amount,
     cache_write: z.null(),
-    request: z.null(),
+    request: amount,
     final_cost_depends_on_usage: z.literal(true),
     // Every tier inherits this token price's currency, unit and rate basis.
     cache_write_12h_tiers: cacheWrite12hTiers.optional(),
@@ -126,6 +126,17 @@ export const nativeTokenPriceSchema = z
         price.output === null &&
         price.cache_read === null),
     'Tiered prices cannot also claim a scalar token price'
+  )
+  .refine(
+    (price) =>
+      price.unit === 'successful_requests'
+        ? price.request !== null &&
+          price.input === null &&
+          price.output === null &&
+          price.cache_read === null &&
+          price.cache_write_12h_tiers === undefined
+        : price.request === null,
+    'Request prices and token prices use separate units'
   )
 
 export const nativeUpstreamCostPriceSchema = z

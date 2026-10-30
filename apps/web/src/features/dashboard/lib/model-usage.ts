@@ -122,19 +122,22 @@ export function summarizeModelUsage(data: readonly QuotaDataItem[]) {
       models.set(model, row)
     }
     row.count += finite(item.count)
-    // Native image-only buckets have no token receipt. A mixed model's known
+    // Native image/tool-only buckets have no token receipt. A mixed model's known
     // text sum remains valid and retains its settled-text-only scope below.
-    const imageOnly =
+    const nonTextOnly =
       item.token_used === null &&
       item.token_count_scope === 'settled_text_requests' &&
-      typeof item.output_image_count === 'number' &&
-      item.output_image_count > 0
+      ((typeof item.output_image_count === 'number' &&
+        item.output_image_count > 0) ||
+        (typeof item.tool_requests === 'number' &&
+          Number.isSafeInteger(item.tool_requests) &&
+          item.tool_requests >= 0))
     if (
       typeof item.token_used === 'number' &&
       Number.isFinite(item.token_used)
     ) {
       row.tokens = (row.tokens ?? 0) + item.token_used
-    } else if (!imageOnly) {
+    } else if (!nonTextOnly) {
       unavailableTokens.add(model)
     }
     row.quota += finite(item.quota)

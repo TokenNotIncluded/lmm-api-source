@@ -8,6 +8,7 @@ pub(crate) mod assistant_gift;
 mod billing;
 mod catalog;
 mod checkpoints;
+pub mod grounding_price;
 mod honeypot;
 mod image_api;
 pub mod image_execution;
@@ -15,14 +16,18 @@ pub mod image_http;
 pub mod image_internal;
 pub mod image_price;
 mod image_provider;
+mod input_api;
 mod legacy_keys;
 mod native;
+mod native_http;
 pub mod pricing;
 mod provider_policy;
 mod routing;
 #[cfg(test)]
 mod selected_bound_tests;
 mod systemone;
+mod tool_api;
+pub mod tool_price;
 pub mod trusted_delegation;
 
 use crate::{
@@ -101,6 +106,7 @@ pub struct ModelGateway {
     oauth2: Option<crate::identity::grants::LmmIssuer>,
     images: Option<image_execution::ImageService>,
     systemone: systemone::Host,
+    native_http: native_http::Host,
 }
 
 impl ModelGateway {
@@ -194,6 +200,7 @@ impl ModelGateway {
             bridge,
             relay,
             systemone: systemone::Host::new(&limits),
+            native_http: native_http::Host::new(&limits),
             limits,
             local_streaming: false,
             honeypot: None,
@@ -340,6 +347,8 @@ impl ModelGateway {
             .layer(DefaultBodyLimit::max(self.limits.request_bytes))
             .with_state(self.clone());
         let router = router.merge(systemone::router(self.clone()));
+        let router = router.merge(input_api::router(self.clone()));
+        let router = router.merge(tool_api::router(self.clone()));
         let router = if self.images.is_some() {
             router.merge(image_api::router(self.clone()))
         } else {
@@ -370,7 +379,7 @@ impl ModelGateway {
     }
 
     pub async fn drain(&self, grace: Duration) -> relay::DrainReport {
-        let (normal, marked, images, systemone) = tokio::join!(
+        let (normal, marked, images, systemone, native) = tokio::join!(
             self.relay.drain(grace),
             async {
                 if let Some(honeypot) = &self.honeypot {
@@ -390,6 +399,7 @@ impl ModelGateway {
                 }
             },
             self.systemone.drain(grace),
+            self.native_http.drain(grace),
         );
         relay::DrainReport {
             cancelled: normal.cancelled.saturating_add(marked.cancelled),
@@ -397,7 +407,8 @@ impl ModelGateway {
                 .remaining
                 .saturating_add(marked.remaining)
                 .saturating_add(images)
-                .saturating_add(systemone),
+                .saturating_add(systemone)
+                .saturating_add(native),
         }
     }
 

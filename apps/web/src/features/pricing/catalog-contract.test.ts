@@ -15,7 +15,7 @@ import {
   formatImageVariantCredits,
   formatImageVariantUSD,
 } from './lib/image-price'
-import { formatGroupPrice, formatPrice } from './lib/price'
+import { formatGroupPrice, formatPrice, formatRequestPrice } from './lib/price'
 import { estimateRequestCost } from './lib/request-estimate'
 import {
   getUpstreamCostPrice,
@@ -530,6 +530,81 @@ test('invalid denomination, unit, duplicate group model and legacy envelopes fai
   }
 })
 
+test('native tools retain successful request units, group prices and exact endpoint paths', () => {
+  const input = fixture()
+  const first = input.models[0]
+  assert.ok(first?.token_price)
+  input.models = [
+    {
+      ...first,
+      model: 'deepseek-search',
+      apis: ['deepseek-search'],
+      token_price: {
+        ...first.token_price,
+        unit: 'successful_requests',
+        input: null,
+        output: null,
+        cache_read: null,
+        request: 0.00075,
+      },
+    },
+    {
+      ...first,
+      id: 'fetch',
+      model: 'deepseek-fetch',
+      apis: ['deepseek-fetch'],
+      token_price: {
+        ...first.token_price,
+        unit: 'successful_requests',
+        input: null,
+        output: null,
+        cache_read: null,
+        request: 0,
+      },
+    },
+  ]
+  const output = adaptNativePricing(nativePricingSchema.parse(input))
+  const [search, fetch] = output.data
+  assert.ok(search && fetch)
+  assert.equal(search.quota_type, 1)
+  assert.equal(search.group_quota_types?.standard, 1)
+  assert.equal(search.input_price, null)
+  assert.equal(search.model_price, 0.00075)
+  assert.equal(search.group_prices?.standard?.model_price, 0.00075)
+  assert.equal(formatPrice(search, 'input', 'M', 'USD'), '-')
+  assert.notEqual(formatRequestPrice(search, 'USD', 'standard'), '-')
+  assert.equal(fetch.model_price, 0)
+  assert.equal(
+    output.supported_endpoint['deepseek-search']?.path,
+    '/v1/tools/search'
+  )
+  assert.equal(
+    output.supported_endpoint['deepseek-fetch']?.path,
+    '/v1/tools/fetch'
+  )
+  const price = input.models[0]?.token_price
+  assert.ok(price)
+  price.input = 1
+  assert.equal(nativePricingSchema.safeParse(input).success, false)
+  price.input = null
+  price.unit = 'million_tokens'
+  assert.equal(nativePricingSchema.safeParse(input).success, false)
+})
+
+test('native input APIs map to their own request endpoints', () => {
+  const input = fixture()
+  const first = input.models[0]
+  assert.ok(first)
+  input.models = [
+    { ...first, model: 'embed', apis: ['openai-embeddings'] },
+    { ...first, id: 'rerank', model: 'rerank', apis: ['jina-rerank'] },
+  ]
+  const output = adaptNativePricing(nativePricingSchema.parse(input))
+  assert.equal(output.supported_endpoint.embeddings?.path, '/v1/embeddings')
+  assert.equal(output.supported_endpoint['jina-rerank']?.path, '/v1/rerank')
+  assert.deepEqual(output.data[1]?.supported_endpoint_types, ['jina-rerank'])
+})
+
 test('runtime projection cannot turn configuration into a live healthy badge', () => {
   const document = {
     schema_version: 1,
@@ -635,9 +710,7 @@ test('12-hour cache pricing keeps each group and tier without a fictional scalar
     },
   ]) {
     const invalid = structuredClone(document)
-    mutate(
-      invalid.models[0]!.token_price!.cache_write_12h_tiers!
-    )
+    mutate(invalid.models[0]!.token_price!.cache_write_12h_tiers!)
     assert.equal(nativePricingSchema.safeParse(invalid).success, false)
   }
   const wrongBasis = structuredClone(document)

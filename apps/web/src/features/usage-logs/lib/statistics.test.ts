@@ -63,6 +63,23 @@ test('native image summary preserves settled text scope, separate holds and spon
   )
 })
 
+test('native tool statistics retain zero successful requests separately from grounding', () => {
+  const data = {
+    quota: 0,
+    rpm: 1,
+    tpm: 0,
+    tool_requests: 0,
+    grounded_requests: 1,
+  }
+  assert.deepEqual(parseUsageStatistics({ success: true, data }), data)
+  assert.throws(() =>
+    parseUsageStatistics({
+      success: true,
+      data: { ...data, tool_requests: -1 },
+    })
+  )
+})
+
 function legacyStatistics() {
   return {
     quota: 193,
@@ -265,4 +282,19 @@ test('account switches reject old requests before dispatch and after their respo
   await assert.rejects(readUsageStatistics(scope, {}, false), /session changed/)
   await assert.rejects(readUsageStatistics(scope, {}, false), /session changed/)
   assert.equal(reads, 1)
+})
+
+test('native cache totals preserve unreported TTLs and administrator scope', () => {
+  const data = {
+    quota: 0,
+    rpm: 0,
+    tpm: 0,
+    usage_scope: 'administrator_all_accounts',
+    cache_read_tokens: 20,
+    cache_write_tokens: 30,
+    cache_write_5m_tokens: 5,
+    cache_write_1h_tokens: null,
+    cache_write_12h_tokens: 25,
+  }
+  assert.deepEqual(parseUsageStatistics({ success: true, data }), data)
 })

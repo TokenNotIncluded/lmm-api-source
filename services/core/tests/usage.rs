@@ -113,6 +113,9 @@ fn spec(id: &str) -> ChargeRequest {
         lease_seconds: 300,
         maximum_seconds: 600,
         price: Price {
+            tool: None,
+            grounding: None,
+
             user_trust: None,
             image: None,
             upstream_cost_group_ppm: None,

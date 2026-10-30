@@ -208,6 +208,7 @@ export async function fetchLogsByCategory(
     columnFilters,
     signal,
     scope,
+    historical,
   } = config
 
   if (logCategory === 'common') {
@@ -222,6 +223,7 @@ export async function fetchLogsByCategory(
       success: true,
       data: await readLogsPage({
         category: logCategory,
+        historical,
         params,
         isAdmin,
         signal,

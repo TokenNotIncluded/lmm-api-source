@@ -119,6 +119,9 @@ pub async fn install_synthetic_recovery_contract(pool: &PgPool, id: &str, input:
     assert_eq!(
         price
             .cost(Usage {
+                tool: None,
+                grounding: None,
+
                 input: i64::try_from(input).unwrap(),
                 cached: 0,
                 output: i64::try_from(output).unwrap(),

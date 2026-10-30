@@ -27,6 +27,22 @@ const endpoints: Record<
     method: 'POST',
   },
   'system-one': { type: 'systemone', path: '/v1/systemone', method: 'POST' },
+  'openai-embeddings': {
+    type: 'embeddings',
+    path: '/v1/embeddings',
+    method: 'POST',
+  },
+  'jina-rerank': { type: 'jina-rerank', path: '/v1/rerank', method: 'POST' },
+  'deepseek-search': {
+    type: 'deepseek-search',
+    path: '/v1/tools/search',
+    method: 'POST',
+  },
+  'deepseek-fetch': {
+    type: 'deepseek-fetch',
+    path: '/v1/tools/fetch',
+    method: 'POST',
+  },
   'openai-images-generations': {
     type: 'image-generation',
     path: '/v1/images/generations',
@@ -45,11 +61,18 @@ function groupPrices(
     output_price: token?.output ?? null,
     cache_read_price: token?.cache_read ?? null,
     cache_write_price: token?.cache_write ?? null,
-    model_price: null,
+    model_price: token?.unit === 'successful_requests' ? token.request : null,
     image_price: null,
     audio_input_price: null,
     audio_output_price: null,
   }
+}
+
+function quotaType(
+  row: NativePricingDocument['models'][number]
+): 0 | 1 | 2 | 3 {
+  if (row.token_price?.unit === 'successful_requests') return 1
+  return row.token_price ? 0 : row.upstream_cost_price ? 3 : 2
 }
 
 /** A shared headline rate exists only when every visible group agrees. */
@@ -77,7 +100,12 @@ export function adaptNativePricing(
   const models: PricingModel[] = []
   const endpointMap: PricingData['supported_endpoint'] = {}
   for (const [name, rows] of grouped) {
-    const tokenRows = rows.filter((row) => row.token_price !== null)
+    const tokenRows = rows.filter(
+      (row) => row.token_price?.unit === 'million_tokens'
+    )
+    const requestRows = rows.filter(
+      (row) => row.token_price?.unit === 'successful_requests'
+    )
     const upstreamCostRows = rows.filter((row) => row.upstream_cost_price)
     const prices = rows.map(groupPrices)
     const apis = new Set<string>()
@@ -102,7 +130,13 @@ export function adaptNativePricing(
       pricing_schema_version: 2,
       pricing_currency: 'USD',
       pricing_version: String(document.pricing_version),
-      quota_type: tokenRows.length ? 0 : upstreamCostRows.length ? 3 : 2,
+      quota_type: tokenRows.length
+        ? 0
+        : requestRows.length
+          ? 1
+          : upstreamCostRows.length
+            ? 3
+            : 2,
       billing_mode:
         upstreamCostRows.length === rows.length ? 'upstream_cost' : 'ratio',
       group_upstream_cost_prices: Object.fromEntries(
@@ -119,6 +153,7 @@ export function adaptNativePricing(
       output_price: commonPrice(prices, 'output_price'),
       cache_read_price: commonPrice(prices, 'cache_read_price'),
       cache_write_price: null,
+      model_price: commonPrice(prices, 'model_price') ?? undefined,
       group_cache_write_12h_tiers: Object.fromEntries(
         rows.flatMap((row) =>
           row.token_price?.cache_write_12h_tiers
@@ -126,9 +161,10 @@ export function adaptNativePricing(
             : []
         )
       ),
-      group_prices: tokenRows.length
-        ? Object.fromEntries(rows.map((row) => [row.group, groupPrices(row)]))
-        : undefined,
+      group_prices:
+        tokenRows.length || requestRows.length
+          ? Object.fromEntries(rows.map((row) => [row.group, groupPrices(row)]))
+          : undefined,
       group_endpoints: Object.fromEntries(
         rows.map((row) => [
           row.group,
@@ -136,10 +172,7 @@ export function adaptNativePricing(
         ])
       ),
       group_quota_types: Object.fromEntries(
-        rows.map((row) => [
-          row.group,
-          row.token_price ? 0 : row.upstream_cost_price ? 3 : 2,
-        ])
+        rows.map((row) => [row.group, quotaType(row)])
       ),
       image_variants: rows.flatMap((row) =>
         row.image_variants.map((variant) => ({

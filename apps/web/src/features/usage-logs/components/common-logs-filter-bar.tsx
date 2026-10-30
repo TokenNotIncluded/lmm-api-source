@@ -24,8 +24,8 @@ import {
 } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import type { Table } from '@tanstack/react-table'
-import { Eye, EyeOff } from 'lucide-react'
-import { useState, useCallback, useMemo } from 'react'
+import { Download, Eye, EyeOff } from 'lucide-react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -51,10 +51,11 @@ import { readNativeUserGroups } from '@/features/native-users/api'
 import { getUserGroups } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { exportNativeUsage } from '../api'
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { readUsageStatisticsScope } from '../lib/statistics'
-import { getDefaultTimeRange } from '../lib/utils'
+import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
@@ -130,11 +131,63 @@ export function CommonLogsFilterBar<TData>(
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const searchParams = route.useSearch()
-  const { isAdminView: isAdmin } = useLogsViewScope()
+  const { isAdminView: isAdmin, historical } = useLogsViewScope()
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
   const auth = useAuthStore((state) => state.auth)
   const scope = readUsageStatisticsScope(auth)
+  const [exporting, setExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
+  const exportController = useRef<AbortController | null>(null)
+  useEffect(
+    () => () => {
+      exportController.current?.abort()
+    },
+    [
+      scope?.userId,
+      scope?.sessionId,
+      scope?.role,
+      isAdmin,
+      historical,
+      searchParams,
+    ]
+  )
+  const handleExport = async () => {
+    if (!scope || historical) return
+    const controller = new AbortController()
+    exportController.current = controller
+    setExporting(true)
+    setExportFailed(false)
+    try {
+      const params = buildApiParams({
+        page: 1,
+        pageSize: 1,
+        searchParams,
+        columnFilters: props.table.getState().columnFilters,
+        isAdmin,
+      })
+      const blob = await exportNativeUsage({
+        params,
+        isAdmin,
+        scope,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'lmm-native-usage.csv'
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      if (!controller.signal.aborted) setExportFailed(true)
+    } finally {
+      if (exportController.current === controller) {
+        exportController.current = null
+        setExporting(false)
+      }
+    }
+  }
   const adminScope = readNativeUsersScope(auth)
   const scopeKey = [scope?.userId, scope?.sessionId, scope?.role]
 
@@ -467,7 +520,7 @@ export function CommonLogsFilterBar<TData>(
           />
         </LogsFilterField>
       )}
-      {isAdmin && (
+      {isAdmin && historical && (
         <LogsFilterField>
           <LogsFilterInput
             placeholder={t('Channel ID')}
@@ -485,7 +538,7 @@ export function CommonLogsFilterBar<TData>(
           onKeyDown={handleKeyDown}
         />
       </LogsFilterField>
-      {isAdmin && (
+      {isAdmin && historical && (
         <LogsFilterField>
           <LogsFilterInput
             placeholder={t('Upstream Request ID')}
@@ -502,7 +555,28 @@ export function CommonLogsFilterBar<TData>(
     <LogsFilterToolbar
       table={props.table}
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={
+        <>
+          {sensitiveToggle}
+          {!historical && (
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              disabled={!scope || exporting}
+              onClick={() => void handleExport()}
+            >
+              <Download aria-hidden='true' />
+              {t(exporting ? 'Exporting usage...' : 'Export CSV')}
+            </Button>
+          )}
+          {exportFailed && (
+            <span role='alert' className='text-destructive text-xs'>
+              {t('Usage export failed. Narrow the time range or retry.')}
+            </span>
+          )}
+        </>
+      }
       primaryFilters={
         <>
           {dateRangeFilter}

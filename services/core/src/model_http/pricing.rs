@@ -1,6 +1,7 @@
 //! Host-created Web pricing projection. Never OAuth authority, routing input,
 //! a supplier health probe, or a replacement for a request's frozen quote.
 use super::ModelGateway;
+use super::tool_price::{PersistedToolPrice, ToolKind};
 use crate::routing::{BillingMode, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol, Speed};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
@@ -151,7 +152,8 @@ impl PricingSurface {
             let quote = prices
                 .quote(&route.model, &route.group, Speed::Standard)
                 .ok_or(PricingError::Unavailable)?;
-            let price_ok = super::routing::credit_price(quote, &route.model, &route.group).is_ok();
+            let token_price_ok =
+                super::routing::credit_price(quote, &route.model, &route.group).is_ok();
             let mut apis = BTreeSet::new();
             let mut upstream_budget_contract_required = false;
             for target in route.targets.iter().filter(|t| {
@@ -203,8 +205,24 @@ impl PricingSurface {
                         &target.upstream_model,
                         upstream.protocol,
                         upstream.endpoint.as_str(),
-                        gateway.bridge.policy.input_token_ceiling,
-                        1,
+                        if matches!(
+                            upstream.protocol,
+                            Protocol::DeepSeekSearch | Protocol::DeepSeekFetch
+                        ) {
+                            0
+                        } else {
+                            gateway.bridge.policy.input_token_ceiling
+                        },
+                        if upstream.protocol.input_only()
+                            || matches!(
+                                upstream.protocol,
+                                Protocol::DeepSeekSearch | Protocol::DeepSeekFetch
+                            )
+                        {
+                            0
+                        } else {
+                            1
+                        },
                     )
                     .is_err()
                 {
@@ -222,7 +240,20 @@ impl PricingSurface {
                 if reqwest::header::HeaderValue::from_str(&header).is_err() {
                     continue;
                 }
-                if upstream.protocol == Protocol::SystemOne && !quote.is_input_only_scalar() {
+                if (upstream.protocol == Protocol::SystemOne || upstream.protocol.input_only())
+                    && !quote.is_input_only_scalar()
+                {
+                    continue;
+                }
+                if let Some(kind) = ToolKind::from_protocol(upstream.protocol) {
+                    if !PersistedToolPrice::supports_quote(kind, quote)
+                        || super::tool_api::endpoint(upstream.endpoint.as_str(), kind).is_err()
+                    {
+                        continue;
+                    }
+                } else if !token_price_ok {
+                    // A request fee has no semantics on the text relay. Only
+                    // the explicitly bound native tool protocol can use it.
                     continue;
                 }
                 apis.insert(match upstream.protocol {
@@ -231,33 +262,12 @@ impl PricingSurface {
                     Protocol::AnthropicMessages => "anthropic-messages",
                     Protocol::Gemini => "google-generative-ai",
                     Protocol::SystemOne => "system-one",
+                    Protocol::OpenAiEmbeddings => "openai-embeddings",
+                    Protocol::JinaRerank => "jina-rerank",
+                    Protocol::DeepSeekSearch => "deepseek-search",
+                    Protocol::DeepSeekFetch => "deepseek-fetch",
                 });
             }
-            if !price_ok {
-                apis.clear();
-            }
-            let status = if !price_ok || apis.is_empty() {
-                "unavailable"
-            } else if matches!(
-                quote.billing_mode(),
-                BillingMode::UpstreamCost | BillingMode::TieredDecimal
-            ) {
-                "usage_dependent"
-            } else {
-                "configured"
-            };
-            let unavailable_reason =
-                (status == "unavailable").then_some(if upstream_budget_contract_required {
-                    UnavailableReason::UpstreamBudgetContractRequired
-                } else {
-                    UnavailableReason::RoutingUnavailable
-                });
-            let (token_price, upstream_cost_price) =
-                if quote.billing_mode() == BillingMode::UpstreamCost {
-                    (None, Some(upstream_cost_price(quote)))
-                } else {
-                    (Some(token_price(quote)?), None)
-                };
             for name in std::iter::once(route.model.as_str()).chain(
                 doc.routing
                     .aliases
@@ -265,15 +275,51 @@ impl PricingSurface {
                     .filter(|a| a.group == route.group && a.model == route.model)
                     .map(|a| a.alias.as_str()),
             ) {
+                // Native tool endpoints choose a fixed public route name;
+                // arbitrary route aliases cannot invoke those operations.
+                let apis: Vec<_> = apis
+                    .iter()
+                    .copied()
+                    .filter(|api| {
+                        !matches!(*api, "deepseek-search" | "deepseek-fetch") || name == *api
+                    })
+                    .collect();
+                let tool = apis
+                    .iter()
+                    .any(|api| matches!(*api, "deepseek-search" | "deepseek-fetch"));
+                let status = if apis.is_empty() {
+                    "unavailable"
+                } else if matches!(
+                    quote.billing_mode(),
+                    BillingMode::UpstreamCost | BillingMode::TieredDecimal
+                ) {
+                    "usage_dependent"
+                } else {
+                    "configured"
+                };
+                let unavailable_reason =
+                    (status == "unavailable").then_some(if upstream_budget_contract_required {
+                        UnavailableReason::UpstreamBudgetContractRequired
+                    } else {
+                        UnavailableReason::RoutingUnavailable
+                    });
+                let (token_price, upstream_cost_price) =
+                    if quote.billing_mode() == BillingMode::UpstreamCost {
+                        (None, Some(upstream_cost_price(quote)))
+                    } else if tool {
+                        (Some(request_price(quote)?), None)
+                    } else {
+                        (Some(token_price(quote)?), None)
+                    };
                 models.push(PricingModel {
                     id: model_id(&route.group, name),
                     model: name.into(),
                     group: route.group.clone(),
-                    apis: apis.iter().copied().collect(),
+                    apis,
                     billing_status: status,
                     unavailable_reason,
-                    token_price: token_price.clone(),
-                    upstream_cost_price: upstream_cost_price.clone(),
+                    token_price,
+                    upstream_cost_price,
                     image_variants: Vec::new(),
                 });
             }
@@ -433,6 +479,26 @@ fn token_price(quote: PriceQuote) -> Result<TokenPrice, PricingError> {
         request: None,
         final_cost_depends_on_usage: true,
         cache_write_12h_tiers: cache_write_12h_tiers(quote)?,
+    })
+}
+
+fn request_price(quote: PriceQuote) -> Result<TokenPrice, PricingError> {
+    let (group, speed) = quote.multipliers_ppm();
+    Ok(TokenPrice {
+        currency: "USD",
+        unit: "successful_requests",
+        rate_basis: "base_group_rate",
+        group_multiplier: decimal(u128::from(group), 6)?,
+        input: None,
+        output: None,
+        cache_read: None,
+        cache_write: None,
+        request: Some(decimal(
+            u128::from(quote.rates().request) * u128::from(group) * u128::from(speed),
+            18,
+        )?),
+        final_cost_depends_on_usage: true,
+        cache_write_12h_tiers: None,
     })
 }
 
@@ -711,6 +777,8 @@ pub(crate) mod tests {
             names
                 .into_iter()
                 .map(|name| super::super::ExternalModelContext {
+                    grounding: None,
+
                     upstream_id: 1,
                     upstream_model: name.into(),
                     protocol: Protocol::OpenAiChat,
@@ -1133,6 +1201,8 @@ pub(crate) mod tests {
                     .find(|t| t.upstream_id == upstream.id)
                     .unwrap();
                 super::super::ExternalModelContext {
+                    grounding: None,
+
                     reservation: Default::default(),
                     missing_cache_creation_tokens_is_zero: false,
                     upstream_id: upstream.id,

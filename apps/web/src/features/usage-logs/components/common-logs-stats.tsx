@@ -188,7 +188,7 @@ function UsageTrend(props: {
 export function CommonLogsStats() {
   const { t, i18n } = useTranslation()
   const { formatHistoricalQuota, formatRawQuota } = useHistoricalQuotaMoney()
-  const { isAdminView: isAdmin } = useLogsViewScope()
+  const { isAdminView: isAdmin, historical } = useLogsViewScope()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
   const navigate = route.useNavigate()
@@ -197,7 +197,13 @@ export function CommonLogsStats() {
   const scopeKey = [scope?.userId, scope?.sessionId, scope?.role]
 
   const statsQuery = useQuery({
-    queryKey: ['usage-logs-stats', ...scopeKey, isAdmin, searchParams],
+    queryKey: [
+      'usage-logs-stats',
+      ...scopeKey,
+      isAdmin,
+      historical,
+      searchParams,
+    ],
     queryFn: async ({ signal }) => {
       if (!scope) {
         throw new Error('Usage statistics session unavailable')
@@ -210,7 +216,7 @@ export function CommonLogsStats() {
         isAdmin,
       })
 
-      return readUsageStatistics(scope, params, isAdmin, signal)
+      return readUsageStatistics(scope, params, isAdmin, signal, historical)
     },
     enabled: !!scope,
     retry: false,
@@ -232,7 +238,13 @@ export function CommonLogsStats() {
   }, [searchParams.endTime, searchParams.startTime])
 
   const trendQuery = useQuery({
-    queryKey: ['usage-logs-trend', ...scopeKey, isAdmin, searchParams],
+    queryKey: [
+      'usage-logs-trend',
+      ...scopeKey,
+      isAdmin,
+      historical,
+      searchParams,
+    ],
     queryFn: async ({ signal }) => {
       if (!scope) {
         throw new Error('Usage statistics session unavailable')
@@ -254,7 +266,8 @@ export function CommonLogsStats() {
             scope,
             params,
             isAdmin,
-            signal
+            signal,
+            historical
           )
           return { ...bucket, ...result }
         })
@@ -317,10 +330,56 @@ export function CommonLogsStats() {
           accent='console-stat-accent-neutral'
         />
         {stats?.source !== 'legacy_log_only' &&
+          stats?.cache_read_tokens !== undefined && (
+            <>
+              <StatBadge
+                label={t('Cache read tokens')}
+                value={stats.cache_read_tokens.toLocaleString()}
+                accent='console-stat-accent-neutral'
+              />
+              <StatBadge
+                label={t('Cache write tokens')}
+                value={stats.cache_write_tokens?.toLocaleString() ?? '—'}
+                accent='console-stat-accent-neutral'
+              />
+              <StatBadge
+                label={t('Cache Write (5m)')}
+                value={stats.cache_write_5m_tokens?.toLocaleString() ?? '—'}
+                accent='console-stat-accent-neutral'
+              />
+              <StatBadge
+                label={t('Cache Write (1h)')}
+                value={stats.cache_write_1h_tokens?.toLocaleString() ?? '—'}
+                accent='console-stat-accent-neutral'
+              />
+              <StatBadge
+                label={t('Cache write (12 hours)')}
+                value={stats.cache_write_12h_tokens?.toLocaleString() ?? '—'}
+                accent='console-stat-accent-neutral'
+              />
+            </>
+          )}
+        {stats?.source !== 'legacy_log_only' &&
           stats?.output_image_count !== undefined && (
             <StatBadge
               label={t('Images (billing quantity)')}
               value={stats.output_image_count}
+              accent='console-stat-accent-neutral'
+            />
+          )}
+        {stats?.source !== 'legacy_log_only' &&
+          stats?.tool_requests !== undefined && (
+            <StatBadge
+              label={t('Successful tool requests')}
+              value={stats.tool_requests}
+              accent='console-stat-accent-neutral'
+            />
+          )}
+        {stats?.source !== 'legacy_log_only' &&
+          stats?.grounded_requests !== undefined && (
+            <StatBadge
+              label={t('Grounded requests')}
+              value={stats.grounded_requests}
               accent='console-stat-accent-neutral'
             />
           )}

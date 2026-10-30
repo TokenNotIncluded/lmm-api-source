@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { getRouteApi, useNavigate } from '@tanstack/react-router'
+import { getRouteApi } from '@tanstack/react-router'
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -60,7 +60,7 @@ const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
 
 function UsageLogsContent() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
+  const navigate = route.useNavigate()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const params = route.useParams()
   const activeCategory: UsageLogsSectionId =
@@ -75,7 +75,13 @@ function UsageLogsContent() {
     affinityDialogOpen,
     setAffinityDialogOpen,
   } = useUsageLogsContext()
-  const { canManageScope, viewScope, setViewScope } = useLogsViewScope()
+  const {
+    canManageScope,
+    viewScope,
+    setViewScope,
+    usageSource,
+    setUsageSource,
+  } = useLogsViewScope()
   const tabNavGroups = useMemo<NavGroup[]>(
     () => [
       {
@@ -133,6 +139,32 @@ function UsageLogsContent() {
         </SectionPageLayout.Title>
         {canManageScope && (
           <SectionPageLayout.Actions>
+            {activeCategory === 'common' && viewScope === 'all' && (
+              <Tabs
+                value={usageSource}
+                onValueChange={(value) => {
+                  if (value !== 'native' && value !== 'historical') return
+                  setUsageSource(value)
+                  void navigate({
+                    to: '/usage-logs/$section',
+                    params: { section: 'common' },
+                    search: (previous) => ({
+                      ...previous,
+                      page: 1,
+                      channel: undefined,
+                      upstreamRequestId: undefined,
+                    }),
+                  })
+                }}
+              >
+                <TabsList>
+                  <TabsTrigger value='native'>{t('Native usage')}</TabsTrigger>
+                  <TabsTrigger value='historical'>
+                    {t('Historical Usage')}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
             <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
               <TabsList>
                 <TabsTrigger value='all'>{t('All')}</TabsTrigger>

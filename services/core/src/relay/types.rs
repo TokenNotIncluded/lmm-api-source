@@ -535,6 +535,12 @@ impl OpenAiCacheWriteDetails {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Usage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<crate::model_http::tool_price::ToolUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_search_grounded_requests: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_prompt_tokens: Option<u64>,
     /// Provider account charge, parsed exactly; absent is never a free receipt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_cost_atto_usd: Option<u128>,
@@ -556,6 +562,12 @@ pub struct Usage {
 }
 impl Usage {
     pub(crate) fn merge(&mut self, next: Self) -> Result<(), RelayError> {
+        if let Some(tool) = next.tool {
+            if self.tool.is_some_and(|old| old != tool) {
+                return Err(RelayError::Protocol("conflicting tool receipt"));
+            }
+            self.tool = Some(tool);
+        }
         if next.uncached_input_tokens.is_some() && next.cache_creation_mode.is_none() {
             return Err(RelayError::Protocol(
                 "uncached input without cache creation mode",
@@ -577,6 +589,19 @@ impl Usage {
             Ok(())
         }
         let mut combined = *self;
+        if let Some(requests) = next.google_search_grounded_requests {
+            if self
+                .google_search_grounded_requests
+                .is_some_and(|old| requests < old)
+            {
+                return Err(RelayError::Protocol("grounding usage decreased"));
+            }
+            combined.google_search_grounded_requests = Some(requests);
+        }
+        field(
+            &mut combined.tool_use_prompt_tokens,
+            next.tool_use_prompt_tokens,
+        )?;
         let input_advanced = advances(self.input_tokens, next.input_tokens);
         let creation_advanced = advances(
             self.cache_creation_input_tokens,
@@ -876,6 +901,40 @@ impl Usage {
     /// Validate both live observations and receipts restored after a restart.
     /// Deserialization alone does not establish counter consistency.
     pub(crate) fn validate(&self) -> Result<(), RelayError> {
+        if self
+            .google_search_grounded_requests
+            .is_some_and(|count| count > 1)
+            || ((self.google_search_grounded_requests.is_some()
+                || self.tool_use_prompt_tokens.is_some())
+                && (self.tool.is_some() || self.cache_creation_mode.is_some()))
+        {
+            return Err(RelayError::Protocol("invalid grounding usage"));
+        }
+        if let (Some(input), Some(output), Some(tool_input)) = (
+            self.input_tokens,
+            self.output_tokens,
+            self.tool_use_prompt_tokens,
+        ) {
+            input
+                .checked_add(output)
+                .and_then(|sum| sum.checked_add(tool_input))
+                .ok_or(RelayError::Protocol("usage overflow"))?;
+        }
+        if let Some(tool) = self.tool
+            && (!tool.valid()
+                || self.input_tokens != Some(0)
+                || self.output_tokens != Some(0)
+                || self.cached_input_tokens.is_some_and(|n| n != 0)
+                || self.upstream_cost_atto_usd.is_some()
+                || self.uncached_input_tokens.is_some()
+                || self.cache_creation_input_tokens.is_some()
+                || self.cache_creation_details.is_some()
+                || self.openai_cache_write_details.is_some()
+                || self.cache_creation_mode.is_some()
+                || self.reasoning_output_tokens.is_some())
+        {
+            return Err(RelayError::Protocol("invalid native tool usage"));
+        }
         if self.uncached_input_tokens.is_some() && self.cache_creation_mode.is_none() {
             return Err(RelayError::Protocol(
                 "uncached input without cache creation mode",
@@ -1064,6 +1123,7 @@ pub(crate) enum Event {
     },
     EndBlock(usize),
     Usage(Usage),
+    GroundingMetadata(Value),
     StopSequence(String),
     /// Opaque Gemini Long Decode token from `candidates[].continuationToken`.
     /// Empty values are never emitted, so marshal does not invent the field.
@@ -1556,6 +1616,10 @@ mod a07_usage_tests {
     #[test]
     fn zero_boundary_repeated_receipt_and_missing_fields_are_valid() {
         let zero = Usage {
+            tool: None,
+            google_search_grounded_requests: None,
+            tool_use_prompt_tokens: None,
+
             upstream_cost_atto_usd: None,
             uncached_input_tokens: None,
             input_tokens: Some(0),

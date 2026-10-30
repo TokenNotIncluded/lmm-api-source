@@ -22,7 +22,11 @@ pub(super) fn restore(base: Usage, evidence: Option<Value>) -> Result<Usage> {
         event
             .get("usage")
             .and_then(Value::as_object)
-            .is_some_and(|usage| usage.contains_key("cache_creation"))
+            .is_some_and(|usage| {
+                usage.contains_key("cache_creation")
+                    || usage.contains_key("tool")
+                    || usage.contains_key("grounding")
+            })
     }) {
         return Ok(base);
     }
@@ -54,6 +58,17 @@ pub(super) fn restore(base: Usage, evidence: Option<Value>) -> Result<Usage> {
             usage
                 .image
                 .map(|value| (value.output_images, value.provider_receipt_sha256)),
+            usage.tool.map(|value| {
+                (
+                    value.kind,
+                    value.successful_requests,
+                    value.http_status,
+                    value.provider_receipt_sha256,
+                )
+            }),
+            usage
+                .grounding
+                .map(|value| (value.grounded_requests, value.tool_input_tokens)),
         )
     });
     if events

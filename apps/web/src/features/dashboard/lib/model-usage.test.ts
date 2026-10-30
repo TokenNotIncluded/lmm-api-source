@@ -63,6 +63,20 @@ test('model aggregation retains administrator scope instead of relabeling person
   assert.equal(row.tokens, null)
 })
 
+test('tool receipts including zero count do not invalidate a mixed model text subtotal', () => {
+  for (const tool_requests of [0, 1]) {
+    const tool = nativeBucket({ output_image_count: 0, tool_requests })
+    assert.equal(summarizeModelUsage([tool])[0].tokens, null)
+    const [row] = summarizeModelUsage([
+      tool,
+      nativeBucket({ token_used: 19, output_image_count: 0 }),
+    ])
+    assert.equal(row.tokens, 19)
+    assert.equal(row.count, 2)
+    assert.equal(row.quota_raw, '200')
+  }
+})
+
 test('a model with text and images keeps known text tokens and separates sponsored consumption', () => {
   const [row] = summarizeModelUsage([
     nativeBucket(),

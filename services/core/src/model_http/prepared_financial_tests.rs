@@ -91,6 +91,341 @@ fn charging(f: &Fixture) -> charging::Charging {
     charging::Charging::new(f.pool.clone(), Arc::new(TransactionalLedger))
 }
 
+#[sqlx::test(migrations = false)]
+async fn deepseek_cache_receipt_reaches_native_bill_for_json_and_stream(pool: PgPool) {
+    use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
+    use tower::ServiceExt;
+
+    async fn reply(
+        State(bodies): State<Arc<std::sync::Mutex<Vec<serde_json::Value>>>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> axum::response::Response {
+        bodies.lock().unwrap().push(body.clone());
+        let usage = json!({
+            "prompt_tokens":100,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20,
+            "completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":7},
+            "total_tokens":110
+        });
+        if body["stream"] != true {
+            return Json(json!({
+                "id":"synthetic-deepseek","choices":[{
+                    "index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"
+                }],"usage":usage
+            }))
+            .into_response();
+        }
+        let mut wire = String::new();
+        for frame in [
+            json!({"id":"synthetic-deepseek","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}),
+            json!({"id":"synthetic-deepseek","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+            json!({"id":"synthetic-deepseek","choices":[],"usage":usage}),
+            json!({"id":"synthetic-deepseek","choices":[],"usage":usage}),
+        ] {
+            wire.push_str("data: ");
+            wire.push_str(&frame.to_string());
+            wire.push_str("\n\n");
+        }
+        wire.push_str("data: [DONE]\n\n");
+        ([("content-type", "text/event-stream")], wire).into_response()
+    }
+
+    let f = fixture(pool, 10_000_000).await;
+    let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route("/v1/chat/completions", post(reply))
+        .with_state(bodies.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let original = gateway_with_output_rate(&f, &endpoint, vec![], 4_000_000);
+    let mut document = original.bridge.routing.catalog_document().unwrap();
+    for rule in &mut document.pricing.rules {
+        rule.rates.cache_read = 200_000;
+    }
+    let g = ModelGateway::new_with_provider_policy(
+        f.pool.clone(),
+        Arc::new(
+            routing::Router::new(
+                document.routing,
+                Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+            )
+            .unwrap(),
+        ),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-cache-provider-key".into(),
+        }],
+        BTreeMap::from([(f.key_id, "allowed".into())]),
+        original.limits.clone(),
+        original.bridge.policy,
+        ProviderPolicy::new(vec![], GLOBAL_INPUT).unwrap(),
+    )
+    .unwrap()
+    .with_local_streaming();
+
+    for (index, stream) in [false, true].into_iter().enumerate() {
+        let mut request = json!({
+            "model":"small-model","messages":[{"role":"user","content":"hi"}],
+            "max_completion_tokens":10,"stream":stream,"reasoning_effort":"max"
+        });
+        if stream {
+            request["stream_options"] = json!({"include_usage":true});
+        }
+        let (status, response, id) = compatibility_call(
+            &g,
+            &f,
+            true,
+            &format!("deepseek-cache-{index}"),
+            request.to_string(),
+        )
+        .await;
+        assert_eq!(status, 200, "{response}");
+        assert!(!id.is_empty());
+        assert!(response.contains("ok"), "{response}");
+        let charge = charging(&f).resolve(&id).await.unwrap().unwrap();
+        assert_eq!(charge.state, "settled");
+        assert_eq!(charge.usage.input, 100);
+        assert_eq!(charge.usage.cached, 80);
+        assert_eq!(charge.usage.output, 10);
+        assert_eq!(charge.price.cached_per_million, 100_000);
+        // 20 uncached * 1 + 80 cached * 0.1 + 10 output * 2 = 48.
+        // The seven reasoning tokens are already included in the ten outputs.
+        assert_eq!(charge.settled, 48);
+        assert_balance(&f, 10_000_000 - 48 * (index as i64 + 1), 0).await;
+        assert_eq!(bodies.lock().unwrap()[index]["reasoning_effort"], "max");
+
+        let response = crate::usage::router(crate::usage::UsageStore::new(f.pool.clone()))
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(format!("/api/log/self?request_id={id}"))
+                    .header("authorization", format!("Bearer {}", f.session))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let logs: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(logs["data"]["total"], 1);
+        let row = &logs["data"]["items"][0];
+        assert_eq!(row["request_id"], id);
+        assert_eq!(row["prompt_tokens"], 100);
+        assert_eq!(row["completion_tokens"], 10);
+        assert_eq!(row["net_consumption_credits"], 48);
+        let other: serde_json::Value =
+            serde_json::from_str(row["other"].as_str().unwrap()).unwrap();
+        assert_eq!(other["cache_tokens"], 80);
+    }
+    server.abort();
+}
+
+#[sqlx::test(migrations = false)]
+async fn gemini_grounding_frozen_request_fee_reaches_ledger_and_native_bill(pool: PgPool) {
+    use axum::{
+        Json, Router,
+        extract::{Query, State},
+        response::IntoResponse,
+        routing::post,
+    };
+    use tower::ServiceExt;
+
+    async fn reply(
+        State(bodies): State<Arc<std::sync::Mutex<Vec<serde_json::Value>>>>,
+        Query(query): Query<BTreeMap<String, String>>,
+        Json(body): Json<serde_json::Value>,
+    ) -> axum::response::Response {
+        bodies.lock().unwrap().push(body.clone());
+        let missing = body["contents"][0]["parts"][0]["text"] == "missing";
+        let stream = query.get("alt").map(String::as_str) == Some("sse");
+        let metadata = json!({
+            "webSearchQueries":["one search","one search",""],
+            "groundingChunks":[{"web":{"uri":"https://example.invalid/evidence","title":"Evidence"}}]
+        });
+        let usage = json!({
+            "promptTokenCount":10,"cachedContentTokenCount":if stream {8} else {2},
+            "candidatesTokenCount":3,"thoughtsTokenCount":1,
+            "toolUsePromptTokenCount":11,"totalTokenCount":25
+        });
+        let mut complete = json!({
+            "responseId":"synthetic-grounding","candidates":[{
+                "index":0,"content":{"role":"model","parts":[{"text":"grounded answer"}]},
+                "finishReason":"STOP"
+            }],"usageMetadata":usage
+        });
+        if !missing {
+            complete["candidates"][0]["groundingMetadata"] = metadata.clone();
+        }
+        if !stream {
+            return Json(complete).into_response();
+        }
+        let mut first = complete.clone();
+        first.as_object_mut().unwrap().remove("usageMetadata");
+        first["candidates"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("finishReason");
+        let repeat = json!({"responseId":"synthetic-grounding","candidates":[{"index":0,"groundingMetadata":metadata}]});
+        complete["candidates"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("content");
+        let wire = [first, repeat, complete]
+            .iter()
+            .map(|frame| format!("data: {frame}\n\n"))
+            .collect::<String>();
+        ([("content-type", "text/event-stream")], wire).into_response()
+    }
+
+    let f = fixture(pool, 10_000_000).await;
+    let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1beta", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route("/v1beta/models/small-provider:generateContent", post(reply))
+        .route(
+            "/v1beta/models/small-provider:streamGenerateContent",
+            post(reply),
+        )
+        .with_state(bodies.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let original = gateway_with_output_rate(&f, &endpoint, vec![], 4_000_000);
+    let mut document = original.bridge.routing.catalog_document().unwrap();
+    document.routing.upstreams[0].protocol = Protocol::Gemini;
+    for price in &mut document.pricing.rules {
+        price.rates.cache_read = 200_000;
+    }
+    let context = ExternalModelContext {
+        upstream_id: 1,
+        upstream_model: "small-provider".into(),
+        protocol: Protocol::Gemini,
+        endpoint: "https://synthetic.invalid/v1beta".into(),
+        max_input_tokens: GLOBAL_INPUT as u32,
+        max_output_tokens: GLOBAL_OUTPUT,
+        contract_revision: "synthetic-grounded-request-v1".into(),
+        missing_cached_tokens_is_zero: false,
+        missing_cache_creation_tokens_is_zero: false,
+        reservation: Default::default(),
+        grounding: Some(super::super::grounding_price::GroundingContract {
+            mode: super::super::grounding_price::GroundingMode::GroundedRequestV1,
+            tool_input: super::super::grounding_price::ToolInputSemantics::ExcludeSearchRetrievalV1,
+            usd_micros_per_grounded_request: 1,
+        }),
+    };
+    let g = ModelGateway::new_with_provider_policy(
+        f.pool.clone(),
+        Arc::new(
+            routing::Router::new(
+                document.routing,
+                Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+            )
+            .unwrap(),
+        ),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-grounding-key".into(),
+        }],
+        BTreeMap::from([(f.key_id, "allowed".into())]),
+        original.limits.clone(),
+        original.bridge.policy,
+        ProviderPolicy::new(vec![context], GLOBAL_INPUT).unwrap(),
+    )
+    .unwrap()
+    .with_local_streaming();
+
+    for (index, (stream, missing)) in [(false, false), (true, false), (false, true)]
+        .into_iter()
+        .enumerate()
+    {
+        let action = if stream {
+            "streamGenerateContent?alt=sse"
+        } else {
+            "generateContent"
+        };
+        let response = g.router().oneshot(axum::http::Request::builder()
+            .method("POST").uri(format!("/v1beta/models/small-model:{action}"))
+            .header("x-goog-api-key",&f.key).header("content-type","application/json")
+            .body(axum::body::Body::from(json!({
+                "contents":[{"parts":[{"text":if missing {"missing"} else {"search"}}]}],
+                "generationConfig":{"maxOutputTokens":10},"tools":[{"googleSearch":{}}]
+            }).to_string())).unwrap()).await.unwrap();
+        let status = response.status();
+        let id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while g.bridge.active.lock().unwrap().contains_key(&id) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let charge = charging(&f).resolve(&id).await.unwrap().unwrap();
+        assert!(charge.price.grounding.is_some());
+        if missing {
+            assert_ne!(charge.state, "settled");
+            assert!(charge.reserved > 0);
+            assert_eq!(charge.settled, 0);
+            continue;
+        }
+        assert_eq!(
+            status,
+            axum::http::StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&bytes)
+        );
+        assert!(String::from_utf8_lossy(&bytes).contains("groundingMetadata"));
+        assert_eq!(charge.state, "settled");
+        assert_eq!(charge.usage.input, 10);
+        assert_eq!(charge.usage.output, 4);
+        assert_eq!(charge.usage.cached, if stream { 8 } else { 2 });
+        let observed = charge.usage.grounding.unwrap();
+        assert_eq!(observed.grounded_requests, 1);
+        assert_eq!(observed.tool_input_tokens, Some(11));
+        // JSON: 16.2 token + 0.5 grounding = 17 (not two rounded fees of 18).
+        // SSE: 10.8 token + 0.5 grounding = 12 (not the pure token fee of 11).
+        let expected = if stream { 12 } else { 17 };
+        assert_eq!(charge.settled, expected);
+        assert_balance(&f, if stream { 9_999_971 } else { 9_999_983 }, 0).await;
+        assert_eq!(
+            bodies.lock().unwrap()[index]["tools"],
+            json!([{"googleSearch":{}}])
+        );
+        let response = crate::usage::router(crate::usage::UsageStore::new(f.pool.clone()))
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(format!("/api/log/self?request_id={id}"))
+                    .header("authorization", format!("Bearer {}", f.session))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let logs: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let row = &logs["data"]["items"][0];
+        assert_eq!(row["net_consumption_credits"], expected);
+        let other: serde_json::Value =
+            serde_json::from_str(row["other"].as_str().unwrap()).unwrap();
+        assert_eq!(other["grounded_requests"], 1);
+        assert_eq!(other["tool_input_tokens"], 11);
+    }
+    server.abort();
+}
+
 async fn reserve(
     charging: &charging::Charging,
     key: &str,
@@ -133,6 +468,8 @@ fn exact_gateway(f: &Fixture) -> ModelGateway {
     document.pricing.rules.truncate(1);
     document.routing.routes[0].targets[0].upstream_model = "synthetic-model-2026-10-01".into();
     let context = ExternalModelContext {
+        grounding: None,
+
         upstream_id: 1,
         upstream_model: "synthetic-model-2026-10-01".into(),
         protocol: Protocol::OpenAiResponses,

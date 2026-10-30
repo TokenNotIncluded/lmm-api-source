@@ -22,6 +22,79 @@ fn input(client: ClientProtocol, stream: bool) -> Request {
     )
     .unwrap()
 }
+
+#[test]
+fn reasoning_modifiers_preserve_the_selected_openai_protocol_value() {
+    for effort in ["none", "minimal", "low", "medium", "high", "xhigh", "max"] {
+        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+            let body = match client {
+                ClientProtocol::Chat => json!({
+                    "model":"alias","messages":[{"role":"user","content":"hi"}],
+                    "reasoning_effort":effort
+                }),
+                _ => json!({"model":"alias","input":"hi","reasoning":{"effort":effort}}),
+            };
+            let request = Request::parse(
+                client,
+                &serde_json::to_vec(&body).unwrap(),
+                &Limits::default(),
+            )
+            .unwrap();
+            for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+                let route = Route::new(
+                    "reasoning-test".into(),
+                    protocol,
+                    "https://provider.invalid/v1",
+                    "selected-model".into(),
+                    "synthetic",
+                    1,
+                )
+                .unwrap();
+                let wire = request.upstream(&route).unwrap();
+                assert_eq!(wire["model"], "selected-model");
+                assert_eq!(
+                    if protocol == UpstreamProtocol::Chat {
+                        &wire["reasoning_effort"]
+                    } else {
+                        &wire["reasoning"]["effort"]
+                    },
+                    effort
+                );
+            }
+            for protocol in [UpstreamProtocol::Anthropic, UpstreamProtocol::Gemini] {
+                assert!(request.upstream_to(protocol, "selected-model").is_err());
+            }
+        }
+    }
+    for value in [
+        json!("maximum"),
+        json!("MAX"),
+        json!(""),
+        json!(1),
+        json!({}),
+    ] {
+        for (client, body) in [
+            (
+                ClientProtocol::Chat,
+                json!({"model":"alias","messages":[{"role":"user","content":"hi"}],"reasoning_effort":value}),
+            ),
+            (
+                ClientProtocol::Responses,
+                json!({"model":"alias","input":"hi","reasoning":{"effort":value}}),
+            ),
+        ] {
+            assert!(
+                Request::parse(
+                    client,
+                    &serde_json::to_vec(&body).unwrap(),
+                    &Limits::default()
+                )
+                .is_err()
+            );
+        }
+    }
+}
+
 fn legacy_policy(flags: [bool; 5]) -> crate::routing::PayloadPolicy {
     crate::routing::PayloadPolicy::LegacyOpenai {
         allow_service_tier: flags[0],

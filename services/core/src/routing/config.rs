@@ -33,6 +33,24 @@ pub enum Protocol {
     Gemini,
     #[serde(rename = "system_one")]
     SystemOne,
+    #[serde(rename = "openai_embeddings")]
+    OpenAiEmbeddings,
+    #[serde(rename = "jina_rerank")]
+    JinaRerank,
+    #[serde(rename = "deepseek_search")]
+    DeepSeekSearch,
+    #[serde(rename = "deepseek_fetch")]
+    DeepSeekFetch,
+}
+
+impl Protocol {
+    pub(crate) fn input_only(self) -> bool {
+        matches!(self, Self::OpenAiEmbeddings | Self::JinaRerank)
+    }
+
+    fn dedicated(self) -> bool {
+        self.input_only() || matches!(self, Self::DeepSeekSearch | Self::DeepSeekFetch)
+    }
 }
 
 /// A base URL, never a URL carrying credentials. This type is INTERNAL config.
@@ -169,11 +187,34 @@ impl PayloadPolicy {
     /// Compatibility is an adapter only within the selected OpenAI wire protocol.
     pub(crate) fn adapts(self, client: Protocol, upstream: Protocol) -> bool {
         match self {
-            Self::Adapt => true,
+            Self::Adapt => !(client.dedicated() || upstream.dedicated()) || client == upstream,
             Self::Passthrough => false,
             Self::LegacyOpenai { .. } => {
                 client == upstream
                     && matches!(client, Protocol::OpenAiChat | Protocol::OpenAiResponses)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod native_protocol_tests {
+    use super::*;
+
+    #[test]
+    fn dedicated_operations_never_select_a_text_or_other_native_adapter() {
+        let native = [
+            Protocol::OpenAiEmbeddings,
+            Protocol::JinaRerank,
+            Protocol::DeepSeekSearch,
+            Protocol::DeepSeekFetch,
+        ];
+        for client in native {
+            assert!(PayloadPolicy::Adapt.adapts(client, client));
+            assert!(!PayloadPolicy::Adapt.adapts(client, Protocol::OpenAiChat));
+            assert!(!PayloadPolicy::Adapt.adapts(Protocol::OpenAiChat, client));
+            for upstream in native.into_iter().filter(|upstream| *upstream != client) {
+                assert!(!PayloadPolicy::Adapt.adapts(client, upstream));
             }
         }
     }

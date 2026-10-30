@@ -49,6 +49,17 @@ test('mixed settled usage retains known text token totals in either bucket order
   }
 })
 
+test('zero-count tool receipts keep requests and text totals without becoming tokens', () => {
+  for (const tool_requests of [0, 1]) {
+    const tool = { ...image, output_image_count: 0, tool_requests }
+    assert.equal(calculateDashboardStats([tool]).totalTokens, null)
+    const stats = calculateDashboardStats([tool, text])
+    assert.equal(stats.totalTokens, 193)
+    assert.equal(stats.totalCount, 3)
+    assert.equal(stats.totalQuota, 2007)
+  }
+})
+
 test('measured zero and a successful empty result remain known zero', () => {
   assert.equal(
     calculateDashboardStats([{ ...text, token_used: 0 }]).totalTokens,

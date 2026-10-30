@@ -535,6 +535,8 @@ mod usage_tests {
         .unwrap();
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
+                grounding: None,
+
                 upstream_id: 1,
                 upstream_model: "bounded-model".into(),
                 protocol: Protocol::OpenAiChat,

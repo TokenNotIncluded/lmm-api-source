@@ -1,6 +1,7 @@
 //! Read-only metadata from the exact immutable release installed in ModelGateway.
 //! API labels describe the gateway's bounded text/function adapter surface. They
 //! do not grant invocation, promise current health, enable SSE, or lock a price.
+use super::tool_price::{PersistedToolPrice, ToolKind};
 use crate::routing::{
     BillingMode, ModelRoute, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol, ReleaseVersion,
     Router, Speed, UpstreamConfig,
@@ -225,11 +226,6 @@ impl CatalogSurface {
                 let quote = prices
                     .quote(&route.model, &group.name, Speed::Standard)
                     .ok_or(CatalogError::Unavailable)?;
-                // Reuse the actual gateway charging representation boundary;
-                // unsupported dimensions are not advertised as usable APIs.
-                if super::routing::credit_price(quote, &route.model, &group.name).is_err() {
-                    continue;
-                }
                 let names = std::iter::once(route.model.as_str()).chain(
                     aliases_by_route
                         .get(&(group.name.as_str(), route.model.as_str()))
@@ -242,6 +238,10 @@ impl CatalogSurface {
                         (Protocol::OpenAiChat, "openai-completions"),
                         (Protocol::OpenAiResponses, "openai-responses"),
                         (Protocol::SystemOne, "system-one"),
+                        (Protocol::OpenAiEmbeddings, "openai-embeddings"),
+                        (Protocol::JinaRerank, "jina-rerank"),
+                        (Protocol::DeepSeekSearch, "deepseek-search"),
+                        (Protocol::DeepSeekFetch, "deepseek-fetch"),
                     ]
                     .into_iter()
                     .filter_map(|(client, label)| {
@@ -261,6 +261,9 @@ impl CatalogSurface {
                     if apis.is_empty() {
                         continue;
                     }
+                    let tool = apis
+                        .iter()
+                        .any(|api| matches!(*api, "deepseek-search" | "deepseek-fetch"));
                     // The fixed client wire contract sends upstream_model as
                     // JSON model. api_supported proves it equals this request
                     // alias for every possible target; do not rewrite aliases.
@@ -271,7 +274,7 @@ impl CatalogSurface {
                         upstream_model: name.to_owned(),
                         name: name.to_owned(),
                         apis,
-                        pricing: pricing(quote)?,
+                        pricing: pricing(quote, tool)?,
                         native_cost: None,
                     });
                     group_ppm.push(quote.multipliers_ppm().0);
@@ -488,6 +491,14 @@ fn api_supported(
     quote: PriceQuote,
     provider_policy: Option<(&super::ProviderPolicy, i64)>,
 ) -> bool {
+    let tool = ToolKind::from_protocol(client);
+    if let Some(kind) = tool {
+        if name != kind.model() || !PersistedToolPrice::supports_quote(kind, quote) {
+            return false;
+        }
+    } else if super::routing::credit_price(quote, &route.model, &route.group).is_err() {
+        return false;
+    }
     // Health/operational stops can recover without publishing new config. Check
     // every potentially selectable target, including lower priority targets.
     let targets: Vec<_> = route
@@ -507,13 +518,33 @@ fn api_supported(
         && targets.into_iter().all(|(t, u)| {
             t.payload.adapts(client, u.protocol)
                 && u128::from(t.timeout_ms) >= total_timeout.as_millis()
-                && t.upstream_model == name
+                && (t.upstream_model == name || client.input_only() || tool.is_some())
                 && (quote.billing_mode() != BillingMode::UpstreamCost
                     || t.upstream_model == route.model)
                 && credentials
                     .get(&(u.credential.id, u.credential.revision))
                     .is_some_and(|secret| {
-                        if client == Protocol::SystemOne {
+                        if let Some(kind) = tool {
+                            u.protocol == client
+                                && t.payload == PayloadPolicy::Adapt
+                                && provider_policy.is_some_and(|(policy, _)| {
+                                    policy
+                                        .validate_binding(
+                                            u.id,
+                                            &t.upstream_model,
+                                            u.protocol,
+                                            u.endpoint.as_str(),
+                                            0,
+                                            0,
+                                        )
+                                        .is_ok()
+                                })
+                                && reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {secret}"
+                                ))
+                                .is_ok()
+                                && super::tool_api::endpoint(u.endpoint.as_str(), kind).is_ok()
+                        } else if client == Protocol::SystemOne {
                             u.protocol == Protocol::SystemOne
                                 && t.payload == PayloadPolicy::Adapt
                                 && provider_policy.is_some_and(|(policy, bound)| {
@@ -535,6 +566,28 @@ fn api_supported(
                                 ))
                                 .is_ok()
                                 && super::systemone::endpoint(u.endpoint.as_str()).is_ok()
+                        } else if client.input_only() {
+                            u.protocol == client
+                                && t.payload == PayloadPolicy::Adapt
+                                && provider_policy.is_some_and(|(policy, bound)| {
+                                    policy
+                                        .validate_binding(
+                                            u.id,
+                                            &t.upstream_model,
+                                            u.protocol,
+                                            u.endpoint.as_str(),
+                                            bound,
+                                            0,
+                                        )
+                                        .is_ok()
+                                })
+                                && quote.is_input_only_scalar()
+                                && reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {secret}"
+                                ))
+                                .is_ok()
+                                && super::input_api::endpoint(u.endpoint.as_str(), u.protocol)
+                                    .is_ok()
                         } else {
                             route_is_constructible(route, t, u, secret, quote)
                         }
@@ -589,7 +642,7 @@ fn route_is_constructible(
     .is_ok()
 }
 
-fn pricing(quote: PriceQuote) -> Result<CatalogPricing, CatalogError> {
+fn pricing(quote: PriceQuote, tool: bool) -> Result<CatalogPricing, CatalogError> {
     let (group_ppm, speed_ppm) = quote.multipliers_ppm();
     let known = quote.billing_mode() == BillingMode::Tokens;
     let rate = |value: u64| {
@@ -607,7 +660,13 @@ fn pricing(quote: PriceQuote) -> Result<CatalogPricing, CatalogError> {
     let rates = quote.rates();
     Ok(CatalogPricing {
         currency: "USD",
-        unit: if known { "million_tokens" } else { "unknown" },
+        unit: if tool {
+            "successful_requests"
+        } else if known {
+            "million_tokens"
+        } else {
+            "unknown"
+        },
         price_basis: if known {
             "configured_base_rates"
         } else {
@@ -615,11 +674,11 @@ fn pricing(quote: PriceQuote) -> Result<CatalogPricing, CatalogError> {
         },
         group_multiplier: Some(decimal(u128::from(group_ppm), 6)?),
         trust_multiplier: None,
-        input: rate(rates.input)?,
-        output: rate(rates.output)?,
-        cache_read: rate(rates.cache_read)?,
+        input: if tool { None } else { rate(rates.input)? },
+        output: if tool { None } else { rate(rates.output)? },
+        cache_read: if tool { None } else { rate(rates.cache_read)? },
         cache_write: None,
-        request: None,
+        request: if tool { rate(rates.request)? } else { None },
         final_cost_depends_on_usage: true,
         updated_at: 0,
     })
@@ -899,6 +958,50 @@ mod tests {
     }
 
     #[test]
+    fn input_only_catalog_advertises_its_native_api_and_validates_price() {
+        for (protocol, api) in [
+            (Protocol::OpenAiEmbeddings, "openai-embeddings"),
+            (Protocol::JinaRerank, "jina-rerank"),
+        ] {
+            let (mut config, mut prices) = fixture("public-input");
+            config.upstreams[0].protocol = protocol;
+            config.routes[0].targets[0].upstream_model = "provider-input".into();
+            prices.rules[0].rates = TokenRates {
+                input: 2000000,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                request: 0,
+            };
+            for valid in [true, false] {
+                prices.rules[0].rates.output = if valid { 0 } else { 1000000 };
+                let router = Arc::new(
+                    Router::new(
+                        config.clone(),
+                        Arc::new(PriceSnapshot::compile(prices.clone()).unwrap()),
+                    )
+                    .unwrap(),
+                );
+                let credentials = BTreeMap::from([((1, 1), "synthetic-input-only-key".into())]);
+                let surface = CatalogSurface::from_gateway_with_provider_policy(
+                    router,
+                    &credentials,
+                    Duration::from_secs(1),
+                    &super::super::ProviderPolicy::default(),
+                    2000,
+                );
+                let result = view(&surface);
+                if valid {
+                    assert_eq!(result.models.len(), 1);
+                    assert_eq!(result.models[0].apis, [api]);
+                } else {
+                    assert!(result.models.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
     fn systemone_catalog_admits_only_safe_scalar_decimal_tariff() {
         let (mut config, mut prices) = fixture("jev-native");
         config.upstreams[0].protocol = Protocol::SystemOne;
@@ -947,6 +1050,67 @@ mod tests {
             } else {
                 assert!(result.models.is_empty());
             }
+        }
+    }
+
+    #[test]
+    fn native_tool_catalog_requires_explicit_protocol_and_request_only_price() {
+        for (protocol, kind) in [
+            (Protocol::DeepSeekSearch, ToolKind::DeepSeekSearch),
+            (Protocol::DeepSeekFetch, ToolKind::DeepSeekFetch),
+        ] {
+            let (mut config, mut prices) = fixture(kind.model());
+            config.upstreams[0].protocol = protocol;
+            config.routes[0].targets[0].upstream_model = "provider-tool-contract".into();
+            config.aliases.push(ModelAlias {
+                group: "synthetic".into(),
+                alias: "uncallable-tool-alias".into(),
+                model: kind.model().into(),
+            });
+            prices.rules[0].rates = TokenRates {
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                request: 750,
+            };
+            let project = |config: RoutingConfig, prices: PriceConfig| {
+                let router = Arc::new(
+                    Router::new(config, Arc::new(PriceSnapshot::compile(prices).unwrap())).unwrap(),
+                );
+                let credentials = BTreeMap::from([((1, 1), "synthetic-native-tool-key".into())]);
+                view(&CatalogSurface::from_gateway_with_provider_policy(
+                    router,
+                    &credentials,
+                    Duration::from_secs(1),
+                    &super::super::ProviderPolicy::default(),
+                    2000,
+                ))
+            };
+            let result = project(config.clone(), prices.clone());
+            assert_eq!(result.models.len(), 1);
+            let model = &result.models[0];
+            assert_eq!(model.name, kind.model());
+            assert_eq!(model.apis, [kind.model()]);
+            assert_eq!(model.pricing.unit, "successful_requests");
+            assert!(model.pricing.input.is_none() && model.pricing.output.is_none());
+            assert_eq!(
+                model.pricing.request.as_ref().unwrap().to_string(),
+                "0.0009375"
+            );
+            for dimension in 0..4 {
+                let mut invalid = prices.clone();
+                match dimension {
+                    0 => invalid.rules[0].rates.input = 1,
+                    1 => invalid.rules[0].rates.output = 1,
+                    2 => invalid.rules[0].rates.cache_read = 1,
+                    _ => invalid.rules[0].rates.cache_write = 1,
+                };
+                assert!(project(config.clone(), invalid).models.is_empty());
+            }
+            config.upstreams[0].protocol = Protocol::OpenAiChat;
+            config.routes[0].targets[0].upstream_model = kind.model().into();
+            assert!(project(config, prices).models.is_empty());
         }
     }
     #[test]

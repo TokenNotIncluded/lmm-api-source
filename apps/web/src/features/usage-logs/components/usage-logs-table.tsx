@@ -81,7 +81,7 @@ interface UsageLogsTableProps {
 
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const { t } = useTaskLogsTranslation()
-  const { isAdminView: isAdmin } = useLogsViewScope()
+  const { isAdminView: isAdmin, historical } = useLogsViewScope()
   const auth = useAuthStore((state) => state.auth)
   const scope = readUsageStatisticsScope(auth)
   const isMobile = useMediaQuery('(max-width: 640px)')
@@ -147,12 +147,14 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       columnFilters,
       searchParams,
       t,
+      historical,
     ],
     queryFn: async ({ signal }) => {
       if (!scope) throw new Error('Usage history session unavailable')
       const result = await fetchLogsByCategory({
         logCategory,
         isAdmin,
+        historical,
         page: pagination.pageIndex + 1,
         pageSize: pagination.pageSize,
         searchParams,
@@ -180,6 +182,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     placeholderData: (previousData, previousQuery) => {
       if (
         scope &&
+        previousQuery?.queryKey.at(-1) === historical &&
         canKeepPreviousLogData(
           previousQuery?.queryKey,
           logCategory,

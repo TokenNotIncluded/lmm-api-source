@@ -91,6 +91,8 @@ pub struct Request {
     pub tool_choice: ToolChoice,
     pub parallel_tool_calls: Option<bool>,
     pub reasoning_effort: Option<String>,
+    /// Native Google Search only; its supplier contract is selected by Core.
+    pub(crate) google_search: bool,
     /// Bounded Responses cache controls; never evidence of actual billed writes.
     pub prompt_cache_options: Option<Value>,
     /// Validated Chat image controls, only emitted on a Gemini route.
@@ -333,6 +335,7 @@ impl Request {
             || self.parallel_tool_calls.is_some()
             || self.prompt_cache_options.is_some()
             || self.reasoning_effort.is_some()
+            || self.google_search
             || self.temperature.is_some()
             || self.top_p.is_some()
             || !self.stop.is_empty()
@@ -637,12 +640,14 @@ impl Request {
                 }
             }
         };
-        if reasoning_effort
-            .as_ref()
-            .is_some_and(|s| !["low", "medium", "high"].contains(&s.as_str()))
-        {
+        if reasoning_effort.as_ref().is_some_and(|s| {
+            !["none", "minimal", "low", "medium", "high", "xhigh", "max"].contains(&s.as_str())
+        }) {
             return Err(RelayError::Unsupported("unsupported reasoning effort"));
         }
+        // Keep the requested effort intact. DeepSeek accepts aliases such as
+        // xhigh, but other OpenAI-compatible providers give them distinct
+        // meanings. The selected provider interprets its own vocabulary.
         let mut messages = Vec::new();
         if let Some(s) = v.get("instructions").filter(|v| !v.is_null()) {
             messages.push(Message {
@@ -863,6 +868,7 @@ impl Request {
             top_p: number(v.get("top_p"), 1.0)?,
             parallel_tool_calls: boolean(v.get("parallel_tool_calls"))?,
             reasoning_effort,
+            google_search: false,
             prompt_cache_options,
             image_config,
             continuation_token: None,
@@ -1033,6 +1039,16 @@ impl Request {
         protocol: UpstreamProtocol,
         model: &str,
     ) -> Result<Value, RelayError> {
+        if self.google_search
+            && (self.client != ClientProtocol::Gemini
+                || protocol != UpstreamProtocol::Gemini
+                || !self.tools.is_empty()
+                || self.continuation_token.is_some())
+        {
+            return Err(RelayError::Unsupported(
+                "Google Search requires a native Gemini request without mixed tools or continuation",
+            ));
+        }
         if self.prompt_cache_options.is_some() && protocol != UpstreamProtocol::Responses {
             return Err(RelayError::Unsupported(
                 "cache lifetime controls require a Responses route",
@@ -1392,6 +1408,9 @@ impl Request {
                     json!({"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":[n]}})
                 }
             };
+        }
+        if self.google_search {
+            v["tools"] = json!([{"googleSearch":{}}]);
         }
         Ok(v)
     }

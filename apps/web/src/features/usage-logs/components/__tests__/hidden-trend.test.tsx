@@ -149,17 +149,27 @@ for (const admin of [false, true]) {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30))
       })
-      assert.ok(
-        container.querySelector(
-          '[aria-label="Usage trend for the selected time range"]'
-        )
+      const initialTrend = container.querySelector(
+        '[aria-label="Usage trend for the selected time range"]'
       )
-      const endpoint = admin ? '/api/log/stat' : '/api/log/self/stat'
+      if (admin) {
+        assert.equal(initialTrend, null)
+        assert.match(
+          container.textContent ?? '',
+          /Usage trend for the selected time range: Unavailable/
+        )
+      } else {
+        assert.ok(initialTrend)
+      }
+      const endpoint = admin
+        ? '/core/v1/usage/admin/stats'
+        : '/api/log/self/stat'
       assert.equal(requests.length, 13)
       assert.match(container.textContent ?? '', /100 Raw credits/)
-      assert.match(
-        container.textContent ?? '',
-        /Historical monetary value unavailable/
+      assert.ok(
+        container.querySelector(
+          '[title="Historical monetary value unavailable"]'
+        )
       )
       assert.doesNotMatch(container.textContent ?? '', /USD|CNY/)
       assert.ok(requests.every((request) => request.startsWith(endpoint)))
@@ -205,6 +215,14 @@ for (const admin of [false, true]) {
       const trend = container.querySelector(
         '[aria-label="Usage trend for the selected time range"]'
       )
+      if (admin) {
+        assert.equal(trend, null)
+        assert.match(
+          container.textContent ?? '',
+          /Usage trend for the selected time range: Unavailable/
+        )
+        return
+      }
       assert.ok(trend)
       const bars = trend.querySelectorAll('button')
       assert.equal(bars.length, 12)

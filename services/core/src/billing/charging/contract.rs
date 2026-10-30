@@ -244,6 +244,54 @@ impl PreparedReservation {
         )
     }
 
+    /// Embeddings and token-priced reranking consume input without generated tokens.
+    pub(crate) fn input_only(
+        request_fingerprint: String,
+        binding: ReservationBinding,
+        wire_sha256: String,
+        input_max: u64,
+        mut semantics: ReservationSemantics,
+    ) -> Result<Self, Error> {
+        semantics.output = "no_output_tokens".into();
+        Self::new(
+            "input_only_native_v1",
+            request_fingerprint,
+            binding,
+            wire_sha256,
+            None,
+            ReservationBounds {
+                model_input_max: input_max,
+                input: input_max,
+                requested_output: 0,
+                output: 0,
+            },
+            semantics,
+        )
+    }
+
+    pub(crate) fn native_tool(
+        request_fingerprint: String,
+        binding: ReservationBinding,
+        wire_sha256: String,
+        mut semantics: ReservationSemantics,
+    ) -> Result<Self, Error> {
+        semantics.output = "no_output_tokens".into();
+        Self::new(
+            "native_tool_v1",
+            request_fingerprint,
+            binding,
+            wire_sha256,
+            None,
+            ReservationBounds {
+                model_input_max: 0,
+                input: 0,
+                requested_output: 0,
+                output: 0,
+            },
+            semantics,
+        )
+    }
+
     fn new(
         mode: &str,
         request_fingerprint: String,
@@ -277,9 +325,15 @@ impl PreparedReservation {
         let binding = &f.binding;
         let bounds = &f.bounds;
         let native = f.mode == "systemone_native_v1";
+        let input_only = f.mode == "input_only_native_v1";
+        let tool = f.mode == "native_tool_v1";
         let valid_mode = match (f.mode.as_str(), &f.counter) {
             ("context_max", None) => {
-                bounds.input == bounds.model_input_max && binding.protocol != "systemone"
+                bounds.input == bounds.model_input_max
+                    && matches!(
+                        binding.protocol.as_str(),
+                        "chat" | "responses" | "anthropic" | "gemini"
+                    )
             }
             ("openai_responses_exact_v1", Some(counter)) => {
                 binding.protocol == "responses"
@@ -293,6 +347,23 @@ impl PreparedReservation {
                     && bounds.input == bounds.model_input_max
                     && bounds.requested_output == 0
                     && bounds.output == u64::from(u32::MAX)
+            }
+            ("input_only_native_v1", None) => {
+                matches!(binding.protocol.as_str(), "embeddings" | "rerank")
+                    && bounds.input == bounds.model_input_max
+                    && bounds.requested_output == 0
+                    && bounds.output == 0
+                    && f.semantics.input == "inclusive"
+            }
+            ("native_tool_v1", None) => {
+                matches!(
+                    binding.protocol.as_str(),
+                    "deepseek_search" | "deepseek_fetch"
+                ) && bounds.model_input_max == 0
+                    && bounds.input == 0
+                    && bounds.requested_output == 0
+                    && bounds.output == 0
+                    && f.semantics.input == "inclusive"
             }
             _ => false,
         };
@@ -312,22 +383,32 @@ impl PreparedReservation {
             || binding.quote_version == 0
             || !matches!(
                 binding.protocol.as_str(),
-                "chat" | "responses" | "anthropic" | "gemini" | "systemone"
+                "chat"
+                    | "responses"
+                    | "anthropic"
+                    | "gemini"
+                    | "systemone"
+                    | "embeddings"
+                    | "rerank"
+                    | "deepseek_search"
+                    | "deepseek_fetch"
             )
             || binding.model_snapshot.is_empty()
             || binding.generation_url.is_empty()
             || binding.provider_contract_revision.is_empty()
             || binding.projection_revision.is_empty()
-            || bounds.model_input_max == 0
+            || (!tool && bounds.model_input_max == 0)
             || bounds.model_input_max > u32::MAX as u64
             || bounds.input > bounds.model_input_max
-            || bounds.output == 0
+            || (!input_only && !tool && bounds.output == 0)
             || bounds.output > u32::MAX as u64
             || (!native && bounds.output != bounds.requested_output)
             || !matches!(f.semantics.input.as_str(), "inclusive" | "exclusive")
             || f.semantics.output
                 != if native {
                     "unpriced_systemone_metadata"
+                } else if input_only || tool {
+                    "no_output_tokens"
                 } else {
                     "includes_reasoning"
                 }
@@ -346,12 +427,15 @@ impl PreparedReservation {
             self.fields.bounds.output
         };
         match basis {
+            ReservationBasis::Tool if self.fields.mode == "native_tool_v1" => Ok(()),
             ReservationBasis::Tokens { input, output }
-                if input == self.fields.bounds.input && output == priced_output =>
+                if self.fields.mode != "native_tool_v1"
+                    && input == self.fields.bounds.input
+                    && output == priced_output =>
             {
                 Ok(())
             }
-            ReservationBasis::UpstreamCost { .. } => Ok(()),
+            ReservationBasis::UpstreamCost { .. } if self.fields.mode != "native_tool_v1" => Ok(()),
             _ => Err(Error::Conflict),
         }
     }
@@ -395,7 +479,34 @@ impl PreparedReservation {
     }
 
     fn validate_native_price(&self, price: &super::Price) -> Result<(), Error> {
-        if self.fields.mode != "systemone_native_v1" {
+        if let Some(grounding) = &price.grounding {
+            price.validate()?;
+            if self.fields.mode != "context_max"
+                || self.fields.binding.protocol != "gemini"
+                || grounding.provider_contract_revision
+                    != self.fields.binding.provider_contract_revision
+            {
+                return Err(Error::Invalid);
+            }
+        }
+        if self.fields.mode == "native_tool_v1" {
+            price.validate()?;
+            let tariff = price.tool.as_ref().ok_or(Error::Invalid)?;
+            if tariff.kind.protocol_name() != self.fields.binding.protocol
+                || tariff.provider_contract_revision
+                    != self.fields.binding.provider_contract_revision
+            {
+                return Err(Error::Invalid);
+            }
+            return Ok(());
+        }
+        if price.tool.is_some() {
+            return Err(Error::Invalid);
+        }
+        if !matches!(
+            self.fields.mode.as_str(),
+            "systemone_native_v1" | "input_only_native_v1"
+        ) {
             return Ok(());
         }
         price.validate()?;
@@ -443,6 +554,15 @@ impl ReservationContract {
         self.validate(charge)?;
         let bounds = &self.fields.bounds;
         if !usage.valid()
+            || (charge.price.tool.is_some() != usage.tool.is_some())
+            || (charge.price.grounding.is_some() != usage.grounding.is_some())
+            || usage.tool.is_some_and(|tool| {
+                charge
+                    .price
+                    .tool
+                    .as_ref()
+                    .is_none_or(|price| tool.kind != price.kind)
+            })
             || usage.input as u64 > bounds.input
             || usage.output as u64 > bounds.output
         {
@@ -618,6 +738,53 @@ mod tests {
     }
 
     #[test]
+    fn input_only_contract_requires_zero_output_and_its_own_protocol() {
+        for protocol in ["embeddings", "rerank"] {
+            let source = prepared();
+            let mut binding = source.fields.binding.clone();
+            binding.protocol = protocol.into();
+            let native = PreparedReservation::input_only(
+                source.fields.request_fingerprint,
+                binding,
+                source.fields.wire_sha256,
+                100,
+                source.fields.semantics,
+            )
+            .unwrap();
+            assert!(
+                native
+                    .verify_basis(ReservationBasis::Tokens {
+                        input: 100,
+                        output: 0
+                    })
+                    .is_ok()
+            );
+            assert!(
+                native
+                    .verify_basis(ReservationBasis::Tokens {
+                        input: 100,
+                        output: 1
+                    })
+                    .is_err()
+            );
+            assert_eq!(native.fields.bounds.output, 0);
+            assert_eq!(native.fields.semantics.output, "no_output_tokens");
+            let mut changed = native.fields.clone();
+            changed.binding.protocol = "chat".into();
+            assert!(
+                PreparedReservation::input_only(
+                    changed.request_fingerprint,
+                    changed.binding,
+                    changed.wire_sha256,
+                    100,
+                    changed.semantics,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn prepared_contract_systemone_preserves_input_only_pricing() {
         let source = prepared();
         let mut binding = source.fields.binding.clone();
@@ -638,6 +805,9 @@ mod tests {
             id: "native-input-only".into(),
             fingerprint: [1; 32],
             price: super::super::Price {
+                tool: None,
+                grounding: None,
+
                 user_trust: None,
                 image: None,
                 upstream_cost_group_ppm: None,

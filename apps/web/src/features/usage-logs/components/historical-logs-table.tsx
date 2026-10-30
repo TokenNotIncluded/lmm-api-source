@@ -121,9 +121,7 @@ export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
               {t('Imported history')}
             </p>
             <p>
-              {t(
-                'This view shows imported historical logs. New requests for your account appear under Only Mine.'
-              )}
+              {t('Imported usage is shown separately from current requests.')}
             </p>
           </div>
           <CommonLogsFilterBar table={table} />

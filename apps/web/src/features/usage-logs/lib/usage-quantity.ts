@@ -4,6 +4,7 @@ import type { LogOtherData } from '../types'
 
 type UsageQuantity =
   | { kind: 'image'; count: number | null }
+  | { kind: 'tool'; count: number | null }
   | { kind: 'tokens'; input: number | null; output: number | null }
 
 /** A measured subset of total writes, never a guess from the request TTL. */
@@ -23,8 +24,9 @@ export function cacheWrite12hQuantity(
     !Number.isSafeInteger(twelve) ||
     twelve < 0 ||
     twelve > total
-  )
+  ) {
     return null
+  }
   return twelve
 }
 
@@ -32,6 +34,14 @@ export function logUsageQuantity(
   log: UsageLog,
   other: LogOtherData | null
 ): UsageQuantity {
+  if (log.pricing_dimension === 'tool' || other?.pricing_dimension === 'tool') {
+    const count =
+      log.tool_requests !== undefined ? log.tool_requests : other?.tool_requests
+    return {
+      kind: 'tool',
+      count: count === 0 || count === 1 ? count : null,
+    }
+  }
   if (
     log.pricing_dimension === 'image' ||
     other?.pricing_dimension === 'image'

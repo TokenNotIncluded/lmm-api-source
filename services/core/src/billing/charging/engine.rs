@@ -95,6 +95,9 @@ mod trust_admission_tests {
             id: "trust-request".into(),
             fingerprint: [1; 32],
             price: Price {
+                tool: None,
+                grounding: None,
+
                 user_trust: None,
                 image: None,
                 upstream_cost_group_ppm: None,
@@ -162,6 +165,7 @@ fn counted_api_activity(usage: Usage) -> bool {
             || usage.output > 0
             || usage.cache_creation.is_some_and(|v| v.total > 0)
             || usage.image.is_some_and(|v| v.output_images > 0)
+            || usage.tool.is_some_and(|v| v.successful_requests > 0)
             || usage.upstream_cost_atto_usd.is_some_and(|v| v > 0))
 }
 
@@ -264,6 +268,9 @@ fn decode(row: PgRow) -> Result<Stored> {
             reserved: row.try_get("reserved")?,
             usage: cache_evidence::restore(
                 Usage {
+                    tool: None,
+                    grounding: None,
+
                     image: row
                         .try_get::<Option<Value>, _>("image_usage")?
                         .map(serde_json::from_value)
@@ -291,6 +298,12 @@ fn decode(row: PgRow) -> Result<Stored> {
         .price
         .validate_actor(stored.charge.actor_user_id)
         .map_err(|_| Error::Storage)?;
+    if stored.charge.state == "settled"
+        && (stored.charge.price.tool.is_some() != stored.charge.usage.tool.is_some()
+            || stored.charge.price.grounding.is_some() != stored.charge.usage.grounding.is_some())
+    {
+        return Err(Error::Storage);
+    }
     let cache_tariff = stored
         .charge
         .price
@@ -1076,6 +1089,11 @@ impl Charging {
         outcome: Outcome,
         evidence: Option<&str>,
     ) -> Result<Charge> {
+        if charge.price.tool.is_some() != usage.tool.is_some()
+            || charge.price.grounding.is_some() != usage.grounding.is_some()
+        {
+            return Err(Error::Invalid);
+        }
         if let Some(proof) = contract::load(c, &charge).await? {
             proof.check_usage(&charge, usage)?;
         }

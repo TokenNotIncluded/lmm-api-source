@@ -24,6 +24,7 @@ import { useIsAdmin } from '@/hooks/use-admin'
 import type { ChannelAffinityInfo } from '../types'
 
 export type LogsViewScope = 'all' | 'self'
+export type UsageSource = 'native' | 'historical'
 
 interface UsageLogsContextValue {
   selectedUserId: number | null
@@ -36,6 +37,8 @@ interface UsageLogsContextValue {
   setAffinityDialogOpen: (open: boolean) => void
   sensitiveVisible: boolean
   setSensitiveVisible: (visible: boolean) => void
+  usageSource: UsageSource
+  setUsageSource: (source: UsageSource) => void
   viewScope: LogsViewScope
   setViewScope: (scope: LogsViewScope) => void
 }
@@ -52,6 +55,7 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
   const [affinityDialogOpen, setAffinityDialogOpen] = useState(false)
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
   const [viewScope, setViewScope] = useState<LogsViewScope>('all')
+  const [usageSource, setUsageSource] = useState<UsageSource>('native')
 
   return (
     <UsageLogsContext.Provider
@@ -68,6 +72,8 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
         setSensitiveVisible,
         viewScope,
         setViewScope,
+        usageSource,
+        setUsageSource,
       }}
     >
       {children}
@@ -93,12 +99,17 @@ export function useUsageLogsContext() {
  */
 export function useLogsViewScope() {
   const canManageScope = useIsAdmin()
-  const { viewScope, setViewScope } = useUsageLogsContext()
+  const { viewScope, setViewScope, usageSource, setUsageSource } =
+    useUsageLogsContext()
 
   return {
     canManageScope,
     viewScope,
     setViewScope,
+    usageSource,
+    setUsageSource,
+    historical:
+      canManageScope && viewScope === 'all' && usageSource === 'historical',
     isAdminView: canManageScope && viewScope === 'all',
   }
 }

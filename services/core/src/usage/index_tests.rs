@@ -59,6 +59,9 @@ async fn requests(f: &Fixture, prefix: &str, count: i64, at: i64) {
         .await
         .unwrap();
     let price = serde_json::to_value(Price {
+        tool: None,
+        grounding: None,
+
         user_trust: None,
         image: None,
         version: "index-fixture".into(),
@@ -284,4 +287,142 @@ async fn request_limit_distinguishes_100000_from_100001_without_silent_truncatio
         assert_eq!(body["code"], "USAGE_WINDOW_TOO_DENSE");
         assert!(body.get("data").is_none());
     }
+}
+
+#[sqlx::test(migrations = false)]
+async fn native_admin_and_self_exports_share_filters_and_authorization(pool: PgPool) {
+    let f = fixture(&pool).await;
+    requests(&f, "mine-", 1, f.now).await;
+    let identity = IdentityStore::from_pool(pool.clone());
+    let admin = identity.bootstrap_user(900, 5).await.unwrap();
+    let other = identity.bootstrap_user(8, 0).await.unwrap();
+    let other_owner = identity
+        .authorize(&other.secret)
+        .await
+        .unwrap()
+        .owner_account_id;
+    let other_key = identity
+        .issue_key(
+            &other.secret,
+            Account {
+                kind: AccountKind::Personal,
+                id: 8,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved)
+      SELECT 'other-request',8,$1,$2,$2,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved
+      FROM core_charging.requests WHERE id='mine-000001'"#)
+        .bind(other_key.id).bind(other_owner).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let app = router(UsageStore::new(pool.clone()));
+    async fn read(app: Router, secret: &str, path: &str) -> (StatusCode, String) {
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(path)
+                    .header("authorization", format!("Bearer {secret}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+    let query = format!(
+        "start_timestamp={}&end_timestamp={}&model_name=test-model&group=default",
+        f.now - 60,
+        f.now
+    );
+    let (status, body) = read(
+        app.clone(),
+        &admin.secret,
+        &format!("/core/v1/usage/admin/logs?{query}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["data"]["total"], 2);
+    for (secret, endpoint, expected) in [
+        (&f.secret, "/core/v1/usage/self/export.csv", "mine-000001"),
+        (
+            &other.secret,
+            "/core/v1/usage/self/export.csv",
+            "other-request",
+        ),
+    ] {
+        let (status, csv) = read(app.clone(), secret, &format!("{endpoint}?{query}")).await;
+        assert_eq!(status, StatusCode::OK, "{csv}");
+        assert_eq!(csv.split("\r\n").filter(|line| !line.is_empty()).count(), 2);
+        assert!(csv.contains(expected));
+    }
+    for path in ["logs", "stats", "export.csv"] {
+        for secret in [&f.secret, &other_key.secret] {
+            let (status, _) = read(
+                app.clone(),
+                secret,
+                &format!("/core/v1/usage/admin/{path}?{query}"),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+    }
+    let filtered = format!("{query}&request_id=mine-000001");
+    let (_, body) = read(
+        app.clone(),
+        &admin.secret,
+        &format!("/core/v1/usage/admin/logs?{filtered}"),
+    )
+    .await;
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["data"]["total"],
+        1
+    );
+    let (_, body) = read(
+        app.clone(),
+        &admin.secret,
+        &format!("/core/v1/usage/admin/stats?{filtered}"),
+    )
+    .await;
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["data"]["incomplete_count"],
+        1
+    );
+    let (_, csv) = read(
+        app.clone(),
+        &admin.secret,
+        &format!("/core/v1/usage/admin/export.csv?{filtered}"),
+    )
+    .await;
+    assert!(csv.contains("mine-000001"));
+    assert!(!csv.contains("other-request"));
+    let (status, _) = read(
+        app.clone(),
+        &f.secret,
+        &format!("/core/v1/usage/self/export.csv?{query}&page_size=20"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = read(
+        app,
+        &admin.secret,
+        &format!("/core/v1/usage/admin/logs?{query}&username=missing-user"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["data"]["total"],
+        0
+    );
 }

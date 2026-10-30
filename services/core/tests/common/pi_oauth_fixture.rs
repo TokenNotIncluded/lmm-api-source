@@ -395,6 +395,9 @@ impl Fixture {
             id: id.into(),
             fingerprint: Sha256::digest(id.as_bytes()).into(),
             price: Price {
+                tool: None,
+                grounding: None,
+
                 user_trust: None,
                 image: None,
                 upstream_cost_group_ppm: None,

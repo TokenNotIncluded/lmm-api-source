@@ -36,8 +36,8 @@ pub struct ExternalModelContext {
     pub upstream_model: String,
     pub protocol: Protocol,
     pub endpoint: String,
-    /// A reviewed supplier guarantee: every accepted request bills at most
-    /// this many input tokens, including cached input and tool/message framing.
+    /// A reviewed supplier guarantee for the whole request, including all items
+    /// in an embedding batch or rerank candidate list. Per-call tools use zero.
     pub max_input_tokens: u32,
     pub max_output_tokens: u32,
     /// Supplier/model documentation or deployment contract revision, required.
@@ -52,6 +52,8 @@ pub struct ExternalModelContext {
     pub missing_cache_creation_tokens_is_zero: bool,
     #[serde(default)]
     pub reservation: ReservationProfile,
+    #[serde(default)]
+    pub grounding: Option<super::grounding_price::GroundingContract>,
 }
 
 #[derive(Clone, Default)]
@@ -59,6 +61,34 @@ pub struct ProviderPolicy {
     contexts: BTreeMap<(u64, String), ExternalModelContext>,
 }
 impl ProviderPolicy {
+    pub(super) fn grounding_price(
+        &self,
+        attempt: &Attempt,
+    ) -> Result<super::grounding_price::PersistedGroundingPrice, RelayError> {
+        let endpoint = validate_base_url(attempt.endpoint(), true)?;
+        let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
+        let context = self
+            .contexts
+            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+            .filter(|context| {
+                context.protocol == Protocol::Gemini
+                    && attempt.protocol() == Protocol::Gemini
+                    && (local || context.endpoint == endpoint.as_str())
+            })
+            .ok_or(RelayError::Unsupported(
+                "Google Search requires a reviewed grounded-request contract",
+            ))?;
+        super::grounding_price::PersistedGroundingPrice::from_quote(
+            context.grounding.clone().ok_or(RelayError::Unsupported(
+                "Google Search pricing is not configured",
+            ))?,
+            attempt.quote(),
+            context.contract_revision.clone(),
+        )
+        .ok_or(RelayError::Unsupported(
+            "Google Search requires scalar token pricing",
+        ))
+    }
     pub(crate) fn count_plan(&self, attempt: &Attempt) -> Result<CountPlan, RelayError> {
         // @context-fold begin provider-reservation-count-plan
         let endpoint = validate_base_url(attempt.endpoint(), true)?;
@@ -130,13 +160,25 @@ impl ProviderPolicy {
         let mut result = Self::default();
         for mut context in contexts {
             let endpoint = validate_base_url(&context.endpoint, false)?;
+            if context.grounding.is_some() && context.protocol != Protocol::Gemini {
+                return Err(RelayError::Invalid(
+                    "grounding contract requires Gemini protocol",
+                ));
+            }
+            let tool = matches!(
+                context.protocol,
+                Protocol::DeepSeekSearch | Protocol::DeepSeekFetch
+            );
+            let no_output = tool || context.protocol.input_only();
             if context.upstream_id == 0
                 || context.upstream_model.is_empty()
                 || context.upstream_model.len() > 256
                 || context.upstream_model.chars().any(char::is_control)
-                || context.max_input_tokens == 0
+                || (tool && context.max_input_tokens != 0)
+                || (!tool && context.max_input_tokens == 0)
                 || i64::from(context.max_input_tokens) > reserved_input_tokens
-                || !(1..=65_536).contains(&context.max_output_tokens)
+                || (no_output && context.max_output_tokens != 0)
+                || (!no_output && !(1..=65_536).contains(&context.max_output_tokens))
                 || context.contract_revision.is_empty()
                 || context.contract_revision.len() > 512
                 || context.contract_revision.chars().any(char::is_control)
@@ -227,7 +269,11 @@ impl ProviderPolicy {
         reserved_input_tokens: i64,
         output_tokens: u32,
     ) -> Result<(), RelayError> {
-        if !(1..=16_000_000).contains(&reserved_input_tokens) {
+        let tool = matches!(protocol, Protocol::DeepSeekSearch | Protocol::DeepSeekFetch);
+        if (tool && reserved_input_tokens != 0)
+            || (!tool && !(1..=16_000_000).contains(&reserved_input_tokens))
+            || ((tool || protocol.input_only()) && output_tokens != 0)
+        {
             return Err(RelayError::Invalid(
                 "invalid provider input reservation bound",
             ));
@@ -377,6 +423,38 @@ mod tests {
     }
 
     #[test]
+    fn native_input_contract_uses_whole_batch_limit_and_zero_output() {
+        for protocol in [Protocol::OpenAiEmbeddings, Protocol::JinaRerank] {
+            let mut native = context();
+            native.protocol = protocol;
+            native.max_input_tokens = 300_000;
+            native.max_output_tokens = 0;
+            let policy = ProviderPolicy::new(vec![native.clone()], 300_000).unwrap();
+            let selected = attempt(protocol, "bounded-model", "https://api.example/v1");
+            assert_eq!(
+                policy
+                    .reservation_input_bound(&selected, 300_000, 0)
+                    .unwrap(),
+                300_000
+            );
+            assert!(
+                policy
+                    .reservation_input_bound(&selected, 300_000, 1)
+                    .is_err()
+            );
+            native.max_output_tokens = 1;
+            assert!(ProviderPolicy::new(vec![native], 300_000).is_err());
+            let usage = crate::relay::Usage {
+                input_tokens: Some(300_001),
+                cached_input_tokens: Some(0),
+                output_tokens: Some(0),
+                ..Default::default()
+            };
+            assert!(policy.validate_usage(&selected, &usage, false).is_err());
+        }
+    }
+
+    #[test]
     fn selected_input_bound_uses_exact_model_contract_and_loopback_keeps_global() {
         let mut small = context();
         small.max_input_tokens = 65_536;
@@ -485,6 +563,8 @@ mod tests {
 
     fn context() -> ExternalModelContext {
         ExternalModelContext {
+            grounding: None,
+
             reservation: ReservationProfile::default(),
             missing_cache_creation_tokens_is_zero: false,
             upstream_id: 1,

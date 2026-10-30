@@ -354,6 +354,11 @@ impl Encoder {
                     return Err(RelayError::Protocol("invalid Gemini continuation token"));
                 }
             }
+            Event::GroundingMetadata(_) => {
+                return Err(RelayError::Unsupported(
+                    "grounding metadata requires native Gemini",
+                ));
+            }
             Event::StopSequence(sequence) => {
                 if !self.started
                     || self.finish.is_some()

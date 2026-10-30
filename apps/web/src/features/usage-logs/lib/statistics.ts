@@ -28,9 +28,16 @@ const nativeStatisticsSchema = z.object({
   quota_numeric_representable: z.never().optional(),
   invalid_quota_records: z.never().optional(),
   rates_available: z.literal(true).optional(),
+  cache_read_tokens: count.optional(),
+  cache_write_tokens: count.nullable().optional(),
+  cache_write_5m_tokens: count.nullable().optional(),
+  cache_write_1h_tokens: count.nullable().optional(),
+  cache_write_12h_tokens: count.nullable().optional(),
   reserved_credits: count.optional(),
   incomplete_count: count.optional(),
   output_image_count: count.optional(),
+  tool_requests: count.optional(),
+  grounded_requests: count.optional(),
   token_count_scope: z.literal('settled_text_requests').optional(),
   platform_sponsored_quota: count.optional(),
   personal_wallet_quota: count.optional(),
@@ -41,7 +48,11 @@ const nativeStatisticsSchema = z.object({
   settlement_scope: z.literal('settled_requests').optional(),
   spending_scope: z.literal('all_payers').optional(),
   usage_scope: z
-    .enum(['actor_personal_key', 'actor_personal_usage'])
+    .enum([
+      'actor_personal_key',
+      'actor_personal_usage',
+      'administrator_all_accounts',
+    ])
     .optional(),
 })
 const historicalStatisticsFields = {
@@ -157,10 +168,15 @@ export async function readUsageStatistics(
   scope: UsageStatisticsScope,
   params: GetLogStatsParams,
   isAdmin: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  historical = false
 ): Promise<ParsedUsageStatistics> {
   assertScope(scope, signal)
-  const endpoint = isAdmin ? '/api/log/stat' : '/api/log/self/stat'
+  const endpoint = isAdmin
+    ? historical
+      ? '/api/log/stat'
+      : '/core/v1/usage/admin/stats'
+    : '/api/log/self/stat'
   const query = buildQueryParams({ ...params })
   const response = await api.get<unknown>(`${endpoint}?${query}`, {
     authScope: { userId: scope.userId, sessionId: scope.sessionId },

@@ -59,6 +59,10 @@ export function calculateDashboardStats(data: QuotaDataItem[]) {
       typeof outputImages === 'number' &&
       Number.isSafeInteger(outputImages) &&
       outputImages >= 0
+    const hasKnownToolRequests =
+      typeof item.tool_requests === 'number' &&
+      Number.isSafeInteger(item.tool_requests) &&
+      item.tool_requests >= 0
 
     if (
       typeof tokens === 'number' &&
@@ -70,8 +74,7 @@ export function calculateDashboardStats(data: QuotaDataItem[]) {
     } else if (
       tokens !== null ||
       item.token_count_scope !== 'settled_text_requests' ||
-      !hasKnownOutputImages ||
-      outputImages === 0
+      (!(hasKnownOutputImages && outputImages > 0) && !hasKnownToolRequests)
     ) {
       hasUnknownTokens = true
     }

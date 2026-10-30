@@ -87,6 +87,9 @@ pub(super) fn credit_price(
     if let Some(tariff) = quote.tiered() {
         let (group_multiplier_ppm, speed_multiplier_ppm) = quote.multipliers_ppm();
         let price = Price {
+            tool: None,
+            grounding: None,
+
             user_trust: None,
             image: None,
             upstream_cost_group_ppm: None,
@@ -112,6 +115,9 @@ pub(super) fn credit_price(
     if quote.billing_mode() == crate::routing::BillingMode::UpstreamCost {
         let (group_ppm, _) = quote.multipliers_ppm();
         let price = Price {
+            tool: None,
+            grounding: None,
+
             user_trust: None,
             image: None,
             upstream_cost_group_ppm: Some(group_ppm),
@@ -146,6 +152,9 @@ pub(super) fn credit_price(
         i64::try_from(numerator / DENOMINATOR).map_err(|_| RelayError::BillingUnavailable)
     };
     let price = Price {
+        tool: None,
+        grounding: None,
+
         user_trust: None,
         image: None,
         upstream_cost_group_ppm: None,
@@ -242,6 +251,17 @@ impl RouteProvider for Bridge {
             );
             let mut price = credit_price(quote.price(), plan.canonical_model(), &group)?;
             let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
+            if request.google_search {
+                if request.client != ClientProtocol::Gemini
+                    || attempt.protocol() != Protocol::Gemini
+                {
+                    return Err(RelayError::Unsupported(
+                        "Google Search requires native Gemini",
+                    ));
+                }
+                price.grounding = Some(self.provider_policy.grounding_price(&attempt)?);
+                price.validate().map_err(super::billing::error)?;
+            }
             if request.prompt_cache_options.is_some()
                 && (attempt.protocol() != Protocol::OpenAiResponses
                     || !price
@@ -293,7 +313,11 @@ impl RouteProvider for Bridge {
                 Protocol::OpenAiResponses => UpstreamProtocol::Responses,
                 Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
                 Protocol::Gemini => UpstreamProtocol::Gemini,
-                Protocol::SystemOne => {
+                Protocol::SystemOne
+                | Protocol::OpenAiEmbeddings
+                | Protocol::JinaRerank
+                | Protocol::DeepSeekSearch
+                | Protocol::DeepSeekFetch => {
                     return Err(RelayError::Unsupported(
                         "System One requires its native endpoint",
                     ));
@@ -501,6 +525,9 @@ mod tests {
                             .unwrap();
                         let amount = legacy
                             .cost(crate::billing::charging::Usage {
+                                tool: None,
+                                grounding: None,
+
                                 cache_creation: None,
                                 image: None,
                                 upstream_cost_atto_usd: None,

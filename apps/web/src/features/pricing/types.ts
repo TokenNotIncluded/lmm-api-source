@@ -60,7 +60,7 @@ export type PricingModel = {
   /** Exact USD per million token tiers, including the selected group/account factors. */
   group_cache_write_12h_tiers?: Record<string, NativeCacheWrite12hTier[]>
   group_endpoints?: Record<string, string[]>
-  group_quota_types?: Record<string, 0 | 2 | 3>
+  group_quota_types?: Record<string, 0 | 1 | 2 | 3>
   group_upstream_cost_prices?: Record<string, NativeUpstreamCostPrice>
   group_unavailable_reasons?: Record<string, NativeUnavailableReason>
   /** Native image quotes retain integer ratios and are never token prices. */

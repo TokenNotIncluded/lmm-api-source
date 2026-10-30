@@ -126,7 +126,11 @@ fn channels(config: &RoutingConfig) -> Vec<Channel> {
                     Protocol::OpenAiChat | Protocol::OpenAiResponses => 1,
                     Protocol::AnthropicMessages => 14,
                     Protocol::Gemini => 24,
-                    Protocol::SystemOne => 0,
+                    Protocol::SystemOne
+                    | Protocol::OpenAiEmbeddings
+                    | Protocol::JinaRerank
+                    | Protocol::DeepSeekSearch
+                    | Protocol::DeepSeekFetch => 0,
                 },
                 type_source: "derived_from_protocol_not_legacy_provider",
                 protocol: upstream.protocol,

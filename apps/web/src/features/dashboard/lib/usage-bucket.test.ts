@@ -38,6 +38,43 @@ test('administrator native buckets preserve their all-accounts scope', () => {
   assert.deepEqual(parseUsageBuckets([bucket]), [bucket])
 })
 
+test('native tool buckets retain zero successful requests and never acquire token zero', () => {
+  for (const tool_requests of [0, 1]) {
+    const bucket = {
+      ...imageBucket,
+      output_image_count: 0,
+      tool_requests,
+      grounded_requests: null,
+    }
+    assert.deepEqual(parseUsageBuckets([bucket]), [bucket])
+  }
+  for (const tool_requests of [null, undefined, -1, 0.5]) {
+    assert.equal(
+      usageBucketSchema.safeParse({
+        ...imageBucket,
+        output_image_count: 0,
+        tool_requests,
+      }).success,
+      false
+    )
+  }
+})
+
+test('grounding counts remain a separate native dimension and cannot replace missing text usage', () => {
+  const bucket = {
+    ...imageBucket,
+    output_image_count: 0,
+    token_used: 10,
+    tool_requests: null,
+    grounded_requests: 1,
+  }
+  assert.deepEqual(parseUsageBuckets([bucket]), [bucket])
+  assert.equal(
+    usageBucketSchema.safeParse({ ...bucket, token_used: null }).success,
+    false
+  )
+})
+
 test('mixed and zero-token native text buckets keep their known text token values', () => {
   for (const token_used of [0, 13]) {
     const value = { ...imageBucket, token_used }

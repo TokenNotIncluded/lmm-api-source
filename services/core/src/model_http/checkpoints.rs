@@ -212,10 +212,13 @@ impl Bridge {
                     ..usage
                 }
             };
+            let outcome = usage
+                .tool
+                .map_or(Outcome::Completed, |receipt| receipt.outcome());
             let evidence = format!("model-stream:{id}:{sequence}");
             let result = super::billing::retry(|| {
                 self.charging
-                    .reconcile(&id, revision, usage, Outcome::Completed, &evidence)
+                    .reconcile(&id, revision, usage, outcome, &evidence)
             })
             .await;
             let confirmed = match result {
@@ -236,13 +239,7 @@ impl Bridge {
                 Err(error) => return Err(super::billing::error(error)),
             };
             if confirmed.as_ref().is_some_and(|charge| {
-                super::billing::confirmed_settlement(
-                    charge,
-                    &id,
-                    &original.price,
-                    usage,
-                    Outcome::Completed,
-                )
+                super::billing::confirmed_settlement(charge, &id, &original.price, usage, outcome)
             }) {
                 recovered += 1;
             }
@@ -625,6 +622,8 @@ mod a07_recovery_tests {
         };
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
+                grounding: None,
+
                 reservation: Default::default(),
                 missing_cache_creation_tokens_is_zero: false,
                 upstream_id: 1,
@@ -827,6 +826,9 @@ mod a07_recovery_tests {
         assert_eq!(
             valid,
             vec![charging::Usage {
+                tool: None,
+                grounding: None,
+
                 cache_creation: None,
                 image: None,
                 upstream_cost_atto_usd: None,
@@ -887,6 +889,9 @@ mod a07_recovery_tests {
         assert_eq!(
             recovery_usage(value, 1, true),
             Some(charging::Usage {
+                tool: None,
+                grounding: None,
+
                 cache_creation: None,
                 image: None,
                 upstream_cost_atto_usd: Some(123_456_789_000_000_000),
