@@ -7361,6 +7361,7 @@
     "Pay per use. Prices are public before you spend anything.": "使った分だけ支払い。利用前に料金を確認できます。",
     "Pay with balance": "残高で支払う",
     "Pay with Balance": "残高で支払う",
+    "Pay with USDC through Coinbase. This top-up uses 1 USDC = 1 USD.": "Coinbase 経由で USDC を支払います。このチャージでは 1 USDC = 1 USD として計算します。",
     "Pay-as-you-go pricing": "従量課金",
     "Pay-as-you-go with real-time usage monitoring": "リアルタイム使用量監視付き従量課金制",
     "Payment": "支払い",

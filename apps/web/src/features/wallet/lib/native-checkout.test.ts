@@ -161,3 +161,26 @@ test('persisted financial intent stays scoped to one login and keeps its origina
   saveNativeCheckout('[1,"sid-a"]', null, storage)
   assert.equal(readNativeCheckout('[1,"sid-a"]', storage), null)
 })
+
+test('Coinbase channels keep USD quote units while accepting test and live profiles', () => {
+  for (const environment of ['test', 'live']) {
+    assert.equal(
+      nativeChannelSchema.safeParse({
+        ...pending.channel,
+        provider: 'coinbase',
+        environment,
+      }).success,
+      true
+    )
+  }
+  for (const currency of ['USDC', 'CNY', 'EUR', 'LDC']) {
+    assert.equal(
+      nativeChannelSchema.safeParse({
+        ...pending.channel,
+        provider: 'coinbase',
+        currency,
+      }).success,
+      false
+    )
+  }
+})

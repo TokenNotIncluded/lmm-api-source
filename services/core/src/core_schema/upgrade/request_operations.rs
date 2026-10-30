@@ -3,7 +3,7 @@ use super::{
     finance::{data_hash, object_ids},
     *,
 };
-mod preservation;
+pub(super) mod preservation;
 use preservation::{data, permissions, sequences};
 
 pub(super) const PROCEDURE: &str = "core-request-operations-v1";

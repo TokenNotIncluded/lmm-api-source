@@ -98,7 +98,7 @@ func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([
 		channel := payments.Channel{ID: c.ID, Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled}
 		var apiKey, privateKey string
 		switch c.Provider {
-		case "stripe", "creem", "waffo":
+		case "stripe", "creem", "waffo", "coinbase":
 			apiKey, err = outboundPaymentSecret(c.APIKeyFile, false)
 		case "epay", "waffo_pancake":
 			if c.APIKeyFile != "" {
@@ -110,7 +110,7 @@ func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([
 		if err != nil {
 			return nil, err
 		}
-		if c.Provider == "waffo" || c.Provider == "waffo_pancake" {
+		if c.Provider == "waffo" || c.Provider == "waffo_pancake" || c.Provider == "coinbase" {
 			privateKey, err = outboundPaymentSecret(c.PrivateKeyFile, true)
 			if err != nil {
 				return nil, err
@@ -126,6 +126,8 @@ func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([
 			adapter, err = payments.NewCoreEPay(payments.EPayConfig{Channel: channel, Endpoint: c.Endpoint, PaymentType: c.PaymentType, NotifyURL: c.NotifyURL, ReturnURL: c.ReturnURL}, signer)
 		case "creem":
 			adapter, err = payments.NewCreem(payments.CreemConfig{Channel: channel, APIKey: apiKey, ProductID: c.ProductID, ProductAmountMinor: c.ProductAmountMinor, SuccessURL: c.SuccessURL})
+		case "coinbase":
+			adapter, err = payments.NewCoinbase(payments.CoinbaseConfig{Channel: channel, APIKey: apiKey, PrivateKey: privateKey, SuccessURL: c.SuccessURL, CancelURL: c.CancelURL})
 		case "waffo":
 			adapter, err = payments.NewWaffo(payments.WaffoConfig{Channel: channel, APIKey: apiKey, PrivateKey: privateKey, NotifyURL: c.NotifyURL, ReturnURL: c.ReturnURL, PayMethodType: c.PayMethodType, PayMethodName: c.PayMethodName})
 		case "waffo_pancake":

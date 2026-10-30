@@ -130,6 +130,8 @@ func TestPaymentIngressPreservesOtherProviderProtocols(t *testing.T) {
 		{"POST", "/callbacks/3", "Creem-Signature", "synthetic-creem", `{"eventType":"checkout.completed"}`},
 		{"POST", "/callbacks/4", "X-Signature", "synthetic-global", `{"merchantOrderId":"top_42"}`},
 		{"POST", "/callbacks/5", "X-Waffo-Signature", "synthetic-pancake", `{"type":"order.completed"}`},
+		{"POST", "/callbacks/8", "X-Webhook-Signature", "t=123,v0=synthetic-coinbase", `{"eventType":"checkout.payment.success"}`},
+		{"POST", "/callbacks/8", "X-Hook0-Signature", "t=123,v0=synthetic-coinbase", `{"eventType":"checkout.payment.success"}`},
 	} {
 		t.Run(tc.path+tc.header, func(t *testing.T) {
 			called := false
@@ -157,6 +159,39 @@ func TestPaymentIngressPreservesOtherProviderProtocols(t *testing.T) {
 				t.Fatal("provider never reached verifier", w.Code)
 			}
 		})
+	}
+}
+
+func TestCoinbaseIngressPreservesBothSignatureHeadersAndBoundsEach(t *testing.T) {
+	host := paymentIngressHost(t)
+	called := 0
+	const signature = "t=123,v0=synthetic-coinbase"
+	ingress := mountPaymentCallbacks(host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called++
+		if r.Header.Get("X-Webhook-Signature") != signature || r.Header.Get("X-Hook0-Signature") != signature {
+			t.Error("Coinbase signature envelope changed")
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}), host)
+	request := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/callbacks/8", strings.NewReader(`{"eventType":"checkout.payment.success"}`))
+		r.Header.Set("X-Webhook-Signature", signature)
+		r.Header.Set("X-Hook0-Signature", signature)
+		return r
+	}
+	w := paymentCallbackRecorder()
+	ingress.ServeHTTP(w, request())
+	if w.Code != http.StatusForbidden || called != 1 {
+		t.Fatal("dual Coinbase signature did not reach verifier", w.Code, called)
+	}
+	for _, header := range []string{"X-Webhook-Signature", "X-Hook0-Signature"} {
+		r := request()
+		r.Header.Add(header, signature)
+		w = paymentCallbackRecorder()
+		ingress.ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest || called != 1 {
+			t.Fatal("duplicate Coinbase signature reached verifier", header, w.Code)
+		}
 	}
 }
 func TestPaymentCallbacksJoinHostDrain(t *testing.T) {

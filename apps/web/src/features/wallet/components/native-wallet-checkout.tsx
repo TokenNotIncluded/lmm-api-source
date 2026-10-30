@@ -37,7 +37,11 @@ const providerNames: Record<NativeChannel['provider'], string> = {
   creem: 'Creem',
   waffo: 'Waffo',
   waffo_pancake: 'Waffo Pancake',
+  coinbase: 'Coinbase',
 }
+const paymentCurrency = (channel: NativeChannel) =>
+  channel.provider === 'coinbase' ? 'USDC' : channel.currency
+
 function restore(owner: string) {
   try {
     return {
@@ -238,7 +242,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
     return t('Preparing your payment. You can refresh this order later.')
   }
   const channelLabel = (channel: NativeChannel) =>
-    `${providerNames[channel.provider]}${channel.payment_type ? ` · ${channel.payment_type}` : ''} · ${channel.currency}${channel.environment === 'test' ? ` · ${t('Test payment')}` : ''}`
+    `${providerNames[channel.provider]}${channel.payment_type ? ` · ${channel.payment_type}` : ''} · ${paymentCurrency(channel)}${channel.environment === 'test' ? ` · ${t('Test payment')}` : ''}`
   const startAgain = () => {
     if (remember(null)) {
       setResult(null)
@@ -313,7 +317,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               </div>
               <div className='space-y-2'>
                 <Label htmlFor='native-payment-amount'>
-                  {t('Amount')} · {selected?.currency}
+                  {t('Amount')} · {selected && paymentCurrency(selected)}
                 </Label>
                 <Input
                   id='native-payment-amount'
@@ -335,6 +339,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 ) : null}
               </div>
             </div>
+            {selected?.provider === 'coinbase' ? (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Pay with USDC through Coinbase. This top-up uses 1 USDC = 1 USD.'
+                )}
+              </p>
+            ) : null}
             <Button
               type='submit'
               disabled={
@@ -360,7 +371,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             <div>
               <dt className='text-muted-foreground text-sm'>{t('You pay')}</dt>
               <dd className='text-xl font-semibold break-all tabular-nums'>
-                {pending.request.currency}{' '}
+                {paymentCurrency(pending.channel)}{' '}
                 {nativeAmountDisplay(pending.request.amount_minor)}
               </dd>
             </div>
@@ -378,6 +389,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               </div>
             ) : null}
           </dl>
+          {pending.channel.provider === 'coinbase' ? (
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Pay with USDC through Coinbase. This top-up uses 1 USDC = 1 USD.'
+              )}
+            </p>
+          ) : null}
           {quote ? (
             <p className='text-muted-foreground text-xs break-all'>
               {t('Order ID')}: {quote.order_id}

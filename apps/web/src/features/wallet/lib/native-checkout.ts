@@ -11,7 +11,14 @@ const currency = z.enum(['USD', 'CNY', 'EUR', 'LDC'])
 export const nativeChannelSchema = z
   .object({
     id: z.string().min(1),
-    provider: z.enum(['epay', 'stripe', 'creem', 'waffo', 'waffo_pancake']),
+    provider: z.enum([
+      'epay',
+      'stripe',
+      'creem',
+      'waffo',
+      'waffo_pancake',
+      'coinbase',
+    ]),
     environment: z.enum(['test', 'live']),
     currency,
     payment_type: z.string().optional(),
@@ -22,6 +29,9 @@ export const nativeChannelSchema = z
     (channel) =>
       channel.provider !== 'creem' ||
       Boolean(channel.product_id && channel.fixed_amount_minor)
+  )
+  .refine(
+    (channel) => channel.provider !== 'coinbase' || channel.currency === 'USD'
   )
 const requestSchema = z.object({
   channel_id: z.string().min(1),

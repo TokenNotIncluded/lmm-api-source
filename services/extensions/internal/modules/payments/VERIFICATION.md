@@ -1,3 +1,49 @@
+# Coinbase Business self-test — 2026-10-30
+
+This change adds Business Checkouts to the native wallet on source baseline
+`b521f5575bebe4de7195bbd420b16637f46042d5`. Self-tests and the isolated schema
+checks below are development evidence; independent acceptance was not run.
+
+| Check | Observed result |
+| --- | --- |
+| Go payment package and Rust RPC bridge, `go test -mod=readonly -race -count=1 ./internal/modules/payments/...` | Passed on Go 1.26.10. |
+| Go composition/app/webcompat payment and Coinbase checks | Passed. |
+| Go `vet` for the affected packages | Passed. |
+| Native checkout parser/component tests | 9 passed. |
+| Web `tsgo -b`, changed-file formatting and lint | Passed. |
+| Coinbase UUID key persistence on isolated PostgreSQL 18.6 | 12 concurrent creates retained one checkout job; closing/reopening the DB connection and repeating the request retained its original UUIDv4. |
+
+The Go protocol tests exercise real loopback HTTP with synthetic credentials:
+ES256 signature verification, exact method/host/path claims for sandbox and live,
+fresh JWTs, exact USDC request amounts, response bindings, permitted checkout
+host and unsigned lookup observations. Callback tests preserve original bytes,
+check the current and legacy signature headers, reject conflicting JSON and
+bindings, and require Core proof admission. A simulated timeout followed by a
+new Service instance preserves the original key and stops a second provider
+POST. This last test uses the existing memory fixture; the separate PostgreSQL
+test covers persisted key identity, not a full Rust-ledger payment.
+
+The first Go attempt was blocked by sandbox restrictions on local TCP and Unix
+sockets. The same tests passed with local-listener permission; assertions were
+unchanged. The nested PostgreSQL module initially lacked checksums for the
+already pinned Waffo dependencies; its module metadata was synchronized from
+the existing offline cache, then the new PostgreSQL test passed:
+
+```sh
+cd services/extensions/internal/modules/payments/pgtest
+PAYMENT_COINBASE_TEST_DSN='<fresh isolated lmm_payments_test DSN>' \
+  go test -mod=readonly -race -count=1 \
+  -run TestCoinbasePostgresRetainsFirstUUIDAcrossConcurrentCreates -v .
+```
+
+Core's new verifier and offline-upgrade tests are included in source. Full
+Core compilation/tests were blocked by the unavailable pinned `oxide-auth`
+Git dependency in this network-restricted environment. Rust formatting and
+isolated PostgreSQL schema checks are recorded in the
+[Coinbase upgrade guide](../../../../../docs/schema-coinbase-payments-upgrade.md).
+No real Coinbase sandbox account, merchant payment, browser visual acceptance,
+production upgrade or deployment was exercised.
+
 # Verification record — native wallet gateways, 2026-10-30
 
 This change starts from source

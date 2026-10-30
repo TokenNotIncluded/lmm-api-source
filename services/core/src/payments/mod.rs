@@ -30,7 +30,9 @@ use std::{
 pub const SCHEMA: &str = concat!(
     include_str!("../../schema/payments.sql"),
     "\n",
-    include_str!("../../schema/payment_gateways.sql")
+    include_str!("../../schema/payment_gateways.sql"),
+    "\n",
+    include_str!("../../schema/coinbase_payments.sql")
 );
 const CREDIT_UNIT: &str = "credit_500k_usd";
 const PREPARED: i32 = 7;
@@ -300,12 +302,14 @@ impl PaymentsStore {
                     channel.verification.store_id.clone(),
                     channel.verification.product_id.clone(),
                 ))
-                || (matches!(channel.provider.as_str(), "stripe" | "epay" | "creem")
-                    && channel.webhook_secrets.iter().any(|s| {
-                        secrets
-                            .insert(s.clone(), namespace.clone())
-                            .is_some_and(|prior| prior != namespace)
-                    }))
+                || (matches!(
+                    channel.provider.as_str(),
+                    "stripe" | "epay" | "creem" | "coinbase"
+                ) && channel.webhook_secrets.iter().any(|s| {
+                    secrets
+                        .insert(s.clone(), namespace.clone())
+                        .is_some_and(|prior| prior != namespace)
+                }))
                 || (matches!(channel.provider.as_str(), "waffo" | "waffo_pancake")
                     && channel.webhook_secrets.iter().any(|key| {
                         let scope = (channel.provider.clone(), channel.environment.clone());

@@ -142,7 +142,14 @@ func (s *Service) Create(ctx context.Context, credential string, req PrepareRequ
 	}
 	id := "top_" + strconv.FormatInt(intent.ID, 10)
 	o := Order{ID: id, ChannelID: c.ID, Namespace: c.namespace(), Intent: intent, CreditState: "pending", Refunds: map[string]Refund{}, Jobs: map[string]Job{}}
-	enqueue(&o, Job{Key: stableKey("checkout", id), Kind: "checkout"}, s.now())
+	checkoutKey := stableKey("checkout", id)
+	if c.Provider == "coinbase" {
+		checkoutKey, err = coinbaseCheckoutKey()
+		if err != nil {
+			return Order{}, err
+		}
+	}
+	enqueue(&o, Job{Key: checkoutKey, Kind: "checkout"}, s.now())
 	if err = s.store.Insert(ctx, o); err != nil {
 		return Order{}, err
 	}

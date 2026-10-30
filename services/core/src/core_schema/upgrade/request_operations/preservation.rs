@@ -35,7 +35,7 @@ pub(super) async fn sequences(c: &mut PgConnection) -> Result<Vec<String>, Upgra
     Ok(names)
 }
 
-pub(super) async fn data(
+pub(in crate::core_schema::upgrade) async fn data(
     c: &mut PgConnection,
     tables: &[String],
     sequences: &[String],

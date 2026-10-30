@@ -1924,7 +1924,7 @@ impl PaymentConfig {
                     && c.channels.iter().all(|c| {
                         matches!(
                             c.provider.as_str(),
-                            "stripe" | "epay" | "creem" | "waffo" | "waffo_pancake"
+                            "stripe" | "epay" | "creem" | "coinbase" | "waffo" | "waffo_pancake"
                         ) && matches!(c.environment.as_str(), "test" | "live")
                             && if c.provider == "waffo" {
                                 c.inquiry_api_key_file.is_some()
@@ -3792,6 +3792,11 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
     fn payment_configuration_v2_uses_explicit_channel_provider_and_integer_quote() {
         let document = "version=2\n[[channels]]\nid=7\nprovider='creem'\nmerchant='merchant_fixture'\nenvironment='test'\ncurrency='USD'\ncredits_per_minor=5000\nmax_amount_minor=10000\nproduct_id='prod_fixture'\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n";
         let config: PaymentConfig = parse_document(document.as_bytes()).unwrap();
+        assert!(config.validate().is_ok());
+        let coinbase = document
+            .replace("provider='creem'", "provider='coinbase'")
+            .replace("product_id='prod_fixture'\n", "");
+        let config: PaymentConfig = parse_document(coinbase.as_bytes()).unwrap();
         assert!(config.validate().is_ok());
         for changed in [
             document.replace("provider='creem'", "provider='fastpay'"),

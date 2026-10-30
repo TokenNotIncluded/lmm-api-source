@@ -154,8 +154,8 @@ atomically prevent stale credit and reconcile overlaps with existing holds.
 
 ## Provider support and limits
 
-Version 2 host configuration assembles Stripe, EPay, Creem, Waffo Global and
-Waffo Pancake. The native wallet has authenticated channel, quote, confirmation
+Version 2 host configuration assembles Stripe, EPay, Creem, Waffo Global,
+Waffo Pancake and Coinbase Business. The native wallet has authenticated channel, quote, confirmation
 and checkout-status routes under `/api/user/payments/`. The complete configuration
 and currency contract is in [Native wallet payment gateways](../../../../../docs/payment-gateways.md).
 FastPay is retired and is not an accepted provider.
@@ -194,6 +194,16 @@ dispatch are unavailable on this Core-owned profile. The old key-bearing
 **Creem:** one-time, inclusive-tax, fixed-price products in USD/CNY/EUR. Go checks
 the live product against the quote before checkout; Core verifies original HMAC
 evidence, environment, product, merchant metadata, order and exact amount.
+
+**Coinbase Business:** single-use Checkouts in USDC with an explicit 1:1 USD
+wallet quote. Go authenticates API calls with a request-bound ES256 JWT and
+persists a random UUIDv4 checkout key before provider I/O. An ambiguous POST is
+not repeated because the provider has no documented key-retention window. Core
+alone verifies the original timestamped `v0` HMAC, matching intent, merchant,
+environment and exact amount. Test and live subscriptions require separate
+secrets. Signed `checkout.payment.success` plus `COMPLETED` can reach the
+existing durable proof/credit path; redirects and unsigned API observations
+cannot. Coinbase automatic refunds and subscription purchases are not enabled.
 
 **Waffo Global:** RSA-signed order creation and callbacks. A shared provider
 public key alone does not bind merchant-supplied metadata to a receiving

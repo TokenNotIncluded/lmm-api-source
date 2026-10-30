@@ -1,8 +1,9 @@
 # Native wallet payment gateways
 
-The native wallet supports five provider protocols: Stripe, EPay, Creem, Waffo
-Global and Waffo Pancake. EPay also supplies the Alipay, WeChat Pay and Linux DO
-Credit channel presets. This restores the seven wallet choices in the
+The native wallet supports six provider protocols: Stripe, EPay, Creem, Waffo
+Global, Waffo Pancake and Coinbase Business Checkout. EPay also supplies the
+Alipay, WeChat Pay and Linux DO Credit channel presets. The first five protocols
+restore the seven wallet choices in the
 [legacy template list](https://github.com/TokenNotIncluded/lmm-api/blob/3948a0a1ee1cefdd016a7aa45a11851545bb4b85/apps/web/src/features/system-settings/integrations/payment-method-templates.ts).
 FastPay is retired and is not an accepted provider or a wallet choice.
 
@@ -23,8 +24,9 @@ real merchant integration or production acceptance.
 | Creem | USD / CNY / EUR minor units | One configured, active, one-time product at a fixed amount. Checkout checks the actual product price, currency, environment and inclusive tax before creating a session. Core verifies the original HMAC callback and its product/order/amount binding. |
 | Waffo Global | USD cents | Hosted checkout through the official order protocol. Core verifies the RSA callback and independently queries the frozen order with its own configured provider credentials before accepting new proof. |
 | Waffo Pancake | USD cents / CNY fen | Authenticated checkout using the official SDK. Core verifies the timestamped RSA callback, environment, merchant, store, product, original order and actual paid amount. |
+| Coinbase Business Checkout | USDC, quoted as USD cents at 1:1 | Hosted checkout with a CDP-signed API request. Core verifies the original webhook signature and admits only a completed payment bound to the frozen order, merchant, environment and exact amount. |
 
-The four added protocols do not expose automatic refund dispatch. An unsupported
+Only the existing Stripe adapter exposes automatic refund dispatch. An unsupported
 refund returns an error before creating a hold or provider request. A provider
 API read is an observation; it cannot replace independently accepted proof or a
 Core ledger receipt. This also means EPay's callback path is available while
@@ -56,7 +58,7 @@ uses the existing 5,000 credit units per cent. Non-USD rates in the example are
 illustrative administrator policy; they are not live FX or pricing defaults.
 
 `webhook_secret_file` is the historical field name for the Core verification
-material. It contains a Stripe/Creem webhook secret, an EPay merchant key or a
+material. It contains a Stripe/Creem/Coinbase webhook secret, an EPay merchant key or a
 Waffo provider public key, depending on the protocol. Waffo Global additionally
 requires `inquiry_api_key_file` and `inquiry_private_key_file` in Core for both
 test and live environments. Core makes this inquiry itself against the fixed
@@ -85,6 +87,55 @@ callback ingress in place. Core needs its own payment configuration, narrow RPC
 permissions and payment runtime grants. Normal startup performs no DDL.
 See [runtime configuration](../config/extensions.example.toml) and
 [database provisioning](../deployment/postgres/README.md).
+
+## Coinbase Business Checkout
+
+Coinbase receives USDC and the native wallet quotes the same numeric USD amount.
+For example, a quote for 1,000 USD cents creates a checkout for `10.00 USDC`.
+This is the top-up's explicit conversion policy, using integer cents; it is not
+a live exchange-rate lookup. The payment form and confirmation display USDC
+before the customer opens Coinbase. Core continues to own the exact credit
+quote and the eventual ledger entry.
+
+Use an ECDSA CDP API key for the Coinbase Business account. Go's `api_key_file`
+contains the CDP key name, and `private_key_file` contains its P-256 PEM private
+key. Go signs a short-lived JWT for each outgoing request. Core holds the
+webhook subscription secret independently in `webhook_secret_file`; Go never
+loads that secret. The configured `merchant` is this installation's stable
+account label, and must match on both sides.
+
+Create separate channel IDs and webhook subscriptions for test and live use.
+Test channels use `https://business.coinbase.com/sandbox/api/v1/checkouts`;
+live channels use `https://business.coinbase.com/api/v1/checkouts`. The sandbox
+accepts the same CDP API credentials, but its webhook subscription must include
+the label `sandbox = "true"`. Each channel needs its own subscription secret
+and callback URL, such as `/callbacks/8`. Coinbase does not document a signed
+payload field that independently identifies sandbox mode, so do not reuse a
+subscription secret across test and live channels.
+
+Subscribe to `checkout.payment.success`. Only the signed event with
+`status = "COMPLETED"`, `currency = "USDC"` and the exact frozen amount can
+become payment proof. Coinbase's webhook `id` is the checkout ID; the local
+event identity also includes the event type. `X-Webhook-Signature` is the current
+signature header, and Coinbase also sends the deprecated `X-Hook0-Signature`.
+Matching dual headers are accepted; conflicting values or repeated headers are
+rejected. Payment returns and API status observations cannot credit a wallet.
+
+The provider accepts decimal amounts from `0.01` to `100000000`, with at most
+two fractional digits. The configured Core maximum can impose a lower limit.
+Checkout requests retain one UUIDv4 idempotency key for the original operation.
+Coinbase does not publish an idempotency retention duration in this API
+contract, so an ambiguous write is retained for reconciliation instead of
+automatically repeated after an assumed safe interval. Coinbase refunds and
+subscriptions are outside this wallet top-up adapter.
+
+This integration uses the current Business Checkouts API. The retired Coinbase
+Commerce Charges API is not used. Setup and protocol references:
+[CDP API authentication](https://docs.cdp.coinbase.com/coinbase-business/authentication-authorization/api-key-authentication),
+[create checkout](https://docs.cdp.coinbase.com/api-reference/business-api/rest-api/checkouts/create-checkout),
+[webhook events](https://docs.cdp.coinbase.com/coinbase-business/checkout-apis/webhooks),
+[signature verification](https://docs.cdp.coinbase.com/webhooks/verify-signatures)
+and [sandbox setup](https://docs.cdp.coinbase.com/coinbase-business/checkout-apis/sandbox).
 
 ## Browser quote and confirmation
 
@@ -130,7 +181,7 @@ route contract; it does not update a public TLS server block. See
 
 ## Database transition
 
-Fresh installation includes component 29, `payment-gateways`. The component
+Fresh installation retains component 29, `payment-gateways`. The component
 keeps the original `payments.sql` bytes unchanged, replaces the Stripe-only
 provider/currency/rate constraints, adds unique provider transaction ownership
 across channels, and creates an immutable, owner-only upgrade receipt. It does
@@ -141,6 +192,13 @@ An existing native Core database uses the explicit fixed procedure
 [the exact 28 → 29 upgrade contract](payment-gateways-upgrade.md). Updating
 source or restarting services does not upgrade a database. A different
 predecessor needs its matching reviewed procedure.
+
+Coinbase adds component 32, `coinbase-payments`, without editing previous schema
+components. Existing databases at the exact 31-component contract use the
+explicit `core-coinbase-payments-v1` procedure. The
+[Coinbase schema upgrade guide](schema-coinbase-payments-upgrade.md) records its
+predecessor, fingerprints and offline steps. The procedure expands the provider
+constraint; it does not alter balances or enable a channel.
 
 ## Implementation references and validation limits
 

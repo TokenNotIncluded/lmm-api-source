@@ -95,6 +95,15 @@ pub(super) fn valid_channel(c: &Channel) -> bool {
                 && matches!(c.currency.as_str(), "USD" | "CNY" | "EUR")
                 && shared_secret()
         }
+        "coinbase" => {
+            no_checkout
+                && v.store_id.is_empty()
+                && v.product_id.is_empty()
+                && c.currency == "USD"
+                && c.credits_per_minor == 5000
+                && c.max_amount_minor <= 10_000_000_000
+                && shared_secret()
+        }
         "waffo" => {
             no_checkout
                 && v.store_id.is_empty()
@@ -267,6 +276,7 @@ pub(super) fn verify(
     match channel.provider.as_str() {
         "epay" => verify_epay(payload, signature, channel, &order, amount),
         "creem" => verify_creem(payload, signature, channel, &order, amount),
+        "coinbase" => verify_coinbase(payload, signature, channel, &order, amount, now),
         "waffo" => verify_waffo(payload, signature, channel, &order, amount),
         "waffo_pancake" => verify_pancake(payload, signature, channel, &order, amount, now),
         _ => Err(Error::Unavailable),
@@ -444,6 +454,68 @@ fn verify_creem(
     Ok(paid(
         id(&event, "id")?.to_owned(),
         id(payment, "transaction")?.to_owned(),
+        amount,
+    ))
+}
+
+// Coinbase's recommended v0 authenticates the raw body and timestamp; v1 also
+// includes HTTP headers, which are not payment authority in this integration.
+// https://docs.cdp.coinbase.com/webhooks/verify-signatures
+fn verify_coinbase(
+    payload: &[u8],
+    signature: &[u8],
+    c: &Channel,
+    order: &str,
+    amount: i64,
+    now: i64,
+) -> Result<Verified> {
+    let header = std::str::from_utf8(signature).map_err(|_| Error::Invalid)?;
+    let mut fields = BTreeMap::new();
+    for field in header.split(',') {
+        let (key, value) = field.trim().split_once('=').ok_or(Error::Invalid)?;
+        if !matches!(key, "t" | "v0" | "h" | "v1") || fields.insert(key, value).is_some() {
+            return Err(Error::Invalid);
+        }
+    }
+    let timestamp = *fields.get("t").ok_or(Error::Invalid)?;
+    if timestamp.is_empty() || !timestamp.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(Error::Invalid);
+    }
+    let seconds: i64 = timestamp.parse().map_err(|_| Error::Invalid)?;
+    if seconds <= 0 || seconds.abs_diff(now) > 300 {
+        return Err(Error::Denied);
+    }
+    let signature = unhex(fields.get("v0").ok_or(Error::Invalid)?.as_bytes())?;
+    let valid = c.webhook_secrets.iter().any(|secret| {
+        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
+            return false;
+        };
+        mac.update(timestamp.as_bytes());
+        mac.update(b".");
+        mac.update(payload);
+        mac.verify_slice(&signature).is_ok()
+    });
+    if !valid {
+        return Err(Error::Denied);
+    }
+    let event = stripe::unique_json(payload)?;
+    let metadata = event.get("metadata").ok_or(Error::Invalid)?;
+    let event_type = "checkout.payment.success";
+    if text(&event, "eventType")? != event_type
+        || text(&event, "status")? != "COMPLETED"
+        || text(&event, "currency")? != "USDC"
+        || decimal_minor(text(&event, "amount")?)? != amount
+        || text(metadata, "lmm_order_id")? != order
+        || text(metadata, "lmm_core_intent_id")? != order.trim_start_matches("top_")
+        || text(metadata, "lmm_merchant")? != c.merchant
+        || text(metadata, "lmm_environment")? != c.environment
+    {
+        return Err(Error::Conflict);
+    }
+    let transaction = id(&event, "id")?;
+    Ok(paid(
+        stable_key(&[transaction, event_type]),
+        transaction.to_owned(),
         amount,
     ))
 }
@@ -663,6 +735,165 @@ mod tests {
         mac.update(&bytes);
         let signature = hex(&mac.finalize().into_bytes());
         (bytes, signature)
+    }
+
+    fn coinbase_event() -> Value {
+        json!({"id":"69163c762331ed43dc64a6ef", "eventType":"checkout.payment.success",
+            "status":"COMPLETED", "amount":"1.00", "currency":"USDC",
+            "metadata":{"lmm_order_id":"top_42", "lmm_core_intent_id":"42",
+                "lmm_merchant":"merchant_fixture", "lmm_environment":"test"}})
+    }
+
+    fn signed_coinbase(raw: &[u8], timestamp: i64) -> String {
+        let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
+        mac.update(format!("{timestamp}.").as_bytes());
+        mac.update(raw);
+        format!("t={timestamp},v0={}", hex(&mac.finalize().into_bytes()))
+    }
+
+    #[test]
+    fn coinbase_accepts_independent_golden_signature_and_binds_signed_fields() {
+        let raw = br#"{"id":"69163c762331ed43dc64a6ef","eventType":"checkout.payment.success","status":"COMPLETED","amount":"1.00","currency":"USDC","metadata":{"lmm_order_id":"top_42","lmm_core_intent_id":"42","lmm_merchant":"merchant_fixture","lmm_environment":"test"}}"#;
+        // Produced independently with Python hmac/hashlib, not the verifier.
+        let signature = "t=1900000000,v0=4c5c5bf802d9c05b618ea3c9a0940b9921219f1fe4437a6f5103b9b7183b6b23,h=content-type x-event-id,v1=unused";
+        let c = channel("coinbase");
+        let proof = verify(raw, signature.as_bytes(), &c, 42, "USD", 100, NOW).unwrap();
+        assert_eq!(proof.transaction, "69163c762331ed43dc64a6ef");
+        assert_eq!(
+            proof.event_id,
+            stable_key(&["69163c762331ed43dc64a6ef", "checkout.payment.success"])
+        );
+        for (field, value) in [
+            ("amount", "0.99"),
+            ("amount", "1.001"),
+            ("currency", "USD"),
+            ("status", "ACTIVE"),
+            ("eventType", "checkout.payment.failed"),
+            ("eventType", "checkout.refund.success"),
+        ] {
+            let mut event = coinbase_event();
+            event[field] = json!(value);
+            let bytes = serde_json::to_vec(&event).unwrap();
+            assert!(
+                verify(
+                    &bytes,
+                    signed_coinbase(&bytes, NOW).as_bytes(),
+                    &c,
+                    42,
+                    "USD",
+                    100,
+                    NOW
+                )
+                .is_err()
+            );
+        }
+        for field in [
+            "lmm_order_id",
+            "lmm_core_intent_id",
+            "lmm_merchant",
+            "lmm_environment",
+        ] {
+            let mut event = coinbase_event();
+            event["metadata"][field] = json!("wrong");
+            let bytes = serde_json::to_vec(&event).unwrap();
+            assert!(
+                verify(
+                    &bytes,
+                    signed_coinbase(&bytes, NOW).as_bytes(),
+                    &c,
+                    42,
+                    "USD",
+                    100,
+                    NOW
+                )
+                .is_err()
+            );
+        }
+        let mut changed = raw.to_vec();
+        changed.push(b' ');
+        assert!(verify(&changed, signature.as_bytes(), &c, 42, "USD", 100, NOW).is_err());
+        let duplicate = String::from_utf8(raw.to_vec())
+            .unwrap()
+            .replacen("{", "{\"amount\":\"1.00\",", 1)
+            .into_bytes();
+        assert!(
+            verify(
+                &duplicate,
+                signed_coinbase(&duplicate, NOW).as_bytes(),
+                &c,
+                42,
+                "USD",
+                100,
+                NOW
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn coinbase_rejects_missing_v0_duplicate_fields_and_expired_or_future_timestamps() {
+        let c = channel("coinbase");
+        let bytes = serde_json::to_vec(&coinbase_event()).unwrap();
+        for delta in [-301, 301] {
+            assert!(
+                verify(
+                    &bytes,
+                    signed_coinbase(&bytes, NOW + delta).as_bytes(),
+                    &c,
+                    42,
+                    "USD",
+                    100,
+                    NOW
+                )
+                .is_err()
+            );
+        }
+        for delta in [-300, 300] {
+            assert!(
+                verify(
+                    &bytes,
+                    signed_coinbase(&bytes, NOW + delta).as_bytes(),
+                    &c,
+                    42,
+                    "USD",
+                    100,
+                    NOW
+                )
+                .is_ok()
+            );
+        }
+        let good = signed_coinbase(&bytes, NOW);
+        for bad in [
+            format!("{good},t={NOW}"),
+            format!("{good},v0=00"),
+            good.replace("v0=", "v1="),
+            good.replace("t=1900000000", "t=1900000000junk"),
+        ] {
+            assert!(verify(&bytes, bad.as_bytes(), &c, 42, "USD", 100, NOW).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn coinbase_requires_dedicated_environment_secret_and_exact_usd_policy() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://synthetic:synthetic@127.0.0.1:1/synthetic")
+            .unwrap();
+        let a = channel("coinbase");
+        let mut b = a.clone();
+        b.id = 8;
+        b.environment = "live".into();
+        assert!(PaymentsStore::new(pool.clone(), vec![a.clone(), b.clone()]).is_err());
+        b.webhook_secrets = vec!["independent_live_coinbase_secret".into()];
+        assert!(PaymentsStore::new(pool, vec![a.clone(), b]).is_ok());
+        for case in 0..3 {
+            let mut invalid = a.clone();
+            match case {
+                0 => invalid.currency = "CNY".into(),
+                1 => invalid.credits_per_minor = 1,
+                _ => invalid.max_amount_minor = 10_000_000_001,
+            }
+            assert!(!invalid.validate());
+        }
     }
 
     #[test]
@@ -931,9 +1162,16 @@ mod tests {
                 expected_version: None,
             })
         };
-        for (index, profile) in ["epay", "epay_ldc", "creem", "waffo", "waffo_pancake"]
-            .into_iter()
-            .enumerate()
+        for (index, profile) in [
+            "epay",
+            "epay_ldc",
+            "creem",
+            "waffo",
+            "waffo_pancake",
+            "coinbase",
+        ]
+        .into_iter()
+        .enumerate()
         {
             let provider = if profile == "epay_ldc" {
                 "epay"
@@ -1031,6 +1269,14 @@ mod tests {
                     let mut event = creem_event();
                     event["object"]["request_id"] = json!(order);
                     signed_creem(&event)
+                }
+                "coinbase" => {
+                    let mut event = coinbase_event();
+                    event["metadata"]["lmm_order_id"] = json!(order);
+                    event["metadata"]["lmm_core_intent_id"] = json!(intent.intent_id.to_string());
+                    let raw = serde_json::to_vec(&event).unwrap();
+                    let signature = signed_coinbase(&raw, now);
+                    (raw, signature)
                 }
                 "waffo" => {
                     let raw = serde_json::to_vec(&json!({"eventType":"PAYMENT_NOTIFICATION", "result":{

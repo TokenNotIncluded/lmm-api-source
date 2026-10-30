@@ -427,3 +427,97 @@ test('checkout uses the explicit method and submits every POST field only after 
     api.post = oldPost
   }
 })
+
+test('Coinbase shows the USDC payment before confirming the original USD quote', async () => {
+  const oldGet = api.get,
+    oldPost = api.post
+  dom.sessionStorage.clear()
+  login(23, 'coinbase-session')
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  const requests: Array<{ url: string; data: Record<string, string> }> = []
+  const order = {
+    order_id: 'top_98',
+    state: 'awaiting_payment',
+    currency: 'USD',
+    amount_minor: '1000',
+    credit_units: '5000000',
+    credit_unit: 'credit_500k_usd',
+    checkout_url: 'https://business.coinbase.com/checkout/synthetic',
+    provider_paid: false,
+    core_credit_confirmed: false,
+  }
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        available: true,
+        channels: [
+          {
+            id: '8',
+            provider: 'coinbase',
+            environment: 'test',
+            currency: 'USD',
+          },
+        ],
+      },
+    },
+  })) as typeof api.get
+  api.post = (async (url: string, data: Record<string, string>) => {
+    requests.push({ url, data: { ...data } })
+    return {
+      data: {
+        success: true,
+        data: url.endsWith('/quote')
+          ? {
+              ...data,
+              order_id: order.order_id,
+              account_id: '23',
+              provider: 'coinbase',
+              environment: 'test',
+              credit_units: order.credit_units,
+              credit_unit: order.credit_unit,
+            }
+          : order,
+      },
+    }
+  }) as typeof api.post
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+      await flush()
+    })
+    assert.ok(container.textContent?.includes('Coinbase · USDC'))
+    assert.ok(
+      container.textContent?.includes(
+        'Pay with USDC through Coinbase. This top-up uses 1 USDC = 1 USD.'
+      )
+    )
+    assert.equal(requests.length, 0)
+    await click('Review payment')
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].data.currency, 'USD')
+    assert.equal(requests[0].data.amount_minor, '1000')
+    assert.ok(container.textContent?.includes('USDC 10.00'))
+    assert.ok(container.textContent?.includes('5,000,000 Credits'))
+    assert.equal(container.querySelector('a'), null)
+    await click('Confirm payment')
+    assert.equal(requests.length, 2)
+    assert.equal(requests[1].data.request_key, requests[0].data.request_key)
+    assert.equal(requests[1].data.expected_credit_units, '5000000')
+    assert.equal(container.querySelector('a')?.href, order.checkout_url)
+    assert.equal(
+      container.textContent?.includes('Funds have reached your wallet.'),
+      false
+    )
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.get = oldGet
+    api.post = oldPost
+  }
+})

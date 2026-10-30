@@ -24,9 +24,15 @@ fn request() -> UpgradeRequest {
 }
 #[test]
 fn operations_upgrade_binds_old_contract_and_compiled_successor() {
-    authorize_target().unwrap();
+    assert!(matches!(
+        authorize_target(),
+        Err(UpgradeError::Rejected(
+            "REQUEST_OPERATIONS_COMPILED_COMPONENTS_CHANGED"
+        ))
+    ));
     let valid = request();
-    UpgradeRequest::read(serde_json::to_vec(&valid).unwrap().as_slice()).unwrap();
+    UpgradeRequest::read_fields(serde_json::to_vec(&valid).unwrap().as_slice()).unwrap();
+    assert!(UpgradeRequest::read(serde_json::to_vec(&valid).unwrap().as_slice()).is_err());
     for case in 0..5 {
         let mut wrong = valid.clone();
         match case {

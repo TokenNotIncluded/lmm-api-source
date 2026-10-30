@@ -92,7 +92,7 @@ func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next 
 			callbackFailure(w, http.StatusBadRequest, "invalid_payment_callback")
 			return
 		}
-		for _, name := range []string{"Stripe-Signature", "Creem-Signature", "X-Signature", "X-Waffo-Signature"} {
+		for _, name := range []string{"Stripe-Signature", "Creem-Signature", "X-Signature", "X-Waffo-Signature", "X-Webhook-Signature", "X-Hook0-Signature"} {
 			signatures := r.Header.Values(name)
 			if len(signatures) > 1 || len(signatures) == 1 && (len(signatures[0]) == 0 || len(signatures[0]) > 2048) {
 				callbackFailure(w, http.StatusBadRequest, "invalid_payment_callback")

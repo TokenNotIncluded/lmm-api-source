@@ -71,6 +71,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/request_limits.sql"),
     ),
     ("operations", include_str!("../schema/operations.sql")),
+    (
+        "coinbase-payments",
+        include_str!("../schema/coinbase_payments.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

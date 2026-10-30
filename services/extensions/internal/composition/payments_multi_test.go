@@ -2,6 +2,8 @@ package composition
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -17,6 +19,51 @@ type coreCheckoutSigner struct{}
 
 func (coreCheckoutSigner) EPayCheckout(context.Context, int64) (payments.Checkout, error) {
 	return payments.Checkout{}, payments.ErrUnavailable
+}
+
+func TestPaymentV2AssemblesCoinbaseWithPrivateCDPCredentials(t *testing.T) {
+	keyName := paymentPrivate(t, "coinbase-key-name", "organizations/synthetic/apiKeys/synthetic-payment-key")
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey := paymentPrivate(t, "coinbase-signing-key", string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})))
+	raw := fmt.Sprintf(`version=2
+[[channels]]
+id=8
+provider='coinbase'
+merchant='coinbase_synthetic'
+environment='test'
+currency='USD'
+enabled=false
+api_key_file='%s'
+private_key_file='%s'
+success_url='https://example.test/wallet'
+cancel_url='https://example.test/wallet'
+`, keyName, privateKey)
+	adapters, err := loadMultiPaymentAdapters([]byte(raw), nil)
+	if err != nil || len(adapters) != 1 {
+		t.Fatal("Coinbase configuration rejected", err)
+	}
+	channel := adapters[0].Channel()
+	if channel.Provider != "coinbase" || channel.Enabled || channel.Environment != "test" || channel.Currency != "USD" || adapters[0].RefundEnabled() {
+		t.Fatal("Coinbase policy changed during assembly", channel)
+	}
+	for _, bad := range []string{
+		strings.Replace(raw, "currency='USD'", "currency='USDC'", 1),
+		strings.Replace(raw, "currency='USD'", "currency='CNY'", 1),
+		strings.Replace(raw, "private_key_file='"+privateKey+"'", "", 1),
+		strings.Replace(raw, "private_key_file='"+privateKey+"'", "private_key_file='"+keyName+"'", 1),
+		raw + "webhook_secret_file='/private/core-only-secret'\n",
+	} {
+		if _, err := loadMultiPaymentAdapters([]byte(bad), nil); err == nil {
+			t.Fatal("invalid Coinbase credential or currency configuration accepted")
+		}
+	}
 }
 
 func TestPaymentV2RestoresLegacyProvidersWithoutFastPay(t *testing.T) {

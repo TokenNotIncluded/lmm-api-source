@@ -1,5 +1,5 @@
 # Version 2 payment verification and conversion policy, owned by Core.
-# See docs/payment-gateways.md. These are seven independent example channels,
+# See docs/payment-gateways.md. These are eight independent example channels,
 # not enabled installation defaults. Replace IDs, paths and policy deliberately.
 # USD uses the existing 500000-credit/USD unit. Non-USD conversion below is
 # illustrative administrator policy, NOT an exchange rate or recommended price.
@@ -101,3 +101,15 @@ max_amount_minor = 100000
 webhook_secret_file = "/etc/lmm.conf.d/secrets/core/pancake-provider-public-key.pem"
 store_id = "STO_0123456789abcdefghijkl"
 product_id = "PROD_0123456789abcdefghijkl"
+
+# Coinbase Business Checkouts charges USDC at par with this USD quote.
+# Configure an independent sandbox subscription/secret; live uses another secret.
+[[channels]]
+id = 8
+provider = "coinbase"
+merchant = "coinbase_REPLACE"
+environment = "test"
+currency = "USD"
+credits_per_minor = 5000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/coinbase-sandbox-webhook-secret"

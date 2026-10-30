@@ -84,3 +84,19 @@ return_url = "https://api.example.invalid/console/wallet"
 checkout_region = "global"
 checkout_language = "en"
 tax_category = "saas"
+
+# Coinbase Business Checkout. A USD quote collects the same numeric amount in
+# USDC. Create an ECDSA CDP API key; the API key file contains its key name and
+# the signing-key file contains the P-256 PEM private key. The webhook secret
+# belongs only in Core. Test channels use Coinbase's sandbox endpoint.
+[[channels]]
+id = 8
+provider = "coinbase"
+merchant = "coinbase_REPLACE"
+environment = "test"
+currency = "USD"
+enabled = false
+api_key_file = "/etc/lmm.conf.d/secrets/extensions/coinbase-api-key"
+private_key_file = "/etc/lmm.conf.d/secrets/extensions/coinbase-private-key.pem"
+success_url = "https://api.example.invalid/console/wallet"
+cancel_url = "https://api.example.invalid/console/wallet"

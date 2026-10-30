@@ -1,2 +1,6 @@
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
+github.com/waffo-com/waffo-go/v2 v2.1.0 h1:s2siKsm7cHLCC71qfVXsSQ4Q81Jt7UTpKsFhVY3xEZk=
+github.com/waffo-com/waffo-go/v2 v2.1.0/go.mod h1:kF+fIGnxhABoOGt8hb2TDj/5PFzhb+vkT/iMgbI2cEY=
+github.com/waffo-com/waffo-pancake-sdk-go v0.17.0 h1:435iBQizm4BkLsSK+8MS0Q/llhhVcBeP2JVJV9FNvSI=
+github.com/waffo-com/waffo-pancake-sdk-go v0.17.0/go.mod h1:OB2MyFIQaefoPO0FV3J+yu9sDP8RVFQ+sbFsXqGuObc=
