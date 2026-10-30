@@ -81,6 +81,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
     remove,
   } = usePasskeyManagement()
   const credentials = status?.credentials ?? []
+  const recentSessionManagement = status?.management === 'core_recent_session'
 
   const {
     open: verificationOpen,
@@ -125,6 +126,10 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       if (registered) setPasskeyName('')
       return registered
     }
+    if (recentSessionManagement) {
+      await completeRegistration()
+      return
+    }
     const methods = await fetchVerificationMethods()
     if (!methods.hasEmail && !methods.has2FA && !methods.hasPasskey) {
       if (methods.availability !== 'complete') {
@@ -152,6 +157,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
     fetchVerificationMethods,
     passkeyName,
     register,
+    recentSessionManagement,
     startVerification,
     supported,
     t,
@@ -160,6 +166,13 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
   const handleRemove = useCallback(async () => {
     if (!removeTarget) return
     const credentialID = removeTarget.id
+    if (recentSessionManagement) {
+      if (await remove(credentialID)) {
+        setConfirmOpen(false)
+        setRemoveTarget(null)
+      }
+      return
+    }
     const methods = await fetchVerificationMethods()
     let required: VerificationMethod | null = null
     if (methods.hasEmail) {
@@ -195,7 +208,14 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       ),
       verificationMethods: methods,
     })
-  }, [fetchVerificationMethods, remove, removeTarget, startVerification, t])
+  }, [
+    fetchVerificationMethods,
+    recentSessionManagement,
+    remove,
+    removeTarget,
+    startVerification,
+    t,
+  ])
 
   const handleVerificationCancel = useCallback(() => {
     setRestrictedMethod(null)
@@ -263,6 +283,13 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
         <CardContent className='p-3 sm:p-5'>
           <div className='space-y-6'>
+            {recentSessionManagement && (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Passkey changes require a sign-in within the last 10 minutes and sign out your other sessions.'
+                )}
+              </p>
+            )}
             <div className='flex items-start gap-4'>
               <IconBadge tone='info' size='sm'>
                 <KeyRound />
@@ -299,7 +326,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
                 <Button
                   className='w-full shrink-0 sm:w-auto'
                   onClick={handleRegister}
-                  disabled={!supported || registering || removing}
+                  disabled={!status || !supported || registering || removing}
                 >
                   {registering && (
                     <Loader2 className='mr-2 h-4 w-4 animate-spin' />
@@ -321,24 +348,26 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
                         <p className='truncate font-medium'>
                           {passkeyLabel(credential)}
                         </p>
-                        <StatusBadge
-                          label={
-                            credential.backup_eligible
-                              ? credential.backup_state
-                                ? t('Backed up')
-                                : t('Not backed up')
-                              : t('No backup')
-                          }
-                          variant={
-                            credential.backup_eligible
-                              ? credential.backup_state
-                                ? 'success'
-                                : 'warning'
-                              : 'neutral'
-                          }
-                          showDot
-                          copyable={false}
-                        />
+                        {credential.backup_eligible !== undefined && (
+                          <StatusBadge
+                            label={
+                              credential.backup_eligible
+                                ? credential.backup_state
+                                  ? t('Backed up')
+                                  : t('Not backed up')
+                                : t('No backup')
+                            }
+                            variant={
+                              credential.backup_eligible
+                                ? credential.backup_state
+                                  ? 'success'
+                                  : 'warning'
+                                : 'neutral'
+                            }
+                            showDot
+                            copyable={false}
+                          />
+                        )}
                       </div>
                       <p className='text-muted-foreground text-xs'>
                         {t('Added on {{date}}', {
@@ -382,13 +411,17 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
                     {removeTarget && (
                       <>
                         {passkeyLabel(removeTarget)}:{' '}
-                        {credentials.length === 1
+                        {recentSessionManagement
                           ? t(
-                              'Removing Passkey will require you to sign in with your password next time. You can re-register anytime.'
+                              'Removing this Passkey signs out your other sessions. At least one other sign-in method must remain available.'
                             )
-                          : t(
-                              'This Passkey will stop working for sign-in. Your other Passkeys will remain available.'
-                            )}
+                          : credentials.length === 1
+                            ? t(
+                                'Removing Passkey will require you to sign in with your password next time. You can re-register anytime.'
+                              )
+                            : t(
+                                'This Passkey will stop working for sign-in. Your other Passkeys will remain available.'
+                              )}
                       </>
                     )}
                   </AlertDialogDescription>

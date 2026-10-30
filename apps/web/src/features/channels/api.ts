@@ -20,6 +20,12 @@ import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
+import {
+  assertNativeIntegers,
+  nativeRequest,
+  readNativeRoutingScope,
+  type NativeRoutingScope,
+} from './native-api'
 import type {
   AddChannelRequest,
   BatchDeleteParams,
@@ -737,4 +743,38 @@ export async function getPrefillGroups(
 }> {
   const res = await api.get('/api/prefill_group', { params: { type } })
   return res.data
+}
+
+export type NativeChannelVersion = { routing: number; pricing: number }
+
+export async function setNativeChannelEnabled(
+  id: number,
+  enabled: boolean,
+  expectedVersion: NativeChannelVersion,
+  expectedScope?: NativeRoutingScope
+) {
+  assertNativeIntegers({ id, expectedVersion })
+  if (id <= 0) throw new Error('Invalid channel ID')
+  const scope = expectedScope ?? readNativeRoutingScope()
+  if (!scope) throw new Error('Administrator authentication is required')
+  const data = await nativeRequest(scope, 'PUT', `/api/channel/${id}/status`, {
+    enabled,
+    expected_version: expectedVersion,
+  })
+  return { success: true, data }
+}
+
+export async function removeNativeChannel(
+  id: number,
+  expectedVersion: NativeChannelVersion,
+  expectedScope?: NativeRoutingScope
+) {
+  assertNativeIntegers({ id, expectedVersion })
+  if (id <= 0) throw new Error('Invalid channel ID')
+  const scope = expectedScope ?? readNativeRoutingScope()
+  if (!scope) throw new Error('Administrator authentication is required')
+  const data = await nativeRequest(scope, 'DELETE', `/api/channel/${id}`, {
+    expected_version: expectedVersion,
+  })
+  return { success: true, data }
 }

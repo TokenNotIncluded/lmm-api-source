@@ -42,6 +42,7 @@ import { ChannelsHealthStrip } from './components/channels-health-strip'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
+import { NativeRoutingToggle } from './components/native-routing-management'
 import { ReadOnlyChannels } from './components/read-only-channels'
 import { useChannelOps } from './use-channel-ops'
 
@@ -101,7 +102,18 @@ export function Channels() {
                   </AlertDescription>
                 </Alert>
               )}
-              <ReadOnlyChannels />
+              {phase === 'fresh' &&
+                !channelOpsQuery.isError &&
+                channelOpsQuery.data?.data?.native_configuration === true && (
+                  <NativeRoutingToggle />
+                )}
+              <ReadOnlyChannels
+                controlsEnabled={
+                  phase === 'fresh' &&
+                  !channelOpsQuery.isError &&
+                  channelOpsQuery.data?.data?.native_control === true
+                }
+              />
             </>
           )}
         </SectionPageLayout.Content>

@@ -50,7 +50,10 @@ import {
 import { finishPasskeyLogin } from '@/features/auth/passkey'
 import type { ApiResponse } from '@/features/auth/types'
 import { api, applyAuthBundle, isAuthBundle } from '@/lib/api'
-import { applyPending2FAFlow } from '@/lib/auth-session'
+import {
+  applyPending2FAFlow,
+  capturePasswordLoginGuard,
+} from '@/lib/auth-session'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
 import {
   prepareCredentialRequestOptions,
@@ -103,8 +106,8 @@ function OAuthCallback() {
     [navigate]
   )
   const completeLogin = useCallback(
-    (bundle: AuthBundle) => {
-      applyAuthBundle(bundle)
+    (bundle: AuthBundle, alreadyApplied = false) => {
+      if (!alreadyApplied) applyAuthBundle(bundle)
       safeNavigate(search.redirect, getAuthenticatedLandingRoute(bundle.user))
       toast.success(i18next.t('Signed in successfully!'))
     },
@@ -144,6 +147,7 @@ function OAuthCallback() {
     passkeyPending.current = true
     setIsPasskeyPending(true)
     try {
+      const assertCurrent = capturePasswordLoginGuard()
       const assertion = await requestPasskeyAuthentication(
         passkeyChallenge.options
       )
@@ -154,9 +158,20 @@ function OAuthCallback() {
       }
       const response = await finishPasskeyLogin(
         passkeyChallenge.flowToken,
-        assertion
+        assertion,
+        assertCurrent
       )
       if (attempt !== passkeyAttempt.current) return
+      if (
+        response.success &&
+        response.data &&
+        typeof response.data === 'object' &&
+        'require_2fa' in response.data &&
+        response.data.require_2fa === true
+      ) {
+        redirectTo2FA(search.redirect)
+        return
+      }
       if (!response.success || !isAuthBundle(response.data)) {
         const messageKey = getServerErrorMessageKey(response)
         toast.error(
@@ -166,7 +181,7 @@ function OAuthCallback() {
         )
         return
       }
-      completeLogin(response.data)
+      completeLogin(response.data, true)
     } catch (error: unknown) {
       if (attempt !== passkeyAttempt.current) return
       if (getServerErrorMessageKey(error)) return
@@ -225,6 +240,14 @@ function OAuthCallback() {
       return
     }
 
+    // A recorded native binding callback must return to its original marked
+    // popup. Losing the opener never turns it into a fresh login or a GET loop.
+    if (search.account_bind === '1' && mode !== 'bind') {
+      toast.error(i18next.t('OAuth binding window is no longer available'))
+      safeNavigate('/sign-in', '/sign-in')
+      return
+    }
+
     if (mode === 'bind') {
       const opener = window.opener
       if (!opener || opener.closed) {
@@ -273,6 +296,7 @@ function OAuthCallback() {
           state,
           error: search.error,
           errorDescription: search.error_description,
+          iss: search.iss,
         },
         window.location.origin
       )
@@ -397,6 +421,7 @@ function OAuthCallback() {
     redirectTo2FA,
     safeNavigate,
     search.code,
+    search.account_bind,
     search.error,
     search.error_code,
     search.error_description,

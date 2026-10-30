@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -26,9 +26,11 @@ import {
   isPasskeySupported as detectPasskeySupport,
   prepareCredentialCreationOptions,
 } from '@/lib/passkey'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   beginPasskeyRegistration,
+  capturePasskeySession,
   deletePasskey,
   finishPasskeyRegistration,
   getPasskeyStatus,
@@ -49,11 +51,16 @@ export function usePasskeyManagement(
   const [registering, setRegistering] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [supported, setSupported] = useState(false)
+  const statusRequest = useRef(0)
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
 
   const fetchStatus = useCallback(async () => {
+    const request = ++statusRequest.current
     try {
       setLoading(true)
       const res = await getPasskeyStatus()
+      if (request !== statusRequest.current) return
       if (res.success) {
         setStatus(res.data ?? null)
         onStatusChange?.(res.data ?? null)
@@ -62,18 +69,23 @@ export function usePasskeyManagement(
         toast.error(res.message || i18next.t('Failed to load Passkey status'))
       }
     } catch (error) {
+      if (request !== statusRequest.current) return
       // eslint-disable-next-line no-console
       console.error('[Passkey] Failed to fetch status', error)
       toast.error(i18next.t('Failed to load Passkey status'))
       setStatus(null)
     } finally {
-      setLoading(false)
+      if (request === statusRequest.current) setLoading(false)
     }
   }, [onStatusChange])
 
   useEffect(() => {
+    setStatus(null)
     fetchStatus()
-  }, [fetchStatus])
+    return () => {
+      statusRequest.current += 1
+    }
+  }, [fetchStatus, userId, sessionId])
 
   useEffect(() => {
     detectPasskeySupport()
@@ -94,7 +106,8 @@ export function usePasskeyManagement(
 
       setRegistering(true)
       try {
-        const beginResponse = await beginPasskeyRegistration(proofToken)
+        const scope = capturePasskeySession()
+        const beginResponse = await beginPasskeyRegistration(scope, proofToken)
         if (!beginResponse.success) {
           toast.error(
             beginResponse.message ||
@@ -130,6 +143,7 @@ export function usePasskeyManagement(
           flowToken,
           attestation,
           name,
+          scope,
           proofToken
         )
         if (!finishResponse.success) {
@@ -163,7 +177,7 @@ export function usePasskeyManagement(
   )
 
   const remove = useCallback(
-    async (id: number, proofToken?: string) => {
+    async (id: string, proofToken?: string) => {
       setRemoving(true)
       try {
         const res = await deletePasskey(id, proofToken)

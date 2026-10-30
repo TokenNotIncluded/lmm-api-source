@@ -14,6 +14,7 @@ import {
   NativeUsersFailure,
   type NativeUsersScope,
 } from './access'
+import { NativeBalanceAdjustment } from './adjustments-editor'
 import { readNativeUserGroups, readNativeUsers } from './api'
 import {
   nativeUsersQuery,
@@ -24,6 +25,7 @@ import {
 } from './contract'
 import { nativeQueryFromLegacySearch } from './legacy-search'
 import { NativeDisplayNameEditor } from './profile-editor'
+import { NativeUserSecurity } from './security-editor'
 
 type Props = { scope: NativeUsersScope; recheck: () => void; search: string }
 type Load<T> =
@@ -90,12 +92,20 @@ function UserRecord({
       <div className='min-w-0 space-y-2'>
         <h3 className='font-semibold break-all'>{profile(user.username)}</h3>
         {user.platform_role === 'user' && (
-          <NativeDisplayNameEditor
-            scope={scope}
-            userId={user.id}
-            onUpdated={onUpdated}
-            onAccessDenied={onAccessDenied}
-          />
+          <div className='flex flex-wrap gap-2'>
+            <NativeDisplayNameEditor
+              scope={scope}
+              userId={user.id}
+              onUpdated={onUpdated}
+              onAccessDenied={onAccessDenied}
+            />
+            <NativeUserSecurity
+              scope={scope}
+              userId={user.id}
+              onUpdated={onUpdated}
+              onAccessDenied={onAccessDenied}
+            />
+          </div>
         )}
         <dl className='space-y-1 text-sm break-all'>
           <div>
@@ -171,6 +181,14 @@ function UserRecord({
       </div>
       <div className='min-w-0 space-y-2 text-sm'>
         <h4 className='font-medium'>{t('Wallet (Core credits)')}</h4>
+        {user.platform_role === 'user' && wallet.status === 'available' && (
+          <NativeBalanceAdjustment
+            scope={scope}
+            userId={user.id}
+            onUpdated={onUpdated}
+            onAccessDenied={onAccessDenied}
+          />
+        )}
         {wallet.status === 'unavailable' ? (
           <p>{t('Unavailable')}</p>
         ) : (
@@ -239,20 +257,16 @@ function UnavailableActions() {
     t('Create user'),
     t('Edit user'),
     t('Delete user'),
-    t('Enable user'),
     t('Promote user'),
     t('Demote user'),
-    t('Adjust funds'),
     t('Set trust level'),
     t('Reset onboarding'),
-    t('Normal ban'),
     t('Abuse ban'),
     t('Restore referral'),
     t('Penalize inviter'),
     t('Revoke rewards'),
     t('Unbind identity'),
     t('Reset passkey'),
-    t('Reset two-factor authentication'),
     t('Assistant policy'),
     t('Reset assistant violations'),
     t('Modify subscriptions'),
@@ -263,11 +277,7 @@ function UnavailableActions() {
       <summary className='cursor-pointer font-medium'>
         {t('Unavailable user actions')}
       </summary>
-      <p className='text-muted-foreground mt-3 text-sm'>
-        {t(
-          'This page currently provides reads only. User actions require separately accepted management APIs.'
-        )}
-      </p>
+      <p className='text-muted-foreground mt-3 text-sm'>{t('Unavailable')}</p>
       <div className='mt-3 flex flex-wrap gap-2'>
         {actions.map((label, index) => (
           <Button

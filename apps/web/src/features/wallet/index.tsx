@@ -26,6 +26,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { getL0PaidAccess } from '@/features/onboarding/l0-paid-access'
+import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
+import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -188,13 +190,21 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
             <WalletStatsCard user={user} />
             {nativePayments ? <NativeWalletCheckout /> : null}
+            {nativePayments ? (
+              <NativeWalletSubscriptions onUpdated={() => void refresh()} />
+            ) : null}
+            {nativePayments ? (
+              <NativeWalletPromotions onUpdated={() => void refresh()} />
+            ) : null}
             <div className='flex flex-wrap gap-2'>
               {!nativePayments ? (
                 <Button disabled>{t('Add funds')}</Button>
               ) : null}
-              <Button variant='outline' disabled>
-                {t('Subscriptions')}
-              </Button>
+              {!nativePayments ? (
+                <Button variant='outline' disabled>
+                  {t('Subscriptions')}
+                </Button>
+              ) : null}
               <Button variant='outline' disabled>
                 {t('Transfer')}
               </Button>

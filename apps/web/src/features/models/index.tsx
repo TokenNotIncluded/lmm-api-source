@@ -22,9 +22,16 @@ import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
+import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
+import { NativeRoutingManagement } from '@/features/channels/components/native-routing-management'
+import { useChannelOps } from '@/features/channels/use-channel-ops'
+import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
+import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
@@ -168,6 +175,32 @@ function DeploymentsSection() {
 }
 
 export function Models() {
+  const { t } = useTranslation()
+  const runtime = useRuntimeCapabilities()
+  const local = useChannelOps(!runtime)
+  const capability = runtime?.channels ?? local
+  const phase = useCapabilityFreshness(capability)
+  if (capability.isLoading) return <LoadingState />
+  if (phase !== 'fresh' || capability.isError) {
+    return (
+      <ErrorState
+        description={
+          getServerErrorMessage(capability.error) ?? t('Failed to load')
+        }
+        onRetry={() => void capability.refetch()}
+      />
+    )
+  }
+  if (capability.data?.data?.native_catalog) {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('Models')}</SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <NativeRoutingManagement initialSection='models' />
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    )
+  }
   return (
     <ModelsProvider>
       <ModelsContent />

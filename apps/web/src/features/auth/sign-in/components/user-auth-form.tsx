@@ -50,9 +50,11 @@ import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { hasOAuthLoginProvider } from '@/features/auth/lib/registration'
 import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
+import { AccountClosureRecovery } from '@/features/profile/components/account-closure-recovery'
 import { useStatus } from '@/hooks/use-status'
 import { isAuthBundle } from '@/lib/api'
 import { AuthCookieBlockedError } from '@/lib/auth-cookie'
+import { capturePasswordLoginGuard } from '@/lib/auth-session'
 import {
   buildAssertionResult,
   prepareCredentialRequestOptions,
@@ -318,7 +320,11 @@ export function UserAuthForm({
 
     setIsPasskeyLoading(true)
     try {
-      const begin = await beginPasskeyLogin()
+      const assertCurrent = capturePasswordLoginGuard()
+      const begin = await beginPasskeyLogin(
+        form.getValues('username'),
+        assertCurrent
+      )
       if (!begin.success) {
         if (getServerErrorMessageKey(begin)) return
         throw new Error(begin.message || t('Failed to start Passkey login'))
@@ -346,19 +352,33 @@ export function UserAuthForm({
         throw new Error(t('Invalid Passkey response'))
       }
 
-      const finish = await finishPasskeyLogin(flowToken, assertion)
+      const finish = await finishPasskeyLogin(
+        flowToken,
+        assertion,
+        assertCurrent
+      )
       if (!finish.success) {
         if (getServerErrorMessageKey(finish)) return
         throw new Error(finish.message || t('Failed to complete Passkey login'))
       }
 
+      if (
+        finish.data &&
+        typeof finish.data === 'object' &&
+        'require_2fa' in finish.data &&
+        finish.data.require_2fa === true
+      ) {
+        redirectTo2FA(redirectTo)
+        return
+      }
       if (!isAuthBundle(finish.data)) {
         throw new Error(t('Missing user data from Passkey login response'))
       }
 
-      await handleLoginSuccess(finish.data, redirectTo)
+      await handleLoginSuccess(finish.data, redirectTo, true)
       toast.success(t('Signed in with Passkey'))
     } catch (error: unknown) {
+      if (axios.isCancel(error)) return
       if (getServerErrorMessageKey(error)) return
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
         toast.info(t('Passkey login was cancelled or timed out'))
@@ -402,6 +422,13 @@ export function UserAuthForm({
             )}
             {t('Sign in with Passkey')}
           </Button>
+          {passkeySupported && (
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Enter your username if your security key does not support account discovery.'
+              )}
+            </p>
+          )}
           {!passkeySupported && (
             <p className='text-muted-foreground text-xs'>
               {t('Passkey is not supported on this device.')}
@@ -414,6 +441,7 @@ export function UserAuthForm({
 
   return (
     <Form {...form}>
+      <AccountClosureRecovery />
       <form
         onSubmit={form.handleSubmit(onSubmit)}
         className={cn('grid gap-5', className)}

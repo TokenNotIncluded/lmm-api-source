@@ -164,6 +164,8 @@ export interface GetChannelsResponse {
     page: number
     page_size: number
     type_counts?: Record<string, number>
+    config_version?: number
+    pricing_version?: number
   }
 }
 
@@ -174,6 +176,8 @@ export interface SearchChannelsResponse {
     items: Channel[]
     total: number
     type_counts?: Record<string, number>
+    config_version?: number
+    pricing_version?: number
   }
 }
 
@@ -189,6 +193,13 @@ export interface ChannelOpsResponse {
   data?: {
     retry_times: number | null
     read_only?: boolean
+    native_control?: boolean
+    native_configuration?: boolean
+    native_catalog?: boolean
+    native_secrets?: boolean
+    status?: boolean
+    remove?: boolean
+    price_publish?: boolean
     reason?: string
   }
 }

@@ -31,8 +31,13 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { useAuthStore } = await import('@/stores/auth-store')
+const previousAuth = useAuthStore.getState().auth
+const originalRequest = api.request
 const { ReadOnlyChannels } = await import('./read-only-channels')
 const originalGet = api.get
+const originalPut = api.put
+const originalDelete = api.delete
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -41,12 +46,34 @@ let dispose: (() => Promise<void>) | undefined
 afterEach(async () => {
   await dispose?.()
   dispose = undefined
+  api.request = originalRequest
+  useAuthStore.setState({ auth: previousAuth })
   api.get = originalGet
+  api.put = originalPut
+  api.delete = originalDelete
   document.body.replaceChildren()
 })
 after(() => dom.close())
 
-async function mount() {
+async function mount(controlsEnabled = false) {
+  if (controlsEnabled) {
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'synthetic-channel-session-token',
+      token_type: 'Bearer',
+      access_expires_at: 2_000_000_000,
+      user: { id: 501, role: 10, username: 'synthetic-admin' },
+      session: {
+        sid: 'synthetic-channel-controls',
+        current: true,
+        login_method: 'password',
+        ip: '127.0.0.1',
+        user_agent: 'synthetic',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2_000_000_000,
+      },
+    })
+  }
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -57,7 +84,7 @@ async function mount() {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <ReadOnlyChannels />
+          <ReadOnlyChannels controlsEnabled={controlsEnabled} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -207,4 +234,89 @@ test('read-only channel failures keep the server reason instead of an empty succ
       (button) => button.textContent === 'Retry'
     )
   )
+})
+
+test('native channel controls send the observed release and require delete confirmation', async () => {
+  let version = 4
+  let enabled = true
+  let present = true
+  const writes: { method: string; url: string; body: unknown }[] = []
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        items: present
+          ? [
+              {
+                id: 1,
+                name: 'Channel 1',
+                status: enabled ? 1 : 2,
+                group: 'default',
+                models: 'model',
+              },
+            ]
+          : [],
+        total: present ? 1 : 0,
+        config_version: version,
+        pricing_version: 2,
+      },
+    },
+  })) as typeof api.get
+  api.put = (async (url: string, body: unknown) => {
+    writes.push({ method: 'PUT', url, body })
+    enabled = false
+    version += 1
+    return {
+      data: {
+        success: true,
+        data: { version: { routing: version, pricing: 2 } },
+      },
+    }
+  }) as typeof api.put
+  api.delete = (async (
+    url: string,
+    config?: Parameters<typeof api.delete>[1]
+  ) => {
+    writes.push({ method: 'DELETE', url, body: config?.data })
+    present = false
+    version += 1
+    return {
+      data: {
+        success: true,
+        data: { version: { routing: version, pricing: 2 } },
+      },
+    }
+  }) as typeof api.delete
+  api.request = (async (options: {
+    method: string
+    url: string
+    data: unknown
+  }) =>
+    options.method === 'PUT'
+      ? api.put(options.url, options.data)
+      : api.delete(options.url, { data: options.data })) as typeof api.request
+  const container = await mount(true)
+  await until(() => Boolean(container.querySelector('table')))
+  const button = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>('table button')].find(
+      (item) => item.textContent === label
+    )
+  assert.ok(button('Disable'))
+  assert.doesNotMatch(container.textContent ?? '', /Read only/)
+  await act(async () => button('Disable')!.click())
+  await until(() => Boolean(button('Enable') && !button('Enable')!.disabled))
+  assert.deepEqual(writes[0], {
+    method: 'PUT',
+    url: '/api/channel/1/status',
+    body: { enabled: false, expected_version: { routing: 4, pricing: 2 } },
+  })
+  await act(async () => button('Delete')!.click())
+  assert.equal(writes.length, 1)
+  await act(async () => button('Confirm delete')!.click())
+  await until(() => !container.querySelector('table tbody tr'))
+  assert.deepEqual(writes[1], {
+    method: 'DELETE',
+    url: '/api/channel/1',
+    body: { expected_version: { routing: 5, pricing: 2 } },
+  })
 })

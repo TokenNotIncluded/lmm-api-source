@@ -9,20 +9,45 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getServerErrorMessage } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
-import { getChannels, searchChannels } from '../api'
+import {
+  getChannels,
+  searchChannels,
+  setNativeChannelEnabled,
+  removeNativeChannel,
+} from '../api'
+import { readNativeRoutingScope } from '../native-api'
+import type { Channel } from '../types'
 
 const PAGE_SIZE = 10
 
 /** The routing snapshot supplies configuration facts, not legacy operational metrics. */
-export function ReadOnlyChannels() {
+export function ReadOnlyChannels({
+  controlsEnabled = false,
+}: {
+  controlsEnabled?: boolean
+}) {
   const { t } = useTranslation()
+  const auth = useAuthStore((state) => state.auth)
+  const scope = readNativeRoutingScope(auth)
   const [input, setInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
+  const [pending, setPending] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<number | null>(null)
   // @context-fold begin read-only-channel-query
   const query = useQuery({
-    queryKey: ['channels', 'read-only', keyword, page],
+    queryKey: [
+      'channels',
+      'read-only',
+      auth.user?.id,
+      auth.session?.sid,
+      auth.user?.role,
+      keyword,
+      page,
+    ],
     queryFn: () =>
       keyword
         ? searchChannels({ keyword, p: page, page_size: PAGE_SIZE })
@@ -31,17 +56,118 @@ export function ReadOnlyChannels() {
   })
   const data = query.data?.data
   // @context-fold end read-only-channel-query
+  const canWrite =
+    controlsEnabled &&
+    !!scope &&
+    Number.isSafeInteger(data?.config_version) &&
+    Number.isSafeInteger(data?.pricing_version)
+  async function mutate(channel: Channel, remove: boolean) {
+    if (
+      !canWrite ||
+      !Number.isSafeInteger(channel.id) ||
+      channel.id <= 0 ||
+      !data?.config_version ||
+      !data.pricing_version ||
+      pending !== null
+    ) {
+      return
+    }
+    setPending(channel.id)
+    setError(null)
+    const version = {
+      routing: data.config_version,
+      pricing: data.pricing_version,
+    }
+    try {
+      if (remove) await removeNativeChannel(channel.id, version, scope)
+      else {
+        await setNativeChannelEnabled(
+          channel.id,
+          channel.status !== 1,
+          version,
+          scope
+        )
+      }
+      setDeleteId(null)
+      await query.refetch()
+    } catch (cause) {
+      setError(
+        getServerErrorMessage(cause) ??
+          (cause instanceof Error ? cause.message : t('Failed to save'))
+      )
+      await query.refetch()
+    } finally {
+      setPending(null)
+    }
+  }
+  function actions(channel: Channel) {
+    if (!canWrite || !Number.isSafeInteger(channel.id) || channel.id <= 0) {
+      return null
+    }
+    return (
+      <div className='flex flex-wrap gap-2'>
+        <Button
+          type='button'
+          variant='outline'
+          className='min-h-11'
+          disabled={pending !== null}
+          onClick={() => void mutate(channel, false)}
+        >
+          {channel.status === 1 ? t('Disable') : t('Enable')}
+        </Button>
+        {deleteId === channel.id ? (
+          <>
+            <Button
+              type='button'
+              variant='destructive'
+              className='min-h-11'
+              disabled={pending !== null}
+              onClick={() => void mutate(channel, true)}
+            >
+              {t('Confirm delete')}
+            </Button>
+            <Button
+              type='button'
+              variant='ghost'
+              className='min-h-11'
+              disabled={pending !== null}
+              onClick={() => setDeleteId(null)}
+            >
+              {t('Cancel')}
+            </Button>
+          </>
+        ) : (
+          <Button
+            type='button'
+            variant='ghost'
+            className='min-h-11'
+            disabled={pending !== null}
+            onClick={() => setDeleteId(channel.id)}
+          >
+            {t('Delete')}
+          </Button>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className='min-w-0 space-y-4'>
-      <Alert>
-        <AlertTitle>{t('Read only')}</AlertTitle>
-        <AlertDescription>
-          {t(
-            'Channels are read-only. Names and status come from the active routing configuration; balances and test results are unavailable.'
-          )}
-        </AlertDescription>
-      </Alert>
+      {!controlsEnabled && (
+        <Alert>
+          <AlertTitle>{t('Read only')}</AlertTitle>
+          <AlertDescription>
+            {t(
+              'Channels are read-only. Names and status come from the active routing configuration; balances and test results are unavailable.'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+      {error && (
+        <Alert variant='destructive' role='alert'>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <form
         className='flex flex-col gap-2 sm:flex-row'
         onSubmit={(event) => {
@@ -115,6 +241,12 @@ export function ReadOnlyChannels() {
                     {channel.models}
                   </dd>
                 </div>
+                {canWrite && (
+                  <div>
+                    <dt className='sr-only'>{t('Actions')}</dt>
+                    <dd>{actions(channel)}</dd>
+                  </div>
+                )}
               </dl>
             ))}
           </div>
@@ -127,6 +259,7 @@ export function ReadOnlyChannels() {
                       {t(label)}
                     </th>
                   ))}
+                  {canWrite && <th className='p-3'>{t('Actions')}</th>}
                 </tr>
               </thead>
               <tbody className='divide-y'>
@@ -141,6 +274,7 @@ export function ReadOnlyChannels() {
                     <td className='max-w-md p-3 break-words whitespace-pre-wrap'>
                       {channel.models}
                     </td>
+                    {canWrite && <td className='p-3'>{actions(channel)}</td>}
                   </tr>
                 ))}
               </tbody>

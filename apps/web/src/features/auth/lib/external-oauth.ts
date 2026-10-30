@@ -141,6 +141,11 @@ export const oauthCallbackSearchSchema = z.object({
     .transform((): '1' => '1')
     .optional()
     .catch(undefined),
+  account_bind: z
+    .union([z.literal('1'), z.literal(1)])
+    .transform((): '1' => '1')
+    .optional()
+    .catch(undefined),
 })
 
 export function isExternalMFAContinuation(

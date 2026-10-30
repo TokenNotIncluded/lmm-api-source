@@ -15,6 +15,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { isNativeWallet } from '@/features/wallet/lib/wallet-projection'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -23,12 +24,16 @@ import { SubscriptionsDialogs } from './components/subscriptions-dialogs'
 import { SubscriptionsPrimaryButtons } from './components/subscriptions-primary-buttons'
 import { SubscriptionsProvider } from './components/subscriptions-provider'
 import { SubscriptionsTable } from './components/subscriptions-table'
+import { NativeSubscriptionAdmin } from './native-admin'
 
 export function Subscriptions() {
   const { t } = useTranslation()
-  const role = useAuthStore((state) => state.auth.user?.role ?? 0)
+  const user = useAuthStore((state) => state.auth.user)
+  const role = user?.role ?? 0
   const [tab, setTab] = useState<'plans' | 'records'>('plans')
   const isRoot = role >= ROLE.SUPER_ADMIN
+
+  if (isNativeWallet(user)) return <NativeSubscriptionAdmin />
 
   return (
     <SubscriptionsProvider>

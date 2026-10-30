@@ -62,6 +62,7 @@ import type { UserProfile, BindingItem } from '../../types'
 import { EmailBindDialog } from '../dialogs/email-bind-dialog'
 import { TelegramBindDialog } from '../dialogs/telegram-bind-dialog'
 import { WeChatBindDialog } from '../dialogs/wechat-bind-dialog'
+import { NativeAccountLinks } from '../native-account-links'
 
 // ============================================================================
 // Account Bindings Tab Component
@@ -110,7 +111,8 @@ export function AccountBindingsTab({
 }: AccountBindingsTabProps) {
   const { t } = useTranslation()
   const dialogs = useDialogs<DialogKey>()
-  const { status, loading } = useStatus()
+  const { status, loading, capabilitiesReady } = useStatus()
+  const nativeAccountLinks = status?.native_account_bindings === true
   const [customBindings, setCustomBindings] = useState<CustomOAuthBinding[]>([])
   const [unbindTarget, setUnbindTarget] = useState<UnbindTarget | null>(null)
   const [unbinding, setUnbinding] = useState(false)
@@ -501,14 +503,29 @@ export function AccountBindingsTab({
               })
           : undefined,
       },
-    ].filter((binding) => binding.isEnabled)
+    ].filter(
+      (binding) =>
+        binding.isEnabled &&
+        !(
+          nativeAccountLinks &&
+          ['github', 'discord', 'linuxdo', 'telegram'].includes(binding.id)
+        )
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canUnbindBuiltInOAuth, profile, status, t])
+  }, [canUnbindBuiltInOAuth, nativeAccountLinks, profile, status, t])
 
   if (!profile || loading) return null
 
   return (
     <>
+      {nativeAccountLinks && capabilitiesReady && status && (
+        <NativeAccountLinks
+          status={status}
+          profile={profile}
+          onUpdate={onUpdate}
+          onBindTelegram={() => dialogs.open('telegram')}
+        />
+      )}
       <div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3'>
         {bindings.map((binding) => {
           const canUnbind = binding.isBound && Boolean(binding.onUnbind)

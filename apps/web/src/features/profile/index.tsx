@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { TeamsPanel } from '@/features/teams/panel'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -77,6 +78,7 @@ export function Profile() {
             <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
             <TabsTrigger value='account'>{t('Account')}</TabsTrigger>
             <TabsTrigger value='security'>{t('Security')}</TabsTrigger>
+            <TabsTrigger value='teams'>{t('Teams')}</TabsTrigger>
             <TabsTrigger value='preferences'>{t('Preferences')}</TabsTrigger>
             <TabsTrigger value='rewards'>{t('Rewards')}</TabsTrigger>
           </TabsList>
@@ -104,6 +106,9 @@ export function Profile() {
             </div>
             <LoginSessionsCard />
             <OAuthGrantsCard />
+          </TabsContent>
+          <TabsContent value='teams'>
+            <TeamsPanel />
           </TabsContent>
           <TabsContent value='preferences' keepMounted className='space-y-5'>
             <div className='grid items-start gap-5 lg:grid-cols-2'>
