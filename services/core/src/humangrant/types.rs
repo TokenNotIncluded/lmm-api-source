@@ -7,6 +7,7 @@ pub const BODY_LIMIT: usize = 16 * 1024; // 16 KiB
 pub const SERVICE_ID: &str = "lmm-api";
 pub const CLIENT_ID: &str = "lmm-agent";
 pub const PROFILE_READ: &str = "account.profile.read";
+pub const PROFILE_WRITE: &str = "account.profile.write";
 pub const BROWSER_PREFIX: &str = "/api/user/auth/humangrant";
 pub const RETENTION_SECONDS: i64 = 30 * 86400; // 30 days
 

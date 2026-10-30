@@ -60,6 +60,7 @@ async function grants() {
 }
 async function invite() {
   el('p', 'Opening this page does not approve or reject access. These actions can only refuse invitations; they cannot grant access.')
+  if (typeof data.review_url === 'string' && /^\/human\/[A-Za-z0-9_-]{43}$/.test(data.review_url)) link('Review the request and choose access', data.review_url)
   for (const action of ['reject', 'block']) button(action === 'block' ? 'Refuse and block future invitations' : 'Refuse this invitation', async () => { await humanAPI('/invite/' + data.token + '/' + action, 'POST', {}, data.csrf); say('Your choice was recorded.') })
 }
 async function agent() {

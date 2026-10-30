@@ -170,6 +170,270 @@ async fn call_http(
     (status, resp_headers, json_val)
 }
 
+#[sqlx::test(migrations = false)]
+async fn signed_profile_write_requires_explicit_scope_and_fresh_profile(pool: PgPool) {
+    let (browser, app, store) = setup_app(pool.clone()).await;
+    let (user_id, refresh) = register_and_login(&browser, "profile_writer").await;
+    let now = chrono::Utc::now().timestamp();
+    let key = generate_ai_key();
+    let path = format!("/v1/accounts/{user_id}/profile");
+    // Protocol credentials are canonical unpadded base64url of 32 bytes. The
+    // fixture must reach grant authorization rather than fail wire validation.
+    let read_token = BASE64_URL_SAFE_NO_PAD.encode([61u8; 32]);
+    let write_token = BASE64_URL_SAFE_NO_PAD.encode([62u8; 32]);
+    let mut tx = store.begin().await.unwrap();
+    let (human, account) = tx
+        .authenticate_human(Some(&refresh), now)
+        .await
+        .unwrap()
+        .unwrap();
+    for (token, action) in [
+        (read_token.as_str(), PROFILE_READ),
+        (write_token.as_str(), PROFILE_WRITE),
+    ] {
+        let permission = Permission {
+            action: action.into(),
+            resource: user_id.to_string(),
+        };
+        let grant = Grant {
+            grant_id: token.into(),
+            request_id: "synthetic-request".into(),
+            human: human.clone(),
+            actor_id: key.actor.clone(),
+            public_key: key.public.clone(),
+            client_id: CLIENT_ID.into(),
+            target_service: SERVICE_ID.into(),
+            requested: vec![permission.clone()],
+            permissions: vec![permission],
+            created_at: now,
+            expires_at: now + 600,
+            revoked_at: 0,
+            token_hash: fingerprint(token.as_bytes()),
+            epoch: 1,
+            audit_id: "synthetic-audit".into(),
+        };
+        tx.put("grant", &grant.grant_id, &human.id, now + 600, &grant)
+            .await
+            .unwrap();
+        tx.put(
+            "session",
+            &grant.token_hash,
+            &human.id,
+            now + 600,
+            &grant.grant_id,
+        )
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+    let body = serde_json::to_vec(
+        &json!({"expected_display_name":account.display_name,"display_name":"Updated name"}),
+    )
+    .unwrap();
+    let read_headers = sign_request(
+        &key,
+        "PUT",
+        &path,
+        &body,
+        &read_token,
+        now,
+        &BASE64_URL_SAFE_NO_PAD.encode([41u8; 24]),
+    );
+    assert_eq!(
+        call_http(&app, "PUT", &path, read_headers, body.clone())
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let write_headers = sign_request(
+        &key,
+        "PUT",
+        &path,
+        &body,
+        &write_token,
+        now,
+        &BASE64_URL_SAFE_NO_PAD.encode([42u8; 24]),
+    );
+    let response = call_http(&app, "PUT", &path, write_headers.clone(), body.clone()).await;
+    assert_eq!(response.0, StatusCode::OK);
+    assert_eq!(response.2["account"]["display_name"], "Updated name");
+    assert_ne!(
+        call_http(&app, "PUT", &path, write_headers, body.clone())
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let stale_headers = sign_request(
+        &key,
+        "PUT",
+        &path,
+        &body,
+        &write_token,
+        now,
+        &BASE64_URL_SAFE_NO_PAD.encode([43u8; 24]),
+    );
+    assert_eq!(
+        call_http(&app, "PUT", &path, stale_headers, body).await.0,
+        StatusCode::CONFLICT
+    );
+    let forged = serde_json::to_vec(&json!({"expected_display_name":"Updated name","display_name":"ignored","platform_role":"superadmin"})).unwrap();
+    let headers = sign_request(
+        &key,
+        "PUT",
+        &path,
+        &forged,
+        &write_token,
+        now,
+        &BASE64_URL_SAFE_NO_PAD.encode([44u8; 24]),
+    );
+    assert_eq!(
+        call_http(&app, "PUT", &path, headers, forged).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    let stored: String =
+        sqlx::query_scalar("SELECT display_name FROM core_identity.user_profiles WHERE user_id=$1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, "Updated name");
+}
+
+#[sqlx::test(migrations = false)]
+async fn invitation_links_refuse_and_block_email_without_granting_access(pool: PgPool) {
+    use humangrant::mail::{self, MailJob, SmtpConfig, SmtpMailer, SmtpTls};
+    let (_, _, store) = setup_app(pool).await;
+    let mut engine = HumanGrantEngine::new(store.clone(), ORIGIN.into(), false);
+    engine.mail = Some(Arc::new(
+        SmtpMailer::open(&SmtpConfig {
+            host: "127.0.0.1".into(),
+            port: 9,
+            from: "synthetic@example.test".into(),
+            tls: SmtpTls::Plaintext,
+            username: None,
+            password_file: None,
+            allow_insecure_loopback: true,
+        })
+        .unwrap(),
+    ));
+    let engine = Arc::new(engine);
+    let app = humangrant::router(engine.clone());
+    let now = chrono::Utc::now().timestamp();
+    let mut request = Request {
+        id: "invite-request".into(),
+        link: HumanGrantEngine::random_id(),
+        actor: "synthetic-actor".into(),
+        public_key: "synthetic-key".into(),
+        input: CreateRequest {
+            client_id: CLIENT_ID.into(),
+            target_service: SERVICE_ID.into(),
+            purpose: "Read profile".into(),
+            requested_permissions: vec![Permission {
+                action: PROFILE_READ.into(),
+                resource: "42".into(),
+            }],
+            expected_human_id: None,
+            session_ttl_seconds: 600,
+        },
+        epoch: 1,
+        created: now,
+        updated: now,
+        expires: now + 600,
+        phase: "waiting_human".into(),
+        poll_after: 5,
+        last_poll: 0,
+        email_status: "not_requested".into(),
+        last_email: 0,
+        grant_id: None,
+    };
+    let mut tx = store.begin().await.unwrap();
+    assert_eq!(
+        mail::enqueue(
+            &engine,
+            &mut tx,
+            &mut request,
+            EmailRequest {
+                email: "recipient@example.test".into(),
+                idempotency_key: "synthetic-invite-0001".into(),
+            },
+            now
+        )
+        .await
+        .unwrap(),
+        "queued"
+    );
+    let jobs = tx.list::<MailJob>("mail", "", 10, now).await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    let token = jobs[0].url.split("/invite/").nth(1).unwrap().to_owned();
+    tx.commit().await.unwrap();
+    let page = call_http(
+        &app,
+        "GET",
+        &format!("/invite/{token}"),
+        HashMap::new(),
+        vec![],
+    )
+    .await;
+    assert_eq!(page.0, StatusCode::OK);
+    let cookie = page.1[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let secret = cookie.split_once('=').unwrap().1;
+    let mut tx = store.begin().await.unwrap();
+    let flow = tx
+        .get::<Flow>("flow", &fingerprint(secret.as_bytes()), now)
+        .await
+        .unwrap()
+        .unwrap();
+    tx.commit().await.unwrap();
+    let action_path = format!("/invite/{token}/block");
+    assert_eq!(
+        call_http(&app, "POST", &action_path, HashMap::new(), vec![])
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let headers = HashMap::from([("cookie".into(), cookie), ("x-hg-csrf".into(), flow.csrf)]);
+    let blocked = call_http(&app, "POST", &action_path, headers, vec![]).await;
+    assert_eq!(blocked.0, StatusCode::OK);
+    assert_eq!(blocked.2["status"], "blocked");
+    let mut tx = store.begin().await.unwrap();
+    let stored = tx
+        .get::<Request>("request", &request.id, now)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.phase, "rejected");
+    assert_eq!(stored.grant_id, None);
+    request.id = "second-invite-request".into();
+    request.email_status = "not_requested".into();
+    request.last_email = 0;
+    assert_eq!(
+        mail::enqueue(
+            &engine,
+            &mut tx,
+            &mut request,
+            EmailRequest {
+                email: "recipient@example.test".into(),
+                idempotency_key: "synthetic-invite-0002".into(),
+            },
+            now + 61
+        )
+        .await
+        .unwrap(),
+        "blocked"
+    );
+    assert_eq!(
+        tx.list::<MailJob>("mail", "", 10, now).await.unwrap().len(),
+        1
+    );
+    tx.commit().await.unwrap();
+}
+
 #[test]
 fn test_public_signature_vector() {
     let method = "POST";

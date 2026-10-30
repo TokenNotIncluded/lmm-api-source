@@ -167,7 +167,7 @@ impl HumanGrantEngine {
         }
         let mut pairs = Vec::new();
         for p in &grant.permissions {
-            if p.action == PROFILE_READ
+            if matches!(p.action.as_str(), PROFILE_READ | PROFILE_WRITE)
                 && p.resource == grant.human.id
                 && grant.requested.contains(p)
             {

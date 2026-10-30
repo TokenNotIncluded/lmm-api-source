@@ -167,7 +167,7 @@ impl SmtpMailer {
             .message_id(Some(format!("<{}@humangrant.invalid>", job.id)))
             .subject("HumanGrant authorization request")
             .header(ContentType::TEXT_PLAIN)
-            .body(format!("An AI requested your permission to read an account profile.\r\n\r\nOpen this link to inspect the request, sign in, and choose whether to approve:\r\n{}\r\n\r\nThis invitation expires with the request. Ignore it if you did not expect it. Opening it does not approve access.\r\n", job.url)).map_err(|_| failure(503, "email_delivery_unavailable"))?;
+            .body(format!("An AI requested access to an account profile.\r\n\r\nOpen this link to inspect the exact requested permissions, sign in, and choose whether to approve. You can also refuse this invitation or block future invitations from this AI:\r\n{}\r\n\r\nThis invitation expires with the request. Opening it does not approve access.\r\n", job.url)).map_err(|_| failure(503, "email_delivery_unavailable"))?;
         tokio::time::timeout(Duration::from_secs(30), self.transport.send(message))
             .await
             .map_err(|_| failure(503, "email_delivery_unavailable"))?
@@ -185,6 +185,18 @@ pub struct MailJob {
     pub state: String,
     pub attempted_at: i64,
     pub retain_until: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct MailInvitation {
+    pub request_id: String,
+    pub actor: String,
+    pub recipient_hash: String,
+    pub expires_at: i64,
+    pub rejected_at: i64,
+}
+pub(crate) fn invitation_block_key(recipient_hash: &str, actor: &str) -> String {
+    super::signature::fingerprint(format!("{recipient_hash}:{actor}").as_bytes())
 }
 
 /// The caller must authenticate the signed request owner before invoking this.
@@ -213,6 +225,18 @@ pub async fn enqueue(
     );
     if let Some(job) = tx.get::<MailJob>("mail", &id, now).await? {
         return Ok(job.state);
+    }
+    let recipient_hash = super::signature::fingerprint(input.email.to_ascii_lowercase().as_bytes());
+    if tx
+        .get::<bool>(
+            "mail-block",
+            &invitation_block_key(&recipient_hash, &request.actor),
+            now,
+        )
+        .await?
+        == Some(true)
+    {
+        return Ok("blocked".into());
     }
     // An uncertain previous SMTP attempt must be reconciled by an operator. A
     // new idempotency key is not permission to blindly duplicate that attempt.
@@ -246,11 +270,27 @@ pub async fn enqueue(
     {
         return Err(failure(429, "rate_limited"));
     }
+    let invitation_token = HumanGrantEngine::random_id();
+    let invitation = MailInvitation {
+        request_id: request.id.clone(),
+        actor: request.actor.clone(),
+        recipient_hash,
+        expires_at: request.expires,
+        rejected_at: 0,
+    };
+    tx.put(
+        "mail-invite",
+        &super::signature::fingerprint(invitation_token.as_bytes()),
+        &invitation.recipient_hash,
+        invitation.expires_at,
+        &invitation,
+    )
+    .await?;
     let job = MailJob {
         id: id.clone(),
         request_id: request.id.clone(),
         destination: input.email,
-        url: format!("{}/human/{}", engine.origin, request.link),
+        url: format!("{}/invite/{invitation_token}", engine.origin),
         state: "queued".into(),
         attempted_at: 0,
         retain_until: request.created + RETENTION_SECONDS,
@@ -316,6 +356,21 @@ pub async fn dispatch_one(engine: &HumanGrantEngine, now: i64) -> Result<bool, P
     }
     let request = tx.get::<Request>("request", &job.request_id, now).await?;
     if let Some(mut request) = request {
+        let recipient_hash =
+            super::signature::fingerprint(job.destination.to_ascii_lowercase().as_bytes());
+        if tx
+            .get::<bool>(
+                "mail-block",
+                &invitation_block_key(&recipient_hash, &request.actor),
+                now,
+            )
+            .await?
+            == Some(true)
+        {
+            finish(&mut tx, &mut job, "cancelled", now).await?;
+            tx.commit().await?;
+            return Ok(true);
+        }
         if let Err(error) = engine.check_pending_request(&mut tx, &request, now).await {
             if error.status >= 500 {
                 return Err(error);

@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
+mod invitations;
+
 pub type SharedEngine = Arc<HumanGrantEngine>;
 
 fn json_response<T: serde::Serialize>(status: StatusCode, value: &T) -> Response {
@@ -77,6 +79,7 @@ fn make_cookie_header(name: &str, value: &str, max_age: i64, secure: bool) -> St
 
 pub fn router(engine: SharedEngine) -> Router {
     Router::new()
+        .merge(invitations::routes())
         .route("/humangrant/config", get(get_config))
         .route("/humangrant/client.js", get(get_client_js))
         .route("/humangrant/ui.js", get(get_ui_js))
@@ -116,7 +119,10 @@ pub fn router(engine: SharedEngine) -> Router {
         .route("/v1/requests/{id}/cancel", post(cancel_request))
         .route("/v1/requests/{id}/email", post(email_request))
         .route("/v1/session", get(get_session))
-        .route("/v1/accounts/{id}/profile", get(get_profile))
+        .route(
+            "/v1/accounts/{id}/profile",
+            get(get_profile).put(put_profile),
+        )
         .with_state(engine)
 }
 
@@ -731,7 +737,7 @@ async fn human_approve(
         return error_response(failure(400, "invalid_request"));
     }
     for p in &consent.permissions {
-        if p.action != PROFILE_READ
+        if !matches!(p.action.as_str(), PROFILE_READ | PROFILE_WRITE)
             || p.resource != human.id
             || !req.input.requested_permissions.contains(p)
         {
@@ -1576,4 +1582,69 @@ async fn get_profile(
             }
         }),
     )
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProfileInput {
+    expected_display_name: String,
+    display_name: String,
+}
+
+async fn put_profile(
+    State(engine): State<SharedEngine>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let now = chrono::Utc::now().timestamp();
+    let path = format!("/v1/accounts/{id}/profile");
+    let proof = match verify_signature(
+        "PUT",
+        &path,
+        &extract_header_map(&headers),
+        &body,
+        &engine.origin,
+        now,
+    ) {
+        Ok(proof) => proof,
+        Err(error) => return error_response(error),
+    };
+    let input: ProfileInput = match serde_json::from_slice(&body) {
+        Ok(input) => input,
+        Err(_) => return error_response(failure(400, "invalid_request")),
+    };
+    if input.display_name.chars().count() > 20
+        || input.display_name.len() > 80
+        || input.display_name.chars().any(char::is_control)
+        || input.expected_display_name.len() > 1024
+    {
+        return error_response(failure(400, "invalid_request"));
+    }
+    let result = async {
+        let mut tx = engine.store.begin().await?;
+        tx.atomic_reserve_nonce(&proof.actor, &proof.nonce, proof.expires).await?;
+        let grant = resolve_token(&engine, &mut tx, &proof, now).await?;
+        if !engine.effective_permissions(&grant).contains(&Permission {
+            action: PROFILE_WRITE.into(), resource: id.clone(),
+        }) {
+            return Err(failure(403, "forbidden"));
+        }
+        let mut account = tx.current_human(&grant.human, now).await?
+            .ok_or_else(|| failure(403, "forbidden"))?;
+        if account.id != id { return Err(failure(403, "forbidden")); }
+        let user_id = id.parse::<i64>().map_err(|_| failure(400, "invalid_request"))?;
+        let updated = sqlx::query("UPDATE core_identity.user_profiles SET display_name=$2 WHERE user_id=$1 AND display_name=$3")
+            .bind(user_id).bind(&input.display_name).bind(&input.expected_display_name)
+            .execute(&mut *tx.tx).await.map_err(|_| failure(503, "profile_unavailable"))?;
+        if updated.rows_affected() != 1 { return Err(failure(409, "profile_conflict")); }
+        engine.audit(&mut tx, PROFILE_WRITE, &grant.actor_id, &grant.human.id, &grant.grant_id, now).await?;
+        account.display_name = input.display_name;
+        tx.commit().await?;
+        Ok(serde_json::json!({"actor":{"kind":"ai","id":grant.actor_id},"grantor_id":grant.human.id,"account":account}))
+    }.await;
+    match result {
+        Ok(value) => json_response(StatusCode::OK, &value),
+        Err(error) => error_response(error),
+    }
 }
