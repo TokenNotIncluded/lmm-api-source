@@ -4,6 +4,7 @@
 //! must supply real core routing and durable billing adapters before enabling it.
 mod decode;
 mod encode;
+mod gemini_schema;
 pub(crate) mod honeypot;
 pub(crate) mod honeypot_network;
 pub(crate) mod input_count;

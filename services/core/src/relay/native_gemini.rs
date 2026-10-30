@@ -84,22 +84,15 @@ fn string(v: &Value) -> Result<&str, RelayError> {
         .ok_or(RelayError::Invalid("expected Gemini string"))
 }
 fn schema(v: &Value) -> Result<Value, RelayError> {
-    keys(
-        v,
-        &[
-            "type",
-            "properties",
-            "required",
-            "description",
-            "items",
-            "enum",
-            "format",
-            "minimum",
-            "maximum",
-            "minItems",
-            "maxItems",
-        ],
-    )?;
+    // const / oneOf / $ref / type arrays cannot be expressed by typed Schema.
+    // Keep them as JSON Schema instead of rejecting the declaration.
+    if super::gemini_schema::inbound_json_schema_fallback(v) {
+        if !v.is_object() {
+            return Err(RelayError::Invalid("expected Gemini object"));
+        }
+        return Ok(super::gemini_schema::rewrite_gemini_types(v));
+    }
+    keys(v, super::gemini_schema::INBOUND_TYPED_FIELDS)?;
     let mut out = v.clone();
     if let Some(t) = v.get("type") {
         let t = match string(t)? {
@@ -125,6 +118,16 @@ fn schema(v: &Value) -> Result<Value, RelayError> {
     }
     if let Some(i) = v.get("items") {
         out["items"] = schema(i)?;
+    }
+    // Gemini's typed Schema only accepts string enums. Numeric and boolean
+    // values are removed here; a schema that also has JSON Schema keywords
+    // took the fallback above and still carries those enum values.
+    if v.get("enum")
+        .is_some_and(|value| !super::gemini_schema::is_string_enum(value))
+    {
+        out.as_object_mut()
+            .ok_or(RelayError::Invalid("expected Gemini object"))?
+            .remove("enum");
     }
     Ok(out)
 }

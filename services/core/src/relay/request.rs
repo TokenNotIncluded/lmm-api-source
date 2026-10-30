@@ -103,6 +103,60 @@ pub struct Request {
     pub(crate) continuation_token: Option<String>,
     /// Untrusted compatibility values awaiting the actual selected route policy.
     compatibility: Map<String, Value>,
+    /// OpenAI Chat `response_format`. Gemini receives `responseSchema` or
+    /// `responseJsonSchema`; other protocols cannot represent it.
+    response_format: Option<ResponseFormat>,
+}
+
+#[derive(Clone, Debug)]
+enum ResponseFormat {
+    Text,
+    JsonObject,
+    JsonSchema(JsonSchemaFormat),
+}
+
+#[derive(Clone, Debug)]
+struct JsonSchemaFormat {
+    name: String,
+    description: Option<String>,
+    strict: Option<bool>,
+    schema: Value,
+    ordered: String,
+}
+
+impl ResponseFormat {
+    fn to_chat_value(&self) -> Value {
+        match self {
+            Self::Text => json!({"type":"text"}),
+            Self::JsonObject => json!({"type":"json_object"}),
+            Self::JsonSchema(schema) => {
+                let mut body = json!({"name": schema.name, "schema": schema.schema});
+                if let Some(description) = &schema.description {
+                    body["description"] = json!(description);
+                }
+                if let Some(strict) = schema.strict {
+                    body["strict"] = json!(strict);
+                }
+                json!({"type":"json_schema","json_schema": body})
+            }
+        }
+    }
+
+    fn ordered_schema(&self) -> Option<&str> {
+        match self {
+            Self::JsonSchema(schema) => Some(schema.ordered.as_str()),
+            Self::Text | Self::JsonObject => None,
+        }
+    }
+
+    fn adopt_ordered_schema(&mut self, raw: &str) {
+        let Self::JsonSchema(schema) = self else {
+            return;
+        };
+        if let Some(text) = super::schema_order::ordered_json_matching(raw, &schema.schema) {
+            schema.ordered = text;
+        }
+    }
 }
 
 fn object(v: &Value) -> Result<&Map<String, Value>, RelayError> {
@@ -263,6 +317,81 @@ fn chat_image_config(v: &Value) -> Result<Option<ImageConfig>, RelayError> {
     ImageConfig::parse(v.get("imageConfig"))
 }
 
+fn response_format(v: &Value) -> Result<Option<ResponseFormat>, RelayError> {
+    let Some(v) = v.get("response_format").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    keys(v, &["type", "json_schema"])?;
+    let kind = v
+        .get("type")
+        .map(string)
+        .transpose()?
+        .ok_or(RelayError::Invalid("invalid response format"))?;
+    match kind.as_str() {
+        "text" => {
+            if v.get("json_schema").is_some() {
+                return Err(RelayError::Invalid("text response format has a schema"));
+            }
+            Ok(Some(ResponseFormat::Text))
+        }
+        "json_object" => {
+            if v.get("json_schema").is_some() {
+                return Err(RelayError::Invalid(
+                    "json_object response format has a schema",
+                ));
+            }
+            Ok(Some(ResponseFormat::JsonObject))
+        }
+        "json_schema" => {
+            let schema = v.get("json_schema").ok_or(RelayError::Invalid(
+                "json_schema response format requires a schema",
+            ))?;
+            Ok(Some(ResponseFormat::JsonSchema(json_schema_format(
+                schema,
+            )?)))
+        }
+        _ => Err(RelayError::Unsupported("unsupported response format")),
+    }
+}
+
+fn json_schema_format(v: &Value) -> Result<JsonSchemaFormat, RelayError> {
+    keys(v, &["name", "description", "schema", "strict"])?;
+    let name = schema_name(
+        v.get("name")
+            .ok_or(RelayError::Invalid("response schema requires a name"))?,
+    )?;
+    let schema = v
+        .get("schema")
+        .ok_or(RelayError::Invalid("response schema must be an object"))?;
+    if !schema.is_object() {
+        return Err(RelayError::Invalid("response schema must be an object"));
+    }
+    let description = v.get("description").map(string).transpose()?;
+    let strict = boolean(v.get("strict"))?;
+    let ordered = serde_json::to_string(schema)
+        .map_err(|_| RelayError::Invalid("response schema encoding failed"))?;
+    Ok(JsonSchemaFormat {
+        name,
+        description,
+        strict,
+        schema: schema.clone(),
+        ordered,
+    })
+}
+
+fn schema_name(v: &Value) -> Result<String, RelayError> {
+    let name = string(v)?;
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+    {
+        return Err(RelayError::Invalid("invalid response schema name"));
+    }
+    Ok(name)
+}
+
 fn signature(v: Option<&Value>) -> Result<Option<(UpstreamProtocol, String)>, RelayError> {
     let Some(v) = v.filter(|v| !v.is_null()) else {
         return Ok(None);
@@ -341,6 +470,7 @@ impl Request {
             || !self.stop.is_empty()
             || self.continuation_token.is_some()
             || self.image_config.is_some()
+            || self.response_format.is_some()
             || !self.compatibility.is_empty()
             || self.messages.iter().any(|message| {
                 message
@@ -459,6 +589,7 @@ impl Request {
                     "reasoning_effort",
                     "store",
                     "imageConfig",
+                    "response_format",
                 ],
             )?,
             ClientProtocol::Anthropic | ClientProtocol::Gemini => keys(
@@ -873,6 +1004,7 @@ impl Request {
             image_config,
             continuation_token: None,
             compatibility: Map::new(),
+            response_format: response_format(&v)?,
         };
         request.capture_ordered_schemas(client, body);
         Ok(request)
@@ -886,6 +1018,12 @@ impl Request {
         };
         if let Some(captured) = captured {
             self.assign_ordered_schemas(&captured);
+        }
+        if client == ClientProtocol::Chat
+            && let Some(raw) = super::schema_order::chat_response_schema(body)
+            && let Some(format) = self.response_format.as_mut()
+        {
+            format.adopt_ordered_schema(&raw);
         }
     }
 
@@ -903,7 +1041,9 @@ impl Request {
                     super::schema_order::ordered_json_matching(raw, &tool.parameters)
                 }
                 super::schema_order::RawSchema::GeminiOpenApi(raw) => {
-                    super::schema_order::ordered_gemini_schema(raw, &tool.parameters)
+                    super::schema_order::ordered_gemini_schema(raw, &tool.parameters).or_else(
+                        || super::schema_order::ordered_inbound_json_schema(raw, &tool.parameters),
+                    )
                 }
             };
             if let Some(text) = ordered {
@@ -939,7 +1079,14 @@ impl Request {
             .iter()
             .map(|tool| tool.ordered_parameters.clone())
             .collect();
-        super::schema_order::encode_ordered_schemas(payload, protocol, &schemas)
+        super::schema_order::encode_ordered_schemas(
+            payload,
+            protocol,
+            &schemas,
+            self.response_format
+                .as_ref()
+                .and_then(ResponseFormat::ordered_schema),
+        )
     }
 
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
@@ -1091,6 +1238,13 @@ impl Request {
                 "imageConfig requires a Gemini route",
             ));
         }
+        if self.response_format.is_some()
+            && !matches!(protocol, UpstreamProtocol::Chat | UpstreamProtocol::Gemini)
+        {
+            return Err(RelayError::Unsupported(
+                "response_format requires a Chat or Gemini route",
+            ));
+        }
         if matches!(
             protocol,
             UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
@@ -1217,6 +1371,9 @@ impl Request {
         }
         if !self.stop.is_empty() {
             v["stop"] = json!(self.stop);
+        }
+        if let Some(format) = &self.response_format {
+            v["response_format"] = format.to_chat_value();
         }
         self.sampling(&mut v);
         Ok(v)
@@ -1390,6 +1547,23 @@ impl Request {
         if let Some(image_config) = &self.image_config {
             generation["imageConfig"] = image_config.to_gemini_value();
         }
+        if let Some(format) = &self.response_format {
+            match format {
+                ResponseFormat::Text => {}
+                ResponseFormat::JsonObject => {
+                    generation["responseMimeType"] = json!("application/json");
+                }
+                ResponseFormat::JsonSchema(schema) => {
+                    generation["responseMimeType"] = json!("application/json");
+                    let placed = super::gemini_schema::response_schema(
+                        &schema.schema,
+                        super::gemini_schema::ACCEPTS_JSON_SCHEMA,
+                    );
+                    debug_assert!(placed.warnings.is_empty());
+                    generation[placed.field] = placed.value;
+                }
+            }
+        }
         let mut v = json!({"contents":contents,"generationConfig":generation});
         if let Some(token) = &self.continuation_token {
             v["continuationToken"] = json!(token);
@@ -1398,7 +1572,13 @@ impl Request {
             v["systemInstruction"] = json!({"parts":system.iter().map(|v| json!({"text":v["text"]})).collect::<Vec<_>>()});
         }
         if !self.tools.is_empty() {
-            v["tools"] = json!([{"functionDeclarations":self.tools.iter().map(|t| { let mut v = json!({"name":t.name,"parametersJsonSchema":t.parameters});
+            v["tools"] = json!([{"functionDeclarations":self.tools.iter().map(|t| {
+                let mut v = json!({"name":t.name});
+                let placed = super::gemini_schema::function_parameters(&t.parameters, super::gemini_schema::ACCEPTS_JSON_SCHEMA);
+                debug_assert!(placed.warnings.is_empty());
+                if let Some(value) = placed.value {
+                    v[placed.field] = value;
+                }
                 if let Some(d) = &t.description { v["description"] = json!(d); } v }).collect::<Vec<_>>()}]);
             v["toolConfig"] = match &self.tool_choice {
                 ToolChoice::Auto => json!({"functionCallingConfig":{"mode":"AUTO"}}),
