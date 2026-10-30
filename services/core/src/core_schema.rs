@@ -58,8 +58,19 @@ const COMPONENTS: &[(&str, &str)] = &[
         "assistant-agent",
         include_str!("../schema/assistant_agent.sql"),
     ),
-    ("site-finance", include_str!("../schema/site_statistics.sql")),
-    ("payment-gateways", include_str!("../schema/payment_gateways.sql")),
+    (
+        "site-finance",
+        include_str!("../schema/site_statistics.sql"),
+    ),
+    (
+        "payment-gateways",
+        include_str!("../schema/payment_gateways.sql"),
+    ),
+    (
+        "request-limits",
+        include_str!("../schema/request_limits.sql"),
+    ),
+    ("operations", include_str!("../schema/operations.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -196,7 +207,9 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
     sqlx::raw_sql(CONSOLE_REVISION_METADATA)
         .execute(&mut *tx)
         .await?;
-    sqlx::raw_sql(OFFLINE_REVISION_METADATA).execute(&mut *tx).await?;
+    sqlx::raw_sql(OFFLINE_REVISION_METADATA)
+        .execute(&mut *tx)
+        .await?;
     // Preserve the native identity contract used by the read-only RPC service.
     IdentityStore::record_schema_contract(&mut tx).await?;
     crate::identity::grants::record_schema_contract(&mut tx).await?;

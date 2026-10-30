@@ -220,6 +220,7 @@ async fn funded_fixture(pool: &PgPool, role: &runtime::RuntimeRole) {
         maximum_seconds: 120,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,

@@ -1,5 +1,10 @@
 # Payment gateways: fixed Core 28 → 29 upgrade
 
+This procedure belongs to the preserved 29-component installer. The current
+31-component binary rejects that historical target. Once the exact 29-component
+database is established, use the separate
+[request and operations 29 → 31 procedure](request-operations-upgrade.md).
+
 `core-payment-gateways-v1` is an explicit offline procedure for one exact native
 Core predecessor. It replaces the Stripe/USD/fixed-rate intent constraints,
 prevents one provider transaction from belonging to two channels, and records

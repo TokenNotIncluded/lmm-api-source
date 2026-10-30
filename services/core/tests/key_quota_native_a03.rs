@@ -32,6 +32,7 @@ const WORKER: [u8; 32] = [7; 32];
 fn test_price() -> Price {
     Price {
         tool: None,
+        text_request: None,
         grounding: None,
 
         user_trust: None,
@@ -872,6 +873,7 @@ async fn offline_writer_plan_and_charging_engine_admission() {
             &WORKER,
             Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,

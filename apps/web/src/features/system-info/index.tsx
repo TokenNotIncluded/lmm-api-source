@@ -22,6 +22,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 
 import { NativeResourcesPanel } from './components/native-resources-panel'
+import { SystemInstancesPanel } from './components/system-instances-panel'
 
 export function SystemInfo() {
   const { t } = useTranslation()
@@ -39,6 +40,7 @@ export function SystemInfo() {
       <SectionPageLayout.Content>
         <div className='space-y-4'>
           <NativeResourcesPanel />
+          <SystemInstancesPanel />
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

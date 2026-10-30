@@ -140,6 +140,10 @@ export type SystemResourceProcess = {
 }
 
 export type SystemInstance = {
+  phase?: 'preparing' | 'ready' | 'draining' | 'stopped'
+  in_flight?: number
+  models_ready?: boolean
+  rpc_ready?: boolean
   // node_name is the legacy reporter key; reporter_id is its explicit alias.
   node_name: string
   reporter_id?: string
@@ -156,6 +160,9 @@ export type SystemInstanceListResponse = {
   success: boolean
   message: string
   data?: SystemInstance[]
+  truncated?: boolean
+  stale_after_seconds?: number
+  retention_days?: number
 }
 
 export type SystemInstanceDeleteResponse = {

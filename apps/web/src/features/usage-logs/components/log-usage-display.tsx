@@ -2,7 +2,11 @@
 import { useTranslation } from 'react-i18next'
 
 import type { UsageLog } from '../data/schema'
-import { cacheWrite12hQuantity, logUsageQuantity } from '../lib/usage-quantity'
+import {
+  cacheWrite12hQuantity,
+  completedTextRequestQuantity,
+  logUsageQuantity,
+} from '../lib/usage-quantity'
 import type { LogOtherData } from '../types'
 
 export function LogUsageDisplay({
@@ -14,6 +18,7 @@ export function LogUsageDisplay({
 }) {
   const { t } = useTranslation()
   const usage = logUsageQuantity(log, other)
+  const completed = completedTextRequestQuantity(log, other)
   if (usage.kind === 'tool') {
     return (
       <span>
@@ -32,6 +37,12 @@ export function LogUsageDisplay({
   }
   return (
     <span>
+      {completed !== undefined && (
+        <span className='block'>
+          {t('Completed text requests')}:{' '}
+          {completed?.toLocaleString() ?? t('Unknown')}
+        </span>
+      )}
       {usage.input?.toLocaleString() ?? '—'} /{' '}
       {usage.output?.toLocaleString() ?? '—'}
       {other && 'cache_creation_tokens_12h' in other && (

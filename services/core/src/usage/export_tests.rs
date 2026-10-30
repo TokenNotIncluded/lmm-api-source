@@ -19,6 +19,7 @@ fn request(state: &str) -> ValidatedRequest {
         reserved: 100,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -146,7 +147,9 @@ fn tool_receipts_export_success_counts_without_synthetic_tokens() {
     let mut export = export::NativeCsv::new().unwrap();
     export.include(&tool).unwrap();
     let csv = String::from_utf8(export.finish()).unwrap();
-    assert!(csv.ends_with("\"per_successful_request\",\"deepseek_search\",\"1\",\"\",\"\"\r\n"));
+    assert!(
+        csv.ends_with("\"per_successful_request\",\"deepseek_search\",\"1\",\"\",\"\",\"\"\r\n")
+    );
     // The eight token/cache/image columns remain unknown/not applicable.
     assert!(csv.contains(
         "\"375\",\"0\",\"375\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"per_successful_request\""
@@ -193,6 +196,59 @@ fn grounding_receipt_keeps_reported_tool_input_separate_from_token_usage() {
     assert!(
         String::from_utf8(export.finish())
             .unwrap()
-            .ends_with("\"measured_usage\",\"\",\"\",\"1\",\"7\"\r\n")
+            .ends_with("\"measured_usage\",\"\",\"\",\"\",\"1\",\"7\"\r\n")
     );
+}
+
+#[test]
+fn text_request_receipts_export_quantity_and_keep_unknown_tokens_unavailable() {
+    use crate::model_http::text_request_price::{TextRequestPrice, TextRequestUsage};
+    for receipt in [
+        TextRequestUsage::Completed,
+        TextRequestUsage::NotSent,
+        TextRequestUsage::Rejected {
+            http_status: 429,
+            receipt_sha256: [1; 32],
+        },
+    ] {
+        let mut r = request("settled");
+        r.price.text_request = Some(TextRequestPrice {
+            usd_micros_per_request: 750,
+            group_multiplier_ppm: 1_000_000,
+            speed_multiplier_ppm: 1_000_000,
+            credits_per_usd: 500_000,
+        });
+        r.usage = Usage {
+            text_request: Some(receipt),
+            input: if receipt == TextRequestUsage::Completed {
+                17
+            } else {
+                0
+            },
+            ..Default::default()
+        };
+        let complete = receipt.completed_requests();
+        r.amounts = Amounts {
+            gross: if complete == 1 { 375 } else { 0 },
+            refunded: 0,
+        };
+        let log = r.log();
+        assert_eq!(log["billing_method"], "per_completed_request");
+        assert_eq!(log["completed_requests"], complete);
+        assert_eq!(log["token_usage_available"], complete == 1);
+        assert_eq!(
+            log.get("prompt_tokens").and_then(Value::as_i64),
+            if complete == 1 { Some(17) } else { None }
+        );
+        let mut csv = export::NativeCsv::new().unwrap();
+        csv.include(&r).unwrap();
+        let csv = String::from_utf8(csv.finish()).unwrap();
+        assert!(csv.contains("\"completed_text_requests\""));
+        assert!(csv.ends_with(&format!(
+            "\"per_completed_request\",\"\",\"\",\"{complete}\",\"\",\"\"\r\n"
+        )));
+        let mut summary = Summary::default();
+        summary.include(&r, 1700000001).unwrap();
+        assert_eq!(summary.project()["completed_requests"], complete);
+    }
 }

@@ -114,6 +114,7 @@ fn spec(id: &str) -> ChargeRequest {
         maximum_seconds: 600,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,

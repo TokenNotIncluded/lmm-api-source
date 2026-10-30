@@ -37,6 +37,7 @@ const nativeStatisticsSchema = z.object({
   incomplete_count: count.optional(),
   output_image_count: count.optional(),
   tool_requests: count.optional(),
+  completed_requests: count.optional(),
   grounded_requests: count.optional(),
   token_count_scope: z.literal('settled_text_requests').optional(),
   platform_sponsored_quota: count.optional(),

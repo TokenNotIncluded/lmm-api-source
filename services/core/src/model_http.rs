@@ -20,12 +20,16 @@ mod input_api;
 mod legacy_keys;
 mod native;
 mod native_http;
+mod native_models;
 pub mod pricing;
 mod provider_policy;
 mod routing;
 #[cfg(test)]
 mod selected_bound_tests;
 mod systemone;
+pub mod text_request_price;
+#[cfg(test)]
+mod text_request_tests;
 mod tool_api;
 pub mod tool_price;
 pub mod trusted_delegation;
@@ -70,6 +74,7 @@ pub struct ChargePolicy {
 }
 
 struct Operation {
+    route_plan: Option<routing::Pending>,
     secret: String,
     group: String,
     worker: [u8; 32],
@@ -343,7 +348,11 @@ impl ModelGateway {
             .route("/v1/chat/completions", post(chat))
             .route("/v1/responses", post(responses))
             .route("/v1/messages", post(native::messages))
-            .route("/v1beta/models/{*action}", post(native::gemini))
+            .route("/v1beta/models", get(native_models::gemini_list))
+            .route(
+                "/v1beta/models/{*action}",
+                post(native::gemini).get(native_models::gemini_get),
+            )
             .layer(DefaultBodyLimit::max(self.limits.request_bytes))
             .with_state(self.clone());
         let router = router.merge(systemone::router(self.clone()));
@@ -489,7 +498,12 @@ impl ModelGateway {
         if principal.credential_kind != CredentialKind::ApiKey {
             return Err(RelayError::Forbidden);
         }
-        let groups = if let Some(group) = self.access.get(&principal.credential_id) {
+        let configured = self
+            .identity
+            .api_key_has_routing_settings(secret)
+            .await
+            .map_err(identity_error)?;
+        let groups = if !configured && let Some(group) = self.access.get(&principal.credential_id) {
             vec![group.clone()]
         } else {
             self.identity
@@ -508,6 +522,39 @@ impl ModelGateway {
         }
         Ok((ModelIdentity::Native(principal), secret.to_owned(), groups))
     }
+}
+
+fn session_affinity(
+    headers: &HeaderMap,
+    principal: &ModelIdentity,
+) -> Result<Option<[u8; 32]>, RelayError> {
+    let Some(session) = one_header(headers, "x-lmm-session-id")? else {
+        return Ok(None);
+    };
+    if session.is_empty()
+        || session.len() > 256
+        || !session.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(RelayError::Invalid("invalid model session identifier"));
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"lmm-model-session-scope-v1\0");
+    digest.update(principal.user_id().to_be_bytes());
+    if let Some(key) = principal.key_id() {
+        digest.update(key.to_be_bytes());
+    } else {
+        digest.update(b"oauth\0");
+        digest.update(
+            principal
+                .oauth_source()
+                .ok_or(RelayError::Forbidden)?
+                .grant_id()
+                .as_bytes(),
+        );
+    }
+    digest.update([0]);
+    digest.update(session.as_bytes());
+    Ok(Some(digest.finalize().into()))
 }
 
 enum ModelIdentity {
@@ -569,6 +616,11 @@ fn public_error(error: RelayError) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if let RelayError::RateLimited(seconds) = error {
+        if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+            response.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+    }
     if status == StatusCode::UNAUTHORIZED {
         response
             .headers_mut()
@@ -588,8 +640,13 @@ fn with_request_id(mut response: Response, id: &str) -> Response {
 async fn models(
     State(gateway): State<ModelGateway>,
     headers: HeaderMap,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
 ) -> Response {
+    if headers.contains_key("x-api-key") || headers.contains_key("anthropic-version") {
+        return native_models::anthropic(gateway, headers, query, peer.ok().map(|p| p.0.ip()))
+            .await;
+    }
     if let Some(honeypot) = &gateway.honeypot
         && !oauth_header(&headers)
     {
@@ -772,41 +829,70 @@ async fn dispatch(
         Ok(v) => v,
         Err(e) => return native::error_response(client, e),
     };
-    let selected = groups.into_iter().find_map(|group| {
-        let plan = gateway
-            .bridge
-            .routing
-            .route_adapted(crate::routing::RouteRequest {
-                model: &request.model,
-                group: &group,
-                speed: None,
-                protocol: match client {
-                    ClientProtocol::Chat => crate::routing::Protocol::OpenAiChat,
-                    ClientProtocol::Responses => crate::routing::Protocol::OpenAiResponses,
-                    ClientProtocol::Anthropic => crate::routing::Protocol::AnthropicMessages,
-                    ClientProtocol::Gemini => crate::routing::Protocol::Gemini,
-                },
-                replay: crate::routing::ReplayPermission::Denied,
-            })
-            .ok()?;
-        Some((group, plan.canonical_model().to_owned()))
-    });
-    let Some((group, canonical)) = selected else {
-        return native::error_response(client, RelayError::RouteUnavailable);
+    let affinity = match session_affinity(&headers, &principal) {
+        Ok(value) => value,
+        Err(error) => return native::error_response(client, error),
     };
-    if let Err(error) = gateway
-        .authorize_request(&principal, &secret, &canonical, &group, peer)
-        .await
-    {
+    let plans = match gateway.bridge.routing.route_adapted_groups(
+        &request.model,
+        &groups,
+        routing::client_protocol(client),
+        affinity,
+    ) {
+        Ok(plans) => plans,
+        Err(_) => return native::error_response(client, RelayError::RouteUnavailable),
+    };
+    let cross_group = if principal.key_id().is_some() {
+        match gateway.identity.api_key_cross_group_retry(&secret).await {
+            Ok(allowed) => allowed,
+            Err(error) => return native::error_response(client, identity_error(error)),
+        }
+    } else {
+        false
+    };
+    let mut authorized = Vec::new();
+    let mut authorization_denied = false;
+    for plan in plans {
+        if authorized
+            .first()
+            .is_some_and(|first: &crate::routing::RoutePlan| {
+                first.canonical_model() != plan.canonical_model()
+            })
+        {
+            continue;
+        }
+        match gateway
+            .authorize_request(
+                &principal,
+                &secret,
+                plan.canonical_model(),
+                plan.group(),
+                peer,
+            )
+            .await
+        {
+            Ok(()) => authorized.push(plan),
+            Err(IdentityError::Forbidden) => {
+                authorization_denied = true;
+                continue;
+            }
+            Err(error) => return native::error_response(client, identity_error(error)),
+        }
+        if !cross_group {
+            break;
+        }
+    }
+    let Some(initial) = authorized.first() else {
         return native::error_response(
             client,
-            match error {
-                IdentityError::Unauthorized | IdentityError::Invalid => RelayError::Unauthorized,
-                IdentityError::Forbidden => RelayError::Forbidden,
-                _ => RelayError::BillingUnavailable,
+            if authorization_denied {
+                RelayError::Forbidden
+            } else {
+                RelayError::RouteUnavailable
             },
         );
-    }
+    };
+    let group = initial.group().to_owned();
     if request.stream && !gateway.local_streaming {
         return native::error_response(
             client,
@@ -828,6 +914,11 @@ async fn dispatch(
         Ok(None) => (),
         Err(e) => return fail(billing::error(e)),
     }
+    if let Err(error) =
+        crate::request_limits::admit(&gateway.bridge.pool, principal.user_id(), &group, &id).await
+    {
+        return fail(routing::admission_error(error));
+    }
     let context = RequestContext {
         request_id: id.clone(),
         actor_user_id: principal.user_id(),
@@ -848,6 +939,10 @@ async fn dispatch(
                 .grant_id()
                 .as_bytes(),
         );
+    }
+    if let Some(affinity) = affinity {
+        hash.update(b"affinity\0");
+        hash.update(affinity);
     }
     hash.update(group.as_bytes());
     hash.update([client as u8]);
@@ -872,6 +967,7 @@ async fn dispatch(
         active.insert(
             id.clone(),
             Operation {
+                route_plan: Some(routing::Pending::Planned(authorized)),
                 secret,
                 group,
                 worker,

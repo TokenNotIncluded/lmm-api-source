@@ -191,6 +191,51 @@ async fn call(
 }
 
 #[sqlx::test(migrations = false)]
+async fn input_api_pg_request_limits_reject_both_endpoints_before_funds_and_supplier(pool: PgPool) {
+    let f = fixture(pool, 10000).await;
+    let runtime = RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,1,'{}',7)")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    crate::request_limits::admit(&runtime.pool, 7, "allowed", "existing-text-request")
+        .await
+        .unwrap();
+    let supplier = Supplier::start(Reply::Valid, false).await;
+    let gateway = gateway(&runtime.pool, &supplier, 1);
+    for kind in [Kind::Embeddings, Kind::Rerank] {
+        let (status, headers, body) = call(&gateway, http_request(&f.key, kind.name(), kind)).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+        assert!(
+            (1..=86400).contains(
+                &headers[header::RETRY_AFTER]
+                    .to_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            )
+        );
+    }
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_charging.requests")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (10000, 0)
+    );
+    drop(gateway);
+    runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn input_api_pg_native_key_restricted_runtime_settles_exact_usage_once(pool: PgPool) {
     let f = fixture(pool, 10000).await;
     let runtime = RuntimeRole::create(&f.pool).await;

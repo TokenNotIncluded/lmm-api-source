@@ -427,6 +427,7 @@ fn contexts(small_input: i64) -> Vec<ExternalModelContext> {
     ]
     .into_iter()
     .map(|(model, input, output)| ExternalModelContext {
+        pre_acceptance_rejection_statuses: Vec::new(),
         grounding: None,
 
         reservation: Default::default(),
@@ -564,6 +565,7 @@ async fn admit(
             .insert(
                 id.into(),
                 Operation {
+                    route_plan: None,
                     secret,
                     group: "allowed".into(),
                     worker,
@@ -639,6 +641,8 @@ fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
         finish_reason: Some(FinishReason::Stop),
         provider_complete: true,
         upstream_attempted: true,
+        delivery: crate::routing::DeliveryState::PossiblyAccepted,
+        rejection_receipt_sha256: None,
         attempts: 1,
         upstream_status: Some(200),
         upstream_bytes: 128,
@@ -1308,3 +1312,5 @@ async fn prepared_contract_resolve_waits_for_original_transaction(pool: PgPool) 
 
 #[path = "prepared_financial_tests.rs"]
 mod prepared_financial_tests;
+#[path = "route_failover_tests.rs"]
+mod route_failover_tests;

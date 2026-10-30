@@ -27,7 +27,8 @@ Commands:\n\
   upgrade-offline Explicit native v3 schema upgrade/recovery with independent history and persistent fencing.\n\
   upgrade-history Install/query an independent history database; requires explicit authority --config and stdin JSON.\n\
   upgrade-db      Explicit offline exact-target schema upgrade; requires installer --config and bound stdin JSON.\n\
-                  core-payment-gateways-v1 upgrades the fixed 28-component predecessor to 29 components.\n\
+                  core-payment-gateways-v1 requires its preserved 29-component installer for the fixed 28-to-29 transition.\n\
+                  core-request-operations-v1 upgrades the fixed 29-component predecessor to 31 components.\n\
                   Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
@@ -370,6 +371,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             None => lmm_core::identity_http::router(native_store),
         };
         let mut routes = native_routes
+            .merge(lmm_core::request_limits::router(pool.clone()))
+            .merge(lmm_core::operations::router(
+                lmm_core::operations::OperationsStore::new(pool.clone()),
+            ))
             .merge(lmm_core::abuse::admin::router(abuse))
             .merge(lmm_core::identity::admin_users::router(
                 lmm_core::identity::admin_users::AdminUsersStore::new(store.clone()),
@@ -642,6 +647,27 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         .merge(app);
     }
     let listener = tokio::net::TcpListener::bind(address).await?;
+    let (operations_stop, operations_stopped) = tokio::sync::watch::channel(false);
+    let operations_task = if let Some(pool) = &database_pool {
+        let reporter = lmm_core::operations::Heartbeat::new(
+            pool.clone(),
+            config::setting("LMM_CORE_INSTANCE").ok(),
+        )?;
+        let lifecycle = lifecycle.clone();
+        let models = if capabilities.models {
+            models_healthy.clone()
+        } else {
+            Arc::new(AtomicBool::new(false))
+        };
+        let rpc = rpc_running.clone();
+        Some(tokio::spawn(async move {
+            reporter
+                .run(lifecycle, models, rpc, operations_stopped)
+                .await
+        }))
+    } else {
+        None
+    };
     let recovery_task = model_gateway.clone().map(|gateway| {
         let mut stopped = stopped.clone();
         let healthy = models_healthy.clone();
@@ -786,6 +812,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     // HTTP EOF/cancellation is not proof that asynchronous completion is done.
     // Completion tasks must own a WorkLease and write their durable outcome.
     lifecycle.wait_idle().await;
+    let _ = operations_stop.send(true);
+    if let Some(task) = operations_task {
+        let _ = task.await;
+    }
     if let Some(task) = recovery_task {
         let _ = task.await;
     }

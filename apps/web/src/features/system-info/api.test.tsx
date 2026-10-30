@@ -32,9 +32,12 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
-const { getNativeSystemResources } = await import('./api')
+const { SystemInfo } = await import('./index')
+const { getNativeSystemResources, listSystemInstances } = await import('./api')
 const { NativeResourcesPanel } =
   await import('./components/native-resources-panel')
+const { SystemInstancesPanel } =
+  await import('./components/system-instances-panel')
 const originalGet = api.get
 const i18n = createInstance()
 await i18n
@@ -164,4 +167,167 @@ test('invalid process data renders the existing error state', async () => {
   }
   assert.match(container.textContent ?? '', /Invalid system resources response/)
   assert.doesNotMatch(container.textContent ?? '', /Not reported/)
+})
+
+const heartbeat = {
+  boot_id: 'a'.repeat(32),
+  instance_name: 'worker-a',
+  version: 'test-version',
+  phase: 'ready',
+  in_flight: 2,
+  models_ready: true,
+  rpc_ready: false,
+  started_at: 1_700_000_000,
+  heartbeat_at: 1_700_000_010,
+  online: true,
+}
+const heartbeatList = {
+  items: [heartbeat],
+  truncated: false,
+  stale_after_seconds: 45,
+  retention_days: 7,
+}
+function respondInstances(data: unknown) {
+  api.get = (async (path) => {
+    assert.equal(path, '/core/v1/admin/instances')
+    return { data }
+  }) as typeof api.get
+}
+
+test('native heartbeats keep separate boot identities without inventing remote resource samples', async () => {
+  respondInstances({
+    ...heartbeatList,
+    items: [
+      heartbeat,
+      { ...heartbeat, boot_id: 'b'.repeat(32), online: false },
+    ],
+  })
+  const result = await listSystemInstances()
+  assert.equal(result.data?.length, 2)
+  assert.notEqual(result.data?.[0].reporter_id, result.data?.[1].reporter_id)
+  assert.equal(result.data?.[0].in_flight, 2)
+  assert.equal(result.data?.[1].status, 'stale')
+  assert.equal(result.data?.[0].info?.resources, undefined)
+  assert.equal(result.data?.[0].info?.role, undefined)
+})
+
+test('native heartbeat schema rejects legacy payloads and invalid lifecycle evidence', async () => {
+  for (const value of [
+    { success: true, data: [] },
+    { ...heartbeatList, items: [{ ...heartbeat, online: 'yes' }] },
+    { ...heartbeatList, items: [{ ...heartbeat, phase: 'unknown' }] },
+  ]) {
+    respondInstances(value)
+    await assert.rejects(
+      listSystemInstances(),
+      /Invalid system instances response/
+    )
+  }
+})
+
+test('instance panel shows stale readiness and bounded-list notice', async () => {
+  respondInstances({
+    ...heartbeatList,
+    truncated: true,
+    items: [{ ...heartbeat, online: false }],
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  dispose = async () => {
+    await act(async () => root.unmount())
+    client.clear()
+  }
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <SystemInstancesPanel />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  )
+  for (
+    let attempt = 0;
+    attempt < 100 && !container.textContent?.includes('worker-a');
+    attempt++
+  ) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+  }
+  assert.match(container.textContent ?? '', /worker-a/)
+  assert.match(container.textContent ?? '', /Stale/)
+  assert.match(container.textContent ?? '', /Unavailable/)
+  assert.match(container.textContent ?? '', /200 most recent/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Average CPU|master|worker-only/
+  )
+})
+
+test('system info page displays native resources and instance heartbeats together', async () => {
+  const requestedPaths = new Set<string>()
+  api.get = (async (path) => {
+    requestedPaths.add(path)
+    if (path === '/core/v1/admin/system-resources') {
+      return { data: snapshot }
+    }
+    assert.equal(path, '/core/v1/admin/instances')
+    return { data: heartbeatList }
+  }) as typeof api.get
+
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  dispose = async () => {
+    await act(async () => root.unmount())
+    client.clear()
+  }
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <SystemInfo />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  )
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const content = container.textContent ?? ''
+    if (content.includes('Core process') && content.includes('worker-a')) {
+      break
+    }
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+  }
+
+  assert.match(container.querySelector('h1')?.textContent ?? '', /System Info/)
+  const sections = [...container.querySelectorAll('section')]
+  const resources = sections.find((section) =>
+    section
+      .querySelector('h3')
+      ?.textContent?.includes('Service resource breakdown')
+  )
+  const instances = sections.find(
+    (section) => section.querySelector('h3')?.textContent === 'Instances'
+  )
+  assert.ok(resources)
+  assert.ok(instances)
+  assert.match(resources.textContent ?? '', /Core process.*PID123/)
+  assert.match(resources.textContent ?? '', /Extensions process/)
+  assert.match(instances.textContent ?? '', /worker-a/)
+  assert.match(instances.textContent ?? '', /test-version/)
+  assert.match(instances.textContent ?? '', /Online/)
+  assert.deepEqual(
+    requestedPaths,
+    new Set(['/core/v1/admin/system-resources', '/core/v1/admin/instances'])
+  )
 })

@@ -36,6 +36,7 @@ pub mod model_http;
 pub mod native_key_read;
 pub mod oauth2_balance;
 pub mod oauth2_http;
+pub mod operations;
 pub mod options_http;
 #[cfg(unix)]
 pub mod payments;
@@ -43,6 +44,7 @@ pub mod pricing_http;
 pub mod public_server;
 pub mod relay;
 pub mod remote_control;
+pub mod request_limits;
 pub mod routing;
 pub mod runtime_database;
 pub mod support_projection;
@@ -52,10 +54,10 @@ pub mod system_info;
 pub(crate) mod test_runtime;
 pub mod tool_market;
 pub mod topup_info_http;
-pub mod upstream_cost;
 pub mod upgrade_history;
 #[cfg(unix)]
 pub mod upgrade_offline;
+pub mod upstream_cost;
 pub mod usage;
 pub mod wallet;
 

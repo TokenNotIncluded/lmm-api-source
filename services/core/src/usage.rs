@@ -412,6 +412,11 @@ impl ValidatedRequest {
                 || event.usage.output != usage.output
                 || event.usage.image != usage.image
                 || (price.tool.is_some() != event.usage.tool.is_some())
+                || (price.text_request.is_some() != event.usage.text_request.is_some())
+                || event
+                    .usage
+                    .text_request
+                    .is_some_and(|receipt| receipt.outcome() != event.outcome)
                 || (price.grounding.is_some() != event.usage.grounding.is_some())
                 || price.cost(event.usage).map_err(|_| Error::Storage)? != amounts.gross
             {
@@ -488,17 +493,50 @@ impl ValidatedRequest {
     fn subscription(&self) -> bool {
         matches!(self.source, Source::Subscription { .. })
     }
+    fn measured_text(&self) -> bool {
+        self.price.image.is_none()
+            && self.price.tool.is_none()
+            && self
+                .usage
+                .text_request
+                .is_none_or(|receipt| receipt.completed_requests() == 1)
+    }
+    fn billing_method(&self) -> &'static str {
+        if self.price.tool.is_some() {
+            "per_successful_request"
+        } else if self.price.text_request.is_some() {
+            "per_completed_request"
+        } else {
+            "measured_usage"
+        }
+    }
+    fn provider_status(&self) -> Option<u16> {
+        if !self.settled() {
+            return None;
+        }
+        self.usage
+            .tool
+            .map(|receipt| receipt.http_status)
+            .or_else(|| match self.usage.text_request {
+                Some(crate::model_http::text_request_price::TextRequestUsage::Rejected {
+                    http_status,
+                    ..
+                }) => Some(http_status),
+                _ => None,
+            })
+    }
     fn log(&self) -> Value {
         let image = self.price.image.is_some();
         let tool = self.price.tool.is_some();
-        let text = !image && !tool;
+        let text = self.measured_text();
         let mut other = json!({"credential_source":self.credential_source,"request_state":self.state,"usage_status":if self.settled() {"settled"}else{"incomplete"},
             "reserved_credits":if self.held() {self.reserved}else{0},
             "pricing_dimension":if image {"image"}else if tool {"tool"}else{"text"},
-            "billing_method":if tool {"per_successful_request"}else{"measured_usage"},
+            "billing_method":self.billing_method(),
+            "completed_requests":self.usage.text_request.filter(|_|self.settled()).map(|u|u.completed_requests()),
             "tool_kind":self.price.tool.as_ref().map(|p|p.kind.protocol_name()),
             "tool_requests":self.usage.tool.filter(|_|self.settled()).map(|u|u.successful_requests),
-            "provider_http_status":self.usage.tool.filter(|_|self.settled()).map(|u|u.http_status),
+            "provider_http_status":self.provider_status(),
             "grounded_requests":self.usage.grounding.filter(|_|self.settled()).map(|u|u.grounded_requests),
             "tool_input_tokens":self.usage.grounding.filter(|_|self.settled()).and_then(|u|u.tool_input_tokens),
             "token_usage_available":self.settled() && text,
@@ -517,10 +555,11 @@ impl ValidatedRequest {
             "quota":null,"gross_settled_credits":null,"refunded_credits":null,"net_consumption_credits":null,
             "quota_money_available":false,"billing_basis":"incomplete","wallet_debit_supported":false,
             "pricing_dimension":if image {"image"}else if tool {"tool"}else{"text"},"token_usage_available":self.settled() && text,
-            "billing_method":if tool {"per_successful_request"}else{"measured_usage"},
+            "billing_method":self.billing_method(),
+            "completed_requests":self.usage.text_request.filter(|_|self.settled()).map(|u|u.completed_requests()),
             "tool_kind":self.price.tool.as_ref().map(|p|p.kind.protocol_name()),
             "tool_requests":self.usage.tool.filter(|_|self.settled()).map(|u|u.successful_requests),
-            "provider_http_status":self.usage.tool.filter(|_|self.settled()).map(|u|u.http_status),
+            "provider_http_status":self.provider_status(),
             "outcome":self.outcome,
             "grounded_requests":self.usage.grounding.filter(|_|self.settled()).map(|u|u.grounded_requests),
             "output_image_count":self.usage.image.filter(|_|self.settled()).map(|u|u.output_images)});
@@ -558,6 +597,7 @@ struct Summary {
     session_sources: bool,
     images: i64,
     tool_requests: i64,
+    completed_requests: i64,
     grounded_requests: i64,
     cache: CacheSummary,
 }
@@ -615,11 +655,17 @@ impl Summary {
             add(&mut self.incomplete, 1)?;
         }
         if r.settled() {
-            if r.price.image.is_none() && r.price.tool.is_none() {
+            if r.measured_text() {
                 self.cache.include(r.usage)?;
             }
             if let Some(tool) = r.usage.tool {
                 add(&mut self.tool_requests, i64::from(tool.successful_requests))?;
+            }
+            if let Some(text) = r.usage.text_request {
+                add(
+                    &mut self.completed_requests,
+                    i64::from(text.completed_requests()),
+                )?;
             }
             if let Some(grounding) = r.usage.grounding {
                 add(
@@ -653,6 +699,7 @@ impl Summary {
             "usage_scope":if self.session_sources {"actor_personal_usage"}else{"actor_personal_key"},"settlement_scope":"settled_requests","spending_scope":"all_payers","team_funded_quota":self.team_net,
             "output_image_count":self.images,"token_count_scope":"settled_text_requests",
             "tool_requests":self.tool_requests,"grounded_requests":self.grounded_requests,
+            "completed_requests":self.completed_requests,
             "platform_sponsored_quota":self.sponsored_net,
             "personal_wallet_quota":self.personal_wallet_source_net,"personal_wallet_quota_basis":"wallet_source_net_consumption_not_debit"});
         self.amounts.project(&mut data);
@@ -667,9 +714,11 @@ struct Bucket {
     count: i64,
     image_count: i64,
     tool_requests: i64,
+    completed_requests: i64,
     grounded_requests: i64,
     has_images: bool,
     has_tools: bool,
+    has_request_price: bool,
     has_grounding: bool,
     has_text: bool,
     has_session_sources: bool,
@@ -835,8 +884,9 @@ impl UsageStore {
                         bucket.amounts.accumulate(r.amounts)?;
                         bucket.has_images |= r.price.image.is_some();
                         bucket.has_tools |= r.price.tool.is_some();
+                        bucket.has_request_price |= r.price.text_request.is_some();
                         bucket.has_grounding |= r.price.grounding.is_some();
-                        bucket.has_text |= r.price.image.is_none() && r.price.tool.is_none();
+                        bucket.has_text |= r.measured_text();
                         bucket.has_session_sources |=
                             matches!(r.credential_source, "drawing_session" | "assistant_session");
                         if let Some(image) = r.usage.image {
@@ -846,6 +896,12 @@ impl UsageStore {
                             add(
                                 &mut bucket.tool_requests,
                                 i64::from(tool.successful_requests),
+                            )?;
+                        }
+                        if let Some(text) = r.usage.text_request {
+                            add(
+                                &mut bucket.completed_requests,
+                                i64::from(text.completed_requests()),
                             )?;
                         }
                         if let Some(grounding) = r.usage.grounding {
@@ -887,9 +943,10 @@ impl UsageStore {
                 // @context-fold begin native-usage-data-buckets
                 let mut data = Vec::new();
                 for ((user, at, model, payer_kind, subscription, sponsored), bucket) in buckets {
-                    let mut item = json!({"user_id":user,"model_name":model,"created_at":at,"token_used":if (bucket.has_images || bucket.has_tools) && !bucket.has_text {None}else{Some(bucket.tokens)},
+                    let mut item = json!({"user_id":user,"model_name":model,"created_at":at,"token_used":bucket.has_text.then_some(bucket.tokens),
                         "output_image_count":bucket.image_count,"token_count_scope":"settled_text_requests",
                         "tool_requests":bucket.has_tools.then_some(bucket.tool_requests),
+                        "completed_requests":bucket.has_request_price.then_some(bucket.completed_requests),
                         "grounded_requests":bucket.has_grounding.then_some(bucket.grounded_requests),
                         "platform_sponsored":sponsored,
                         "count":bucket.count,"payer_kind":payer_kind,"subscription_funded":subscription,"usage_scope":if administrator {"administrator_all_accounts"}else if bucket.has_session_sources {"actor_personal_usage"}else{"actor_personal_key"},"settlement_scope":"settled_requests"});

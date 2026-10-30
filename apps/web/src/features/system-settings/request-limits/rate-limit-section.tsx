@@ -16,310 +16,276 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { zodResolver } from '@hookform/resolvers/zod'
-import { Code2, Palette } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as z from 'zod'
 
+import { ErrorState } from '@/components/error-state'
+import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Button } from '@/components/ui/button'
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
+import { Textarea } from '@/components/ui/textarea'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
-  SettingsForm,
-  SettingsSwitchContent,
-  SettingsSwitchItem,
+  SettingsFormGrid,
+  SettingsFormGridItem,
 } from '../components/settings-form-layout'
-import { SettingsPageFormActions } from '../components/settings-page-context'
-import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
-import { RateLimitVisualEditor } from './rate-limit-visual-editor'
+import {
+  configurationErrorKey,
+  getRequestLimits,
+  requestLimitPolicySchema,
+  saveRequestLimits,
+  type RequestLimitSnapshot,
+  type SettingsScope,
+} from './native-api'
 
-const isValidJSON = (value: string | undefined) => {
-  if (!value || value.trim() === '') return true
-  try {
-    const parsed = JSON.parse(value)
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return false
-    }
-    for (const [, val] of Object.entries(parsed)) {
-      if (!Array.isArray(val) || val.length !== 2) return false
-      if (typeof val[0] !== 'number' || typeof val[1] !== 'number') return false
-      if (val[0] < 0 || val[1] < 1) return false
-      if (val[0] > 2147483647 || val[1] > 2147483647) return false
-    }
-    return true
-  } catch {
-    return false
+function draftOf(snapshot: RequestLimitSnapshot) {
+  return {
+    enabled: snapshot.policy.enabled,
+    window: String(snapshot.policy.window_seconds),
+    user:
+      snapshot.policy.user_limit === null
+        ? ''
+        : String(snapshot.policy.user_limit),
+    groups: JSON.stringify(snapshot.policy.group_limits, null, 2),
   }
 }
 
-const createRateLimitSchema = (t: (key: string) => string) =>
-  z.object({
-    ModelRequestRateLimitEnabled: z.boolean(),
-    ModelRequestRateLimitDurationMinutes: z.number().min(0),
-    ModelRequestRateLimitCount: z.number().min(0).max(100000000),
-    ModelRequestRateLimitSuccessCount: z.number().min(1).max(100000000),
-    ModelRequestRateLimitGroup: z
-      .string()
-      .optional()
-      .refine(isValidJSON, {
-        message: t('Invalid JSON format or values out of allowed range'),
-      }),
-  })
-
-type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
-
-type RateLimitSectionProps = {
-  defaultValues: RateLimitFormValues
-}
-
-export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
+export function RequestLimitEditor({
+  initial,
+  scope,
+  onSnapshot,
+}: {
+  initial: RequestLimitSnapshot
+  scope: SettingsScope
+  onSnapshot: (snapshot: RequestLimitSnapshot) => void
+}) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-  const [useVisualEditor, setUseVisualEditor] = useState(true)
-
-  const rateLimitSchema = createRateLimitSchema(t)
-
-  const form = useForm<RateLimitFormValues>({
-    resolver: zodResolver(rateLimitSchema),
-    mode: 'onChange', // Enable real-time validation
-    defaultValues,
-  })
-
-  useEffect(() => {
-    form.reset(defaultValues)
-  }, [defaultValues, form])
-
-  const onSubmit = async (values: RateLimitFormValues) => {
-    const updates = Object.entries(values).filter(
-      ([key, value]) =>
-        value !== defaultValues[key as keyof RateLimitFormValues]
-    )
-
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value: value ?? '' })
-    }
+  const [baseline, setBaseline] = useState(initial)
+  const [draft, setDraft] = useState(() => draftOf(initial))
+  const [invalid, setInvalid] = useState(false)
+  const accept = (snapshot: RequestLimitSnapshot) => {
+    setBaseline(snapshot)
+    setDraft(draftOf(snapshot))
+    setInvalid(false)
+    onSnapshot(snapshot)
   }
+  const save = useMutation({
+    mutationFn: (policy: RequestLimitSnapshot['policy']) =>
+      saveRequestLimits(scope, baseline.revision, policy),
+    onSuccess: accept,
+  })
+  const reload = useMutation({
+    mutationFn: () => getRequestLimits(scope),
+    onSuccess: (snapshot) => {
+      accept(snapshot)
+      save.reset()
+    },
+  })
+  const busy = save.isPending || reload.isPending
+  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(baseline))
 
   return (
-    <SettingsSection title={t('Rate Limiting')}>
-      <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
-          <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
-            saveLabel='Save rate limits'
+    <form
+      className='space-y-5'
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (busy) return
+        let groupLimits: unknown
+        try {
+          groupLimits = JSON.parse(draft.groups)
+        } catch {
+          setInvalid(true)
+          return
+        }
+        const parsed = requestLimitPolicySchema.safeParse({
+          enabled: draft.enabled,
+          window_seconds: Number(draft.window),
+          user_limit: draft.user === '' ? null : Number(draft.user),
+          group_limits: groupLimits,
+        })
+        if (!parsed.success) {
+          setInvalid(true)
+          return
+        }
+        setInvalid(false)
+        save.mutate(parsed.data)
+      }}
+    >
+      <p className='text-muted-foreground text-sm'>
+        {t(
+          'Admitted requests count before billing or upstream calls, including later failures. All API keys of a user share one limit; each group shares one limit across users.'
+        )}
+      </p>
+      <fieldset disabled={busy} className='space-y-5'>
+        <div className='flex items-center justify-between gap-4'>
+          <Label htmlFor='native-rate-enabled'>
+            {t('Enable Rate Limiting')}
+          </Label>
+          <Switch
+            id='native-rate-enabled'
+            checked={draft.enabled}
+            onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
           />
-          <FormField
-            control={form.control}
-            name='ModelRequestRateLimitEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Enable rate limiting')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'This controls model request rate limiting. Web/API route throttling is configured by environment variables and may still return 429.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
-            )}
-          />
-
-          <div className='grid gap-4 md:grid-cols-3'>
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitDurationMinutes'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Limit period')}</FormLabel>
-                  <FormControl>
-                    <div className='flex items-center gap-2'>
-                      <Input
-                        type='number'
-                        min={0}
-                        step={1}
-                        {...field}
-                        onChange={(e) =>
-                          field.onChange(Number.parseInt(e.target.value) || 0)
-                        }
-                      />
-                      <span className='text-muted-foreground shrink-0 text-sm whitespace-nowrap'>
-                        {t('minutes')}
-                      </span>
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    {t('Time window for rate limiting')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitCount'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Max requests per period')}</FormLabel>
-                  <FormControl>
-                    <div className='flex items-center gap-2'>
-                      <Input
-                        type='number'
-                        min={0}
-                        max={100000000}
-                        step={1}
-                        {...field}
-                        onChange={(e) =>
-                          field.onChange(Number.parseInt(e.target.value) || 0)
-                        }
-                      />
-                      <span className='text-muted-foreground shrink-0 text-sm whitespace-nowrap'>
-                        {t('times')}
-                      </span>
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    {t('Including failed requests, 0 = unlimited')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitSuccessCount'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Max successful requests')}</FormLabel>
-                  <FormControl>
-                    <div className='flex items-center gap-2'>
-                      <Input
-                        type='number'
-                        min={1}
-                        max={100000000}
-                        step={1}
-                        {...field}
-                        onChange={(e) =>
-                          field.onChange(Number.parseInt(e.target.value) || 1)
-                        }
-                      />
-                      <span className='text-muted-foreground shrink-0 text-sm whitespace-nowrap'>
-                        {t('times')}
-                      </span>
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    {t('Only successful requests')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+        </div>
+        <SettingsFormGrid>
+          <div className='space-y-2'>
+            <Label htmlFor='native-rate-window'>
+              {t('Fixed window (seconds)')}
+            </Label>
+            <Input
+              id='native-rate-window'
+              type='number'
+              min={1}
+              max={86400}
+              step={1}
+              value={draft.window}
+              onChange={(event) =>
+                setDraft({ ...draft, window: event.target.value })
+              }
             />
           </div>
+          <div className='space-y-2'>
+            <Label htmlFor='native-rate-user'>
+              {t('Requests per user per window')}
+            </Label>
+            <Input
+              id='native-rate-user'
+              type='number'
+              min={1}
+              max={100_000_000}
+              step={1}
+              value={draft.user}
+              onChange={(event) =>
+                setDraft({ ...draft, user: event.target.value })
+              }
+              aria-describedby='native-rate-user-help'
+            />
+            <p
+              id='native-rate-user-help'
+              className='text-muted-foreground text-sm'
+            >
+              {t('Leave blank for no user limit.')}
+            </p>
+          </div>
+          <SettingsFormGridItem span='full' className='space-y-2'>
+            <Label htmlFor='native-rate-groups'>
+              {t('Shared group request limits (JSON)')}
+            </Label>
+            <Textarea
+              id='native-rate-groups'
+              className='min-h-36 font-mono'
+              value={draft.groups}
+              onChange={(event) =>
+                setDraft({ ...draft, groups: event.target.value })
+              }
+              placeholder='{"default": 300}'
+              aria-describedby='native-rate-group-help'
+            />
+            <p
+              id='native-rate-group-help'
+              className='text-muted-foreground text-sm'
+            >
+              {t(
+                'Map exact group names to request counts per window. Omitted groups have no group limit.'
+              )}
+            </p>
+          </SettingsFormGridItem>
+        </SettingsFormGrid>
+      </fieldset>
+      <p className='text-muted-foreground text-sm'>
+        {t(
+          'Windows follow the database clock. Traffic near a boundary can use two windows in quick succession. Rejected requests return HTTP 429 and Retry-After; changing the window uses counters for the new duration.'
+        )}
+      </p>
+      {invalid && (
+        <p role='alert' className='text-destructive text-sm'>
+          {t(
+            'Enter a window of 1–86400 seconds and positive integer limits up to 100000000. Enable at least one limit when rate limiting is on.'
+          )}
+        </p>
+      )}
+      {(save.error || reload.error) && (
+        <p role='alert' className='text-destructive text-sm'>
+          {t(
+            reload.error
+              ? 'Failed to load settings'
+              : configurationErrorKey(save.error)
+          )}
+        </p>
+      )}
+      {save.isSuccess && !dirty && (
+        <p role='status' className='text-muted-foreground text-sm'>
+          {t('Setting updated successfully')}
+        </p>
+      )}
+      <div className='flex flex-wrap gap-2'>
+        <Button type='submit' disabled={busy || !dirty}>
+          {save.isPending ? t('Saving...') : t('Save rate limits')}
+        </Button>
+        <Button
+          type='button'
+          variant='outline'
+          disabled={busy}
+          onClick={() => reload.mutate()}
+        >
+          {t('Reload current configuration')}
+        </Button>
+      </div>
+    </form>
+  )
+}
 
-          <FormField
-            control={form.control}
-            name='ModelRequestRateLimitGroup'
-            render={({ field }) => (
-              <FormItem>
-                <div className='flex items-center justify-between'>
-                  <FormLabel>{t('Group-based rate limits')}</FormLabel>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={() => setUseVisualEditor(!useVisualEditor)}
-                  >
-                    {useVisualEditor ? (
-                      <>
-                        <Code2 className='mr-2 h-4 w-4' />
-                        {t('JSON Mode')}
-                      </>
-                    ) : (
-                      <>
-                        <Palette className='mr-2 h-4 w-4' />
-                        {t('Visual Mode')}
-                      </>
-                    )}
-                  </Button>
-                </div>
-                <FormControl>
-                  {useVisualEditor ? (
-                    <RateLimitVisualEditor
-                      value={field.value || ''}
-                      onChange={field.onChange}
-                    />
-                  ) : (
-                    <SystemJsonCodeEditor
-                      configurationKey='ModelRequestRateLimitGroup'
-                      value={field.value || ''}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                      placeholder={`{\n  "default": [200, 100],\n  "vip": [0, 1000]\n}`}
-                      aria-invalid={Boolean(
-                        form.formState.errors.ModelRequestRateLimitGroup
-                      )}
-                    />
-                  )}
-                </FormControl>
-                {!useVisualEditor && (
-                  <FormDescription>
-                    <div className='space-y-1 text-xs'>
-                      <p className='font-semibold'>{t('Format:')}</p>
-                      <ul className='list-inside list-disc space-y-0.5 pl-2'>
-                        <li>
-                          {t('JSON object:')}{' '}
-                          {`{"groupName": [maxRequests, maxSuccess]}`}
-                        </li>
-                        <li>
-                          {t('Example:')}{' '}
-                          {`{"default": [200, 100], "vip": [0, 1000]}`}
-                        </li>
-                        <li>
-                          {t(
-                            'maxRequests ≥ 0, maxSuccess ≥ 1, both ≤ 2,147,483,647'
-                          )}
-                        </li>
-                        <li>
-                          {t(
-                            'Group config overrides global limits, shares the same period'
-                          )}
-                        </li>
-                      </ul>
-                    </div>
-                  </FormDescription>
-                )}
-                <FormMessage />
-              </FormItem>
-            )}
+function RequestLimitsWorkspace({ scope }: { scope: SettingsScope }) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const key = ['native-request-limits', scope.userId, scope.sessionId]
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => getRequestLimits(scope),
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+  if (query.isPending) return <p role='status'>{t('Loading...')}</p>
+  if (query.isError) {
+    return (
+      <ErrorState
+        title={t('Failed to load settings')}
+        onRetry={() => void query.refetch()}
+      />
+    )
+  }
+  return (
+    <RequestLimitEditor
+      initial={query.data}
+      scope={scope}
+      onSnapshot={(snapshot) => client.setQueryData(key, snapshot)}
+    />
+  )
+}
+
+export function RateLimitSection() {
+  const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
+  const sessionID = useAuthStore((state) => state.auth.session?.sid)
+  return (
+    <SectionPageLayout>
+      <SectionPageLayout.Title>{t('Rate Limiting')}</SectionPageLayout.Title>
+      <SectionPageLayout.Content>
+        {user?.role === ROLE.SUPER_ADMIN && sessionID ? (
+          <RequestLimitsWorkspace
+            key={`${user.id}:${sessionID}`}
+            scope={{ userId: user.id, sessionId: sessionID }}
           />
-        </SettingsForm>
-      </Form>
-    </SettingsSection>
+        ) : (
+          <p role='alert'>{t('Super administrator access required.')}</p>
+        )}
+      </SectionPageLayout.Content>
+    </SectionPageLayout>
   )
 }

@@ -283,6 +283,26 @@ async fn no_charges(f: &Fixture) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn image_api_pg_request_limits_reject_before_image_hold_and_supplier(pool: PgPool) {
+    let f = fixture(pool).await;
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,1,'{}',7)")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    crate::request_limits::admit(&f.pool, 7, "allowed", "existing-request")
+        .await
+        .unwrap();
+    let supplier = Supplier::start(Reply::OneImage).await;
+    let service = image_service(&f, &supplier);
+    let result = service
+        .execute_api(&f.secret, &"d".repeat(64), &groups(), input(1), None, None)
+        .await;
+    assert!(matches!(result,Err(Error::RateLimited(seconds)) if (1..=86400).contains(&seconds)));
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 0);
+    no_charges(&f).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn image_api_actual_payload_count_settlement_replay_and_conflict(pool: PgPool) {
     let f = fixture(pool).await;
     let supplier = Supplier::start(Reply::OneImage).await;

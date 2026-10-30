@@ -6,6 +6,8 @@ mod cache_evidence;
 mod image;
 #[path = "model_unknown.rs"]
 mod model_unknown;
+#[path = "route_attempts.rs"]
+mod route_attempts;
 use super::{
     authority,
     contract::{self, PreparedReservation, ReservationContract},
@@ -96,6 +98,7 @@ mod trust_admission_tests {
             fingerprint: [1; 32],
             price: Price {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 user_trust: None,
@@ -166,6 +169,9 @@ fn counted_api_activity(usage: Usage) -> bool {
             || usage.cache_creation.is_some_and(|v| v.total > 0)
             || usage.image.is_some_and(|v| v.output_images > 0)
             || usage.tool.is_some_and(|v| v.successful_requests > 0)
+            || usage
+                .text_request
+                .is_some_and(|v| v.completed_requests() > 0)
             || usage.upstream_cost_atto_usd.is_some_and(|v| v > 0))
 }
 
@@ -269,6 +275,7 @@ fn decode(row: PgRow) -> Result<Stored> {
             usage: cache_evidence::restore(
                 Usage {
                     tool: None,
+                    text_request: None,
                     grounding: None,
 
                     image: row
@@ -299,7 +306,9 @@ fn decode(row: PgRow) -> Result<Stored> {
         .validate_actor(stored.charge.actor_user_id)
         .map_err(|_| Error::Storage)?;
     if stored.charge.state == "settled"
-        && (stored.charge.price.tool.is_some() != stored.charge.usage.tool.is_some()
+        && (stored.charge.price.text_request.is_some()
+            != stored.charge.usage.text_request.is_some()
+            || stored.charge.price.tool.is_some() != stored.charge.usage.tool.is_some()
             || stored.charge.price.grounding.is_some() != stored.charge.usage.grounding.is_some())
     {
         return Err(Error::Storage);

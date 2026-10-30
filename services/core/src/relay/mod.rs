@@ -349,6 +349,28 @@ struct Worker {
     checkpoint_sequence: u64,
     started: Instant,
 }
+
+fn rejection_envelope(protocol: UpstreamProtocol, bytes: &[u8]) -> bool {
+    let Ok(serde_json::Value::Object(value)) = serde_json::from_slice(bytes) else {
+        return false;
+    };
+    let Some(error) = value.get("error").and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    if !error
+        .get("message")
+        .is_some_and(serde_json::Value::is_string)
+    {
+        return false;
+    }
+    // Reject successful/partial output, usage, and tool receipts, including
+    // extensions whose metering meaning has not been reviewed for replay.
+    value.keys().all(|key| {
+        matches!(key.as_str(), "error" | "request_id")
+            || (protocol == UpstreamProtocol::Anthropic && key == "type" && value[key] == "error")
+    })
+}
+
 impl Worker {
     fn new(
         inner: Arc<Inner>,
@@ -368,6 +390,8 @@ impl Worker {
             finish_reason: None,
             provider_complete: false,
             upstream_attempted: false,
+            delivery: crate::routing::DeliveryState::NotSent,
+            rejection_receipt_sha256: None,
             attempts: 0,
             upstream_status: None,
             upstream_bytes: 0,
@@ -431,6 +455,9 @@ impl Worker {
         };
         let done = keepalive.finish().await;
         self.report.emitted_bytes = self.report.emitted_bytes.saturating_add(done.emitted_bytes);
+        if done.emitted_bytes > 0 {
+            self.report.delivery = crate::routing::DeliveryState::ResponseStarted;
+        }
         match done.error {
             Some(error) => Err(error),
             None => Ok(()),
@@ -494,6 +521,7 @@ impl Worker {
                 })
                 .await?;
             self.report.emitted_bytes = self.report.emitted_bytes.saturating_add(chunk.len());
+            self.report.delivery = crate::routing::DeliveryState::ResponseStarted;
         }
         Ok(())
     }
@@ -627,6 +655,7 @@ impl Worker {
             }
             self.report.attempts += 1;
             self.report.upstream_attempted = true;
+            self.report.delivery = crate::routing::DeliveryState::PossiblyAccepted;
             let request = connection
                 .client()
                 .post(route.endpoint.clone())
@@ -665,10 +694,14 @@ impl Worker {
                     }
                     return Ok(response);
                 }
-                Err(e)
-                    if e.is_connect()
-                        && self.report.attempts <= self.inner.limits.connect_retries =>
-                {
+                Err(e) if e.is_connect() => {
+                    // reqwest's typed connector error is raised before an HTTP
+                    // request can be transmitted. Timeouts after this boundary
+                    // remain PossiblyAccepted, even if their text says connect.
+                    self.report.delivery = crate::routing::DeliveryState::NotSent;
+                    if self.report.attempts > self.inner.limits.connect_retries {
+                        return Err(RelayError::UpstreamConnection);
+                    }
                     self.gate
                         .run(self.inner.limits.header_timeout, Phase::Connect, async {
                             tokio::time::sleep(self.inner.limits.retry_backoff).await;
@@ -681,11 +714,62 @@ impl Worker {
             }
         }
     }
+    async fn observe_rejection(
+        &mut self,
+        route: &Route,
+        response: &mut reqwest::Response,
+    ) -> Result<(), RelayError> {
+        let status = response.status().as_u16();
+        if !route.pre_acceptance_rejection_statuses.contains(&status) {
+            return Ok(());
+        }
+        let limit = self.inner.limits.event_bytes.min(65_536);
+        if response
+            .content_length()
+            .is_some_and(|length| length > limit as u64)
+            || response
+                .headers()
+                .get(header::CONTENT_ENCODING)
+                .is_some_and(|value| value.as_bytes() != b"identity")
+        {
+            return Ok(());
+        }
+        let mut data = Vec::new();
+        loop {
+            let next = self
+                .gate
+                .run(self.inner.limits.read_timeout, Phase::Read, async {
+                    response
+                        .chunk()
+                        .await
+                        .map_err(|_| RelayError::UpstreamConnection)
+                })
+                .await?;
+            let Some(chunk) = next else {
+                break;
+            };
+            if data
+                .len()
+                .checked_add(chunk.len())
+                .is_none_or(|size| size > limit)
+            {
+                return Ok(());
+            }
+            self.count_input(&chunk)?;
+            data.extend_from_slice(&chunk);
+        }
+        if rejection_envelope(route.protocol, &data) {
+            self.report.delivery = crate::routing::DeliveryState::Rejected;
+            self.report.rejection_receipt_sha256 = Some(Sha256::digest(&data).into());
+        }
+        Ok(())
+    }
+
     async fn execute(&mut self) -> Result<(), RelayError> {
         // Cover routing, reservation and connect retries. Business writes join
         // this task first so a comment cannot race the response head or a frame.
         self.arm_anthropic_keepalive();
-        let route = self
+        let mut route = self
             .gate
             .run(
                 self.inner.limits.hook_timeout,
@@ -701,7 +785,7 @@ impl Worker {
         ) {
             self.request.validate_exact_input_count()?;
         }
-        let body = self.request.upstream_body(&route)?;
+        let mut body = self.request.upstream_body(&route)?;
         if body.len() > self.inner.limits.request_bytes {
             return Err(RelayError::Limit("encoded request"));
         }
@@ -732,11 +816,97 @@ impl Worker {
         .map_err(|_| RelayError::Timeout(Phase::Reserve))??;
         self.reservation = Some(reservation);
         self.reserve_ambiguous = false;
-        let mut response = self.open(&route, body).await?;
-        self.report.upstream_status = Some(response.status().as_u16());
-        if response.status() != reqwest::StatusCode::OK {
-            return Err(RelayError::UpstreamStatus(response.status().as_u16()));
-        }
+        let mut response = loop {
+            self.report.route_id = Some(route.id.clone());
+            self.report.price_version = Some(route.price_version);
+            self.report.delivery = crate::routing::DeliveryState::NotSent;
+            self.report.rejection_receipt_sha256 = None;
+            self.report.upstream_status = None;
+            self.gate
+                .run(
+                    self.inner.limits.hook_timeout,
+                    Phase::Route,
+                    self.inner.router.dispatching(&self.context, &route, &body),
+                )
+                .await?;
+            let error = match self.open(&route, body.clone()).await {
+                Ok(mut response) => {
+                    let status = response.status().as_u16();
+                    self.report.upstream_status = Some(status);
+                    if status == 200 {
+                        break response;
+                    }
+                    // A reviewed status plus a complete pure error envelope is
+                    // positive rejection evidence. Status alone proves nothing.
+                    match self.observe_rejection(&route, &mut response).await {
+                        Ok(()) => RelayError::UpstreamStatus(status),
+                        Err(error) => error,
+                    }
+                }
+                Err(error) => error,
+            };
+            if self.report.emitted_bytes > 0
+                || self
+                    .head
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_none()
+            {
+                self.report.delivery = crate::routing::DeliveryState::ResponseStarted;
+            }
+            let failure = AttemptFailure {
+                failure: crate::routing::Failure {
+                    kind: match &error {
+                        RelayError::UpstreamConnection | RelayError::RouteUnavailable => {
+                            crate::routing::FailureKind::Connect
+                        }
+                        RelayError::Timeout(_) => crate::routing::FailureKind::Timeout,
+                        RelayError::UpstreamStatus(429) => crate::routing::FailureKind::RateLimited,
+                        RelayError::UpstreamStatus(500..=599) => {
+                            crate::routing::FailureKind::ServerError
+                        }
+                        RelayError::UpstreamStatus(401 | 403) => {
+                            crate::routing::FailureKind::Authentication
+                        }
+                        RelayError::UpstreamStatus(_) => crate::routing::FailureKind::ClientError,
+                        RelayError::Cancelled => crate::routing::FailureKind::Cancelled,
+                        _ => crate::routing::FailureKind::InvalidResponse,
+                    },
+                    delivery: self.report.delivery,
+                },
+                http_status: self.report.upstream_status,
+                response_sha256: self.report.rejection_receipt_sha256,
+            };
+            let next = self
+                .gate
+                .run(
+                    self.inner.limits.hook_timeout,
+                    Phase::Route,
+                    self.inner
+                        .router
+                        .failed(&self.context, &self.request, &route, failure),
+                )
+                .await?;
+            let Some(next) = next else {
+                return Err(error);
+            };
+            if !matches!(next.count_plan, input_count::CountPlan::ContextMax) {
+                return Err(RelayError::Unsupported(
+                    "retry requires a frozen context-max candidate",
+                ));
+            }
+            route = next;
+            body = self.request.upstream_body(&route)?;
+            if body.len() > self.inner.limits.request_bytes {
+                return Err(RelayError::Limit("encoded request"));
+            }
+            self.gate
+                .run(self.inner.limits.header_timeout, Phase::Connect, async {
+                    tokio::time::sleep(self.inner.limits.retry_backoff).await;
+                    Ok(())
+                })
+                .await?;
+        };
         let expected = if self.request.stream {
             "text/event-stream"
         } else {

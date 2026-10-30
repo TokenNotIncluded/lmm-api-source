@@ -834,7 +834,7 @@ export const adminTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_admin_system_info',
     title: 'Read system instance info',
     description:
-      'Administrator only. List backend instances with node name, status (online or stale), runtime version, platform, started-at time, and CPU, memory, and storage usage percentages. Hostnames are masked.',
+      'Administrator only. List Core process heartbeats, boot IDs, online or stale state, runtime version, lifecycle phase, in-flight requests, and timestamps. Remote host resource samples are not reported.',
     inputSchema: EMPTY_INPUT_SCHEMA,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     execute: async (_rawInput, options) => {
@@ -845,6 +845,9 @@ export const adminTools: WebMcpToolFactory = ({ router }) => [
 
       const instances = (response.data ?? []).slice(0, MAX_ROWS)
       return {
+        truncated:
+          response.truncated === true ||
+          (response.data?.length ?? 0) > MAX_ROWS,
         total: response.data?.length ?? instances.length,
         online: instances.filter((instance) => instance.status === 'online')
           .length,
@@ -870,7 +873,13 @@ export const adminTools: WebMcpToolFactory = ({ router }) => [
             version: clip(info.runtime?.version, 32),
             os: clip(info.runtime?.goos, 16),
             arch: clip(info.runtime?.goarch, 16),
-            is_master: info.role?.is_master === true,
+            is_master: info.role?.is_master ?? null,
+            phase: instance.phase ?? null,
+            in_flight: instance.in_flight ?? null,
+            models_ready:
+              instance.status === 'online'
+                ? (instance.models_ready ?? null)
+                : null,
             cpu_usage_percent: info.resources?.cpu?.usage_percent ?? null,
             memory_usage_percent: info.resources?.memory?.usage_percent ?? null,
             storage_usage_percent:

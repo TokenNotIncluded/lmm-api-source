@@ -215,6 +215,9 @@ impl ImageService {
         if state != "confirmed" {
             return self.query_api_with_peer(secret, &id, peer).await;
         }
+        crate::request_limits::admit(&self.pool, actor.user_id, &frozen.group, &id)
+            .await
+            .map_err(admission_error)?;
         let provider = self
             .providers
             .get(&quote.binding().upstream_id)

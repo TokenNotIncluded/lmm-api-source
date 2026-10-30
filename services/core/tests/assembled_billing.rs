@@ -37,6 +37,7 @@ fn request(id: &str, reserve: i64) -> ChargeRequest {
         maximum_seconds: 600,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -55,6 +56,7 @@ fn request(id: &str, reserve: i64) -> ChargeRequest {
 fn usage() -> Usage {
     Usage {
         tool: None,
+        text_request: None,
         grounding: None,
 
         cache_creation: None,

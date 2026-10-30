@@ -21,7 +21,6 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 
 import type {
-  SystemInstanceDeleteResponse,
   SystemInstanceListResponse,
   SystemResourceSnapshot,
 } from './types'
@@ -73,11 +72,51 @@ const nativeSnapshotSchema = z.object({
   // @context-fold end native-system-resource-fields
 }) satisfies z.ZodType<SystemResourceSnapshot>
 
-export async function listSystemInstances() {
-  const res = await api.get<SystemInstanceListResponse>(
-    '/api/system-info/instances'
-  )
-  return res.data
+const instanceListSchema = z.object({
+  items: z.array(
+    z.object({
+      boot_id: z.string().regex(/^[a-f0-9]{32}$/),
+      instance_name: z.string().min(1),
+      version: z.string(),
+      phase: z.enum(['preparing', 'ready', 'draining', 'stopped']),
+      in_flight: nonnegativeInteger,
+      models_ready: z.boolean(),
+      rpc_ready: z.boolean(),
+      started_at: nonnegativeInteger,
+      heartbeat_at: nonnegativeInteger,
+      online: z.boolean(),
+    })
+  ),
+  truncated: z.boolean(),
+  stale_after_seconds: nonnegativeInteger.positive(),
+  retention_days: nonnegativeInteger.positive(),
+})
+
+export async function listSystemInstances(): Promise<SystemInstanceListResponse> {
+  const res = await api.get<unknown>('/core/v1/admin/instances')
+  const parsed = instanceListSchema.safeParse(res.data)
+  if (!parsed.success) throw new Error('Invalid system instances response')
+  return {
+    success: true,
+    message: '',
+    truncated: parsed.data.truncated,
+    stale_after_seconds: parsed.data.stale_after_seconds,
+    retention_days: parsed.data.retention_days,
+    data: parsed.data.items.map((item) => ({
+      node_name: item.instance_name,
+      reporter_id: item.boot_id,
+      instance_slot: item.boot_id,
+      status: item.online ? 'online' : 'stale',
+      stale_after_seconds: parsed.data.stale_after_seconds,
+      started_at: item.started_at,
+      last_seen_at: item.heartbeat_at,
+      phase: item.phase,
+      in_flight: item.in_flight,
+      models_ready: item.models_ready,
+      rpc_ready: item.rpc_ready,
+      info: { runtime: { version: item.version, started_at: item.started_at } },
+    })),
+  }
 }
 
 export async function getNativeSystemResources() {
@@ -85,18 +124,4 @@ export async function getNativeSystemResources() {
   const parsed = nativeSnapshotSchema.safeParse(res.data)
   if (!parsed.success) throw new Error('Invalid system resources response')
   return parsed.data
-}
-
-export async function deleteStaleSystemInstances() {
-  const res = await api.delete<SystemInstanceDeleteResponse>(
-    '/api/system-info/stale-instances'
-  )
-  return res.data
-}
-
-export async function deleteStaleSystemInstance(reporterId: string) {
-  const res = await api.delete<SystemInstanceDeleteResponse>(
-    `/api/system-info/instances/${encodeURIComponent(reporterId)}`
-  )
-  return res.data
 }

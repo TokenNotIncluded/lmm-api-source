@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -155,6 +155,7 @@ export function LogSettingsSection({
     getDateDaysAgo(30)
   )
   const [isStartingLogCleanup, setIsStartingLogCleanup] = useState(false)
+  const cleanupRequest = useRef<{ timestamp: number; key: string } | null>(null)
   const [logCleanupTask, setLogCleanupTask] = useState<LogCleanupTask | null>(
     null
   )
@@ -281,7 +282,16 @@ export function LogSettingsSection({
 
     setIsStartingLogCleanup(true)
     try {
-      const res = await startLogCleanupTask(purgeTimestamp)
+      if (cleanupRequest.current?.timestamp !== purgeTimestamp) {
+        cleanupRequest.current = {
+          timestamp: purgeTimestamp,
+          key: crypto.randomUUID(),
+        }
+      }
+      const res = await startLogCleanupTask(
+        purgeTimestamp,
+        cleanupRequest.current.key
+      )
       if (!res.success) {
         throw new Error(res.message || t('Failed to clean logs'))
       }
@@ -289,6 +299,7 @@ export function LogSettingsSection({
         throw new Error(t('Failed to clean logs'))
       }
       setLogCleanupTask(res.data)
+      cleanupRequest.current = null
       setShowConfirmDialog(false)
       toast.success(t('Log cleanup task started.'))
     } catch (error) {
@@ -588,13 +599,14 @@ export function LogSettingsSection({
             <AlertDialogDescription>
               {formattedPurgeDate
                 ? t(
-                    'This will permanently remove all log entries created before {{date}}.',
+                    'This will permanently remove imported historical logs created before {{date}}.',
                     { date: formattedPurgeDate }
                   )
                 : t(
-                    'This will permanently remove log entries before the selected timestamp.'
+                    'This will permanently remove imported historical logs before the selected timestamp.'
                   )}{' '}
-              {t('This action cannot be undone.')}
+              {t('This action cannot be undone.')}{' '}
+              {t('Native billing records and recovery evidence are retained.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

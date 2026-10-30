@@ -156,9 +156,17 @@ impl IntoResponse for HttpError {
             Error::Conflict => (StatusCode::CONFLICT, "conflict"),
             Error::NoFunds => (StatusCode::PAYMENT_REQUIRED, "insufficient_funds"),
             Error::Pending => (StatusCode::SERVICE_UNAVAILABLE, "pending"),
+            Error::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             Error::Retry | Error::Storage => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
         };
-        secure((status, Json(json!({"error":code}))).into_response())
+        let mut response = secure((status, Json(json!({"error":code}))).into_response());
+        if let Error::RateLimited(seconds) = self.0 {
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                seconds.to_string().parse().expect("integer Retry-After"),
+            );
+        }
+        response
     }
 }
 fn secure(mut response: Response) -> Response {

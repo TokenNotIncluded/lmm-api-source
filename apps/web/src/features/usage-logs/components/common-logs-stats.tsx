@@ -376,6 +376,14 @@ export function CommonLogsStats() {
             />
           )}
         {stats?.source !== 'legacy_log_only' &&
+          stats?.completed_requests !== undefined && (
+            <StatBadge
+              label={t('Completed text requests')}
+              value={stats.completed_requests}
+              accent='console-stat-accent-neutral'
+            />
+          )}
+        {stats?.source !== 'legacy_log_only' &&
           stats?.grounded_requests !== undefined && (
             <StatBadge
               label={t('Grounded requests')}

@@ -260,6 +260,7 @@ async fn actual_team_settlement_and_refund_count_the_actor_without_spending_pers
         maximum_seconds: 600,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -285,6 +286,7 @@ async fn actual_team_settlement_and_refund_count_the_actor_without_spending_pers
             &[5; 32],
             Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,

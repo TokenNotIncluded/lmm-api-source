@@ -51,6 +51,7 @@ pub enum RelayError {
     Cancelled,
     Draining,
     Busy,
+    RateLimited(u64),
     RouteUnavailable,
     BillingUnavailable,
     Unauthorized,
@@ -76,6 +77,7 @@ impl RelayError {
             Self::Cancelled => "request_cancelled",
             Self::Draining => "relay_draining",
             Self::Busy => "relay_busy",
+            Self::RateLimited(_) => "rate_limit_exceeded",
             Self::RouteUnavailable => "route_unavailable",
             Self::BillingUnavailable => "billing_unavailable",
             Self::Unauthorized => "unauthorized",
@@ -95,7 +97,7 @@ impl RelayError {
             Self::NoFunds => 402,
             Self::Conflict => 409,
             Self::Invalid(_) | Self::Unsupported(_) => 400,
-            Self::Busy => 429,
+            Self::Busy | Self::RateLimited(_) => 429,
             Self::Limit(_) => 413,
             Self::Timeout(_) => 504,
             Self::Cancelled => 499,
@@ -276,6 +278,7 @@ pub struct Route {
     pub(crate) payload_policy: crate::routing::PayloadPolicy,
     availability: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub(crate) count_plan: super::input_count::CountPlan,
+    pub(crate) pre_acceptance_rejection_statuses: Vec<u16>,
 }
 impl fmt::Debug for Route {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -341,11 +344,17 @@ impl Route {
             payload_policy: crate::routing::PayloadPolicy::Adapt,
             availability: None,
             count_plan: super::input_count::CountPlan::ContextMax,
+            pre_acceptance_rejection_statuses: Vec::new(),
         })
     }
 
     pub(crate) fn with_count_plan(mut self, plan: super::input_count::CountPlan) -> Self {
         self.count_plan = plan;
+        self
+    }
+
+    pub(crate) fn with_rejection_contract(mut self, statuses: Vec<u16>) -> Self {
+        self.pre_acceptance_rejection_statuses = statuses;
         self
     }
 
@@ -380,6 +389,36 @@ pub trait RouteProvider: Send + Sync + 'static {
         context: &'a RequestContext,
         request: &'a super::Request,
     ) -> RelayFuture<'a, Route>;
+
+    /// Persist the selected binding before a network send. The default is for
+    /// relay-only adapters; Core validates its immutable reservation evidence.
+    fn dispatching<'a>(
+        &'a self,
+        _context: &'a RequestContext,
+        _route: &'a Route,
+        _body: &'a [u8],
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    /// A transport classification, never an error string or an inferred retry.
+    fn failed<'a>(
+        &'a self,
+        _context: &'a RequestContext,
+        _request: &'a super::Request,
+        _route: &'a Route,
+        _failure: AttemptFailure,
+    ) -> RelayFuture<'a, Option<Route>> {
+        Box::pin(async { Ok(None) })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttemptFailure {
+    pub failure: crate::routing::Failure,
+    pub http_status: Option<u16>,
+    pub response_sha256: Option<[u8; 32]>,
 }
 
 /// A durable reservation handle, never a live SQL transaction/connection.
@@ -1160,6 +1199,10 @@ pub struct Report {
     pub provider_complete: bool,
     /// True as soon as send starts. A connection error is not proof of no cost.
     pub upstream_attempted: bool,
+    /// Final attempt delivery evidence. Every earlier retried attempt was
+    /// definitively not sent or rejected before acceptance.
+    pub delivery: crate::routing::DeliveryState,
+    pub rejection_receipt_sha256: Option<[u8; 32]>,
     pub attempts: u8,
     pub upstream_status: Option<u16>,
     pub upstream_bytes: usize,

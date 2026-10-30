@@ -265,6 +265,7 @@ export interface LogOtherData {
   billing_method?: string
   tool_kind?: 'deepseek_search' | 'deepseek_fetch' | null
   tool_requests?: number | null
+  completed_requests?: number | null
   grounded_requests?: number | null
   tool_input_tokens?: number | null
   token_usage_available?: boolean

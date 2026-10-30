@@ -271,6 +271,7 @@ async fn execute(
             "native tools require an explicit successful-request tariff",
         ))?;
     let price = charging::Price {
+        text_request: None,
         grounding: None,
 
         tool: Some(tariff),
@@ -361,6 +362,14 @@ async fn execute(
         route_id,
         input_token_ceiling: 0,
     };
+    crate::request_limits::admit(
+        &gateway.bridge.pool,
+        caller.principal.user_id(),
+        &group,
+        &id,
+    )
+    .await
+    .map_err(routing::admission_error)?;
     {
         let mut active = gateway
             .bridge
@@ -373,6 +382,7 @@ async fn execute(
         active.insert(
             id.clone(),
             Operation {
+                route_plan: None,
                 secret: caller.secret.clone(),
                 group,
                 worker,

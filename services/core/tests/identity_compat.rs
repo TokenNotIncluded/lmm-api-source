@@ -374,6 +374,199 @@ async fn model_ip_group_and_operator_revocation_are_enforced(pool: PgPool) {
     assert!(store.authorize(&alice).await.is_err());
 }
 #[sqlx::test(migrations = false)]
+async fn auto_inherits_current_global_order_without_rewriting_custom_keys(pool: PgPool) {
+    let (store, app, alice, _) = fixture(&pool).await;
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,source_reference) VALUES (1,'private','synthetic-operator'),(1,'disabled','synthetic-operator')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("SELECT core_request_limits.write_auto_groups(1,ARRAY['private','disabled','default','ungranted'],1)")
+        .execute(&pool).await.unwrap();
+    let mut body = input();
+    body["group"] = json!("auto");
+    body["model_limits_enabled"] = json!(false);
+    body["allow_ips"] = json!("");
+    let inherited = create(&app, &alice, body.clone()).await;
+    let secret = inherited["key"].as_str().unwrap();
+    assert_eq!(inherited["auto_groups"], json!([]));
+    assert!(store.api_key_has_routing_settings(secret).await.unwrap());
+    assert!(!store.api_key_cross_group_retry(secret).await.unwrap());
+    assert_eq!(
+        store.api_key_routing_groups(secret).await.unwrap(),
+        vec!["private", "default"]
+    );
+
+    body["auto_groups"] = json!(["default", "private"]);
+    body["cross_group_retry"] = json!(true);
+    let custom = create(&app, &alice, body).await;
+    let custom_secret = custom["key"].as_str().unwrap();
+    assert!(
+        store
+            .api_key_cross_group_retry(custom_secret)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store.api_key_routing_groups(custom_secret).await.unwrap(),
+        vec!["default", "private"]
+    );
+    sqlx::query("SELECT core_request_limits.write_auto_groups(2,ARRAY['private'],1)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.api_key_routing_groups(secret).await.unwrap(),
+        vec!["private"]
+    );
+    assert_eq!(
+        store.api_key_routing_groups(custom_secret).await.unwrap(),
+        vec!["default", "private"]
+    );
+    assert!(matches!(
+        store
+            .authorize_model_request(secret, "local-model", None, "default")
+            .await,
+        Err(IdentityError::Forbidden)
+    ));
+    assert!(
+        store
+            .authorize_model_request(custom_secret, "local-model", None, "default")
+            .await
+            .is_ok()
+    );
+    let global = call(
+        &app,
+        "GET",
+        "/api/token/auto-groups",
+        Some(&alice),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(global.1["data"]["groups"], json!(["private"]));
+    let all = call(
+        &app,
+        "GET",
+        "/api/user/self/groups",
+        Some(&alice),
+        None,
+        None,
+    )
+    .await;
+    assert!(all.1["data"].get("default").is_some());
+    assert!(all.1["data"].get("private").is_some());
+    assert!(all.1["data"].get("disabled").is_none());
+
+    // A routing release may disable a group without revoking credentials.
+    // User-grant revocation invalidates the entire credential epoch instead;
+    // check that stricter contract separately after the live-key assertions.
+    sqlx::query("SELECT routing_publish_config($1,1,1,1)")
+        .bind(json!({
+            "version": 2,
+            "groups": [
+                {"name": "default", "enabled": true},
+                {"name": "private", "enabled": false},
+                {"name": "disabled", "enabled": false}
+            ],
+            "upstreams": [],
+            "routes": [],
+            "aliases": []
+        }))
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .api_key_routing_groups(secret)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(store.api_key_has_routing_settings(secret).await.unwrap());
+    assert_eq!(
+        store.api_key_routing_groups(custom_secret).await.unwrap(),
+        vec!["default"]
+    );
+    sqlx::query("SELECT core_request_limits.write_auto_groups(3,'{}',1)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.api_key_routing_groups(secret).await.unwrap(),
+        vec!["default"]
+    );
+    let stored: Vec<String> = sqlx::query_scalar(
+        "SELECT auto_groups FROM core_identity.api_key_settings WHERE credential_id=$1",
+    )
+    .bind(inherited["id"].as_i64().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(stored.is_empty());
+    let stored_custom: Vec<String> = sqlx::query_scalar(
+        "SELECT auto_groups FROM core_identity.api_key_settings WHERE credential_id=$1",
+    )
+    .bind(custom["id"].as_i64().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored_custom,
+        vec!["default", "private"],
+        "disabling a group must not rewrite a custom list into inheritance"
+    );
+    let native = store
+        .issue_key(
+            &alice,
+            Account {
+                kind: AccountKind::Personal,
+                id: 1,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !store
+            .api_key_has_routing_settings(&native.secret)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .api_key_cross_group_retry(&native.secret)
+            .await
+            .unwrap()
+    );
+
+    sqlx::query("UPDATE core_identity.user_routing_groups SET enabled=FALSE WHERE user_id=1 AND group_name='private'")
+        .execute(&pool).await.unwrap();
+    for old_key in [secret, custom_secret] {
+        assert!(matches!(
+            store.api_key_routing_groups(old_key).await,
+            Err(IdentityError::Unauthorized)
+        ));
+        assert!(matches!(
+            store.api_key_has_routing_settings(old_key).await,
+            Err(IdentityError::Unauthorized)
+        ));
+    }
+    assert!(matches!(
+        store.authorize(&alice).await,
+        Err(IdentityError::Unauthorized)
+    ));
+    let after_revocation: Vec<String> = sqlx::query_scalar(
+        "SELECT auto_groups FROM core_identity.api_key_settings WHERE credential_id=$1",
+    )
+    .bind(custom["id"].as_i64().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        after_revocation, stored_custom,
+        "revocation must not rewrite a custom list into inheritance"
+    );
+}
+#[sqlx::test(migrations = false)]
 async fn grants_never_follow_service_level_or_client_fields(pool: PgPool) {
     let (store, app, _, _) = fixture(&pool).await;
     let session = store
@@ -1171,7 +1364,7 @@ mod marked_key_cases {
         let key_secret = key["key"].as_str().unwrap();
         funding(&pool, id, user).await;
         assert_eq!(key["group"], "auto");
-        assert_eq!(key["auto_groups"], json!(["auto"]));
+        assert_eq!(key["auto_groups"], json!([]));
         assert_eq!(key["account_balance_read"], false);
         let list = call(&app, "GET", "/api/token/", Some(&secret), None, None).await;
         assert_eq!(list.0, StatusCode::OK);

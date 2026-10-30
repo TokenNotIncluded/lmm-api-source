@@ -101,6 +101,7 @@ type GroupRatioFormProps = {
   form: UseFormReturn<GroupFormValues>
   onSave: (values: GroupFormValues) => Promise<void>
   isSaving: boolean
+  showAutoConfiguration?: boolean
 }
 
 const GROUP_WARNINGS_EXAMPLE =
@@ -110,6 +111,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   form,
   onSave,
   isSaving,
+  showAutoConfiguration = true,
 }: GroupRatioFormProps) {
   const { t } = useTranslation()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
@@ -192,6 +194,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
         {editMode === 'visual' ? (
           <div className='space-y-6'>
             <GroupRatioVisualEditor
+              showAutoConfiguration={showAutoConfiguration}
               groupRatio={form.watch('GroupRatio')}
               topupGroupRatio={form.watch('TopupGroupRatio')}
               userUsableGroups={form.watch('UserUsableGroups')}
@@ -276,28 +279,30 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='DefaultUseAutoGroup'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Default to auto groups')}</FormLabel>
-                    <FormDescription>
-                      {t(
-                        'When enabled, newly created tokens start in the first auto group.'
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
+            {showAutoConfiguration && (
+              <FormField
+                control={form.control}
+                name='DefaultUseAutoGroup'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Default to auto groups')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, newly created tokens start in the first auto group.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            )}
           </div>
         ) : (
           <SettingsForm onSubmit={form.handleSubmit(onSave)}>
@@ -410,57 +415,63 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='AutoGroups'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Auto assignment order')}</FormLabel>
-                  <FormControl>
-                    <SystemJsonCodeEditor
-                      configurationKey='AutoGroups'
-                      value={field.value}
-                      onChange={field.onChange}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      textareaRef={field.ref}
-                      heightClassName='h-40 min-h-40 max-h-40'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'JSON array of group identifiers. When enabled below, new tokens rotate through this list.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {showAutoConfiguration && (
+              <FormField
+                control={form.control}
+                name='AutoGroups'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Auto assignment order')}</FormLabel>
+                    <FormControl>
+                      <SystemJsonCodeEditor
+                        configurationKey='AutoGroups'
+                        value={field.value}
+                        onChange={field.onChange}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                        heightClassName='h-40 min-h-40 max-h-40'
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'JSON array of group identifiers. When enabled below, new tokens rotate through this list.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
-            <FormField
-              control={form.control}
-              name='MaxTokenAutoGroups'
-              render={({ field, fieldState }) => (
-                <FormItem data-invalid={fieldState.invalid}>
-                  <FormLabel>{t('Maximum custom groups per token')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...safeNumberFieldProps(field)}
-                      type='number'
-                      min={1}
-                      step={1}
-                      aria-invalid={fieldState.invalid}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Limits only token-specific Auto snapshots. Global Auto inheritance remains unlimited.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {showAutoConfiguration && (
+              <FormField
+                control={form.control}
+                name='MaxTokenAutoGroups'
+                render={({ field, fieldState }) => (
+                  <FormItem data-invalid={fieldState.invalid}>
+                    <FormLabel>
+                      {t('Maximum custom groups per token')}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...safeNumberFieldProps(field)}
+                        type='number'
+                        min={1}
+                        step={1}
+                        aria-invalid={fieldState.invalid}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Limits only token-specific Auto snapshots. Global Auto inheritance remains unlimited.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <FormField
               control={form.control}
@@ -515,28 +526,30 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='DefaultUseAutoGroup'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Default to auto groups')}</FormLabel>
-                    <FormDescription>
-                      {t(
-                        'When enabled, newly created tokens start in the first auto group.'
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
+            {showAutoConfiguration && (
+              <FormField
+                control={form.control}
+                name='DefaultUseAutoGroup'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Default to auto groups')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, newly created tokens start in the first auto group.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            )}
           </SettingsForm>
         )}
       </Form>

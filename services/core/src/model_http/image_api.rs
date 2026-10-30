@@ -163,7 +163,14 @@ fn error_response(error: RelayError, id: Option<&str>) -> Response {
     if let Some(id) = id.filter(|id| valid_operation(id)) {
         value["operation_id"] = json!(id);
     }
-    finish((status, Json(value)).into_response(), id)
+    let mut response = (status, Json(value)).into_response();
+    if let RelayError::RateLimited(seconds) = error {
+        response.headers_mut().insert(
+            header::RETRY_AFTER,
+            seconds.to_string().parse().expect("integer Retry-After"),
+        );
+    }
+    finish(response, id)
 }
 fn execution_error(error: Error) -> RelayError {
     match error {
@@ -174,6 +181,7 @@ fn execution_error(error: Error) -> RelayError {
         Error::Conflict => RelayError::Conflict,
         Error::NoFunds => RelayError::NoFunds,
         Error::Pending => RelayError::SettlementPending,
+        Error::RateLimited(seconds) => RelayError::RateLimited(seconds),
         Error::Retry | Error::Storage => RelayError::BillingUnavailable,
     }
 }
@@ -721,6 +729,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
         assert_eq!(response.headers()[OPERATION_HEADER], id);
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let limited = error_response(RelayError::RateLimited(37), Some(&id));
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(limited.headers()[header::RETRY_AFTER], "37");
     }
     #[test]
     fn image_api_multipart_metadata_and_types_are_strict() {

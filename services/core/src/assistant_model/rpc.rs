@@ -38,6 +38,14 @@ fn status(e: Error) -> Status {
         Error::Forbidden => Status::permission_denied("assistant authority denied"),
         Error::Conflict => Status::aborted("assistant state changed; inspect original operation"),
         Error::NoFunds => Status::resource_exhausted("assistant funds or budget unavailable"),
+        Error::RequestRateLimited(seconds) => {
+            let mut status = Status::resource_exhausted("assistant request rate limit reached");
+            status.metadata_mut().insert(
+                "retry-after",
+                seconds.to_string().parse().expect("integer retry-after"),
+            );
+            status
+        }
         Error::Unavailable => {
             Status::unavailable("assistant unavailable; inspect original operation")
         }

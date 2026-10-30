@@ -24,6 +24,7 @@ pub(super) fn restore(base: Usage, evidence: Option<Value>) -> Result<Usage> {
             .and_then(Value::as_object)
             .is_some_and(|usage| {
                 usage.contains_key("cache_creation")
+                    || usage.contains_key("text_request")
                     || usage.contains_key("tool")
                     || usage.contains_key("grounding")
             })
@@ -45,6 +46,7 @@ pub(super) fn restore(base: Usage, evidence: Option<Value>) -> Result<Usage> {
             usage.input,
             usage.cached,
             usage.output,
+            usage.text_request,
             usage.upstream_cost_atto_usd,
             usage.cache_creation.map(|value| {
                 (

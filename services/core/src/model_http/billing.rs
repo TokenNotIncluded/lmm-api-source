@@ -12,12 +12,36 @@ pub(super) fn error(error: charging::Error) -> RelayError {
     match error {
         charging::Error::Unauthorized => RelayError::Unauthorized,
         charging::Error::Forbidden => RelayError::Forbidden,
+        charging::Error::RequestRateLimited(seconds) => RelayError::RateLimited(seconds),
         charging::Error::NoFunds | charging::Error::BudgetExceeded => RelayError::NoFunds,
         charging::Error::Conflict | charging::Error::StaleWorker | charging::Error::WrongState => {
             RelayError::Conflict
         }
         _ => RelayError::BillingUnavailable,
     }
+}
+
+/// Known absence of accepted work is separate from a missing supplier receipt.
+/// Only the final typed delivery branch and its durable recovery call this.
+pub(super) fn no_acceptance_usage(price: &charging::Price) -> Result<Usage, RelayError> {
+    if price.text_request.is_some() || price.tool.is_some() || price.image.is_some() {
+        return Err(RelayError::SettlementPending);
+    }
+    let usage = Usage {
+        upstream_cost_atto_usd: price.upstream_cost_group_ppm.map(|_| 0),
+        grounding: price
+            .grounding
+            .as_ref()
+            .map(|_| super::grounding_price::GroundingUsage {
+                grounded_requests: 0,
+                tool_input_tokens: None,
+            }),
+        ..Usage::default()
+    };
+    if price.cost(usage).map_err(error)? != 0 {
+        return Err(RelayError::SettlementPending);
+    }
+    Ok(usage)
 }
 
 /// Retry the entire rolled-back operation with the same ID, payload and worker.
@@ -365,40 +389,43 @@ impl Billing for Bridge {
                 )
             }
             .map_err(error)?;
+            let prepared = self.prepared_with_route_fallbacks(&context.request_id, prepared)?;
             // @context-fold end gateway-prepared-contract
-            let reserve = if selected.price.grounding.is_some() {
-                selected
-                    .price
-                    .reservation_ceiling(charging::ReservationBasis::Tokens {
-                        input: input_bound,
-                        output: u64::from(request.max_output_tokens),
-                    })
-                    .map_err(error)?
-            } else if selected.price.upstream_cost_group_ppm.is_some() {
-                let mut conservative = selected.price.clone();
-                conservative.input_per_million = conservative
-                    .input_per_million
-                    .max(conservative.cached_per_million);
-                conservative
-                    .cost(Usage {
-                        tool: None,
-                        grounding: None,
+            let reserve =
+                if selected.price.grounding.is_some() || selected.price.text_request.is_some() {
+                    selected
+                        .price
+                        .reservation_ceiling(charging::ReservationBasis::Tokens {
+                            input: input_bound,
+                            output: u64::from(request.max_output_tokens),
+                        })
+                        .map_err(error)?
+                } else if selected.price.upstream_cost_group_ppm.is_some() {
+                    let mut conservative = selected.price.clone();
+                    conservative.input_per_million = conservative
+                        .input_per_million
+                        .max(conservative.cached_per_million);
+                    conservative
+                        .cost(Usage {
+                            tool: None,
+                            text_request: None,
+                            grounding: None,
 
-                        cache_creation: None,
-                        image: None,
-                        upstream_cost_atto_usd: Some(crate::upstream_cost::ATTO_USD),
-                        input: input_bound as i64,
-                        cached: 0,
-                        output: i64::from(request.max_output_tokens),
-                    })
-                    .map_err(error)?
-            } else {
-                let reserve = selected
-                    .quote
-                    .reservation_ceiling(input_bound, u64::from(request.max_output_tokens))
-                    .map_err(|_| RelayError::BillingUnavailable)?;
-                i64::try_from(reserve.0).map_err(|_| RelayError::BillingUnavailable)?
-            };
+                            cache_creation: None,
+                            image: None,
+                            upstream_cost_atto_usd: Some(crate::upstream_cost::ATTO_USD),
+                            input: input_bound as i64,
+                            cached: 0,
+                            output: i64::from(request.max_output_tokens),
+                        })
+                        .map_err(error)?
+                } else {
+                    let reserve = selected
+                        .quote
+                        .reservation_ceiling(input_bound, u64::from(request.max_output_tokens))
+                        .map_err(|_| RelayError::BillingUnavailable)?;
+                    i64::try_from(reserve.0).map_err(|_| RelayError::BillingUnavailable)?
+                };
             let basis = if selected.price.upstream_cost_group_ppm.is_some() {
                 charging::ReservationBasis::UpstreamCost {
                     atto_usd: crate::upstream_cost::ATTO_USD,
@@ -555,14 +582,70 @@ impl Billing for Bridge {
                 let price = frozen.price.clone();
                 let upstream_cost = price.upstream_cost_group_ppm.is_some();
                 stage = "usage";
-                let (usage, outcome) = if !report.upstream_attempted {
-                    (
-                        Usage {
-                            upstream_cost_atto_usd: upstream_cost.then_some(0),
-                            ..Usage::default()
-                        },
-                        Outcome::Cancelled,
-                    )
+                let (usage, outcome) = if price.text_request.is_some()
+                    && (!report.upstream_attempted
+                        || matches!(
+                            report.delivery,
+                            crate::routing::DeliveryState::NotSent
+                                | crate::routing::DeliveryState::Rejected
+                        )) {
+                    use super::text_request_price::TextRequestUsage;
+                    let receipt = if report.delivery == crate::routing::DeliveryState::Rejected {
+                        TextRequestUsage::Rejected {
+                            http_status: report
+                                .upstream_status
+                                .ok_or(RelayError::SettlementPending)?,
+                            receipt_sha256: report
+                                .rejection_receipt_sha256
+                                .ok_or(RelayError::SettlementPending)?,
+                        }
+                    } else {
+                        TextRequestUsage::NotSent
+                    };
+                    let usage = Usage {
+                        text_request: Some(receipt),
+                        ..Usage::default()
+                    };
+                    contract
+                        .check_usage(&frozen, usage)
+                        .map_err(|_| RelayError::SettlementPending)?;
+                    (usage, receipt.outcome())
+                } else if matches!(
+                    report.delivery,
+                    crate::routing::DeliveryState::NotSent
+                        | crate::routing::DeliveryState::Rejected
+                ) {
+                    use super::text_request_price::TextRequestUsage;
+                    if report.provider_complete || report.usage != crate::relay::Usage::default() {
+                        return Err(RelayError::SettlementPending);
+                    }
+                    let receipt = if report.delivery == crate::routing::DeliveryState::Rejected {
+                        TextRequestUsage::Rejected {
+                            http_status: report
+                                .upstream_status
+                                .ok_or(RelayError::SettlementPending)?,
+                            receipt_sha256: report
+                                .rejection_receipt_sha256
+                                .ok_or(RelayError::SettlementPending)?,
+                        }
+                    } else {
+                        TextRequestUsage::NotSent
+                    };
+                    let usage = no_acceptance_usage(&price)?;
+                    contract
+                        .check_usage(&frozen, usage)
+                        .map_err(|_| RelayError::SettlementPending)?;
+                    retry(|| {
+                        self.charging.record_no_acceptance(
+                            &reservation.id,
+                            &worker,
+                            &selected.route_id,
+                            receipt,
+                        )
+                    })
+                    .await
+                    .map_err(error)?;
+                    (usage, receipt.outcome())
                 } else {
                     // Partial/local output is not an authoritative final provider
                     // usage receipt. Never substitute missing usage with zero.
@@ -606,7 +689,23 @@ impl Billing for Bridge {
                         // The legacy ledger must agree with the captured exact quote.
                         // Never reinterpret a price or a missing receipt at settlement.
                         stage = "quote";
-                        let quoted = if let Some(grounding) = &selected.price.grounding {
+                        let quoted = if selected.price.text_request.is_some() {
+                            let mut quoted_price = super::routing::credit_price(
+                                selected.quote.price(),
+                                &selected.price.model,
+                                &selected.price.group,
+                            )?;
+                            quoted_price.user_trust = selected.price.user_trust.clone();
+                            if quoted_price != selected.price
+                                || selected.quote.conversion().credits_per_usd() != 500_000
+                            {
+                                return Err(RelayError::SettlementPending);
+                            }
+                            Ok(crate::routing::Credits(
+                                u64::try_from(quoted_price.cost(usage).map_err(error)?)
+                                    .map_err(|_| RelayError::SettlementPending)?,
+                            ))
+                        } else if let Some(grounding) = &selected.price.grounding {
                             // Rebuild the exact scalar token projection from the
                             // captured quote, then add the frozen request fee
                             // before rounding. A separately rounded token quote
@@ -889,7 +988,9 @@ pub(super) fn frozen_priced_usage(
     {
         return Err(RelayError::SettlementPending);
     }
-    let mut usage = if let Some(tariff) = &charge.price.tiered {
+    let mut usage = if charge.price.text_request.is_some() {
+        complete_text_request_usage(observed)?
+    } else if let Some(tariff) = &charge.price.tiered {
         complete_tiered_usage(observed, tariff)?
     } else {
         complete_usage(observed, charge.price.upstream_cost_group_ppm.is_some())?
@@ -900,6 +1001,98 @@ pub(super) fn frozen_priced_usage(
         .map_err(|_| RelayError::SettlementPending)?;
     Ok(usage)
     // @context-fold end frozen-priced-usage
+}
+
+/// A text request fee does not price token categories, but its successful
+/// receipt still retains the supplier's real, complete input/output totals.
+/// Missing aggregate cache writes are never reconstructed from partial TTLs.
+fn complete_text_request_usage(observed: crate::relay::Usage) -> Result<Usage, RelayError> {
+    let mut usage = complete_usage(observed, true)?;
+    let integer = |value: u64| i64::try_from(value).map_err(|_| RelayError::SettlementPending);
+    usage.upstream_cost_atto_usd = None;
+    usage.cache_creation = match observed.cache_creation_input_tokens {
+        Some(total) => Some(charging::CacheCreationUsage {
+            total: integer(total)?,
+            five_minute: observed
+                .cache_creation_details
+                .and_then(|d| d.ephemeral_5m_input_tokens)
+                .map(integer)
+                .transpose()?,
+            one_hour: observed
+                .cache_creation_details
+                .and_then(|d| d.ephemeral_1h_input_tokens)
+                .map(integer)
+                .transpose()?,
+            twelve_hour: observed
+                .openai_cache_write_details
+                .and_then(|d| d.ttl_12h_tokens)
+                .map(integer)
+                .transpose()?,
+            cache_creation_mode: None,
+            reported_total: None,
+        }),
+        None if observed.cache_creation_details.is_some()
+            || observed.openai_cache_write_details.is_some() =>
+        {
+            return Err(RelayError::SettlementPending);
+        }
+        None => None,
+    };
+    usage.text_request = Some(super::text_request_price::TextRequestUsage::Completed);
+    if !usage.valid() {
+        return Err(RelayError::SettlementPending);
+    }
+    Ok(usage)
+}
+
+#[cfg(test)]
+mod text_request_usage_tests {
+    use super::*;
+    #[test]
+    fn request_fee_preserves_measured_cache_counts_and_rejects_missing_usage() {
+        let observed = crate::relay::Usage {
+            input_tokens: Some(100),
+            output_tokens: Some(2),
+            cached_input_tokens: Some(10),
+            cache_creation_input_tokens: Some(20),
+            openai_cache_write_details: Some(crate::relay::OpenAiCacheWriteDetails {
+                ttl_30m_tokens: Some(5),
+                ttl_12h_tokens: Some(15),
+            }),
+            ..Default::default()
+        };
+        let normalized = complete_text_request_usage(observed).unwrap();
+        assert_eq!(
+            (normalized.input, normalized.cached, normalized.output),
+            (100, 10, 2)
+        );
+        assert_eq!(normalized.cache_creation.unwrap().twelve_hour, Some(15));
+        assert_eq!(
+            normalized.text_request,
+            Some(super::super::text_request_price::TextRequestUsage::Completed)
+        );
+        assert!(
+            complete_text_request_usage(crate::relay::Usage {
+                input_tokens: None,
+                ..observed
+            })
+            .is_err()
+        );
+        assert!(
+            complete_text_request_usage(crate::relay::Usage {
+                cache_creation_input_tokens: None,
+                ..observed
+            })
+            .is_err()
+        );
+        assert!(
+            complete_text_request_usage(crate::relay::Usage {
+                google_search_grounded_requests: Some(1),
+                ..observed
+            })
+            .is_err()
+        );
+    }
 }
 
 pub(super) fn validate_frozen_observation(
@@ -1025,6 +1218,7 @@ pub(super) fn complete_usage(
         None
     };
     Ok(Usage {
+        text_request: None,
         grounding: None,
 
         tool: observed.tool,
@@ -1209,6 +1403,7 @@ mod openai_cache_billing_tests {
             assert_eq!(restored, usage);
             let ledger = charging::Price {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 version: "synthetic-cache-12h".into(),
@@ -1392,6 +1587,7 @@ fn complete_generic_cache_usage(
     };
     let usage = Usage {
         tool: None,
+        text_request: None,
         grounding: None,
 
         image: None,
@@ -1482,6 +1678,7 @@ fn complete_strict_cache_usage(
     }
     let usage = Usage {
         tool: None,
+        text_request: None,
         grounding: None,
 
         image: None,
@@ -1890,6 +2087,7 @@ mod a07_billing_tests {
             payer_account_id: 3,
             price: charging::Price {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 user_trust: None,
@@ -1911,6 +2109,7 @@ mod a07_billing_tests {
             reserved: 100,
             usage: Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -1991,6 +2190,7 @@ mod a07_billing_tests {
             ),
             Ok(Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -2043,6 +2243,7 @@ mod a07_billing_tests {
             complete_usage(observed, false),
             Ok(Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -2076,6 +2277,7 @@ mod a07_billing_tests {
             ),
             Ok(Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,

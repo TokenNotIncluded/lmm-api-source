@@ -1,5 +1,5 @@
 //! HTTP routing and contract handlers for historical logs and usage exports.
-//! Immutable historical logs/exports and read-only native dashboard projections.
+//! Retained historical logs/exports and read-only native dashboard projections.
 
 mod dashboard;
 

@@ -541,6 +541,7 @@ async fn model_and_commerce_on_distinct_wallets_cannot_exceed_shared_user_cap(po
         fingerprint: [3; 32],
         price: ModelPrice {
             tool: None,
+            text_request: None,
             grounding: None,
             user_trust: None,
             image: None,

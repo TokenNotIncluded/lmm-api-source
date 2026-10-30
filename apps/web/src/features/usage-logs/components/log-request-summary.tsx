@@ -32,7 +32,11 @@ import {
 } from '../lib/money'
 import { usageReceiptState } from '../lib/receipt-state'
 import { logRecovery, safeLogDiagnostic } from '../lib/recovery'
-import { cacheWrite12hQuantity, logUsageQuantity } from '../lib/usage-quantity'
+import {
+  cacheWrite12hQuantity,
+  completedTextRequestQuantity,
+  logUsageQuantity,
+} from '../lib/usage-quantity'
 import type { LogOtherData } from '../types'
 
 export function LogRequestSummary({
@@ -50,6 +54,7 @@ export function LogRequestSummary({
   const netBasis = hasNetConsumptionMetadata(other)
   const amounts = logNetConsumptionAmounts(log, other)
   const usage = logUsageQuantity(log, other)
+  const completed = completedTextRequestQuantity(log, other)
   const toolKind =
     log.tool_kind !== undefined ? log.tool_kind : other?.tool_kind
   const groundedRequests =
@@ -163,6 +168,14 @@ export function LogRequestSummary({
               </dd>
             </div>
           </>
+        )}
+        {completed !== undefined && (
+          <div>
+            <dt className='text-muted-foreground'>
+              {t('Completed text requests')}
+            </dt>
+            <dd>{completed?.toLocaleString() ?? t('Unknown')}</dd>
+          </div>
         )}
         {hasGrounding && (
           <>

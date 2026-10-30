@@ -31,6 +31,7 @@ const COLUMNS: &[&str] = &[
     "billing_method",
     "tool_kind",
     "successful_tool_requests",
+    "completed_text_requests",
     "grounded_requests",
     "tool_input_tokens",
 ];
@@ -50,7 +51,7 @@ impl NativeCsv {
 
     pub(super) fn include(&mut self, request: &ValidatedRequest) -> Result<(), Error> {
         let settled = request.settled();
-        let text = settled && request.price.image.is_none() && request.price.tool.is_none();
+        let text = settled && request.measured_text();
         let creation = request.usage.cache_creation.filter(|_| text);
         let cells = [
             request.id.clone(),
@@ -58,13 +59,7 @@ impl NativeCsv {
             request.at.to_string(),
             request.state.clone(),
             request.outcome.clone().unwrap_or_default(),
-            number(
-                request
-                    .usage
-                    .tool
-                    .filter(|_| settled)
-                    .map(|tool| i64::from(tool.http_status)),
-            ),
+            number(request.provider_status().map(i64::from)),
             request.price.model.clone(),
             request.price.group.clone(),
             request.token_name.clone(),
@@ -95,12 +90,7 @@ impl NativeCsv {
                     .filter(|_| settled)
                     .map(|i| i64::from(i.output_images)),
             ),
-            if request.price.tool.is_some() {
-                "per_successful_request"
-            } else {
-                "measured_usage"
-            }
-            .into(),
+            request.billing_method().into(),
             request
                 .price
                 .tool
@@ -113,6 +103,13 @@ impl NativeCsv {
                     .tool
                     .filter(|_| settled)
                     .map(|tool| i64::from(tool.successful_requests)),
+            ),
+            number(
+                request
+                    .usage
+                    .text_request
+                    .filter(|_| settled)
+                    .map(|text| i64::from(text.completed_requests())),
             ),
             number(
                 request

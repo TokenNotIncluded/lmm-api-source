@@ -54,6 +54,10 @@ pub struct ExternalModelContext {
     pub reservation: ReservationProfile,
     #[serde(default)]
     pub grounding: Option<super::grounding_price::GroundingContract>,
+    /// Reviewed statuses guaranteed to reject work before any generation or
+    /// tool side effect. A status code alone is never this guarantee.
+    #[serde(default)]
+    pub pre_acceptance_rejection_statuses: Vec<u16>,
 }
 
 #[derive(Clone, Default)]
@@ -61,6 +65,42 @@ pub struct ProviderPolicy {
     contexts: BTreeMap<(u64, String), ExternalModelContext>,
 }
 impl ProviderPolicy {
+    pub(super) fn output_bound(
+        &self,
+        attempt: &Attempt,
+        installation_max: u32,
+    ) -> Result<u32, RelayError> {
+        let endpoint = validate_base_url(attempt.endpoint(), true)?;
+        if literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback()) {
+            return Ok(installation_max);
+        }
+        let context = self
+            .contexts
+            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()))
+            .filter(|context| {
+                context.protocol == attempt.protocol() && context.endpoint == endpoint.as_str()
+            })
+            .ok_or(RelayError::RouteUnavailable)?;
+        Ok(context.max_output_tokens.min(installation_max))
+    }
+
+    pub(super) fn rejection_statuses(&self, attempt: &Attempt) -> Result<Vec<u16>, RelayError> {
+        let endpoint = validate_base_url(attempt.endpoint(), true)?;
+        let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
+        let context = self
+            .contexts
+            .get(&(attempt.upstream_id(), attempt.upstream_model().to_owned()));
+        if !local
+            && context.is_none_or(|context| {
+                context.protocol != attempt.protocol() || context.endpoint != endpoint.as_str()
+            })
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
+        Ok(context.map_or_else(Vec::new, |context| {
+            context.pre_acceptance_rejection_statuses.clone()
+        }))
+    }
     pub(super) fn grounding_price(
         &self,
         attempt: &Attempt,
@@ -159,6 +199,22 @@ impl ProviderPolicy {
         }
         let mut result = Self::default();
         for mut context in contexts {
+            if context.pre_acceptance_rejection_statuses.len() > 32
+                || context
+                    .pre_acceptance_rejection_statuses
+                    .iter()
+                    .any(|status| !(400..=599).contains(status))
+                || context
+                    .pre_acceptance_rejection_statuses
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    != context.pre_acceptance_rejection_statuses.len()
+            {
+                return Err(RelayError::Invalid(
+                    "invalid pre-acceptance rejection contract",
+                ));
+            }
             let endpoint = validate_base_url(&context.endpoint, false)?;
             if context.grounding.is_some() && context.protocol != Protocol::Gemini {
                 return Err(RelayError::Invalid(
@@ -563,6 +619,7 @@ mod tests {
 
     fn context() -> ExternalModelContext {
         ExternalModelContext {
+            pre_acceptance_rejection_statuses: Vec::new(),
             grounding: None,
 
             reservation: ReservationProfile::default(),

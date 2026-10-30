@@ -122,6 +122,7 @@ fn request(id: &str, reserve: i64) -> Request {
         maximum_seconds: 3600,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -221,6 +222,7 @@ fn exact_cumulative_prices_cache_and_overflow() {
     assert_eq!(
         price.cost(Usage {
             tool: None,
+            text_request: None,
             grounding: None,
 
             cache_creation: None,
@@ -235,6 +237,7 @@ fn exact_cumulative_prices_cache_and_overflow() {
     assert_eq!(
         price.cost(Usage {
             tool: None,
+            text_request: None,
             grounding: None,
 
             cache_creation: None,

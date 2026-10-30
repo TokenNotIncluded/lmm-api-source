@@ -21,6 +21,7 @@ import { getRouteApi } from '@tanstack/react-router'
 import { HoneypotPage } from '@/features/honeypot'
 
 import { SettingsPage } from '../components/settings-page'
+import { RateLimitSection } from '../request-limits/rate-limit-section'
 import type { SecuritySettings } from '../types'
 import { DEFAULT_IP_ACCESS_ROUTING_RULES } from './ip-access-routing-config'
 import {
@@ -67,6 +68,7 @@ export function SecuritySettings() {
   ).useParams()
   // Native Core administration must not depend on the legacy /api/option API.
   if (params.section === 'honeypot') return <HoneypotPage />
+  if (params.section === 'rate-limit') return <RateLimitSection />
   return (
     <SettingsPage
       routePath='/_authenticated/system-settings/security/$section'

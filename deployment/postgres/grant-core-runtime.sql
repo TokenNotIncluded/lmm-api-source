@@ -139,6 +139,18 @@ GRANT SELECT ON core_history.sources, core_history.log_records,
     core_history.scope_receipts,core_history.finance_sources,
     core_history.finance_users,core_history.finance_topups,
     core_history.finance_native_payments TO :"runtime_role";
+-- Operational jobs delete only their frozen historical-log scope through one
+-- bounded function. Native financial evidence remains append-only.
+GRANT USAGE ON SCHEMA core_operations TO :"runtime_role";
+GRANT SELECT,INSERT ON core_operations.log_cleanup_jobs TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_operations.log_cleanup_jobs_id_seq TO :"runtime_role";
+GRANT SELECT,INSERT,UPDATE,DELETE ON core_operations.instances TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_operations.run_log_cleanup_batch() TO :"runtime_role";
+GRANT USAGE ON SCHEMA core_request_limits TO :"runtime_role";
+GRANT SELECT ON core_request_limits.policy,core_request_limits.auto_policy TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_request_limits.admit(bigint,text,text),
+    core_request_limits.write_policy(bigint,boolean,integer,integer,jsonb,bigint),
+    core_request_limits.write_auto_groups(bigint,text[],bigint) TO :"runtime_role";
 -- Verified registration proof may append a qualification, never edit campaign
 -- policy, the installation HMAC key, qualification holds or reward history.
 GRANT USAGE ON SCHEMA core_gift TO :"runtime_role";

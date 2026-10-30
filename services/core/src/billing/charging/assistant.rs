@@ -94,6 +94,20 @@ impl Charging {
             return Err(Error::Conflict);
         }
         authority::reject_new_model(c, actor.user_id).await?;
+        crate::request_limits::admit_in_transaction(
+            c,
+            actor.user_id,
+            &request.price.group,
+            &request.id,
+        )
+        .await
+        .map_err(|error| match error {
+            crate::request_limits::AdmissionError::Limited {
+                retry_after_seconds,
+            } => Error::RequestRateLimited(retry_after_seconds),
+            crate::request_limits::AdmissionError::Invalid => Error::Invalid,
+            crate::request_limits::AdmissionError::Storage => Error::Storage,
+        })?;
         let at = now(c).await?;
         let payer = authority::Payer {
             id: payer_id,

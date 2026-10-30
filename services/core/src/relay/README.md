@@ -101,10 +101,22 @@ Defaults: 5 s connect; 30 s headers; 30 s idle read; 10 s slow-client write;
 writing and the upstream request. The reservation and finalizer have their own
 short deadline and are not aborted just because the client disconnected.
 
-Retry defaults to zero. At most two explicit retries may be configured, only
-for connect failures. HTTP statuses, redirects, read failures, partial output,
-header timeouts and ambiguous POST failures are not replayed. Reqwest's own
-retry policy is disabled. A retry does not reset the total request deadline.
+Retry defaults to zero. The public model gateway uses the configured routing
+plan and at most eight frozen candidate bindings. `RouteProvider::dispatching`
+persists the selected binding before a send; `RouteProvider::failed` receives
+typed delivery evidence and may return the next original candidate. It never
+creates another reservation or invokes an intermediate finalizer. The optional
+relay-only `connect_retries` setting is still forbidden by the public gateway.
+
+HTTP statuses alone, redirects, read failures, partial output, header timeouts
+and ambiguous POST failures are not replayed. A reviewed provider context can
+declare pre-acceptance rejection statuses, but retry additionally requires a
+complete pure error envelope without generation, usage or tool evidence and an
+allowed route failure cause. `Report.delivery` and the rejection receipt digest
+carry that classification to billing. The first sales quote remains frozen
+through authorized cross-group fallback. See the routing guide's
+[retry and session affinity contract](../routing/README.md#model-http-retry-and-session-affinity).
+Reqwest's own retry policy is disabled; retries do not reset the total deadline.
 
 `Relay::drain(grace)` closes admission atomically, waits for current requests,
 then cancels remaining upstreams and waits for bounded hooks. It reports both

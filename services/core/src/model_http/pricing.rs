@@ -252,8 +252,8 @@ impl PricingSurface {
                         continue;
                     }
                 } else if !token_price_ok {
-                    // A request fee has no semantics on the text relay. Only
-                    // the explicitly bound native tool protocol can use it.
+                    // Unsupported mixed request/token tariffs cannot invoke
+                    // either the text relay or a native tool contract.
                     continue;
                 }
                 apis.insert(match upstream.protocol {
@@ -306,7 +306,9 @@ impl PricingSurface {
                 let (token_price, upstream_cost_price) =
                     if quote.billing_mode() == BillingMode::UpstreamCost {
                         (None, Some(upstream_cost_price(quote)))
-                    } else if tool {
+                    } else if tool
+                        || super::text_request_price::TextRequestPrice::from_quote(quote).is_some()
+                    {
                         (Some(request_price(quote)?), None)
                     } else {
                         (Some(token_price(quote)?), None)
@@ -777,6 +779,7 @@ pub(crate) mod tests {
             names
                 .into_iter()
                 .map(|name| super::super::ExternalModelContext {
+                    pre_acceptance_rejection_statuses: Vec::new(),
                     grounding: None,
 
                     upstream_id: 1,
@@ -1201,6 +1204,7 @@ pub(crate) mod tests {
                     .find(|t| t.upstream_id == upstream.id)
                     .unwrap();
                 super::super::ExternalModelContext {
+                    pre_acceptance_rejection_statuses: Vec::new(),
                     grounding: None,
 
                     reservation: Default::default(),

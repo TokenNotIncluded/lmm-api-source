@@ -274,7 +274,11 @@ impl CatalogSurface {
                         upstream_model: name.to_owned(),
                         name: name.to_owned(),
                         apis,
-                        pricing: pricing(quote, tool)?,
+                        pricing: pricing(
+                            quote,
+                            tool || super::text_request_price::TextRequestPrice::from_quote(quote)
+                                .is_some(),
+                        )?,
                         native_cost: None,
                     });
                     group_ppm.push(quote.multipliers_ppm().0);
@@ -1110,7 +1114,15 @@ mod tests {
             }
             config.upstreams[0].protocol = Protocol::OpenAiChat;
             config.routes[0].targets[0].upstream_model = kind.model().into();
-            assert!(project(config, prices).models.is_empty());
+            let text = project(config, prices);
+            assert_eq!(text.models.len(), 1);
+            assert_eq!(
+                text.models[0].apis,
+                ["openai-completions", "openai-responses"]
+            );
+            assert_eq!(text.models[0].pricing.unit, "successful_requests");
+            assert!(text.models[0].pricing.input.is_none());
+            assert!(text.models[0].pricing.request.is_some());
         }
     }
     #[test]

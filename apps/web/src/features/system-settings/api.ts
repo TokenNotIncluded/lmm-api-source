@@ -200,12 +200,16 @@ export async function confirmPaymentCompliance() {
   return res.data
 }
 
-export async function startLogCleanupTask(targetTimestamp: number) {
+export async function startLogCleanupTask(
+  targetTimestamp: number,
+  idempotencyKey: string
+) {
   const res = await api.post<SystemTaskResponse<LogCleanupTask>>(
     '/api/system-task/log-cleanup',
     null,
     {
       params: { target_timestamp: targetTimestamp },
+      headers: { 'Idempotency-Key': idempotencyKey },
     }
   )
   return res.data

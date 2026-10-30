@@ -117,6 +117,7 @@ async fn seed(pool: &PgPool, fixture: &Fixture, id: &str, usage: Value, terminal
         fingerprint: [17; 32],
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,

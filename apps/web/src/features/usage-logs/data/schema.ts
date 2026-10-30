@@ -45,6 +45,7 @@ export const usageLogSchema = z.object({
   billing_method: z.string().optional(),
   tool_kind: z.enum(['deepseek_search', 'deepseek_fetch']).nullish(),
   tool_requests: z.number().int().min(0).max(1).nullish(),
+  completed_requests: z.number().int().min(0).max(1).nullish(),
   grounded_requests: z.number().int().min(0).max(1).nullish(),
   token_usage_available: z.boolean().optional(),
   output_image_count: z.number().int().safe().positive().nullish(),

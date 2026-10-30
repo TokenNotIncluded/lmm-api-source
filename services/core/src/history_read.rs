@@ -1,4 +1,5 @@
-//! Immutable historical logs. Native receipt-backed usage remains in `usage`.
+//! Imported historical logs. Explicit administrator cleanup is owned by
+//! `operations`; native receipt-backed usage remains in `usage`.
 //! Nothing here creates wallets, imports facts, replays requests or values raw
 //! opening counters. Source installation and HTTP mounting are explicit gates.
 pub(crate) mod performance;

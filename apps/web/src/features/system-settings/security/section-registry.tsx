@@ -91,19 +91,7 @@ const SECURITY_SECTIONS = [
   {
     id: 'rate-limit',
     titleKey: 'Rate Limiting',
-    build: (settings: SecuritySettings) => (
-      <RateLimitSection
-        defaultValues={{
-          ModelRequestRateLimitEnabled: settings.ModelRequestRateLimitEnabled,
-          ModelRequestRateLimitCount: settings.ModelRequestRateLimitCount,
-          ModelRequestRateLimitSuccessCount:
-            settings.ModelRequestRateLimitSuccessCount,
-          ModelRequestRateLimitDurationMinutes:
-            settings.ModelRequestRateLimitDurationMinutes,
-          ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
-        }}
-      />
-    ),
+    build: () => <RateLimitSection />,
   },
   {
     id: 'sensitive-words',

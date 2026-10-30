@@ -229,6 +229,54 @@ async fn runtime(f: &Fixture) -> RuntimeRole {
 }
 
 #[sqlx::test(migrations = false)]
+async fn tool_api_pg_request_limits_reject_search_fetch_before_funds_and_supplier(pool: PgPool) {
+    let f = fixture(pool, 10000, &["deepseek-search", "deepseek-fetch"]).await;
+    let role = runtime(&f).await;
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,NULL,'{\"allowed\":1}',7)")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    crate::request_limits::admit(&role.pool, 99, "allowed", "another-user-request")
+        .await
+        .unwrap();
+    let supplier = Supplier::start(Reply::Search(1), false).await;
+    let gateway = gateway(&role.pool, &supplier, 1);
+    for kind in [ToolKind::DeepSeekSearch, ToolKind::DeepSeekFetch] {
+        let (status, headers, body) = call(&gateway, request(&f.key, kind.model(), kind)).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        assert!(
+            (1..=86400).contains(
+                &headers[header::RETRY_AFTER]
+                    .to_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            )
+        );
+    }
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_charging.requests")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (10000, 0)
+    );
+    drop(gateway);
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn tool_api_pg_success_empty_errors_and_native_usage_projection(pool: PgPool) {
     let f = fixture(pool, 10000, &["deepseek-search", "deepseek-fetch"]).await;
     let role = runtime(&f).await;

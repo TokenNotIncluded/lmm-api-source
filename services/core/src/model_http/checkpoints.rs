@@ -61,7 +61,7 @@ fn validate_cache_write_dimensions(
         .map_err(|_| RelayError::SettlementPending)?;
     // This separate contract prices the supplier's measured total USD cost;
     // individual token categories do not determine its settlement amount.
-    if price.upstream_cost_group_ppm.is_some() {
+    if price.upstream_cost_group_ppm.is_some() || price.text_request.is_some() {
         return Ok(());
     }
     let revision = price.tiered.as_ref().map(|tariff| tariff.tariff.revision);
@@ -144,8 +144,26 @@ impl Bridge {
     ) -> Result<(usize, Option<String>), RelayError> {
         validate_recovery_page(limit, after_request_id)?;
         let rows: Vec<CompletedStream> = sqlx::query_as(
-            "SELECT request_id,revision,provider_usage,sequence \
-             FROM core_model.completed_streams_after($1,$2)",
+            "SELECT request_id,revision,provider_usage,sequence FROM ( \
+               SELECT request_id,revision,provider_usage,sequence \
+               FROM core_model.completed_streams_after($1,$2) \
+               UNION ALL \
+               SELECT r.id AS request_id,r.revision,e.detail->'usage' AS provider_usage,0::bigint AS sequence \
+               FROM core_charging.requests r JOIN core_charging.usage_events e ON e.request_id=r.id \
+               WHERE r.state='reconcile' AND e.event_id='usage:provider-final' \
+                 AND e.detail->>'kind'='usage' \
+                 AND ($2::text IS NULL OR r.id>$2) \
+                 AND r.price->'text_request' IS NOT NULL \
+                 AND e.detail->'usage'->'text_request'->>'outcome' IN ('not_sent','rejected') \
+               UNION ALL \
+               SELECT r.id,r.revision,jsonb_build_object('usage',e.detail->'usage','evidence',a.detail),-1::bigint \
+               FROM core_charging.requests r \
+               JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' \
+               JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='model-no-acceptance:v1' \
+               WHERE r.state='reconcile' AND ($2::text IS NULL OR r.id>$2) \
+                 AND r.price->'text_request' IS NULL AND e.detail->>'kind'='usage' \
+                 AND a.detail->>'kind'='model_no_acceptance' \
+             ) evidence ORDER BY request_id LIMIT $1",
         )
         .bind(limit)
         .bind(after_request_id)
@@ -191,15 +209,64 @@ impl Bridge {
                 ) => continue,
                 Err(error) => return Err(super::billing::error(error)),
             };
-            if frozen.price != original.price || !(1..=65_536).contains(&sequence) {
+            if frozen.price != original.price || !(-1..=65_536).contains(&sequence) {
                 continue;
             }
-            let Ok(observed) = serde_json::from_value(value) else {
-                continue;
-            };
-            let Ok(usage) = super::billing::frozen_priced_usage(&contract, &frozen, observed)
-            else {
-                continue;
+            let mut delivery_outcome = None;
+            let usage = if sequence == -1 {
+                let Ok(receipt) = serde_json::from_value::<
+                    super::text_request_price::TextRequestUsage,
+                >(value["evidence"]["receipt"].clone()) else {
+                    continue;
+                };
+                let Ok(usage) = serde_json::from_value::<charging::Usage>(value["usage"].clone())
+                else {
+                    continue;
+                };
+                let Ok(expected) = super::billing::no_acceptance_usage(&frozen.price) else {
+                    continue;
+                };
+                if !receipt.valid()
+                    || receipt.completed_requests() != 0
+                    || usage != expected
+                    || value["evidence"]["price_sha256"].as_str()
+                        != Some(
+                            charging::contract::typed_digest(&frozen.price)
+                                .map_err(super::billing::error)?
+                                .as_str(),
+                        )
+                    || !value["evidence"]["route_id"]
+                        .as_str()
+                        .is_some_and(|route| contract.contains_route(route))
+                    || contract.check_usage(&frozen, usage).is_err()
+                {
+                    continue;
+                }
+                delivery_outcome = Some(receipt.outcome());
+                usage
+            } else if sequence == 0 {
+                let Ok(usage) = serde_json::from_value::<charging::Usage>(value) else {
+                    continue;
+                };
+                if frozen.price.text_request.is_none()
+                    || !usage
+                        .text_request
+                        .is_some_and(|receipt| receipt.completed_requests() == 0)
+                    || contract.check_usage(&frozen, usage).is_err()
+                    || frozen.price.cost(usage) != Ok(0)
+                {
+                    continue;
+                }
+                usage
+            } else {
+                let Ok(observed) = serde_json::from_value(value) else {
+                    continue;
+                };
+                let Ok(usage) = super::billing::frozen_priced_usage(&contract, &frozen, observed)
+                else {
+                    continue;
+                };
+                usage
             };
             if upstream_cost && usage.upstream_cost_atto_usd.is_none() {
                 continue;
@@ -212,10 +279,18 @@ impl Bridge {
                     ..usage
                 }
             };
-            let outcome = usage
-                .tool
-                .map_or(Outcome::Completed, |receipt| receipt.outcome());
-            let evidence = format!("model-stream:{id}:{sequence}");
+            let outcome = delivery_outcome
+                .or_else(|| usage.text_request.map(|receipt| receipt.outcome()))
+                .unwrap_or_else(|| {
+                    usage
+                        .tool
+                        .map_or(Outcome::Completed, |receipt| receipt.outcome())
+                });
+            let evidence = if sequence <= 0 {
+                format!("model-delivery:{id}")
+            } else {
+                format!("model-stream:{id}:{sequence}")
+            };
             let result = super::billing::retry(|| {
                 self.charging
                     .reconcile(&id, revision, usage, outcome, &evidence)
@@ -622,6 +697,7 @@ mod a07_recovery_tests {
         };
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
+                pre_acceptance_rejection_statuses: Vec::new(),
                 grounding: None,
 
                 reservation: Default::default(),
@@ -669,6 +745,7 @@ mod a07_recovery_tests {
         gateway.bridge.active.lock().unwrap().insert(
             "terminal-contract".into(),
             super::super::Operation {
+                route_plan: None,
                 secret: "synthetic-only".into(),
                 group: "allowed".into(),
                 worker: [1; 32],
@@ -827,6 +904,7 @@ mod a07_recovery_tests {
             valid,
             vec![charging::Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -890,6 +968,7 @@ mod a07_recovery_tests {
             recovery_usage(value, 1, true),
             Some(charging::Usage {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 cache_creation: None,

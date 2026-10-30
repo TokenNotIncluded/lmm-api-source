@@ -76,7 +76,11 @@ filtering, response limits, and redirects; this module is not an HTTP firewall.
 
 A group is matched exactly. An alias belongs to one group and points directly to
 one canonical route in that group. Duplicate names, shadowing and alias chains
-are rejected. There is no cross-group or cross-model fallback.
+are rejected. A single `RoutePlan` stays within its group and canonical model.
+The model HTTP gateway can pin additional authorized group plans from the same
+release when an Auto API key explicitly enables `cross_group_retry`. Every plan
+must resolve to the same canonical model. OAuth and ordinary native keys do not
+acquire cross-group retry permission.
 
 `standard`, `fast`, and `ultrafast` must be explicitly allowed by the route, target,
 and matching price rule. Missing fast/ultrafast configuration is an error, not a
@@ -112,6 +116,57 @@ requires BOTH configuration permission and explicit request replay permission.
 Task 05 must not invent idempotency support. `ResponseStarted` means response body
 bytes were exposed to the client; retry is always prohibited, even when both
 permissions are set. A denied retry ends the plan permanently.
+
+### Model HTTP retry and session affinity
+
+The public text gateway retains the actual `RoutePlan` through forwarding.
+Its `retry_on` causes and bounded candidate order govern retries; the gateway
+does not re-read the live catalog to find another target after a failure.
+All group plans come from one immutable release and the whole request has at
+most eight candidate bindings. Request replay permission remains denied even
+when a route sets `allow_replay_after_send`.
+
+The first selected sales quote and billing group remain fixed through every
+attempt, including a cross-group fallback. A backup group's price does not
+increase or replace that quote. Each actual route/group and transport result
+is recorded separately in append-only `usage_events`; there is one request ID,
+one reservation, and at most one final settlement. Candidate bindings include
+the provider/model/credential revision, wire digest, bounds and usage semantics
+in the original reservation contract. Historical contracts without `fallbacks`
+keep their existing serialization and validation.
+
+Fallback candidates must use the same upstream protocol and usage semantics as
+the first contract, use context-max admission, and not increase its input bound.
+Exact-count admission remains tied to its original generator. Incompatible
+tokenizer/normalization contracts and upstream-cost pricing do not gain fallback
+by inheriting another provider's reservation. All candidates are authorized
+before freezing; current key/group/IP access and cross-group permission are
+checked again before dispatch. User and actual-group request limits run before
+dispatch, with one logical request counted once in each applicable window.
+
+Transport failures carry typed delivery evidence. DNS/preparation failures and
+reqwest connector errors occur before HTTP request bytes are sent. A header or
+read timeout, an ambiguous POST, partial output, or a tool-use receipt does not
+prove rejection and cannot start another candidate. Once response bytes have
+been exposed, including an Anthropic keepalive, the request is not replayed.
+
+An external provider context may explicitly set
+`pre_acceptance_rejection_statuses`, for example `[429, 503]`, only after the
+operator reviews that supplier's guarantee that those responses precede work
+acceptance and tool side effects. There are no vendor-name defaults. A listed
+status still requires a complete, bounded JSON error envelope with no output,
+usage or tool-receipt fields. The route's corresponding `retry_on` cause must
+also allow retry. A status code by itself leaves delivery unknown. The durable
+failure record stores the response digest and status, not its body.
+
+Clients can opt into affinity with `X-LMM-Session-ID`, an opaque nonempty ASCII
+identifier of at most 256 bytes. Core hashes it with the authenticated user and
+API-key or OAuth-grant scope, then derives a per-model/group seed for the existing
+priority and weighted selection. The same scope and identifier select the same
+ordered candidates while that eligible configuration stays unchanged. Health,
+operational stops and configuration publication can change eligibility. The
+identifier never grants access, changes prices, reaches a supplier header, or
+appears in route evidence. Requests without it retain weighted random selection.
 
 Health is a Rust-owned runtime concern, separate from immutable pricing. New
 destinations start optimistically healthy; a Rust probe can set them to `Unknown`

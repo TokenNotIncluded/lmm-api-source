@@ -24,13 +24,18 @@ fn request() -> UpgradeRequest {
 }
 
 #[test]
-fn payment_upgrade_authorizes_the_fixed_current_successor_before_legacy_routing_guard() {
-    authorize_target().unwrap();
+fn payment_upgrade_preserves_its_frozen_successor_and_rejects_newer_installers() {
+    assert!(matches!(
+        authorize_target(),
+        Err(UpgradeError::Rejected(
+            "PAYMENT_GATEWAYS_COMPILED_COMPONENTS_CHANGED"
+        ))
+    ));
     let good = request();
     let encoded = serde_json::to_vec(&good).unwrap();
-    let parsed = UpgradeRequest::read(&encoded[..]).unwrap();
+    let parsed = UpgradeRequest::read_fields(&encoded[..]).unwrap();
     assert_eq!(parsed.digest().unwrap(), good.digest().unwrap());
-    let compiled = target().unwrap();
+    let compiled: Target = serde_json::from_str(TARGET).unwrap();
     assert_eq!(compiled.definitions.len(), 7068);
     assert_eq!(
         compiled.manifest_sha256,
@@ -98,7 +103,7 @@ fn payment_receipt_identity_is_stable_only_for_the_original_typed_request() {
     let digest = good.digest().unwrap();
     let reordered = serde_json::to_vec_pretty(&serde_json::to_value(&good).unwrap()).unwrap();
     assert_eq!(
-        UpgradeRequest::read(&reordered[..])
+        UpgradeRequest::read_fields(&reordered[..])
             .unwrap()
             .digest()
             .unwrap(),
@@ -116,13 +121,9 @@ fn payment_receipt_identity_is_stable_only_for_the_original_typed_request() {
         validate(&changed).unwrap();
         assert_ne!(changed.digest().unwrap(), digest, "case {change}");
     }
-    let committed = report(&good, &target().unwrap().catalog_sha256, "committed").unwrap();
-    let replay = report(
-        &good,
-        &target().unwrap().catalog_sha256,
-        "already_committed",
-    )
-    .unwrap();
+    let frozen: Target = serde_json::from_str(TARGET).unwrap();
+    let committed = report(&good, &frozen.catalog_sha256, "committed").unwrap();
+    let replay = report(&good, &frozen.catalog_sha256, "already_committed").unwrap();
     assert_eq!(committed.request_sha256, replay.request_sha256);
     assert_eq!(replay.upgrade_id, good.upgrade_id);
     assert_eq!(replay.components, 29);
@@ -146,7 +147,7 @@ async fn payment_successor_does_not_authorize_the_old_finance_procedure() {
 
 #[test]
 fn pinned_catalog_keeps_transaction_ownership_global_and_upgrade_history_immutable() {
-    let facts: Vec<Vec<serde_json::Value>> = target()
+    let facts: Vec<Vec<serde_json::Value>> = serde_json::from_str::<Target>(TARGET)
         .unwrap()
         .definitions
         .iter()

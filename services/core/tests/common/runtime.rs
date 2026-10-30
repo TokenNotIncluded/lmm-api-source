@@ -65,6 +65,24 @@ impl RuntimeRole {
         }
         // Identity/ledger-only fixtures intentionally omit optional components.
         // Complete runtime provisioning/checking remains strict in production.
+        let operations_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_operations') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if operations_installed {
+            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_operations TO {name}; GRANT SELECT,INSERT ON core_operations.log_cleanup_jobs TO {name}; GRANT USAGE ON SEQUENCE core_operations.log_cleanup_jobs_id_seq TO {name}; GRANT SELECT,INSERT,UPDATE,DELETE ON core_operations.instances TO {name}; GRANT EXECUTE ON FUNCTION core_operations.run_log_cleanup_batch() TO {name}"))
+                .execute(owner).await.unwrap();
+        }
+        let limits_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_request_limits') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if limits_installed {
+            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_request_limits TO {name}; GRANT SELECT ON core_request_limits.policy,core_request_limits.auto_policy TO {name}; GRANT EXECUTE ON FUNCTION core_request_limits.admit(bigint,text,text),core_request_limits.write_policy(bigint,boolean,integer,integer,jsonb,bigint),core_request_limits.write_auto_groups(bigint,text[],bigint) TO {name}"))
+                .execute(owner).await.unwrap();
+        }
         let abuse_installed: bool =
             sqlx::query_scalar("SELECT to_regnamespace('core_abuse') IS NOT NULL")
                 .fetch_one(owner)
@@ -102,6 +120,14 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             .execute(owner)
             .await
             .unwrap();
+            let finance_installed: bool = sqlx::query_scalar(
+                "SELECT count(*)=4 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_history' AND c.relkind IN ('r','v') AND c.relname IN ('finance_sources','finance_users','finance_topups','finance_native_payments')",
+            ).fetch_one(owner).await.unwrap();
+            if finance_installed {
+                sqlx::raw_sql(&format!(
+                    "GRANT SELECT ON core_history.finance_sources,core_history.finance_users,core_history.finance_topups,core_history.finance_native_payments TO {name}"
+                )).execute(owner).await.unwrap();
+            }
         }
         let gift_installed: bool =
             sqlx::query_scalar("SELECT to_regnamespace('core_gift') IS NOT NULL")

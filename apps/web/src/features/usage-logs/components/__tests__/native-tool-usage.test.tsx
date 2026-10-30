@@ -28,6 +28,36 @@ const base = {
   completion_tokens: null,
 }
 
+test('text request fees retain their billing quantity and measured token availability', () => {
+  for (const completed_requests of [0, 1, null]) {
+    const log = usageLogSchema.parse({
+      ...base,
+      pricing_dimension: 'text',
+      billing_method: 'per_completed_request',
+      completed_requests,
+      token_usage_available: completed_requests === 1,
+      prompt_tokens: completed_requests === 1 ? 17 : null,
+      completion_tokens: completed_requests === 1 ? 0 : null,
+    })
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <LogUsageDisplay log={log} other={{ completed_requests: 0 }} />
+        <LogRequestSummary log={log} other={null} onClose={() => {}} />
+      </I18nextProvider>
+    )
+    assert.match(
+      html,
+      new RegExp(`Completed text requests.*${completed_requests ?? 'Unknown'}`)
+    )
+    if (completed_requests === 1) assert.match(html, /17 \/ 0/)
+    else assert.doesNotMatch(html, /0 \/ 0/)
+  }
+  assert.equal(
+    usageLogSchema.safeParse({ ...base, completed_requests: 2 }).success,
+    false
+  )
+})
+
 test('native tool logs preserve zero and successful requests without displaying token quantities', () => {
   for (const tool_requests of [0, 1]) {
     const result = parseLogsPage(

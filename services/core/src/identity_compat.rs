@@ -219,7 +219,7 @@ async fn balance_access(
     )
 }
 async fn auto_groups(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    respond(async {Ok(json!({"groups":state.store.dashboard_groups(access(&headers)?).await?,"max_count":16}))}.await)
+    respond(async {Ok(json!({"groups":state.store.dashboard_auto_groups(access(&headers)?).await?,"max_count":16}))}.await)
 }
 async fn groups(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     respond(

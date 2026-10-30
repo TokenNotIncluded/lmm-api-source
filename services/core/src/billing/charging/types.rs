@@ -9,6 +9,7 @@ pub enum Error {
     Forbidden,
     Conflict,
     BudgetExceeded,
+    RequestRateLimited(u64),
     NoFunds,
     NeedReservation,
     StaleWorker,
@@ -148,6 +149,8 @@ impl CacheCreationUsage {
 #[serde(deny_unknown_fields)]
 pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_request: Option<crate::model_http::text_request_price::TextRequestUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<crate::model_http::tool_price::ToolUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grounding: Option<crate::model_http::grounding_price::GroundingUsage>,
@@ -164,6 +167,20 @@ pub struct Usage {
 }
 impl Usage {
     pub fn valid(self) -> bool {
+        if self.text_request.is_some_and(|receipt| {
+            !receipt.valid()
+                || self.tool.is_some()
+                || self.image.is_some()
+                || self.grounding.is_some()
+                || self.upstream_cost_atto_usd.is_some()
+                || (receipt.completed_requests() == 0
+                    && (self.input != 0
+                        || self.cached != 0
+                        || self.output != 0
+                        || self.cache_creation.is_some()))
+        }) {
+            return false;
+        }
         if self.grounding.is_some_and(|grounding| {
             !grounding.valid()
                 || self.tool.is_some()
@@ -204,6 +221,11 @@ impl Usage {
     }
     pub fn follows(self, previous: Self) -> bool {
         self.valid()
+            && match (self.text_request, previous.text_request) {
+                (Some(now), Some(old)) => now == old,
+                (None, Some(_)) => false,
+                _ => true,
+            }
             && match (self.grounding, previous.grounding) {
                 (Some(now), Some(old)) => now.follows(old),
                 (None, Some(_)) => false,
@@ -240,6 +262,8 @@ impl Usage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Price {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_request: Option<crate::model_http::text_request_price::TextRequestPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<crate::model_http::tool_price::PersistedToolPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -294,6 +318,19 @@ impl Price {
         Ok(())
     }
     pub fn validate(&self) -> Result<()> {
+        if self.text_request.as_ref().is_some_and(|price| {
+            !price.valid()
+                || self.tool.is_some()
+                || self.grounding.is_some()
+                || self.image.is_some()
+                || self.tiered.is_some()
+                || self.upstream_cost_group_ppm.is_some()
+                || self.input_per_million != 0
+                || self.cached_per_million != 0
+                || self.output_per_million != 0
+        }) {
+            return Err(Error::Invalid);
+        }
         if self.grounding.as_ref().is_some_and(|price| {
             !price.valid()
                 || self.tool.is_some()
@@ -364,6 +401,16 @@ impl Price {
     pub fn cost(&self, usage: Usage) -> Result<i64> {
         self.validate()?;
         if !usage.valid() {
+            return Err(Error::Invalid);
+        }
+        if let Some(price) = &self.text_request {
+            return match usage.text_request {
+                Some(receipt) => price.cost(receipt, self.discount()).ok_or(Error::Invalid),
+                None if usage == Usage::default() => Ok(0),
+                None => Err(Error::Invalid),
+            };
+        }
+        if usage.text_request.is_some() {
             return Err(Error::Invalid);
         }
         match (&self.grounding, usage.grounding) {
@@ -483,6 +530,9 @@ impl Price {
                 .ok_or(Error::Invalid);
             }
             ReservationBasis::Tokens { input, output } => {
+                if let Some(price) = &self.text_request {
+                    return price.reservation(self.discount()).ok_or(Error::Invalid);
+                }
                 if self.image.is_some()
                     || self.tool.is_some()
                     || self.upstream_cost_group_ppm.is_some()
@@ -574,6 +624,7 @@ mod trust_price_tests {
     pub(super) fn base() -> Price {
         Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -877,6 +928,7 @@ mod generic_remainder_tests {
     fn price() -> Price {
         Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -1144,6 +1196,7 @@ mod delegated_source_tests {
     fn tilde_model_price_does_not_relax_other_identifiers_or_lengths() {
         let mut price = Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -1182,6 +1235,7 @@ mod delegated_source_tests {
     fn unicode_group_price_keeps_model_and_version_identifier_rules_strict() {
         let mut price = Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,

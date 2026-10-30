@@ -4,6 +4,8 @@ use sqlx::{PgConnection, PgPool};
 use std::fmt;
 #[path = "runtime_assistant_agent.rs"]
 mod assistant_agent;
+#[path = "runtime_operations.rs"]
+mod operations;
 #[path = "runtime_telegram.rs"]
 mod telegram;
 #[path = "runtime_tool_market_credit.rs"]
@@ -240,6 +242,7 @@ pub(crate) async fn check_connection(
     }
 
     tool_market_credit::check(connection, required.tool_market).await?;
+    operations::check(connection).await?;
     telegram::check(connection, required.web_identity).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
 

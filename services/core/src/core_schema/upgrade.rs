@@ -10,6 +10,7 @@ mod additive;
 mod finance;
 mod ledger;
 mod payment_gateways;
+mod request_operations;
 
 const PROCEDURE: &str = "core-24-to-25-trust-pricing-v1";
 const PREDECESSOR: &str = include_str!("predecessor24.json");
@@ -220,6 +221,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == request_operations::PROCEDURE {
+            return request_operations::validate(self);
+        }
         if self.procedure == ledger::PROCEDURE {
             return ledger::validate(self);
         }
@@ -281,6 +285,9 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == request_operations::PROCEDURE {
+            return request_operations::authorize_target();
+        }
         if self.procedure == finance::PROCEDURE {
             return finance::authorize_target();
         }
@@ -358,7 +365,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == ledger::PROCEDURE {
+    let result = if request.procedure == request_operations::PROCEDURE {
+        request_operations::connected(&mut connection, &request).await
+    } else if request.procedure == ledger::PROCEDURE {
         ledger::connected(&mut connection, &request).await
     } else if request.procedure == additive::PROCEDURE {
         additive::connected(&mut connection, &request).await

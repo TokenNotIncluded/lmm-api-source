@@ -796,6 +796,7 @@ async fn marking_blocks_new_real_reservations_but_preserves_existing_real_settle
         maximum_seconds: 120,
         price: Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,

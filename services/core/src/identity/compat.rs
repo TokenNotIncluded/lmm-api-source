@@ -262,12 +262,11 @@ async fn validate(
     } else {
         groups(c, user, routing).await?
     };
-    let mut auto = input.auto_groups.clone().unwrap_or_default();
+    let auto = input.auto_groups.clone().unwrap_or_default();
     if group == "auto" {
-        if auto.is_empty() {
-            auto = allowed.clone();
-        }
-        if auto.is_empty()
+        // Empty is a durable inheritance marker, never a snapshot of today's
+        // grants or global order. Existing nonempty lists remain custom lists.
+        if allowed.is_empty()
             || auto.len() > 16
             || auto.iter().collect::<HashSet<_>>().len() != auto.len()
             || auto
@@ -384,8 +383,9 @@ impl IdentityStore {
         self.financial_profile_enabled = enabled;
         self
     }
-    /// Only groups stored for this key and still granted to its issuer. Empty
-    /// means a native key requires the host's explicit key-group mapping.
+    /// Resolve Auto inheritance on every request and retain only currently
+    /// granted, enabled routing groups. Empty may mean an inherited/custom
+    /// dashboard key has no eligible groups; it must not gain a host fallback.
     pub async fn api_key_routing_groups(&self, secret: &str) -> Result<Vec<String>> {
         let mut tx = self.pool.begin().await?;
         let actor = authorize_in_transaction(&mut tx, secret).await?;
@@ -397,12 +397,22 @@ impl IdentityStore {
         let result = if let Some(row) = row {
             require_developer(&mut tx, actor.user_id).await?;
             let selected: String = row.try_get("group_name")?;
+            let allowed = groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
             let candidates: Vec<String> = if selected == "auto" {
-                row.try_get("auto_groups")?
+                let custom: Vec<String> = row.try_get("auto_groups")?;
+                if custom.is_empty() {
+                    let global = crate::request_limits::global_auto_groups(&mut tx).await?;
+                    if global.is_empty() {
+                        allowed.clone()
+                    } else {
+                        global
+                    }
+                } else {
+                    custom
+                }
             } else {
                 vec![selected]
             };
-            let allowed = groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
             candidates
                 .into_iter()
                 .filter(|g| crate::routing::valid_group_name(g) && allowed.contains(g))
@@ -410,6 +420,34 @@ impl IdentityStore {
         } else {
             Vec::new()
         };
+        tx.commit().await?;
+        Ok(result)
+    }
+    pub async fn api_key_has_routing_settings(&self, secret: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let actor = authorize_in_transaction(&mut tx, secret).await?;
+        if actor.credential_kind != CredentialKind::ApiKey {
+            return Err(IdentityError::Forbidden);
+        }
+        let result = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT FROM core_identity.api_key_settings WHERE credential_id=$1)",
+        )
+        .bind(actor.credential_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+    /// Cross-group retry is opt-in only for dashboard Auto keys. Native keys
+    /// and credentials without settings never acquire this capability.
+    pub async fn api_key_cross_group_retry(&self, secret: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let actor = authorize_in_transaction(&mut tx, secret).await?;
+        if actor.credential_kind != CredentialKind::ApiKey {
+            return Err(IdentityError::Forbidden);
+        }
+        let result = sqlx::query_scalar("SELECT enabled AND group_name='auto' AND cross_group_retry FROM core_identity.api_key_settings WHERE credential_id=$1 FOR SHARE")
+            .bind(actor.credential_id).fetch_optional(&mut *tx).await?.unwrap_or(false);
         tx.commit().await?;
         Ok(result)
     }
@@ -722,6 +760,24 @@ impl IdentityStore {
         tx.commit().await?;
         Ok(json!(allowed))
     }
+    pub async fn dashboard_auto_groups(&self, secret: &str) -> Result<Value> {
+        let mut tx = self.pool.begin().await?;
+        let actor = session(&mut tx, secret).await?;
+        let marked = key_management(&mut tx, &actor).await?;
+        let result = if marked {
+            vec!["auto".to_owned()]
+        } else {
+            let allowed = groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
+            let global = crate::request_limits::global_auto_groups(&mut tx).await?;
+            if global.is_empty() {
+                allowed
+            } else {
+                global.into_iter().filter(|g| allowed.contains(g)).collect()
+            }
+        };
+        tx.commit().await?;
+        Ok(json!(result))
+    }
     pub async fn dashboard_models(&self, secret: &str) -> Result<Vec<String>> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
@@ -885,9 +941,15 @@ pub async fn authorize_model_request_in_transaction(
         let models:Vec<String>=row.try_get("model_limits")?;
         let selected:String=row.try_get("group_name")?;
         let auto:Vec<String>=row.try_get("auto_groups")?;
+        let auto_allowed = if selected == "auto" && auto.is_empty() {
+            let global = crate::request_limits::global_auto_groups(c).await?;
+            global.is_empty() || global.iter().any(|g| g == group)
+        } else {
+            auto.iter().any(|g| g == group)
+        };
         if !row.try_get::<bool,_>("enabled")? || !row.try_get::<bool,_>("ip_allowed")?
             || (row.try_get::<bool,_>("model_limits_enabled")? && !models.iter().any(|m|m==model))
-            || (selected!="auto" && selected!=group) || (selected=="auto" && !auto.iter().any(|g|g==group)) {return Err(IdentityError::Forbidden);}
+            || (selected!="auto" && selected!=group) || (selected=="auto" && !auto_allowed) {return Err(IdentityError::Forbidden);}
         require_developer(c,actor.user_id).await?;
         let granted:Option<bool>=sqlx::query_scalar("SELECT enabled FROM core_identity.user_routing_groups WHERE user_id=$1 AND group_name=$2").bind(actor.user_id).bind(group).fetch_optional(c).await?;
         if granted!=Some(true) {return Err(IdentityError::Forbidden);}

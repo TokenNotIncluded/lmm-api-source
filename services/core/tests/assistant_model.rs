@@ -155,6 +155,44 @@ async fn binding(s: &AssistantModel, session: &str, key: &str, text: &str) -> Bi
     }
 }
 #[sqlx::test]
+async fn assistant_request_limits_share_user_budget_before_hold_and_dispatch(pool: PgPool) {
+    let (_, ledger, session, _, _, account) = fixture(&pool, 100000).await;
+    let p = Provider::start(true).await;
+    let s = service(&pool, &p);
+    let b = binding(&s, &session, "limited-conversation", "hello").await;
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,1,'{}',7)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    lmm_core::request_limits::admit(&pool, 7, "allowed", "existing-api-key-request")
+        .await
+        .unwrap();
+    assert!(
+        matches!(s.reserve_text(&session,&b,"hello").await,Err(Error::RequestRateLimited(seconds)) if (1..=86400).contains(&seconds))
+    );
+    assert_eq!(p.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_charging.requests")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_assistant.operations")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let balance = ledger.balance(account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (100000, 0)
+    );
+}
+
+#[sqlx::test]
 async fn answer_settles_once_and_replays_without_dispatch(pool: PgPool) {
     let (_, ledger, session, key, _, account) = fixture(&pool, 100000).await;
     let p = Provider::start(true).await;

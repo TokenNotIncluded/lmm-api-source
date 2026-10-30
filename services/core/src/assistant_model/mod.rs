@@ -73,6 +73,7 @@ pub enum Error {
     Forbidden,
     Conflict,
     NoFunds,
+    RequestRateLimited(u64),
     Unavailable,
     NotFound,
 }
@@ -106,6 +107,7 @@ impl From<charging::Error> for Error {
             charging::Error::Invalid => Self::Invalid,
             charging::Error::Conflict | charging::Error::Retry => Self::Conflict,
             charging::Error::NoFunds | charging::Error::BudgetExceeded => Self::NoFunds,
+            charging::Error::RequestRateLimited(seconds) => Self::RequestRateLimited(seconds),
             _ => Self::Unavailable,
         }
     }

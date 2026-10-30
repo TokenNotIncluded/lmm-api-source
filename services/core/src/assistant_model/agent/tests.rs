@@ -243,6 +243,60 @@ async fn wait(
     panic!("durable agent did not reach {phase}")
 }
 #[sqlx::test(migrations = false)]
+async fn agent_request_limits_persist_rejection_without_answer_hold_or_dispatch(pool: PgPool) {
+    let (agent, session, account, p) = setup(&pool, "get_account_access").await;
+    let cv = agent
+        .base
+        .conversation(&session, "limited-agent", true)
+        .await
+        .unwrap()
+        .core_conversation_id;
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,1,'{}',7)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    crate::request_limits::admit(&pool, 7, "allowed", "existing-key-request")
+        .await
+        .unwrap();
+    agent
+        .start(&session, &cv, "turn1", "Read my real account")
+        .await
+        .unwrap();
+    let rejected = wait(&agent, &session, &cv, "rejected").await;
+    assert!(rejected.final_text.is_none());
+    assert_eq!((rejected.held_credits, rejected.settled_credits), (0, 0));
+    assert_eq!(p.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_charging.requests")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    sqlx::query("SELECT core_request_limits.write_policy(2,FALSE,86400,NULL,'{}',7)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let replay = agent
+        .start(&session, &cv, "turn1", "Read my real account")
+        .await
+        .unwrap();
+    assert_eq!(replay.phase, "rejected");
+    assert_eq!(replay.revision, rejected.revision);
+    assert!(replay.final_text.is_none());
+    assert!(agent.base.drain(Duration::from_secs(5)).await);
+    let balance = crate::billing::ledger::Ledger::from_pool(pool.clone())
+        .balance(account)
+        .await
+        .unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (100000, 0)
+    );
+    assert_eq!(p.hits.load(Ordering::SeqCst), 0);
+}
+
+#[sqlx::test(migrations = false)]
 async fn core_read_round_settles_twice_and_uses_actual_stored_context(pool: PgPool) {
     let (agent, session, account, p) = setup(&pool, "get_account_access").await;
     let cv = agent

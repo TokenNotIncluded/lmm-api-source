@@ -3,8 +3,9 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 
-use rand::Rng;
-use serde::Serialize;
+use rand::{Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::config::{
     MAX_ATTEMPTS, MAX_ROUTES, MAX_TARGETS_PER_ROUTE, requested_model, valid_group, valid_id,
@@ -358,6 +359,48 @@ impl Router {
         self.route_with_payload_support(request, &mut rand::thread_rng(), false)
     }
 
+    /// Pin every already-authorized group to one immutable release. The caller
+    /// decides whether cross-group retry is authorized; this method grants none.
+    pub(crate) fn route_adapted_groups(
+        &self,
+        model: &str,
+        groups: &[String],
+        protocol: Protocol,
+        affinity: Option<[u8; 32]>,
+    ) -> Result<Vec<RoutePlan>, RoutingError> {
+        let snapshot = self.snapshot()?;
+        let mut plans = Vec::new();
+        for group in groups {
+            let request = RouteRequest {
+                model,
+                group,
+                speed: None,
+                protocol,
+                replay: ReplayPermission::Denied,
+            };
+            let plan = if let Some(scope) = affinity {
+                let mut digest = Sha256::new();
+                digest.update(b"lmm-route-affinity-v1\0");
+                digest.update(scope);
+                digest.update(model.as_bytes());
+                digest.update([0]);
+                digest.update(group.as_bytes());
+                let mut rng = rand::rngs::StdRng::from_seed(digest.finalize().into());
+                Self::route_in_snapshot(snapshot.clone(), request, &mut rng, false)
+            } else {
+                Self::route_in_snapshot(snapshot.clone(), request, &mut rand::thread_rng(), false)
+            };
+            match plan {
+                Ok(plan) => plans.push(plan),
+                Err(error @ (RoutingError::InvalidRequest | RoutingError::ConflictingSpeed)) => {
+                    return Err(error);
+                }
+                Err(_) => (),
+            }
+        }
+        Ok(plans)
+    }
+
     pub(super) fn route_with_rng<R: Rng + ?Sized>(
         &self,
         request: RouteRequest<'_>,
@@ -372,11 +415,19 @@ impl Router {
         rng: &mut R,
         allow_passthrough: bool,
     ) -> Result<RoutePlan, RoutingError> {
+        Self::route_in_snapshot(self.snapshot()?, request, rng, allow_passthrough)
+    }
+
+    fn route_in_snapshot<R: Rng + ?Sized>(
+        snapshot: Arc<Snapshot>,
+        request: RouteRequest<'_>,
+        rng: &mut R,
+        allow_passthrough: bool,
+    ) -> Result<RoutePlan, RoutingError> {
         if !valid_group(request.group) {
             return Err(RoutingError::InvalidRequest);
         }
         let (name, speed) = requested_model(request.model, request.speed)?;
-        let snapshot = self.snapshot()?;
         let group = snapshot
             .groups
             .get(request.group)
@@ -558,7 +609,8 @@ pub struct RouteRequest<'a> {
     pub replay: ReplayPermission,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DeliveryState {
     NotSent,
     /// Provider definitively rejected the request without accepting work.
@@ -568,7 +620,8 @@ pub enum DeliveryState {
     ResponseStarted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FailureKind {
     Connect,
     Timeout,
@@ -592,7 +645,8 @@ impl FailureKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Failure {
     pub kind: FailureKind,
     pub delivery: DeliveryState,
@@ -615,6 +669,40 @@ pub struct RoutePlan {
 }
 
 impl RoutePlan {
+    pub(crate) fn retain_targets(&mut self, targets: &HashSet<u64>) -> Result<(), RoutingError> {
+        if self.current.is_some() || self.attempts != 0 {
+            return Err(RoutingError::InvalidTransition);
+        }
+        self.candidates
+            .retain(|target| targets.contains(&target.config.id));
+        Ok(())
+    }
+    /// These are the bounded original candidates, before any dispatch. Live
+    /// health may remove them but a retry cannot introduce an unpinned target.
+    pub(crate) fn planned_attempts(&self) -> Vec<Attempt> {
+        self.candidates
+            .iter()
+            .enumerate()
+            .map(|(index, target)| Attempt {
+                target: target.clone(),
+                route: self.route.clone(),
+                version: self.snapshot.version,
+                quote: self.quote,
+                number: index as u8 + 1,
+                speed: self.speed,
+            })
+            .collect()
+    }
+
+    pub(crate) fn allows_failure(&self, failure: Failure) -> bool {
+        matches!(
+            failure.delivery,
+            DeliveryState::NotSent | DeliveryState::Rejected
+        ) && failure
+            .kind
+            .retry_cause()
+            .is_some_and(|cause| self.route.config.failover.retry_on.contains(&cause))
+    }
     pub fn version(&self) -> ReleaseVersion {
         self.snapshot.version
     }

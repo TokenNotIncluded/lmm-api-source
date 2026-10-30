@@ -721,6 +721,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
         fingerprint: [17; 32],
         price: ChargingPrice {
             tool: None,
+            text_request: None,
             grounding: None,
             user_trust: None,
             image: None,
@@ -761,6 +762,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
             &worker,
             ChargingUsage {
                 tool: None,
+                text_request: None,
                 grounding: None,
                 cache_creation: None,
                 image: None,

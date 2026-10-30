@@ -583,6 +583,41 @@ async fn untouched(f: &Fixture) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn systemone_native_pg_request_limits_reject_both_aliases_before_funds_and_supplier(
+    pool: PgPool,
+) {
+    let f = fixture(pool).await;
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,1,'{}',7)")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    crate::request_limits::admit(&f.pool, 7, "allowed", "existing-request")
+        .await
+        .unwrap();
+    let supplier = Supplier::start(Reply::Valid).await;
+    let gateway = gateway(&f.pool, &supplier, f.key_id, 65536);
+    for path in ["/v1/systemone", "/typesafe/v1/systemone"] {
+        let (status, headers, body) = call(
+            &gateway,
+            http_request(&f.key, path, path, four_questions(), true, false, None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+        assert!(
+            (1..=86400).contains(
+                &headers[header::RETRY_AFTER]
+                    .to_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            )
+        );
+    }
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 0);
+    untouched(&f).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn systemone_native_pg_four_questions_real_input_only_charge_and_no_replay(pool: PgPool) {
     let f = fixture(pool).await;
     let supplier = Supplier::start(Reply::Valid).await;

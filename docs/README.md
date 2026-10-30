@@ -15,6 +15,10 @@
 | --- | --- |
 | 架构、模块状态与剩余工作 | [架构与状态](core-migration.md) |
 | 非支付计费、RAG 接口与原生用量交付 | [行为、配置、验证与剩余项](nonpayment-completion.md) |
+| 第二轮请求执行、计费与运维补齐 | [8 项行为与验证记录](request-operations-completion.md) |
+| 用户/分组请求限速与全局 Auto 顺序 | [原生配置与继承合同](request-limits.md) |
+| 可续跑日志清理与多实例心跳 | [Core 运维接口](core-operations.md)、[固定 29 → 31 离线升级](request-operations-upgrade.md) |
+| 普通文本按次计费与 Anthropic/Gemini 模型列表 | [价格合同、恢复与分页](text-request-and-native-models.md) |
 | 注册滥用、蜜罐、独立限频与封禁通知 | [行为与接线范围](abuse-controls.md) |
 | 低频用户管理与批量预览 | [Python 管理客户端](admin-cli.md) |
 | 架构收尾的并行分工与串行验收 | [10 个并行任务与 1 个串行收尾提示词](architecture-completion-prompts.md) |

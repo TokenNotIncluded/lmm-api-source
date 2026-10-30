@@ -1,3 +1,5 @@
+#[path = "routing_session.rs"]
+mod session;
 use super::Bridge;
 use crate::{
     billing::charging::Price,
@@ -10,7 +12,20 @@ use crate::{
         RouteRequest,
     },
 };
+pub(super) use session::Pending;
 use std::{collections::BTreeMap, sync::Arc};
+
+pub(super) fn admission_error(error: crate::request_limits::AdmissionError) -> RelayError {
+    match error {
+        crate::request_limits::AdmissionError::Limited {
+            retry_after_seconds,
+        } => RelayError::RateLimited(retry_after_seconds),
+        crate::request_limits::AdmissionError::Storage => RelayError::BillingUnavailable,
+        crate::request_limits::AdmissionError::Invalid => {
+            RelayError::Invalid("invalid request admission")
+        }
+    }
+}
 
 /// Rust-host secret material. Deliberately has no Debug/Serialize implementation.
 pub struct UpstreamCredential {
@@ -88,6 +103,7 @@ pub(super) fn credit_price(
         let (group_multiplier_ppm, speed_multiplier_ppm) = quote.multipliers_ppm();
         let price = Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
@@ -116,11 +132,31 @@ pub(super) fn credit_price(
         let (group_ppm, _) = quote.multipliers_ppm();
         let price = Price {
             tool: None,
+            text_request: None,
             grounding: None,
 
             user_trust: None,
             image: None,
             upstream_cost_group_ppm: Some(group_ppm),
+            tiered: None,
+            version: format!("routing-{}-rule-{}", quote.version(), quote.rule_id()),
+            model: model.to_owned(),
+            group: group.to_owned(),
+            input_per_million: 0,
+            cached_per_million: 0,
+            output_per_million: 0,
+        };
+        price.validate().map_err(super::billing::error)?;
+        return Ok(price);
+    }
+    if let Some(tariff) = super::text_request_price::TextRequestPrice::from_quote(quote) {
+        let price = Price {
+            text_request: Some(tariff),
+            tool: None,
+            grounding: None,
+            user_trust: None,
+            image: None,
+            upstream_cost_group_ppm: None,
             tiered: None,
             version: format!("routing-{}-rule-{}", quote.version(), quote.rule_id()),
             model: model.to_owned(),
@@ -153,6 +189,7 @@ pub(super) fn credit_price(
     };
     let price = Price {
         tool: None,
+        text_request: None,
         grounding: None,
 
         user_trust: None,
@@ -212,186 +249,185 @@ pub(super) fn operation_endpoint(
     Ok(endpoint)
 }
 
+impl Bridge {
+    pub(super) fn route_for_attempt(
+        &self,
+        attempt: Arc<Attempt>,
+        request: &Request,
+    ) -> Result<(Selected, Route), RelayError> {
+        let group = attempt.group().to_owned();
+        let protocol = client_protocol(request.client);
+        // Capture the server's current, fixed ledger conversion once. The
+        // persisted legacy Price is still required until A03 accepts the
+        // complete quote; unsupported dimensions must keep failing closed.
+        let quote = attempt.quote().with_credit_rate(
+            CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?,
+        );
+        let mut price = credit_price(quote.price(), attempt.canonical_model(), &group)?;
+        if request.google_search {
+            if request.client != ClientProtocol::Gemini || attempt.protocol() != Protocol::Gemini {
+                return Err(RelayError::Unsupported(
+                    "Google Search requires native Gemini",
+                ));
+            }
+            price.grounding = Some(self.provider_policy.grounding_price(&attempt)?);
+            price.validate().map_err(super::billing::error)?;
+        }
+        if request.prompt_cache_options.is_some()
+            && (attempt.protocol() != Protocol::OpenAiResponses
+                || !price
+                    .tiered
+                    .as_ref()
+                    .is_some_and(|t| t.tariff.revision == 4))
+        {
+            return Err(RelayError::Unsupported(
+                "cache lifetime controls require a reviewed twelve-hour tariff",
+            ));
+        }
+        if let Some(tariff) = &mut price.tiered {
+            if tariff.tariff.revision == 4
+                && !matches!(
+                    attempt.protocol(),
+                    Protocol::OpenAiChat | Protocol::OpenAiResponses
+                )
+            {
+                return Err(RelayError::Unsupported(
+                    "twelve-hour cache pricing requires an OpenAI protocol route",
+                ));
+            }
+            tariff.input_semantics = if attempt.protocol() == Protocol::AnthropicMessages {
+                crate::routing::InputSemantics::AnthropicText
+            } else {
+                crate::routing::InputSemantics::Inclusive
+            };
+            if tariff
+                .tariff
+                .compile()
+                .map_err(|_| RelayError::BillingUnavailable)?
+                .requires_cache_creation()
+            {
+                tariff.missing_cache_creation_is_zero = self
+                    .provider_policy
+                    .missing_cache_creation_is_zero(&attempt);
+            }
+        }
+        if !attempt.is_available()
+            || !attempt
+                .payload_policy()
+                .adapts(protocol, attempt.protocol())
+            || u128::from(attempt.timeout_ms()) < self.total_timeout.as_millis()
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
+        let upstream = match attempt.protocol() {
+            Protocol::OpenAiChat => UpstreamProtocol::Chat,
+            Protocol::OpenAiResponses => UpstreamProtocol::Responses,
+            Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
+            Protocol::Gemini => UpstreamProtocol::Gemini,
+            Protocol::SystemOne
+            | Protocol::OpenAiEmbeddings
+            | Protocol::JinaRerank
+            | Protocol::DeepSeekSearch
+            | Protocol::DeepSeekFetch => {
+                return Err(RelayError::Unsupported(
+                    "System One requires its native endpoint",
+                ));
+            }
+        };
+        if request.client == ClientProtocol::Anthropic && upstream != UpstreamProtocol::Anthropic {
+            return Err(RelayError::Unsupported(
+                "native Anthropic requires an upstream with disjoint cache usage receipts",
+            ));
+        }
+        let reference = attempt.credential_ref();
+        let secret = self
+            .credentials
+            .get(&(reference.id, reference.revision))
+            .ok_or(RelayError::RouteUnavailable)?;
+        let input_token_ceiling = self.provider_policy.reservation_input_bound(
+            &attempt,
+            self.policy.input_token_ceiling,
+            request.max_output_tokens,
+        )?;
+        self.provider_policy
+            .validate_billing_mode(&attempt, price.upstream_cost_group_ppm.is_some())?;
+        if price.upstream_cost_group_ppm.is_some() && attempt.upstream_model() != price.model {
+            return Err(RelayError::Unsupported(
+                "upstream-cost router cannot be mapped to another model",
+            ));
+        }
+        let endpoint = operation_endpoint(
+            attempt.endpoint(),
+            upstream,
+            attempt.upstream_model(),
+            request.stream,
+        )?;
+        let route_id = format!(
+            "r{}-t{}-u{}",
+            attempt.route_id(),
+            attempt.target_id(),
+            attempt.upstream_id()
+        );
+        let availability = attempt.clone();
+        let route = Route::new(
+            route_id.clone(),
+            upstream,
+            endpoint.as_str(),
+            attempt.upstream_model().to_owned(),
+            secret,
+            attempt.quote().version(),
+        )?
+        .with_count_plan(self.provider_policy.count_plan(&attempt)?)
+        .with_rejection_contract(self.provider_policy.rejection_statuses(&attempt)?)
+        .with_payload_policy(attempt.payload_policy())
+        .with_cache_creation_mode(price.tiered.as_ref().and_then(|t| t.cache_creation_mode))
+        .with_availability_guard(Arc::new(move || availability.is_available()));
+        Ok((
+            Selected {
+                attempt,
+                price,
+                quote,
+                route_id,
+                input_token_ceiling,
+            },
+            route,
+        ))
+    }
+}
+
+pub(super) fn client_protocol(client: ClientProtocol) -> Protocol {
+    match client {
+        ClientProtocol::Chat => Protocol::OpenAiChat,
+        ClientProtocol::Responses => Protocol::OpenAiResponses,
+        ClientProtocol::Anthropic => Protocol::AnthropicMessages,
+        ClientProtocol::Gemini => Protocol::Gemini,
+    }
+}
+
 impl RouteProvider for Bridge {
     fn select<'a>(
         &'a self,
         context: &'a RequestContext,
         request: &'a Request,
     ) -> RelayFuture<'a, Route> {
-        Box::pin(async move {
-            let group = self
-                .active
-                .lock()
-                .map_err(|_| RelayError::BillingUnavailable)?
-                .get(&context.request_id)
-                .ok_or(RelayError::Forbidden)?
-                .group
-                .clone();
-            let protocol = match request.client {
-                ClientProtocol::Chat => Protocol::OpenAiChat,
-                ClientProtocol::Responses => Protocol::OpenAiResponses,
-                ClientProtocol::Anthropic => Protocol::AnthropicMessages,
-                ClientProtocol::Gemini => Protocol::Gemini,
-            };
-            let mut plan = self
-                .routing
-                .route_adapted(RouteRequest {
-                    model: &request.model,
-                    group: &group,
-                    speed: None,
-                    protocol,
-                    replay: ReplayPermission::Denied,
-                })
-                .map_err(|_| RelayError::RouteUnavailable)?;
-            // Capture the server's current, fixed ledger conversion once. The
-            // persisted legacy Price is still required until A03 accepts the
-            // complete quote; unsupported dimensions must keep failing closed.
-            let quote = plan.quote().with_credit_rate(
-                CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?,
-            );
-            let mut price = credit_price(quote.price(), plan.canonical_model(), &group)?;
-            let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
-            if request.google_search {
-                if request.client != ClientProtocol::Gemini
-                    || attempt.protocol() != Protocol::Gemini
-                {
-                    return Err(RelayError::Unsupported(
-                        "Google Search requires native Gemini",
-                    ));
-                }
-                price.grounding = Some(self.provider_policy.grounding_price(&attempt)?);
-                price.validate().map_err(super::billing::error)?;
-            }
-            if request.prompt_cache_options.is_some()
-                && (attempt.protocol() != Protocol::OpenAiResponses
-                    || !price
-                        .tiered
-                        .as_ref()
-                        .is_some_and(|t| t.tariff.revision == 4))
-            {
-                return Err(RelayError::Unsupported(
-                    "cache lifetime controls require a reviewed twelve-hour tariff",
-                ));
-            }
-            if let Some(tariff) = &mut price.tiered {
-                if tariff.tariff.revision == 4
-                    && !matches!(
-                        attempt.protocol(),
-                        Protocol::OpenAiChat | Protocol::OpenAiResponses
-                    )
-                {
-                    return Err(RelayError::Unsupported(
-                        "twelve-hour cache pricing requires an OpenAI protocol route",
-                    ));
-                }
-                tariff.input_semantics = if attempt.protocol() == Protocol::AnthropicMessages {
-                    crate::routing::InputSemantics::AnthropicText
-                } else {
-                    crate::routing::InputSemantics::Inclusive
-                };
-                if tariff
-                    .tariff
-                    .compile()
-                    .map_err(|_| RelayError::BillingUnavailable)?
-                    .requires_cache_creation()
-                {
-                    tariff.missing_cache_creation_is_zero = self
-                        .provider_policy
-                        .missing_cache_creation_is_zero(&attempt);
-                }
-            }
-            if !attempt.is_available()
-                || !attempt
-                    .payload_policy()
-                    .adapts(protocol, attempt.protocol())
-                || u128::from(attempt.timeout_ms()) < self.total_timeout.as_millis()
-            {
-                return Err(RelayError::RouteUnavailable);
-            }
-            let upstream = match attempt.protocol() {
-                Protocol::OpenAiChat => UpstreamProtocol::Chat,
-                Protocol::OpenAiResponses => UpstreamProtocol::Responses,
-                Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
-                Protocol::Gemini => UpstreamProtocol::Gemini,
-                Protocol::SystemOne
-                | Protocol::OpenAiEmbeddings
-                | Protocol::JinaRerank
-                | Protocol::DeepSeekSearch
-                | Protocol::DeepSeekFetch => {
-                    return Err(RelayError::Unsupported(
-                        "System One requires its native endpoint",
-                    ));
-                }
-            };
-            if request.client == ClientProtocol::Anthropic
-                && upstream != UpstreamProtocol::Anthropic
-            {
-                return Err(RelayError::Unsupported(
-                    "native Anthropic requires an upstream with disjoint cache usage receipts",
-                ));
-            }
-            let reference = attempt.credential_ref();
-            let secret = self
-                .credentials
-                .get(&(reference.id, reference.revision))
-                .ok_or(RelayError::RouteUnavailable)?;
-            let input_token_ceiling = self.provider_policy.reservation_input_bound(
-                &attempt,
-                self.policy.input_token_ceiling,
-                request.max_output_tokens,
-            )?;
-            self.provider_policy
-                .validate_billing_mode(&attempt, price.upstream_cost_group_ppm.is_some())?;
-            if price.upstream_cost_group_ppm.is_some() && attempt.upstream_model() != price.model {
-                return Err(RelayError::Unsupported(
-                    "upstream-cost router cannot be mapped to another model",
-                ));
-            }
-            let endpoint = operation_endpoint(
-                attempt.endpoint(),
-                upstream,
-                attempt.upstream_model(),
-                request.stream,
-            )?;
-            let route_id = format!(
-                "r{}-t{}-u{}",
-                attempt.route_id(),
-                attempt.target_id(),
-                attempt.upstream_id()
-            );
-            let attempt = Arc::new(attempt);
-            let availability = attempt.clone();
-            let route = Route::new(
-                route_id.clone(),
-                upstream,
-                endpoint.as_str(),
-                attempt.upstream_model().to_owned(),
-                secret,
-                attempt.quote().version(),
-            )?
-            .with_count_plan(self.provider_policy.count_plan(&attempt)?)
-            .with_payload_policy(attempt.payload_policy())
-            .with_cache_creation_mode(price.tiered.as_ref().and_then(|t| t.cache_creation_mode))
-            .with_availability_guard(Arc::new(move || availability.is_available()));
-            let mut active = self
-                .active
-                .lock()
-                .map_err(|_| RelayError::BillingUnavailable)?;
-            let operation = active
-                .get_mut(&context.request_id)
-                .ok_or(RelayError::Forbidden)?;
-            if operation.selected.is_some() {
-                return Err(RelayError::Conflict);
-            }
-            operation.selected = Some(Selected {
-                attempt,
-                price,
-                quote,
-                route_id,
-                input_token_ceiling,
-            });
-            Ok(route)
-        })
+        Box::pin(async move { self.select_with_fallbacks(context, request) })
+    }
+    fn dispatching<'a>(
+        &'a self,
+        context: &'a RequestContext,
+        route: &'a Route,
+        body: &'a [u8],
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(self.record_selected_dispatch(context, route, body))
+    }
+    fn failed<'a>(
+        &'a self,
+        context: &'a RequestContext,
+        request: &'a Request,
+        route: &'a Route,
+        failure: crate::relay::AttemptFailure,
+    ) -> RelayFuture<'a, Option<Route>> {
+        Box::pin(self.retry_selected_route(context, request, route, failure))
     }
 }
 
@@ -526,6 +562,7 @@ mod tests {
                         let amount = legacy
                             .cost(crate::billing::charging::Usage {
                                 tool: None,
+                                text_request: None,
                                 grounding: None,
 
                                 cache_creation: None,

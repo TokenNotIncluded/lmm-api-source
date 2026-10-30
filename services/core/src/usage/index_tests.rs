@@ -60,6 +60,7 @@ async fn requests(f: &Fixture, prefix: &str, count: i64, at: i64) {
         .unwrap();
     let price = serde_json::to_value(Price {
         tool: None,
+        text_request: None,
         grounding: None,
 
         user_trust: None,

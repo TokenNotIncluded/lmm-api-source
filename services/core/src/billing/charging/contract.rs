@@ -63,6 +63,18 @@ pub(crate) struct CounterEvidence {
     pub response_sha256: String,
 }
 
+/// Alternative dispatch bindings authorized before the one sales quote is
+/// frozen. Their metering semantics match the primary contract and their
+/// bounds never increase its reservation. No fallback may rewrite that quote.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReservationFallback {
+    pub binding: ReservationBinding,
+    pub wire_sha256: String,
+    pub bounds: ReservationBounds,
+    pub semantics: ReservationSemantics,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PreparedFields {
@@ -75,6 +87,8 @@ struct PreparedFields {
     counter: Option<CounterEvidence>,
     bounds: ReservationBounds,
     semantics: ReservationSemantics,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    fallbacks: Vec<ReservationFallback>,
 }
 
 /// Only the gateway's preparation step constructs this type; public charging APIs do not accept it.
@@ -104,6 +118,8 @@ struct ContractWire {
     counter: Option<CounterEvidence>,
     bounds: ReservationBounds,
     semantics: ReservationSemantics,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    fallbacks: Vec<ReservationFallback>,
     prepared_sha256: String,
     admission_spec_sha256: String,
     frozen_price_sha256: String,
@@ -138,6 +154,7 @@ impl ReservationContract {
                 counter: wire.counter,
                 bounds: wire.bounds,
                 semantics: wire.semantics,
+                fallbacks: wire.fallbacks,
             },
             prepared_sha256: wire.prepared_sha256,
             admission_spec_sha256: wire.admission_spec_sha256,
@@ -180,6 +197,15 @@ fn is_digest(value: &str) -> bool {
 // @context-fold end reservation-contract-types
 
 impl PreparedReservation {
+    pub(crate) fn with_fallbacks(
+        mut self,
+        fallbacks: Vec<ReservationFallback>,
+    ) -> Result<Self, Error> {
+        self.fields.fallbacks = fallbacks;
+        self.prepared_sha256 = typed_digest(&self.fields)?;
+        self.validate()?;
+        Ok(self)
+    }
     // @context-fold begin prepared-reservation-construction
     pub(crate) fn context_max(
         request_fingerprint: String,
@@ -311,6 +337,7 @@ impl PreparedReservation {
             counter,
             bounds,
             semantics,
+            fallbacks: Vec::new(),
         };
         let proof = Self {
             prepared_sha256: typed_digest(&fields)?,
@@ -327,6 +354,28 @@ impl PreparedReservation {
         let native = f.mode == "systemone_native_v1";
         let input_only = f.mode == "input_only_native_v1";
         let tool = f.mode == "native_tool_v1";
+        if f.fallbacks.len() > 7 || (!f.fallbacks.is_empty() && f.mode != "context_max") {
+            return Err(Error::Invalid);
+        }
+        let mut routes = std::collections::HashSet::from([binding.route_id.as_str()]);
+        for fallback in &f.fallbacks {
+            if !routes.insert(fallback.binding.route_id.as_str())
+                || fallback.binding.protocol != binding.protocol
+                || fallback.binding.quote_version != binding.quote_version
+                || fallback.semantics != f.semantics
+                || fallback.bounds.input > bounds.input
+                || fallback.bounds.output != bounds.output
+            {
+                return Err(Error::Invalid);
+            }
+            Self::context_max(
+                f.request_fingerprint.clone(),
+                fallback.binding.clone(),
+                fallback.wire_sha256.clone(),
+                fallback.bounds.clone(),
+                fallback.semantics.clone(),
+            )?;
+        }
         let valid_mode = match (f.mode.as_str(), &f.counter) {
             ("context_max", None) => {
                 bounds.input == bounds.model_input_max
@@ -479,6 +528,17 @@ impl PreparedReservation {
     }
 
     fn validate_native_price(&self, price: &super::Price) -> Result<(), Error> {
+        if price.text_request.is_some()
+            && (!matches!(
+                self.fields.mode.as_str(),
+                "context_max" | "openai_responses_exact_v1"
+            ) || !matches!(
+                self.fields.binding.protocol.as_str(),
+                "chat" | "responses" | "anthropic" | "gemini"
+            ))
+        {
+            return Err(Error::Invalid);
+        }
         if let Some(grounding) = &price.grounding {
             price.validate()?;
             if self.fields.mode != "context_max"
@@ -556,6 +616,7 @@ impl ReservationContract {
         if !usage.valid()
             || (charge.price.tool.is_some() != usage.tool.is_some())
             || (charge.price.grounding.is_some() != usage.grounding.is_some())
+            || (charge.price.text_request.is_some() != usage.text_request.is_some())
             || usage.tool.is_some_and(|tool| {
                 charge
                     .price
@@ -577,6 +638,22 @@ impl ReservationContract {
 
     pub(crate) fn semantics(&self) -> &ReservationSemantics {
         &self.fields.semantics
+    }
+
+    pub(crate) fn permits_dispatch(&self, route_id: &str, wire_sha256: &str) -> bool {
+        (self.fields.binding.route_id == route_id && self.fields.wire_sha256 == wire_sha256)
+            || self.fields.fallbacks.iter().any(|fallback| {
+                fallback.binding.route_id == route_id && fallback.wire_sha256 == wire_sha256
+            })
+    }
+
+    pub(crate) fn contains_route(&self, route_id: &str) -> bool {
+        self.fields.binding.route_id == route_id
+            || self
+                .fields
+                .fallbacks
+                .iter()
+                .any(|fallback| fallback.binding.route_id == route_id)
     }
     // @context-fold end frozen-contract-validation
 }
@@ -806,6 +883,7 @@ mod tests {
             fingerprint: [1; 32],
             price: super::super::Price {
                 tool: None,
+                text_request: None,
                 grounding: None,
 
                 user_trust: None,

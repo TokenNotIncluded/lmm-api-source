@@ -259,7 +259,7 @@ export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_system_instances',
     title: 'Read system instance health',
     description:
-      'Read a bounded system instance health summary for root administrators: instance slot, online or stale state, timestamps, runtime version, and CPU, memory, and storage percentages. Never returns raw diagnostic payloads, environment variables, connection strings, or credentials.',
+      'Read a bounded Core heartbeat summary for root administrators: boot ID, online or stale state, lifecycle phase, in-flight requests, timestamps, and runtime version. Never returns raw diagnostic payloads, environment variables, connection strings, or credentials.',
     inputSchema: EMPTY_INPUT_SCHEMA,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     execute: async (_input, options) => {
@@ -272,6 +272,7 @@ export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
       const rows = response.data ?? []
       return {
         total: rows.length,
+        truncated: response.truncated === true || rows.length > 100,
         instances: rows.slice(0, 100).map((instance) => ({
           slot: clip(
             instance.instance_slot ?? instance.info?.runtime?.instance_slot,
@@ -281,6 +282,12 @@ export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
           last_seen_at: finiteNumber(instance.last_seen_at),
           started_at: finiteNumber(instance.started_at),
           version: clip(instance.info?.runtime?.version, 40),
+          phase: instance.phase ?? null,
+          in_flight: finiteNumber(instance.in_flight),
+          models_ready:
+            instance.status === 'online'
+              ? (instance.models_ready ?? null)
+              : null,
           cpu_percent: finiteNumber(
             instance.info?.resources?.cpu?.usage_percent
           ),

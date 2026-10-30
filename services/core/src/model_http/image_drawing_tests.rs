@@ -304,6 +304,47 @@ async fn image_drawing_real_cookie_confirmation_dispatch_and_context_receipt(poo
 }
 
 #[sqlx::test(migrations = false)]
+async fn image_drawing_request_limits_reject_confirmed_execution_before_hold(pool: PgPool) {
+    let f = fixture(pool).await;
+    let supplier = Supplier::start(Reply::OneImage).await;
+    let service = image_service_for_pool(&f.pool, &supplier);
+    let raw = drawing_input();
+    let builtin = builtin(&f, &raw).await;
+    let preview = service
+        .preview(&f.secret, &builtin.context, raw)
+        .await
+        .unwrap();
+    let (_, csrf) = service
+        .confirmation_page(&f.bundle.refresh_token, &preview.operation_id)
+        .await
+        .unwrap();
+    service
+        .confirm(&f.bundle.refresh_token, &preview.operation_id, &csrf)
+        .await
+        .unwrap();
+    sqlx::query("SELECT core_request_limits.write_policy(1,TRUE,86400,1,'{}',$1)")
+        .bind(f.user)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    crate::request_limits::admit(&f.pool, f.user, "allowed", "existing-key-request")
+        .await
+        .unwrap();
+    let result = service
+        .execute_for_context(&f.secret, &preview.operation_id, &builtin.context)
+        .await;
+    assert!(matches!(result,Err(Error::RateLimited(seconds)) if (1..=86400).contains(&seconds)));
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 0);
+    no_model_hold(&f).await;
+    let receipt = service
+        .query_for_context(&f.secret, &preview.operation_id, &builtin.context)
+        .await
+        .unwrap();
+    assert_eq!(receipt.state, "confirmed");
+    assert!(receipt.output.is_none());
+}
+
+#[sqlx::test(migrations = false)]
 async fn image_drawing_revoked_original_consent_rejects_before_model_hold(pool: PgPool) {
     let f = fixture(pool).await;
     let supplier = Supplier::start(Reply::OneImage).await;

@@ -270,6 +270,14 @@ async fn execute(
         semantics,
     )
     .map_err(billing::error)?;
+    crate::request_limits::admit(
+        &gateway.bridge.pool,
+        caller.principal.user_id(),
+        &group,
+        &id,
+    )
+    .await
+    .map_err(routing::admission_error)?;
     {
         let mut active = gateway
             .bridge
@@ -282,6 +290,7 @@ async fn execute(
         active.insert(
             id.clone(),
             Operation {
+                route_plan: None,
                 secret: caller.secret.clone(),
                 group,
                 worker,

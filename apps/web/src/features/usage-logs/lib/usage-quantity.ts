@@ -7,6 +7,19 @@ type UsageQuantity =
   | { kind: 'tool'; count: number | null }
   | { kind: 'tokens'; input: number | null; output: number | null }
 
+export function completedTextRequestQuantity(
+  log: UsageLog,
+  other: LogOtherData | null
+): number | null | undefined {
+  const method = log.billing_method ?? other?.billing_method
+  if (method !== 'per_completed_request') return undefined
+  const count =
+    log.completed_requests !== undefined
+      ? log.completed_requests
+      : other?.completed_requests
+  return count === 0 || count === 1 ? count : null
+}
+
 /** A measured subset of total writes, never a guess from the request TTL. */
 export function cacheWrite12hQuantity(
   other: LogOtherData | null,

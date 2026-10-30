@@ -145,9 +145,17 @@ fn failure(error: Error) -> Response {
         Error::Conflict => (StatusCode::CONFLICT, "conflict"),
         Error::NoFunds => (StatusCode::PAYMENT_REQUIRED, "insufficient_funds"),
         Error::Pending => (StatusCode::SERVICE_UNAVAILABLE, "pending"),
+        Error::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
         Error::Retry | Error::Storage => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     };
-    secure((status, Json(json!({"error":code}))).into_response())
+    let mut response = secure((status, Json(json!({"error":code}))).into_response());
+    if let Error::RateLimited(seconds) = error {
+        response.headers_mut().insert(
+            header::RETRY_AFTER,
+            seconds.to_string().parse().expect("integer Retry-After"),
+        );
+    }
+    response
 }
 fn secure(mut response: Response) -> Response {
     response.headers_mut().insert(
@@ -447,10 +455,14 @@ mod tests {
             (Error::Conflict, 409),
             (Error::NoFunds, 402),
             (Error::Pending, 503),
+            (Error::RateLimited(37), 429),
             (Error::Storage, 503),
             (Error::Retry, 503),
         ] {
             let response = failure(error);
+            if matches!(error, Error::RateLimited(_)) {
+                assert_eq!(response.headers()[header::RETRY_AFTER], "37");
+            }
             assert_eq!(response.status().as_u16(), status);
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         }

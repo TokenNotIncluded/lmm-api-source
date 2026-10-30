@@ -35,6 +35,7 @@ pub enum Error {
     Missing,
     Conflict,
     Pending,
+    RateLimited(u64),
     NoFunds,
     Retry,
     Storage,
@@ -138,6 +139,15 @@ fn identity_error(e: identity::IdentityError) -> Error {
         identity::IdentityError::Invalid => Error::Invalid,
         identity::IdentityError::Conflict => Error::Retry,
         identity::IdentityError::Storage => Error::Storage,
+    }
+}
+fn admission_error(error: crate::request_limits::AdmissionError) -> Error {
+    match error {
+        crate::request_limits::AdmissionError::Limited {
+            retry_after_seconds,
+        } => Error::RateLimited(retry_after_seconds),
+        crate::request_limits::AdmissionError::Invalid => Error::Invalid,
+        crate::request_limits::AdmissionError::Storage => Error::Storage,
     }
 }
 fn market_error(e: crate::tool_market::Error) -> Error {
@@ -345,6 +355,7 @@ async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
 fn price(quote: &ImageQuote) -> Price {
     Price {
         tool: None,
+        text_request: None,
         grounding: None,
 
         user_trust: None,
@@ -897,8 +908,11 @@ impl ImageService {
         if !valid_id(id) {
             return Err(Error::Invalid);
         }
-        let (quote, frozen, prompt, fingerprint, edits) =
+        let (quote, frozen, prompt, fingerprint, edits, user_id) =
             self.prepare_execution(session, id).await?;
+        crate::request_limits::admit(&self.pool, user_id, &frozen.group, id)
+            .await
+            .map_err(admission_error)?;
         let provider = self
             .providers
             .get(&quote.binding().upstream_id)
@@ -974,6 +988,7 @@ impl ImageService {
         String,
         [u8; 32],
         Option<super::image_provider::ImageMultipartInput>,
+        i64,
     )> {
         let mut tx = begin(&self.pool).await?;
         let r = sqlx::query(
@@ -1046,7 +1061,7 @@ impl ImageService {
             .await
             .map_err(|_| Error::Pending)??;
         tx.commit().await.map_err(|_| Error::Pending)?;
-        Ok((quote, frozen, input.settings.prompt, fp, edits))
+        Ok((quote, frozen, input.settings.prompt, fp, edits, a.user_id))
     }
     /// ACK-loss recovery is read only: derive the original id from the current
     /// real Session and Core call, without creating a preview or another send.

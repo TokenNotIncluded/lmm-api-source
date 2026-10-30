@@ -83,6 +83,7 @@ type GroupRatioVisualEditorProps = {
   userUsableGroups: string
   groupGroupRatio: string
   autoGroups: string
+  showAutoConfiguration?: boolean
   maxTokenAutoGroupsField?: ReactNode
   groupSpecialUsableGroup: string
   onChange: (field: string, value: string) => void
@@ -469,6 +470,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   userUsableGroups,
   groupGroupRatio,
   autoGroups,
+  showAutoConfiguration = true,
   maxTokenAutoGroupsField,
   groupSpecialUsableGroup,
   onChange,
@@ -647,114 +649,116 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
       />
 
       {/* Auto Groups */}
-      <Card className={sectionCardClassName}>
-        <CardHeader className={sectionHeaderClassName}>
-          <CardTitle>{t('Auto assignment order')}</CardTitle>
-          <CardDescription>
-            {t(
-              'Priority order for tokens in the auto group. The system tries groups from top to bottom.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className='space-y-4'>
-            {maxTokenAutoGroupsField}
-            <div className='flex flex-wrap items-center gap-2'>
-              <GroupNameSelect
-                options={autoGroupCandidates}
-                value={null}
-                placeholder={t('Add group')}
-                onValueChange={handleAutoGroupAdd}
-              />
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={handleAutoGroupOptimize}
-                disabled={optimizationError !== null}
-              >
-                {t('Optimize by effective cost')}
-              </Button>
-            </div>
-            <div className='space-y-2'>
-              <Label>{t('Optimization baseline user group')}</Label>
-              <Select
-                value={optimizationUserGroup ?? '__base_ratio__'}
-                onValueChange={(value) => {
-                  if (typeof value !== 'string') return
-                  setOptimizationUserGroup(
-                    value === '__base_ratio__' ? null : value
-                  )
-                }}
-              >
-                <SelectTrigger className='w-full sm:w-64'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
-                  <SelectGroup>
-                    <SelectItem value='__base_ratio__'>
-                      {t('Base cost multipliers')}
-                    </SelectItem>
-                    {registryNames.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <p className='text-muted-foreground text-xs'>
+      {showAutoConfiguration && (
+        <Card className={sectionCardClassName}>
+          <CardHeader className={sectionHeaderClassName}>
+            <CardTitle>{t('Auto assignment order')}</CardTitle>
+            <CardDescription>
               {t(
-                "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting."
+                'Priority order for tokens in the auto group. The system tries groups from top to bottom.'
               )}
-            </p>
-            {optimizationError && (
-              <p className='text-destructive text-sm' role='alert'>
-                {optimizationError}
-              </p>
-            )}
-            {autoGroupsList.length > 0 && (
-              <div className='space-y-2'>
-                {autoGroupItems.map(({ group, key }, index) => (
-                  <div
-                    key={key}
-                    className='flex items-center gap-2 rounded-md border p-3'
-                  >
-                    <GripVertical className='text-muted-foreground h-4 w-4' />
-                    <span className='font-medium'>{group}</span>
-                    {!registryNames.includes(group) && <UnknownGroupBadge />}
-                    <div className='ml-auto flex gap-1'>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        disabled={index === 0}
-                        onClick={() => handleAutoGroupMove(index, 'up')}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        disabled={index === autoGroupsList.length - 1}
-                        onClick={() => handleAutoGroupMove(index, 'down')}
-                      >
-                        ↓
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => handleAutoGroupDelete(index)}
-                      >
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className='space-y-4'>
+              {maxTokenAutoGroupsField}
+              <div className='flex flex-wrap items-center gap-2'>
+                <GroupNameSelect
+                  options={autoGroupCandidates}
+                  value={null}
+                  placeholder={t('Add group')}
+                  onValueChange={handleAutoGroupAdd}
+                />
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={handleAutoGroupOptimize}
+                  disabled={optimizationError !== null}
+                >
+                  {t('Optimize by effective cost')}
+                </Button>
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+              <div className='space-y-2'>
+                <Label>{t('Optimization baseline user group')}</Label>
+                <Select
+                  value={optimizationUserGroup ?? '__base_ratio__'}
+                  onValueChange={(value) => {
+                    if (typeof value !== 'string') return
+                    setOptimizationUserGroup(
+                      value === '__base_ratio__' ? null : value
+                    )
+                  }}
+                >
+                  <SelectTrigger className='w-full sm:w-64'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='__base_ratio__'>
+                        {t('Base cost multipliers')}
+                      </SelectItem>
+                      {registryNames.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting."
+                )}
+              </p>
+              {optimizationError && (
+                <p className='text-destructive text-sm' role='alert'>
+                  {optimizationError}
+                </p>
+              )}
+              {autoGroupsList.length > 0 && (
+                <div className='space-y-2'>
+                  {autoGroupItems.map(({ group, key }, index) => (
+                    <div
+                      key={key}
+                      className='flex items-center gap-2 rounded-md border p-3'
+                    >
+                      <GripVertical className='text-muted-foreground h-4 w-4' />
+                      <span className='font-medium'>{group}</span>
+                      {!registryNames.includes(group) && <UnknownGroupBadge />}
+                      <div className='ml-auto flex gap-1'>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          disabled={index === 0}
+                          onClick={() => handleAutoGroupMove(index, 'up')}
+                        >
+                          ↑
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          disabled={index === autoGroupsList.length - 1}
+                          onClick={() => handleAutoGroupMove(index, 'down')}
+                        >
+                          ↓
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          onClick={() => handleAutoGroupDelete(index)}
+                        >
+                          <Trash2 className='h-4 w-4' />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <GroupDetailSheet
         groupName={detailGroup}

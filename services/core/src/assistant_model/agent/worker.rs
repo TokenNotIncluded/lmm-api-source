@@ -35,10 +35,17 @@ impl AgentService {
             if let Err(error) = service.run_turn(&session, &turn_id).await
                 && matches!(
                     error,
-                    Error::Forbidden | Error::Unauthorized | Error::NoFunds | Error::Invalid
+                    Error::Forbidden
+                        | Error::Unauthorized
+                        | Error::NoFunds
+                        | Error::Invalid
+                        | Error::RequestRateLimited(_)
                 )
             {
-                let _ = service.stop_without_live_model(&session, &turn_id).await;
+                let rejected = matches!(error, Error::RequestRateLimited(_));
+                let _ = service
+                    .stop_without_live_model(&session, &turn_id, rejected)
+                    .await;
             }
         });
     }
@@ -76,7 +83,7 @@ impl AgentService {
                 }
             }
         }
-        self.stop_without_live_model(session, turn_id).await
+        self.stop_without_live_model(session, turn_id, false).await
     }
     async fn reserve_round(
         &self,
@@ -414,7 +421,12 @@ impl AgentService {
         tx.commit().await?;
         Ok(())
     }
-    async fn stop_without_live_model(&self, session: &str, turn_id: &str) -> Result<(), Error> {
+    async fn stop_without_live_model(
+        &self,
+        session: &str,
+        turn_id: &str,
+        rejected: bool,
+    ) -> Result<(), Error> {
         let mut tx = self.base.begin().await?;
         let principal = actor(&mut tx, session).await?;
         let conversation: String = sqlx::query_scalar(
@@ -440,7 +452,12 @@ impl AgentService {
             )
         {
             sqlx::query("UPDATE core_assistant.agent_tool_operations SET state='cancelled' WHERE turn_id=$1 AND state='pending'").bind(turn_id).execute(&mut *tx).await?;
-            sqlx::query("UPDATE core_assistant.agent_turns SET phase='completed',final_text='本轮授权、预算或调用次数已达到限制，已停止后续调用。',revision=revision+1 WHERE id=$1").bind(turn_id).execute(&mut *tx).await?;
+            if rejected {
+                sqlx::query("UPDATE core_assistant.agent_turns SET phase='rejected',final_text=NULL,revision=revision+1 WHERE id=$1")
+                    .bind(turn_id).execute(&mut *tx).await?;
+            } else {
+                sqlx::query("UPDATE core_assistant.agent_turns SET phase='completed',final_text='本轮授权、预算或调用次数已达到限制，已停止后续调用。',revision=revision+1 WHERE id=$1").bind(turn_id).execute(&mut *tx).await?;
+            }
         }
         tx.commit().await?;
         Ok(())

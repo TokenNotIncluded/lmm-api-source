@@ -35,6 +35,7 @@ import { getServerErrorToastId } from '@/lib/server-error-message'
 import { getSystemOptions, resetModelRatios, updateSystemOption } from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { AutoGroupsSection } from '../request-limits/auto-groups-section'
 import { positiveIntegerSchema } from '../utils/numeric-field'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { getSettingsErrorMessage } from '../utils/settings-error-message'
@@ -582,11 +583,15 @@ export function RatioSettingsCard({
     }
     if (tab === 'groups') {
       return (
-        <GroupRatioForm
-          form={groupForm}
-          onSave={saveGroupRatios}
-          isSaving={isGroupSaving}
-        />
+        <div className='space-y-6'>
+          <AutoGroupsSection />
+          <GroupRatioForm
+            form={groupForm}
+            onSave={saveGroupRatios}
+            isSaving={isGroupSaving}
+            showAutoConfiguration={false}
+          />
+        </div>
       )
     }
     if (tab === 'tool-prices') {

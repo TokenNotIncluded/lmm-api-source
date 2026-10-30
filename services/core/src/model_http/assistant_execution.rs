@@ -535,6 +535,7 @@ mod usage_tests {
         .unwrap();
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
+                pre_acceptance_rejection_statuses: Vec::new(),
                 grounding: None,
 
                 upstream_id: 1,
