@@ -131,6 +131,29 @@ pub(crate) fn anthropic_schemas(body: &[u8]) -> Option<Vec<Option<RawSchema>>> {
     )
 }
 
+pub(crate) fn chat_response_schema(body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Body {
+        #[serde(default)]
+        response_format: Option<Format>,
+    }
+    #[derive(Deserialize)]
+    struct Format {
+        #[serde(default)]
+        json_schema: Option<JsonSchema>,
+    }
+    #[derive(Deserialize)]
+    struct JsonSchema {
+        #[serde(default)]
+        schema: Option<Box<RawValue>>,
+    }
+    let body: Body = serde_json::from_slice(body).ok()?;
+    body.response_format?
+        .json_schema?
+        .schema
+        .map(|raw| raw.get().to_owned())
+}
+
 pub(crate) fn gemini_schemas(body: &[u8]) -> Option<Vec<Option<RawSchema>>> {
     #[derive(Deserialize)]
     struct Body {
@@ -172,27 +195,27 @@ pub(crate) fn encode_ordered_schemas(
     payload: &Value,
     protocol: UpstreamProtocol,
     schemas: &[String],
+    response_schema: Option<&str>,
 ) -> Result<Vec<u8>, RelayError> {
     let canonical =
         || serde_json::to_vec(payload).map_err(|_| RelayError::Invalid("request encoding failed"));
-    let Some(paths) = schema_paths(payload, protocol) else {
-        return canonical();
-    };
-    if paths.len() != schemas.len() {
-        return canonical();
-    }
     let mut output = WireValue::Value(payload);
-    for (path, schema) in paths.iter().zip(schemas) {
-        let Some(actual) = value_at(payload, path) else {
-            continue;
-        };
-        if serde_json::from_str::<Value>(schema).ok().as_ref() != Some(actual) {
-            continue;
+    if let Some(paths) = schema_paths(payload, protocol)
+        && paths.len() == schemas.len()
+    {
+        for (path, schema) in paths.iter().zip(schemas) {
+            replace_matching(&mut output, payload, path, schema);
         }
-        let Ok(raw) = RawValue::from_string(schema.clone()) else {
-            continue;
-        };
-        replace_at(&mut output, path, raw);
+    }
+    if let Some(schema) = response_schema.filter(|schema| !schema.is_empty()) {
+        for field in ["responseJsonSchema", "responseSchema"] {
+            replace_matching(
+                &mut output,
+                payload,
+                &[Member::Key("generationConfig"), Member::Key(field)],
+                schema,
+            );
+        }
     }
     let body =
         serde_json::to_vec(&output).map_err(|_| RelayError::Invalid("request encoding failed"))?;
@@ -201,6 +224,19 @@ pub(crate) fn encode_ordered_schemas(
     } else {
         canonical()
     }
+}
+
+fn replace_matching(output: &mut WireValue<'_>, payload: &Value, path: &[Member], schema: &str) {
+    let Some(actual) = value_at(payload, path) else {
+        return;
+    };
+    if serde_json::from_str::<Value>(schema).ok().as_ref() != Some(actual) {
+        return;
+    }
+    let Ok(raw) = RawValue::from_string(schema.to_owned()) else {
+        return;
+    };
+    replace_at(output, path, raw);
 }
 
 #[derive(Serialize)]
@@ -241,13 +277,18 @@ fn schema_paths(payload: &Value, protocol: UpstreamProtocol) -> Option<Vec<Vec<M
             }
             UpstreamProtocol::Gemini => {
                 let declarations = tool.get("functionDeclarations")?.as_array()?;
-                for declaration in 0..declarations.len() {
+                for (declaration, node) in declarations.iter().enumerate() {
                     let mut path = path.clone();
-                    path.extend([
-                        Key("functionDeclarations"),
-                        Index(declaration),
-                        Key("parametersJsonSchema"),
-                    ]);
+                    // `parameters` is the v1 typed field. Live v1beta/Vertex
+                    // encoding uses `parametersJsonSchema`.
+                    let field = if node.get("parametersJsonSchema").is_some()
+                        || node.get("parameters").is_none()
+                    {
+                        Key("parametersJsonSchema")
+                    } else {
+                        Key("parameters")
+                    };
+                    path.extend([Key("functionDeclarations"), Index(declaration), field]);
                     paths.push(path);
                 }
             }
@@ -293,27 +334,13 @@ fn replace_at<'a>(value: &mut WireValue<'a>, path: &[Member], raw: Box<RawValue>
     }
 }
 
-const GEMINI_KEYS: &[&str] = &[
-    "type",
-    "properties",
-    "required",
-    "description",
-    "items",
-    "enum",
-    "format",
-    "minimum",
-    "maximum",
-    "minItems",
-    "maxItems",
-];
-
 fn convert_gemini(node: &Node) -> Option<Node> {
     let Node::Object(items) = node else {
         return None;
     };
     if items
         .iter()
-        .any(|(key, _)| !GEMINI_KEYS.contains(&key.as_str()))
+        .any(|(key, _)| !super::gemini_schema::INBOUND_TYPED_FIELDS.contains(&key.as_str()))
     {
         return None;
     }
@@ -346,11 +373,58 @@ fn convert_gemini(node: &Node) -> Option<Node> {
                 Node::Object(converted)
             }
             "items" => convert_gemini(value)?,
+            "enum" => {
+                let Node::Array(entries) = value else {
+                    continue;
+                };
+                if !entries
+                    .iter()
+                    .all(|entry| matches!(entry, Node::Scalar(Value::String(_))))
+                {
+                    continue;
+                }
+                value.clone()
+            }
             _ => value.clone(),
         };
         out.push((key.clone(), converted));
     }
     Some(Node::Object(out))
+}
+
+pub(crate) fn ordered_inbound_json_schema(raw: &str, expected: &Value) -> Option<String> {
+    let node = rewrite_types_node(&parse_json(raw)?);
+    let text = serde_json::to_string(&node).ok()?;
+    (serde_json::from_str::<Value>(&text).ok().as_ref() == Some(expected)).then_some(text)
+}
+
+fn rewrite_types_node(node: &Node) -> Node {
+    match node {
+        Node::Array(items) => Node::Array(items.iter().map(rewrite_types_node).collect()),
+        Node::Object(items) => Node::Object(
+            items
+                .iter()
+                .map(|(key, value)| {
+                    if key == "type" {
+                        (key.clone(), rewrite_type_node(value))
+                    } else {
+                        (key.clone(), rewrite_types_node(value))
+                    }
+                })
+                .collect(),
+        ),
+        Node::Scalar(value) => Node::Scalar(value.clone()),
+    }
+}
+
+fn rewrite_type_node(node: &Node) -> Node {
+    match node {
+        Node::Scalar(Value::String(text)) => Node::Scalar(Value::String(
+            super::gemini_schema::normalize_inbound_type(text),
+        )),
+        Node::Array(items) => Node::Array(items.iter().map(rewrite_type_node).collect()),
+        other => other.clone(),
+    }
 }
 
 // RawValue and MapAccess delegate JSON syntax, UTF-8, numbers and escapes to
