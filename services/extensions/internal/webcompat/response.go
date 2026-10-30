@@ -73,6 +73,8 @@ func responseError(err error) (int, string, string) {
 		return http.StatusConflict, "STORE_CONFLICT", "The order or product state has changed. Please refresh."
 	case errors.Is(err, store.ErrSoldOut):
 		return http.StatusConflict, "STORE_OUT_OF_STOCK", "The product has insufficient available stock."
+	case errors.Is(err, store.ErrPurchaseLimit):
+		return http.StatusConflict, "STORE_PURCHASE_LIMIT", "This quantity exceeds the product purchase limit."
 	case errors.Is(err, store.ErrPaymentUnavailable):
 		return http.StatusServiceUnavailable, "STORE_PAYMENT_UNAVAILABLE", "Shop payments are currently unavailable."
 	case errors.Is(err, store.ErrPending):

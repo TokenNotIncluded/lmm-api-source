@@ -35,6 +35,7 @@ type LegacyLink struct {
 // Only public seller input belongs here. Delivery material remains private in
 // the variant and is never copied into the reviewed public snapshot.
 type LegacyProductMetadata struct {
+	CategoryID            string       `json:"category_id,omitempty"`
 	Description           string       `json:"description"`
 	ImageURLs             []string     `json:"image_urls"`
 	Contact               string       `json:"contact"`
@@ -136,7 +137,7 @@ func (s *Service) PublicConfig(ctx context.Context) (map[string]any, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, ErrUnavailable
 	}
-	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": false, "store_categories_supported": false, "store_likes_supported": false, "store_svg_media_supported": false, "extore_import_supported": false, "extore_redirect_uri": "", "store_merchant_home_supported": false, "store_access_supported": false, "store_terms_supported": true, "product_purchase_limits_supported": false, "fixed_content_supported": false, "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
+	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": false, "store_categories_supported": true, "store_likes_supported": false, "store_svg_media_supported": false, "extore_import_supported": false, "extore_redirect_uri": "", "store_merchant_home_supported": false, "store_access_supported": false, "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": false, "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
 }
 
 func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
@@ -152,12 +153,12 @@ func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([
 	if q.Stock != "" && q.Stock != "in_stock" && q.Stock != "out_of_stock" {
 		return nil, ErrInvalid
 	}
-	if q.CategoryID != "" {
-		return nil, ErrUnavailable
+	if q.CategoryID != "" && !categoryID(q.CategoryID) {
+		return nil, ErrInvalid
 	}
 	idx, ok := s.repo.(legacyReadIndex)
 	if !ok {
-		if q.Sort == "comprehensive" && q.Tag == "" && q.Stock == "" && q.AutoDelivery == nil && q.AIProcessing == nil && q.GuestPurchase == nil {
+		if q.Sort == "comprehensive" && q.CategoryID == "" && q.Tag == "" && q.Stock == "" && q.AutoDelivery == nil && q.AIProcessing == nil && q.GuestPurchase == nil {
 			return s.PublicCatalogue(ctx, q.Seller, q.Text, q.Offset, q.Limit)
 		}
 		return nil, ErrUnavailable
@@ -230,6 +231,10 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, err
 	}
 	switch r.Action {
+	case "admin_categories", "save_category":
+		return s.legacyCategories(ctx, token, r)
+	case "product_category":
+		return s.setProductCategory(ctx, actor, r)
 	case "submit_product", "unlist_product", "delete_product", "cancel_order", "reconcile_order":
 		if len(r.Body) > 0 {
 			var empty map[string]any
@@ -474,8 +479,8 @@ func validateLegacyInput(in LegacyProductInput) error {
 	if !Text(in.Title, 200) || len(in.Description) > 128000 || len(in.Contact) > 4000 || len(in.ImageURLs) > 30 || len(in.Links) > 30 || in.PriceQuota < 0 {
 		return ErrInvalid
 	}
-	if in.CategoryID != nil && *in.CategoryID != "" {
-		return ErrUnavailable
+	if in.CategoryID != nil && *in.CategoryID != "" && !categoryID(*in.CategoryID) {
+		return ErrInvalid
 	}
 	if in.Visibility != nil && *in.Visibility != "public" {
 		return ErrUnavailable
@@ -483,8 +488,8 @@ func validateLegacyInput(in LegacyProductInput) error {
 	if in.PurchaseLoginRequired != nil && !*in.PurchaseLoginRequired {
 		return ErrUnavailable
 	}
-	if in.MaxQuantityPerBuyer != nil {
-		return ErrUnavailable
+	if in.MaxQuantityPerBuyer != nil && (*in.MaxQuantityPerBuyer < 1 || *in.MaxQuantityPerBuyer > 1000000) {
+		return ErrInvalid
 	}
 	if in.MaxQuantityPerOrder != nil && (*in.MaxQuantityPerOrder < 1 || *in.MaxQuantityPerOrder > 1000000) {
 		return ErrInvalid
@@ -528,6 +533,11 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 	if err := validateLegacyInput(in); err != nil {
 		return nil, err
 	}
+	if in.CategoryID != nil && *in.CategoryID != "" {
+		if _, err := s.readCategory(ctx, *in.CategoryID, true); err != nil {
+			return nil, err
+		}
+	}
 	var shop Shop
 	var p Product
 	if r.ID == "" {
@@ -566,7 +576,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		}
 		fresh := p.Legacy == nil
 		old := p.Legacy
-		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, Status: "draft", CreatedAt: now, UpdatedAt: now}
+		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, MaxQuantityPerBuyer: in.MaxQuantityPerBuyer, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, Status: "draft", CreatedAt: now, UpdatedAt: now}
 		if m.ImageURLs == nil {
 			m.ImageURLs = []string{}
 		}
@@ -579,6 +589,10 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		if old != nil {
 			m.CreatedAt = old.CreatedAt
 			m.SaleLimit = old.SaleLimit
+			m.CategoryID = old.CategoryID
+		}
+		if in.CategoryID != nil {
+			m.CategoryID = *in.CategoryID
 		}
 		p.Title = in.Title
 		p.Published = false
@@ -860,7 +874,7 @@ func legacyProductView(row LocatedProduct, public, ready bool) (map[string]any, 
 		reviewNote = ""
 		reviewer = 0
 	}
-	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "category_id": "", "title": p.Title, "description": m.Description, "image_urls": m.ImageURLs, "contact": m.Contact, "links": m.Links, "price_quota": price, "test_mode": m.TestMode, "visibility": m.Visibility, "purchase_login_required": m.PurchaseLoginRequired, "sale_limit": m.SaleLimit, "max_quantity_per_order": m.MaxQuantityPerOrder, "max_quantity_per_buyer": m.MaxQuantityPerBuyer, "template": m.Template, "delivery_strategy": m.DeliveryStrategy, "payment_methods": methods, "pickup_login_required": m.PickupLoginRequired, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "status": m.Status, "review_note": reviewNote, "reviewed_by": reviewer, "reviewed_at": m.ReviewedAt, "promotion_expires_at": 0, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "official": false, "unlimited_supply": unlimited, "available_stock": stock, "paid_quantity": claimed, "reserved_quantity": reserved, "sale_available": saleAvailable, "trading_paused": paused, "default_variant_id": m.DefaultVariantID, "variants": variants, "inventory_total": inventoryTotal, "inventory_available": stock, "price_min_quota": min, "price_max_quota": max, "display_tags": tags}, nil
+	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "category_id": m.CategoryID, "title": p.Title, "description": m.Description, "image_urls": m.ImageURLs, "contact": m.Contact, "links": m.Links, "price_quota": price, "test_mode": m.TestMode, "visibility": m.Visibility, "purchase_login_required": m.PurchaseLoginRequired, "sale_limit": m.SaleLimit, "max_quantity_per_order": m.MaxQuantityPerOrder, "max_quantity_per_buyer": m.MaxQuantityPerBuyer, "template": m.Template, "delivery_strategy": m.DeliveryStrategy, "payment_methods": methods, "pickup_login_required": m.PickupLoginRequired, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "status": m.Status, "review_note": reviewNote, "reviewed_by": reviewer, "reviewed_at": m.ReviewedAt, "promotion_expires_at": 0, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "official": false, "unlimited_supply": unlimited, "available_stock": stock, "paid_quantity": claimed, "reserved_quantity": reserved, "sale_available": saleAvailable, "trading_paused": paused, "default_variant_id": m.DefaultVariantID, "variants": variants, "inventory_total": inventoryTotal, "inventory_available": stock, "price_min_quota": min, "price_max_quota": max, "display_tags": tags}, nil
 }
 func (s *Service) publicLegacyView(row LocatedProduct, public bool) (map[string]any, error) {
 	view, err := legacyProductView(row, public, s.funds.Available())

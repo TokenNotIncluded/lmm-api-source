@@ -36,6 +36,12 @@ type storeProductTermsService interface {
 type storeCatalogueService interface {
 	PublicCatalogueQuery(context.Context, store.CatalogueQuery) ([]map[string]any, error)
 }
+type storeCategoriesService interface {
+	PublicCategories(context.Context, int, int) (map[string]any, error)
+}
+type storeBuyerProductService interface {
+	ProductForBuyer(context.Context, string, int64, string) (map[string]any, error)
+}
 type storeLegacyService interface {
 	Legacy(context.Context, string, store.Account, store.LegacyRequest) (any, error)
 }
@@ -122,12 +128,36 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		}
 		Respond(w, map[string]any{"items": items, "offset": query.Offset, "limit": query.Limit, "has_more": len(items) == query.Limit, "seller": nil}, nil)
 	}))
-	mux.HandleFunc("GET /api/store/products/{id}", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
+	mux.HandleFunc("GET /api/store/categories", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
+		if _, err := supportQuery(r, "offset", "limit"); err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		offset, limit, err := Page(r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		port, ok := service.(storeCategoriesService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		value, err := port.PublicCategories(r.Context(), offset, limit)
+		Respond(w, value, err)
+	}))
+	mux.HandleFunc("GET /api/store/products/{id}", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
 		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		value, err := service.PublicProduct(r.Context(), r.PathValue("id"))
+		var value map[string]any
+		var err error
+		if port, ok := service.(storeBuyerProductService); ok {
+			value, err = port.ProductForBuyer(r.Context(), bearer(r), actor, r.PathValue("id"))
+		} else {
+			value, err = service.PublicProduct(r.Context(), r.PathValue("id"))
+		}
 		Respond(w, value, err)
 	}))
 	mux.HandleFunc("GET /api/store/products/{id}/terms", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
@@ -147,6 +177,10 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 	// Only routes present in main are registered. Pickup proof, inventory and
 	// provider-specific refund operations need their own domain ports.
 	routes := []storeWebRoute{
+		{pattern: "GET /api/store/admin/categories", action: "admin_categories", page: true},
+		{pattern: "POST /api/store/admin/categories", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},
+		{pattern: "PUT /api/store/admin/categories/{id}", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},
+		{pattern: "PUT /api/store/products/{id}/category", action: "product_category", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "POST /api/store/disclaimer/accept", action: "accept_disclaimer", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "GET /api/store/my/terms", action: "my_terms"},
 		{pattern: "PUT /api/store/my/terms", action: "save_terms", bodyLimit: 128 << 10, requiredBody: true},

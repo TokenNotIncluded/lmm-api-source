@@ -67,7 +67,16 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 				return ErrConflict
 			}
 			if m.MaxQuantityPerOrder != nil && p.Quantity > *m.MaxQuantityPerOrder {
-				return ErrConflict
+				return ErrPurchaseLimit
+			}
+			if m.MaxQuantityPerBuyer != nil {
+				used, err := buyerProductQuantity(tx, product.ID, p.Buyer)
+				if err != nil {
+					return err
+				}
+				if used >= *m.MaxQuantityPerBuyer || p.Quantity > *m.MaxQuantityPerBuyer-used {
+					return ErrPurchaseLimit
+				}
 			}
 			if m.SaleLimit != nil {
 				vs, err := variantsFor(tx, product.ID)

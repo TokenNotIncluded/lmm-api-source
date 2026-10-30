@@ -23,6 +23,7 @@ var (
 	ErrPaymentUnavailable       = errors.New("payments_unavailable")
 	ErrPending                  = errors.New("money_result_pending")
 	ErrSoldOut                  = errors.New("stock_or_quota_exhausted")
+	ErrPurchaseLimit            = errors.New("purchase_limit")
 	ErrRateLimited              = errors.New("rate_limit_exceeded")
 	ErrSellerTermsRequired      = errors.New("seller_terms_required")
 	ErrSellerTermsNotConfigured = errors.New("seller_terms_not_configured")
