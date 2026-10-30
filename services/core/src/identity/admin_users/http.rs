@@ -44,6 +44,8 @@ impl IntoResponse for AdminUsersError {
 pub fn router(store: AdminUsersStore) -> Router {
     Router::new()
         .merge(super::profile_mutation::routes())
+        .merge(super::security::routes())
+        .merge(super::balance_adjustments::routes())
         .route("/core/v1/admin/users", get(users))
         .route("/core/v1/admin/users/groups", get(groups))
         .route("/core/v1/admin/system-resources", get(system_resources))

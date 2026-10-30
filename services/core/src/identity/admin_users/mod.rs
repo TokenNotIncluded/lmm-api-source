@@ -1,10 +1,14 @@
 //! Core-owned administrator user reads and a separate conditional display-name update.
+mod balance_adjustments;
 mod http;
 mod profile_mutation;
+mod security;
+pub use balance_adjustments::{AdjustmentReceipt, AdjustmentRequest};
 pub use profile_mutation::{
     AdminProfile, PROFILE_CONTRACT, ProfileCapabilities, ProfileError, ProfileUpdate,
     ProfileUpdateRequest,
 };
+pub use security::{SecurityAction, SecurityRequest, SecuritySnapshot, SecurityUpdate};
 mod wallet;
 use super::*;
 pub use http::router;
