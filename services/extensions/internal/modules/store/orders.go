@@ -8,13 +8,16 @@ import (
 )
 
 type Purchase struct {
-	ShopID    string                `json:"shop_id"`
-	VariantID string                `json:"variant_id"`
-	Buyer     Account               `json:"buyer"`
-	Quantity  int64                 `json:"quantity"`
-	Key       string                `json:"key"`
-	Policy    *LegacyCheckoutPolicy `json:"-"`
-	Created   *bool                 `json:"-"`
+	ShopID        string                `json:"shop_id"`
+	VariantID     string                `json:"variant_id"`
+	Buyer         Account               `json:"buyer"`
+	Quantity      int64                 `json:"quantity"`
+	Key           string                `json:"key"`
+	PromotionCode string                `json:"promotion_code,omitempty"`
+	RequireFree   bool                  `json:"require_free,omitempty"`
+	PickupCode    string                `json:"-"`
+	Policy        *LegacyCheckoutPolicy `json:"-"`
+	Created       *bool                 `json:"-"`
 }
 
 func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order, error) {
@@ -22,6 +25,10 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		return Order{}, ErrInvalid
 	}
 	actor, err := s.check(ctx, token, p.Buyer, Spend)
+	if err != nil {
+		return Order{}, err
+	}
+	protection, err := protectPickup(p.PickupCode)
 	if err != nil {
 		return Order{}, err
 	}
@@ -36,7 +43,7 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			if out.RequestHash != hash {
 				return ErrConflict
 			}
-			return nil
+			return checkOrderPickup(tx, out, p.PickupCode)
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		}
@@ -61,10 +68,16 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if !v.Price.valid() {
 			return ErrInvalid
 		}
+		if product.Legacy == nil && (p.PromotionCode != "" || p.RequireFree || p.PickupCode != "") {
+			return ErrInvalid
+		}
 		if product.Legacy != nil {
 			m := product.Legacy
 			if m.Status != "published" || !m.Approved || m.TestMode || v.Legacy == nil || !v.Legacy.Enabled || v.Price.Unit != "credits" {
 				return ErrConflict
+			}
+			if m.PickupCodeRequired && protection == nil {
+				return ErrInvalid
 			}
 			if m.MaxQuantityPerOrder != nil && p.Quantity > *m.MaxQuantityPerOrder {
 				return ErrPurchaseLimit
@@ -107,10 +120,32 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 				return err
 			}
 		}
-		if v.Price.Amount > math.MaxInt64/p.Quantity {
+		unitPrice := v.Price
+		var promotion *Promotion
+		if p.PromotionCode != "" {
+			if !Text(p.PromotionCode, 128) {
+				return ErrInvalid
+			}
+			value, err := promotionByCode(tx, product.ID, v.ID, p.PromotionCode)
+			if err != nil {
+				return err
+			}
+			unitPrice.Amount, err = discountedUnit(v.Price.Amount, value.DiscountBPS)
+			if err != nil {
+				return err
+			}
+			promotion = &value
+		}
+		if unitPrice.Amount > math.MaxInt64/p.Quantity {
 			return ErrInvalid
 		}
-		total := Price{Amount: v.Price.Amount * p.Quantity, Currency: v.Price.Currency, Unit: v.Price.Unit}
+		total := Price{Amount: unitPrice.Amount * p.Quantity, Currency: unitPrice.Currency, Unit: unitPrice.Unit}
+		if p.RequireFree && total.Amount != 0 {
+			return ErrConflict
+		}
+		if product.Legacy != nil && total.Amount == 0 && !p.RequireFree {
+			return ErrConflict
+		}
 		// This is the price reread under the shop transaction lock. A prior
 		// catalogue read cannot guard concurrent repricing before reservation.
 		if product.Legacy != nil && total.Amount > legacySafeInteger {
@@ -128,12 +163,24 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if err := v.reserve(p.Quantity); err != nil {
 			return err
 		}
-		out = Order{ID: id, Buyer: p.Buyer, Seller: shop.Owner, CreatedBy: actor, VariantID: v.ID, Title: v.Title, ProductTitle: product.Title, Quantity: p.Quantity, UnitPrice: v.Price, Total: total, State: AwaitingPayment, RequestHash: hash}
+		out = Order{ID: id, Buyer: p.Buyer, Seller: shop.Owner, CreatedBy: actor, VariantID: v.ID, Title: v.Title, ProductTitle: product.Title, Quantity: p.Quantity, UnitPrice: unitPrice, Total: total, State: AwaitingPayment, RequestHash: hash}
 		if product.Legacy != nil {
 			out.Legacy = &LegacyOrderMetadata{ProductID: product.ID, PaymentMethod: "balance", CreatedAt: time.Now().Unix(), DeliveryTemplate: v.Legacy.Template}
 			out.Legacy.SellerTermsVersion = frozenTerms.Version
 			out.Legacy.SellerTermsContent = frozenTerms.Content
 			out.Legacy.SellerTermsAcceptedAt = termsAcceptedAt
+			out.Legacy.PickupCodeRequired = protection != nil
+			if protection != nil {
+				if err := tx.Put("commands", ID("legacy-order-pickup-v1", out.ID), protection); err != nil {
+					return err
+				}
+			}
+			if promotion != nil {
+				out.Legacy.PromotionID = promotion.ID
+				out.Legacy.PromotionCode = promotion.Code
+				out.Legacy.DiscountBPS = promotion.DiscountBPS
+				out.Legacy.OriginalUnitPrice = v.Price.Amount
+			}
 			if err := tx.Put("commands", ID("legacy-order-delivery-v1", out.ID), struct {
 				Content string `json:"content"`
 			}{v.Legacy.FixedContent}); err != nil {
@@ -145,6 +192,21 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		}
 		if total.Amount == 0 {
 			out.State = Paid
+			if out.Legacy != nil {
+				if v.Legacy.Template != "fixed-content" || !Text(v.Legacy.FixedContent, 16000) {
+					return ErrUnavailable
+				}
+				// A seller's free coupon is a zero-value purchase. Consume the
+				// reserved goods and save delivery atomically without issuing a
+				// financial command or a synthetic payment receipt.
+				v.Reserved -= out.Quantity
+				if v.TrackStock {
+					v.Stock -= out.Quantity
+				}
+				out.Legacy.PaymentMethod = "free"
+				out.Legacy.PaidAt = time.Now().Unix()
+				out.Delivered, out.Delivery, out.State = true, v.Legacy.FixedContent, Settled
+			}
 		}
 		if err := tx.Put("variants", v.ID, v); err != nil {
 			return err

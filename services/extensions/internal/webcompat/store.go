@@ -42,6 +42,12 @@ type storeCategoriesService interface {
 type storeBuyerProductService interface {
 	ProductForBuyer(context.Context, string, int64, string) (map[string]any, error)
 }
+type storePromotionService interface {
+	ResolvePromotion(context.Context, string, string) (map[string]any, error)
+}
+type storePickupService interface {
+	Pickup(context.Context, string, int64, string, string, bool) (map[string]any, error)
+}
 type storeLegacyService interface {
 	Legacy(context.Context, string, store.Account, store.LegacyRequest) (any, error)
 }
@@ -174,9 +180,66 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		Respond(w, value, err)
 	}))
 
-	// Only routes present in main are registered. Pickup proof, inventory and
-	// provider-specific refund operations need their own domain ports.
+	mux.HandleFunc("GET /api/store/products/{id}/promotions/resolve", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
+		query, err := supportQuery(r, "code")
+		if err != nil || !supportID(r.PathValue("id")) || !store.Text(query.Get("code"), 128) {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		port, ok := service.(storePromotionService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		value, err := port.ResolvePromotion(r.Context(), r.PathValue("id"), query.Get("code"))
+		Respond(w, value, err)
+	}))
+	for _, method := range []string{"GET", "POST"} {
+		mux.HandleFunc(method+" /api/user/auth/store-claim/{token}", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
+			if _, err := supportQuery(r); err != nil {
+				Respond(w, nil, err)
+				return
+			}
+			port, ok := service.(storePickupService)
+			if !ok {
+				Respond(w, nil, store.ErrUnavailable)
+				return
+			}
+			collect := r.Method == http.MethodPost
+			var in struct {
+				Code string `json:"pickup_code"`
+			}
+			if collect {
+				if actor == 0 {
+					Respond(w, nil, store.ErrUnauthorized)
+					return
+				}
+				body, err := storeBody(w, r, 4<<10, true)
+				if err != nil {
+					Respond(w, nil, err)
+					return
+				}
+				decoder := json.NewDecoder(bytes.NewReader(body))
+				decoder.DisallowUnknownFields()
+				if decoder.Decode(&in) != nil {
+					Respond(w, nil, store.ErrInvalid)
+					return
+				}
+			}
+			value, err := port.Pickup(r.Context(), bearer(r), actor, r.PathValue("token"), in.Code, collect)
+			Respond(w, value, err)
+		}))
+	}
+
 	routes := []storeWebRoute{
+		{pattern: "GET /api/store/products/{id}/promotions", action: "promotions", page: true},
+		{pattern: "POST /api/store/products/{id}/promotions", action: "save_promotion", bodyLimit: 8 << 10, requiredBody: true},
+		{pattern: "PUT /api/store/products/{id}/promotions/{child_id}", action: "save_promotion", bodyLimit: 8 << 10, requiredBody: true},
+		{pattern: "POST /api/store/products/{id}/promotions/batch", action: "promotion_batch", bodyLimit: 8 << 10, requiredBody: true},
+		{pattern: "POST /api/store/products/{id}/promotions/cleanup", action: "promotion_cleanup", bodyLimit: 4 << 10, requiredBody: true},
+		{pattern: "POST /api/store/products/{id}/promotions/quote", action: "promotion_quote", bodyLimit: 4 << 10, requiredBody: true},
+		{pattern: "GET /api/store/orders/{id}/pickup-link", action: "pickup_link"},
+		{pattern: "GET /api/store/products/{id}/variants/{child_id}/fixed-content", action: "fixed_content"},
 		{pattern: "GET /api/store/admin/categories", action: "admin_categories", page: true},
 		{pattern: "POST /api/store/admin/categories", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "PUT /api/store/admin/categories/{id}", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},

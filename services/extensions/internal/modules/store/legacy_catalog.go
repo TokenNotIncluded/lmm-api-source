@@ -137,7 +137,7 @@ func (s *Service) PublicConfig(ctx context.Context) (map[string]any, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, ErrUnavailable
 	}
-	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": false, "store_categories_supported": true, "store_likes_supported": false, "store_svg_media_supported": false, "extore_import_supported": false, "extore_redirect_uri": "", "store_merchant_home_supported": false, "store_access_supported": false, "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": false, "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
+	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": false, "store_categories_supported": true, "store_likes_supported": false, "store_svg_media_supported": false, "extore_import_supported": false, "extore_redirect_uri": "", "store_merchant_home_supported": false, "store_access_supported": false, "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
 }
 
 func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
@@ -235,6 +235,12 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return s.legacyCategories(ctx, token, r)
 	case "product_category":
 		return s.setProductCategory(ctx, actor, r)
+	case "promotions", "save_promotion", "promotion_batch", "promotion_cleanup":
+		return s.legacyPromotions(ctx, actor, r)
+	case "promotion_quote":
+		return s.quotePromotion(ctx, actor, r)
+	case "pickup_link":
+		return s.legacyPickupLink(ctx, token, actor, r.ID)
 	case "submit_product", "unlist_product", "delete_product", "cancel_order", "reconcile_order":
 		if len(r.Body) > 0 {
 			var empty map[string]any
@@ -306,6 +312,21 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 	}
 	if r.Action == "draft_product" || r.Action == "preview_product" {
 		return s.publicLegacyView(row, false)
+	}
+	if r.Action == "fixed_content" {
+		var content string
+		err := s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
+			var variant Variant
+			if err := tx.Get("variants", r.ChildID, &variant); err != nil {
+				return err
+			}
+			if variant.ProductID != r.ID || variant.Legacy == nil || variant.Legacy.Template != "fixed-content" {
+				return ErrNotFound
+			}
+			content = variant.Legacy.FixedContent
+			return nil
+		})
+		return map[string]any{"content": content}, err
 	}
 	if r.Action == "create_variant" || r.Action == "save_variant" || r.Action == "variant_enabled" {
 		return s.saveLegacyVariant(ctx, actor, row, r)
@@ -494,7 +515,7 @@ func validateLegacyInput(in LegacyProductInput) error {
 	if in.MaxQuantityPerOrder != nil && (*in.MaxQuantityPerOrder < 1 || *in.MaxQuantityPerOrder > 1000000) {
 		return ErrInvalid
 	}
-	if in.EmailPickupLink || in.PickupCodeRequired || !in.PickupLoginRequired {
+	if in.EmailPickupLink || !in.PickupLoginRequired {
 		return ErrUnavailable
 	}
 	if in.DeliveryStrategy != "" && in.DeliveryStrategy != "sequential" {
@@ -576,7 +597,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		}
 		fresh := p.Legacy == nil
 		old := p.Legacy
-		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, MaxQuantityPerBuyer: in.MaxQuantityPerBuyer, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, Status: "draft", CreatedAt: now, UpdatedAt: now}
+		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, MaxQuantityPerBuyer: in.MaxQuantityPerBuyer, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, PickupCodeRequired: in.PickupCodeRequired, Status: "draft", CreatedAt: now, UpdatedAt: now}
 		if m.ImageURLs == nil {
 			m.ImageURLs = []string{}
 		}
