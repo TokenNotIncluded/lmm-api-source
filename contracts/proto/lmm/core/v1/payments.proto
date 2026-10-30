@@ -11,6 +11,11 @@ service CorePayments {
   rpc AcceptProviderProof(AcceptProviderProofRequest) returns (ProviderProofReceipt);
   rpc GetProviderProof(GetProviderProofRequest) returns (ProviderProofReceipt);
   rpc PrepareTopup(PrepareTopupRequest) returns (PaymentIntent);
+  // Resolve the personal payer from the current Core session, never a web ID.
+  rpc PreparePersonalTopup(PreparePersonalTopupRequest) returns (PaymentIntent);
+  // EPay shares one MD5 key between checkout and callback verification. Keep
+  // that key in Core; only sign the fixed fields of an existing Core intent.
+  rpc GetEPayCheckout(GetEPayCheckoutRequest) returns (EPayCheckout);
   rpc CreditTopup(CreditTopupRequest) returns (PaymentReceipt);
   rpc HoldRefund(HoldRefundRequest) returns (PaymentReceipt);
   rpc BeginRefundDispatch(ResolveRefundRequest) returns (PaymentReceipt);
@@ -63,6 +68,12 @@ message PrepareTopupRequest {
   string currency = 4; // ISO code, e.g. USD. Core validates channel and currency.
   int64 amount_minor = 5; // Requested positive external smallest units, not credit.
 }
+message PreparePersonalTopupRequest {
+  MutationContext mutation = 1;
+  int64 payment_channel_id = 2;
+  string currency = 3;
+  int64 amount_minor = 4;
+}
 message PaymentIntent {
   int64 intent_id = 1;
   int64 account_id = 2;
@@ -77,6 +88,16 @@ message PaymentIntent {
   string idempotency_key = 11;
   bytes request_sha256 = 12;
   string receipt_id = 13;
+}
+message GetEPayCheckoutRequest {
+  int64 intent_id = 1;
+}
+message EPayCheckout {
+  int64 intent_id = 1;
+  string order_id = 2;
+  string checkout_url = 3;
+  // GET opens checkout_url; POST submits its query fields to its queryless URL.
+  string method = 4;
 }
 message CreditTopupRequest {
   MutationContext mutation = 1;

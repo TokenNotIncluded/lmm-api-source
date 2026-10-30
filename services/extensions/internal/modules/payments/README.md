@@ -1,6 +1,6 @@
 # Go payment extension
 
-Parent integration PR: #675. Active work branch: `wip/rust-core-go-extensions`.
+Implementation: `main` in `TokenNotIncluded/lmm-api-source`.
 
 **Local WIP, not production-enabled.** Go owns provider orders and callback
 processing; Rust independently accepts provider proof and owns all ledger
@@ -14,9 +14,11 @@ recovery test, separately from historical task 10 results.
 
 Go owns provider orders, callback evidence and processing state. Rust owns user
 and team permissions, immutable payment intents, conversion quotes, balances,
-refund holds and ledger receipts. An explicit Rust `account_id` is required; it
-is not a team ID or the creator's user ID. Go never chooses a substitute account,
-calculates credit units or accesses a core database.
+refund holds and ledger receipts. Private module routes use an explicit Rust
+`account_id`; it is not a team ID or the creator's user ID. Native browser quotes
+instead use `PreparePersonalTopup`, which derives the actual personal account in
+Core. Go never chooses a substitute account, calculates credit units or accesses
+a core database.
 
 `Service` implements the host's `Name` / `Handler` interface. Inject a dedicated
 `Postgres`, `rustbridge.Bridge` and configured adapters using `New`. Construction
@@ -152,6 +154,12 @@ atomically prevent stale credit and reconcile overlaps with existing holds.
 
 ## Provider support and limits
 
+Version 2 host configuration assembles Stripe, EPay, Creem, Waffo Global and
+Waffo Pancake. The native wallet has authenticated channel, quote, confirmation
+and checkout-status routes under `/api/user/payments/`. The complete configuration
+and currency contract is in [Native wallet payment gateways](../../../../../docs/payment-gateways.md).
+FastPay is retired and is not an accepted provider.
+
 **Stripe direct accounts:** fixed-amount hosted Checkout, PaymentIntent success
 and failure, refund created/updated/failed, partial refunds, authenticated lookup
 and bounded refund pagination. Connect-account events are rejected in this basic
@@ -174,23 +182,30 @@ stop after 23 hours. API observations have `source=api`, no forged signature or
 accepted proof ID, and cannot settle funds. A later accepted webhook can repair
 an earlier unproved job, including while that job is in flight.
 
-**Legacy ePay MD5 profile:** deterministic signed checkout links, precise CNY
-minor-unit amounts, GET/form callback verification and authenticated order query.
-The wire format contains no currency or environment: only CNY is enabled, and
-each environment requires a separate merchant key. Duplicate form fields,
-ambiguous signing inputs and unexpected merchant/payment type are rejected.
-There is no callback timestamp check, so replay keys must remain durable.
-These are Go adapter capabilities. Rust has no ePay proof verifier yet, so this
-profile cannot complete the current durable-proof settlement path. The completed
-joint acceptance uses simulated Stripe events only.
+**EPay MD5 profile:** the production host uses `NewCoreEPay`. Core holds the
+merchant key, signs the frozen checkout intent and independently verifies the
+original GET/form callback. CNY and Linux DO LDC are separate configured units;
+the wire format itself contains no currency or environment. Each namespace has
+its own key and durable replay protection. Payment type, merchant, order and
+exact amount must match. Go-side credentialed lookup and automatic refund
+dispatch are unavailable on this Core-owned profile. The old key-bearing
+`NewEPay` constructor remains for existing package fixtures, not host assembly.
 
-Legacy ePay automatic refunds are **disabled by default**: its common documented
-API lacks stable refund IDs, refund idempotency keys and signed terminal proof.
-An audited provider may explicitly enable a send-once legacy request and,
-separately, partial amounts. Unknown writes are never automatically resent.
-Even a reported success remains pending until independent evidence and a Rust
-receipt exist. Complete settlement requires a provider-specific verified refund
-or query adapter; this is not a promise that every ePay clone supports it.
+**Creem:** one-time, inclusive-tax, fixed-price products in USD/CNY/EUR. Go checks
+the live product against the quote before checkout; Core verifies original HMAC
+evidence, environment, product, merchant metadata, order and exact amount.
+
+**Waffo Global:** RSA-signed order creation and callbacks. A shared provider
+public key alone does not bind merchant-supplied metadata to a receiving
+account. Core independently inquires about the frozen order using its own
+provider credentials before persisting a new proof, then rechecks the intent
+inside the transaction. Go's own inquiry is still an observation.
+
+**Waffo Pancake:** authenticated checkout through the pinned official SDK,
+separate from Global's protocol. Core verifies the original timestamped RSA
+notification and binds merchant, test/prod environment, store, product, order,
+currency and actual paid amount. Creem, Global and Pancake automatic refunds
+are not enabled by this top-up implementation.
 
 Provider connections require HTTPS, block redirects and proxy environment use,
 reject private/link-local/metadata addresses and pin checked DNS addresses.

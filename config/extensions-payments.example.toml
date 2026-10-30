@@ -1,0 +1,86 @@
+# Version 2 outbound payment adapters. Select this file explicitly in [payments].
+# Use the same channel ID / provider / merchant / environment / currency and
+# product bindings as Core. Enable only provisioned and verified channels.
+# Core holds all webhook verification secrets and the EPay merchant key.
+version = 2
+
+[[channels]]
+id = 1
+provider = "stripe"
+merchant = "acct_REPLACE"
+environment = "test"
+currency = "USD"
+enabled = false
+api_key_file = "/etc/lmm.conf.d/secrets/extensions/stripe-api-key"
+api_version = "2025-02-24.acacia"
+success_url = "https://api.example.invalid/console/wallet"
+cancel_url = "https://api.example.invalid/console/wallet"
+
+[[channels]]
+id = 2
+provider = "epay"
+merchant = "10001"
+environment = "live"
+currency = "CNY"
+enabled = false
+payment_type = "alipay"
+
+[[channels]]
+id = 3
+provider = "epay"
+merchant = "10001"
+environment = "live"
+currency = "CNY"
+enabled = false
+payment_type = "wxpay"
+
+[[channels]]
+id = 4
+provider = "epay"
+merchant = "10002"
+environment = "live"
+currency = "LDC"
+enabled = false
+payment_type = "epay"
+
+[[channels]]
+id = 5
+provider = "creem"
+merchant = "creem_REPLACE"
+environment = "test"
+currency = "USD"
+enabled = false
+api_key_file = "/etc/lmm.conf.d/secrets/extensions/creem-api-key"
+product_id = "prod_REPLACE"
+product_amount_minor = 1000
+success_url = "https://api.example.invalid/console/wallet"
+
+[[channels]]
+id = 6
+provider = "waffo"
+merchant = "REPLACE_WAFFO_MERCHANT"
+environment = "test"
+currency = "USD"
+enabled = false
+api_key_file = "/etc/lmm.conf.d/secrets/extensions/waffo-api-key"
+private_key_file = "/etc/lmm.conf.d/secrets/extensions/waffo-private-key.pem"
+notify_url = "https://api.example.invalid/callbacks/6"
+return_url = "https://api.example.invalid/console/wallet"
+# Optional contracted method, or omit both to use the provider's selector.
+# pay_method_type = "CREDITCARD"
+# pay_method_name = "CC_VISA"
+
+[[channels]]
+id = 7
+provider = "waffo_pancake"
+merchant = "MER_0123456789abcdefghijkl"
+environment = "test"
+currency = "USD"
+enabled = false
+private_key_file = "/etc/lmm.conf.d/secrets/extensions/pancake-private-key.pem"
+store_id = "STO_0123456789abcdefghijkl"
+product_id = "PROD_0123456789abcdefghijkl"
+return_url = "https://api.example.invalid/console/wallet"
+checkout_region = "global"
+checkout_language = "en"
+tax_category = "saas"

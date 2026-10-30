@@ -71,12 +71,25 @@ func loadPaymentAdapters(path string, runtimeCredentials ...[]byte) ([]payments.
 	return loadPaymentAdaptersForHost(context.Background(), path, "", false, runtimeCredentials...)
 }
 func loadPaymentAdaptersForHost(ctx context.Context, path, hostOrigin string, localHTTP bool, runtimeCredentials ...[]byte) ([]payments.Adapter, error) {
+	return loadPaymentAdaptersWithSigner(ctx, path, hostOrigin, localHTTP, nil, runtimeCredentials...)
+}
+
+func loadPaymentAdaptersWithSigner(ctx context.Context, path, hostOrigin string, localHTTP bool, signer payments.EPayCheckoutSigner, runtimeCredentials ...[]byte) ([]payments.Adapter, error) {
 	if !cleanPaymentPath(path) {
 		return nil, errors.New("invalid private payment configuration path")
 	}
 	raw, err := coreclient.ReadPrivateFile(path, 64<<10)
 	if err != nil || !utf8.Valid(raw) {
 		return nil, errors.New("private payment configuration unavailable")
+	}
+	var version struct {
+		Version int `toml:"version"`
+	}
+	if _, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&version); err != nil {
+		return nil, errors.New("invalid private payment configuration")
+	}
+	if version.Version == 2 {
+		return loadMultiPaymentAdapters(raw, signer)
 	}
 	var cfg paymentDocument
 	meta, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&cfg)
@@ -184,15 +197,20 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	credentials := append([][]byte{cfg.HostCredential, paymentToken}, otherCredentials...)
 	credentials = append(credentials, r.paymentIsolationCredentials...)
 	defer func() { r.paymentIsolationCredentials = nil }()
-	adapters, err := loadPaymentAdaptersForHost(ctx, cfg.PaymentConfigFile, cfg.HostPublicOrigin, cfg.LocalHTTP, credentials...)
-	if err != nil {
-		return err
-	}
+	var err error
 	r.PaymentClient, err = coreclient.New(cfg.Socket, paymentToken)
 	if err != nil {
 		return err
 	}
 	r.close = append(r.close, r.PaymentClient.Close)
+	bridge, err := rustbridge.New(r.PaymentClient)
+	if err != nil {
+		return err
+	}
+	adapters, err := loadPaymentAdaptersWithSigner(ctx, cfg.PaymentConfigFile, cfg.HostPublicOrigin, cfg.LocalHTTP, bridge, credentials...)
+	if err != nil {
+		return err
+	}
 	db, err := openStorage(ctx, cfg.Payments)
 	if err != nil {
 		return err
@@ -203,10 +221,6 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	repo, err := payments.NewPostgres(bounded, db, cfg.Payments.Database)
 	if err != nil {
 		return errors.New("payment storage contract unavailable")
-	}
-	bridge, err := rustbridge.New(r.PaymentClient)
-	if err != nil {
-		return err
 	}
 	r.Payments, err = payments.New(repo, bridge, adapters...)
 	return err

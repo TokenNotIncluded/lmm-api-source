@@ -1,12 +1,15 @@
 # Payment contracts and remaining acceptance
 
-This is the current WIP integration boundary for PR #675. It neither authorizes
+This is the current native payment integration boundary. It neither authorizes
 live channels nor makes a production-readiness claim.
 
 ## Implemented contracts
 
 - `PrepareTopup` freezes explicit Rust account, channel, provider, merchant,
   environment, currency, external minor amount and integer credit quote.
+- `PreparePersonalTopup` derives a personal economic account from a current Core
+  Session for the native browser quote. `GetEPayCheckout` signs only the existing
+  immutable intent, keeping the shared EPay MD5 key out of Go.
 - `GetPaymentReceipt` can return `PREPARED` for authorized intent reads. That
   state has no money journal and cannot become credit success in Go.
 - `AcceptProviderProof` asks Rust to independently verify original webhook bytes
@@ -20,12 +23,16 @@ live channels nor makes a production-readiness claim.
   user authorization; provider workers do not forward user credentials. Unknown
   RPCs and dependency failures fail closed.
 
-Stripe webhook secrets remain in Rust. Go's deprecated `WebhookSecrets` config
+Stripe, EPay and Creem verification secrets remain in Rust; Waffo verification
+uses Core's configured provider public keys. Global additionally needs Core's
+independent authenticated order inquiry. Go's deprecated `WebhookSecrets` config
 field must be empty. Raw payloads and signatures are private and immutable;
 Go's authenticated provider API reads remain observations. Rust decides provider
 scope, freshness on first acceptance, transaction binding and replay semantics.
-Adding another provider still requires an independent Rust verifier or another
-explicitly designed trusted boundary; no generic attestation is assumed here.
+The configured provider set is Stripe, EPay, Creem, Waffo Global and Pancake;
+FastPay is rejected. Adding another provider still requires an independent Rust
+verifier or another explicitly designed trusted boundary; no generic attestation
+is assumed here. See [gateway profiles](../../../../../docs/payment-gateways.md).
 
 ## Recovery and finality
 
@@ -71,9 +78,10 @@ providers. Inspect real Rust journals and exact integer balances for:
 
 The joint test constructs the module directly; it does not establish normal
 host mounting or public proxy/browser acceptance. Rust's failed-refund release
-operation remains guarded until dispatch is bound to a hold. Go's ePay adapter
-has no corresponding Rust proof verifier yet. Passing the top-up recovery path
-does not remove these limits or verify all provider and refund operations.
+operation remains guarded until dispatch is bound to a hold. The new EPay,
+Creem, Global and Pancake top-up verifiers have targeted developer tests; they
+do not inherit the historical Stripe joint acceptance. Passing a top-up path
+does not remove these limits or verify subscription, store or refund operations.
 
 Unit fixtures do not prove the ledger. The joint fixture contains a private Go
 DSN file reference, UDS/service/user test credentials and already signed payloads;

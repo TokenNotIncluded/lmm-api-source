@@ -155,7 +155,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
-            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades')
+            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades')
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
             OR (n.nspname='core_oauth' AND c.relname IN ('contract','codes')
               AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'INSERT,UPDATE')))

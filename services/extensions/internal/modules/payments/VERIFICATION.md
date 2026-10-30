@@ -1,4 +1,134 @@
-# Verification record — durable proof WIP, 2026-10-12
+# Verification record — native wallet gateways, 2026-10-30
+
+This change starts from source
+`6523c4b4b831643d69de3874c2e35933c91bfc2b` and compares the wallet channels with
+legacy source `3948a0a1ee1cefdd016a7aa45a11851545bb4b85`. The implemented scope is
+native wallet top-ups through Stripe, EPay, Creem, Waffo Global and Waffo
+Pancake, including Alipay, WeChat Pay and Linux DO Credit EPay presets. FastPay
+is rejected both as a provider and as an EPay method. See
+[the gateway guide](../../../../../docs/payment-gateways.md) for configuration,
+protocol ownership and the remaining subscription/store/refund scope.
+
+These are developer self-tests. Independent acceptance, real merchant
+integration and production deployment were not run. No actual payment
+credentials, real charges or production records were used.
+
+## Checks on the final payment behavior
+
+| Area | Observed result and scope |
+| --- | --- |
+| Rust provider and existing payment units | 35 passed. The one database-dependent test was initially ignored, then explicitly executed separately against isolated PostgreSQL. Original signed bytes, wrong bindings, duplicate proofs, EPay GET/POST and FastPay rejection are included. |
+| Core payment configuration | 3 passed, covering the existing Stripe contract, v2 per-channel policy and mandatory private Global inquiry configuration in both environments. |
+| Fixed upgrade contract units | 5 passed against the corrected predecessor/successor manifest and catalog pins. |
+| Real Core/PostgreSQL top-up regression | 1 passed, containing five profiles: EPay CNY, EPay LDC, Creem, Global and Pancake. Each executes actual Core prepare, independent evidence verification, ledger credit, duplicate recovery and cross-intent rejection. Global uses a test-only local inquiry response. The real site-statistics reader reports LDC separately under virtual units, with the expected five orders and exact ledger total. |
+| Go adapters and host | Payment module tests passed after the adapter implementation; changed Creem/Global/catalog cases and the final EPay/POST/FastPay cases were rerun after their respective changes. Composition, app mounting/callback transport, web compatibility, controlled RPC deadlines and the native UDS bridge checks passed. The final private `/orders` response also preserves the stored POST method. |
+| Generated protocol | `scripts/generate-core-protocol.sh --check` passed after the final `EPayCheckout.method = 4` change. |
+| Web | 7 focused tests passed after the final POST form change; scoped lint/format and the full TypeScript check passed. The production Web build passed before that final form change; the bundler was not rerun afterward. |
+| Local edge routing | The actual nginx fixture passed 17 checks, including payment-prefix precedence, browser Bearer preservation, quote/checkout routing and GET/form callback transport. Fixture upstreams do not establish a real joint Core/Go/browser flow. |
+
+Rust used 1.99.0 with the checked-in lockfile and a bounded build environment
+(`CARGO_BUILD_JOBS=2`, incremental compilation off, development/test debug info
+off). Go used 1.26.10 with the checked-in module graph; SDK modules were not
+replaced by local copies. Web used the existing installed, locked dependencies.
+The final non-test development Core executable built successfully with SHA-256
+`c9773845270626fc8bd6b3c5ca483ece6dccbd6d54b3fbc5597684637412c0ad`.
+
+The final Rust library run was `cargo test --offline --locked --lib payments::
+-- --nocapture`. The compiled test executable then ran the filters
+`config::tests::payment_configuration`,
+`core_schema::upgrade::payment_gateways::tests`, and the explicitly enabled
+`payments::providers::tests::postgres_gateway_proof_credit_and_personal_payer`
+with `--exact --ignored --nocapture` and a private fixture `DATABASE_URL`.
+
+Go checks were scoped to:
+
+```sh
+go test ./internal/modules/payments -count=1
+go test ./internal/composition ./internal/webcompat ./internal/app ./internal/coreclient
+go test ./internal/coreclient ./internal/modules/payments/rustbridge -count=1
+go test ./internal/webcompat ./internal/modules/payments/rustbridge -count=1
+go test ./internal/modules/payments -run TestHTTPNeverExposesEvidenceOrInternalJobs -count=1
+go test ./internal/modules/payments ./internal/composition \
+  -run 'TestCoreEPayKeepsMD5KeyOutOfGoAndPreservesLDC|TestPaymentV2RestoresLegacyProvidersWithoutFastPay' -count=1
+```
+
+These commands ran at the corresponding implementation stages; they are not a
+claim that the full repository test suite or all fixture-dependent joint tests
+ran on one final snapshot. After the final HTTP-method changes, their affected
+tests were rerun. Existing Stripe restart/refund acceptance below remains a
+historical result and does not certify restart or refund recovery for the new
+protocols.
+
+## Actual fixed-predecessor upgrade
+
+The final executable above passed
+[`tests/payment_gateways/upgrade_selftest.py`](../../../../../tests/payment_gateways/upgrade_selftest.py)
+against private PostgreSQL 18.6 UTF-8 fixtures. The script reconstructs the
+exact predecessor from Git source `6523c4b`, checks each old SQL component
+against the compiled manifest, and invokes a frozen copy of the actual new
+Core CLI. It does not claim to have run the old executable's `init-db`.
+
+The run observed the 28 → 29 component transition, 175 → 176 tables, all 22
+existing sequences preserved, and all 7,068 successor catalog definitions
+matching the compiled target. Synthetic old rows and original permissions
+were unchanged. The exact original request returned `already_committed`;
+changing the same request or selecting a new upgrade ID was rejected.
+Predecessor catalog drift, stored-receipt drift, unsafe default ACLs and an
+existing transaction reused across channels were rejected. The unsafe-default-
+ACL attempt rolled back completely. The upgrade receipt rejected mutation.
+
+The actual `check-db` command accepted the restricted runtime after upgrade,
+rejected table-level and column-level SELECT grants on the private receipt,
+and accepted the restored restricted grants. All cases used the same Native
+SHA-256 above. The run is recorded as `lmm-payment-upgrade-selftest-r3`; it is
+a developer self-test, with no independent acceptance, real lost-COMMIT-ACK
+injection or existing-site writer/fence/deployment validation.
+
+The command shape was:
+
+```sh
+python3 tests/payment_gateways/upgrade_selftest.py \
+  --core services/core/target/debug/lmm-core \
+  --psql /tmp/lmm-boundary-seal-runtime/root/usr/lib/postgresql/18/bin/psql \
+  --host /tmp/lmm-payment-pg --port 55439 --admin lmm_payment_admin \
+  --library-path /tmp/lmm-boundary-seal-runtime/root/usr/lib/x86_64-linux-gnu \
+  --output /workspace/scratch/ae9ee2e44cd8/lmm-payment-upgrade-selftest-r3
+```
+
+## Preserved failures and validation limits
+
+The first unconstrained Rust build was killed for memory use, and the first Web
+typecheck exited 137; their bounded reruns passed. Initial Go composition
+fixtures omitted the required Pancake tax category and expected Go to validate
+an endpoint owned by Core; those fixtures were corrected. A host test still
+expected GET callbacks to be blocked; it was updated to the explicit GET/POST
+ingress contract, without treating the downstream fixture's rejection as a
+successful payment.
+
+The first schema-target generator omitted `image_trust_extension.sql` from the
+existing concatenated trust-pricing component. The actual CLI's manifest gate
+rejected that target before creating any test databases or roles. The generator
+and pinned-old-source fixture were corrected, every component/installer/query
+hash was checked against the actual compiled manifest, and predecessor and
+successor catalogs were observed again in fresh PostgreSQL databases. The
+corrected successor manifest matches the executable's stdout byte for byte;
+the original failure is retained separately from the subsequent run.
+The next run reached the verified predecessor but its test-only ACL snapshot
+query had a missing SQL quote. The query was corrected, and the full third
+run passed using the same Core executable; this was not a product-code fix.
+
+The initial synthetic PostgreSQL cluster used SQL_ASCII and rejected the
+Unicode fixture. Subsequent payment and schema checks use a separate UTF-8
+cluster. None of these fixture corrections relaxed provider signatures, money
+conservation, immutable intent bindings, catalog pins or runtime privileges.
+
+New-provider process restarts, actual provider accounts, full browser payment
+flows, existing-site deployment controls, subscription lifecycle, store
+payments and the four added protocols' refunds remain unverified or
+unimplemented as identified in the gateway guide. Source presence and these
+self-tests do not establish full new-architecture completion.
+
+# Historical verification record — durable proof WIP, 2026-10-12
 
 The current change moves proof acceptance before callback ACK and preserves a
 Rust-issued proof reference through Go inbox and jobs. Go no longer holds Stripe

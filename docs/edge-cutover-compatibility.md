@@ -65,7 +65,8 @@ silently select the candidate.
 With `web_compat=true`, the Extensions Web handler owns these exact families:
 
 - `/api/store/*` (including support conversations and customer views),
-  `/api/user/auth/store-claim/*`, and `/api/user/payments/orders/*`.
+  `/api/user/auth/store-claim/*`, and `/api/user/payments/*` (channel discovery,
+  quoted checkout, confirmation and owner-authorized status).
 - `/api/tool-market*` and `/mcp/market`.
 - `/api/assistant/*` and `/api/assistant/services/*`.
 - `/api/release-notes/*`, `/api/scripts*`, and `/scripts/*`.
@@ -77,8 +78,16 @@ With `web_compat=true`, the Extensions Web handler owns these exact families:
   `/api/tool-market/runtime/oauth/callback` path. Preserve its query keys,
   state cookie, and no-cache behavior; it is not a generic redirect endpoint.
 - Provider callbacks are a separate callback-only mount:
-  `POST /callbacks/{channel}`. It must have its own rate/body limits, no
+  `GET` or `POST /callbacks/{numeric_channel}` according to the provider.
+  EPay GET queries and form bodies must be preserved exactly; JSON providers
+  use their own original signature headers. The mount needs rate/body limits, no
   query/body logging, and no host credential.
+
+The `/api/user/payments/` prefix must take precedence over Core's `/api/user/`
+route and retain the browser's Bearer credential. Remove trusted-edge proof
+headers on this path; do not remove the user credential. Callback ingress has
+the opposite credential rule and strips Authorization, user credentials and
+cookies before provider parsing.
 
 The service-token API under `/extensions/v1/*` is an internal contract, even
 though the process listens on TCP. It is not a public edge route. Extensions

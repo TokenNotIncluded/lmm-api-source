@@ -5,7 +5,9 @@ an assertion that payments are enabled. Rust owns identity, authorization, payer
 selection, balances and ledger receipts. Go owns provider orders, evidence and
 module-local business state; it never chooses credit amounts or accesses the core
 database. The Go host supports explicit `payments` assembly and, with
-`host.web_compat = true`, a read-only Web payment status route. Payments remain
+`host.web_compat = true`, native wallet quotes, confirmation, checkout and
+authorized status routes. The [five gateway profiles](payment-gateways.md)
+define the supported top-up paths. Payments remain
 opt-in; host readiness does not prove provider readiness or full financial
 acceptance. See [architecture](core-migration.md) and the
 [payment module](../services/extensions/internal/modules/payments/README.md).
@@ -19,7 +21,7 @@ unit, currency, scale and protocol version.
 | --- | --- |
 | Legacy Web `CREDIT` | Integer raw wallet credits, historically 500000 credits per USD. Not model tokens or legacy batches. |
 | Current core `credit_500k_usd` | The unit currently declared by Rust billing, the ledger schema and Protobuf: 500000 integer units per USD. |
-| Provider `amount_minor` | Integer smallest units of the explicitly named ISO fiat currency; not wallet credits. |
+| Provider `amount_minor` | Integer smallest units of the explicitly named settlement currency/unit; LDC is a non-fiat unit and is not CNY or USD. These values are not wallet credits. |
 | Fiat FX and price multipliers | Separate conversion/pricing policy, never a new ledger denomination. |
 
 The browser declaration does not authorize a core monetary operation. Its unit
@@ -62,7 +64,7 @@ only prefills a form; it does not place an order or grant value.
 ## Payment evidence, receipts and refunds
 
 Before provider checkout, persist the economic account and actor, exact credited
-amount and unit, expected settlement amount and ISO currency, provider, merchant,
+amount and unit, expected settlement amount and named currency/unit, provider, merchant,
 environment, product/store binding, stable order key and applied pricing policy.
 Callbacks can grant value only after independent verification against that frozen
 intent. Go cannot assert verification with a boolean, service token or supplied
@@ -135,7 +137,7 @@ The status handler sends `Cache-Control: no-store`. Its data contains only
 `order_id`, `state`, `currency`, `amount_minor`, `provider_paid`,
 `core_credit_confirmed` and optional `refund_dispatch`. It exposes no checkout
 URL, provider identifiers, signatures, jobs, receipts or credentials.
-`amount_minor` is fiat in the named currency, not wallet credits.
+`amount_minor` is the named settlement currency/unit, not wallet credits.
 
 A rejected credit or unresolved stopped work awaiting `review` is shown as
 `review`, rather than promising indefinite progress. A historical review job
@@ -152,8 +154,10 @@ These fields are read-only observations, not new financial authority.
 spending may have removed that value, so it is not the current balance, spendable
 funds or a new spending authorization.
 
-This read path does not enable checkout, provider callbacks or refund writes,
-and is not evidence of production payment or deployment acceptance. Independent
+This minimal read path does not itself create checkout, callbacks or refunds.
+Native browser checkout uses the separate quoted-confirmation routes described
+in the [gateway guide](payment-gateways.md). Neither route's existence proves
+production payment or deployment acceptance. Independent
 joint coverage and its remaining limits are recorded in the
 [payment acceptance guide](../tests/payments/README.md).
 

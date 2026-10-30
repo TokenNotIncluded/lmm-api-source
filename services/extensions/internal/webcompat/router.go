@@ -22,6 +22,7 @@ type AdditionalServices struct {
 	ToolMarket        ToolMarketService
 	Operations        *operations.Service
 	Payments          PaymentStatusReader
+	PaymentCheckout   PaymentCheckoutService
 	Plugins           PluginController
 }
 
@@ -32,6 +33,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	RegisterSupport(mux, auth, support)
 	var operationsService *operations.Service
 	var paymentReader PaymentStatusReader
+	var paymentCheckout PaymentCheckoutService
 	if len(optional) == 1 {
 		RegisterBuiltinHTTP(mux, optional[0].Builtins)
 		if !store.Missing(optional[0].ToolMarketMCP) {
@@ -40,6 +42,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		}
 		operationsService = optional[0].Operations
 		paymentReader = optional[0].Payments
+		paymentCheckout = optional[0].PaymentCheckout
 		if !store.Missing(optional[0].Assistant) {
 			RegisterAssistant(mux, auth, optional[0].Assistant, optional[0].AssistantChat)
 		}
@@ -62,6 +65,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	}
 	RegisterOperations(mux, auth, operationsService)
 	RegisterPayments(mux, auth, paymentReader)
+	RegisterPaymentCheckout(mux, auth, paymentCheckout)
 	// Unassembled old routes are explicit failures, never a successful empty DTO.
 	mux.HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {

@@ -86,7 +86,10 @@ pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     Ok(())
 }
 
-async fn object_ids(c: &mut PgConnection, catalog: &str) -> Result<Vec<i64>, UpgradeError> {
+pub(super) async fn object_ids(
+    c: &mut PgConnection,
+    catalog: &str,
+) -> Result<Vec<i64>, UpgradeError> {
     // Caller selects only these two static pg catalogs, never request SQL.
     let sql = match catalog {
         "relation" => {
@@ -100,7 +103,7 @@ async fn object_ids(c: &mut PgConnection, catalog: &str) -> Result<Vec<i64>, Upg
     Ok(sqlx::query_scalar(sql).fetch_all(c).await?)
 }
 
-async fn permissions(
+pub(super) async fn permissions(
     c: &mut PgConnection,
     rels: &[i64],
     types: &[i64],
@@ -125,7 +128,7 @@ WITH ns AS (SELECT * FROM pg_namespace WHERE nspname NOT IN ('pg_catalog','infor
 "#).bind(rels).bind(types).fetch_all(c).await?)
 }
 
-async fn data(
+pub(super) async fn data(
     c: &mut PgConnection,
     tables: &[String],
 ) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
@@ -173,7 +176,7 @@ async fn data(
     Ok(result)
 }
 
-fn data_hash(data: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+pub(super) fn data_hash(data: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     let mut hash = Sha256::new();
     for (key, value) in data {
         hash.update((key.len() as u64).to_be_bytes());

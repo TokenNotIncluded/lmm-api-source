@@ -71,6 +71,7 @@ enabled = false
 # config_file = "/etc/lmm.conf.d/core-model.toml"
 # local_http = false
 # [payments]
+# Provider-specific version 2 examples: core-payments.example.toml.
 # config_file = "/etc/lmm.conf.d/core-payments.toml"
 # token_file = "/etc/lmm.conf.d/secrets/core/payments-token"
 # [commerce]

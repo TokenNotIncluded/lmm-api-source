@@ -59,6 +59,7 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/assistant_agent.sql"),
     ),
     ("site-finance", include_str!("../schema/site_statistics.sql")),
+    ("payment-gateways", include_str!("../schema/payment_gateways.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

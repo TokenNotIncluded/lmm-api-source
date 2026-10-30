@@ -168,6 +168,10 @@ func writePaymentError(w http.ResponseWriter, err error) {
 		writePayment(w, http.StatusNotFound, "PAYMENT_NOT_FOUND", "The payment order was not found.")
 	case errors.Is(err, payments.ErrConflict), errors.Is(err, store.ErrConflict):
 		writePayment(w, http.StatusConflict, "PAYMENT_CONFLICT", "Read the current payment before trying again.")
+	case errors.Is(err, payments.ErrInvalid), errors.Is(err, store.ErrInvalid):
+		writePayment(w, http.StatusBadRequest, "PAYMENT_INVALID", "Invalid payment request.")
+	case errors.Is(err, payments.ErrUnsupported):
+		writePayment(w, http.StatusUnprocessableEntity, "PAYMENT_UNSUPPORTED", "This payment operation is not supported.")
 	default:
 		writePayment(w, http.StatusServiceUnavailable, "PAYMENT_UNAVAILABLE", "Payment status could not be read.")
 	}

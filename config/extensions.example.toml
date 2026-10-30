@@ -23,6 +23,14 @@ max_in_flight = 16
 # socket = "/run/lmm/core/core.sock"
 # identity_token_file = "/etc/lmm.conf.d/secrets/extensions/core-rpc-token"
 # commerce_token_file = "/etc/lmm.conf.d/secrets/extensions/commerce-rpc-token"
+# payment_token_file = "/etc/lmm.conf.d/secrets/extensions/payment-rpc-token"
+# To enable wallet checkout, explicitly select "payments" in host.modules,
+# enable host.web_compat, and install the separate payments database first.
+# [payments]
+# database_name = "lmm_payments"
+# database_url_file = "/etc/lmm.conf.d/secrets/extensions/payment-database-url"
+# config_file = "/etc/lmm.conf.d/extensions-payments.toml"
+# callbacks_enabled = true
 # [store]
 # database_name = "lmm_store"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/store-database-url"

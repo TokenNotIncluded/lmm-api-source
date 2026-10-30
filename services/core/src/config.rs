@@ -1860,25 +1860,178 @@ struct PaymentChannel {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PaymentConfig {
+struct LegacyPaymentConfig {
     version: u32,
-    // Explicit mode selects the fixed direct-account USD policy.
     provider: String,
     channels: Vec<PaymentChannel>,
     permissions: PaymentPermissions,
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GatewayPaymentChannel {
+    id: i64,
+    provider: String,
+    merchant: String,
+    environment: String,
+    currency: String,
+    credits_per_minor: i64,
+    max_amount_minor: i64,
+    webhook_secret_file: PathBuf,
+    #[serde(default)]
+    inquiry_api_key_file: Option<PathBuf>,
+    #[serde(default)]
+    inquiry_private_key_file: Option<PathBuf>,
+    #[serde(default)]
+    payment_type: String,
+    #[serde(default)]
+    store_id: String,
+    #[serde(default)]
+    product_id: String,
+    #[serde(default)]
+    endpoint: String,
+    #[serde(default)]
+    notify_url: String,
+    #[serde(default)]
+    return_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GatewayPaymentConfig {
+    version: u32,
+    channels: Vec<GatewayPaymentChannel>,
+    permissions: PaymentPermissions,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PaymentConfig {
+    Legacy(LegacyPaymentConfig),
+    Gateways(GatewayPaymentConfig),
+}
 impl PaymentConfig {
     fn validate(&self) -> io::Result<()> {
-        if self.version != 1
-            || !matches!(self.provider.as_str(), "stripe-test" | "stripe-live")
-            || self.channels.is_empty()
-            || self.channels.len() > 16
-        {
+        let valid = match self {
+            Self::Legacy(c) => {
+                c.version == 1
+                    && matches!(c.provider.as_str(), "stripe-test" | "stripe-live")
+                    && (1..=16).contains(&c.channels.len())
+            }
+            Self::Gateways(c) => {
+                c.version == 2
+                    && (1..=16).contains(&c.channels.len())
+                    && c.channels.iter().all(|c| {
+                        matches!(
+                            c.provider.as_str(),
+                            "stripe" | "epay" | "creem" | "waffo" | "waffo_pancake"
+                        ) && matches!(c.environment.as_str(), "test" | "live")
+                            && if c.provider == "waffo" {
+                                c.inquiry_api_key_file.is_some()
+                                    && c.inquiry_private_key_file.is_some()
+                            } else {
+                                c.inquiry_api_key_file.is_none()
+                                    && c.inquiry_private_key_file.is_none()
+                            }
+                            && c.credits_per_minor > 0
+                            && c.max_amount_minor > 0
+                            && c.credits_per_minor
+                                .checked_mul(c.max_amount_minor)
+                                .is_some()
+                    })
+            }
+        };
+        if !valid {
             return Err(invalid_config(
-                "payments require bounded explicitly configured Stripe direct USD channels",
+                "invalid bounded payment channel configuration",
             ));
         }
         Ok(())
+    }
+
+    #[cfg(unix)]
+    fn load(self) -> io::Result<(Vec<crate::payments::Channel>, PaymentPermissions)> {
+        self.validate()?;
+        let secret = |path: &Path| -> io::Result<String> {
+            String::from_utf8(private_file(path, 4096)?)
+                .map(|s| s.trim().to_owned())
+                .map_err(|_| invalid_config("invalid private payment verification key"))
+        };
+        match self {
+            Self::Legacy(c) => {
+                let constructor = match c.provider.as_str() {
+                    "stripe-test" => crate::payments::Channel::stripe_test,
+                    "stripe-live" => crate::payments::Channel::stripe_live,
+                    _ => return Err(invalid_config("unsupported payment provider")),
+                };
+                let channels = c
+                    .channels
+                    .into_iter()
+                    .map(|channel| {
+                        Ok(constructor(
+                            channel.id,
+                            channel.merchant,
+                            secret(&channel.webhook_secret_file)?,
+                            channel.max_usd_cents,
+                        ))
+                    })
+                    .collect::<io::Result<Vec<_>>>()?;
+                Ok((channels, c.permissions))
+            }
+            Self::Gateways(c) => {
+                let channels = c
+                    .channels
+                    .into_iter()
+                    .map(|channel| {
+                        let waffo_inquiry = match (
+                            &channel.inquiry_api_key_file,
+                            &channel.inquiry_private_key_file,
+                        ) {
+                            (Some(api), Some(key)) => {
+                                let private_key = String::from_utf8(private_file(key, 16 * 1024)?)
+                                    .map_err(|_| {
+                                        invalid_config("invalid private payment inquiry key")
+                                    })?;
+                                Some(std::sync::Arc::new(
+                                    crate::payments::waffo::Inquiry::new(secret(api)?, private_key)
+                                        .map_err(|_| {
+                                            invalid_config(
+                                                "invalid private payment inquiry configuration",
+                                            )
+                                        })?,
+                                ))
+                            }
+                            (None, None) => None,
+                            _ => {
+                                return Err(invalid_config(
+                                    "payment inquiry requires both private credential files",
+                                ));
+                            }
+                        };
+                        Ok(crate::payments::Channel {
+                            id: channel.id,
+                            provider: channel.provider,
+                            merchant: channel.merchant,
+                            environment: channel.environment,
+                            currency: channel.currency,
+                            credits_per_minor: channel.credits_per_minor,
+                            max_amount_minor: channel.max_amount_minor,
+                            webhook_secrets: vec![secret(&channel.webhook_secret_file)?],
+                            verification: crate::payments::ProviderVerification {
+                                payment_type: channel.payment_type,
+                                store_id: channel.store_id,
+                                product_id: channel.product_id,
+                                endpoint: channel.endpoint,
+                                notify_url: channel.notify_url,
+                                return_url: channel.return_url,
+                                waffo_inquiry,
+                            },
+                        })
+                    })
+                    .collect::<io::Result<Vec<_>>>()?;
+                Ok((channels, c.permissions))
+            }
+        }
     }
 }
 
@@ -1954,24 +2107,7 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
     let payments = if let Some((document, token)) = payments {
         let config: PaymentConfig = parse_document(&document)
             .map_err(|_| invalid_config("invalid payment configuration"))?;
-        config.validate()?;
-        let mut channels = Vec::new();
-        for channel in config.channels {
-            let secret = String::from_utf8(private_file(&channel.webhook_secret_file, 4096)?)
-                .map_err(|_| invalid_config("invalid private payment verification key"))?;
-            let constructor = match config.provider.as_str() {
-                "stripe-test" => crate::payments::Channel::stripe_test,
-                "stripe-live" => crate::payments::Channel::stripe_live,
-                _ => return Err(invalid_config("unsupported payment provider")),
-            };
-            channels.push(constructor(
-                channel.id,
-                channel.merchant,
-                secret.trim().to_owned(),
-                channel.max_usd_cents,
-            ));
-        }
-        let p = config.permissions;
+        let (channels, p) = config.load()?;
         let permissions = crate::payments::rpc::Permissions {
             prepare: p.prepare,
             credit_evidence: p.credit_evidence,
@@ -3633,6 +3769,54 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
             let raw = base.replace("id=7", &format!("{field}\nid=7"));
             assert!(parse_document::<PaymentConfig>(raw.as_bytes()).is_err());
         }
+    }
+    #[test]
+    fn payment_configuration_v2_uses_explicit_channel_provider_and_integer_quote() {
+        let document = "version=2\n[[channels]]\nid=7\nprovider='creem'\nmerchant='merchant_fixture'\nenvironment='test'\ncurrency='USD'\ncredits_per_minor=5000\nmax_amount_minor=10000\nproduct_id='prod_fixture'\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n";
+        let config: PaymentConfig = parse_document(document.as_bytes()).unwrap();
+        assert!(config.validate().is_ok());
+        for changed in [
+            document.replace("provider='creem'", "provider='fastpay'"),
+            document.replace("credits_per_minor=5000", "credits_per_minor=0"),
+            document.replace("environment='test'", "environment='production'"),
+            document.replace("version=2", "version=1"),
+        ] {
+            let config: PaymentConfig = parse_document(changed.as_bytes()).unwrap();
+            assert!(config.validate().is_err());
+        }
+        assert!(
+            parse_document::<PaymentConfig>(
+                document.replace("id=7", "unknown=true\nid=7").as_bytes()
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn payment_configuration_v2_requires_private_inquiry_in_both_waffo_environments() {
+        let document = "version=2\n[[channels]]\nid=6\nprovider='waffo'\nmerchant='merchant_fixture'\nenvironment='test'\ncurrency='USD'\ncredits_per_minor=5000\nmax_amount_minor=10000\nwebhook_secret_file='/synthetic/public-key'\ninquiry_api_key_file='/synthetic/inquiry-api-key'\ninquiry_private_key_file='/synthetic/inquiry-signing-key'\n[permissions]\nproof_ingress=true\n";
+        for environment in ["test", "live"] {
+            let raw = document.replace(
+                "environment='test'",
+                &format!("environment='{environment}'"),
+            );
+            let config: PaymentConfig = parse_document(raw.as_bytes()).unwrap();
+            assert!(config.validate().is_ok());
+            for field in [
+                "inquiry_api_key_file='/synthetic/inquiry-api-key'\n",
+                "inquiry_private_key_file='/synthetic/inquiry-signing-key'\n",
+            ] {
+                let changed = raw.replace(field, "");
+                let config: PaymentConfig = parse_document(changed.as_bytes()).unwrap();
+                assert!(config.validate().is_err());
+            }
+        }
+        let config: PaymentConfig = parse_document(
+            document
+                .replace("provider='waffo'", "provider='creem'")
+                .as_bytes(),
+        )
+        .unwrap();
+        assert!(config.validate().is_err());
     }
     #[test]
     fn isolated_oauth2_requires_explicit_profile_private_registry_and_exact_listener() {

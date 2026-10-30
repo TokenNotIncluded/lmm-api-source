@@ -15,7 +15,7 @@ import (
 )
 
 type EPayConfig struct {
-	Channel            Channel // The legacy wire format has no currency: CNY only.
+	Channel            Channel // The wire format has no currency; bind CNY or the explicit LinuxDO LDC profile.
 	Endpoint           string
 	MerchantKey        string
 	PaymentType        string
@@ -27,10 +27,32 @@ type EPayConfig struct {
 type EPay struct {
 	cfg    EPayConfig
 	client *http.Client
+	signer EPayCheckoutSigner
+}
+
+// The legacy MD5 key signs both checkout and successful callbacks. Production
+// keeps it in Core so a Go worker cannot manufacture an accepted payment proof.
+type EPayCheckoutSigner interface {
+	EPayCheckout(context.Context, int64) (Checkout, error)
+}
+
+func NewCoreEPay(cfg EPayConfig, signer EPayCheckoutSigner) (*EPay, error) {
+	if !cfg.Channel.valid() || cfg.Channel.Provider != "epay" || (cfg.Channel.Currency != "CNY" && cfg.Channel.Currency != "LDC") ||
+		cfg.MerchantKey != "" || signer == nil || !validID(cfg.PaymentType) ||
+		strings.EqualFold(cfg.PaymentType, "fastpay") ||
+		(cfg.Channel.Currency == "LDC" && cfg.PaymentType != "epay") || cfg.EnableLegacyRefund || cfg.AllowPartialRefund {
+		return nil, ErrInvalid
+	}
+	for _, c := range cfg.Channel.Merchant {
+		if c < '0' || c > '9' {
+			return nil, ErrInvalid
+		}
+	}
+	return &EPay{cfg: cfg, signer: signer}, nil
 }
 
 func NewEPay(cfg EPayConfig) (*EPay, error) {
-	if !cfg.Channel.valid() || cfg.Channel.Provider != "epay" || cfg.Channel.Currency != "CNY" || len(cfg.MerchantKey) < 16 || !validID(cfg.PaymentType) {
+	if !cfg.Channel.valid() || cfg.Channel.Provider != "epay" || cfg.Channel.Currency != "CNY" || len(cfg.MerchantKey) < 16 || !validID(cfg.PaymentType) || strings.EqualFold(cfg.PaymentType, "fastpay") {
 		return nil, ErrInvalid
 	}
 	for _, c := range cfg.Channel.Merchant {
@@ -51,9 +73,10 @@ func NewEPay(cfg EPayConfig) (*EPay, error) {
 	cfg.Endpoint = strings.TrimRight(cfg.Endpoint, "/") + "/"
 	return &EPay{cfg: cfg, client: outboundClient()}, nil
 }
-func (e *EPay) Channel() Channel     { return e.cfg.Channel }
-func (e *EPay) RefundEnabled() bool  { return e.cfg.EnableLegacyRefund }
-func (e *EPay) PartialRefunds() bool { return e.cfg.AllowPartialRefund }
+func (e *EPay) Channel() Channel       { return e.cfg.Channel }
+func (e *EPay) channelBinding() string { return e.cfg.PaymentType }
+func (e *EPay) RefundEnabled() bool    { return e.cfg.EnableLegacyRefund }
+func (e *EPay) PartialRefunds() bool   { return e.cfg.AllowPartialRefund }
 func (*EPay) ReplayWindow(operation string) time.Duration {
 	if operation == "checkout" {
 		return 100 * 365 * 24 * time.Hour
@@ -117,7 +140,27 @@ func minorDecimal(s string) (int64, error) {
 func decimalMinor(n int64) string {
 	return strconv.FormatInt(n/100, 10) + "." + string([]byte{'0' + byte(n%100/10), '0' + byte(n%10)})
 }
-func (e *EPay) Checkout(_ context.Context, o Order, _ string) (Checkout, error) {
+func (e *EPay) Checkout(ctx context.Context, o Order, _ string) (Checkout, error) {
+	if e.signer != nil {
+		if !providerOrderMatches(o, e.cfg.Channel) {
+			return Checkout{}, ErrInvalid
+		}
+		checkout, err := e.signer.EPayCheckout(ctx, o.Intent.ID)
+		if err != nil {
+			return Checkout{}, err
+		}
+		method := http.MethodGet
+		if e.cfg.Channel.Currency == "LDC" {
+			method = http.MethodPost
+		}
+		if checkout.ID != o.ID || checkout.PaymentID != "" || checkout.Method != method {
+			return Checkout{}, ErrConflict
+		}
+		if _, err = secureURL(checkout.URL); err != nil {
+			return Checkout{}, ErrConflict
+		}
+		return checkout, nil
+	}
 	if o.Intent.Currency != "CNY" || !validAmount(o.Intent.AmountMinor) {
 		return Checkout{}, ErrInvalid
 	}
@@ -157,16 +200,21 @@ func (e *EPay) Verify(r *http.Request, _ time.Time) (Event, error) {
 			return Event{}, ErrInvalid
 		}
 	}
-	if v.Get("sign_type") != "MD5" || v.Get("pid") != e.cfg.Channel.Merchant || v.Get("type") != e.cfg.PaymentType {
+	// LinuxDO's documented callback omits sign_type. If supplied, it must
+	// still identify MD5; the ordinary CNY EPay profile requires the field.
+	signTypeOK := v.Get("sign_type") == "MD5" || (e.cfg.Channel.Currency == "LDC" && !v.Has("sign_type"))
+	if !signTypeOK || v.Get("pid") != e.cfg.Channel.Merchant || v.Get("type") != e.cfg.PaymentType {
 		return Event{}, ErrDenied
 	}
 	received, err := hex.DecodeString(v.Get("sign"))
 	if err != nil || len(received) != md5.Size {
 		return Event{}, ErrDenied
 	}
-	expected, _ := hex.DecodeString(epaySign(v, e.cfg.MerchantKey))
-	if subtle.ConstantTimeCompare(received, expected) != 1 {
-		return Event{}, ErrDenied
+	if e.signer == nil {
+		expected, _ := hex.DecodeString(epaySign(v, e.cfg.MerchantKey))
+		if subtle.ConstantTimeCompare(received, expected) != 1 {
+			return Event{}, ErrDenied
+		}
 	}
 	if v.Get("trade_status") != "TRADE_SUCCESS" {
 		return Event{}, ErrUnsupported
@@ -179,10 +227,13 @@ func (e *EPay) Verify(r *http.Request, _ time.Time) (Event, error) {
 		return Event{}, ErrInvalid
 	}
 	c := e.cfg.Channel
-	return Event{OrderID: v.Get("out_trade_no"), Type: Paid, Currency: "CNY", AmountMinor: amount,
+	return Event{OrderID: v.Get("out_trade_no"), Type: Paid, Currency: c.Currency, AmountMinor: amount,
 		Evidence: Evidence{Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment, Transaction: v.Get("trade_no"), EventID: stableKey(v.Get("trade_no"), "TRADE_SUCCESS"), Payload: []byte(raw), Signature: []byte(v.Get("sign")), Source: "webhook"}}, nil
 }
 func (e *EPay) Lookup(ctx context.Context, o Order) ([]Event, error) {
+	if e.signer != nil {
+		return nil, ErrUnsupported // The query API requires Core's signing key.
+	}
 	q := url.Values{"act": {"order"}, "pid": {e.cfg.Channel.Merchant}, "key": {e.cfg.MerchantKey}, "out_trade_no": {o.ID}}
 	// This legacy API places the key in the URL. Never log request URLs, and never
 	// follow redirects. Providers with a POST query profile need their own adapter.

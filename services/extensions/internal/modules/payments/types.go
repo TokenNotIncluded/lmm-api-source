@@ -209,6 +209,7 @@ const (
 type Checkout struct {
 	ID        string `json:"id"`
 	URL       string `json:"url"`
+	Method    string `json:"method,omitempty"` // Empty means GET for existing hosted checkouts.
 	PaymentID string `json:"payment_id,omitempty"`
 }
 type RefundResult struct {

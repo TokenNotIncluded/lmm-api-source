@@ -1,6 +1,7 @@
 # 微服务架构与状态（WIP）
 
-开发分支为 `wip/rust-core-go-extensions`；`main` 和 `traditional` 保留历史单体快照。
+持续实现位于 `TokenNotIncluded/lmm-api-source` 的 `main`；父仓库
+`TokenNotIncluded/lmm-api` 的 `main` 保存配方，`traditional` / `传统` 保留历史单体快照。
 旧数据迁移实验从只读备份恢复的隔离副本读取，写入另一个新目标库。
 已有原生 Core 库的结构变更使用匹配版本的显式离线升级过程，不清空或重新初始化。
 当前候选尚未切换正式流量，本文不表示整站已上线或已达到历史单体的全部功能范围。
@@ -51,7 +52,7 @@ docs/            # 文档
 
 | 范围 | 已有源码与验证记录 | 仍需按当前候选核对 |
 | --- | --- | --- |
-| 核心安装与启动 | 当前源码的 `init-db` 在一个事务中安装 26 个组件；普通启动校验完整组件契约、实时 catalog 指纹和运行账户权限，可独立于 Go 启动。`upgrade-db` 仅处理编译时固定的前置契约，不是通用迁移入口 | 当前候选及适用升级的完整独立复验、正式流量切换与整机资源验收；旧版本通过记录不替代新候选验收 |
+| 核心安装与启动 | 当前源码的 `init-db` 在一个事务中安装 29 个组件；普通启动校验完整组件契约、实时 catalog 指纹和运行账户权限，可独立于 Go 启动。`upgrade-db` 仅处理编译时固定的前置契约，不是通用迁移入口 | 当前候选及适用升级的完整独立复验、正式流量切换与整机资源验收；旧版本通过记录不替代新候选验收 |
 | 控制台身份 | 显式配置后接入注册、登录、刷新、注销、用户信息和状态接口；会话轮换、旧凭证注销及部分旧 Web 身份接口有数据库测试；本轮真实 v3 身份导入、重放与冲突拒绝已通过 | 真实导入账号的登录与浏览器验收、旧 OAuth 登录兼容、双因素、Passkey 和完整管理员权限 |
 | 公告与初始化状态 | 公告读取、按版本与顺序确认、Notice 和只读 setup 状态已接入持久化及真实 PostgreSQL 测试；本轮真实 v3 导入、原 SQL 重放与冲突拒绝已通过 | 实际 `/api/setup` 因尚无已重新授权的超级管理员返回 503；受保护页面及真实登录后的公告验收 |
 | 计费与账本 | 同事务预留、结算、退款、预算和重复请求已接入真实 PostgreSQL 测试 | 真实旧余额、欠款、订阅及历史操作的迁移对账 |
@@ -60,12 +61,18 @@ docs/            # 文档
 | 助手 | 预设、会话、脱敏历史与所有者归档已持久化并有独立数据库测试；未装配模型执行时明确返回不可用 | 原会话与平台赞助付款方的安全模型委托、真实对话、平台支持客服和完整管理员历史权限 |
 | 支付 | 正常宿主可显式装配 `payments` 与 `host.web_compat`；本轮真实 Rust RPC、隔离 PostgreSQL 和实际 `app.Run` 已独立验证 `PREPARED` 订单读取、团队非创建者授权及撤权、注销、禁写和准入/排空，读取期间资金表与序列不变、账本 journal 为 0；默认不启用支付。此前合成供应商的真实 Rust/Go 进程已独立验证回调证明持久接纳、真实过期后的消费、两产品SIGKILL与重启后首次入账及原键唯一账本 | 真实供应商、完整退款和扣款恢复联合验收、浏览器支付与支付资源验收；失败退款释放仍缺可信dispatch绑定，历史 review 恢复仍只有开发 fixture 测试，范围见[支付验收说明](../tests/payments/README.md) |
 
-当前 26 个安装组件按实际执行顺序为 humangrant、identity、ledger、payments、charging、
+当前 29 个安装组件按实际执行顺序为 humangrant、identity、ledger、payments、charging、
 routing、events、charging-ledger、migration、console、model-gateway、commerce、tool-market、
 abuse、oauth-grants、history、assistant-model、gift、image、market-oauth、tool-market-credit、
-wallet、bounties、assistant-tools、trust-pricing、telegram-auth；清单以
+wallet、bounties、assistant-tools、trust-pricing、telegram-auth、assistant-agent、site-finance、payment-gateways；清单以
 [`core_schema.rs`](../services/core/src/core_schema.rs) 和待运行二进制的 `schema-manifest` 为准。
 安装 schema 不等于启用对应业务；普通启动不创建角色、不授权、不执行 DDL，也不自动升级已有库。
+
+原生钱包充值现已接入 Stripe、EPay、Creem、Waffo Global 和 Waffo Pancake；
+EPay 覆盖支付宝、微信及独立 LDC 单位的 Linux DO Credit。浏览器通过 Core 报价确认后
+下单，Core 独立接纳支付证明并入账，Go 保留订单与恢复任务。FastPay 明确淘汰。
+配置、当前开发自测和仍未完成的订阅／商店／退款范围见[支付网关](payment-gateways.md)；
+现有 28 组件数据库有[固定离线升级](payment-gateways-upgrade.md)，不沿用早期 26 组件升级的目标指纹。
 
 第 25 个组件 `trust-pricing` 由账户价格 SQL、换行与图片价格约束扩展拼接组成；
 第 26 个组件为 `telegram-auth`。组件指纹按编译时实际 SQL 字节计算，不能只按单个 SQL 文件核算。

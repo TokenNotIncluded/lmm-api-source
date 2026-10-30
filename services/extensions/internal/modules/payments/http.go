@@ -18,10 +18,15 @@ type orderView struct {
 	ProviderPaid        bool   `json:"provider_paid"`
 	CoreCreditConfirmed bool   `json:"core_credit_confirmed"`
 	CheckoutURL         string `json:"checkout_url,omitempty"`
+	CheckoutMethod      string `json:"checkout_method"`
 }
 
 func publicOrder(o Order) orderView {
-	return orderView{o.ID, strconv.FormatInt(o.Intent.AccountID, 10), o.Intent.Currency, o.Intent.AmountMinor, o.State(), o.ProviderPaid, o.Credited(), o.Checkout.URL}
+	method := o.Checkout.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	return orderView{o.ID, strconv.FormatInt(o.Intent.AccountID, 10), o.Intent.Currency, o.Intent.AmountMinor, o.State(), o.ProviderPaid, o.Credited(), o.Checkout.URL, method}
 }
 func userCredential(r *http.Request) (string, error) {
 	values := r.Header.Values("X-LMM-User-Credential")
@@ -121,10 +126,27 @@ func (s *Service) WebhookHandler() http.Handler {
 			paymentError(w, err)
 			return
 		}
+		if a, ok := s.adapters[id].(interface {
+			webhookAcknowledgement() ([]byte, http.Header, error)
+		}); ok {
+			body, headers, err := a.webhookAcknowledgement()
+			if err != nil {
+				paymentError(w, err)
+				return
+			}
+			for name, values := range headers {
+				w.Header()[name] = values
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		if a := s.adapters[id]; a != nil && a.Channel().Provider == "epay" {
 			_, _ = io.WriteString(w, "success")
+		} else if a != nil && a.Channel().Provider == "waffo_pancake" {
+			_, _ = io.WriteString(w, "OK")
 		} else {
 			_, _ = io.WriteString(w, "received")
 		}

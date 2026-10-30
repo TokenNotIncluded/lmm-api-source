@@ -1,0 +1,103 @@
+# Version 2 payment verification and conversion policy, owned by Core.
+# See docs/payment-gateways.md. These are seven independent example channels,
+# not enabled installation defaults. Replace IDs, paths and policy deliberately.
+# USD uses the existing 500000-credit/USD unit. Non-USD conversion below is
+# illustrative administrator policy, NOT an exchange rate or recommended price.
+version = 2
+
+[permissions]
+prepare = true
+credit_evidence = true
+read_user = true
+reconcile = true
+proof_ingress = true
+proof_read = true
+refund_user = false
+refund_evidence = false
+
+[[channels]]
+id = 1
+provider = "stripe"
+merchant = "acct_REPLACE"
+environment = "test"
+currency = "USD"
+credits_per_minor = 5000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/stripe-webhook-secret"
+
+[[channels]]
+id = 2
+provider = "epay"
+merchant = "10001"
+environment = "live"
+currency = "CNY"
+credits_per_minor = 1000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/epay-merchant-key"
+payment_type = "alipay"
+endpoint = "https://pay.example.invalid"
+notify_url = "https://api.example.invalid/callbacks/2"
+return_url = "https://api.example.invalid/console/wallet"
+
+[[channels]]
+id = 3
+provider = "epay"
+merchant = "10001"
+environment = "live"
+currency = "CNY"
+credits_per_minor = 1000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/epay-merchant-key"
+payment_type = "wxpay"
+endpoint = "https://pay.example.invalid"
+notify_url = "https://api.example.invalid/callbacks/3"
+return_url = "https://api.example.invalid/console/wallet"
+
+[[channels]]
+id = 4
+provider = "epay"
+merchant = "10002"
+environment = "live"
+currency = "LDC"
+credits_per_minor = 1000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/linuxdo-credit-merchant-key"
+payment_type = "epay"
+endpoint = "https://credit.linux.do/epay"
+notify_url = "https://api.example.invalid/callbacks/4"
+return_url = "https://api.example.invalid/console/wallet"
+
+[[channels]]
+id = 5
+provider = "creem"
+merchant = "creem_REPLACE"
+environment = "test"
+currency = "USD"
+credits_per_minor = 5000
+max_amount_minor = 1000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/creem-webhook-secret"
+product_id = "prod_REPLACE"
+
+[[channels]]
+id = 6
+provider = "waffo"
+merchant = "REPLACE_WAFFO_MERCHANT"
+environment = "test"
+currency = "USD"
+credits_per_minor = 5000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/waffo-provider-public-key.pem"
+inquiry_api_key_file = "/etc/lmm.conf.d/secrets/core/waffo-inquiry-api-key"
+inquiry_private_key_file = "/etc/lmm.conf.d/secrets/core/waffo-inquiry-private-key.pem"
+
+[[channels]]
+id = 7
+provider = "waffo_pancake"
+merchant = "MER_0123456789abcdefghijkl"
+environment = "test"
+currency = "USD"
+credits_per_minor = 5000
+max_amount_minor = 100000
+webhook_secret_file = "/etc/lmm.conf.d/secrets/core/pancake-provider-public-key.pem"
+store_id = "STO_0123456789abcdefghijkl"
+product_id = "PROD_0123456789abcdefghijkl"

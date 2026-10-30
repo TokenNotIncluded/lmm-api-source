@@ -58,6 +58,8 @@ impl PaymentsRpc {
             (p.proof_ingress, "payments.proof.accept"),
             (p.proof_read, "payments.proof.reconcile"),
             (p.prepare, "payments.topup.prepare"),
+            (p.prepare, "payments.topup.prepare_personal"),
+            (p.prepare, "payments.epay.checkout"),
             (p.credit_evidence, "payments.topup.credit"),
             (p.refund_user, "payments.refund.hold"),
             (p.refund_evidence, "payments.refund.dispatch"),
@@ -112,12 +114,19 @@ impl PaymentsRpc {
         &self,
         call: impl Future<Output = super::Result<T>>,
     ) -> Result<Response<T>, Status> {
+        self.bounded_for(Duration::from_secs(2), call).await
+    }
+    async fn bounded_for<T>(
+        &self,
+        deadline: Duration,
+        call: impl Future<Output = super::Result<T>>,
+    ) -> Result<Response<T>, Status> {
         let _slot = self
             .slots
             .clone()
             .try_acquire_owned()
             .map_err(|_| Status::resource_exhausted("payment service busy"))?;
-        tokio::time::timeout(Duration::from_secs(2), call)
+        tokio::time::timeout(deadline, call)
             .await
             .map_err(|_| {
                 Status::deadline_exceeded("payment deadline exceeded; reconcile same key")
@@ -133,8 +142,11 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::AcceptProviderProofRequest>,
     ) -> Result<Response<pb::ProviderProofReceipt>, Status> {
         self.check(request.metadata(), self.permissions.proof_ingress)?;
-        self.bounded(self.store.accept_proof(request.into_inner()))
-            .await
+        self.bounded_for(
+            Duration::from_secs(3),
+            self.store.accept_proof(request.into_inner()),
+        )
+        .await
     }
     async fn get_provider_proof(
         &self,
@@ -153,12 +165,29 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         self.bounded(self.store.prepare(&user, request.into_inner()))
             .await
     }
+    async fn prepare_personal_topup(
+        &self,
+        request: Request<pb::PreparePersonalTopupRequest>,
+    ) -> Result<Response<pb::PaymentIntent>, Status> {
+        self.check(request.metadata(), self.permissions.prepare)?;
+        let user = single(request.metadata(), "x-lmm-user-credential")?.to_owned();
+        self.bounded(self.store.prepare_personal(&user, request.into_inner()))
+            .await
+    }
     async fn credit_topup(
         &self,
         request: Request<pb::CreditTopupRequest>,
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.credit_evidence)?;
         self.bounded(self.store.credit(request.into_inner())).await
+    }
+    async fn get_e_pay_checkout(
+        &self,
+        request: Request<pb::GetEPayCheckoutRequest>,
+    ) -> Result<Response<pb::EPayCheckout>, Status> {
+        self.check(request.metadata(), self.permissions.prepare)?;
+        self.bounded(self.store.epay_checkout(request.into_inner().intent_id))
+            .await
     }
     async fn hold_refund(
         &self,
@@ -316,6 +345,13 @@ mod tests {
             tonic::Code::Unauthenticated
         );
         assert!(service(false).features().is_empty());
-        assert_eq!(service(true).features(), vec!["payments.topup.prepare"]);
+        assert_eq!(
+            service(true).features(),
+            vec![
+                "payments.topup.prepare",
+                "payments.topup.prepare_personal",
+                "payments.epay.checkout"
+            ]
+        );
     }
 }

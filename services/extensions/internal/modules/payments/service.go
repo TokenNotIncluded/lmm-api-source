@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -27,15 +28,84 @@ func New(store Store, core Core, adapters ...Adapter) (*Service, error) {
 			return nil, ErrInvalid
 		}
 		c := a.Channel()
-		if !c.valid() || s.adapters[c.ID] != nil || namespaces[c.namespace()] {
+		binding := c.namespace()
+		if scoped, ok := a.(interface{ channelBinding() string }); ok {
+			binding += "/" + c.Currency + "/" + scoped.channelBinding()
+		}
+		if !c.valid() || s.adapters[c.ID] != nil || namespaces[binding] {
 			return nil, ErrInvalid
 		}
 		s.adapters[c.ID] = a
-		namespaces[c.namespace()] = true
+		namespaces[binding] = true
 	}
 	return s, nil
 }
 func (s *Service) Name() string { return "payments" }
+
+type PublicChannel struct {
+	Channel
+	FixedAmountMinor int64  `json:"fixed_amount_minor,omitempty"`
+	PaymentType      string `json:"payment_type,omitempty"`
+	ProductID        string `json:"product_id,omitempty"`
+	StoreID          string `json:"store_id,omitempty"`
+}
+
+func (s *Service) Catalog() []PublicChannel {
+	channels := make([]PublicChannel, 0, len(s.adapters))
+	for _, a := range s.adapters {
+		if !a.Channel().Enabled {
+			continue
+		}
+		c := PublicChannel{Channel: a.Channel()}
+		switch provider := a.(type) {
+		case *EPay:
+			c.PaymentType = provider.cfg.PaymentType
+		case *Creem:
+			c.ProductID, c.FixedAmountMinor = provider.cfg.ProductID, provider.FixedAmountMinor()
+		case *Pancake:
+			c.StoreID, c.ProductID = provider.cfg.StoreID, provider.cfg.ProductID
+		}
+		channels = append(channels, c)
+	}
+	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
+	return channels
+}
+
+func (s *Service) requestedAdapter(req PrepareRequest) (Adapter, error) {
+	a := s.adapters[req.ChannelID]
+	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || !validAmount(req.AmountMinor) || req.Currency != a.Channel().Currency {
+		return nil, ErrInvalid
+	}
+	if fixed, ok := a.(interface{ FixedAmountMinor() int64 }); ok && req.AmountMinor != fixed.FixedAmountMinor() {
+		return nil, ErrInvalid
+	}
+	return a, nil
+}
+
+// Preview freezes Core's personal-account quote without queuing provider I/O.
+// Confirmation then calls Create with this exact account, key and amount.
+func (s *Service) Preview(ctx context.Context, credential string, req PrepareRequest) (Intent, error) {
+	a, err := s.requestedAdapter(req)
+	if err != nil || req.AccountID != 0 {
+		return Intent{}, ErrInvalid
+	}
+	personal, ok := s.core.(interface {
+		PreparePersonal(context.Context, string, PrepareRequest) (Intent, error)
+	})
+	if !ok {
+		return Intent{}, ErrUnavailable
+	}
+	intent, err := personal.PreparePersonal(ctx, credential, req)
+	if err != nil {
+		return Intent{}, err
+	}
+	c := a.Channel()
+	if intent.ID <= 0 || intent.AccountID <= 0 || intent.CreatedBy <= 0 || intent.AmountMinor != req.AmountMinor || intent.Currency != req.Currency || intent.Key != req.Key ||
+		intent.Provider != c.Provider || intent.Merchant != c.Merchant || intent.Environment != c.Environment || len(intent.RequestHash) != 32 || intent.CreditUnits <= 0 || intent.CreditUnit != "credit_500k_usd" {
+		return Intent{}, ErrConflict
+	}
+	return intent, nil
+}
 
 // orderAdapter binds recovery to the original Core intent. A reused channel ID
 // must never redirect an old checkout, lookup or refund to another merchant.
@@ -55,8 +125,8 @@ func (s *Service) orderAdapter(o Order) (Adapter, error) {
 }
 
 func (s *Service) Create(ctx context.Context, credential string, req PrepareRequest) (Order, error) {
-	a := s.adapters[req.ChannelID]
-	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || req.AccountID <= 0 || !validAmount(req.AmountMinor) || req.Currency != a.Channel().Currency {
+	a, err := s.requestedAdapter(req)
+	if err != nil || req.AccountID <= 0 {
 		return Order{}, ErrInvalid
 	}
 	// Prepare is repeated even on retries, so revoked permissions cannot reuse an

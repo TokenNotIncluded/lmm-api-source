@@ -118,7 +118,7 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
         }
 
         // Accepted provider evidence can precede ledger application. Until the
-        // exact refund is applied, do not publish an apparently final net cash
+        // exact refund is applied, do not publish an apparently final net payment
         // total. Events of the same refund are deduplicated by provider ID.
         let payments_complete: bool = sqlx::query_scalar(
             "SELECT COALESCE(bool_and(complete),FALSE) FROM core_history.finance_native_payments",
@@ -135,7 +135,8 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
    refunded_amount_micros::numeric AS refunded,1::bigint AS orders
  FROM core_history.finance_topups WHERE classification IN ('cash','virtual')
  UNION ALL
- SELECT 'cash',currency,gross_amount_micros,refunded_amount_micros,orders
+ SELECT CASE WHEN currency='LDC' THEN 'virtual' ELSE 'cash' END,
+   currency,gross_amount_micros,refunded_amount_micros,orders
  FROM core_history.finance_native_payments WHERE currency IS NOT NULL
 )
 SELECT classification,currency,sum(gross)::text AS gross,sum(refunded)::text AS refunded,

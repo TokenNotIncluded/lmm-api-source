@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -57,7 +58,8 @@ class BackendHandler(BaseHTTPRequestHandler):
         if service == "extensions":
             if (self.path.startswith("/api/store/")
                     or self.path.startswith("/api/user/auth/store-claim/")
-                    or self.path.startswith("/api/user/payments/orders/")
+                    or self.path.startswith("/api/user/payments/")
+                    or self.path.startswith("/callbacks/")
                     or self.path.startswith("/api/assistant")
                     or self.path.startswith("/api/tool-market")
                     or self.path in {"/api/user-agreement", "/api/privacy-policy", "/api/refund-policy"}):
@@ -103,7 +105,9 @@ class BackendHandler(BaseHTTPRequestHandler):
         size = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(size)
         self._record("POST", body)
-        if getattr(self.server, "role", "unknown") == "extensions" and self.path.startswith("/callbacks/"):
+        if getattr(self.server, "role", "unknown") == "extensions" and (
+                self.path.startswith("/callbacks/")
+                or self.path in {"/api/user/payments/quote", "/api/user/payments/checkout"}):
             self._reply(202, json.dumps({"service": "extensions", "body": body.decode()}).encode())
             return
         self._reply(404, json.dumps({"service": getattr(self.server, "role", "unknown"), "error": "not_found"}).encode())
@@ -143,6 +147,7 @@ def _stream_first_chunk(port: int) -> tuple[int, dict[str, str], bytes, float]:
 
 
 def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: int) -> Path:
+    mime_types = os.environ.get("NGINX_MIME_TYPES", "/etc/nginx/mime.types")
     (root / "index.html").write_text("<html><body>fixture-spa</body></html>\n", encoding="utf-8")
     (root / "static").mkdir()
     (root / "static" / "app.123456.js").write_text("fixture", encoding="utf-8")
@@ -151,7 +156,7 @@ def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: in
         "error_log " + str(root / "error.log") + ";\n"
         "daemon off;\nmaster_process off;\nevents {}\n"
         "http {\n"
-        "include /etc/nginx/mime.types;\n"
+        "include " + json.dumps(mime_types) + ";\n"
         "access_log off;\n"
         "client_body_temp_path " + str(root / "body") + ";\n"
         "proxy_temp_path " + str(root / "proxy") + ";\n"
@@ -170,7 +175,7 @@ def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: in
         "location ^~ /api/user/ { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/store/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
         "location ^~ /api/user/auth/store-claim/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
-        "location ^~ /api/user/payments/orders/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
+        "location ^~ /api/user/payments/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_pass http://fixture_extensions; }\n"
         "location ^~ /api/assistant { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
         "location ^~ /api/tool-market { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
         "location ^~ /callbacks/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
@@ -231,6 +236,16 @@ def run_harness() -> dict[str, object]:
             assert (status, json.loads(body)["service"]) == (200, "extensions")
             status, _, body = _request(edge_port, "GET", "/api/user/profile")
             assert (status, json.loads(body)["service"]) == (200, "core")
+            for path in ("/api/user/payments/channels", "/api/user/payments/checkout/top_21"):
+                status, _, body = _request(edge_port, "GET", path, headers={"Authorization": "Bearer fixture-user-session"})
+                assert (status, json.loads(body)["service"]) == (200, "extensions")
+                assert extensions.seen[-1]["headers"]["authorization"] == "Bearer fixture-user-session"
+                assert "x-lmm-edge-proof" not in extensions.seen[-1]["headers"]
+            for path in ("/api/user/payments/quote", "/api/user/payments/checkout"):
+                status, _, body = _request(edge_port, "POST", path, b'{"amount_minor":"100"}', {"Authorization": "Bearer fixture-user-session", "Content-Type": "application/json"})
+                assert (status, json.loads(body)["service"]) == (202, "extensions")
+                assert extensions.seen[-1]["headers"]["authorization"] == "Bearer fixture-user-session"
+                assert extensions.seen[-1]["body"] == '{"amount_minor":"100"}'
             status, _, body = _request(edge_port, "GET", "/api/assistant/status")
             assert (status, json.loads(body)["service"]) == (200, "extensions")
             status, _, body = _request(edge_port, "POST", "/callbacks/epay", b"signed=fixture", {"Authorization": "Bearer host-secret", "X-LMM-Edge-Proof": "caller-proof", "Content-Type": "application/x-www-form-urlencoded"})
@@ -239,6 +254,11 @@ def run_harness() -> dict[str, object]:
             assert callback["body"] == "signed=fixture"
             assert "authorization" not in callback["headers"]
             assert "x-lmm-edge-proof" not in callback["headers"]
+            query = "pid=123&type=alipay&out_trade_no=top_21&sign=fixture"
+            status, _, body = _request(edge_port, "GET", "/callbacks/2?" + query, headers={"Authorization": "Bearer unwanted"})
+            assert (status, json.loads(body)["service"]) == (200, "extensions")
+            assert extensions.seen[-1]["path"] == "/callbacks/2?" + query
+            assert "authorization" not in extensions.seen[-1]["headers"]
             status, _, body = _request(edge_port, "GET", "/api/oauth/google?state=fixture&code=opaque")
             assert (status, json.loads(body)["service"]) == (200, "core")
             assert json.loads(body)["query"] == "state=fixture&code=opaque"
@@ -256,7 +276,7 @@ def run_harness() -> dict[str, object]:
             assert status == 200 and headers.get("content-type", "").startswith("text/event-stream")
             assert body == b"data: first\n\n", (headers, body)
             assert elapsed < 0.15, f"SSE first chunk was buffered ({elapsed:.3f}s)"
-            return {"status": "PASS", "nginx_test": True, "checks": 12, "listen": "127.0.0.1"}
+            return {"status": "PASS", "nginx_test": True, "checks": 17, "listen": "127.0.0.1"}
     finally:
         if nginx_process is not None and nginx_process.poll() is None:
             nginx_process.terminate()

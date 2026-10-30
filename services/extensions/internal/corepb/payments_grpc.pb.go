@@ -19,16 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CorePayments_AcceptProviderProof_FullMethodName = "/lmm.core.v1.CorePayments/AcceptProviderProof"
-	CorePayments_GetProviderProof_FullMethodName    = "/lmm.core.v1.CorePayments/GetProviderProof"
-	CorePayments_PrepareTopup_FullMethodName        = "/lmm.core.v1.CorePayments/PrepareTopup"
-	CorePayments_CreditTopup_FullMethodName         = "/lmm.core.v1.CorePayments/CreditTopup"
-	CorePayments_HoldRefund_FullMethodName          = "/lmm.core.v1.CorePayments/HoldRefund"
-	CorePayments_BeginRefundDispatch_FullMethodName = "/lmm.core.v1.CorePayments/BeginRefundDispatch"
-	CorePayments_CommitRefund_FullMethodName        = "/lmm.core.v1.CorePayments/CommitRefund"
-	CorePayments_ReleaseRefund_FullMethodName       = "/lmm.core.v1.CorePayments/ReleaseRefund"
-	CorePayments_ApplyExternalRefund_FullMethodName = "/lmm.core.v1.CorePayments/ApplyExternalRefund"
-	CorePayments_GetPaymentReceipt_FullMethodName   = "/lmm.core.v1.CorePayments/GetPaymentReceipt"
+	CorePayments_AcceptProviderProof_FullMethodName  = "/lmm.core.v1.CorePayments/AcceptProviderProof"
+	CorePayments_GetProviderProof_FullMethodName     = "/lmm.core.v1.CorePayments/GetProviderProof"
+	CorePayments_PrepareTopup_FullMethodName         = "/lmm.core.v1.CorePayments/PrepareTopup"
+	CorePayments_PreparePersonalTopup_FullMethodName = "/lmm.core.v1.CorePayments/PreparePersonalTopup"
+	CorePayments_GetEPayCheckout_FullMethodName      = "/lmm.core.v1.CorePayments/GetEPayCheckout"
+	CorePayments_CreditTopup_FullMethodName          = "/lmm.core.v1.CorePayments/CreditTopup"
+	CorePayments_HoldRefund_FullMethodName           = "/lmm.core.v1.CorePayments/HoldRefund"
+	CorePayments_BeginRefundDispatch_FullMethodName  = "/lmm.core.v1.CorePayments/BeginRefundDispatch"
+	CorePayments_CommitRefund_FullMethodName         = "/lmm.core.v1.CorePayments/CommitRefund"
+	CorePayments_ReleaseRefund_FullMethodName        = "/lmm.core.v1.CorePayments/ReleaseRefund"
+	CorePayments_ApplyExternalRefund_FullMethodName  = "/lmm.core.v1.CorePayments/ApplyExternalRefund"
+	CorePayments_GetPaymentReceipt_FullMethodName    = "/lmm.core.v1.CorePayments/GetPaymentReceipt"
 )
 
 // CorePaymentsClient is the client API for CorePayments service.
@@ -43,6 +45,11 @@ type CorePaymentsClient interface {
 	AcceptProviderProof(ctx context.Context, in *AcceptProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error)
 	GetProviderProof(ctx context.Context, in *GetProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error)
 	PrepareTopup(ctx context.Context, in *PrepareTopupRequest, opts ...grpc.CallOption) (*PaymentIntent, error)
+	// Resolve the personal payer from the current Core session, never a web ID.
+	PreparePersonalTopup(ctx context.Context, in *PreparePersonalTopupRequest, opts ...grpc.CallOption) (*PaymentIntent, error)
+	// EPay shares one MD5 key between checkout and callback verification. Keep
+	// that key in Core; only sign the fixed fields of an existing Core intent.
+	GetEPayCheckout(ctx context.Context, in *GetEPayCheckoutRequest, opts ...grpc.CallOption) (*EPayCheckout, error)
 	CreditTopup(ctx context.Context, in *CreditTopupRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	HoldRefund(ctx context.Context, in *HoldRefundRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	BeginRefundDispatch(ctx context.Context, in *ResolveRefundRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
@@ -84,6 +91,26 @@ func (c *corePaymentsClient) PrepareTopup(ctx context.Context, in *PrepareTopupR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaymentIntent)
 	err := c.cc.Invoke(ctx, CorePayments_PrepareTopup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *corePaymentsClient) PreparePersonalTopup(ctx context.Context, in *PreparePersonalTopupRequest, opts ...grpc.CallOption) (*PaymentIntent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaymentIntent)
+	err := c.cc.Invoke(ctx, CorePayments_PreparePersonalTopup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *corePaymentsClient) GetEPayCheckout(ctx context.Context, in *GetEPayCheckoutRequest, opts ...grpc.CallOption) (*EPayCheckout, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPayCheckout)
+	err := c.cc.Invoke(ctx, CorePayments_GetEPayCheckout_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +199,11 @@ type CorePaymentsServer interface {
 	AcceptProviderProof(context.Context, *AcceptProviderProofRequest) (*ProviderProofReceipt, error)
 	GetProviderProof(context.Context, *GetProviderProofRequest) (*ProviderProofReceipt, error)
 	PrepareTopup(context.Context, *PrepareTopupRequest) (*PaymentIntent, error)
+	// Resolve the personal payer from the current Core session, never a web ID.
+	PreparePersonalTopup(context.Context, *PreparePersonalTopupRequest) (*PaymentIntent, error)
+	// EPay shares one MD5 key between checkout and callback verification. Keep
+	// that key in Core; only sign the fixed fields of an existing Core intent.
+	GetEPayCheckout(context.Context, *GetEPayCheckoutRequest) (*EPayCheckout, error)
 	CreditTopup(context.Context, *CreditTopupRequest) (*PaymentReceipt, error)
 	HoldRefund(context.Context, *HoldRefundRequest) (*PaymentReceipt, error)
 	BeginRefundDispatch(context.Context, *ResolveRefundRequest) (*PaymentReceipt, error)
@@ -197,6 +229,12 @@ func (UnimplementedCorePaymentsServer) GetProviderProof(context.Context, *GetPro
 }
 func (UnimplementedCorePaymentsServer) PrepareTopup(context.Context, *PrepareTopupRequest) (*PaymentIntent, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareTopup not implemented")
+}
+func (UnimplementedCorePaymentsServer) PreparePersonalTopup(context.Context, *PreparePersonalTopupRequest) (*PaymentIntent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PreparePersonalTopup not implemented")
+}
+func (UnimplementedCorePaymentsServer) GetEPayCheckout(context.Context, *GetEPayCheckoutRequest) (*EPayCheckout, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEPayCheckout not implemented")
 }
 func (UnimplementedCorePaymentsServer) CreditTopup(context.Context, *CreditTopupRequest) (*PaymentReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreditTopup not implemented")
@@ -290,6 +328,42 @@ func _CorePayments_PrepareTopup_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CorePaymentsServer).PrepareTopup(ctx, req.(*PrepareTopupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CorePayments_PreparePersonalTopup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreparePersonalTopupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).PreparePersonalTopup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_PreparePersonalTopup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).PreparePersonalTopup(ctx, req.(*PreparePersonalTopupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CorePayments_GetEPayCheckout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEPayCheckoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).GetEPayCheckout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_GetEPayCheckout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).GetEPayCheckout(ctx, req.(*GetEPayCheckoutRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -438,6 +512,14 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PrepareTopup",
 			Handler:    _CorePayments_PrepareTopup_Handler,
+		},
+		{
+			MethodName: "PreparePersonalTopup",
+			Handler:    _CorePayments_PreparePersonalTopup_Handler,
+		},
+		{
+			MethodName: "GetEPayCheckout",
+			Handler:    _CorePayments_GetEPayCheckout_Handler,
 		},
 		{
 			MethodName: "CreditTopup",

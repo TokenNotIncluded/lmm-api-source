@@ -76,24 +76,35 @@ func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next 
 		w.Header().Set("Cache-Control", "no-store")
 		channel := strings.TrimPrefix(r.URL.Path, "/callbacks/")
 		id, err := strconv.ParseInt(channel, 10, 64)
-		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != channel || r.URL.EscapedPath() != r.URL.Path || r.URL.RawQuery != "" {
+		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != channel || r.URL.EscapedPath() != r.URL.Path {
 			callbackFailure(w, http.StatusNotFound, "payment_callback_not_found")
 			return
 		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET, POST")
 			callbackFailure(w, http.StatusMethodNotAllowed, "payment_callback_method")
 			return
 		}
-		signatures := r.Header.Values("Stripe-Signature")
-		if len(signatures) != 1 || len(signatures[0]) == 0 || len(signatures[0]) > 2048 {
+		// Each configured adapter validates its actual wire protocol. EPay uses a
+		// signed GET query or POST form; the others use provider-specific headers.
+		// Bound the envelope here without turning every provider into Stripe.
+		if (r.Method == http.MethodPost && r.URL.RawQuery != "") || len(r.URL.RawQuery) > payments.MaxEvidence {
 			callbackFailure(w, http.StatusBadRequest, "invalid_payment_callback")
 			return
 		}
-		for _, b := range []byte(signatures[0]) {
-			if b < 32 || b > 126 {
+		for _, name := range []string{"Stripe-Signature", "Creem-Signature", "X-Signature", "X-Waffo-Signature"} {
+			signatures := r.Header.Values(name)
+			if len(signatures) > 1 || len(signatures) == 1 && (len(signatures[0]) == 0 || len(signatures[0]) > 2048) {
 				callbackFailure(w, http.StatusBadRequest, "invalid_payment_callback")
 				return
+			}
+			for _, value := range signatures {
+				for _, b := range []byte(value) {
+					if b < 32 || b > 126 {
+						callbackFailure(w, http.StatusBadRequest, "invalid_payment_callback")
+						return
+					}
+				}
 			}
 		}
 		if r.ContentLength > payments.MaxEvidence {

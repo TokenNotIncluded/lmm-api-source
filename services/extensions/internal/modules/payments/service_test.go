@@ -544,6 +544,22 @@ func TestHTTPNeverExposesEvidenceOrInternalJobs(t *testing.T) {
 			t.Fatal("internal data leaked", word)
 		}
 	}
+	if !strings.Contains(w.Body.String(), `"checkout_method":"GET"`) {
+		t.Fatal("hosted checkout omitted its GET method", w.Body.String())
+	}
+	if err := h.m.Mutate(context.Background(), o.ID, func(o *Order) error {
+		o.Checkout.Method = "POST"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r = httptest.NewRequest("GET", "/orders/"+o.ID, nil)
+	r.Header.Set("X-LMM-User-Credential", strings.Repeat("a", 32))
+	w = httptest.NewRecorder()
+	h.s.Handler().ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"checkout_method":"POST"`) {
+		t.Fatal("order recovery lost the stored POST method", w.Body.String())
+	}
 	r = httptest.NewRequest("GET", "/orders/"+o.ID, nil)
 	r.Header.Set("Authorization", "Bearer host-secret")
 	w = httptest.NewRecorder()

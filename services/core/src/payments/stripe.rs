@@ -135,10 +135,8 @@ pub(super) fn verify(
 
     // serde_json normally keeps the last duplicate map key. Check every map,
     // including ignored provider fields, before deserializing the typed event.
-    let mut decoder = serde_json::Deserializer::from_slice(payload);
-    let value = UniqueValue::deserialize(&mut decoder).map_err(|_| Error::Invalid)?;
-    decoder.end().map_err(|_| Error::Invalid)?;
-    let envelope: Envelope = serde_json::from_value(value.0).map_err(|_| Error::Invalid)?;
+    let envelope: Envelope =
+        serde_json::from_value(unique_json(payload)?).map_err(|_| Error::Invalid)?;
     if !identifier(&envelope.id, "evt_") {
         return Err(Error::Invalid);
     }
@@ -374,6 +372,13 @@ fn payment_intent(value: Option<&Value>) -> Result<String, Error> {
 
 struct UniqueValue(Value);
 
+pub(super) fn unique_json(payload: &[u8]) -> Result<Value, Error> {
+    let mut decoder = serde_json::Deserializer::from_slice(payload);
+    let value = UniqueValue::deserialize(&mut decoder).map_err(|_| Error::Invalid)?;
+    decoder.end().map_err(|_| Error::Invalid)?;
+    Ok(value.0)
+}
+
 impl<'de> Deserialize<'de> for UniqueValue {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct Visitor;
@@ -455,6 +460,7 @@ mod tests {
             webhook_secrets: vec![SECRET.into()],
             credits_per_minor: 5000,
             max_amount_minor: 1_000_000,
+            verification: super::super::ProviderVerification::default(),
         }
     }
 

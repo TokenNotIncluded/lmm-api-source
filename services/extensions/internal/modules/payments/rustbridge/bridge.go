@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"strconv"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
@@ -24,6 +25,33 @@ func New(client *coreclient.Client) (*Bridge, error) {
 }
 
 var _ p.Core = (*Bridge)(nil)
+
+var _ p.EPayCheckoutSigner = (*Bridge)(nil)
+
+func (b *Bridge) EPayCheckout(ctx context.Context, intentID int64) (p.Checkout, error) {
+	v, err := b.client.PaymentEPayCheckout(ctx, intentID)
+	if err != nil {
+		return p.Checkout{}, mapError(err)
+	}
+	if v == nil || v.IntentId != intentID || v.OrderId != "top_"+strconv.FormatInt(intentID, 10) || v.CheckoutUrl == "" || (v.Method != "GET" && v.Method != "POST") {
+		return p.Checkout{}, p.ErrConflict
+	}
+	return p.Checkout{ID: v.OrderId, URL: v.CheckoutUrl, Method: v.Method}, nil
+}
+
+func (b *Bridge) PreparePersonal(ctx context.Context, user string, r p.PrepareRequest) (p.Intent, error) {
+	if r.AccountID != 0 {
+		return p.Intent{}, p.ErrInvalid
+	}
+	v, err := b.client.PreparePersonalTopup(ctx, user, &pb.PreparePersonalTopupRequest{Mutation: mutation(r.Key), PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor})
+	if err != nil {
+		return p.Intent{}, mapError(err)
+	}
+	if v == nil {
+		return p.Intent{}, p.ErrUnavailable
+	}
+	return p.Intent{ID: v.IntentId, AccountID: v.AccountId, CreatedBy: v.CreatedByUserId, Provider: v.Provider, Merchant: v.Merchant, Environment: v.Environment, Currency: v.Currency, AmountMinor: v.AmountMinor, CreditUnits: v.CreditUnits, CreditUnit: v.CreditUnit, Key: v.IdempotencyKey, RequestHash: append([]byte(nil), v.RequestSha256...)}, nil
+}
 
 func (b *Bridge) Prepare(ctx context.Context, user string, r p.PrepareRequest) (p.Intent, error) {
 	v, err := b.client.PrepareTopup(ctx, user, &pb.PrepareTopupRequest{Mutation: mutation(r.Key), AccountId: r.AccountID, PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor})

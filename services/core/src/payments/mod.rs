@@ -2,8 +2,10 @@
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
 mod legacy;
+mod providers;
 pub mod rpc;
 mod stripe;
+pub(crate) mod waffo;
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
 
 use crate::{
@@ -25,7 +27,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const SCHEMA: &str = include_str!("../../schema/payments.sql");
+pub const SCHEMA: &str = concat!(
+    include_str!("../../schema/payments.sql"),
+    "\n",
+    include_str!("../../schema/payment_gateways.sql")
+);
 const CREDIT_UNIT: &str = "credit_500k_usd";
 const PREPARED: i32 = 7;
 
@@ -41,6 +47,20 @@ pub struct Channel {
     pub webhook_secrets: Vec<String>,
     pub credits_per_minor: i64,
     pub max_amount_minor: i64,
+    pub(crate) verification: ProviderVerification,
+}
+
+/// Provider bindings and fixed checkout addresses are administrator-owned.
+/// They never come from the browser, Go's interpretation, or a callback.
+#[derive(Clone, Default)]
+pub(crate) struct ProviderVerification {
+    pub payment_type: String,
+    pub store_id: String,
+    pub product_id: String,
+    pub endpoint: String,
+    pub notify_url: String,
+    pub return_url: String,
+    pub waffo_inquiry: Option<Arc<waffo::Inquiry>>,
 }
 impl Channel {
     /// Test policy: USD cents, exactly 5000 integer credits per cent.
@@ -67,24 +87,23 @@ impl Channel {
             webhook_secrets: vec![secret],
             credits_per_minor: 5000,
             max_amount_minor: maximum,
+            verification: ProviderVerification::default(),
         }
     }
     fn validate(&self) -> bool {
         self.id > 0
-            && self.provider == "stripe"
             && valid_id(&self.merchant)
-            && self.merchant.starts_with("acct_")
             && matches!(self.environment.as_str(), "test" | "live")
-            && self.currency == "USD"
-            && self.credits_per_minor == 5000
+            && self.currency.len() == 3
+            && self.currency.bytes().all(|b| b.is_ascii_uppercase())
+            && self.credits_per_minor > 0
             && self.max_amount_minor > 0
-            && self.max_amount_minor.checked_mul(5000).is_some()
+            && self
+                .max_amount_minor
+                .checked_mul(self.credits_per_minor)
+                .is_some()
             && (1..=2).contains(&self.webhook_secrets.len())
-            && self.webhook_secrets.iter().all(|s| {
-                s.starts_with("whsec_")
-                    && (16..=256).contains(&s.len())
-                    && s.bytes().all(|b| b.is_ascii_graphic())
-            })
+            && providers::valid_channel(self)
     }
 }
 
@@ -235,22 +254,65 @@ fn topup_refund_reference(intent: &IntentRow, refund_id: &str) -> Result<String>
 }
 
 impl PaymentsStore {
+    /// Return the same signed EPay checkout for an already authorized intent.
+    /// No caller-controlled payload, URL, currency or amount can be signed.
+    pub async fn epay_checkout(&self, intent_id: i64) -> Result<pb::EPayCheckout> {
+        let mut tx = self.begin().await?;
+        let intent = Self::intent(&mut tx, intent_id).await?;
+        let channel = self.channel(&intent)?;
+        if channel.provider != "epay" || intent.refund_fenced || intent.credit_journal_id.is_some()
+        {
+            return Err(Error::Denied);
+        }
+        let order_id = format!("top_{}", intent.id);
+        let checkout_url = providers::epay_checkout(channel, &order_id, intent.amount_minor)?;
+        tx.commit().await?;
+        Ok(pb::EPayCheckout {
+            intent_id,
+            order_id,
+            checkout_url,
+            method: if channel.currency == "LDC" {
+                "POST"
+            } else {
+                "GET"
+            }
+            .into(),
+        })
+    }
     pub fn new(pool: PgPool, channels: Vec<Channel>) -> Result<Self> {
         let mut by_id = BTreeMap::new();
         let mut namespaces = std::collections::BTreeSet::new();
-        let mut secrets = std::collections::BTreeSet::new();
+        let mut secrets = BTreeMap::new();
+        let mut public_keys = BTreeMap::new();
         for channel in channels {
+            let namespace = (
+                channel.provider.clone(),
+                channel.merchant.clone(),
+                channel.environment.clone(),
+            );
             if !channel.validate()
                 || by_id.contains_key(&channel.id)
                 || !namespaces.insert((
                     channel.provider.clone(),
                     channel.merchant.clone(),
                     channel.environment.clone(),
+                    channel.verification.payment_type.clone(),
+                    channel.verification.store_id.clone(),
+                    channel.verification.product_id.clone(),
                 ))
-                || channel
-                    .webhook_secrets
-                    .iter()
-                    .any(|s| !secrets.insert(s.clone()))
+                || (matches!(channel.provider.as_str(), "stripe" | "epay" | "creem")
+                    && channel.webhook_secrets.iter().any(|s| {
+                        secrets
+                            .insert(s.clone(), namespace.clone())
+                            .is_some_and(|prior| prior != namespace)
+                    }))
+                || (matches!(channel.provider.as_str(), "waffo" | "waffo_pancake")
+                    && channel.webhook_secrets.iter().any(|key| {
+                        let scope = (channel.provider.clone(), channel.environment.clone());
+                        public_keys
+                            .insert(key.clone(), scope.clone())
+                            .is_some_and(|prior| prior != scope)
+                    }))
             {
                 return Err(Error::Invalid);
             }
@@ -301,12 +363,14 @@ impl PaymentsStore {
         merchant: &str,
         environment: &str,
     ) -> Result<&Channel> {
-        self.channels
-            .values()
-            .find(|c| {
-                c.provider == provider && c.merchant == merchant && c.environment == environment
-            })
-            .ok_or(Error::Unavailable)
+        let mut channels = self.channels.values().filter(|c| {
+            c.provider == provider && c.merchant == merchant && c.environment == environment
+        });
+        let channel = channels.next().ok_or(Error::Unavailable)?;
+        if channels.next().is_some() {
+            return Err(Error::Conflict);
+        }
+        Ok(channel)
     }
     async fn intent(connection: &mut PgConnection, id: i64) -> Result<IntentRow> {
         if id <= 0 {
@@ -465,7 +529,7 @@ impl PaymentsStore {
         ) {
             return Err(Error::Denied);
         }
-        let verified = stripe::verify(
+        let verified = providers::verify(
             &evidence.signed_payload,
             &evidence.signature,
             channel,
@@ -507,9 +571,65 @@ impl PaymentsStore {
         request: pb::AcceptProviderProofRequest,
     ) -> Result<pb::ProviderProofReceipt> {
         let evidence = request.evidence.as_ref().ok_or(Error::Invalid)?;
-        if !evidence.accepted_proof_id.is_empty() {
+        if !evidence.accepted_proof_id.is_empty()
+            || !valid_id(&evidence.provider_event_id)
+            || evidence.signed_payload.is_empty()
+            || evidence.signed_payload.len() > 32 * 1024
+            || evidence.signature.is_empty()
+            || evidence.signature.len() > 2048
+        {
             return Err(Error::Invalid);
         }
+        let mut inquired = None;
+        if evidence
+            .payment
+            .as_ref()
+            .is_some_and(|p| p.provider == "waffo")
+        {
+            if request.intent_id <= 0 {
+                return Err(Error::Invalid);
+            }
+            let snapshot: IntentRow =
+                sqlx::query_as("SELECT * FROM core_payments.intents WHERE id=$1")
+                    .bind(request.intent_id)
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or(Error::NotFound)?;
+            let channel = self.channel(&snapshot)?;
+            // An already durable, identically scoped proof remains recoverable
+            // during provider outages. Admission's service permission is still
+            // required, and changing any original payment binding is rejected.
+            let prior: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+                "SELECT payload_hash,receipt_wire FROM core_payments.accepted_proofs WHERE intent_id=$1 AND channel_id=$2 AND event_id=$3",
+            ).bind(snapshot.id).bind(snapshot.channel_id).bind(&evidence.provider_event_id)
+                .fetch_optional(&self.pool).await?;
+            if let Some((digest, wire)) = prior {
+                let receipt = pb::ProviderProofReceipt::decode(wire.as_slice())
+                    .map_err(|_| Error::Storage)?;
+                if digest != Sha256::digest(&evidence.signed_payload).to_vec()
+                    || receipt.payment != evidence.payment
+                {
+                    return Err(Error::Conflict);
+                }
+                return Ok(receipt);
+            }
+            let verified = self.verify(&snapshot, evidence)?;
+            channel
+                .verification
+                .waffo_inquiry
+                .as_ref()
+                .ok_or(Error::Unavailable)?
+                .confirm(
+                    channel,
+                    snapshot.id,
+                    snapshot.amount_minor,
+                    &verified.transaction,
+                )
+                .await?;
+            inquired = Some((snapshot.channel_id, snapshot.amount_minor, verified));
+        }
+        // All provider network I/O has finished before opening the financial
+        // transaction. Its immutable intent is checked again under the lock.
         let mut tx = self.begin().await?;
         let intent = if request.intent_id > 0 {
             Self::intent(&mut tx, request.intent_id).await?
@@ -532,6 +652,15 @@ impl PaymentsStore {
         // Freshness is checked exclusively against Rust's own wall clock here.
         // Unknown commit results are recovered by get_proof, not stale re-signing.
         let verified = self.verify(&intent, evidence)?;
+        if intent.provider == "waffo"
+            && inquired.as_ref().is_none_or(|(channel_id, amount, facts)| {
+                *channel_id != intent.channel_id
+                    || *amount != intent.amount_minor
+                    || facts != &verified
+            })
+        {
+            return Err(Error::Denied);
+        }
         if let Some(hold_id) = &verified.hold_receipt_id {
             let amount: Option<i64> = sqlx::query_scalar(
                 "SELECT amount_minor FROM core_payments.refund_holds WHERE receipt_id=$1 AND intent_id=$2 FOR SHARE",
@@ -680,6 +809,33 @@ impl PaymentsStore {
         Ok(())
     }
 
+    pub async fn prepare_personal(
+        &self,
+        credential: &str,
+        request: pb::PreparePersonalTopupRequest,
+    ) -> Result<pb::PaymentIntent> {
+        let mut tx = self.begin().await?;
+        let actor = identity::authorize_in_transaction(&mut tx, credential).await?;
+        if actor.credential_kind != CredentialKind::Session {
+            return Err(Error::Denied);
+        }
+        let account_id = actor.owner_account_id;
+        tx.commit().await?;
+        // prepare rechecks the current session and account authority in the
+        // transaction that persists the quote, including on idempotent replay.
+        self.prepare(
+            credential,
+            pb::PrepareTopupRequest {
+                mutation: request.mutation,
+                account_id,
+                payment_channel_id: request.payment_channel_id,
+                currency: request.currency,
+                amount_minor: request.amount_minor,
+            },
+        )
+        .await
+    }
+
     pub async fn prepare(
         &self,
         credential: &str,
@@ -810,13 +966,13 @@ impl PaymentsStore {
                 .execute(&mut *tx)
                 .await?;
             let reference_digest = hash(json!([
-                "stripe",
+                intent.provider,
                 intent.merchant,
                 intent.environment,
                 verified.transaction
             ]));
             use std::fmt::Write;
-            let mut payment_reference = "stripe:".to_owned();
+            let mut payment_reference = format!("{}:", intent.provider);
             for byte in reference_digest {
                 let _ = write!(payment_reference, "{byte:02x}");
             }

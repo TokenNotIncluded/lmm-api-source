@@ -98,7 +98,7 @@ func TestPaymentCallbacksAreSeparateFromPrivateRoutes(t *testing.T) {
 		method, path string
 		want         int
 	}{
-		{"GET", "/callbacks/1", 405}, {"POST", "/callbacks/01", 404}, {"POST", "/callbacks/-1", 404}, {"POST", "/callbacks/1/orders", 404}, {"POST", "/callbacks/%31", 404}, {"POST", "/callbacks/1?secret=private", 404}, {"GET", "/extensions/v1/payments/orders", 401},
+		{"DELETE", "/callbacks/1", 405}, {"POST", "/callbacks/01", 404}, {"POST", "/callbacks/-1", 404}, {"POST", "/callbacks/1/orders", 404}, {"POST", "/callbacks/%31", 404}, {"POST", "/callbacks/1?secret=private", 400}, {"GET", "/extensions/v1/payments/orders", 401},
 	}
 	for _, c := range cases {
 		w = paymentCallbackRecorder()
@@ -120,6 +120,43 @@ func TestPaymentCallbacksAreSeparateFromPrivateRoutes(t *testing.T) {
 	ingress.ServeHTTP(w, req)
 	if w.Code != 413 || called != 1 {
 		t.Fatal("oversize callback admitted", w.Code, called)
+	}
+}
+
+func TestPaymentIngressPreservesOtherProviderProtocols(t *testing.T) {
+	for _, tc := range []struct{ method, path, header, value, body string }{
+		{"GET", "/callbacks/2?pid=123&out_trade_no=top_42&sign=synthetic", "", "", ""},
+		{"POST", "/callbacks/2", "Content-Type", "application/x-www-form-urlencoded", "pid=123&out_trade_no=top_42&sign=synthetic"},
+		{"POST", "/callbacks/3", "Creem-Signature", "synthetic-creem", `{"eventType":"checkout.completed"}`},
+		{"POST", "/callbacks/4", "X-Signature", "synthetic-global", `{"merchantOrderId":"top_42"}`},
+		{"POST", "/callbacks/5", "X-Waffo-Signature", "synthetic-pancake", `{"type":"order.completed"}`},
+	} {
+		t.Run(tc.path+tc.header, func(t *testing.T) {
+			called := false
+			host := paymentIngressHost(t)
+			ingress := mountPaymentCallbacks(host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				if r.Method != tc.method || r.URL.RequestURI() != tc.path || r.Header.Get("Stripe-Signature") != "" || tc.header != "" && r.Header.Get(tc.header) != tc.value {
+					t.Fatal("provider envelope changed")
+				}
+				raw, err := io.ReadAll(r.Body)
+				if err != nil || string(raw) != tc.body {
+					t.Fatal("provider payload changed", err)
+				}
+				// Signature verification belongs to the configured payment adapter
+				// and Core; this fixture exercises only ingress transport.
+				w.WriteHeader(http.StatusForbidden)
+			}), host)
+			r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			if tc.header != "" {
+				r.Header.Set(tc.header, tc.value)
+			}
+			w := paymentCallbackRecorder()
+			ingress.ServeHTTP(w, r)
+			if !called || w.Code != http.StatusForbidden {
+				t.Fatal("provider never reached verifier", w.Code)
+			}
+		})
 	}
 }
 func TestPaymentCallbacksJoinHostDrain(t *testing.T) {

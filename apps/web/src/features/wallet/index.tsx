@@ -48,6 +48,7 @@ import { BillingHistoryDialog } from './components/dialogs/billing-history-dialo
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
+import { NativeWalletCheckout } from './components/native-wallet-checkout'
 import { PaymentSuccessReceipt } from './components/payment-success-receipt'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
@@ -136,6 +137,11 @@ export function Wallet(props: WalletProps) {
 function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user) as UserWalletData | null
+  const projection = walletProjection(user)
+  const nativePayments =
+    projection.native &&
+    user?.financial_projection_available === true &&
+    projection.available !== null
   const { refreshUser } = useAuthUserRefresh()
   const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
   const [refreshing, setRefreshing] = useState(false)
@@ -168,19 +174,24 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
-            <Alert>
-              <AlertDescription>
-                {walletProjection(user).readOnly
-                  ? t('Credit conversion unavailable')
-                  : t(
-                      'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
-                    )}
-              </AlertDescription>
-            </Alert>
+            {!nativePayments ? (
+              <Alert>
+                <AlertDescription>
+                  {walletProjection(user).readOnly
+                    ? t('Credit conversion unavailable')
+                    : t(
+                        'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
+                      )}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
             <WalletStatsCard user={user} />
+            {nativePayments ? <NativeWalletCheckout /> : null}
             <div className='flex flex-wrap gap-2'>
-              <Button disabled>{t('Add funds')}</Button>
+              {!nativePayments ? (
+                <Button disabled>{t('Add funds')}</Button>
+              ) : null}
               <Button variant='outline' disabled>
                 {t('Subscriptions')}
               </Button>

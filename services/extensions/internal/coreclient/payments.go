@@ -17,6 +17,17 @@ func (c *Client) PrepareTopup(ctx context.Context, user string, request *pb.Prep
 	}
 	return pb.NewCorePaymentsClient(c.connection).PrepareTopup(c.context(ctx, user), request)
 }
+
+func (c *Client) PreparePersonalTopup(ctx context.Context, user string, request *pb.PreparePersonalTopupRequest) (*pb.PaymentIntent, error) {
+	if !validUserCredential(user) {
+		return nil, status.Error(codes.Unauthenticated, "invalid user credential")
+	}
+	return pb.NewCorePaymentsClient(c.connection).PreparePersonalTopup(c.context(ctx, user), request)
+}
+
+func (c *Client) PaymentEPayCheckout(ctx context.Context, intentID int64) (*pb.EPayCheckout, error) {
+	return pb.NewCorePaymentsClient(c.connection).GetEPayCheckout(c.context(ctx, ""), &pb.GetEPayCheckoutRequest{IntentId: intentID})
+}
 func (c *Client) HoldPaymentRefund(ctx context.Context, user string, request *pb.HoldRefundRequest) (*pb.PaymentReceipt, error) {
 	if !validUserCredential(user) {
 		return nil, status.Error(codes.Unauthenticated, "invalid user credential")

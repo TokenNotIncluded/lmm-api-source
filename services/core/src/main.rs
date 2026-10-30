@@ -26,9 +26,9 @@ Commands:\n\
   init-db         Initialize a new, empty core database.\n\
   upgrade-offline Explicit native v3 schema upgrade/recovery with independent history and persistent fencing.\n\
   upgrade-history Install/query an independent history database; requires explicit authority --config and stdin JSON.\n\
-  upgrade-db      Explicit offline exact Core26 ledger revision; requires owner --config and exact-target stdin JSON.\n\
-                  Legacy 24->25 trust-pricing requires the preserved 25-component installer.\n\
-                  Additive 25->26 requires the preserved 26-component installer before this ledger revision.\n\
+  upgrade-db      Explicit offline exact-target schema upgrade; requires installer --config and bound stdin JSON.\n\
+                  core-payment-gateways-v1 upgrades the fixed 28-component predecessor to 29 components.\n\
+                  Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
   install-tool-market-builtins  Install the compiled tool catalog offline as installation owner.\n\n\

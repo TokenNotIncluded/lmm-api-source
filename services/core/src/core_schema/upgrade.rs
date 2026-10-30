@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, fmt, io::Read};
 mod additive;
 mod finance;
 mod ledger;
+mod payment_gateways;
 
 const PROCEDURE: &str = "core-24-to-25-trust-pricing-v1";
 const PREDECESSOR: &str = include_str!("predecessor24.json");
@@ -228,6 +229,9 @@ impl UpgradeRequest {
         if self.procedure == finance::PROCEDURE {
             return finance::validate(self);
         }
+        if self.procedure == payment_gateways::PROCEDURE {
+            return payment_gateways::validate(self);
+        }
         if self.version != 1
             || self.procedure != PROCEDURE
             || !(16..=96).contains(&self.upgrade_id.len())
@@ -279,6 +283,9 @@ impl UpgradeRequest {
         self.validate()?;
         if self.procedure == finance::PROCEDURE {
             return finance::authorize_target();
+        }
+        if self.procedure == payment_gateways::PROCEDURE {
+            return payment_gateways::authorize_target();
         }
         let routing = COMPONENTS
             .iter()
@@ -357,6 +364,8 @@ pub async fn upgrade_database(
         additive::connected(&mut connection, &request).await
     } else if request.procedure == finance::PROCEDURE {
         finance::connected(&mut connection, &request).await
+    } else if request.procedure == payment_gateways::PROCEDURE {
+        payment_gateways::connected(&mut connection, &request).await
     } else {
         upgrade_connected(&mut connection, &request).await
     };

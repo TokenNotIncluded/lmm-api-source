@@ -131,7 +131,13 @@ func (c *Client) boundCall(ctx context.Context, method string, req, reply any, c
 	default:
 		return status.Error(codes.ResourceExhausted, "core RPC client is busy")
 	}
-	bounded, cancel := context.WithTimeout(ctx, Timeout)
+	timeout := Timeout
+	if method == pb.CorePayments_AcceptProviderProof_FullMethodName {
+		// Core may independently query the payment provider before accepting
+		// proof. Leave room for its three-second bounded verification call.
+		timeout = 4 * time.Second
+	}
+	bounded, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return invoke(bounded, method, req, reply, cc, opts...)
 }
