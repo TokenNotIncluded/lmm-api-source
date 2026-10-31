@@ -35,7 +35,12 @@ function positiveId(value: number | undefined) {
   return value !== undefined && Number.isSafeInteger(value) && value > 0
 }
 
+export function isLowBalanceNotice(item: TodoItem) {
+  return item.category === 'account_action' && item.type === 'low_balance'
+}
+
 export function todoItemHasDestination(item: TodoItem) {
+  if (isLowBalanceNotice(item)) return true
   switch (item.category) {
     case 'open_source_bounty':
     case 'open_source_bounty_review':
@@ -52,6 +57,7 @@ export function todoItemHasDestination(item: TodoItem) {
 
 export function todoItemCanOpen(item: TodoItem, isAdmin: boolean) {
   const publicDestination =
+    isLowBalanceNotice(item) ||
     item.category === 'open_source_bounty' ||
     item.category === 'open_source_bounty_review'
   return (isAdmin || publicDestination) && todoItemHasDestination(item)

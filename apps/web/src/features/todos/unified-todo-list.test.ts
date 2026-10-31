@@ -23,7 +23,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { todoItemTitleKey } from './todo-labels'
-import { todoItemHasDestination } from './todo-navigation'
+import { todoItemCanOpen, todoItemHasDestination } from './todo-navigation'
 
 function item(
   category:
@@ -55,6 +55,7 @@ describe('unified todo destinations', () => {
       'Assistant safety incident'
     )
     assert.equal(todoItemTitleKey('unknown.todo'), 'Notification')
+    assert.equal(todoItemTitleKey('Low balance'), 'Low balance')
   })
 
   test('keeps destination affordances tied to actionable notification data', () => {
@@ -78,6 +79,25 @@ describe('unified todo destinations', () => {
     assert.equal(
       todoItemTitleKey('assistant.human_support'),
       'Human technical support'
+    )
+  })
+  test('lets an owner open only the typed low-balance account notification', () => {
+    const notice = { ...item('account_action'), type: 'low_balance' }
+    for (const isAdmin of [false, true]) {
+      assert.equal(todoItemHasDestination(notice), true)
+      assert.equal(todoItemCanOpen(notice, isAdmin), true)
+    }
+    assert.equal(todoItemCanOpen(item('account_action'), false), false)
+    assert.equal(
+      todoItemCanOpen(
+        { ...notice, type: 'request', title: 'Low balance' },
+        false
+      ),
+      false
+    )
+    assert.equal(
+      todoItemCanOpen({ ...notice, category: 'security_incident' }, false),
+      false
     )
   })
 })

@@ -15,6 +15,7 @@ import { formatTimestampRelative, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { TodoItem } from './api'
+import { LowBalanceNoticeDetails } from './low-balance-notice-details'
 import { ModerationNoticeDetails } from './moderation-notice-details'
 import { TodoBurst } from './todo-burst'
 import { todoItemTitleKey } from './todo-labels'
@@ -211,6 +212,7 @@ export function TodoListRow({
                 {item.summary}
               </span>
             ) : null}
+            <LowBalanceNoticeDetails item={item} />
             <ModerationNoticeDetails item={item} />
             <span className='text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5'>
               <span>
