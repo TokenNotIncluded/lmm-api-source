@@ -64,6 +64,10 @@ const { UsageLogsProvider, useUsageLogsContext } =
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { AxiosError } = await import('axios')
+const { Route: UsageLogsRoute } =
+  await import('@/routes/_authenticated/usage-logs/$section')
+const { readLogsPage } = await import('../../api')
+const { buildApiParams } = await import('../../lib/utils')
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -205,6 +209,8 @@ async function renderFilter(
     getParentRoute: () => authRoute,
     path: '/usage-logs/$section',
     component: Fixture,
+    beforeLoad: ({ params, search }) =>
+      UsageLogsRoute.options.beforeLoad?.({ params, search } as never),
     validateSearch: (search: Record<string, unknown>) => search,
   })
   const router = createRouter({
@@ -455,7 +461,12 @@ for (const mode of [
   { name: 'personal', admin: false, historical: false, self: false },
   { name: 'admin', admin: true, historical: false, self: false },
   { name: 'historical admin', admin: true, historical: true, self: false },
-  { name: 'admin returning to personal', admin: true, historical: true, self: true },
+  {
+    name: 'admin returning to personal',
+    admin: true,
+    historical: true,
+    self: true,
+  },
 ]) {
   test(`${mode.name} export downloads the applied filters across pages`, async () => {
     const fixture = await renderFilter(mode.admin)
@@ -467,7 +478,9 @@ for (const mode of [
     try {
       if (mode.historical) {
         await clickButton('History test')
-        assert.ok(fixture.requests.some((url) => url.startsWith('/api/log/stat?')))
+        assert.ok(
+          fixture.requests.some((url) => url.startsWith('/api/log/stat?'))
+        )
       }
       if (mode.self) await clickButton('Personal test')
       let reads = 0
@@ -555,7 +568,13 @@ test('historical export failures stay visible, create no download and permit ret
   }
 })
 
-for (const change of ['source', 'view', 'filters', 'session', 'unmount'] as const) {
+for (const change of [
+  'source',
+  'view',
+  'filters',
+  'session',
+  'unmount',
+] as const) {
   test(`historical export cancels on ${change} changes and never downloads a late file`, async () => {
     const fixture = await renderFilter(true)
     const download = captureDownloads()
@@ -571,7 +590,8 @@ for (const change of ['source', 'view', 'filters', 'session', 'unmount'] as cons
       const fallback = api.defaults.adapter
       assert.ok(typeof fallback === 'function')
       api.defaults.adapter = async (config) => {
-        if (!config.url?.startsWith('/api/finance/export?')) return fallback(config)
+        if (!config.url?.startsWith('/api/finance/export?'))
+          return fallback(config)
         reads += 1
         requestSignal = config.signal
         await pending
@@ -628,3 +648,91 @@ for (const change of ['source', 'view', 'filters', 'session', 'unmount'] as cons
     }
   })
 }
+
+test('the common route freezes its default time range for the list and a next-day export', async () => {
+  const NativeDate = Date
+  let now = new NativeDate('2026-10-30T23:30:00Z').getTime()
+  class ClockDate extends NativeDate {
+    constructor(value?: string | number) {
+      super(value ?? now)
+    }
+    static now() {
+      return now
+    }
+  }
+  globalThis.Date = ClockDate as DateConstructor
+  let fixture: Awaited<ReturnType<typeof renderFilter>> | undefined
+  const download = captureDownloads()
+  try {
+    fixture = await renderFilter(true)
+    await clickButton('History test')
+    const applied = fixture.router.state.location.search
+    assert.equal(typeof applied.startTime, 'number')
+    assert.equal(applied.endTime, now + 3_600_000)
+    assert.equal(applied.group, 'historical')
+    const requests: URL[] = []
+    api.defaults.adapter = async (config) => {
+      const url = new URL(config.url ?? '', 'https://example.invalid')
+      requests.push(url)
+      return {
+        config,
+        headers: { 'content-type': 'text/csv' },
+        status: 200,
+        statusText: 'OK',
+        data:
+          url.pathname === '/api/finance/export'
+            ? new Blob(['"request_id"\r\n"same-range"\r\n'])
+            : {
+                success: true,
+                data: { page: 1, page_size: 20, total: 0, items: [] },
+              },
+      }
+    }
+    await readLogsPage({
+      category: 'common',
+      historical: true,
+      isAdmin: true,
+      params: buildApiParams({
+        page: 1,
+        pageSize: 20,
+        searchParams: applied,
+        isAdmin: true,
+      }),
+    })
+    now += 24 * 3_600_000
+    await clickButton('Export CSV')
+    assert.deepEqual(
+      requests.map((url) => url.pathname),
+      ['/api/log', '/api/finance/export']
+    )
+    for (const field of ['start_timestamp', 'end_timestamp']) {
+      assert.ok(requests[0]?.searchParams.has(field))
+      assert.equal(
+        requests[1]?.searchParams.get(field),
+        requests[0]?.searchParams.get(field)
+      )
+    }
+    assert.deepEqual(download.files, ['lmm-historical-usage.csv'])
+  } finally {
+    globalThis.Date = NativeDate
+    download.restore()
+    await fixture?.cleanup()
+  }
+})
+
+test('time normalization preserves explicit ranges, single bounds and other log categories', () => {
+  for (const [section, search] of [
+    ['common', { startTime: 10, endTime: 20 }],
+    ['common', { startTime: 10 }],
+    ['common', { endTime: 20 }],
+    ['drawing', {}],
+    ['task', {}],
+  ] as const) {
+    assert.doesNotThrow(() =>
+      UsageLogsRoute.options.beforeLoad?.({
+        params: { section },
+        search,
+      } as never)
+    )
+  }
+})

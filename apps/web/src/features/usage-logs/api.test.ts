@@ -550,16 +550,25 @@ test('historical export rejects missing, non-admin, stale and cancelled sessions
     return response(config, new Blob(['unexpected']))
   }
   useAuthStore.getState().auth.reset('complete')
-  await assert.rejects(exportHistoricalUsage({ params: {} }), /administrator session/)
+  await assert.rejects(
+    exportHistoricalUsage({ params: {} }),
+    /administrator session/
+  )
   for (const role of [1, 9]) {
     login({ role })
-    await assert.rejects(exportHistoricalUsage({ params: {} }), /administrator session/)
+    await assert.rejects(
+      exportHistoricalUsage({ params: {} }),
+      /administrator session/
+    )
   }
   login({ role: 10 })
   useAuthStore.setState((state) => ({
     auth: { ...state.auth, session: null },
   }))
-  await assert.rejects(exportHistoricalUsage({ params: {} }), /administrator session/)
+  await assert.rejects(
+    exportHistoricalUsage({ params: {} }),
+    /administrator session/
+  )
 
   login({ role: 10 })
   const scope = readUsageStatisticsScope()
