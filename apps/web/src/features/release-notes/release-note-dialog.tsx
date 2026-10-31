@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
 import { SparklesIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -28,24 +29,44 @@ import { Markdown } from '@/components/ui/markdown'
 import { formatTimestampToDate } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getLatestUnreadReleaseNote, markReleaseNoteRead } from './api'
+import {
+  getLatestUnreadReleaseNote,
+  isCurrentReleaseNoteScope,
+  markReleaseNoteRead,
+  type ReleaseNoteScope,
+} from './api'
+import type { ReleaseNote } from './types'
 
 export function ReleaseNoteDialog() {
+  const auth = useAuthStore((state) => state.auth)
+  if (!auth.user || !auth.session) return null
+  const scope = {
+    userId: auth.user.id,
+    sessionId: auth.session.sid,
+    role: auth.user.role,
+  }
+  return (
+    <ReleaseNoteWorkspace
+      key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
+      scope={scope}
+    />
+  )
+}
+
+function ReleaseNoteWorkspace({ scope }: { scope: ReleaseNoteScope }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const user = useAuthStore((state) => state.auth.user)
-  const session = useAuthStore((state) => state.auth.session)
   const queryKey = [
     'release-notes',
     'latest-unread',
-    user?.id ?? 0,
-    session?.sid ?? 'authenticated',
+    scope.userId,
+    scope.sessionId,
+    scope.role,
   ] as const
 
   const releaseNoteQuery = useQuery({
     queryKey,
-    queryFn: getLatestUnreadReleaseNote,
-    enabled: Boolean(user?.id),
+    queryFn: ({ signal }) => getLatestUnreadReleaseNote(scope, signal),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnReconnect: false,
@@ -54,15 +75,18 @@ export function ReleaseNoteDialog() {
   const releaseNote = releaseNoteQuery.data ?? null
 
   const acknowledgeMutation = useMutation({
-    mutationFn: async () => {
-      if (!releaseNote) return
-      await markReleaseNoteRead(releaseNote.id)
-    },
-    onSuccess: () => {
-      queryClient.setQueryData(queryKey, null)
+    retry: false,
+    mutationFn: (noteId: number) => markReleaseNoteRead(noteId, scope),
+    onSuccess: (_, noteId) => {
+      if (!isCurrentReleaseNoteScope(scope)) return
+      queryClient.setQueryData<ReleaseNote | null>(queryKey, (current) =>
+        current?.id === noteId ? null : current
+      )
     },
     onError: (error: Error) => {
-      toast.error(error.message || t('Failed to acknowledge release note'))
+      if (isCurrentReleaseNoteScope(scope) && !axios.isCancel(error)) {
+        toast.error(t('Failed to acknowledge release note'))
+      }
     },
   })
 
@@ -86,7 +110,7 @@ export function ReleaseNoteDialog() {
         <Button
           type='button'
           disabled={acknowledgeMutation.isPending}
-          onClick={() => acknowledgeMutation.mutate()}
+          onClick={() => acknowledgeMutation.mutate(releaseNote.id)}
         >
           {acknowledgeMutation.isPending
             ? t('Saving...')
