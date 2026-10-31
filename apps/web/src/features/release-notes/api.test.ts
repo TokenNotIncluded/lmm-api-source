@@ -332,6 +332,8 @@ test('input limits count UTF-8 bytes and preserve intentional surrounding whites
   const valid = { version: 'v1+utf8', content }
   assert.deepEqual(releaseNoteInputSchema.parse(valid), valid)
   assert.deepEqual(releaseNoteInputSchema.parse(input), input)
+  const emoji = { version: 'v-emoji', content: '🙂' }
+  assert.deepEqual(releaseNoteInputSchema.parse(emoji), emoji)
   assert.equal(
     releaseNoteInputSchema.safeParse({ ...valid, content: content + 'c' })
       .success,
@@ -356,6 +358,8 @@ test('invalid or authority-bearing publication input is rejected before dispatch
     { ...input, version: 'v'.repeat(65) },
     { ...input, content: ' \n\t ' },
     { ...input, content: 'before\0after' },
+    { ...input, content: '\uD800' },
+    { ...input, content: '\uDC00' },
     { ...input, published_by: 999 },
   ]
   let calls = 0

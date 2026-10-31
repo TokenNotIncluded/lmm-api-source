@@ -64,6 +64,7 @@ export const releaseNoteInputSchema = z
         (value) =>
           value.trim().length > 0 &&
           !value.includes('\0') &&
+          !/[\uD800-\uDFFF]/u.test(value) &&
           new TextEncoder().encode(value).byteLength <= RELEASE_NOTE_MAX_BYTES
       ),
   })
