@@ -63,21 +63,23 @@ test('pending continuation posts only to the original turn resume endpoint', asy
   ])
 })
 
-test('unknown outcomes only inspect the original operation', async () => {
-  const requests: string[] = []
-  await continueAssistantResponse(
-    pending('unknown'),
-    'original',
-    async (method, path) => {
-      requests.push(`${method} ${path}`)
-      return requests.length === 1 ? pending('unknown') : completed()
-    }
-  )
-  assert.deepEqual(requests, [
-    'GET /api/assistant/conversations/42/turns/original',
-    'GET /api/assistant/conversations/42/turns/original',
-  ])
-})
+for (const state of ['unknown', 'reserved', 'streaming']) {
+  test(`${state} outcomes only inspect the original operation`, async () => {
+    const requests: string[] = []
+    await continueAssistantResponse(
+      pending(state),
+      'original',
+      async (method, path) => {
+        requests.push(`${method} ${path}`)
+        return requests.length === 1 ? pending(state) : completed()
+      }
+    )
+    assert.deepEqual(requests, [
+      'GET /api/assistant/conversations/42/turns/original',
+      'GET /api/assistant/conversations/42/turns/original',
+    ])
+  })
+}
 
 test('human support stops continuation without another request', async () => {
   let calls = 0
@@ -135,5 +137,19 @@ test('cancellation stops waiting before any continuation request', async () => {
     ),
     { name: 'AbortError' }
   )
+  assert.equal(calls, 0)
+})
+
+test('unsupported or terminal states cannot authorize a pending continuation', async () => {
+  let calls = 0
+  for (const state of ['claimed', 'dispatching', 'settled', 'released']) {
+    await assert.rejects(
+      continueAssistantResponse(pending(state), 'original', async () => {
+        calls += 1
+        return completed()
+      }),
+      AssistantStreamError
+    )
+  }
   assert.equal(calls, 0)
 })

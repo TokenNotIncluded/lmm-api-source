@@ -15,6 +15,13 @@ type PromptPresetSet struct {
 	Presets    []PromptPreset `json:"presets"`
 }
 
+// IsBuiltinPromptPreset recognizes only the reviewed starter catalog. A known
+// ID does not authorize model behavior, tools, funding or reward claims.
+func IsBuiltinPromptPreset(id string) bool {
+	_, ok := requiredPromptPresetCopy[id]
+	return ok
+}
+
 // These are main's reviewed fallback seeds, not generated/custom presets or
 // evidence that gift, discounts or access-review business is already available.
 func HistoryPresets(language string) PromptPresetSet {

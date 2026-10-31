@@ -41,6 +41,8 @@ const pendingTurn = z
           'model_running',
           'tools_pending',
           'unknown',
+          'reserved',
+          'streaming',
           'human_support_pending',
         ]),
         text: z.string().max(32768).optional(),
@@ -139,10 +141,9 @@ export async function continueAssistantResponse(
     }
     await pause(signal)
     const path = `/api/assistant/conversations/${conversationId}/turns/${encodeURIComponent(expectedTurnId)}`
-    response =
-      turn.state === 'unknown'
-        ? await request('GET', path)
-        : await request('POST', `${path}/resume`)
+    response = ['unknown', 'reserved', 'streaming'].includes(turn.state)
+      ? await request('GET', path)
+      : await request('POST', `${path}/resume`)
   }
   if (conversationId !== undefined && response.status === 200) {
     const final = finalReference.safeParse(

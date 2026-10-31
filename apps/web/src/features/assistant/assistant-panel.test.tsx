@@ -2673,11 +2673,29 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('continues an owned history thread with its conversation id', async () => {
+  test('continues owned history without retaining an unsubmitted starter', async () => {
     let postedBody: Record<string, unknown> | undefined
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return { data: { success: true, data: assistantStatus } }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return {
+          data: {
+            success: true,
+            data: {
+              generation: 0,
+              version: 'backend-seed-v3',
+              presets: [
+                {
+                  id: 'getting_started',
+                  prompt: 'Where should I start?',
+                  source: 'default',
+                },
+              ],
+            },
+          },
+        }
       }
       if (url === '/api/assistant/conversations') {
         return {
@@ -2737,6 +2755,11 @@ describe('AssistantPanel', () => {
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
     api.post = (async (url: string, body: unknown) => {
+      if (
+        url === '/api/assistant/pre-conversation-presets/getting_started/click'
+      ) {
+        return { data: { success: true } }
+      }
       assert.equal(url, '/api/assistant/chat')
       postedBody = body as Record<string, unknown>
       return {
@@ -2752,6 +2775,28 @@ describe('AssistantPanel', () => {
 
     const rendered = await renderPanel()
     try {
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector(
+              '[data-testid="assistant-preset-prompts"]'
+            ) !== null,
+          'Starter prompts did not render'
+        )
+      )
+      await act(async () => {
+        findButton('Where should I start?').click()
+        await flushEffects()
+      })
+      assert.equal(
+        document.querySelector('textarea')?.value,
+        'Where should I start?'
+      )
+      assert.equal(
+        postedBody,
+        undefined,
+        'Selecting a starter must not send chat'
+      )
       await act(async () => {
         findHistoryToggle().click()
         await flushEffects()
@@ -2801,6 +2846,8 @@ describe('AssistantPanel', () => {
         )
       )
       assert.equal(postedBody?.conversation_id, 73)
+      assert.equal(postedBody?.preset_id, undefined)
+      assert.equal(postedBody?.message, 'What changes on Windows?')
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
