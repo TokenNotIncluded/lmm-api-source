@@ -140,7 +140,7 @@ async function renderFilter(
     const groups =
       config.url === '/core/v1/admin/users/groups' ||
       config.url === '/api/user/self/groups'
-    if (groups && failGroups)
+    if (groups && failGroups) {
       throw new AxiosError(
         'groups unavailable',
         'ERR_BAD_RESPONSE',
@@ -154,6 +154,7 @@ async function renderFilter(
           data: { error: { code: 'unavailable' } },
         }
       )
+    }
     if (config.url === '/core/v1/admin/users/groups') {
       const page = Number(config.params?.page)
       nativePages.push(page)
@@ -590,8 +591,9 @@ for (const change of [
       const fallback = api.defaults.adapter
       assert.ok(typeof fallback === 'function')
       api.defaults.adapter = async (config) => {
-        if (!config.url?.startsWith('/api/finance/export?'))
+        if (!config.url?.startsWith('/api/finance/export?')) {
           return fallback(config)
+        }
         reads += 1
         requestSignal = config.signal
         await pending
