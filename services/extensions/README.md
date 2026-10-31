@@ -49,6 +49,48 @@ Each module admits at most eight requests at once. A full module returns 503 wit
 
 Docker builds this directory using `deployment/docker/extensions.Dockerfile`. Update only the extensions Compose project. Never include the Rust service or its database in the extension deployment command.
 
+## Assistant execution and journal permissions
+
+`assistant.agent_required` defaults to `false`. It is the explicit AgentChat
+enablement setting as well as a startup requirement; there is no automatic
+AgentChat mode and no separate `agent_enabled` or `storage_bundle` setting.
+The host selects the assistant storage bundle before opening its database:
+
+| Configuration | Storage bundle | Delegated chat |
+| --- | --- | --- |
+| `agent_required = false`, no `core.assistant_token_file` | Default assistant storage | Unavailable; existing non-delegated assistant features retain their configuration |
+| `agent_required = false`, `core.assistant_token_file` configured | Default storage plus delegation journal | PersonalText, when its Core capability is available |
+| `agent_required = true` | Default storage plus delegation/agent journals and AgentChat service storage | AgentChat; missing credentials, required Core capabilities or storage prerequisites fail startup |
+
+With `agent_required = false`, the host never probes `AgentReady`, constructs
+AgentChat or opens the agent journal, even if Core advertises agent support.
+Configured PersonalText still needs the delegation journal. Required AgentChat
+never falls back to PersonalText after a readiness or journal failure.
+
+The AgentChat bundle also covers the assistant services and personalization
+tables, `services_contract` and their required sequences.
+
+Startup validates every expected table, sequence and contract version, schema `USAGE`,
+required privileges and the exact effective `UPDATE` column sets. Missing or
+excess permissions fail closed, including `PUBLIC` schema/table/column grants,
+runtime grant options and owner or inherited privileges beyond the bundle.
+Required assistant sequences receive only `USAGE`.
+Startup does not create tables, migrate storage or grant permissions.
+
+Fresh installation grants the following journal permissions in addition to
+the existing assistant storage policy:
+
+| Journal table in `lmm_assistant` | Table privileges | Columns allowed for `UPDATE` |
+| --- | --- | --- |
+| `delegation_conversations` | `SELECT`, `INSERT` | `core_conversation_id`, `phase` |
+| `delegation_turns` | `SELECT`, `INSERT` | `body`, `revision` |
+| `agent_turns` | `SELECT`, `INSERT` | `body`, `body_bytes`, `revision` |
+
+Whole-table `UPDATE` is not an acceptable substitute. Existing databases need
+an explicitly reviewed owner-side permission change; normal startup will not
+repair an older broad grant. See the [A08 contract](../../docs/architecture-completion-prompts.md#a08)
+for integration and acceptance requirements.
+
 ## Operations content
 
 Select `operations` explicitly in `host.modules`. A configured component must

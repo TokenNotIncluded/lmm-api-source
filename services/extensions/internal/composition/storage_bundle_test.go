@@ -9,7 +9,7 @@ import (
 func TestStorageBundleNamespacesAndGrantsAreClosed(t *testing.T) {
 	for _, component := range []string{"store", "support", "assistant", "payments", "operations", "toolmarket"} {
 		plain, err := storagePolicyFor(component, defaultStorageBundle)
-		if err != nil || !reflect.DeepEqual(plain.namespaces, []string{"lmm_" + component}) || !reflect.DeepEqual(plain.tables, storageTables(component)) || len(plain.forbidden) != 0 {
+		if err != nil || !reflect.DeepEqual(plain.namespaces, []string{"lmm_" + component}) || !reflect.DeepEqual(plain.tables, storageTables(component)) {
 			t.Fatal("plain component acquired bundled access", component, err)
 		}
 		if component != "toolmarket" {
@@ -17,7 +17,13 @@ func TestStorageBundleNamespacesAndGrantsAreClosed(t *testing.T) {
 				t.Fatal("another component acquired builtin namespaces", component)
 			}
 		}
-		for _, bundle := range []storageBundle{2, 255} {
+		if component != "assistant" && (len(plain.forbidden) != 0 || len(plain.contracts) != 0 || len(plain.updateColumns) != 0 || len(plain.sequences) != 0) {
+			t.Fatal("assistant policy affected another component", component)
+		}
+		for _, bundle := range []storageBundle{assistantDelegationBundle, assistantAgentBundle, 255} {
+			if component == "assistant" && bundle != 255 {
+				continue
+			}
 			if _, err := storagePolicyFor(component, bundle); err == nil {
 				t.Fatal("unknown bundle accepted", component, bundle)
 			}
