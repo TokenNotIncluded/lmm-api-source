@@ -31,6 +31,7 @@ import {
 } from './todo-list-model'
 import { TodoListRow } from './todo-list-row'
 import {
+  isLowBalanceNotice,
   todoDetailNumber,
   todoDetailString,
   todoItemCanOpen,
@@ -96,7 +97,9 @@ function UnifiedTodoListContent() {
   }, [categoryKey])
 
   const navigateToItem = async (item: TodoItem) => {
-    if (item.category === 'account_action') {
+    if (isLowBalanceNotice(item)) {
+      await navigate({ to: '/wallet', search: {} })
+    } else if (item.category === 'account_action') {
       await navigate({
         to: '/todos',
         search: { todo: item.category, request: item.source_id },

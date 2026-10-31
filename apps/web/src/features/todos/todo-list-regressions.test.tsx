@@ -134,8 +134,23 @@ async function renderList() {
     path: 'users',
     component: () => null,
   })
+  const walletRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: 'wallet',
+    component: () => null,
+  })
+  const todosRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: 'todos',
+    component: () => null,
+  })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, usersRoute]),
+    routeTree: rootRoute.addChildren([
+      indexRoute,
+      usersRoute,
+      walletRoute,
+      todosRoute,
+    ]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   const container = document.createElement('div')
@@ -386,6 +401,199 @@ describe('todo feed regressions', () => {
       } finally {
         read.resolve(response({ marked: 1 }))
         nextPage.resolve(response(page({ items: [] })))
+        await rendered.close()
+      }
+    })
+  }
+})
+
+function lowBalanceItem(overrides: Partial<TodoItem> = {}): TodoItem {
+  return item(91, {
+    id: 'notification:91',
+    category: 'account_action',
+    type: 'low_balance',
+    title: 'Low balance',
+    summary: 'Your wallet balance is below your notification threshold.',
+    details: {
+      balance_units: '-9007199254740993',
+      threshold_units: '9007199254740991',
+      unit: 'credit_500k_usd',
+    },
+    ...overrides,
+  })
+}
+
+describe('low balance notifications', () => {
+  for (const role of [1, 10]) {
+    for (const read of [false, true]) {
+      test(`role ${role} opens the owner wallet from a ${read ? 'read' : 'unread'} notice`, async () => {
+        useAuthStore
+          .getState()
+          .auth.setUser({ id: 20, username: 'owner', role })
+        const notice = lowBalanceItem({ read })
+        const gets: string[] = []
+        const posts: Array<{ url: string; body: unknown }> = []
+        api.get = (async (url: string) => {
+          gets.push(url)
+          return response(page({ items: [notice] }))
+        }) as typeof api.get
+        api.post = (async (url: string, body: unknown) => {
+          posts.push({ url, body })
+          return response({ marked: 1 })
+        }) as typeof api.post
+        const rendered = await renderList()
+        try {
+          const row = button(rendered.container, 'Low balance')
+          assert.equal(row.disabled, false)
+          assert.equal(row.querySelector('button, a'), null)
+          assert.ok(
+            row.textContent?.includes('Balance (Credits): -9007199254740993')
+          )
+          assert.ok(
+            row.textContent?.includes(
+              'Balance threshold (credit units): 9007199254740991'
+            )
+          )
+          row.focus()
+          assert.equal(document.activeElement, row)
+          await click(rendered.container, 'Low balance')
+          assert.equal(rendered.router.state.location.pathname, '/wallet')
+          assert.deepEqual(rendered.router.state.location.search, {})
+          assert.deepEqual(
+            posts,
+            read
+              ? []
+              : [
+                  {
+                    url: '/api/todos/read',
+                    body: { category: 'account_action', ids: [91], all: false },
+                  },
+                ]
+          )
+          assert.ok(gets.every((url) => url.startsWith('/api/todos?')))
+        } finally {
+          await rendered.close()
+        }
+      })
+    }
+  }
+
+  for (const balance of ['0', '14999']) {
+    test(`keeps the captured balance ${balance} in exact credit units`, async () => {
+      api.get = (async () =>
+        response(
+          page({
+            items: [
+              lowBalanceItem({
+                details: {
+                  balance_units: balance,
+                  threshold_units: '15000',
+                  unit: 'credit_500k_usd',
+                },
+              }),
+            ],
+          })
+        )) as typeof api.get
+      const rendered = await renderList()
+      try {
+        assert.ok(
+          button(rendered.container, 'Low balance').textContent?.includes(
+            `Balance (Credits): ${balance}`
+          )
+        )
+      } finally {
+        await rendered.close()
+      }
+    })
+  }
+
+  for (const details of [
+    undefined,
+    { balance_units: '7', threshold_units: '8', unit: 'USD' },
+    { balance_units: 7, threshold_units: 8, unit: 'credit_500k_usd' },
+    { balance_units: '1e3', threshold_units: '-1', unit: 'credit_500k_usd' },
+    { balance_units: '-0', threshold_units: '01', unit: 'credit_500k_usd' },
+  ]) {
+    test(`shows unknown values for invalid low-balance details: ${JSON.stringify(details)}`, async () => {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 20, username: 'owner', role: 1 })
+      api.get = (async () =>
+        response(
+          page({ items: [lowBalanceItem({ details })] })
+        )) as typeof api.get
+      const rendered = await renderList()
+      try {
+        const row = button(rendered.container, 'Low balance')
+        assert.ok(row.textContent?.includes('Balance (Credits): Unknown'))
+        assert.ok(
+          row.textContent?.includes('Balance threshold (credit units): Unknown')
+        )
+        await click(rendered.container, 'Low balance')
+        assert.equal(rendered.router.state.location.pathname, '/wallet')
+        assert.deepEqual(rendered.router.state.location.search, {})
+      } finally {
+        await rendered.close()
+      }
+    })
+  }
+
+  test('opens the wallet while the read receipt is pending, and keeps retry available on failure', async () => {
+    useAuthStore.getState().auth.setUser({ id: 20, username: 'owner', role: 1 })
+    const read = deferred()
+    api.get = (async () =>
+      response(page({ items: [lowBalanceItem()] }))) as typeof api.get
+    api.post = (() => read.promise) as typeof api.post
+    const rendered = await renderList()
+    try {
+      await click(rendered.container, 'Low balance')
+      assert.equal(rendered.router.state.location.pathname, '/wallet')
+      await act(async () => {
+        read.reject(new Error('Read receipt failed'))
+        await flush()
+      })
+      assert.ok(rendered.container.textContent?.includes('Operation failed'))
+      api.post = (async () => response({ marked: 1 })) as typeof api.post
+      await click(rendered.container, 'Retry')
+      assert.equal(rendered.container.querySelector('[role="alert"]'), null)
+    } finally {
+      read.resolve(response({ marked: 1 }))
+      await rendered.close()
+    }
+  })
+
+  for (const role of [1, 10]) {
+    test(`role ${role} retains the existing account request destination policy`, async () => {
+      useAuthStore.getState().auth.setUser({ id: 20, username: 'owner', role })
+      api.get = (async () =>
+        response(
+          page({
+            items: [
+              item(17, {
+                category: 'account_action',
+                type: 'request',
+                title: 'account_action.request',
+                summary: 'Review account request',
+              }),
+            ],
+          })
+        )) as typeof api.get
+      const rendered = await renderList()
+      try {
+        await click(rendered.container, 'Review account request')
+        assert.equal(
+          rendered.router.state.location.pathname,
+          role === 10 ? '/todos' : '/'
+        )
+        assert.deepEqual(
+          rendered.router.state.location.search,
+          role === 10 ? { todo: 'account_action', request: 17 } : {}
+        )
+        assert.equal(
+          rendered.container.textContent?.includes('Balance (Credits):'),
+          false
+        )
+      } finally {
         await rendered.close()
       }
     })
