@@ -259,6 +259,12 @@ export function useSidebarData(): SidebarData {
             icon: Radio,
           },
           {
+            title: t('Version updates'),
+            url: '/operations/releases',
+            icon: FileText,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
             title: t('Plugin management'),
             url: '/extensions/plugins',
             icon: Box,
