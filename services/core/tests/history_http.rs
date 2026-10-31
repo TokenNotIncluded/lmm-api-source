@@ -584,6 +584,28 @@ async fn finance_export_json_and_csv_allowlisted_and_formula_defense(pool: PgPoo
 }
 
 #[sqlx::test(migrations = false)]
+async fn finance_export_preserves_numeric_filters_and_csv_negotiation(pool: PgPool) {
+    let ctx = fixture(&pool).await;
+    let filters = concat!(
+        "type=2&start_timestamp=1700000002&",
+        "end_timestamp=1700000002&channel=2"
+    );
+    for (suffix, accept) in [("&format=csv", "application/json"), ("", "text/csv")] {
+        let uri = format!("/api/finance/export?{filters}{suffix}");
+        let (status, headers, body) =
+            req(&ctx.app, "GET", &uri, Some(&ctx.admin.secret), Some(accept)).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(headers["content-type"], "text/csv; charset=utf-8");
+        assert_eq!(headers["cache-control"], "no-store");
+        let csv = String::from_utf8(body).unwrap();
+        let rows: Vec<_> = csv.lines().collect();
+        assert_eq!(rows.len(), 2, "one matching historical row and the header");
+        assert_eq!(rows[1].split(',').next(), Some("\"2\""));
+        assert!(rows[1].contains("\"req-2\""));
+    }
+}
+
+#[sqlx::test(migrations = false)]
 async fn missing_or_incomplete_source_returns_503_never_faked_empty(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let identity = IdentityStore::from_pool(pool.clone());
