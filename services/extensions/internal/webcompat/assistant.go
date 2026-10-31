@@ -226,10 +226,11 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			assistantRespond(w, nil, access.ErrInvalid)
 			return
 		}
-		// Browser history is display context, never Core authority or a system
-		// prompt. Core reconstructs its own conversation. Custom presets need a
+		// Built-in preset IDs only identify editable starters. The submitted
+		// message remains user input; neither presets nor browser history grant
+		// authority or supply a system prompt. Custom presets still need a
 		// server-owned policy contract before they can change model behavior.
-		if body.PresetID != "" || len(body.Messages) > 64 {
+		if (body.PresetID != "" && !assistant.IsBuiltinPromptPreset(body.PresetID)) || len(body.Messages) > 64 {
 			assistantRespond(w, nil, access.ErrInvalid)
 			return
 		}

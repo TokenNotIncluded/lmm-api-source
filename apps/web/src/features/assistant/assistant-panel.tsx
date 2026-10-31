@@ -1627,6 +1627,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       )
       setEntries(restoredEntries)
       setConversationId(detail.conversation.id)
+      setSelectedPreConversationPresetId(null)
       setConversationRestricted(Boolean(detail.conversation.restricted_at))
       clearToolState()
       setHistoryView(null)

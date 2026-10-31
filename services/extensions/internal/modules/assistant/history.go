@@ -240,7 +240,7 @@ func (s *HistoryService) Archive(ctx context.Context, token string, id int64, ar
 }
 
 func (s *HistoryService) PresetClick(ctx context.Context, id string) error {
-	if _, ok := requiredPromptPresetCopy[id]; !ok {
+	if !IsBuiltinPromptPreset(id) {
 		return access.ErrNotFound
 	}
 	return s.repo.ClickPreset(ctx, id)
