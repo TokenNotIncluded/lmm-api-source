@@ -24,9 +24,11 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import axios from 'axios'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { ZodError } from 'zod'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -54,20 +56,38 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { clearAuthenticatedClientState } from '@/lib/api'
-import type { LoginSession } from '@/stores/auth-store'
+import { useAuthStore, type LoginSession } from '@/stores/auth-store'
 
 import {
   getLoginSessions,
+  isCurrentLoginSessionScope,
   revokeLoginSession,
   revokeOtherLoginSessions,
   updateLoginSessionSettings,
+  type LoginSessionScope,
 } from '../api'
 import { LoginSessionDialogs } from './login-session-dialogs'
 import { LoginSessionItem } from './login-session-item'
 
-const sessionQueryKey = ['profile', 'login-sessions'] as const
-
 export function LoginSessionsCard() {
+  const auth = useAuthStore((state) => state.auth)
+  if (!auth.user || !auth.session) return null
+  const scope = { userId: auth.user.id, sessionId: auth.session.sid }
+  return (
+    <LoginSessionsWorkspace
+      key={`${scope.userId}:${scope.sessionId}`}
+      scope={scope}
+    />
+  )
+}
+
+function LoginSessionsWorkspace({ scope }: { scope: LoginSessionScope }) {
+  const sessionQueryKey = [
+    'profile',
+    'login-sessions',
+    scope.userId,
+    scope.sessionId,
+  ] as const
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -77,32 +97,37 @@ export function LoginSessionsCard() {
 
   const sessionsQuery = useQuery({
     queryKey: sessionQueryKey,
-    queryFn: async () => {
-      const response = await getLoginSessions()
+    queryFn: async ({ signal }) => {
+      const response = await getLoginSessions(scope, signal)
       if (!response.success) {
         throw new Error(response.message || t('Failed to load login sessions'))
       }
       return {
-        sessions: response.data ?? [],
-        sessionAutoLogout: response.session_auto_logout ?? true,
+        sessions: response.data,
+        sessionAutoLogout: response.session_auto_logout,
       }
     },
   })
 
+  function showError(error: Error, fallback: string) {
+    if (isCurrentLoginSessionScope(scope) && !axios.isCancel(error)) {
+      toast.error(error instanceof ZodError ? t(fallback) : error.message)
+    }
+  }
+
   const revokeMutation = useMutation({
+    retry: false,
     mutationFn: async (sid: string) => {
-      const response = await revokeLoginSession(sid)
+      const response = await revokeLoginSession(sid, scope)
       if (!response.success) {
         throw new Error(response.message || t('Failed to sign out session'))
       }
-      return sid
+      return response.data
     },
-    onSuccess: async (sid) => {
-      const revokedCurrent = sessionsQuery.data?.sessions.some(
-        (session) => session.sid === sid && session.current
-      )
+    onSuccess: async (result) => {
+      if (!isCurrentLoginSessionScope(scope)) return
       setRevokeTarget(null)
-      if (revokedCurrent) {
+      if (result.current) {
         clearAuthenticatedClientState(queryClient)
         void navigate({ to: '/sign-in', replace: true })
         return
@@ -110,12 +135,13 @@ export function LoginSessionsCard() {
       toast.success(t('Session signed out'))
       await queryClient.invalidateQueries({ queryKey: sessionQueryKey })
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => showError(error, 'Failed to sign out session'),
   })
 
   const revokeOthersMutation = useMutation({
+    retry: false,
     mutationFn: async () => {
-      const response = await revokeOtherLoginSessions()
+      const response = await revokeOtherLoginSessions(scope)
       if (!response.success) {
         throw new Error(
           response.message || t('Failed to sign out other sessions')
@@ -123,16 +149,19 @@ export function LoginSessionsCard() {
       }
     },
     onSuccess: async () => {
+      if (!isCurrentLoginSessionScope(scope)) return
       setConfirmOthers(false)
       toast.success(t('Other sessions signed out'))
       await queryClient.invalidateQueries({ queryKey: sessionQueryKey })
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) =>
+      showError(error, 'Failed to sign out other sessions'),
   })
 
   const settingsMutation = useMutation({
+    retry: false,
     mutationFn: async (enabled: boolean) => {
-      const response = await updateLoginSessionSettings(enabled)
+      const response = await updateLoginSessionSettings(enabled, scope)
       if (!response.success) {
         throw new Error(
           response.message || t('Failed to update login session settings')
@@ -140,10 +169,12 @@ export function LoginSessionsCard() {
       }
     },
     onSuccess: async () => {
+      if (!isCurrentLoginSessionScope(scope)) return
       toast.success(t('Login session settings updated'))
       await queryClient.invalidateQueries({ queryKey: sessionQueryKey })
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) =>
+      showError(error, 'Failed to update login session settings'),
   })
 
   const sessions = sessionsQuery.data?.sessions ?? []
