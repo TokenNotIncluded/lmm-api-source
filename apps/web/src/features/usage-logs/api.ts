@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { isAxiosError } from 'axios'
 
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
 
 import {
   parseHistoryUnavailable,
@@ -192,36 +193,54 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('task', params, false)
 
-/** Export the same filters as the current native list, across every matching page. */
-export async function exportNativeUsage({
-  params,
-  isAdmin,
-  signal,
-  scope: expectedScope,
-}: {
+type UsageExportOptions = {
   params: GetLogsParams
-  isAdmin: boolean
   signal?: AbortSignal
   scope?: UsageStatisticsScope
-}): Promise<Blob> {
+}
+
+/** Export the same filters as the current native list, across every matching page. */
+export function exportNativeUsage({
+  isAdmin,
+  ...options
+}: UsageExportOptions & { isAdmin: boolean }): Promise<Blob> {
+  return exportUsageCSV(
+    `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/export.csv`,
+    options
+  )
+}
+
+/** Historical exports are administrator-only and retain the server's raw values. */
+export async function exportHistoricalUsage(
+  options: UsageExportOptions
+): Promise<Blob> {
+  const scope = options.scope ?? readUsageStatisticsScope()
+  if (!scope?.sessionId || scope.role < ROLE.ADMIN) {
+    throw new Error('Historical usage export requires an administrator session')
+  }
+  return exportUsageCSV('/api/finance/export', { ...options, scope })
+}
+
+async function exportUsageCSV(
+  path: string,
+  { params, signal, scope: expectedScope }: UsageExportOptions
+): Promise<Blob> {
   const scope = expectedScope ?? readUsageStatisticsScope()
   if (!scope) throw new Error('Usage history session unavailable')
   assertLogScope(scope, signal)
   const { p: _page, page_size: _size, ...filters } = params
   const query = buildQueryParams(filters)
-  const response = await api.get<Blob>(
-    `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/export.csv?${query}`,
-    {
-      responseType: 'blob',
-      signal,
-      authScope: { userId: scope.userId, sessionId: scope.sessionId },
-      disableDuplicate: true,
-      skipAuthRefresh: true,
-      skipBusinessError: true,
-      skipErrorHandler: true,
-      timeout: 30_000,
-    }
-  )
+  const response = await api.get<Blob>(`${path}?${query}`, {
+    headers: { Accept: 'text/csv' },
+    responseType: 'blob',
+    signal,
+    authScope: { userId: scope.userId, sessionId: scope.sessionId },
+    disableDuplicate: true,
+    skipAuthRefresh: true,
+    skipBusinessError: true,
+    skipErrorHandler: true,
+    timeout: 30_000,
+  })
   assertLogScope(scope, signal)
   if (
     !(response.data instanceof Blob) ||

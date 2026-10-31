@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  exportHistoricalUsage,
   exportNativeUsage,
   getAllLogs,
   getAllMidjourneyLogs,
@@ -480,4 +481,165 @@ test('historical administrator logs retain their explicit legacy endpoint', asyn
     isAdmin: true,
     historical: true,
   })
+})
+
+test('historical CSV export keeps every applied filter and preserves raw server values', async () => {
+  login({ role: 10 })
+  const controller = new AbortController()
+  const csv =
+    '"raw_quota","quota_usd","quota_money_available"\r\n"9007199254740993","","false"\r\n'
+  let reads = 0
+  api.defaults.adapter = async (config) => {
+    reads += 1
+    const url = new URL(config.url ?? '', 'https://synthetic.example.invalid')
+    assert.equal(url.pathname, '/api/finance/export')
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      type: '2',
+      start_timestamp: '0',
+      end_timestamp: '20',
+      model_name: 'model/one',
+      token_name: 'old & + key',
+      group: '历史/disabled',
+      username: 'old-user',
+      channel: '0',
+      request_id: 'request-1',
+      upstream_request_id: 'upstream-1',
+    })
+    assert.equal(config.headers.get('Accept'), 'text/csv')
+    assert.equal(config.responseType, 'blob')
+    assert.equal(config.signal, controller.signal)
+    assert.deepEqual(config.authScope, {
+      userId: 7,
+      sessionId: 'synthetic-history-session',
+    })
+    assert.equal(config.skipAuthRefresh, true)
+    assert.equal(config.skipBusinessError, true)
+    assert.equal(config.skipErrorHandler, true)
+    assert.equal(config.disableDuplicate, true)
+    assert.equal(config.timeout, 30_000)
+    return {
+      ...response(config, new Blob([csv])),
+      headers: { 'content-type': 'text/csv; charset=utf-8' },
+    }
+  }
+  const blob = await exportHistoricalUsage({
+    params: {
+      p: 3,
+      page_size: 50,
+      type: 2,
+      start_timestamp: 0,
+      end_timestamp: 20,
+      model_name: 'model/one',
+      token_name: 'old & + key',
+      group: '历史/disabled',
+      username: 'old-user',
+      channel: 0,
+      request_id: 'request-1',
+      upstream_request_id: 'upstream-1',
+    },
+    signal: controller.signal,
+  })
+  assert.equal(reads, 1)
+  assert.equal(await blob.text(), csv)
+})
+
+test('historical export rejects missing, non-admin, stale and cancelled sessions before dispatch', async () => {
+  let reads = 0
+  api.defaults.adapter = async (config) => {
+    reads += 1
+    return response(config, new Blob(['unexpected']))
+  }
+  useAuthStore.getState().auth.reset('complete')
+  await assert.rejects(exportHistoricalUsage({ params: {} }), /administrator session/)
+  for (const role of [1, 9]) {
+    login({ role })
+    await assert.rejects(exportHistoricalUsage({ params: {} }), /administrator session/)
+  }
+  login({ role: 10 })
+  useAuthStore.setState((state) => ({
+    auth: { ...state.auth, session: null },
+  }))
+  await assert.rejects(exportHistoricalUsage({ params: {} }), /administrator session/)
+
+  login({ role: 10 })
+  const scope = readUsageStatisticsScope()
+  assert.ok(scope)
+  login({ sid: 'replacement-session', role: 10 })
+  await assert.rejects(
+    exportHistoricalUsage({ params: {}, scope }),
+    /session changed/
+  )
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    exportHistoricalUsage({ params: {}, signal: controller.signal }),
+    /session changed/
+  )
+  assert.equal(reads, 0)
+})
+
+test('historical export never returns a file after identity, role or cancellation changes', async () => {
+  for (const change of [
+    () => login({ id: 8, role: 10 }),
+    () => login({ sid: 'replacement-session', role: 10 }),
+    () => login({ role: 1 }),
+    () => useAuthStore.getState().auth.reset('complete'),
+    (controller: AbortController) => controller.abort(),
+  ]) {
+    login({ role: 10 })
+    const controller = new AbortController()
+    let reads = 0
+    api.defaults.adapter = async (config) => {
+      reads += 1
+      change(controller)
+      return {
+        ...response(config, new Blob(['private historical rows'])),
+        headers: { 'content-type': 'text/csv' },
+      }
+    }
+    await assert.rejects(
+      exportHistoricalUsage({ params: {}, signal: controller.signal })
+    )
+    assert.equal(reads, 1)
+  }
+})
+
+test('historical export rejects denials, unavailable sources, limits and non-CSV responses without retry', async () => {
+  for (const status of [400, 401, 403, 503]) {
+    login({ role: 10 })
+    let reads = 0
+    let toasts = 0
+    toast.error = () => {
+      toasts += 1
+      return 'synthetic-export-toast'
+    }
+    const data = new Blob(['{"success":false,"code":"HISTORY_UNAVAILABLE"}'])
+    api.defaults.adapter = async (config) => {
+      reads += 1
+      throw new AxiosError(
+        'Synthetic export failure',
+        'ERR_BAD_RESPONSE',
+        config,
+        undefined,
+        response(config, data, status)
+      )
+    }
+    await assert.rejects(exportHistoricalUsage({ params: {} }))
+    assert.equal(reads, 1)
+    assert.equal(toasts, 0)
+  }
+  login({ role: 10 })
+  for (const [data, contentType] of [
+    [new Blob(['{"success":false}']), 'application/json'],
+    [{ success: true }, 'text/csv'],
+  ] as const) {
+    api.defaults.adapter = async (config) => ({
+      ...response(config, data),
+      headers: { 'content-type': contentType },
+    })
+    await assert.rejects(
+      exportHistoricalUsage({ params: {} }),
+      /Usage export unavailable/
+    )
+  }
 })
