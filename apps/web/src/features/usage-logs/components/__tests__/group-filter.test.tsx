@@ -618,7 +618,9 @@ for (const change of [
       if (change === 'filters') {
         await act(async () => {
           await fixture.router.navigate({
-            search: (previous) => ({ ...previous, group: 'changed-filter' }),
+            to: '/usage-logs/$section',
+            params: { section: 'common' },
+            search: { group: 'changed-filter' },
           })
         })
       }
