@@ -9,6 +9,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/postgresurl"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,31 +116,52 @@ func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundl
 	if name != c.Database || privileged || foreignSchema || coreConnect || rolePaths {
 		return nil, errors.New("extension storage isolation rejected")
 	}
-	for _, table := range policy.tables {
-		var allowed bool
-		for _, privilege := range table.privileges {
-			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_table_privilege(current_user,to_regclass($1),$2),false)`, table.name, privilege).Scan(&allowed); err != nil || !allowed {
-				return nil, errors.New("extension storage schema or runtime grants unavailable")
-			}
+	if c.Component == "assistant" {
+		if err := checkAssistantAuthority(bounded, db); err != nil {
+			return nil, err
 		}
 	}
-	for _, table := range policy.forbidden {
-		for _, privilege := range table.privileges {
-			var allowed bool
-			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_table_privilege(current_user,to_regclass($1),$2),false)`, table.name, privilege).Scan(&allowed); err != nil || allowed {
-				return nil, errors.New("extension bundled storage grants exceed runtime authority")
-			}
+	limits := policy
+	if c.Component == "assistant" {
+		// Fresh installs also contain optional capabilities. They need not exist
+		// or have minimum grants when disabled, but must never exceed their caps.
+		limits, _ = storagePolicyFor("assistant", assistantAgentBundle)
+		names := make([]string, 0, len(policy.tables))
+		for _, table := range policy.tables {
+			names = append(names, table.name)
+		}
+		var valid bool
+		if err := db.QueryRowContext(bounded, `SELECT NOT EXISTS(SELECT FROM unnest($1::text[]) AS t(name) WHERE NOT EXISTS(SELECT FROM pg_class WHERE oid=to_regclass(t.name) AND relkind IN ('r','p')))`, pq.Array(names)).Scan(&valid); err != nil || !valid {
+			return nil, errors.New("extension storage table unavailable")
 		}
 	}
-	for _, table := range policy.forbiddenColumns {
-		for _, privilege := range table.privileges {
-			var allowed bool
-			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_any_column_privilege(current_user,to_regclass($1),$2),false)`, table.name, privilege).Scan(&allowed); err != nil || allowed {
-				return nil, errors.New("extension bundled column grants exceed runtime authority")
+	// Keep each privilege separate (PostgreSQL comma lists mean OR), while
+	// batching checks to fit the bounded startup even over a TCP connection.
+	for _, check := range []struct {
+		tables   []storageTable
+		function string
+		want     bool
+	}{
+		{policy.tables, "has_table_privilege", true},
+		{limits.forbidden, "has_table_privilege", false},
+		{limits.forbiddenColumns, "has_any_column_privilege", false},
+	} {
+		var names, privileges []string
+		for _, table := range check.tables {
+			for _, privilege := range table.privileges {
+				names, privileges = append(names, table.name), append(privileges, privilege)
 			}
 		}
+		if len(names) == 0 {
+			continue
+		}
+		var valid bool
+		query := `SELECT NOT EXISTS(SELECT FROM unnest($1::text[],$2::text[]) AS t(name,privilege) WHERE COALESCE(` + check.function + `(current_user,to_regclass(t.name),t.privilege),false)<>$3)`
+		if err := db.QueryRowContext(bounded, query, pq.Array(names), pq.Array(privileges), check.want).Scan(&valid); err != nil || !valid {
+			return nil, errors.New("extension storage grants differ from runtime contract")
+		}
 	}
-	if bundle == toolMarketBuiltinsBundle {
+	if c.Component == "assistant" || bundle == toolMarketBuiltinsBundle {
 		for _, namespace := range policy.namespaces {
 			var allowed bool
 			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_schema_privilege(current_user,$1,'USAGE'),false)`, namespace).Scan(&allowed); err != nil || !allowed {
@@ -147,16 +169,33 @@ func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundl
 			}
 		}
 	}
-	if c.Component == "assistant" {
-		for _, seq := range []string{"lmm_assistant.conversations_id_seq", "lmm_assistant.history_messages_id_seq"} {
-			var allowed bool
-			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_sequence_privilege(current_user,to_regclass($1),'USAGE'),false)`, seq).Scan(&allowed); err != nil || !allowed {
-				return nil, errors.New("assistant sequence grants unavailable")
-			}
+	for _, contract := range policy.contracts {
+		var valid bool
+		// The relation names and versions are compiled policy, never configuration.
+		if err := db.QueryRowContext(bounded, `SELECT count(*)=1 AND COALESCE(bool_and(singleton AND version=$1),false) FROM `+contract.name, contract.version).Scan(&valid); err != nil || !valid {
+			return nil, errors.New("extension storage contract version unavailable")
 		}
-		var allowed bool
-		if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_column_privilege(current_user,to_regclass('lmm_assistant.preset_stats'),'clicks','UPDATE'),false)`).Scan(&allowed); err != nil || !allowed {
-			return nil, errors.New("assistant preset grants unavailable")
+	}
+	for _, grant := range limits.updateColumns {
+		var actual []string
+		// has_column_privilege includes table UPDATE. Inspect every real column,
+		// not just named grants: a table grant must not hide additional authority.
+		if err := db.QueryRowContext(bounded, `SELECT COALESCE(array_agg(attname::text ORDER BY attname::text) FILTER (WHERE has_column_privilege(current_user,attrelid,attnum,'UPDATE')),ARRAY[]::text[]) FROM pg_attribute WHERE attrelid=to_regclass($1) AND attnum>0 AND NOT attisdropped`, grant.name).Scan(pq.Array(&actual)); err != nil {
+			return nil, errors.New("extension storage column grants unavailable")
+		}
+		want := slices.Clone(grant.columns)
+		slices.Sort(want)
+		slices.Sort(actual)
+		required := slices.ContainsFunc(policy.updateColumns, func(g storageColumnGrant) bool { return g.name == grant.name })
+		extra := slices.ContainsFunc(actual, func(column string) bool { return !slices.Contains(want, column) })
+		if extra || (required && !slices.Equal(actual, want)) {
+			return nil, errors.New("extension storage UPDATE columns differ from runtime contract")
+		}
+	}
+	for _, seq := range limits.sequences {
+		var allowed, excessive bool
+		if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_sequence_privilege(current_user,to_regclass($1),'USAGE'),false),COALESCE(has_sequence_privilege(current_user,to_regclass($1),'SELECT,UPDATE'),false)`, seq).Scan(&allowed, &excessive); err != nil || excessive || (!allowed && slices.Contains(policy.sequences, seq)) {
+			return nil, errors.New("assistant sequence grants differ from runtime contract")
 		}
 	}
 	if c.Component == "operations" {
@@ -169,6 +208,30 @@ func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundl
 	}
 	failed = false
 	return db, nil
+}
+
+// Membership paths are rejected before this check. Inspect ACLs themselves as
+// effective privilege checks cannot distinguish PUBLIC or WITH GRANT OPTION.
+// Check optional installed objects too, without querying their journal rows or
+// treating their presence as permission to compose AgentChat.
+func checkAssistantAuthority(ctx context.Context, db *sql.DB) error {
+	var unsafe bool
+	err := db.QueryRowContext(ctx, `WITH runtime AS (SELECT oid FROM pg_roles WHERE rolname=current_user),
+	 schemas AS (SELECT oid,nspowner,nspacl FROM pg_namespace WHERE nspname='lmm_assistant'),
+	 relations AS (SELECT c.oid,c.relowner,c.relacl FROM pg_class c JOIN schemas n ON n.oid=c.relnamespace),
+	 acls AS (
+	   SELECT a.* FROM schemas n CROSS JOIN LATERAL aclexplode(n.nspacl) a
+	   UNION ALL SELECT a.* FROM relations c CROSS JOIN LATERAL aclexplode(c.relacl) a
+	   UNION ALL SELECT a.* FROM pg_attribute c JOIN relations r ON r.oid=c.attrelid CROSS JOIN LATERAL aclexplode(c.attacl) a WHERE c.attnum>0 AND NOT c.attisdropped
+	 ) SELECT EXISTS(SELECT FROM pg_database d,runtime r WHERE d.datname=current_database() AND d.datdba=r.oid)
+	 OR EXISTS(SELECT FROM pg_namespace n,runtime r WHERE n.nspowner=r.oid)
+	 OR EXISTS(SELECT FROM relations c,runtime r WHERE c.relowner=r.oid)
+	 OR EXISTS(SELECT FROM acls a,runtime r WHERE a.grantee=0 OR (a.grantee=r.oid AND a.is_grantable))
+	 OR EXISTS(SELECT FROM pg_database d CROSS JOIN LATERAL aclexplode(d.datacl) a,runtime r WHERE d.datname=current_database() AND a.grantee=r.oid AND a.is_grantable)`).Scan(&unsafe)
+	if err != nil || unsafe {
+		return errors.New("assistant storage ownership or ACL exceeds runtime authority")
+	}
+	return nil
 }
 
 type storageTable struct {

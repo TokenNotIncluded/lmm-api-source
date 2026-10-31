@@ -337,8 +337,12 @@
 4. MCP/OAuth按HTTP/SSE/Streamable协议与固定main范围实现；限制redirect/DNS/内网/metadata服务、响应大小/超时/工具schema/结果脱敏，保留source attribution和license。工具输出/网页/仓库内容是未可信数据，不能自动升级为服务指令或泄露cookie/secret。
 5. 接通A06/A03的授权资金适配，退款要有原call/失败证据与一次性约束；不用MemoryStore或controlledFunds代替最终持久账本。客服会话/管理历史遵守A01所有者与管理权限，隔离平台赞助预算。
 6. 给S11宿主挂载与worker/drain patch；外部服务未装配时capability明确false且不产生financial side effect，不返回成功空会话。
+7. 助手启动配置只使用现有 assistant.agent_required，默认false；true同时表示显式启用AgentChat与强制启动要求，不新增agent_enabled/storage_bundle。开库前按配置选择storage bundle：true选包含delegation和agent journal的bundle；false且配置core.assistant_token_file选delegation bundle，保留PersonalText；false且无token选default。false不探测AgentReady、不装配AgentChat、不访问agent journal，Core能力信号不能扩大本地数据库权限。true缺独立凭据、必要Core能力或journal条件必须启动失败，不回退PersonalText。
+8. 启动guard逐一校验所选bundle的预期表、序列、合同版本、schema USAGE、必要权限及实际有效UPDATE列集合；agent bundle同时覆盖assistant services与personalization所需表、services_contract和序列，必要assistant序列仅授USAGE。缺对象/缺权限/超权均拒绝，包括PUBLIC对assistant schema/table/column的授权、runtime grant option、owner或继承越权。普通启动不建表、不迁移、不授权。freshinstall对delegation_conversations仅授SELECT/INSERT及UPDATE(core_conversation_id,phase)，对delegation_turns仅授SELECT/INSERT及UPDATE(body,revision)，对agent_turns仅授SELECT/INSERT及UPDATE(body,body_bytes,revision)，不授这三表的整表UPDATE。
 
 必须验证：真实GoPG历史+CorePG delegated模型+计数MCP联合对话；真正Go OS restart后历史/操作状态恢复；跨user/conversation/tenant、伪造付款方/平台赞助拒绝；授权撤销、tool版本/价格篡改、重复execute、UNKNOWN与外部计数只一次、并发预算耗尽、退款只一次；SSRF/OAuth token隔离、恶意tool输出与脱敏；缺模型桥/权限/账本时明确拒绝且无扣款。
+
+配置与ACL回归还须覆盖：true/false与token有无的选择；false+token时PersonalText journal可用且AgentReady调用次数为零；true缺凭据/能力不回退；隔离PostgreSQL以真实runtime角色验证最小授权通过，PUBLIC授权、grant option、整表UPDATE、继承超权、缺表/缺schema USAGE/错误合同版本均启动失败。每项保留实际结果，不以bundle声明或mock权限查询替代PG验收。
 
 交付给A07/A03/A06：实际消费的typed合同、故障点及call-status语义；给A10：助手流式/工具授权/恢复UI fixtures与浏览器脚本需求；给S11：宿主/RPC/配置接线patch、持久化迁移计划和全进程联合runner。真实外部MCP付费/有副作用调用没有明确授权时只跑合成端点，标清未验收范围。
 ```

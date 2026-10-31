@@ -60,7 +60,8 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 	}
 	// Require both durable admission and authoritative answer execution before
 	// exposing chat. An old admission-only Core leaves all new ports nil.
-	textReady, agentReady := client.Ready(ctx) == nil, client.AgentReady(ctx) == nil
+	textReady := client.Ready(ctx) == nil
+	agentReady := cfg.AssistantAgentRequired && client.AgentReady(ctx) == nil
 	if cfg.AssistantAgentRequired && (!textReady || !agentReady) {
 		_ = client.Close()
 		return errors.New("required assistant agent capability unavailable")
