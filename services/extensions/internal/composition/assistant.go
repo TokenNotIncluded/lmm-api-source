@@ -58,15 +58,14 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 	if err != nil {
 		return err
 	}
-	// Require both durable admission and authoritative answer execution before
-	// exposing chat. An old admission-only Core leaves all new ports nil.
-	textReady := client.Ready(ctx) == nil
-	agentReady := cfg.AssistantAgentRequired && client.AgentReady(ctx) == nil
-	if cfg.AssistantAgentRequired && (!textReady || !agentReady) {
-		_ = client.Close()
-		return errors.New("required assistant agent capability unavailable")
-	}
-	if !textReady && !agentReady {
+	// AgentChat and PersonalText have independent capability contracts. Probe
+	// only the configured execution path before exposing its ports.
+	if cfg.AssistantAgentRequired {
+		if client.AgentReady(ctx) != nil {
+			_ = client.Close()
+			return errors.New("required assistant agent capability unavailable")
+		}
+	} else if client.Ready(ctx) != nil {
 		_ = client.Close()
 		return nil
 	}
@@ -76,23 +75,25 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 	if err != nil {
 		return err
 	}
-	port, err := assistant.NewPersonalTextPort(client)
+	var registration assistant.ConversationRegistrationPort
+	var agentPort *assistant.CoreAgentTurnPort
+	var textPort *assistant.PersonalTextPort
+	if cfg.AssistantAgentRequired {
+		agentPort, err = assistant.NewCoreAgentTurnPort(client)
+		registration = agentPort
+	} else {
+		textPort, err = assistant.NewPersonalTextPort(client)
+		registration = textPort
+	}
 	if err != nil {
 		return err
-	}
-	var registration assistant.ConversationRegistrationPort = port
-	if agentReady {
-		registration, err = assistant.NewCoreAgentTurnPort(client)
-		if err != nil {
-			return err
-		}
 	}
 	r.AssistantPending, err = assistant.NewPendingConversations(authority, journal, registration)
 	if err != nil {
 		return err
 	}
-	if textReady {
-		r.AssistantTurns, err = assistant.NewDelegatedTurns(authority, journal, port)
+	if !cfg.AssistantAgentRequired {
+		r.AssistantTurns, err = assistant.NewDelegatedTurns(authority, journal, textPort)
 		if err != nil {
 			return err
 		}
@@ -108,11 +109,7 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 			return giftErr
 		}
 	}
-	if agentReady {
-		agentPort, portErr := assistant.NewCoreAgentTurnPort(client)
-		if portErr != nil {
-			return portErr
-		}
+	if cfg.AssistantAgentRequired {
 		agentJournal, journalErr := assistant.NewAgentPostgresJournal(ctx, db, cfg.Assistant.Database)
 		if journalErr != nil {
 			return journalErr

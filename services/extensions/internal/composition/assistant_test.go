@@ -60,7 +60,7 @@ func assistantCapabilityFixture(t *testing.T, features []string) (string, *corec
 }
 
 func TestRequiredAgentDoesNotFallBackToPersonalText(t *testing.T) {
-	socket, control, _ := assistantCapabilityFixture(t, []string{
+	socket, control, capabilities := assistantCapabilityFixture(t, []string{
 		coreclient.AssistantPersonalTextReserveFeature,
 		coreclient.AssistantPersonalTextExecuteFeature,
 	})
@@ -69,6 +69,9 @@ func TestRequiredAgentDoesNotFallBackToPersonalText(t *testing.T) {
 	defer cancel()
 	if err := r.composeAssistantDelegation(ctx, Config{Socket: socket, AssistantAgentRequired: true}, nil, nil, []byte(strings.Repeat("a", 32))); err == nil {
 		t.Fatal("required agent fell back to a text-only Core")
+	}
+	if got := capabilities.calls.Load(); got != 1 {
+		t.Fatalf("required agent made %d capability calls; want only AgentReady", got)
 	}
 	if r.AssistantModelClient != nil || r.AssistantPending != nil || r.AssistantChat != nil {
 		t.Fatal("unavailable agent left assistant ports exposed")

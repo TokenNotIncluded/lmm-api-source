@@ -233,23 +233,27 @@ func TestPostgresAssistantStorageBundleGuard(t *testing.T) {
 		})
 	}
 
-	// The synthetic Core advertises both modes and an explicit empty extension
-	// selection. Assembly must still follow the local configuration and bundle.
-	socket, control, capabilities := assistantCapabilityFixture(t, []string{
-		coreclient.AssistantPersonalTextReserveFeature,
-		coreclient.AssistantPersonalTextExecuteFeature,
-		coreclient.AssistantAgentTurnFeature,
-		fmt.Sprintf("assistant.agent_extensions.sha256:%x", sha256.Sum256([]byte("[]"))),
-	})
+	// AgentChat must assemble with or without PersonalText capabilities; an
+	// explicit empty extension selection still exercises its real storage.
 	for _, mode := range []struct {
-		name, token string
-		required    bool
+		name, token  string
+		required     bool
+		personalText bool
 	}{
-		{"off", "", false},
-		{"text", "configured", false},
-		{"agent", "configured", true},
+		{"off", "", false, true},
+		{"text", "configured", false, true},
+		{"agent", "configured", true, true},
+		{"agent only", "configured", true, false},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
+			features := []string{
+				coreclient.AssistantAgentTurnFeature,
+				fmt.Sprintf("assistant.agent_extensions.sha256:%x", sha256.Sum256([]byte("[]"))),
+			}
+			if mode.personalText {
+				features = append(features, coreclient.AssistantPersonalTextReserveFeature, coreclient.AssistantPersonalTextExecuteFeature)
+			}
+			socket, control, capabilities := assistantCapabilityFixture(t, features)
 			if !mode.required {
 				mutate(t, "ALTER TABLE lmm_assistant.agent_turns RENAME TO agent_turns_absent", "ALTER TABLE lmm_assistant.agent_turns_absent RENAME TO agent_turns")
 			}
@@ -293,9 +297,12 @@ func TestPostgresAssistantStorageBundleGuard(t *testing.T) {
 				if calls := capabilities.calls.Load() - before; calls != 2 {
 					t.Fatalf("personal mode made %d probes; want only PersonalText and gift readiness", calls)
 				}
-			case "agent":
-				if _, ok := runtime.AssistantChat.(*assistant.AgentChat); !ok || runtime.AssistantServices == nil {
+			case "agent", "agent only":
+				if _, ok := runtime.AssistantChat.(*assistant.AgentChat); !ok || runtime.AssistantServices == nil || runtime.AssistantPending == nil {
 					t.Fatal("required ready agent did not compose AgentChat")
+				}
+				if runtime.AssistantTurns != nil {
+					t.Fatal("required agent composed PersonalText turns")
 				}
 			}
 		})
