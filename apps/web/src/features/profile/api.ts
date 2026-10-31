@@ -23,7 +23,7 @@ import { parseUsageBuckets } from '@/features/dashboard/lib/usage-bucket'
 import { api, type ApiRequestConfig } from '@/lib/api'
 import { withAuthenticatedCookieWrite } from '@/lib/auth-session'
 import type { CustomOAuthBinding } from '@/lib/oauth'
-import { useAuthStore, type LoginSession } from '@/stores/auth-store'
+import { useAuthStore } from '@/stores/auth-store'
 import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
 import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
@@ -380,34 +380,140 @@ export async function startTelegramBind(): Promise<
 // Login Session APIs
 // ============================================================================
 
-interface LoginSessionsResponse extends ApiResponse<LoginSession[]> {
-  session_auto_logout?: boolean
+export type LoginSessionScope = { userId: number; sessionId: string }
+
+export function isCurrentLoginSessionScope(scope: LoginSessionScope): boolean {
+  const auth = useAuthStore.getState().auth
+  return auth.user?.id === scope.userId && auth.session?.sid === scope.sessionId
 }
 
-export async function getLoginSessions(): Promise<LoginSessionsResponse> {
-  const res = await api.get('/api/user/sessions')
-  return res.data
+function assertLoginSessionScope(scope: LoginSessionScope): void {
+  if (!isCurrentLoginSessionScope(scope)) {
+    throw new axios.CanceledError('Login session management identity changed')
+  }
+}
+
+const loginSessionFailureSchema = z.object({
+  success: z.literal(false),
+  message: z.string().optional(),
+})
+const loginSessionSuccessSchema = z.object({ success: z.literal(true) })
+const loginSessionsResponseSchema = z.discriminatedUnion('success', [
+  loginSessionSuccessSchema.extend({
+    data: z.array(
+      z.object({
+        sid: z.string().min(1),
+        current: z.boolean(),
+        login_method: z.string(),
+        ip: z.string().nullable(),
+        user_agent: z.string().nullable(),
+        created_at: z.number().int().nonnegative(),
+        last_active_at: z.number().int().nonnegative(),
+        expires_at: z.number().int().nonnegative(),
+      })
+    ),
+    session_auto_logout: z.boolean(),
+  }),
+  loginSessionFailureSchema,
+])
+const revokeOtherLoginSessionsResponseSchema = z.discriminatedUnion('success', [
+  loginSessionSuccessSchema.extend({
+    data: z.object({ revoked_count: z.number().int().nonnegative() }),
+  }),
+  loginSessionFailureSchema,
+])
+const loginSessionSettingsResponseSchema = z.discriminatedUnion('success', [
+  loginSessionSuccessSchema,
+  loginSessionFailureSchema,
+])
+
+export async function getLoginSessions(
+  scope: LoginSessionScope,
+  signal?: AbortSignal
+) {
+  assertLoginSessionScope(scope)
+  const res = await api.get<unknown>('/api/user/sessions', {
+    authScope: scope,
+    signal,
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  assertLoginSessionScope(scope)
+  return loginSessionsResponseSchema.parse(res.data)
+}
+
+function writeLoginSession<T>(
+  scope: LoginSessionScope,
+  operation: (config: ApiRequestConfig) => Promise<T>,
+  writesCookie = false
+): Promise<T> {
+  // The caller's identity must survive both refresh preparation and lock wait.
+  assertLoginSessionScope(scope)
+  return withAuthenticatedCookieWrite(async (config) => {
+    assertLoginSessionScope(scope)
+    const result = await operation({
+      ...config,
+      authScope: scope,
+      headers: { 'X-Auth-Session': scope.sessionId },
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    assertLoginSessionScope(scope)
+    return result
+  }, writesCookie)
 }
 
 export async function updateLoginSessionSettings(
-  sessionAutoLogout: boolean
-): Promise<ApiResponse> {
-  const res = await api.put(
-    '/api/user/sessions/settings',
-    { session_auto_logout: sessionAutoLogout },
-    { skipBusinessError: true, skipErrorHandler: true }
+  sessionAutoLogout: boolean,
+  scope: LoginSessionScope
+) {
+  return writeLoginSession(scope, async (config) => {
+    const res = await api.put<unknown>(
+      '/api/user/sessions/settings',
+      { session_auto_logout: sessionAutoLogout },
+      config
+    )
+    return loginSessionSettingsResponseSchema.parse(res.data)
+  })
+}
+
+export async function revokeLoginSession(
+  sid: string,
+  scope: LoginSessionScope
+) {
+  return writeLoginSession(
+    scope,
+    async (config) => {
+      const res = await api.delete<unknown>(
+        `/api/user/sessions/${encodeURIComponent(sid)}`,
+        config
+      )
+      return z
+        .discriminatedUnion('success', [
+          loginSessionSuccessSchema.extend({
+            data: z.object({
+              revoked_sid: z.literal(sid),
+              current: z.literal(sid === scope.sessionId),
+            }),
+          }),
+          loginSessionFailureSchema,
+        ])
+        .parse(res.data)
+    },
+    // Only Core knows whether the target clears the refresh Cookie.
+    true
   )
-  return res.data
 }
 
-export async function revokeLoginSession(sid: string): Promise<ApiResponse> {
-  const res = await api.delete(`/api/user/sessions/${encodeURIComponent(sid)}`)
-  return res.data
-}
-
-export async function revokeOtherLoginSessions(): Promise<ApiResponse> {
-  const res = await api.post('/api/user/sessions/revoke-others')
-  return res.data
+export async function revokeOtherLoginSessions(scope: LoginSessionScope) {
+  return writeLoginSession(scope, async (config) => {
+    const res = await api.post<unknown>(
+      '/api/user/sessions/revoke-others',
+      undefined,
+      config
+    )
+    return revokeOtherLoginSessionsResponseSchema.parse(res.data)
+  })
 }
 
 // ============================================================================
