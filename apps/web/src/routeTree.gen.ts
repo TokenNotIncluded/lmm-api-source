@@ -76,6 +76,7 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './routes/_authenticated/open-source-bounties/index'
+import { Route as AuthenticatedOperationsReleasesRouteImport } from './routes/_authenticated/operations/releases'
 import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
@@ -467,6 +468,12 @@ const AuthenticatedOpenSourceBountiesIndexRoute =
     path: '/open-source-bounties/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedOperationsReleasesRoute =
+  AuthenticatedOperationsReleasesRouteImport.update({
+    id: '/operations/releases',
+    path: '/operations/releases',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedOperationsSourcesRoute =
   AuthenticatedOperationsSourcesRouteImport.update({
     id: '/operations/sources',
@@ -766,6 +773,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
@@ -873,6 +881,7 @@ export interface FileRoutesByTo {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
@@ -985,6 +994,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/_authenticated/profile/share': typeof AuthenticatedProfileShareRoute
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
@@ -1096,6 +1106,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/operations/releases'
     | '/operations/sources'
     | '/profile/share'
     | '/subscriptions/reset'
@@ -1203,6 +1214,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/operations/releases'
     | '/operations/sources'
     | '/profile/share'
     | '/subscriptions/reset'
@@ -1314,6 +1326,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
+    | '/_authenticated/operations/releases'
     | '/_authenticated/operations/sources'
     | '/_authenticated/profile/share'
     | '/_authenticated/subscriptions/reset'
@@ -1878,6 +1891,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOpenSourceBountiesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/operations/releases': {
+      id: '/_authenticated/operations/releases'
+      path: '/operations/releases'
+      fullPath: '/operations/releases'
+      preLoaderRoute: typeof AuthenticatedOperationsReleasesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/operations/sources': {
       id: '/_authenticated/operations/sources'
       path: '/operations/sources'
@@ -2267,6 +2287,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
+  AuthenticatedOperationsReleasesRoute: typeof AuthenticatedOperationsReleasesRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
   AuthenticatedProfileShareRoute: typeof AuthenticatedProfileShareRoute
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
@@ -2311,6 +2332,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
+  AuthenticatedOperationsReleasesRoute: AuthenticatedOperationsReleasesRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
   AuthenticatedProfileShareRoute: AuthenticatedProfileShareRoute,
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,

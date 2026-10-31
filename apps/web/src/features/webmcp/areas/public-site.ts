@@ -23,8 +23,12 @@ import {
 } from '@/features/legal/legal-reader'
 import { listBounties } from '@/features/open-source-bounties/api'
 import type { BountyProject } from '@/features/open-source-bounties/types'
-import { getLatestUnreadReleaseNote } from '@/features/release-notes/api'
+import {
+  getLatestUnreadReleaseNote,
+  isCurrentReleaseNoteScope,
+} from '@/features/release-notes/api'
 import { getStatus } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   clip,
@@ -492,8 +496,20 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     execute: async (_rawInput, options) => {
       ensureNotAborted(options.signal)
-      const note = await getLatestUnreadReleaseNote()
+      const { user, session, accessToken } = useAuthStore.getState().auth
+      if (!user || !session?.sid || !accessToken) {
+        throw new Error('Sign in first. Use lmm_navigate with path "/sign-in".')
+      }
+      const scope = {
+        userId: user.id,
+        sessionId: session.sid,
+        role: user.role,
+      }
+      const note = await getLatestUnreadReleaseNote(scope, options.signal)
       ensureNotAborted(options.signal)
+      if (!isCurrentReleaseNoteScope(scope)) {
+        throw new Error('The signed-in account changed. Retry this request.')
+      }
       if (!note) {
         return {
           available: false,

@@ -96,6 +96,28 @@ bounded (197,120-byte input; 10 MiB output). Queries are strict, acknowledgement
 accept no body, and publication JSON rejects unknown/duplicate fields. No update,
 retention deletion or financial action is part of this module.
 
+## Web management and acknowledgement
+
+The authenticated administrator entry **Version updates** at
+`/operations/releases` uses the existing public `/api/release-notes/*`
+routes. It provides a version/changelog draft, Markdown preview, publication
+receipt, and the latest 50 history entries. The existing administrator
+`setting` sidebar toggle also controls this entry. The Web role gate accepts
+administrator/root (10/100); fresh Core authorization remains authoritative.
+
+The draft is preserved on failure. Publication and acknowledgement POSTs are
+never automatically replayed; an uncertain result can be inspected using history
+Refresh before an explicit retry. Exact content replay displays the original
+server receipt, including its original revision and publisher. Publishing does
+not reopen the current user's unread dialog; the existing next-login discovery
+behavior is retained.
+
+History and unread queries are scoped to user, session ID and role. Identity
+changes cancel old reads and prevent late responses from updating the new
+workspace. Successful acknowledgements require explicit `data: null` and clear
+only the acknowledged publication, leaving a newer cached note intact. Invalid
+or failed responses never become successful empty data.
+
 ## Reviewed script snapshot
 
 Configure a non-symlink root and an explicit `[]ReviewedScript` manifest containing
