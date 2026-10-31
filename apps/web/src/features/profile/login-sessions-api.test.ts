@@ -125,8 +125,9 @@ Object.defineProperty(globalThis, 'navigator', {
         tail = release.promise
         await predecessor
         try {
-          if (options.signal?.aborted)
+          if (options.signal?.aborted) {
             throw new DOMException('Aborted', 'AbortError')
+          }
           held++
           try {
             assert.equal(held, 1)
@@ -193,7 +194,7 @@ type Operation = {
   reply: unknown
   cookie: boolean
 }
-const operations: Operation[] = [
+const operations: [Operation, Operation, Operation, Operation] = [
   {
     name: 'list',
     run: () => getLoginSessions(scope),
@@ -252,9 +253,11 @@ for (const operation of operations) {
         assert.equal(config.timeout, AUTH_COOKIE_TIMEOUT_MS)
         assert.equal(held, 1)
       }
-      if (operation.cookie)
+      if (operation.cookie) {
         assert.match(storage.get(cookieKey) ?? '', /^pending:/)
-      else assert.equal(storage.get(cookieKey), undefined)
+      } else {
+        assert.equal(storage.get(cookieKey), undefined)
+      }
       if (operation.method === 'put') {
         assert.deepEqual(JSON.parse(String(config.data)), {
           session_auto_logout: false,
@@ -298,58 +301,59 @@ test('current-session revocation accepts the matching authoritative receipt', as
 test('business failures stay failures without global toasts', async () => {
   const failure = { success: false, message: 'fixture rejected' }
   api.defaults.adapter = async (config) => response(config, 200, failure)
-  for (const operation of operations)
+  for (const operation of operations) {
     assert.deepEqual(await operation.run(), failure)
+  }
 })
 
 const malformed: Array<[string, Operation['run'], unknown]> = [
-  ['null envelope', operations[0]!.run, null],
-  ['nonboolean success', operations[0]!.run, { ...listReply, success: 'true' }],
+  ['null envelope', operations[0].run, null],
+  ['nonboolean success', operations[0].run, { ...listReply, success: 'true' }],
   [
     'missing list',
-    operations[0]!.run,
+    operations[0].run,
     { success: true, session_auto_logout: true },
   ],
-  ['nonarray list', operations[0]!.run, { ...listReply, data: {} }],
-  ['missing policy', operations[0]!.run, { success: true, data: [] }],
+  ['nonarray list', operations[0].run, { ...listReply, data: {} }],
+  ['missing policy', operations[0].run, { success: true, data: [] }],
   [
     'nonboolean policy',
-    operations[0]!.run,
+    operations[0].run,
     { ...listReply, session_auto_logout: 1 },
   ],
   [
     'invalid row',
-    operations[0]!.run,
+    operations[0].run,
     { ...listReply, data: [{ ...session, current: 1 }] },
   ],
   [
     'invalid timestamp',
-    operations[0]!.run,
+    operations[0].run,
     { ...listReply, data: [{ ...session, created_at: '1' }] },
   ],
-  ['missing revoke result', operations[1]!.run, { success: true }],
+  ['missing revoke result', operations[1].run, { success: true }],
   [
     'wrong revoked target',
-    operations[1]!.run,
+    operations[1].run,
     { success: true, data: { revoked_sid: scope.sessionId, current: false } },
   ],
   [
     'nonboolean current',
-    operations[1]!.run,
+    operations[1].run,
     { success: true, data: { revoked_sid: 'other-session', current: 0 } },
   ],
   [
     'wrong current identity',
-    operations[1]!.run,
+    operations[1].run,
     { success: true, data: { revoked_sid: 'other-session', current: true } },
   ],
   ...[-1, 0.5, '0'].map((count): [string, Operation['run'], unknown] => [
     `invalid revoked count ${JSON.stringify(count)}`,
-    operations[2]!.run,
+    operations[2].run,
     { success: true, data: { revoked_count: count } },
   ]),
-  ['missing revoked count', operations[2]!.run, { success: true, data: {} }],
-  ['nonboolean settings success', operations[3]!.run, { success: 1 }],
+  ['missing revoked count', operations[2].run, { success: true, data: {} }],
+  ['nonboolean settings success', operations[3].run, { success: 1 }],
 ]
 for (const [name, run, payload] of malformed) {
   test(`rejects malformed success: ${name}`, async () => {
@@ -367,13 +371,34 @@ for (const replacement of [bundle('b', 99), bundle('b', 42, 'session-b')]) {
       calls++
       return response(config, 200, listReply)
     }
-    for (const operation of operations)
+    for (const operation of operations) {
       await assert.rejects(operation.run(), isCancel)
+    }
     assert.equal(calls, 0)
   })
 }
 
 for (const operation of writes) {
+  test(`${operation.name} refreshes the same session before dispatching once`, async () => {
+    applyAuthBundle({ ...bundle(), access_expires_at: now - 1 }, false)
+    const order: string[] = []
+    setDevelopmentAuthRefreshAdapter(async (config) => {
+      order.push('refresh')
+      assert.equal(held, 1)
+      return response(config, 200, { success: true, data: bundle('prepared') })
+    })
+    api.defaults.adapter = async (config) => {
+      order.push('write')
+      assert.equal(held, 1)
+      assert.equal(config.headers.get('Authorization'), 'Bearer prepared')
+      assert.deepEqual(config.authScope, scope)
+      return response(config, 200, operation.reply)
+    }
+    assert.deepEqual(await operation.run(), operation.reply)
+    assert.deepEqual(order, ['refresh', 'write'])
+    assert.equal(lockNames.length, 2)
+  })
+
   test(`${operation.name} cannot dispatch after identity changes while queued`, async () => {
     const entered = deferred()
     const release = deferred()
