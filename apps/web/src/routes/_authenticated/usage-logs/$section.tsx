@@ -20,6 +20,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { UsageLogs } from '@/features/usage-logs'
+import { getDefaultTimeRange } from '@/features/usage-logs/lib/utils'
 import {
   isUsageLogsSectionId,
   USAGE_LOGS_DEFAULT_SECTION,
@@ -58,6 +59,24 @@ export const Route = createFileRoute('/_authenticated/usage-logs/$section')({
       throw redirect({
         to: '/usage-logs/$section',
         params: { section: USAGE_LOGS_DEFAULT_SECTION },
+      })
+    }
+    // Freeze the applied range so the list, statistics and later exports agree.
+    if (
+      params.section === 'common' &&
+      search.startTime === undefined &&
+      search.endTime === undefined
+    ) {
+      const { start, end } = getDefaultTimeRange()
+      throw redirect({
+        to: '/usage-logs/$section',
+        params: { section: params.section },
+        search: {
+          ...search,
+          startTime: start.getTime(),
+          endTime: end.getTime(),
+        },
+        replace: true,
       })
     }
     // type 仅 common 使用，非 common 时清掉 URL 里的 type

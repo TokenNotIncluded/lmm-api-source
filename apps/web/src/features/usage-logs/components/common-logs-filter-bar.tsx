@@ -51,7 +51,7 @@ import { readNativeUserGroups } from '@/features/native-users/api'
 import { getUserGroups } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { exportNativeUsage } from '../api'
+import { exportHistoricalUsage, exportNativeUsage } from '../api'
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { readUsageStatisticsScope } from '../lib/statistics'
@@ -153,7 +153,7 @@ export function CommonLogsFilterBar<TData>(
     ]
   )
   const handleExport = async () => {
-    if (!scope || historical) return
+    if (!scope || exportController.current) return
     const controller = new AbortController()
     exportController.current = controller
     setExporting(true)
@@ -166,17 +166,17 @@ export function CommonLogsFilterBar<TData>(
         columnFilters: props.table.getState().columnFilters,
         isAdmin,
       })
-      const blob = await exportNativeUsage({
-        params,
-        isAdmin,
-        scope,
-        signal: controller.signal,
-      })
+      const options = { params, scope, signal: controller.signal }
+      const blob = historical
+        ? await exportHistoricalUsage(options)
+        : await exportNativeUsage({ ...options, isAdmin })
       if (controller.signal.aborted) return
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = 'lmm-native-usage.csv'
+      anchor.download = historical
+        ? 'lmm-historical-usage.csv'
+        : 'lmm-native-usage.csv'
       anchor.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -558,18 +558,16 @@ export function CommonLogsFilterBar<TData>(
       actionStart={
         <>
           {sensitiveToggle}
-          {!historical && (
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              disabled={!scope || exporting}
-              onClick={() => void handleExport()}
-            >
-              <Download aria-hidden='true' />
-              {t(exporting ? 'Exporting usage...' : 'Export CSV')}
-            </Button>
-          )}
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            disabled={!scope || exporting}
+            onClick={() => void handleExport()}
+          >
+            <Download aria-hidden='true' />
+            {t(exporting ? 'Exporting usage...' : 'Export CSV')}
+          </Button>
           {exportFailed && (
             <span role='alert' className='text-destructive text-xs'>
               {t('Usage export failed. Narrow the time range or retry.')}

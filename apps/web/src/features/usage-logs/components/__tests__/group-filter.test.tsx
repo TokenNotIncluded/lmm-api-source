@@ -64,6 +64,10 @@ const { UsageLogsProvider, useUsageLogsContext } =
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { AxiosError } = await import('axios')
+const { Route: UsageLogsRoute } =
+  await import('@/routes/_authenticated/usage-logs/$section')
+const { readLogsPage } = await import('../../api')
+const { buildApiParams } = await import('../../lib/utils')
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -136,7 +140,7 @@ async function renderFilter(
     const groups =
       config.url === '/core/v1/admin/users/groups' ||
       config.url === '/api/user/self/groups'
-    if (groups && failGroups)
+    if (groups && failGroups) {
       throw new AxiosError(
         'groups unavailable',
         'ERR_BAD_RESPONSE',
@@ -150,6 +154,7 @@ async function renderFilter(
           data: { error: { code: 'unavailable' } },
         }
       )
+    }
     if (config.url === '/core/v1/admin/users/groups') {
       const page = Number(config.params?.page)
       nativePages.push(page)
@@ -205,6 +210,8 @@ async function renderFilter(
     getParentRoute: () => authRoute,
     path: '/usage-logs/$section',
     component: Fixture,
+    beforeLoad: ({ params, search }) =>
+      UsageLogsRoute.options.beforeLoad?.({ params, search } as never),
     validateSearch: (search: Record<string, unknown>) => search,
   })
   const router = createRouter({
@@ -421,33 +428,73 @@ test('failed suggestions still allow a historical custom group to be submitted',
   }
 })
 
-for (const admin of [false, true]) {
-  test(`${admin ? 'admin' : 'personal'} export downloads the applied filters across pages`, async () => {
-    const fixture = await renderFilter(admin)
-    const originalCreate = URL.createObjectURL
-    const originalRevoke = URL.revokeObjectURL
-    const originalClick = dom.HTMLAnchorElement.prototype.click
-    let exported: Blob | undefined
-    let download = ''
-    let revoked = ''
+function captureDownloads() {
+  const originalCreate = URL.createObjectURL
+  const originalRevoke = URL.revokeObjectURL
+  const originalClick = dom.HTMLAnchorElement.prototype.click
+  const blobs: Blob[] = []
+  const files: string[] = []
+  const revoked: string[] = []
+  URL.createObjectURL = (blob) => {
+    assert.ok(blob instanceof Blob)
+    blobs.push(blob)
+    return 'blob:synthetic-usage-export'
+  }
+  URL.revokeObjectURL = (url) => {
+    revoked.push(url)
+  }
+  dom.HTMLAnchorElement.prototype.click = function () {
+    files.push(this.download)
+  }
+  return {
+    blobs,
+    files,
+    revoked,
+    restore() {
+      URL.createObjectURL = originalCreate
+      URL.revokeObjectURL = originalRevoke
+      dom.HTMLAnchorElement.prototype.click = originalClick
+    },
+  }
+}
+
+for (const mode of [
+  { name: 'personal', admin: false, historical: false, self: false },
+  { name: 'admin', admin: true, historical: false, self: false },
+  { name: 'historical admin', admin: true, historical: true, self: false },
+  {
+    name: 'admin returning to personal',
+    admin: true,
+    historical: true,
+    self: true,
+  },
+]) {
+  test(`${mode.name} export downloads the applied filters across pages`, async () => {
+    const fixture = await renderFilter(mode.admin)
+    const download = captureDownloads()
+    const historical = mode.historical && !mode.self
+    const isAdmin = mode.admin && !mode.self
+    const csv =
+      '"raw_quota","quota_usd","quota_money_available"\r\n"9007199254740993","","false"\r\n'
     try {
-      URL.createObjectURL = (blob) => {
-        assert.ok(blob instanceof Blob)
-        exported = blob
-        return 'blob:synthetic-native-export'
+      if (mode.historical) {
+        await clickButton('History test')
+        assert.ok(
+          fixture.requests.some((url) => url.startsWith('/api/log/stat?'))
+        )
       }
-      URL.revokeObjectURL = (url) => {
-        revoked = url
-      }
-      dom.HTMLAnchorElement.prototype.click = function () {
-        download = this.download
-      }
+      if (mode.self) await clickButton('Personal test')
+      let reads = 0
       api.defaults.adapter = async (config) => {
+        reads += 1
         const url = new URL(config.url ?? '', 'https://example.invalid')
         assert.equal(
           url.pathname,
-          `/core/v1/usage/${admin ? 'admin' : 'self'}/export.csv`
+          historical
+            ? '/api/finance/export'
+            : `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/export.csv`
         )
+        assert.equal(config.headers.get('Accept'), 'text/csv')
         assert.equal(url.searchParams.get('group'), 'historical')
         assert.equal(url.searchParams.has('p'), false)
         assert.equal(url.searchParams.has('page_size'), false)
@@ -456,47 +503,240 @@ for (const admin of [false, true]) {
           headers: { 'content-type': 'text/csv' },
           status: 200,
           statusText: 'OK',
-          data: new Blob(['"request_id"\r\n"one"\r\n']),
+          data: new Blob([csv]),
         }
       }
       await clickButton('Export CSV')
-      assert.equal(download, 'lmm-native-usage.csv')
-      assert.equal(revoked, 'blob:synthetic-native-export')
-      assert.ok(exported)
-      assert.match(await exported.text(), /one/)
+      assert.equal(reads, 1)
+      assert.deepEqual(download.files, [
+        historical ? 'lmm-historical-usage.csv' : 'lmm-native-usage.csv',
+      ])
+      assert.deepEqual(download.revoked, ['blob:synthetic-usage-export'])
+      assert.equal(await download.blobs[0]?.text(), csv)
       assert.equal(fixture.container.querySelector('[role="alert"]'), null)
     } finally {
-      URL.createObjectURL = originalCreate
-      URL.revokeObjectURL = originalRevoke
-      dom.HTMLAnchorElement.prototype.click = originalClick
+      download.restore()
       await fixture.cleanup()
     }
   })
 }
 
-test('historical mode retains historical statistics and hides the native export action', async () => {
+test('historical export failures stay visible, create no download and permit retry', async () => {
   const fixture = await renderFilter(true)
+  const download = captureDownloads()
   try {
     await clickButton('History test')
-    assert.ok(fixture.requests.some((url) => url.startsWith('/api/log/stat?')))
-    assert.equal(
-      [...fixture.container.querySelectorAll('button')].some(
-        (button) => button.textContent === 'Export CSV'
-      ),
-      false
+    let reads = 0
+    api.defaults.adapter = async (config) => {
+      reads += 1
+      if (reads === 1) {
+        throw new AxiosError(
+          'History unavailable',
+          'ERR_BAD_RESPONSE',
+          config,
+          undefined,
+          {
+            config,
+            headers: { 'content-type': 'application/json' },
+            status: 503,
+            statusText: 'Service Unavailable',
+            data: new Blob(['{"success":false,"code":"HISTORY_UNAVAILABLE"}']),
+          }
+        )
+      }
+      return {
+        config,
+        headers: { 'content-type': 'text/csv' },
+        status: 200,
+        statusText: 'OK',
+        data: new Blob(['"request_id"\r\n"one"\r\n']),
+      }
+    }
+    await clickButton('Export CSV')
+    assert.match(
+      fixture.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /Usage export failed. Narrow the time range or retry./
     )
-    await clickButton('Current test')
-    assert.ok(
-      fixture.requests.some((url) =>
-        url.startsWith('/core/v1/usage/admin/stats?')
-      )
-    )
-    assert.ok(
-      [...fixture.container.querySelectorAll('button')].some(
-        (button) => button.textContent === 'Export CSV'
-      )
-    )
+    assert.equal(download.blobs.length, 0)
+    assert.equal(download.files.length, 0)
+    await clickButton('Export CSV')
+    assert.equal(reads, 2)
+    assert.deepEqual(download.files, ['lmm-historical-usage.csv'])
+    assert.equal(fixture.container.querySelector('[role="alert"]'), null)
   } finally {
+    download.restore()
     await fixture.cleanup()
+  }
+})
+
+for (const change of [
+  'source',
+  'view',
+  'filters',
+  'session',
+  'unmount',
+] as const) {
+  test(`historical export cancels on ${change} changes and never downloads a late file`, async () => {
+    const fixture = await renderFilter(true)
+    const download = captureDownloads()
+    let unmounted = false
+    let finish: (() => void) | undefined
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    let requestSignal: { readonly aborted: boolean } | undefined
+    let reads = 0
+    try {
+      await clickButton('History test')
+      const fallback = api.defaults.adapter
+      assert.ok(typeof fallback === 'function')
+      api.defaults.adapter = async (config) => {
+        if (!config.url?.startsWith('/api/finance/export?')) {
+          return fallback(config)
+        }
+        reads += 1
+        requestSignal = config.signal
+        await pending
+        return {
+          config,
+          headers: { 'content-type': 'text/csv' },
+          status: 200,
+          statusText: 'OK',
+          data: new Blob(['"request_id"\r\n"late-private-row"\r\n']),
+        }
+      }
+      await clickButton('Export CSV')
+      const loading = [...fixture.container.querySelectorAll('button')].find(
+        (button) => button.textContent === 'Exporting usage...'
+      )
+      assert.ok(loading)
+      assert.equal(loading.disabled, true)
+      await act(async () => loading.click())
+      assert.equal(reads, 1)
+      if (change === 'source') await clickButton('Current test')
+      if (change === 'view') await clickButton('Personal test')
+      if (change === 'filters') {
+        await act(async () => {
+          await fixture.router.navigate({
+            to: '/usage-logs/$section',
+            params: { section: 'common' },
+            search: { group: 'changed-filter' },
+          })
+        })
+      }
+      if (change === 'session') {
+        await act(async () => {
+          useAuthStore.setState((state) => ({
+            auth: {
+              ...state.auth,
+              session: state.auth.session
+                ? { ...state.auth.session, sid: 'replacement-session' }
+                : null,
+            },
+          }))
+        })
+      }
+      if (change === 'unmount') {
+        await fixture.cleanup()
+        unmounted = true
+      }
+      assert.equal(requestSignal?.aborted, true)
+      await act(async () => finish?.())
+      assert.equal(download.blobs.length, 0)
+      assert.equal(download.files.length, 0)
+      assert.equal(fixture.container.querySelector('[role="alert"]'), null)
+    } finally {
+      finish?.()
+      download.restore()
+      if (!unmounted) await fixture.cleanup()
+    }
+  })
+}
+
+test('the common route freezes its default time range for the list and a next-day export', async () => {
+  const NativeDate = Date
+  let now = new NativeDate('2026-10-30T23:30:00Z').getTime()
+  class ClockDate extends NativeDate {
+    constructor(value?: string | number) {
+      super(value ?? now)
+    }
+    static now() {
+      return now
+    }
+  }
+  globalThis.Date = ClockDate as DateConstructor
+  let fixture: Awaited<ReturnType<typeof renderFilter>> | undefined
+  const download = captureDownloads()
+  try {
+    fixture = await renderFilter(true)
+    await clickButton('History test')
+    const applied = fixture.router.state.location.search
+    assert.equal(typeof applied.startTime, 'number')
+    assert.equal(applied.endTime, now + 3_600_000)
+    assert.equal(applied.group, 'historical')
+    const requests: URL[] = []
+    api.defaults.adapter = async (config) => {
+      const url = new URL(config.url ?? '', 'https://example.invalid')
+      requests.push(url)
+      return {
+        config,
+        headers: { 'content-type': 'text/csv' },
+        status: 200,
+        statusText: 'OK',
+        data:
+          url.pathname === '/api/finance/export'
+            ? new Blob(['"request_id"\r\n"same-range"\r\n'])
+            : {
+                success: true,
+                data: { page: 1, page_size: 20, total: 0, items: [] },
+              },
+      }
+    }
+    await readLogsPage({
+      category: 'common',
+      historical: true,
+      isAdmin: true,
+      params: buildApiParams({
+        page: 1,
+        pageSize: 20,
+        searchParams: applied,
+        isAdmin: true,
+      }),
+    })
+    now += 24 * 3_600_000
+    await clickButton('Export CSV')
+    assert.deepEqual(
+      requests.map((url) => url.pathname),
+      ['/api/log', '/api/finance/export']
+    )
+    for (const field of ['start_timestamp', 'end_timestamp']) {
+      assert.ok(requests[0]?.searchParams.has(field))
+      assert.equal(
+        requests[1]?.searchParams.get(field),
+        requests[0]?.searchParams.get(field)
+      )
+    }
+    assert.deepEqual(download.files, ['lmm-historical-usage.csv'])
+  } finally {
+    globalThis.Date = NativeDate
+    download.restore()
+    await fixture?.cleanup()
+  }
+})
+
+test('time normalization preserves explicit ranges, single bounds and other log categories', () => {
+  for (const [section, search] of [
+    ['common', { startTime: 10, endTime: 20 }],
+    ['common', { startTime: 10 }],
+    ['common', { endTime: 20 }],
+    ['drawing', {}],
+    ['task', {}],
+  ] as const) {
+    assert.doesNotThrow(() =>
+      UsageLogsRoute.options.beforeLoad?.({
+        params: { section },
+        search,
+      } as never)
+    )
   }
 })
