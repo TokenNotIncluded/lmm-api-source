@@ -377,7 +377,7 @@ func TestFreshInstallDefaultAllPrivilegesCannotExpandCompiledRuntimeACL(t *testi
 	runtimeDB := privateDB(t, f.RuntimeURLFile)
 	expected := map[string]string{
 		"contract": "SELECT", "delegation_contract": "SELECT", "agent_contract": "SELECT", "services_contract": "SELECT", "preset_stats": "SELECT",
-		"records": "SELECT,INSERT,UPDATE", "conversations": "SELECT,INSERT,UPDATE", "delegation_conversations": "SELECT,INSERT,UPDATE", "delegation_turns": "SELECT,INSERT,UPDATE", "agent_turns": "SELECT,INSERT,UPDATE", "site_issues": "SELECT,INSERT,UPDATE", "platform_support": "SELECT,INSERT,UPDATE", "platform_support_todos": "SELECT,INSERT,UPDATE",
+		"records": "SELECT,INSERT,UPDATE", "conversations": "SELECT,INSERT,UPDATE", "delegation_conversations": "SELECT,INSERT", "delegation_turns": "SELECT,INSERT", "agent_turns": "SELECT,INSERT", "site_issues": "SELECT,INSERT,UPDATE", "platform_support": "SELECT,INSERT,UPDATE", "platform_support_todos": "SELECT,INSERT,UPDATE",
 		"history_messages": "SELECT,INSERT,DELETE",
 		"turn_receipts":    "SELECT,INSERT", "service_operations": "SELECT,INSERT", "service_network_dispatch": "SELECT,INSERT", "service_confirmations": "SELECT,INSERT", "site_issue_events": "SELECT,INSERT", "platform_support_messages": "SELECT,INSERT",
 		"memories": "SELECT,INSERT,UPDATE,DELETE", "profiles": "SELECT,INSERT,UPDATE,DELETE",
@@ -396,7 +396,14 @@ func TestFreshInstallDefaultAllPrivilegesCannotExpandCompiledRuntimeACL(t *testi
 			}
 		}
 	}
-	rows, e := runtimeDB.Query(`SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='lmm_assistant' AND table_name IN('preset_stats','service_confirmations') ORDER BY table_name,ordinal_position`)
+	allowedUpdates := map[string]string{
+		"preset_stats":             "clicks",
+		"service_confirmations":    "consumed_at,result",
+		"delegation_conversations": "core_conversation_id,phase",
+		"delegation_turns":         "body,revision",
+		"agent_turns":              "body,body_bytes,revision",
+	}
+	rows, e := runtimeDB.Query(`SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='lmm_assistant' AND table_name IN('preset_stats','service_confirmations','delegation_conversations','delegation_turns','agent_turns') ORDER BY table_name,ordinal_position`)
 	if e != nil {
 		t.Fatal("column privilege inventory failed")
 	}
@@ -413,7 +420,7 @@ func TestFreshInstallDefaultAllPrivilegesCannotExpandCompiledRuntimeACL(t *testi
 		t.Fatal("column inventory read")
 	}
 	rows.Close()
-	if len(columns) < 5 {
+	if len(columns) < len(allowedUpdates) {
 		t.Fatal("column privilege matrix missing fields")
 	}
 	for _, column := range columns {
@@ -421,7 +428,7 @@ func TestFreshInstallDefaultAllPrivilegesCannotExpandCompiledRuntimeACL(t *testi
 		if runtimeDB.QueryRow(`SELECT has_column_privilege(current_user,$1,$2,'UPDATE')`, "lmm_assistant."+column.table, column.column).Scan(&actual) != nil {
 			t.Fatal("column privilege probe failed")
 		}
-		want := column.table == "preset_stats" && column.column == "clicks" || column.table == "service_confirmations" && (column.column == "consumed_at" || column.column == "result")
+		want := strings.Contains(","+allowedUpdates[column.table]+",", ","+column.column+",")
 		if actual != want {
 			t.Fatal("default UPDATE leaked into restricted column", column.table, column.column, actual)
 		}
@@ -433,8 +440,17 @@ func TestFreshInstallDefaultAllPrivilegesCannotExpandCompiledRuntimeACL(t *testi
 	if runtimeDB.QueryRow(`SELECT count(*),count(*) FILTER(WHERE NOT has_function_privilege(current_user,p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='lmm_assistant'`).Scan(&functions, &sequences) != nil || functions == 0 || functions != sequences {
 		t.Fatal("function default EXECUTE leaked to runtime")
 	}
-	// Prove denials through actual commands as well as catalog privilege checks.
-	for _, query := range []string{`DELETE FROM lmm_assistant.service_operations`, `UPDATE lmm_assistant.service_operations SET result=result`, `TRUNCATE lmm_assistant.service_operations`, `ALTER TABLE lmm_assistant.contract ADD COLUMN runtime_escape integer`, `SELECT setval('lmm_assistant.memories_id_seq',999)`, `SELECT lmm_assistant.services_immutable()`} {
+	// Exercise required and forbidden operations as well as catalog checks.
+	for _, query := range []string{
+		`UPDATE lmm_assistant.delegation_conversations SET core_conversation_id=core_conversation_id,phase=phase WHERE false`,
+		`UPDATE lmm_assistant.delegation_turns SET body=body,revision=revision WHERE false`,
+		`UPDATE lmm_assistant.agent_turns SET body=body,body_bytes=body_bytes,revision=revision WHERE false`,
+	} {
+		if _, e = runtimeDB.Exec(query); e != nil {
+			t.Fatal("runtime cannot update required journal columns", query)
+		}
+	}
+	for _, query := range []string{`DELETE FROM lmm_assistant.service_operations`, `UPDATE lmm_assistant.service_operations SET result=result`, `TRUNCATE lmm_assistant.service_operations`, `ALTER TABLE lmm_assistant.contract ADD COLUMN runtime_escape integer`, `SELECT setval('lmm_assistant.memories_id_seq',999)`, `SELECT lmm_assistant.services_immutable()`, `UPDATE lmm_assistant.delegation_conversations SET user_id=user_id`, `UPDATE lmm_assistant.delegation_turns SET user_id=user_id`, `UPDATE lmm_assistant.agent_turns SET user_id=user_id`} {
 		if _, e = runtimeDB.Exec(query); e == nil {
 			t.Fatal("default ALL allowed forbidden operation", query)
 		} else {

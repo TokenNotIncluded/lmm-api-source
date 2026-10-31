@@ -56,7 +56,11 @@ func compiled(component string) (plan, error) {
 		p := plan{prefix: "lmm_assistant", schema: assistant.Schema + "\n" + assistant.DelegationSchema + "\n" + assistant.AgentSchema + "\n" + services, namespaces: []string{"lmm_assistant"}}
 		add := func(priv, tables string) { p.grants = append(p.grants, "GRANT "+priv+" ON "+tables+" TO ") }
 		add("SELECT", "lmm_assistant.contract,lmm_assistant.delegation_contract,lmm_assistant.agent_contract,lmm_assistant.services_contract,lmm_assistant.preset_stats")
-		add("SELECT,INSERT,UPDATE", "lmm_assistant.records,lmm_assistant.conversations,lmm_assistant.delegation_conversations,lmm_assistant.delegation_turns,lmm_assistant.agent_turns,lmm_assistant.site_issues,lmm_assistant.platform_support,lmm_assistant.platform_support_todos")
+		add("SELECT,INSERT,UPDATE", "lmm_assistant.records,lmm_assistant.conversations,lmm_assistant.site_issues,lmm_assistant.platform_support,lmm_assistant.platform_support_todos")
+		add("SELECT,INSERT", "lmm_assistant.delegation_conversations,lmm_assistant.delegation_turns,lmm_assistant.agent_turns")
+		add("UPDATE(core_conversation_id,phase)", "lmm_assistant.delegation_conversations")
+		add("UPDATE(body,revision)", "lmm_assistant.delegation_turns")
+		add("UPDATE(body,body_bytes,revision)", "lmm_assistant.agent_turns")
 		add("SELECT,INSERT,DELETE", "lmm_assistant.history_messages")
 		add("SELECT,INSERT", "lmm_assistant.turn_receipts,lmm_assistant.service_operations,lmm_assistant.service_network_dispatch,lmm_assistant.service_confirmations,lmm_assistant.site_issue_events,lmm_assistant.platform_support_messages")
 		add("SELECT,INSERT,UPDATE,DELETE", "lmm_assistant.memories,lmm_assistant.profiles")

@@ -293,7 +293,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		}
 	}
 	if selected["assistant"] {
-		db, err := openStorage(ctx, cfg.Assistant)
+		db, err := openStorageBundle(ctx, cfg.Assistant, assistantStorageBundle(cfg))
 		if err != nil {
 			return nil, err
 		}
