@@ -21,11 +21,42 @@ use crate::{
 
 const JS_SAFE: i64 = 9_007_199_254_740_991;
 
+// Flatten buffers URL-encoded numbers as strings and loses unknown-field checks.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ExportParams {
-    #[serde(flatten)]
-    query: HistoryQuery,
+    p: Option<u32>,
+    page_size: Option<u32>,
+    r#type: Option<i16>,
+    start_timestamp: Option<i64>,
+    end_timestamp: Option<i64>,
+    username: Option<String>,
+    token_name: Option<String>,
+    model_name: Option<String>,
+    channel: Option<i64>,
+    group: Option<String>,
+    request_id: Option<String>,
+    upstream_request_id: Option<String>,
     format: Option<String>,
+}
+
+impl ExportParams {
+    fn into_history_query(self) -> HistoryQuery {
+        HistoryQuery {
+            p: self.p,
+            page_size: self.page_size,
+            r#type: self.r#type,
+            start_timestamp: self.start_timestamp,
+            end_timestamp: self.end_timestamp,
+            username: self.username,
+            token_name: self.token_name,
+            model_name: self.model_name,
+            channel: self.channel,
+            group: self.group,
+            request_id: self.request_id,
+            upstream_request_id: self.upstream_request_id,
+        }
+    }
 }
 
 pub fn router(store: HistoryStore) -> Router {
@@ -363,7 +394,8 @@ async fn export_usage(
             }
         }
     };
-    match finance_export::export(&store, secret, &params.query, format).await {
+    let query = params.into_history_query();
+    match finance_export::export(&store, secret, &query, format).await {
         Ok(doc) => {
             let mut resp = doc.bytes.into_response();
             let headers_mut = resp.headers_mut();
@@ -388,3 +420,59 @@ async fn export_usage(
 #[cfg(test)]
 #[path = "history_http/statistics_tests.rs"]
 mod statistics_tests;
+
+#[cfg(test)]
+mod export_query_tests {
+    use super::*;
+
+    #[test]
+    fn export_query_preserves_all_filters() {
+        let filters = concat!(
+            "p=2&page_size=25&type=2&start_timestamp=1700000001&",
+            "end_timestamp=1700000003&username=alice&token_name=key-two&",
+            "model_name=gpt-4&channel=2&group=default&request_id=req-2&",
+            "upstream_request_id=up-2"
+        );
+        for (format, prefix) in [(Some("csv"), "format=csv&"), (None, "")] {
+            let uri = format!("/api/finance/export?{prefix}{filters}")
+                .parse()
+                .unwrap();
+            let Query(params) = Query::<ExportParams>::try_from_uri(&uri).unwrap();
+            assert_eq!(params.format.as_deref(), format);
+            let query = params.into_history_query();
+            // Preserve paging so the store can reject paginated exports.
+            assert_eq!(query.p, Some(2));
+            assert_eq!(query.page_size, Some(25));
+            assert_eq!(query.r#type, Some(2));
+            assert_eq!(query.start_timestamp, Some(1700000001));
+            assert_eq!(query.end_timestamp, Some(1700000003));
+            assert_eq!(query.username.as_deref(), Some("alice"));
+            assert_eq!(query.token_name.as_deref(), Some("key-two"));
+            assert_eq!(query.model_name.as_deref(), Some("gpt-4"));
+            assert_eq!(query.channel, Some(2));
+            assert_eq!(query.group.as_deref(), Some("default"));
+            assert_eq!(query.request_id.as_deref(), Some("req-2"));
+            assert_eq!(query.upstream_request_id.as_deref(), Some("up-2"));
+        }
+    }
+
+    #[test]
+    fn export_query_rejects_unknown_duplicate_and_invalid_fields() {
+        for query in [
+            "format=csv&unknown=1",
+            "format=csv&format=json",
+            "type=2&type=3",
+            "type=2&%74ype=3",
+            "username=alice&username=bob",
+            "type=32768",
+            "channel=9223372036854775808",
+            "start_timestamp=not-a-number",
+        ] {
+            let uri = format!("/api/finance/export?{query}").parse().unwrap();
+            assert!(
+                Query::<ExportParams>::try_from_uri(&uri).is_err(),
+                "{query}"
+            );
+        }
+    }
+}
