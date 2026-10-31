@@ -14,6 +14,35 @@ import type { ReleaseNote } from './types'
 const dom = new Window({
   url: 'https://console.example.test/operations/releases',
 })
+// Match the browser Node getter used by DOMPurify; keep the real sanitizer.
+const nodeName = Object.getOwnPropertyDescriptor(
+  dom.Node.prototype,
+  'nodeName'
+)?.get
+const elementName = Object.getOwnPropertyDescriptor(
+  dom.Element.prototype,
+  'nodeName'
+)?.get
+const textName = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(dom.Text.prototype),
+  'nodeName'
+)?.get
+const commentName = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(dom.Comment.prototype),
+  'nodeName'
+)?.get
+assert.ok(nodeName && elementName && textName && commentName)
+Object.defineProperty(dom.Node.prototype, 'nodeName', {
+  configurable: true,
+  get() {
+    if (this instanceof dom.Element) return elementName.call(this)
+    if (this instanceof dom.Text) return textName.call(this)
+    if (this instanceof dom.Comment) return commentName.call(this)
+    return nodeName.call(this)
+  },
+})
+Object.defineProperty(dom.document, 'compatMode', { value: 'CSS1Compat' })
+dom.document.write('<!doctype html><html><body></body></html>')
 const originalGlobals = new Map<string, PropertyDescriptor | undefined>()
 
 function installGlobal(name: string, value: unknown) {
@@ -412,7 +441,8 @@ describe('release note management', { concurrency: false }, () => {
     assert.equal(initialRequest?.signal?.aborted, true)
     assert.deepEqual(client.getQueryData(historyKey()), [published])
     await act(async () => {
-      pending.resolve(ok(initialRequest!, [note({ version: 'v-obsolete' })]))
+      assert.ok(initialRequest)
+      pending.resolve(ok(initialRequest, [note({ version: 'v-obsolete' })]))
       await flush()
     })
     assert.deepEqual(client.getQueryData(historyKey()), [published])
@@ -466,8 +496,9 @@ describe('release note management', { concurrency: false }, () => {
     login()
     let published: ReleaseNote | undefined
     backend((config) => {
-      if (config.method === 'get')
+      if (config.method === 'get') {
         return ok(config, published ? [published] : [])
+      }
       published = note(JSON.parse(config.data))
       return ok(config, published)
     })
@@ -574,7 +605,8 @@ describe('release note management', { concurrency: false }, () => {
     assert.equal(field(container, 'Changelog').value, '')
     assert.equal(oldRequest?.signal?.aborted, true)
     await act(async () => {
-      pending.resolve(ok(oldRequest!, [note({ version: 'v-former-result' })]))
+      assert.ok(oldRequest)
+      pending.resolve(ok(oldRequest, [note({ version: 'v-former-result' })]))
       await flush()
     })
     assert.equal(count('get'), 2)
@@ -623,7 +655,8 @@ describe('release note management', { concurrency: false }, () => {
     }
     await fill(container, nextDraft)
     await act(async () => {
-      pending.resolve(ok(postRequest!, former))
+      assert.ok(postRequest)
+      pending.resolve(ok(postRequest, former))
       await flush()
     })
     await until(() => client.isMutating() === 0)
@@ -663,7 +696,8 @@ describe('release note management', { concurrency: false }, () => {
     )
     assert.equal(container.querySelector('form'), null)
     await act(async () => {
-      pending.reject(unavailable(postRequest!))
+      assert.ok(postRequest)
+      pending.reject(unavailable(postRequest))
       await flush()
     })
     await until(() => client.isMutating() === 0)

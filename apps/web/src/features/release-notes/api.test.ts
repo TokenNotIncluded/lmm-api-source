@@ -327,7 +327,7 @@ test('publishing preserves exact copy and accepts another publisher’s replay r
 })
 
 test('input limits count UTF-8 bytes and preserve intentional surrounding whitespace', async () => {
-  const content = '界'.repeat(10922) + 'ab'
+  const content = `${'界'.repeat(10922)}ab`
   assert.equal(new TextEncoder().encode(content).length, 32768)
   const valid = { version: 'v1+utf8', content }
   assert.deepEqual(releaseNoteInputSchema.parse(valid), valid)
@@ -335,7 +335,7 @@ test('input limits count UTF-8 bytes and preserve intentional surrounding whites
   const emoji = { version: 'v-emoji', content: '🙂' }
   assert.deepEqual(releaseNoteInputSchema.parse(emoji), emoji)
   assert.equal(
-    releaseNoteInputSchema.safeParse({ ...valid, content: content + 'c' })
+    releaseNoteInputSchema.safeParse({ ...valid, content: `${content}c` })
       .success,
     false
   )

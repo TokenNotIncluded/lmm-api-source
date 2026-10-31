@@ -17,6 +17,34 @@ import type { ReleaseNote } from './types'
 const dom = new Window({
   url: 'https://console.example.test/operations/releases',
 })
+// Match the browser Node getter used by DOMPurify; keep the real sanitizer.
+const nodeName = Object.getOwnPropertyDescriptor(
+  dom.Node.prototype,
+  'nodeName'
+)?.get
+const elementName = Object.getOwnPropertyDescriptor(
+  dom.Element.prototype,
+  'nodeName'
+)?.get
+const textName = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(dom.Text.prototype),
+  'nodeName'
+)?.get
+const commentName = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(dom.Comment.prototype),
+  'nodeName'
+)?.get
+assert.ok(nodeName && elementName && textName && commentName)
+Object.defineProperty(dom.Node.prototype, 'nodeName', {
+  configurable: true,
+  get() {
+    if (this instanceof dom.Element) return elementName.call(this)
+    if (this instanceof dom.Text) return textName.call(this)
+    if (this instanceof dom.Comment) return commentName.call(this)
+    return nodeName.call(this)
+  },
+})
+Object.defineProperty(dom.document, 'compatMode', { value: 'CSS1Compat' })
 dom.document.write('<!doctype html><html><body></body></html>')
 
 for (const key of [
