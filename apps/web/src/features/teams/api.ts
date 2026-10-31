@@ -2,6 +2,7 @@
 import { z } from 'zod'
 
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { withAuthenticatedCookieWrite } from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
 
 const id = z.number().int().safe().positive()
@@ -91,19 +92,18 @@ async function request<T>(
   const options: ApiRequestConfig = {
     authScope: scope,
     signal,
-    skipAuthRefresh: true,
     disableDuplicate: true,
     skipBusinessError: true,
     skipErrorHandler: true,
     timeout: 10000,
   }
   try {
-    const result = await api.request<unknown>({
-      ...options,
-      url: path,
-      method,
-      data,
-    })
+    const dispatch = (config: ApiRequestConfig) =>
+      api.request<unknown>({ ...options, ...config, url: path, method, data })
+    const result =
+      method === 'GET'
+        ? await dispatch({})
+        : await withAuthenticatedCookieWrite(dispatch, false)
     if (!currentTeamScope(scope) || signal?.aborted) {
       throw new TeamFailure('session_changed')
     }
