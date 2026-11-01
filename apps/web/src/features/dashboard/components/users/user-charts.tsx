@@ -22,6 +22,7 @@ import { Users, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -140,12 +141,18 @@ export function UserCharts(props: UserChartsProps) {
     updateTheme()
   }, [resolvedTheme])
 
-  const { data: userData, isLoading } = useQuery({
+  const userQuery = useQuery({
     queryKey: ['dashboard', 'user-quota', timeRange],
     queryFn: () => getUserQuotaDataByUsers(timeRange),
-    select: (res) => (res.success ? res.data : []),
     staleTime: 60_000,
   })
+  const isLoading = userQuery.isPending
+  const userData = userQuery.data?.data
+  const partialCoverage =
+    userQuery.data?.coverage?.scope === 'administrator_all_accounts' &&
+    (userQuery.data.availability === 'partial' ||
+      userQuery.data.coverage.complete === false ||
+      userQuery.data.coverage.historical_imports === false)
 
   const chartData = useMemo(
     () =>
@@ -164,6 +171,13 @@ export function UserCharts(props: UserChartsProps) {
       <p className='text-muted-foreground text-xs'>
         {t('Raw credits')} · {t('Historical monetary value unavailable')}
       </p>
+      {!isLoading && !userQuery.isError && partialCoverage && (
+        <p className='text-muted-foreground text-sm' role='status'>
+          {t(
+            'Partial usage across all accounts: only native Core requests are included; imported historical usage is unavailable.'
+          )}
+        </p>
+      )}
       <div className='flex items-center gap-1.5 overflow-x-auto pb-1 sm:gap-2'>
         <Tabs
           value={String(selectedRange)}
@@ -229,44 +243,57 @@ export function UserCharts(props: UserChartsProps) {
         )}
       </div>
 
-      <div className='grid gap-3'>
-        {USER_CHARTS.map((chart) => {
-          const spec = chartData[chart.specKey]
+      {userQuery.isError ? (
+        <div role='alert'>
+          <ErrorState
+            description={t(
+              'Usage could not be loaded. No zero values have been substituted.'
+            )}
+            onRetry={() => void userQuery.refetch()}
+          />
+        </div>
+      ) : (
+        <div className='grid gap-3'>
+          {USER_CHARTS.map((chart) => {
+            const spec = chartData[chart.specKey]
 
-          return (
-            <div
-              key={chart.value}
-              className='overflow-hidden rounded-none border'
-            >
-              <div className='flex w-full items-center gap-2 border-b px-3 py-2 sm:px-5 sm:py-3'>
-                <IconBadge tone='info' size='sm'>
-                  <Users />
-                </IconBadge>
-                <div className='text-sm font-semibold'>{t(chart.labelKey)}</div>
-              </div>
+            return (
+              <div
+                key={chart.value}
+                className='overflow-hidden rounded-none border'
+              >
+                <div className='flex w-full items-center gap-2 border-b px-3 py-2 sm:px-5 sm:py-3'>
+                  <IconBadge tone='info' size='sm'>
+                    <Users />
+                  </IconBadge>
+                  <div className='text-sm font-semibold'>
+                    {t(chart.labelKey)}
+                  </div>
+                </div>
 
-              <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
-                {isLoading ? (
-                  <Skeleton className='h-full w-full' />
-                ) : (
-                  themeReady &&
-                  spec && (
-                    <VChart
-                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${locale}`}
-                      spec={{
-                        ...spec,
-                        theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-                        background: 'transparent',
-                      }}
-                      option={VCHART_OPTION}
-                    />
-                  )
-                )}
+                <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
+                  {isLoading ? (
+                    <Skeleton className='h-full w-full' />
+                  ) : (
+                    themeReady &&
+                    spec && (
+                      <VChart
+                        key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${locale}`}
+                        spec={{
+                          ...spec,
+                          theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+                          background: 'transparent',
+                        }}
+                        option={VCHART_OPTION}
+                      />
+                    )
+                  )}
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
