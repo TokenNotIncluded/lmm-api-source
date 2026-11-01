@@ -42,7 +42,32 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
     .await
     .unwrap();
     for privilege in [
+        "UPDATE(status) ON core_account_appeals.requests",
+        "UPDATE(request_id) ON core_account_appeals.flows",
+        "USAGE ON SEQUENCE core_account_appeals.requests_id_seq",
+    ] {
+        sqlx::raw_sql(&format!("REVOKE {privilege} FROM {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, web).await,
+            Err(RuntimeDatabaseError::MissingPrivileges),
+            "{privilege}"
+        );
+        sqlx::raw_sql(&format!("GRANT {privilege} TO {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    for privilege in [
         "UPDATE(user_id) ON core_passkeys.credentials",
+        "UPDATE(reason) ON core_account_appeals.requests",
+        "UPDATE(user_id) ON core_account_appeals.requests",
+        "DELETE ON core_account_appeals.requests",
+        "UPDATE(proof_kind) ON core_account_appeals.flows",
+        "SELECT ON SEQUENCE core_account_appeals.requests_id_seq",
+        "SELECT ON core_meta.account_appeal_upgrades",
         "DELETE ON core_account_links.oauth_states",
         "UPDATE(operation_digest) ON core_account_lifecycle.closures",
         "UPDATE(balance_units) ON core_billing.balance_state",

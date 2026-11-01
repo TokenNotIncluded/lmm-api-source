@@ -62,7 +62,7 @@ fn legacy_predecessor_bytes_are_preserved_but_26_binary_rejects_24_to_25() {
     let mut stdout = serde_json::to_vec(&producer).unwrap();
     stdout.push(b'\n');
     assert_eq!(hex(&Sha256::digest(stdout)), PRE_MANIFEST);
-    assert_eq!(COMPONENTS.len(), 32);
+    assert_eq!(COMPONENTS.len(), 42);
     assert_eq!(COMPONENTS[24].0, "trust-pricing");
     assert_eq!(hex(&Sha256::digest(COMPONENTS[24].1)), COMPONENT_25_DDL);
     assert_eq!(COMPONENTS[25].0, "telegram-auth");

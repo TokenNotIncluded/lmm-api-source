@@ -22,7 +22,7 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router'
-import type { AxiosRequestConfig } from 'axios'
+import { CanceledError, type AxiosRequestConfig } from 'axios'
 import i18next from 'i18next'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -33,6 +33,7 @@ import {
   OAUTH_BIND_RESULT_MESSAGE,
 } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
+import { hasVerifiedAccountAppeal } from '@/features/auth/lib/account-appeal'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import {
   isExternalMFAContinuation,
@@ -147,7 +148,13 @@ function OAuthCallback() {
     passkeyPending.current = true
     setIsPasskeyPending(true)
     try {
-      const assertCurrent = capturePasswordLoginGuard()
+      const assertLoginCurrent = capturePasswordLoginGuard()
+      const assertCurrent = () => {
+        assertLoginCurrent()
+        if (attempt !== passkeyAttempt.current) {
+          throw new CanceledError('OAuth challenge superseded')
+        }
+      }
       const assertion = await requestPasskeyAuthentication(
         passkeyChallenge.options
       )
@@ -173,6 +180,15 @@ function OAuthCallback() {
         return
       }
       if (!response.success || !isAuthBundle(response.data)) {
+        if (hasVerifiedAccountAppeal(response)) {
+          handlePasskeyCancel()
+          toast.error(
+            i18next.t(
+              'Submit an appeal using your verified identity. No local password is needed.'
+            )
+          )
+          return
+        }
         const messageKey = getServerErrorMessageKey(response)
         toast.error(
           messageKey
@@ -184,6 +200,15 @@ function OAuthCallback() {
       completeLogin(response.data, true)
     } catch (error: unknown) {
       if (attempt !== passkeyAttempt.current) return
+      if (hasVerifiedAccountAppeal(error)) {
+        handlePasskeyCancel()
+        toast.error(
+          i18next.t(
+            'Submit an appeal using your verified identity. No local password is needed.'
+          )
+        )
+        return
+      }
       if (getServerErrorMessageKey(error)) return
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
         toast.info(i18next.t('Passkey login was cancelled or timed out'))
@@ -327,6 +352,8 @@ function OAuthCallback() {
                 iss: search.iss,
               },
           skipBusinessError: true,
+          skipAuthRefresh: true,
+          skipErrorHandler: true,
         }
         const key = JSON.stringify([
           provider,
@@ -385,6 +412,15 @@ function OAuthCallback() {
             return
           }
         }
+        if (hasVerifiedAccountAppeal(response)) {
+          toast.error(
+            i18next.t(
+              'Submit an appeal using your verified identity. No local password is needed.'
+            )
+          )
+          safeNavigate('/sign-in', '/sign-in')
+          return
+        }
         const messageKey = getServerErrorMessageKey(response)
         toast.error(
           messageKey
@@ -393,18 +429,27 @@ function OAuthCallback() {
         )
       } catch (error: unknown) {
         if (!active) return
+        if (hasVerifiedAccountAppeal(error)) {
+          toast.error(
+            i18next.t(
+              'Submit an appeal using your verified identity. No local password is needed.'
+            )
+          )
+          safeNavigate('/sign-in', '/sign-in')
+          return
+        }
         const messageKey = getServerErrorMessageKey(error)
         const responseMessage = (
           error as { response?: { data?: { message?: string } } }
         ).response?.data?.message
-        if (!messageKey) {
-          toast.error(
-            responseMessage ||
-              (error instanceof Error
-                ? error.message
-                : i18next.t('OAuth failed'))
-          )
-        }
+        toast.error(
+          messageKey
+            ? i18next.t(messageKey)
+            : responseMessage ||
+                (error instanceof Error
+                  ? error.message
+                  : i18next.t('OAuth failed'))
+        )
       }
       safeNavigate('/sign-in', '/sign-in')
     })()

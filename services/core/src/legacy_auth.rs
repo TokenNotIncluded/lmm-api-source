@@ -1,4 +1,5 @@
 //! Existing Web authentication contract backed exclusively by Rust identity.
+mod account_appeals;
 mod account_lifecycle;
 mod account_links;
 #[path = "identity_compat.rs"]
@@ -185,6 +186,7 @@ fn build_router(
         .merge(telegram::routes())
         .merge(passkeys::routes())
         .merge(account_lifecycle::routes())
+        .merge(account_appeals::routes())
         .merge(account_links::routes())
         .route("/api/user/register", post(register))
         .route("/api/user/login", post(login))
@@ -232,7 +234,8 @@ async fn security(State(state): State<AuthState>, request: Request, next: Next) 
     } else if unsafe_method
         || matches!(
             request.uri().path(),
-            "/api/oauth/google"
+            "/api/user/account-action-requests/appeal"
+                | "/api/oauth/google"
                 | "/api/oauth/google/callback"
                 | "/api/oauth/github"
                 | "/api/oauth/linuxdo"
@@ -454,6 +457,9 @@ async fn login(
         .login_with_mfa(&body.username, &body.password, &metadata, &binding)
         .await
     {
+        Ok(BrowserLoginOutcome::Disabled(grant)) => {
+            account_appeals::disabled_response(grant, &state.config, false)
+        }
         Ok(BrowserLoginOutcome::Session(bundle)) => bundle_response(bundle, &state.config),
         Ok(BrowserLoginOutcome::Challenge(challenge)) => mfa_flow_cookie(
             success(Some(json!(challenge))),
@@ -689,7 +695,10 @@ async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Response 
     }
     .await;
     match result {
-        Ok(()) => set_cookie(success(None), None, &state.config),
+        Ok(()) => account_appeals::clear_proof_cookie(
+            set_cookie(success(None), None, &state.config),
+            &state.config,
+        ),
         Err(error) => auth_failure(error),
     }
 }
@@ -877,6 +886,9 @@ async fn google_callback(
     }
     .await;
     let response = match result {
+        Ok(BrowserLoginOutcome::Disabled(grant)) => {
+            account_appeals::disabled_response(grant, &state.config, !frontend_callback)
+        }
         Ok(BrowserLoginOutcome::Session(bundle)) if frontend_callback => {
             bundle_response(bundle, &state.config)
         }
@@ -1017,7 +1029,11 @@ fn set_cookie(
     if let Ok(value) = HeaderValue::from_str(&value) {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
-    response
+    if cookie.is_some() {
+        account_appeals::clear_proof_cookie(response, config)
+    } else {
+        response
+    }
 }
 
 #[cfg(test)]

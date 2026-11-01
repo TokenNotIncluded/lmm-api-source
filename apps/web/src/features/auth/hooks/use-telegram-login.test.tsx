@@ -112,6 +112,7 @@ let host: HTMLElement | undefined
 let controls: ReturnType<typeof useOAuthLogin> | undefined
 let flowNumber = 0
 let callbackCalls = 0
+let appealRefreshes = 0
 let startGate: Promise<void> | undefined
 let callbackGate: Promise<void> | undefined
 let callbackPayload: unknown
@@ -157,7 +158,10 @@ function Harness() {
   const flow = useOAuthLogin(
     { telegram_oauth: true, telegram_bot_name: '@native_test_bot' },
     '/dashboard',
-    true
+    true,
+    () => {
+      appealRefreshes++
+    }
   )
   controls = flow
   return (
@@ -198,6 +202,7 @@ beforeEach(() => {
   callbackPayload = { success: true, data: bundle() }
   callbackStatus = 200
   callbackCalls = 0
+  appealRefreshes = 0
   flowNumber = 0
   api.defaults.adapter = async (config) => {
     const path = config.url ?? ''
@@ -446,4 +451,29 @@ test('expired MFA challenge never opens OTP or creates a session', async () => {
   assert.deepEqual(errors, [
     'This login flow has expired or has already been used. Sign in again.',
   ])
+})
+
+test('verified disabled Telegram identity refreshes appeal context without completing login', async () => {
+  callbackStatus = 403
+  callbackPayload = {
+    success: false,
+    code: 'AUTH_USER_DISABLED',
+    data: {
+      appeal_available: true,
+      username: 'telegram-only',
+      public_reason: null,
+      public_reason_available: false,
+      expires_at: Math.floor(Date.now() / 1000) + 600,
+    },
+  }
+  await mount()
+  await start()
+  await act(async () => current().handleTelegramAuthorization(assertion))
+  assert.equal(appealRefreshes, 1)
+  assert.deepEqual(errors, [
+    'Submit an appeal using your verified identity. No local password is needed.',
+  ])
+  assert.equal(paths.includes('/api/user/auth/refresh'), false)
+  assert.deepEqual(completed, [])
+  assert.equal(useAuthStore.getState().auth.session, null)
 })

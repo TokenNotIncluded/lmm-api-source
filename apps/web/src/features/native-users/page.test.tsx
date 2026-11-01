@@ -165,7 +165,25 @@ test('the actual page renders exact identity, memberships and signed units witho
   expect(container.textContent).toContain(
     'Risk, usage, top-up, referral history and legacy trust information are unavailable'
   )
-  expect(container.querySelectorAll('details button[disabled]').length).toBe(21)
+  const unavailable = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('details button')
+  )
+  for (const label of [
+    'Delete user',
+    'Promote user',
+    'Demote user',
+    'Unbind identity',
+  ]) {
+    const action = unavailable.find((button) => button.textContent === label)
+    expect(action).toBeDefined()
+    expect(action?.disabled).toBe(true)
+  }
+  expect(unavailable.every((button) => button.disabled)).toBe(true)
+  const security = Array.from(
+    row?.querySelectorAll<HTMLButtonElement>('button') ?? []
+  ).find((button) => button.textContent === 'Security')
+  expect(security).toBeDefined()
+  expect(security?.disabled).toBe(false)
   await act(async () => {
     for (const action of container.querySelectorAll<HTMLButtonElement>(
       'details button'

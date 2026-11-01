@@ -508,6 +508,7 @@ async fn consent_consumes_csrf_and_refuses_missing_cookie_or_incomplete_mfa(pool
         .unwrap()
     {
         BrowserLoginOutcome::Challenge(challenge) => challenge,
+        BrowserLoginOutcome::Disabled(_) => panic!("unexpected disabled account"),
         BrowserLoginOutcome::Session(_) => panic!("required factor was bypassed"),
     };
     let first = f.issuer.begin(request()).await.unwrap();

@@ -93,16 +93,22 @@ export async function manageUserSecurity(
   scope: NativeUsersScope,
   before: SecuritySnapshot,
   action: SecurityAction,
-  reason: string
+  reason: string,
+  publicReason?: string
 ) {
   current(scope)
+  const reasons = publicReason === undefined ? [reason] : [reason, publicReason]
   if (
-    !reason.trim() ||
-    new TextEncoder().encode(reason).length > 1000 ||
-    Array.from(reason).some((character) => {
-      const code = character.charCodeAt(0)
-      return code <= 31 || (code >= 127 && code <= 159)
-    })
+    (publicReason !== undefined && action !== 'disable') ||
+    reasons.some(
+      (value) =>
+        !value.trim() ||
+        new TextEncoder().encode(value).length > 1000 ||
+        Array.from(value).some((character) => {
+          const code = character.charCodeAt(0)
+          return code <= 31 || (code >= 127 && code <= 159)
+        })
+    )
   ) {
     throw new NativeProfileFailure('invalid')
   }
@@ -113,6 +119,7 @@ export async function manageUserSecurity(
         expected_auth_version: before.auth_version,
         action,
         reason,
+        ...(publicReason === undefined ? {} : { public_reason: publicReason }),
       },
       nativeUsersOptions(scope)
     )

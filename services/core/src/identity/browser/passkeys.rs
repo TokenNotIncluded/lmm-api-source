@@ -325,7 +325,7 @@ impl BrowserAuth {
             if username.len() > 320 {
                 return Err(IdentityError::Invalid.into());
             }
-            let users=sqlx::query("SELECT u.id,u.auth_version FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE (p.username=$1 OR (p.email_login_allowed AND p.email<>'' AND p.email=$1)) AND u.active AND a.active LIMIT 2")
+            let users=sqlx::query("SELECT u.id,u.auth_version FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE (p.username=$1 OR (p.email_login_allowed AND p.email<>'' AND p.email=$1)) AND a.active LIMIT 2")
                 .bind(username.trim()).fetch_all(&mut *tx).await?;
             if users.len() != 1 {
                 return Err(IdentityError::Unauthorized.into());
@@ -395,7 +395,7 @@ impl BrowserAuth {
             .bind(digest(flow)?).bind(binding_digest(binding)?).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
         let Json(state): Json<State> = row.try_get("state")?;
         let credential_id: &[u8] = reg.raw_id.as_ref();
-        let credential=sqlx::query("SELECT k.id,k.user_id,k.passkey,k.revision,h.user_handle::text,u.auth_version FROM core_passkeys.credentials k JOIN core_passkeys.user_handles h ON h.user_id=k.user_id JOIN core_identity.users u ON u.id=k.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE k.credential_id=$1 AND k.revoked_at IS NULL AND u.active AND a.active FOR UPDATE OF k NOWAIT FOR SHARE OF u,a NOWAIT")
+        let credential=sqlx::query("SELECT k.id,k.user_id,k.passkey,k.revision,h.user_handle::text,u.auth_version FROM core_passkeys.credentials k JOIN core_passkeys.user_handles h ON h.user_id=k.user_id JOIN core_identity.users u ON u.id=k.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE k.credential_id=$1 AND k.revoked_at IS NULL AND a.active FOR UPDATE OF k NOWAIT FOR SHARE OF u,a NOWAIT")
             .bind(credential_id).fetch_optional(&mut *tx).await?;
         let Some(credential) = credential else {
             tx.commit().await?;

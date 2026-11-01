@@ -47,6 +47,7 @@ import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { hasVerifiedAccountAppeal } from '@/features/auth/lib/account-appeal'
 import { hasOAuthLoginProvider } from '@/features/auth/lib/registration'
 import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
@@ -87,6 +88,7 @@ export function UserAuthForm({
 }: AuthFormProps) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
+  const [appealRefreshKey, setAppealRefreshKey] = useState(0)
   const [wechatCode, setWeChatCode] = useState('')
   const [wechatFlowToken, setWeChatFlowToken] = useState('')
   const [agreedToLegal, setAgreedToLegal] = useState(false)
@@ -188,6 +190,9 @@ export function UserAuthForm({
       if (controller.signal.aborted) return
 
       if (!res.success) {
+        if (hasVerifiedAccountAppeal(res)) {
+          setAppealRefreshKey((value) => value + 1)
+        }
         const messageKey = passwordLoginErrorMessageKey(res)
         toast.error(messageKey ? t(messageKey) : loginFailedMessage)
         return
@@ -213,6 +218,15 @@ export function UserAuthForm({
       }
     } catch (error: unknown) {
       if (controller.signal.aborted || axios.isCancel(error)) return
+      if (hasVerifiedAccountAppeal(error)) {
+        setAppealRefreshKey((value) => value + 1)
+        toast.error(
+          t(
+            'Submit an appeal using your verified identity. No local password is needed.'
+          )
+        )
+        return
+      }
       const status = axios.isAxiosError(error)
         ? error.response?.status
         : undefined
@@ -302,6 +316,17 @@ export function UserAuthForm({
     }
   }
 
+  function showVerifiedAccountAppeal(value: unknown): boolean {
+    if (!hasVerifiedAccountAppeal(value)) return false
+    setAppealRefreshKey((current) => current + 1)
+    toast.error(
+      t(
+        'Submit an appeal using your verified identity. No local password is needed.'
+      )
+    )
+    return true
+  }
+
   async function handlePasskeyLogin() {
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
@@ -326,6 +351,7 @@ export function UserAuthForm({
         assertCurrent
       )
       if (!begin.success) {
+        if (showVerifiedAccountAppeal(begin)) return
         if (getServerErrorMessageKey(begin)) return
         throw new Error(begin.message || t('Failed to start Passkey login'))
       }
@@ -358,6 +384,7 @@ export function UserAuthForm({
         assertCurrent
       )
       if (!finish.success) {
+        if (showVerifiedAccountAppeal(finish)) return
         if (getServerErrorMessageKey(finish)) return
         throw new Error(finish.message || t('Failed to complete Passkey login'))
       }
@@ -379,6 +406,7 @@ export function UserAuthForm({
       toast.success(t('Signed in with Passkey'))
     } catch (error: unknown) {
       if (axios.isCancel(error)) return
+      if (showVerifiedAccountAppeal(error)) return
       if (getServerErrorMessageKey(error)) return
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
         toast.info(t('Passkey login was cancelled or timed out'))
@@ -397,6 +425,9 @@ export function UserAuthForm({
       {/* The configured Google custom OAuth provider is promoted into the
           familiar branded entry point; all other providers stay secondary. */}
       <OAuthProviders
+        onVerifiedAccountAppeal={() =>
+          setAppealRefreshKey((value) => value + 1)
+        }
         status={status}
         redirectTo={redirectTo}
         acceptedLegal={agreedToLegal}
@@ -616,7 +647,7 @@ export function UserAuthForm({
         </Dialog>
       )}
       <div className='pt-2'>
-        <AccountAppealForm />
+        <AccountAppealForm refreshKey={appealRefreshKey} />
       </div>
     </Form>
   )

@@ -222,6 +222,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             "core_subscriptions" => &["subscriptions"],
             "core_promotions" => &["promotions"],
             "core_console" => &["notifications", "subscriptions", "promotions"],
+            // account-security includes the narrow account-appeals grants.
             "web_identity" => &["account-security"],
             _ => &[],
         };

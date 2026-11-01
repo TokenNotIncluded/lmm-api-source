@@ -39,10 +39,21 @@ import type {
 } from './types'
 
 export async function listAccountActionRequests(
-  status: AccountActionRequestStatus = 'pending'
-): Promise<ApiResponse<AccountActionRequestAdmin[]>> {
+  status: AccountActionRequestStatus | 'all' = 'pending',
+  page = 1,
+  pageSize = 20
+): Promise<
+  ApiResponse<AccountActionRequestAdmin[]> & {
+    pagination: { page: number; page_size: number; total: number }
+  }
+> {
   const res = await api.get('/api/account-action-requests', {
-    params: { status },
+    params: { status, page, page_size: pageSize },
+    withCredentials: true,
+    skipAuthRefresh: true,
+    skipErrorHandler: true,
+    skipBusinessError: true,
+    disableDuplicate: true,
   })
   return res.data
 }
@@ -50,11 +61,22 @@ export async function listAccountActionRequests(
 export async function reviewAccountActionRequest(
   id: number,
   action: 'approve' | 'reject',
-  note = ''
+  input: {
+    note: string
+    expected_revision: string
+    expected_auth_version: string
+  }
 ): Promise<ApiResponse<AccountActionRequestAdmin>> {
-  const res = await api.post(`/api/account-action-requests/${id}/${action}`, {
-    note,
-  })
+  const res = await api.post(
+    `/api/account-action-requests/${id}/${action}`,
+    input,
+    {
+      withCredentials: true,
+      skipAuthRefresh: true,
+      skipErrorHandler: true,
+      skipBusinessError: true,
+    }
+  )
   return res.data
 }
 

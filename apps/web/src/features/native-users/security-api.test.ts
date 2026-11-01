@@ -159,3 +159,72 @@ test('invalid reason and changed Session stop dispatch; late responses lose thei
   )
   assert.equal(calls, 1)
 })
+
+test('disable sends a separately supplied public reason without exposing the internal reason as public', async () => {
+  const scope = login()
+  api.defaults.adapter = async (config) => {
+    assert.deepEqual(JSON.parse(String(config.data)), {
+      expected_auth_version: user.auth_version,
+      action: 'disable',
+      reason: 'Private moderation evidence',
+      public_reason: 'Published restriction explanation',
+    })
+    return {
+      config,
+      data: { changed: true, user: { ...user, active: false } },
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  await manageUserSecurity(
+    scope,
+    user,
+    'disable',
+    'Private moderation evidence',
+    'Published restriction explanation'
+  )
+})
+
+test('public reason rejects blank, controls, oversized UTF-8, and non-disable actions before dispatch', async () => {
+  const scope = login()
+  let calls = 0
+  api.defaults.adapter = async () => {
+    calls++
+    throw new Error('must not dispatch')
+  }
+  for (const publicReason of [
+    '',
+    '   ',
+    'private\ncontrol',
+    '界'.repeat(334),
+  ]) {
+    await assert.rejects(
+      manageUserSecurity(
+        scope,
+        user,
+        'disable',
+        'Internal reason',
+        publicReason
+      ),
+      /invalid/
+    )
+  }
+  for (const action of ['enable', 'reset_mfa', 'revoke_credentials'] as const) {
+    await assert.rejects(
+      manageUserSecurity(
+        scope,
+        user,
+        action,
+        'Internal reason',
+        'Public reason'
+      ),
+      /invalid/
+    )
+  }
+  await assert.rejects(
+    manageUserSecurity(scope, user, 'disable', '', 'Public reason'),
+    /invalid/
+  )
+  assert.equal(calls, 0)
+})

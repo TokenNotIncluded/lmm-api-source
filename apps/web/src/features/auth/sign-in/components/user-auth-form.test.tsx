@@ -167,9 +167,17 @@ mock.module('@/hooks/use-status', () => ({
   useStatus: () => ({ status: activeStatus }),
 }))
 
+let beginPasskeyImpl: () => Promise<unknown> = async () => ({
+  success: false,
+  message: 'unused',
+})
+let finishPasskeyImpl: () => Promise<unknown> = async () => ({
+  success: false,
+  message: 'unused',
+})
 mock.module('@/features/auth/passkey', () => ({
-  beginPasskeyLogin: async () => ({ success: false, message: 'unused' }),
-  finishPasskeyLogin: async () => ({ success: false, message: 'unused' }),
+  beginPasskeyLogin: () => beginPasskeyImpl(),
+  finishPasskeyLogin: () => finishPasskeyImpl(),
 }))
 
 mock.module('@/lib/passkey', () => ({
@@ -182,13 +190,18 @@ mock.module('@/lib/api', () => ({
   isAuthBundle: () => true,
 }))
 
+const mockedAuthState = {
+  auth: {
+    accountWriteEpoch: 0,
+    setPending2FAFlowToken: (token: string) => pending2FATokens.push(token),
+  },
+}
 mock.module('@/stores/auth-store', () => ({
-  useAuthStore: (selector: (state: unknown) => (token: string) => void) =>
-    selector({
-      auth: {
-        setPending2FAFlowToken: (token: string) => pending2FATokens.push(token),
-      },
-    }),
+  useAuthStore: Object.assign(
+    (selector: (state: unknown) => (token: string) => void) =>
+      selector(mockedAuthState),
+    { getState: () => mockedAuthState }
+  ),
 }))
 
 mock.module('@/features/auth/hooks/use-oauth-login', () => ({
@@ -223,8 +236,14 @@ mock.module('@/features/auth/components/telegram-login-dialog', () => ({
   TelegramLoginDialog: () => null,
 }))
 
+mock.module('@/features/profile/components/account-closure-recovery', () => ({
+  AccountClosureRecovery: () => null,
+}))
+
 mock.module('./account-appeal-form', () => ({
-  AccountAppealForm: () => <div data-testid='account-appeal-form' />,
+  AccountAppealForm: ({ refreshKey }: { refreshKey: number }) => (
+    <div data-testid='account-appeal-form' data-refresh-key={refreshKey} />
+  ),
 }))
 
 const { act } = await import('react')
@@ -323,6 +342,8 @@ async function submitPassword(host: HTMLElement) {
 }
 
 beforeEach(() => {
+  beginPasskeyImpl = async () => ({ success: false, message: 'unused' })
+  finishPasskeyImpl = async () => ({ success: false, message: 'unused' })
   activeStatus = null
   loginImpl = async () => ({
     success: true,
@@ -844,5 +865,87 @@ for (const [name, response, expectedMessage] of [
     assert.deepEqual(toastSuccesses, [])
     assert.deepEqual(successBundles, [])
     assert.equal(passwordSubmitButton(host).disabled, false)
+  })
+}
+
+test('verified disabled password login refreshes the Cookie appeal context without completing login', async () => {
+  loginImpl = async () => {
+    throw loginHttpError(403, {
+      code: 'AUTH_USER_DISABLED',
+      message: 'PRIVATE diagnostic',
+      data: {
+        appeal_available: true,
+        username: 'alice',
+        public_reason: null,
+        public_reason_available: false,
+        expires_at: Math.floor(Date.now() / 1000) + 600,
+      },
+    })
+  }
+  const host = await render({})
+  await fillCredentials(host)
+  await submitPassword(host)
+  assert.equal(
+    host
+      .querySelector('[data-testid="account-appeal-form"]')
+      ?.getAttribute('data-refresh-key'),
+    '1'
+  )
+  assert.deepEqual(successBundles, [])
+  assert.deepEqual(pending2FATokens, [])
+  assert.deepEqual(toastErrors, [
+    'Submit an appeal using your verified identity. No local password is needed.',
+  ])
+})
+
+for (const stage of ['begin', 'finish'] as const) {
+  test(`disabled sign-in Passkey ${stage} refreshes the verified appeal form instead of completing login`, async () => {
+    let finishes = 0
+    const disabled = () =>
+      loginHttpError(403, {
+        code: 'AUTH_USER_DISABLED',
+        message: 'PRIVATE diagnostic',
+        data: {
+          appeal_available: true,
+          username: 'passkey-user',
+          public_reason: null,
+          public_reason_available: false,
+          expires_at: Math.floor(Date.now() / 1000) + 600,
+        },
+      })
+    beginPasskeyImpl = async () => {
+      if (stage === 'begin') throw disabled()
+      return {
+        success: true,
+        data: { options: { challenge: 'AQI' }, flow_token: 'passkey-flow' },
+      }
+    }
+    finishPasskeyImpl = async () => {
+      finishes++
+      throw disabled()
+    }
+    Object.defineProperty(navigator, 'credentials', {
+      configurable: true,
+      value: { get: async () => ({ id: 'synthetic-passkey' }) },
+    })
+    const host = await render({ passkey_login: true })
+    await waitFor(
+      () => !buttonByName(host, 'Sign in with Passkey').disabled,
+      'Passkey is unavailable'
+    )
+    await click(buttonByName(host, 'Sign in with Passkey'))
+    assert.equal(
+      host
+        .querySelector('[data-testid="account-appeal-form"]')
+        ?.getAttribute('data-refresh-key'),
+      '1'
+    )
+    assert.equal(finishes, stage === 'finish' ? 1 : 0)
+    assert.deepEqual(successBundles, [])
+    assert.deepEqual(pending2FATokens, [])
+    assert.deepEqual(toastSuccesses, [])
+    assert.deepEqual(toastErrors, [
+      'Submit an appeal using your verified identity. No local password is needed.',
+    ])
   })
 }

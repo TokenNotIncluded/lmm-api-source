@@ -30,6 +30,11 @@ import {
 } from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  appealContextSchema,
+  appealReceiptSchema,
+  type AccountAppealReceipt,
+} from './lib/account-appeal'
 import { getAffiliateCode } from './lib/storage'
 import {
   parseTelegramMFAChallenge,
@@ -101,31 +106,50 @@ export async function login(payload: LoginPayload, signal?: AbortSignal) {
   }, signal)
 }
 
-export type AccountAppealResponse = {
-  id: number
-  status: 'pending' | 'approved' | 'rejected'
-  reason: string
-  created_at: number
-  reviewed_at: number
-  admin_note: string
+const appealRequestConfig = {
+  withCredentials: true,
+  skipAuthRefresh: true,
+  skipErrorHandler: true,
+  skipBusinessError: true,
 }
 
-export async function submitAccountAppeal(input: {
-  username: string
-  password: string
-  reason: string
-  turnstile?: string
-}): Promise<ApiResponse<AccountAppealResponse>> {
-  const res = await api.post<ApiResponse<AccountAppealResponse>>(
-    `/api/user/account-action-requests/appeal?turnstile=${encodeURIComponent(input.turnstile ?? '')}`,
-    {
-      username: input.username,
-      password: input.password,
-      reason: input.reason,
-    },
-    { skipAuthRefresh: true, skipErrorHandler: true }
+export async function getAccountAppealContext() {
+  const res = await api.get('/api/user/account-action-requests/appeal', {
+    ...appealRequestConfig,
+    disableDuplicate: true,
+  })
+  if (res.data?.success !== true) {
+    throw new Error('Unable to load account appeal')
+  }
+  return appealContextSchema.parse(res.data.data)
+}
+
+export async function submitAccountAppeal(
+  input: {
+    reason: string
+    turnstile?: string
+  } & (
+    | { username: string; password: string }
+    | { username?: never; password?: never }
   )
-  return res.data
+): Promise<ApiResponse<AccountAppealReceipt>> {
+  const res = await api.post(
+    `/api/user/account-action-requests/appeal?turnstile=${encodeURIComponent(input.turnstile ?? '')}`,
+    'username' in input
+      ? {
+          username: input.username,
+          password: input.password,
+          reason: input.reason,
+        }
+      : { reason: input.reason },
+    appealRequestConfig
+  )
+  if (res.data?.success !== true) throw new Error('Unable to submit appeal')
+  return {
+    success: true,
+    message: '',
+    data: appealReceiptSchema.parse(res.data.data),
+  }
 }
 
 // Two-factor authentication login

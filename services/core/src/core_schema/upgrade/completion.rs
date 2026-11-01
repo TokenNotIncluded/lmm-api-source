@@ -70,7 +70,7 @@ pub(super) fn validate(r: &UpgradeRequest) -> Result<(), UpgradeError> {
 pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     if COMPONENTS.len() <= 32
         || COMPONENTS[31].0 != "coinbase-payments"
-        || COMPONENTS.last().map(|v| v.0) != Some("completion-upgrade")
+        || COMPONENTS.get(40).map(|v| v.0) != Some("completion-upgrade")
     {
         return Err(reject("COMPLETION_COMPILED_COMPONENTS_CHANGED"));
     }

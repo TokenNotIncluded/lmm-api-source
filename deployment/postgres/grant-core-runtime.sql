@@ -359,6 +359,15 @@ GRANT SELECT,INSERT(issuer,subject,user_id,revoked_at),UPDATE(revision,revoked_a
     ON core_account_links.oauth_states TO :"runtime_role";
 GRANT SELECT,DELETE,INSERT(state_digest,issuer,binding_digest,user_id,user_version,sid)
     ON core_account_links.bind_flows TO :"runtime_role";
+-- BEGIN account-appeals runtime grants
+GRANT USAGE ON SCHEMA core_account_appeals TO :"runtime_role";
+GRANT SELECT,INSERT ON core_account_appeals.requests TO :"runtime_role";
+GRANT UPDATE(status,admin_note,reviewed_by,reviewed_at,revision)
+    ON core_account_appeals.requests TO :"runtime_role";
+GRANT SELECT,INSERT,DELETE ON core_account_appeals.flows TO :"runtime_role";
+GRANT UPDATE(request_id) ON core_account_appeals.flows TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_account_appeals.requests_id_seq TO :"runtime_role";
+-- END account-appeals runtime grants
 -- END account-security runtime grants
 GRANT USAGE ON SCHEMA core_telegram_auth TO :"runtime_role";
 GRANT SELECT ON core_telegram_auth.bindings, core_telegram_auth.flows,

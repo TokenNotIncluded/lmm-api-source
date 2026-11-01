@@ -1,5 +1,10 @@
 //! Core-owned administrator user reads and a separate conditional display-name update.
+mod appeals;
 mod balance_adjustments;
+pub use appeals::{
+    AccountAppealAdmin, AccountAppealsPage, AccountAppealsQuery, AppealReviewAction,
+    AppealReviewRequest,
+};
 mod http;
 mod profile_mutation;
 mod security;

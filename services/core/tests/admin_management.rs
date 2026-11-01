@@ -21,6 +21,7 @@ fn security_request(version: &str, action: SecurityAction) -> SecurityRequest {
         expected_auth_version: version.to_owned(),
         action,
         reason: "Synthetic administrator recovery".into(),
+        public_reason: None,
     }
 }
 fn adjustment_request(delta: &str, key: &str) -> AdjustmentRequest {

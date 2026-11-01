@@ -90,4 +90,16 @@ REVOKE ALL PRIVILEGES ON core_gift.decisions, core_gift.registration_profiles,
 REVOKE ALL PRIVILEGES ON SEQUENCE core_gift.fingerprints_id_seq
     FROM :"runtime_role";
 
+-- Account appeal capability: also revoke column grants before re-provisioning.
+REVOKE ALL PRIVILEGES ON SCHEMA core_account_appeals FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_account_appeals FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA core_account_appeals FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_account_appeals FROM :"runtime_role";
+REVOKE INSERT(id,user_id,user_version,reason,status,admin_note,reviewed_by,created_at,reviewed_at,revision),
+    UPDATE(id,user_id,user_version,reason,status,admin_note,reviewed_by,created_at,reviewed_at,revision)
+    ON core_account_appeals.requests FROM :"runtime_role";
+REVOKE INSERT(digest,user_id,user_version,proof_kind,expires_at,request_id,created_at),
+    UPDATE(digest,user_id,user_version,proof_kind,expires_at,request_id,created_at)
+    ON core_account_appeals.flows FROM :"runtime_role";
+
 COMMIT;

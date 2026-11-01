@@ -255,6 +255,7 @@ async fn challenges_are_bound_and_wrong_factor_attempts_commit_exactly_once(pool
         .unwrap()
     {
         BrowserLoginOutcome::Challenge(challenge) => challenge,
+        BrowserLoginOutcome::Disabled(_) => panic!("unexpected disabled account"),
         BrowserLoginOutcome::Session(_) => panic!("browser password bypassed the required factor"),
     };
     assert!(challenge.require_2fa);

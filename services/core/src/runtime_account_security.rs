@@ -1,4 +1,4 @@
-//! Read-only verification of Passkey, account-link and closure authority.
+//! Read-only verification of Passkey, account-link, closure and appeal authority.
 use super::RuntimeDatabaseError;
 use sqlx::PgConnection;
 
@@ -9,7 +9,7 @@ pub(super) async fn check(
     let (unsafe_privileges, complete): (bool, bool) = sqlx::query_as(
         r#"
 WITH expected_schemas(name) AS (
-    VALUES ('core_passkeys'),('core_account_links'),('core_account_lifecycle')
+    VALUES ('core_passkeys'),('core_account_links'),('core_account_lifecycle'),('core_account_appeals')
 ), namespaces AS (
     SELECT n.oid,n.nspname FROM pg_catalog.pg_namespace n
     JOIN expected_schemas e ON e.name=n.nspname
@@ -19,9 +19,34 @@ WITH expected_schemas(name) AS (
            ('core_passkeys','flows',true),
            ('core_account_links','oauth_states',false),
            ('core_account_links','bind_flows',true),
-           ('core_account_lifecycle','closures',false)
+           ('core_account_lifecycle','closures',false),
+           ('core_account_appeals','requests',false),
+           ('core_account_appeals','flows',true)
 ), allowed_columns(schema_name,table_name,column_name,privilege) AS (
     VALUES
+      ('core_account_appeals','requests','id','INSERT'),
+      ('core_account_appeals','requests','user_id','INSERT'),
+      ('core_account_appeals','requests','user_version','INSERT'),
+      ('core_account_appeals','requests','reason','INSERT'),
+      ('core_account_appeals','requests','status','INSERT'),
+      ('core_account_appeals','requests','admin_note','INSERT'),
+      ('core_account_appeals','requests','reviewed_by','INSERT'),
+      ('core_account_appeals','requests','created_at','INSERT'),
+      ('core_account_appeals','requests','reviewed_at','INSERT'),
+      ('core_account_appeals','requests','revision','INSERT'),
+      ('core_account_appeals','flows','digest','INSERT'),
+      ('core_account_appeals','flows','user_id','INSERT'),
+      ('core_account_appeals','flows','user_version','INSERT'),
+      ('core_account_appeals','flows','proof_kind','INSERT'),
+      ('core_account_appeals','flows','expires_at','INSERT'),
+      ('core_account_appeals','flows','request_id','INSERT'),
+      ('core_account_appeals','flows','created_at','INSERT'),
+      ('core_account_appeals','requests','status','UPDATE'),
+      ('core_account_appeals','requests','admin_note','UPDATE'),
+      ('core_account_appeals','requests','reviewed_by','UPDATE'),
+      ('core_account_appeals','requests','reviewed_at','UPDATE'),
+      ('core_account_appeals','requests','revision','UPDATE'),
+      ('core_account_appeals','flows','request_id','UPDATE'),
       ('core_passkeys','user_handles','user_id','INSERT'),
       ('core_passkeys','credentials','user_id','INSERT'),
       ('core_passkeys','credentials','credential_id','INSERT'),
@@ -61,6 +86,10 @@ WITH expected_schemas(name) AS (
     LEFT JOIN expected_tables e ON e.schema_name=n.nspname
         AND e.name=c.relname AND c.relkind='r'
     WHERE c.relkind IN ('r','p','v','m','f')
+    UNION ALL
+    SELECT c.oid,n.nspname,c.relname,NULL::text,false
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='core_meta' AND c.relname='account_appeal_upgrades'
 ), functions AS (
     SELECT p.oid, n.nspname='core_account_lifecycle'
         AND p.proname='wallet_is_empty' AND p.pronargs=1
@@ -72,7 +101,10 @@ SELECT (
         pg_catalog.has_schema_privilege(n.oid,'CREATE,USAGE WITH GRANT OPTION'))
     OR EXISTS(SELECT FROM relations r WHERE
         pg_catalog.has_table_privilege(r.oid,
-            'INSERT,UPDATE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
+            'UPDATE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
+        OR ((r.nspname<>'core_account_appeals' OR r.relname NOT IN ('requests','flows'))
+            AND pg_catalog.has_table_privilege(r.oid,'INSERT'))
+        OR pg_catalog.has_table_privilege(r.oid,'INSERT WITH GRANT OPTION')
         OR pg_catalog.has_any_column_privilege(r.oid,'REFERENCES')
         OR pg_catalog.has_table_privilege(r.oid,
             'SELECT WITH GRANT OPTION,DELETE WITH GRANT OPTION')
@@ -99,7 +131,8 @@ SELECT (
         WHERE CASE WHEN c.relkind='S' THEN
             pg_catalog.has_sequence_privilege(c.oid,
                 'SELECT,UPDATE,USAGE WITH GRANT OPTION,SELECT WITH GRANT OPTION,UPDATE WITH GRANT OPTION')
-            OR ((n.nspname<>'core_passkeys' OR c.relname<>'credentials_id_seq')
+            OR (NOT ((n.nspname='core_passkeys' AND c.relname='credentials_id_seq')
+                OR (n.nspname='core_account_appeals' AND c.relname='requests_id_seq'))
                 AND pg_catalog.has_sequence_privilege(c.oid,'USAGE'))
             ELSE FALSE END)
     OR EXISTS(SELECT FROM functions f WHERE
@@ -131,6 +164,9 @@ SELECT (
     AND COALESCE((SELECT pg_catalog.has_sequence_privilege(c.oid,'USAGE')
         FROM namespaces n JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
         WHERE n.nspname='core_passkeys' AND c.relname='credentials_id_seq' AND c.relkind='S'),false)
+    AND COALESCE((SELECT pg_catalog.has_sequence_privilege(c.oid,'USAGE')
+        FROM namespaces n JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
+        WHERE n.nspname='core_account_appeals' AND c.relname='requests_id_seq' AND c.relkind='S'),false)
     AND COALESCE((SELECT pg_catalog.has_function_privilege(f.oid,'EXECUTE')
         FROM functions f WHERE f.allowed),false)
 ) AS complete

@@ -4,8 +4,11 @@ import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
+import { AxiosError } from 'axios'
 import { Window } from 'happy-dom'
+import i18next from 'i18next'
 import type { ComponentType, ReactNode } from 'react'
+import { toast } from 'sonner'
 
 import type { AuthBundle } from '@/stores/auth-store'
 
@@ -590,4 +593,145 @@ test('returning to login invalidates an already pending Passkey finish', async (
     host.querySelector('h2')?.textContent,
     'Signing you in with GitHub'
   )
+})
+
+test('disabled GitHub identity redirects to a Cookie-backed appeal without creating an ordinary session', async () => {
+  await i18next.init({ lng: 'en', resources: { en: { translation: {} } } })
+  search = { code: 'verified-oauth-code', state: 'verified-oauth-state' }
+  const errors: unknown[] = []
+  const originalError = toast.error
+  toast.error = (message) => {
+    errors.push(message)
+    return 'disabled'
+  }
+  let calls = 0
+  api.defaults.adapter = async (config) => {
+    calls++
+    assert.equal(config.url, '/api/oauth/github')
+    assert.equal(config.skipAuthRefresh, true)
+    assert.equal(config.skipErrorHandler, true)
+    assert.equal(config.skipBusinessError, true)
+    assert.equal(config.withCredentials, true)
+    const data = {
+      success: false,
+      code: 'AUTH_USER_DISABLED',
+      message: 'PRIVATE diagnostic',
+      data: {
+        appeal_available: true,
+        username: 'github-only',
+        public_reason: null,
+        public_reason_available: false,
+        expires_at: Math.floor(Date.now() / 1000) + 600,
+      },
+    }
+    throw new AxiosError(
+      'PRIVATE transport',
+      'ERR_BAD_RESPONSE',
+      config,
+      undefined,
+      {
+        config,
+        status: 403,
+        statusText: 'Forbidden',
+        headers: { 'set-cookie': ['synthetic-httponly-appeal'] },
+        data,
+      }
+    )
+  }
+  try {
+    await mount()
+    assert.equal(calls, 1)
+    assert.equal(navigations.at(-1)?.href, '/sign-in')
+    assert.deepEqual(errors, [
+      'Submit an appeal using your verified identity. No local password is needed.',
+    ])
+    assert.equal(useAuthStore.getState().auth.session, null)
+    assert.equal(useAuthStore.getState().auth.accessToken, null)
+    assert.doesNotMatch(
+      JSON.stringify(navigations),
+      /proof|synthetic-httponly-appeal|verified-oauth-code/
+    )
+    assert.doesNotMatch(
+      JSON.stringify(localStorage),
+      /synthetic-httponly-appeal/
+    )
+  } finally {
+    toast.error = originalError
+  }
+})
+
+test('disabled OAuth Passkey continuation offers the verified Cookie appeal and exits the challenge without a session', async () => {
+  await i18next.init({ lng: 'en', resources: { en: { translation: {} } } })
+  respondWithChallenge({
+    require_passkey: true,
+    flow_token: 'bound-passkey-flow',
+    options: { challenge: 'AQI' },
+  })
+  Object.defineProperty(navigator, 'credentials', {
+    configurable: true,
+    value: { get: async () => credential() },
+  })
+  const originalError = toast.error
+  const errors: unknown[] = []
+  toast.error = (message) => {
+    errors.push(message)
+    return 'disabled-passkey'
+  }
+  let writes = 0
+  api.defaults.adapter = async (config) => {
+    writes++
+    assert.equal(config.url, '/api/user/passkey/login/finish')
+    assert.equal(config.withCredentials, true)
+    assert.equal(config.skipAuthRefresh, true)
+    assert.equal(config.skipErrorHandler, true)
+    throw new AxiosError(
+      'PRIVATE transport',
+      'ERR_BAD_RESPONSE',
+      config,
+      undefined,
+      {
+        config,
+        status: 403,
+        statusText: 'Forbidden',
+        headers: { 'set-cookie': ['synthetic-httponly-appeal'] },
+        data: {
+          success: false,
+          code: 'AUTH_USER_DISABLED',
+          message: 'PRIVATE diagnostic',
+          data: {
+            appeal_available: true,
+            username: 'passkey-user',
+            public_reason: null,
+            public_reason_available: false,
+            expires_at: Math.floor(Date.now() / 1000) + 600,
+          },
+        },
+      }
+    )
+  }
+  try {
+    const host = await mount()
+    const verify = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Sign in with Passkey'
+    )
+    assert.ok(verify)
+    await act(async () => verify.click())
+    assert.equal(writes, 1)
+    assert.deepEqual(errors, [
+      'Submit an appeal using your verified identity. No local password is needed.',
+    ])
+    assert.equal(navigations.length, 1)
+    assert.equal(navigations[0].href, '/sign-in')
+    assert.equal(useAuthStore.getState().auth.session, null)
+    assert.equal(useAuthStore.getState().auth.accessToken, null)
+    assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, null)
+    assert.equal(
+      Array.from(host.querySelectorAll('button')).some(
+        (button) => button.textContent === 'Sign in with Passkey'
+      ),
+      false
+    )
+  } finally {
+    toast.error = originalError
+  }
 })

@@ -401,6 +401,7 @@ async fn account_security_notifications_share_the_audit_transaction(pool: PgPool
                 expected_auth_version: before.auth_version,
                 action: SecurityAction::RevokeCredentials,
                 reason: "Synthetic authorized security reset".into(),
+                public_reason: None,
             },
         )
         .await

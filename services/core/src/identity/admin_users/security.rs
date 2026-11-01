@@ -39,6 +39,8 @@ pub struct SecurityRequest {
     pub expected_auth_version: String,
     pub action: SecurityAction,
     pub reason: String,
+    #[serde(default)]
+    pub public_reason: Option<String>,
 }
 impl SecurityRequest {
     fn validate(&self) -> Result<i64> {
@@ -50,6 +52,12 @@ impl SecurityRequest {
             || self.reason.trim().is_empty()
             || self.reason.len() > 1000
             || self.reason.chars().any(char::is_control)
+            || self.public_reason.as_ref().is_some_and(|reason| {
+                self.action != SecurityAction::Disable
+                    || reason.trim().is_empty()
+                    || reason.len() > 1000
+                    || reason.chars().any(char::is_control)
+            })
         {
             return Err(ProfileError::Invalid);
         }
@@ -76,7 +84,7 @@ pub struct SecurityUpdate {
     pub user: SecuritySnapshot,
 }
 
-async fn target(c: &mut PgConnection, id: i64, lock: bool) -> Result<SecuritySnapshot> {
+pub(super) async fn target(c: &mut PgConnection, id: i64, lock: bool) -> Result<SecuritySnapshot> {
     if id <= 0 {
         return Err(ProfileError::Invalid);
     }
@@ -183,7 +191,9 @@ impl AdminUsersStore {
                 input.action.audit_name(),
                 serde_json::json!({
                     "user_id": id, "previous_auth_version": input.expected_auth_version,
-                    "reason": input.reason.trim(), "active": active
+                    "reason": input.reason.trim(), "active": active,
+                    "auth_version": (expected + 1).to_string(),
+                    "public_reason": input.public_reason.as_ref().map(|reason| reason.trim())
                 }),
             )
             .await?;

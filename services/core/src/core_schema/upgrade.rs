@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgConnection, Row};
 use std::{collections::BTreeMap, fmt, io::Read};
+mod account_appeals;
 mod additive;
 mod coinbase_payments;
 mod completion;
@@ -223,6 +224,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == account_appeals::PROCEDURE {
+            return account_appeals::validate(self);
+        }
         if self.procedure == completion::PROCEDURE {
             return completion::validate(self);
         }
@@ -292,6 +296,9 @@ impl UpgradeRequest {
         Ok(())
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
+        if self.procedure == account_appeals::PROCEDURE {
+            return account_appeals::authorize_target();
+        }
         self.validate()?;
         if self.procedure == completion::PROCEDURE {
             return completion::authorize_target();
@@ -379,7 +386,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == completion::PROCEDURE {
+    let result = if request.procedure == account_appeals::PROCEDURE {
+        account_appeals::connected(&mut connection, &request).await
+    } else if request.procedure == completion::PROCEDURE {
         completion::connected(&mut connection, &request).await
     } else if request.procedure == coinbase_payments::PROCEDURE {
         coinbase_payments::connected(&mut connection, &request).await

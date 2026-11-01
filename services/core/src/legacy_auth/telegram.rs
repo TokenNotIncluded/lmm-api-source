@@ -139,6 +139,9 @@ async fn login(
     }
     .await;
     let response = match result {
+        Ok((BrowserLoginOutcome::Disabled(grant), _)) => {
+            account_appeals::disabled_response(grant, &state.config, false)
+        }
         Ok((BrowserLoginOutcome::Session(bundle), _)) => bundle_response(bundle, &state.config),
         Ok((BrowserLoginOutcome::Challenge(challenge), binding)) => mfa_flow_cookie(
             success(Some(json!(challenge))),

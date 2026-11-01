@@ -44,6 +44,7 @@ import type { SystemStatus } from '../types'
 import { TelegramLoginDialog } from './telegram-login-dialog'
 
 type OAuthProvidersProps = {
+  onVerifiedAccountAppeal?: () => void
   status: SystemStatus | null
   disabled?: boolean
   className?: string
@@ -75,6 +76,7 @@ export function OAuthProviders({
   acceptedLegal = false,
   featureGoogle = false,
   registrationOnly = false,
+  onVerifiedAccountAppeal,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
   const {
@@ -92,7 +94,7 @@ export function OAuthProviders({
     isTelegramPending,
     handleTelegramAuthorization,
     handleTelegramDialogChange,
-  } = useOAuthLogin(status, redirectTo, acceptedLegal)
+  } = useOAuthLogin(status, redirectTo, acceptedLegal, onVerifiedAccountAppeal)
 
   const providerButtons: ProviderButton[] = []
   const disabledRegistrationMethods = registrationOnly

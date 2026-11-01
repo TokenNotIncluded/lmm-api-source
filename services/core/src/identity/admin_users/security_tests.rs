@@ -5,6 +5,7 @@ fn request(version: &str, action: SecurityAction) -> SecurityRequest {
         expected_auth_version: version.to_owned(),
         action,
         reason: "Synthetic administrator recovery".to_owned(),
+        public_reason: None,
     }
 }
 

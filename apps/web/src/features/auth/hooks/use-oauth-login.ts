@@ -33,6 +33,7 @@ import {
   startTelegramLogin,
   telegramLogin,
 } from '../api'
+import { hasVerifiedAccountAppeal } from '../lib/account-appeal'
 import {
   EXTERNAL_BROWSER_PRESETS,
   type ExternalBrowserProvider,
@@ -115,7 +116,8 @@ function navigateToTrustedOAuthEndpoint(
 export function useOAuthLogin(
   status: SystemStatus | null,
   redirectTo?: string,
-  acceptedLegal = false
+  acceptedLegal = false,
+  onVerifiedAccountAppeal?: () => void
 ) {
   const { t } = useTranslation()
   const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
@@ -373,6 +375,15 @@ export function useOAuthLogin(
   }
 
   const showTelegramError = (error: unknown, fallback = t('Login failed')) => {
+    if (hasVerifiedAccountAppeal(error)) {
+      onVerifiedAccountAppeal?.()
+      toast.error(
+        t(
+          'Submit an appeal using your verified identity. No local password is needed.'
+        )
+      )
+      return
+    }
     if (error instanceof AuthCookieBlockedError) {
       toast.error(error.message)
       return

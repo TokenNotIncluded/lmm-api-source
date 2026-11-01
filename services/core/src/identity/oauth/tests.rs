@@ -989,18 +989,46 @@ async fn google_browser_signed_routes_cookie_refresh_replay_policy_and_registrat
         };
         sqlx::query(sql).bind(user).execute(&pool).await.unwrap();
         let before = identity_counts(&pool).await;
-        assert_eq!(
-            web_call(
-                &app,
-                "GET",
-                &format!("/api/oauth/google/callback?state={state}&code={code}"),
-                Some(&cookie),
-                None
-            )
-            .await
-            .0,
-            StatusCode::UNAUTHORIZED
-        );
+        let (status, headers, body) = web_call(
+            &app,
+            "GET",
+            &format!("/api/oauth/google/callback?state={state}&code={code}"),
+            Some(&cookie),
+            None,
+        )
+        .await;
+        if policy == "disabled-user" {
+            assert_eq!(status, StatusCode::SEE_OTHER);
+            assert_eq!(headers["location"], "/sign-in");
+            assert!(body.is_null());
+            let proof_cookie = headers
+                .get_all("set-cookie")
+                .iter()
+                .map(|v| v.to_str().unwrap())
+                .find(|v| v.starts_with("lmm_account_appeal="))
+                .expect("disabled Google callback must set a private appeal Cookie");
+            let token = proof_cookie
+                .split(';')
+                .next()
+                .unwrap()
+                .strip_prefix("lmm_account_appeal=")
+                .unwrap();
+            assert!(proof_cookie.contains("HttpOnly"));
+            assert!(proof_cookie.contains("Secure"));
+            let browser = crate::identity::BrowserAuth::new(store.clone(), &[43; 32]).unwrap();
+            let context = browser.account_appeal_context(token).await.unwrap();
+            assert!(context.request.is_none());
+            assert!(matches!(
+                store.authorize(token).await,
+                Err(IdentityError::Unauthorized)
+            ));
+            assert!(headers.get_all("set-cookie").iter().any(|v| {
+                let v = v.to_str().unwrap();
+                v.starts_with("new_api_refresh=;") && v.contains("Max-Age=0")
+            }));
+        } else {
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
         assert_eq!(before, identity_counts(&pool).await);
         sqlx::query(undo).bind(user).execute(&pool).await.unwrap();
     }

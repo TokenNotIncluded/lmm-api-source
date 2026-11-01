@@ -275,9 +275,15 @@ export interface ManageUserTrustLevelPayload {
 }
 
 export type AccountActionRequestKind = 'disable' | 'appeal'
-export type AccountActionRequestStatus = 'pending' | 'approved' | 'rejected'
+export type AccountActionRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'superseded'
 
 export interface AccountActionRequestAdmin {
+  revision: string
+  auth_version: string
   id: number
   target_user_id: number
   requested_by_user_id: number

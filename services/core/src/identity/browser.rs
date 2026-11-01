@@ -1,4 +1,8 @@
 //! Browser-session compatibility without importing legacy sessions or funds.
+mod account_appeals;
+pub use account_appeals::{
+    ACCOUNT_APPEALS_SCHEMA, AccountAppealContext, AccountAppealGrant, AccountAppealReceipt,
+};
 mod account_lifecycle;
 mod account_links;
 pub use account_links::{
@@ -145,7 +149,8 @@ impl BrowserAuth {
             .await
         {
             Ok(super::mfa::BrowserLoginOutcome::Session(bundle)) => Ok(bundle),
-            Ok(super::mfa::BrowserLoginOutcome::Challenge(_)) => {
+            Ok(super::mfa::BrowserLoginOutcome::Challenge(_))
+            | Ok(super::mfa::BrowserLoginOutcome::Disabled(_)) => {
                 Err(IdentityError::Unauthorized.into())
             }
             Err(super::mfa::MfaError::Identity(error)) => Err(error.into()),
@@ -159,30 +164,22 @@ impl BrowserAuth {
         metadata: &BrowserSessionMetadata,
         binding: &str,
     ) -> super::mfa::MfaResult<super::mfa::BrowserLoginOutcome> {
-        let username = username.trim();
-        if username.is_empty()
-            || username.len() > 320
-            || metadata.ip.len() > 128
-            || metadata.user_agent.len() > 1024
-        {
+        if metadata.ip.len() > 128 || metadata.user_agent.len() > 1024 {
             return Err(IdentityError::Unauthorized.into());
         }
-        let names:Vec<String>=sqlx::query_scalar("SELECT p.login_name FROM core_identity.password_logins p JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id WHERE pr.username=$1 OR (pr.email_login_allowed AND pr.email<>'' AND pr.email=$1) LIMIT 2").bind(username).fetch_all(&self.store.pool).await?;
-        // Still perform a bounded dummy hash for unknown and ambiguous identities.
-        let canonical = if names.len() == 1 {
-            names[0].clone()
-        } else {
-            format!("missing_{}", &new_secret("")?[..32])
-        };
-        let verified = self.store.verified_password(&canonical, password).await?;
-        if names.len() != 1 {
-            return Err(IdentityError::Unauthorized.into());
-        }
+        let (canonical, verified) = self.verified_browser_password(username, password).await?;
         let mut tx = self.store.pool.begin().await?;
         let user = self
             .store
-            .lock_password_user(&mut tx, &canonical, &verified)
+            .lock_password_for_browser(&mut tx, &canonical, &verified)
             .await?;
+        if let Some(grant) = self
+            .disabled_account_appeal(&mut tx, user, "password")
+            .await?
+        {
+            tx.commit().await?;
+            return Ok(super::mfa::BrowserLoginOutcome::Disabled(grant));
+        }
         let required: bool = sqlx::query_scalar(
             "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
         )
@@ -209,6 +206,47 @@ impl BrowserAuth {
         };
         tx.commit().await?;
         Ok(outcome)
+    }
+    async fn verified_browser_password(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(String, (String, Option<String>))> {
+        let username = username.trim();
+        if username.is_empty() || username.len() > 320 {
+            return Err(IdentityError::Unauthorized);
+        }
+        let names:Vec<String>=sqlx::query_scalar("SELECT p.login_name FROM core_identity.password_logins p JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id WHERE pr.username=$1 OR (pr.email_login_allowed AND pr.email<>'' AND pr.email=$1) LIMIT 2").bind(username).fetch_all(&self.store.pool).await?;
+        // Still perform a bounded dummy hash for unknown and ambiguous identities.
+        let canonical = if names.len() == 1 {
+            names[0].clone()
+        } else {
+            format!("missing_{}", &new_secret("")?[..32])
+        };
+        let verified = self.store.verified_password(&canonical, password).await?;
+        if names.len() != 1 {
+            return Err(IdentityError::Unauthorized);
+        }
+        Ok((canonical, verified))
+    }
+    /// Verify disabled ownership without issuing a session or an MFA challenge.
+    pub async fn password_account_appeal(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<AccountAppealGrant> {
+        let (canonical, verified) = self.verified_browser_password(username, password).await?;
+        let mut tx = self.store.pool.begin().await?;
+        let user = self
+            .store
+            .lock_password_for_browser(&mut tx, &canonical, &verified)
+            .await?;
+        let grant = self
+            .disabled_account_appeal(&mut tx, user, "password")
+            .await?
+            .ok_or(IdentityError::Forbidden)?;
+        tx.commit().await?;
+        Ok(grant)
     }
     pub async fn complete_mfa_login(
         &self,

@@ -247,6 +247,9 @@ async fn callback(
     }
     .await;
     let response = match result {
+        Ok((BrowserLoginOutcome::Disabled(grant), _)) => {
+            account_appeals::disabled_response(grant, &state.config, direct_browser)
+        }
         Ok((BrowserLoginOutcome::Session(bundle), _)) if direct_browser => set_cookie(
             Redirect::to("/console").into_response(),
             Some((&bundle.refresh_token, bundle.expires_at)),

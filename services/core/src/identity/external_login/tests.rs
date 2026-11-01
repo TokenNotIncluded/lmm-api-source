@@ -182,6 +182,7 @@ async fn login(browser: &BrowserAuth, provider: ExternalProvider, code: &str) ->
     let state = begin(browser, provider).await;
     match finish(browser, provider, &state, code).await.unwrap() {
         BrowserLoginOutcome::Session(bundle) => bundle,
+        BrowserLoginOutcome::Disabled(_) => panic!("unexpected disabled account"),
         BrowserLoginOutcome::Challenge(_) => panic!("unexpected factor challenge for new account"),
     }
 }
@@ -505,38 +506,156 @@ async fn registration_email_domain_external_new_subject_denied_existing_login_al
 
 #[sqlx::test(migrations = false)]
 async fn inactive_user_and_account_cannot_issue_external_browser_families(pool: PgPool) {
-    let github = ProviderServer::start(ExternalProvider::Github).await;
-    let store = setup(&pool)
-        .await
-        .with_external_oauth(github.config())
-        .unwrap();
-    let browser = browser(&store);
-    let disabled_user = login(&browser, ExternalProvider::Github, "existing").await;
-    let disabled_account = login(&browser, ExternalProvider::Github, "different").await;
-    sqlx::query("UPDATE core_identity.users SET active=FALSE WHERE id=$1")
-        .bind(user(&disabled_user))
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE core_identity.accounts SET active=FALSE WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)").bind(user(&disabled_account)).execute(&pool).await.unwrap();
-    let before = counts(&pool).await;
-    for code in ["existing", "different"] {
-        let state = begin(&browser, ExternalProvider::Github).await;
+    crate::core_schema::init(&pool).await.unwrap();
+    let base = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
+    for provider in [
+        ExternalProvider::Github,
+        ExternalProvider::LinuxDo,
+        ExternalProvider::Discord,
+    ] {
+        let server = ProviderServer::start(provider).await;
+        let store = base.clone().with_external_oauth(server.config()).unwrap();
+        let browser = browser(&store);
+        let disabled_user = login(&browser, provider, "existing").await;
+        let disabled_account = login(&browser, provider, "different").await;
+        sqlx::query("UPDATE core_identity.users SET active=FALSE WHERE id=$1")
+            .bind(user(&disabled_user))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE core_identity.accounts SET active=FALSE WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)")
+            .bind(user(&disabled_account)).execute(&pool).await.unwrap();
+        let before = counts(&pool).await;
+        let state = begin(&browser, provider).await;
+        let grant = match finish(&browser, provider, &state, "existing")
+            .await
+            .unwrap()
+        {
+            BrowserLoginOutcome::Disabled(grant) => grant,
+            _ => panic!("disabled primary identity must receive only an appeal grant"),
+        };
+        let context = browser.account_appeal_context(&grant.token).await.unwrap();
+        assert_eq!(
+            context.username,
+            disabled_user.data["user"]["username"].as_str().unwrap()
+        );
+        assert!(context.request.is_none());
+        assert_eq!(counts(&pool).await, before);
+        let state = begin(&browser, provider).await;
         assert!(matches!(
-            finish(&browser, ExternalProvider::Github, &state, code).await,
+            finish(&browser, provider, &state, "different").await,
             Err(MfaError::Identity(IdentityError::Unauthorized))
         ));
         assert_eq!(counts(&pool).await, before);
+        for original in [&disabled_user, &disabled_account] {
+            assert!(matches!(
+                store.authorize(access(original)).await,
+                Err(IdentityError::Unauthorized)
+            ));
+        }
+        assert_eq!(server.calls(), (4, 4));
     }
+}
+
+#[sqlx::test(migrations = false)]
+async fn github_oauth_only_disabled_primary_can_submit_appeal_without_password_or_mfa(
+    pool: PgPool,
+) {
+    crate::core_schema::init(&pool).await.unwrap();
+    let github = ProviderServer::start(ExternalProvider::Github).await;
+    let store = IdentityStore::from_pool(pool.clone())
+        .with_registration_enabled(true)
+        .with_external_oauth(github.config())
+        .unwrap();
+    let browser = browser(&store);
+    let original = login(&browser, ExternalProvider::Github, "existing").await;
+    let user = user(&original);
+    let passwords: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core_identity.password_logins WHERE user_id=$1")
+            .bind(user)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        passwords, 0,
+        "this fixture must prove an OAuth-only identity"
+    );
+    sqlx::query(
+        "UPDATE core_identity.users SET active=FALSE,auth_version=auth_version+1 WHERE id=$1",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET second_factor_required=TRUE WHERE user_id=$1",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let before = counts(&pool).await;
+    let mfa_before: (i64,i64) = sqlx::query_as("SELECT (SELECT count(*) FROM core_identity.mfa_challenges),(SELECT count(*) FROM core_identity.mfa_factors)")
+        .fetch_one(&pool).await.unwrap();
+    let state = begin(&browser, ExternalProvider::Github).await;
+    let grant = match finish(&browser, ExternalProvider::Github, &state, "existing")
+        .await
+        .unwrap()
+    {
+        BrowserLoginOutcome::Disabled(grant) => grant,
+        _ => panic!("disabled OAuth-only ownership must not issue Session or MFA"),
+    };
+    let kind: String =
+        sqlx::query_scalar("SELECT proof_kind FROM core_account_appeals.flows WHERE digest=$1")
+            .bind(digest(&grant.token).unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kind, "github");
+    assert_eq!(
+        grant.context.username,
+        original.data["user"]["username"].as_str().unwrap()
+    );
+    assert!(
+        !serde_json::to_string(&grant.context)
+            .unwrap()
+            .contains(&grant.token)
+    );
     assert!(matches!(
-        store.authorize(access(&disabled_user)).await,
+        store.authorize(&grant.token).await,
         Err(IdentityError::Unauthorized)
     ));
+    let submitted = browser
+        .submit_account_appeal(
+            &grant.token,
+            "Please review my GitHub-only account suspension",
+        )
+        .await
+        .unwrap();
+    assert_eq!(submitted.status, "pending");
+    let context = browser.account_appeal_context(&grant.token).await.unwrap();
+    assert_eq!(context.request.unwrap().id, submitted.id);
+    assert_eq!(counts(&pool).await, before);
+    let mfa_after: (i64,i64) = sqlx::query_as("SELECT (SELECT count(*) FROM core_identity.mfa_challenges),(SELECT count(*) FROM core_identity.mfa_factors)")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(mfa_after, mfa_before);
+    let required: bool = sqlx::query_scalar(
+        "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(required);
     assert!(matches!(
-        store.authorize(access(&disabled_account)).await,
-        Err(IdentityError::Unauthorized)
+        finish(&browser, ExternalProvider::Github, &state, "existing").await,
+        Err(MfaError::Identity(IdentityError::Unauthorized))
     ));
-    assert_eq!(github.calls(), (4, 4));
+    assert_eq!(
+        github.calls(),
+        (2, 2),
+        "all exchanges use the loopback provider; replay must not exchange again"
+    );
 }
 
 async fn epoch(pool: &PgPool) -> u64 {
@@ -591,6 +710,7 @@ async fn external_login_honors_real_totp_without_issuing_a_family_before_factor_
         .unwrap()
     {
         BrowserLoginOutcome::Challenge(challenge) => challenge,
+        BrowserLoginOutcome::Disabled(_) => panic!("unexpected disabled account"),
         BrowserLoginOutcome::Session(_) => panic!("provider identity bypassed local second factor"),
     };
     assert!(challenge.require_2fa);

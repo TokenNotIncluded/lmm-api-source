@@ -433,8 +433,25 @@ impl IdentityStore {
         name: &str,
         verified: &(String, Option<String>),
     ) -> Result<i64> {
-        let user_id: i64 = sqlx::query_scalar("SELECT p.user_id FROM core_identity.password_logins p JOIN core_identity.users u ON u.id=p.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE p.login_name=$1 AND p.password_hash=$2 AND u.active AND a.active FOR UPDATE OF p FOR SHARE OF u,a")
-            .bind(name).bind(&verified.0).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+        self.lock_password_identity(c, name, verified, true).await
+    }
+    pub(super) async fn lock_password_for_browser(
+        &self,
+        c: &mut PgConnection,
+        name: &str,
+        verified: &(String, Option<String>),
+    ) -> Result<i64> {
+        self.lock_password_identity(c, name, verified, false).await
+    }
+    async fn lock_password_identity(
+        &self,
+        c: &mut PgConnection,
+        name: &str,
+        verified: &(String, Option<String>),
+        require_active: bool,
+    ) -> Result<i64> {
+        let user_id: i64 = sqlx::query_scalar("SELECT p.user_id FROM core_identity.password_logins p JOIN core_identity.users u ON u.id=p.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE p.login_name=$1 AND p.password_hash=$2 AND (NOT $3 OR u.active) AND a.active FOR UPDATE OF p FOR SHARE OF u,a")
+            .bind(name).bind(&verified.0).bind(require_active).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
         if let Some(policy) = sqlx::query("SELECT password_login_allowed,second_factor_required,legacy_bcrypt_allowed FROM core_identity.user_profiles WHERE user_id=$1 FOR UPDATE")
             .bind(user_id).fetch_optional(&mut *c).await? {
             if !policy.try_get::<bool,_>("password_login_allowed")? || (verified.1.is_some() && !policy.try_get::<bool,_>("legacy_bcrypt_allowed")?) { return Err(IdentityError::Unauthorized); }

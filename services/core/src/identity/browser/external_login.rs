@@ -75,8 +75,19 @@ impl BrowserAuth {
         {
             return Err(IdentityError::Invalid.into());
         }
-        // Lock the live authority and local MFA policy before deciding whether
-        // to issue a family. Provider email and role fields grant no authority.
+        let proof_kind = match action {
+            "session.google_browser_login" => "google",
+            "session.github_browser_login" => "github",
+            "session.linuxdo_browser_login" => "linuxdo",
+            "session.discord_browser_login" => "discord",
+            "session.telegram_browser_login" => "telegram",
+            "session.passkey_browser_login" => "passkey",
+            _ => return Err(IdentityError::Invalid.into()),
+        };
+        if let Some(grant) = self.disabled_account_appeal(tx, user, proof_kind).await? {
+            return Ok(BrowserLoginOutcome::Disabled(grant));
+        }
+        // Keep the ordinary provider authority policy for active identities.
         sqlx::query("SELECT u.id FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active FOR SHARE OF u,a NOWAIT")
             .bind(user).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
         let required: bool = sqlx::query_scalar("SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1 FOR SHARE NOWAIT")

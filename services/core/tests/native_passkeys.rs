@@ -22,7 +22,7 @@ use sqlx::PgPool;
 use totp_rs::{Algorithm, Builder, Secret};
 use tower::ServiceExt;
 use webauthn_authenticator_rs::{WebauthnAuthenticator, softpasskey::SoftPasskey};
-use webauthn_rs::prelude::Url;
+use webauthn_rs::prelude::{Url, Uuid};
 
 #[path = "common/runtime.rs"]
 mod runtime;
@@ -119,6 +119,37 @@ fn assertion(
     )
     .unwrap()
 }
+// SoftPasskey does not implement resident-key discovery. Simulate only the
+// client's key selection/userHandle; it still signs the server's original
+// challenge, and the server retains its discoverable state and full verifier.
+fn discoverable_assertion(
+    device: &mut WebauthnAuthenticator<SoftPasskey>,
+    challenge: &PasskeyChallenge,
+    credential_id: &[u8],
+    user_handle: Uuid,
+) -> Value {
+    let mut options = challenge.options.clone();
+    assert!(
+        options["publicKey"]["allowCredentials"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    );
+    options["publicKey"]["allowCredentials"] = json!([{
+        "type":"public-key", "id":URL_SAFE_NO_PAD.encode(credential_id),
+    }]);
+    let mut credential = serde_json::to_value(
+        device
+            .do_authentication(
+                Url::parse(ORIGIN).unwrap(),
+                serde_json::from_value(options).unwrap(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    credential["response"]["userHandle"] = json!(URL_SAFE_NO_PAD.encode(user_handle.as_bytes()));
+    credential
+}
+
 async fn enroll(f: &Fixture, device: &mut WebauthnAuthenticator<SoftPasskey>) -> BrowserBundle {
     let flow = f
         .browser
@@ -680,6 +711,241 @@ async fn last_primary_method_and_inactive_accounts_cannot_be_used_to_escape_mana
             )
             .await
             .is_err()
+    );
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn passkey_only_disabled_named_and_discoverable_signatures_grant_only_appeals(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let mut device = device();
+    let registered = enroll(&f, &mut device).await;
+    let user = user(&registered);
+    let (credential_id, handle): (Vec<u8>, String) = sqlx::query_as("SELECT k.credential_id,h.user_handle::text FROM core_passkeys.credentials k JOIN core_passkeys.user_handles h ON h.user_id=k.user_id WHERE k.user_id=$1 AND k.revoked_at IS NULL")
+        .bind(user).fetch_one(&pool).await.unwrap();
+    let handle = Uuid::parse_str(&handle).unwrap();
+    sqlx::query("UPDATE core_identity.user_profiles SET password_login_allowed=FALSE,second_factor_required=TRUE WHERE user_id=$1")
+        .bind(user).execute(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE core_identity.users SET active=FALSE,auth_version=auth_version+1 WHERE id=$1",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        f.browser.password_account_appeal("alice", PASSWORD).await,
+        Err(IdentityError::Unauthorized)
+    ));
+    let snapshot_sql = "SELECT (SELECT count(*) FROM core_identity.credentials),(SELECT count(*) FROM core_identity.web_sessions),(SELECT count(*) FROM core_identity.mfa_challenges),(SELECT count(*) FROM core_identity.mfa_factors)";
+    let before: (i64, i64, i64, i64) = sqlx::query_as(snapshot_sql).fetch_one(&pool).await.unwrap();
+    for username in [Some("alice"), None] {
+        let flow = f
+            .browser
+            .begin_passkey_login(&f.config, BINDING, username)
+            .await
+            .unwrap();
+        let signed = if username.is_some() {
+            assertion(&mut device, &flow)
+        } else {
+            discoverable_assertion(&mut device, &flow, &credential_id, handle)
+        };
+        let grant = match f
+            .browser
+            .finish_passkey_login(
+                &f.config,
+                BINDING,
+                &flow.flow_token,
+                signed.clone(),
+                &BrowserSessionMetadata::default(),
+                OTHER,
+            )
+            .await
+            .unwrap()
+        {
+            BrowserLoginOutcome::Disabled(grant) => grant,
+            _ => panic!("verified disabled Passkey-only ownership must only issue an appeal proof"),
+        };
+        assert_eq!(grant.context.username, "alice");
+        assert!(grant.context.request.is_none());
+        assert!(matches!(
+            f.store.authorize(&grant.token).await,
+            Err(IdentityError::Unauthorized)
+        ));
+        let kind: String =
+            sqlx::query_scalar("SELECT proof_kind FROM core_account_appeals.flows WHERE digest=$1")
+                .bind(Sha256::digest(grant.token.as_bytes()).to_vec())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(kind, "passkey");
+        let receipt = f
+            .browser
+            .submit_account_appeal(
+                &grant.token,
+                "Please review my Passkey-only account suspension",
+            )
+            .await
+            .unwrap();
+        assert_eq!(receipt.status, "pending");
+        assert_eq!(
+            f.browser
+                .account_appeal_context(&grant.token)
+                .await
+                .unwrap()
+                .request
+                .unwrap()
+                .id,
+            receipt.id
+        );
+        assert!(
+            f.browser
+                .finish_passkey_login(
+                    &f.config,
+                    BINDING,
+                    &flow.flow_token,
+                    signed,
+                    &BrowserSessionMetadata::default(),
+                    OTHER
+                )
+                .await
+                .is_err()
+        );
+        let after: (i64, i64, i64, i64) =
+            sqlx::query_as(snapshot_sql).fetch_one(&pool).await.unwrap();
+        assert_eq!(after, before);
+    }
+    let policy: (bool,bool) = sqlx::query_as("SELECT password_login_allowed,second_factor_required FROM core_identity.user_profiles WHERE user_id=$1")
+        .bind(user).fetch_one(&pool).await.unwrap();
+    assert_eq!(policy, (false, true));
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn disabled_passkey_proof_still_requires_signature_binding_and_live_account(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let mut device = device();
+    let registered = enroll(&f, &mut device).await;
+    let user = user(&registered);
+    let (credential_id, handle): (Vec<u8>, String) = sqlx::query_as("SELECT k.credential_id,h.user_handle::text FROM core_passkeys.credentials k JOIN core_passkeys.user_handles h ON h.user_id=k.user_id WHERE k.user_id=$1 AND k.revoked_at IS NULL")
+        .bind(user).fetch_one(&pool).await.unwrap();
+    let handle = Uuid::parse_str(&handle).unwrap();
+    sqlx::query(
+        "UPDATE core_identity.users SET active=FALSE,auth_version=auth_version+1 WHERE id=$1",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM core_account_appeals.flows")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for username in [Some("alice"), None] {
+        let flow = f
+            .browser
+            .begin_passkey_login(&f.config, BINDING, username)
+            .await
+            .unwrap();
+        let mut signed = if username.is_some() {
+            assertion(&mut device, &flow)
+        } else {
+            discoverable_assertion(&mut device, &flow, &credential_id, handle)
+        };
+        // A genuine assertion with the wrong browser binding cannot mint proof.
+        assert!(
+            f.browser
+                .finish_passkey_login(
+                    &f.config,
+                    OTHER,
+                    &flow.flow_token,
+                    signed.clone(),
+                    &BrowserSessionMetadata::default(),
+                    OTHER
+                )
+                .await
+                .is_err()
+        );
+        let mut signature = URL_SAFE_NO_PAD
+            .decode(signed["response"]["signature"].as_str().unwrap())
+            .unwrap();
+        signature[0] ^= 1;
+        signed["response"]["signature"] = json!(URL_SAFE_NO_PAD.encode(signature));
+        assert!(
+            f.browser
+                .finish_passkey_login(
+                    &f.config,
+                    BINDING,
+                    &flow.flow_token,
+                    signed,
+                    &BrowserSessionMetadata::default(),
+                    OTHER
+                )
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_account_appeals.flows")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        before
+    );
+    // Start a valid named ceremony before closure to exercise finish's account
+    // guard too; a new named start must be rejected after closure.
+    let named = f
+        .browser
+        .begin_passkey_login(&f.config, BINDING, Some("alice"))
+        .await
+        .unwrap();
+    let named_signed = assertion(&mut device, &named);
+    sqlx::query("UPDATE core_identity.accounts SET active=FALSE WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)")
+        .bind(user).execute(&pool).await.unwrap();
+    assert!(
+        f.browser
+            .begin_passkey_login(&f.config, BINDING, Some("alice"))
+            .await
+            .is_err()
+    );
+    assert!(
+        f.browser
+            .finish_passkey_login(
+                &f.config,
+                BINDING,
+                &named.flow_token,
+                named_signed,
+                &BrowserSessionMetadata::default(),
+                OTHER
+            )
+            .await
+            .is_err()
+    );
+    let discoverable = f
+        .browser
+        .begin_passkey_login(&f.config, BINDING, None)
+        .await
+        .unwrap();
+    let signed = discoverable_assertion(&mut device, &discoverable, &credential_id, handle);
+    assert!(
+        f.browser
+            .finish_passkey_login(
+                &f.config,
+                BINDING,
+                &discoverable.flow_token,
+                signed,
+                &BrowserSessionMetadata::default(),
+                OTHER
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_account_appeals.flows")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        before
     );
     f.role.cleanup().await;
 }

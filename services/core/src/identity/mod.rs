@@ -14,7 +14,8 @@ pub use permissions::{
 mod auth;
 mod browser;
 pub use browser::{
-    ACCOUNT_LIFECYCLE_SCHEMA, AccountClosureOutcome, AccountClosurePreview, AccountClosureReceipt,
+    ACCOUNT_APPEALS_SCHEMA, ACCOUNT_LIFECYCLE_SCHEMA, AccountAppealContext, AccountAppealGrant,
+    AccountAppealReceipt, AccountClosureOutcome, AccountClosurePreview, AccountClosureReceipt,
     AccountClosureRequest, BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration,
     BrowserSessionMetadata, PASSKEY_SCHEMA, PasskeyChallenge, PasskeyConfig,
 };

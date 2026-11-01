@@ -44,6 +44,7 @@ pub enum LoginOutcome {
     Challenge(MfaChallenge),
 }
 pub enum BrowserLoginOutcome {
+    Disabled(super::browser::AccountAppealGrant),
     Session(BrowserBundle),
     Challenge(MfaChallenge),
 }

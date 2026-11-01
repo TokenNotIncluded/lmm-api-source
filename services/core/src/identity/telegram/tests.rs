@@ -148,6 +148,7 @@ async fn login(f: &Fixture, proof: &TelegramAuthorization, binding: &str) -> Bro
         .unwrap()
     {
         BrowserLoginOutcome::Session(bundle) => bundle,
+        BrowserLoginOutcome::Disabled(_) => panic!("unexpected disabled account"),
         BrowserLoginOutcome::Challenge(_) => panic!("factor not required in this fixture"),
     }
 }
@@ -180,6 +181,103 @@ async fn telegram_explicit_binding_preserves_64_bit_subject_and_logs_into_exact_
         .bind(actor.user_id).fetch_one(&f.pool).await.unwrap();
     assert!(audit);
     assert_eq!(count(&f.pool, "core_identity.users").await, 1);
+}
+
+#[sqlx::test(migrations = false)]
+async fn telegram_disabled_primary_gets_limited_appeal_but_inactive_account_is_rejected(
+    pool: PgPool,
+) {
+    let f = fixture(pool).await;
+    for (index, account_disabled) in [false, true].into_iter().enumerate() {
+        let owner = register(&f.browser, &format!("telegramappeal{index}")).await;
+        let subject = (4_294_967_400_u64 + index as u64).to_string();
+        bind(&f, &owner, &subject, &format!("appeal-bind-{index}")).await;
+        let sql = if account_disabled {
+            "UPDATE core_identity.accounts SET active=FALSE WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)"
+        } else {
+            "UPDATE core_identity.users SET active=FALSE,auth_version=auth_version+1 WHERE id=$1"
+        };
+        sqlx::query(sql)
+            .bind(user(&owner))
+            .execute(&f.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE core_identity.user_profiles SET second_factor_required=TRUE WHERE user_id=$1",
+        )
+        .bind(user(&owner))
+        .execute(&f.pool)
+        .await
+        .unwrap();
+        let before = (
+            count(&f.pool, "core_identity.credentials").await,
+            count(&f.pool, "core_identity.web_sessions").await,
+            count(&f.pool, "core_identity.mfa_challenges").await,
+            count(&f.pool, "core_identity.mfa_factors").await,
+        );
+        let proof = signed(&f, &subject, &format!("appeal-login-{index}")).await;
+        let flow = f.browser.begin_telegram_login(OTHER_BINDING).await.unwrap();
+        let result = f
+            .browser
+            .finish_telegram_login(
+                &flow.flow_token,
+                OTHER_BINDING,
+                &proof,
+                &metadata(),
+                MFA_BINDING,
+            )
+            .await;
+        if account_disabled {
+            assert!(matches!(
+                result,
+                Err(MfaError::Identity(IdentityError::Unauthorized))
+            ));
+        } else {
+            let grant = match result.unwrap() {
+                BrowserLoginOutcome::Disabled(grant) => grant,
+                _ => panic!("verified disabled Telegram ownership must only grant an appeal"),
+            };
+            let context = f
+                .browser
+                .account_appeal_context(&grant.token)
+                .await
+                .unwrap();
+            assert_eq!(
+                context.username,
+                owner.data["user"]["username"].as_str().unwrap()
+            );
+            assert!(context.request.is_none());
+            assert!(matches!(
+                f.store.authorize(&grant.token).await,
+                Err(IdentityError::Unauthorized)
+            ));
+            let kind: String = sqlx::query_scalar(
+                "SELECT proof_kind FROM core_account_appeals.flows WHERE digest=$1",
+            )
+            .bind(digest(&grant.token).unwrap())
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+            assert_eq!(kind, "telegram");
+        }
+        assert_eq!(
+            (
+                count(&f.pool, "core_identity.credentials").await,
+                count(&f.pool, "core_identity.web_sessions").await,
+                count(&f.pool, "core_identity.mfa_challenges").await,
+                count(&f.pool, "core_identity.mfa_factors").await,
+            ),
+            before
+        );
+        let required: bool = sqlx::query_scalar(
+            "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
+        )
+        .bind(user(&owner))
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+        assert!(required);
+    }
 }
 
 #[sqlx::test(migrations = false)]
@@ -639,6 +737,7 @@ async fn telegram_required_totp_returns_only_challenge_until_bound_local_factor_
         .unwrap()
     {
         BrowserLoginOutcome::Challenge(challenge) => challenge,
+        BrowserLoginOutcome::Disabled(_) => panic!("unexpected disabled account"),
         BrowserLoginOutcome::Session(_) => {
             panic!("Telegram primary proof bypassed required local MFA")
         }

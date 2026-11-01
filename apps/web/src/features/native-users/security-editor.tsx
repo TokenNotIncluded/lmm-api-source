@@ -43,6 +43,7 @@ export function NativeUserSecurity({
   const [snapshot, setSnapshot] = useState<SecuritySnapshot>()
   const [action, setAction] = useState<SecurityAction>('revoke_credentials')
   const [reason, setReason] = useState('')
+  const [publicReason, setPublicReason] = useState('')
   const [notice, setNotice] = useState('')
   const [saving, setSaving] = useState(false)
   const operation = useRef({ generation: 0, busy: false })
@@ -68,6 +69,7 @@ export function NativeUserSecurity({
     const generation = ++activeOperation.generation
     setSnapshot(undefined)
     setReason('')
+    setPublicReason('')
     setNotice('')
     void readUserSecurity(captured, userId, controller.signal).then(
       (value) => {
@@ -115,7 +117,13 @@ export function NativeUserSecurity({
     operation.current.busy = true
     setSaving(true)
     try {
-      await manageUserSecurity(scope, snapshot, action, reason)
+      await manageUserSecurity(
+        scope,
+        snapshot,
+        action,
+        reason,
+        action === 'disable' ? publicReason.trim() || undefined : undefined
+      )
       if (
         generation !== operation.current.generation ||
         !isCurrentNativeUsersScope(scope)
@@ -190,9 +198,18 @@ export function NativeUserSecurity({
                 id={`security-action-${userId}`}
                 className='border-input bg-background min-h-11 w-full rounded-md border px-3 py-2 text-sm'
                 value={action}
-                onChange={(event) =>
-                  setAction(event.target.value as SecurityAction)
-                }
+                onChange={(event) => {
+                  const value = event.target.value
+                  if (
+                    value === 'disable' ||
+                    value === 'enable' ||
+                    value === 'reset_mfa' ||
+                    value === 'revoke_credentials'
+                  ) {
+                    setAction(value)
+                    setPublicReason('')
+                  }
+                }}
                 disabled={!snapshot || saving}
               >
                 <option value={snapshot?.active ? 'disable' : 'enable'}>
@@ -207,7 +224,9 @@ export function NativeUserSecurity({
               </select>
             </div>
             <div className='space-y-2'>
-              <Label htmlFor={`security-reason-${userId}`}>{t('Reason')}</Label>
+              <Label htmlFor={`security-reason-${userId}`}>
+                {t('Internal reason (administrators only)')}
+              </Label>
               <Input
                 id={`security-reason-${userId}`}
                 value={reason}
@@ -217,6 +236,29 @@ export function NativeUserSecurity({
                 disabled={!snapshot || saving}
               />
             </div>
+            {action === 'disable' ? (
+              <div className='space-y-2'>
+                <Label htmlFor={`security-public-reason-${userId}`}>
+                  {t('Public reason (optional)')}
+                </Label>
+                <Input
+                  id={`security-public-reason-${userId}`}
+                  value={publicReason}
+                  onChange={(event) => setPublicReason(event.target.value)}
+                  maxLength={250}
+                  disabled={!snapshot || saving}
+                  aria-describedby={`security-public-reason-help-${userId}`}
+                />
+                <p
+                  id={`security-public-reason-help-${userId}`}
+                  className='text-muted-foreground text-xs'
+                >
+                  {t(
+                    'Only this explanation is shown to the disabled user. Leave it empty to publish no reason.'
+                  )}
+                </p>
+              </div>
+            ) : null}
             <DialogFooter>
               <Button
                 type='button'
