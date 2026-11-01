@@ -51,9 +51,13 @@ ledger or reopens a closed account.
 ## Installation and upgrade
 
 The independent `account-appeals` component is component 42. Fresh `init-db`
-installs it. Existing exact 41-component PostgreSQL 18 installations use the
-explicit offline `core-account-appeals-v1` procedure; the fixed 32-component
-predecessor remains supported by the updated functional-completion procedure.
+installs it as part of the current 43-component schema. Existing exact
+41-component PostgreSQL 18 installations use the explicit offline
+`core-account-appeals-v1` procedure with the current 43-component successor;
+the fixed 32-component predecessor remains supported by the updated
+functional-completion procedure targeting the same 43-component successor.
+The procedure names and frozen predecessor hashes remain unchanged; an old
+42-component successor request does not authorize this 43-component release.
 Startup never installs the component. Use the matching release manifest and
 measured catalog target, the existing maintenance/fenced-role procedure, then
 the installer grant script and runtime `check-db`.

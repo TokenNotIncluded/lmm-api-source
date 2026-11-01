@@ -1,5 +1,5 @@
 //! Channel copies publish fresh identities, independent keys and matching route bindings.
-use super::{Failure, ManagementError, Version, bearer, configuration, next_document};
+use super::{Failure, ManagementError, Version, accounting, bearer, configuration, next_document};
 use crate::{channel_http::ChannelState, identity::permissions::Action};
 use axum::{
     Json,
@@ -14,13 +14,18 @@ use serde_json::{Value, json};
 pub(in crate::channel_http) struct CopyInput {
     expected_version: Version,
     suffix: String,
+    #[serde(default = "reset_counters")]
+    reset_balance: bool,
+}
+fn reset_counters() -> bool {
+    true
 }
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct LegacyInput {
     suffix: Option<String>,
-    reset_balance: Option<bool>,
+    reset_balance: Option<String>,
 }
 
 pub(in crate::channel_http) async fn native(
@@ -35,7 +40,7 @@ pub(in crate::channel_http) async fn native(
         id,
         Some(input.expected_version),
         &input.suffix,
-        true,
+        input.reset_balance,
     )
     .await
 }
@@ -52,7 +57,10 @@ pub(in crate::channel_http) async fn legacy(
         id,
         None,
         input.suffix.as_deref().unwrap_or("_复制"),
-        input.reset_balance.unwrap_or(true),
+        !matches!(
+            input.reset_balance.as_deref(),
+            Some("0" | "f" | "F" | "false" | "False" | "FALSE")
+        ),
     )
     .await
 }
@@ -69,12 +77,12 @@ async fn duplicate(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (mut tx, principal) = management
-        .begin(bearer(headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Snapshot,
+        )
         .await?;
-    // Native usage belongs to immutable billing history, not a mutable channel counter.
-    if !reset_balance {
-        return Err(Failure::CountersUnavailable);
-    }
     let expected = match expected {
         Some(expected) => expected,
         None => Version::from(
@@ -92,13 +100,10 @@ async fn duplicate(
         .find(|u| u.id == id)
         .cloned()
         .ok_or(Failure::NotFound)?;
-    let copied_id = document
-        .routing
-        .upstreams
-        .iter()
-        .map(|u| u.id)
-        .max()
-        .unwrap_or(0)
+    accounting::ensure_identities(management, &mut tx).await?;
+    accounting::usable(&mut tx, id).await?;
+    let copied_id = accounting::maximum_id(&mut tx)
+        .await?
         .checked_add(1)
         .filter(|id| *id < (1_u64 << 53))
         .ok_or(ManagementError::Invalid)?;
@@ -124,6 +129,9 @@ async fn duplicate(
     channel.credential = key.reference;
     document.routing.upstreams.push(channel);
     bindings.names.insert(copied_id, name);
+    if let Some(probe) = bindings.balance_probes.get(&id).cloned() {
+        bindings.balance_probes.insert(copied_id, probe);
+    }
     let contexts: Vec<_> = bindings
         .contexts
         .iter()
@@ -165,8 +173,11 @@ async fn duplicate(
             document,
             bindings,
             vec![key],
-            "channel.copy",
-            json!({"source_id":id,"id":copied_id}),
+            super::PublicationChange::Copy {
+                source_id: id,
+                id: copied_id,
+                reset_balance,
+            },
         )
         .await?;
     Ok(Json(

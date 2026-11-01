@@ -143,9 +143,18 @@ fn digest(definitions: Vec<String>) -> Vec<u8> {
     hash.finalize().to_vec()
 }
 pub async fn install(pool: &PgPool) {
+    install_suffix(pool, false).await;
+}
+pub async fn install_suffix(pool: &PgPool, include_appeals: bool) {
     let mut tx = pool.begin().await.unwrap();
     for (_, ddl) in COMPONENTS {
         sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
+    }
+    if include_appeals {
+        sqlx::raw_sql(include_str!("../../schema/account_appeals.sql"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
     }
     sqlx::raw_sql("CREATE TABLE core_meta.component_contract (name TEXT PRIMARY KEY, fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint)=32)); CREATE TABLE core_meta.runtime_contract (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_fingerprint BYTEA NOT NULL CHECK (octet_length(catalog_fingerprint)=32));").execute(&mut *tx).await.unwrap();
     for ddl in [
@@ -180,6 +189,11 @@ pub async fn install(pool: &PgPool) {
             .execute(&mut *tx)
             .await
             .unwrap();
+    }
+    if include_appeals {
+        sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES('account-appeals',$1)")
+            .bind(Sha256::digest(include_str!("../../schema/account_appeals.sql").as_bytes()).to_vec())
+            .execute(&mut *tx).await.unwrap();
     }
     let catalog = digest(
         sqlx::query_scalar(manifest.catalog.query_utf8)

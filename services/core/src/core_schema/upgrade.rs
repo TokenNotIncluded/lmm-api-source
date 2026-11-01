@@ -8,12 +8,14 @@ use sqlx::{Connection, PgConnection, Row};
 use std::{collections::BTreeMap, fmt, io::Read};
 mod account_appeals;
 mod additive;
+mod channel_accounting;
 mod coinbase_payments;
 mod completion;
 mod finance;
 mod ledger;
 mod payment_gateways;
 mod request_operations;
+mod suffix;
 
 const PROCEDURE: &str = "core-24-to-25-trust-pricing-v1";
 const PREDECESSOR: &str = include_str!("predecessor24.json");
@@ -224,6 +226,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == channel_accounting::PROCEDURE {
+            return channel_accounting::validate(self);
+        }
         if self.procedure == account_appeals::PROCEDURE {
             return account_appeals::validate(self);
         }
@@ -296,10 +301,13 @@ impl UpgradeRequest {
         Ok(())
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
+        self.validate()?;
+        if self.procedure == channel_accounting::PROCEDURE {
+            return channel_accounting::authorize_target();
+        }
         if self.procedure == account_appeals::PROCEDURE {
             return account_appeals::authorize_target();
         }
-        self.validate()?;
         if self.procedure == completion::PROCEDURE {
             return completion::authorize_target();
         }
@@ -386,7 +394,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == account_appeals::PROCEDURE {
+    let result = if request.procedure == channel_accounting::PROCEDURE {
+        channel_accounting::connected(&mut connection, &request).await
+    } else if request.procedure == account_appeals::PROCEDURE {
         account_appeals::connected(&mut connection, &request).await
     } else if request.procedure == completion::PROCEDURE {
         completion::connected(&mut connection, &request).await

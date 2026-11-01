@@ -7,6 +7,7 @@ mod control;
 pub use control::{ManagedChannels, ManagementError};
 pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
 pub const VAULT_SCHEMA: &str = include_str!("../schema/channel_vault.sql");
+pub const ACCOUNTING_SCHEMA: &str = include_str!("../schema/channel_accounting.sql");
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -67,7 +68,26 @@ fn routes(state: ChannelState) -> Router {
         )
         .route("/api/channel/{id}/key", any(unsupported))
         .route("/api/channel/test/{id}", get(control::probe))
-        .route("/api/channel/update_balance/{id}", any(unsupported))
+        .route(
+            "/api/channel/update_balance/{id}",
+            get(control::balance::legacy),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/usage",
+            get(control::accounting::usage),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/counters",
+            get(control::accounting::counters),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/balance",
+            get(control::balance::native),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/balance-config",
+            axum::routing::put(control::balance::configure),
+        )
         .route("/api/channel/fetch_models/{id}", get(control::fetch_models))
         .route(
             "/api/channel/copy/{id}",
@@ -573,6 +593,10 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
             "remove": state.management.is_some(),
             "price_publish": state.management.is_some(),
             "catalog_probe": state.management.is_some(),
+            "native_channel_usage": state.management.is_some(),
+            "native_channel_counters": state.management.is_some(),
+            "native_balance_probe": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
+            "copy_preserve_counters": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "source": "active_routing_snapshot",
             "retry_times": null,
             "capabilities": {

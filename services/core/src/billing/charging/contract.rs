@@ -3,6 +3,9 @@ use super::{Charge, Error, ReservationBasis, Usage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[path = "channel_identity.rs"]
+pub(super) mod channel_identity;
+
 pub(crate) const EVENT_ID: &str = "reservation-contract:v1";
 pub(crate) const ADMISSION_EVENT_ID: &str = "reservation-admission:v1";
 
@@ -659,6 +662,61 @@ impl ReservationContract {
 }
 
 // @context-fold begin reservation-contract-storage
+/// Read-only attribution from the original admission receipts. This does not
+/// mint a contract or consult the currently installed routing configuration.
+pub(crate) fn read_attribution(
+    value: Option<serde_json::Value>,
+    marker: Option<serde_json::Value>,
+    price: &super::Price,
+    fingerprint: &[u8],
+    spec: &[u8],
+) -> Result<Option<ReservationContract>, Error> {
+    let (value, marker) = match (value, marker) {
+        (None, None) => return Ok(None),
+        (Some(value), Some(marker)) => (value, marker),
+        _ => return Err(Error::Invalid),
+    };
+    let contract = ReservationContract::from_value(value)?;
+    let proof = PreparedReservation {
+        fields: contract.fields.clone(),
+        prepared_sha256: contract.prepared_sha256.clone(),
+    };
+    proof.validate()?;
+    proof.validate_native_price(price)?;
+    let marker: AdmissionMarker = serde_json::from_value(marker).map_err(|_| Error::Invalid)?;
+    if marker != contract.admission_marker()
+        || contract.fields.request_fingerprint != hex_digest(fingerprint)
+        || contract.admission_spec_sha256 != hex_digest(spec)
+        || contract.frozen_price_sha256 != typed_digest(price)?
+    {
+        return Err(Error::Conflict);
+    }
+    Ok(Some(contract))
+}
+
+impl ReservationContract {
+    pub(crate) fn potential_channel(&self, channel_id: u64) -> bool {
+        self.fields.binding.upstream_id == channel_id
+            || self
+                .fields
+                .fallbacks
+                .iter()
+                .any(|f| f.binding.upstream_id == channel_id)
+    }
+
+    /// Both the route and dispatched wire body must match the frozen candidate.
+    pub(crate) fn dispatched_channel(&self, route_id: &str, wire_sha256: &str) -> Option<u64> {
+        if self.fields.binding.route_id == route_id && self.fields.wire_sha256 == wire_sha256 {
+            return Some(self.fields.binding.upstream_id);
+        }
+        self.fields
+            .fallbacks
+            .iter()
+            .find(|f| f.binding.route_id == route_id && f.wire_sha256 == wire_sha256)
+            .map(|f| f.binding.upstream_id)
+    }
+}
+
 pub(crate) async fn load(
     tx: &mut sqlx::PgConnection,
     charge: &Charge,

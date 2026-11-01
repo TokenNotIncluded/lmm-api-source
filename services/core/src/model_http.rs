@@ -114,6 +114,8 @@ pub struct ModelGateway {
     systemone: systemone::Host,
     native_http: native_http::Host,
     channel_secret_key: Option<Arc<zeroize::Zeroizing<Vec<u8>>>>,
+    #[cfg(test)]
+    balance_probe_loopback: Option<channel_operations::BalanceProbeLoopback>,
 }
 
 impl ModelGateway {
@@ -212,6 +214,8 @@ impl ModelGateway {
             oauth2: None,
             images: None,
             channel_secret_key: None,
+            #[cfg(test)]
+            balance_probe_loopback: None,
         })
     }
 

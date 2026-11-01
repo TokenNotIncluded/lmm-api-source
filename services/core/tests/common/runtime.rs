@@ -45,6 +45,22 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#)).execute(owner).await.unwrap();
+        let accounting_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_channels') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if accounting_installed {
+            let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                .split_once("-- BEGIN channel-accounting runtime grants\n")
+                .unwrap()
+                .1
+                .split_once("-- END channel-accounting runtime grants")
+                .unwrap()
+                .0
+                .replace(":\"runtime_role\"", &name);
+            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+        }
         let links_installed: bool =
             sqlx::query_scalar("SELECT to_regnamespace('core_account_links') IS NOT NULL")
                 .fetch_one(owner)

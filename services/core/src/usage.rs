@@ -4,7 +4,9 @@
 //! exposed. Core credits are exact (500,000/USD); holds are never consumption.
 //! Administrator data includes all actors/accounts and marks historical imports
 //! as uncovered; neither opening counters nor archived quota become native usage.
+mod channel;
 mod export;
+pub(crate) use channel::{ChannelUsage, ChannelUsageError, channel_totals, channel_usage};
 pub mod task_log;
 
 use crate::{

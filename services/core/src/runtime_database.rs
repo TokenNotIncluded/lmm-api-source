@@ -6,6 +6,8 @@ use std::fmt;
 mod account_security;
 #[path = "runtime_assistant_agent.rs"]
 mod assistant_agent;
+#[path = "runtime_channel_accounting.rs"]
+mod channel_accounting;
 #[path = "runtime_operations.rs"]
 mod operations;
 #[path = "runtime_product_features.rs"]
@@ -253,6 +255,7 @@ pub(crate) async fn check_connection(
     telegram::check(connection, required.web_identity).await?;
     product_features::check(connection, required.console).await?;
     account_security::check(connection, required.web_identity).await?;
+    channel_accounting::check(connection, required.models).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
 
     // Identity is always mounted when the runtime has a database. Normal identity

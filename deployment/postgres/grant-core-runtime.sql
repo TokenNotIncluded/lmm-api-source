@@ -297,6 +297,15 @@ GRANT UPDATE(revoked) ON core_promotions.codes TO :"runtime_role";
 \endif
 
 \if :enable_models
+-- BEGIN channel-accounting runtime grants
+GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO :"runtime_role";
+GRANT USAGE ON SCHEMA core_channels TO :"runtime_role";
+GRANT SELECT,INSERT ON core_channels.identities,core_channels.counter_baselines,
+    core_channels.balance_observations TO :"runtime_role";
+GRANT UPDATE(retired_at) ON core_channels.identities TO :"runtime_role";
+GRANT UPDATE(balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at)
+    ON core_channels.balance_observations TO :"runtime_role";
+-- END channel-accounting runtime grants
 GRANT EXECUTE ON FUNCTION public.routing_control_read(),
     public.routing_control_publish(jsonb,jsonb,bigint,bigint),
     public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),

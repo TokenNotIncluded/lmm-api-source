@@ -5,6 +5,8 @@ import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { balanceObservationSchema } from './types'
+
 export type NativeVersion = { routing: number; pricing: number }
 export type NativeCredentialRef = { id: number; revision: number }
 export type NativeContext = {
@@ -60,6 +62,7 @@ export type NativePrices = {
 }
 export type NativeConfiguration = {
   version: NativeVersion
+  channel_id_high_water?: number
   routing: {
     version: number
     upstreams: NativeUpstream[]
@@ -69,6 +72,7 @@ export type NativeConfiguration = {
   }
   prices: NativePrices
   bindings: {
+    balance_probes?: Record<string, NativeBalanceProbe>
     names: Record<string, string>
     contexts: NativeContext[]
     vendors: Record<string, NativeVendor>
@@ -159,7 +163,8 @@ export async function nativeRequest<T>(
   scope: NativeRoutingScope,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
-  data?: unknown
+  data?: unknown,
+  options?: { signal?: AbortSignal }
 ): Promise<T> {
   currentScope(scope)
   if (data !== undefined) assertNativeIntegers(data)
@@ -177,6 +182,7 @@ export async function nativeRequest<T>(
     skipErrorHandler: true,
     disableDuplicate: true,
     timeout: 15_000,
+    signal: options?.signal,
   })
   currentScope(scope)
   if (
@@ -204,8 +210,31 @@ export async function nativeRequest<T>(
   return response.data.data
 }
 export const NATIVE_ROOT = '/core/v1/admin/routing'
+export const nativeBalanceProbeSchema = z.object({
+  path: z
+    .string()
+    .refine(
+      (path) =>
+        path.startsWith('/') &&
+        !path.startsWith('//') &&
+        !/[?#\\\s]/.test(path) &&
+        !/\p{Cc}/u.test(path)
+    ),
+  json_pointer: z
+    .string()
+    .refine(
+      (pointer) => pointer.startsWith('/') && !/~(?:[^01]|$)/.test(pointer)
+    ),
+  unit_label: z
+    .string()
+    .refine((label) => [...label].length <= 32 && !/\p{Cc}/u.test(label))
+    .nullable(),
+})
+export type NativeBalanceProbe = z.infer<typeof nativeBalanceProbeSchema>
+
 const configurationSchema = z.object({
   version: versionSchema,
+  channel_id_high_water: z.number().int().nonnegative().safe().optional(),
   routing: z.object({
     version: z.number(),
     upstreams: z.array(
@@ -252,6 +281,7 @@ const configurationSchema = z.object({
     rules: z.array(z.record(z.string(), z.unknown())),
   }),
   bindings: z.object({
+    balance_probes: z.record(z.string(), nativeBalanceProbeSchema).default({}),
     names: z.record(z.string(), z.string()),
     contexts: z.array(
       z
@@ -362,7 +392,8 @@ export async function copyNativeChannel(
   scope: NativeRoutingScope,
   id: number,
   expectedVersion: NativeVersion,
-  suffix: string
+  suffix: string,
+  resetBalance = true
 ) {
   z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id)
   versionSchema.parse(expectedVersion)
@@ -371,7 +402,11 @@ export async function copyNativeChannel(
       scope,
       'POST',
       `${NATIVE_ROOT}/channels/${id}/copy`,
-      { expected_version: expectedVersion, suffix }
+      {
+        expected_version: expectedVersion,
+        suffix,
+        ...(resetBalance ? {} : { reset_balance: false }),
+      }
     )
   )
   if (
@@ -381,4 +416,153 @@ export async function copyNativeChannel(
     throw new Error('The save result is unknown. Reload before continuing.')
   }
   return receipt
+}
+
+const usageCounter = z.string().regex(/^(0|[1-9]\d{0,511})$/)
+const nativeChannelUsageSchema = z
+  .object({
+    scope: z.literal('native_channel_window'),
+    start_timestamp: z.number().int().safe().nonnegative(),
+    end_timestamp: z.number().int().safe().nonnegative(),
+    gross_settled_credits: usageCounter,
+    refunded_credits: usageCounter,
+    net_used_credits: z.string().regex(/^-?(0|[1-9]\d{0,511})$/),
+    settled_requests: usageCounter,
+    pending_potential_requests: usageCounter,
+    unknown_provenance_requests: usageCounter,
+    credits_per_usd: z.literal('500000'),
+    historical_coverage: z.literal(false),
+  })
+  .refine(
+    (usage) =>
+      usage.end_timestamp > usage.start_timestamp &&
+      usage.end_timestamp - usage.start_timestamp <= 31 * 86400
+  )
+
+export type NativeChannelUsage = z.infer<typeof nativeChannelUsageSchema>
+
+/** Omitted timestamps ask the server for its current 31-day window. */
+export async function getNativeChannelUsage(
+  scope: NativeRoutingScope,
+  id: number,
+  signal?: AbortSignal
+): Promise<NativeChannelUsage> {
+  z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id)
+  return nativeChannelUsageSchema.parse(
+    await nativeRequest<unknown>(
+      scope,
+      'GET',
+      `${NATIVE_ROOT}/channels/${id}/usage`,
+      undefined,
+      { signal }
+    )
+  )
+}
+
+export async function getNativeChannelBalance(
+  scope: NativeRoutingScope,
+  id: number,
+  signal?: AbortSignal
+) {
+  z.number().int().positive().safe().parse(id)
+  return balanceObservationSchema.parse(
+    await nativeRequest<unknown>(
+      scope,
+      'GET',
+      `${NATIVE_ROOT}/channels/${id}/balance`,
+      undefined,
+      { signal }
+    )
+  )
+}
+
+export async function saveNativeBalanceProbe(
+  scope: NativeRoutingScope,
+  id: number,
+  expectedVersion: NativeVersion,
+  probe: NativeBalanceProbe | null
+) {
+  z.number().int().positive().safe().parse(id)
+  const parsed = probe === null ? null : nativeBalanceProbeSchema.parse(probe)
+  return z
+    .object({ version: versionSchema })
+    .parse(
+      await nativeRequest<unknown>(
+        scope,
+        'PUT',
+        `${NATIVE_ROOT}/channels/${id}/balance-config`,
+        { expected_version: expectedVersion, probe: parsed }
+      )
+    )
+}
+
+const channelAmountsSchema = z
+  .object({
+    gross_settled_credits: usageCounter,
+    refunded_credits: usageCounter,
+    net_used_credits: usageCounter,
+  })
+  .refine(
+    (amounts) =>
+      BigInt(amounts.gross_settled_credits) -
+        BigInt(amounts.refunded_credits) ===
+      BigInt(amounts.net_used_credits)
+  )
+const nativeChannelTotalsSchema = z
+  .object({
+    ...nativeChannelUsageSchema.shape,
+    scope: z.literal('native_channel_totals'),
+  })
+  .refine((usage) => usage.end_timestamp >= usage.start_timestamp)
+const nativeChannelCountersSchema = z
+  .object({
+    balance: balanceObservationSchema,
+    native: nativeChannelTotalsSchema,
+    inherited: channelAmountsSchema.nullable(),
+    combined: channelAmountsSchema,
+    historical_coverage: z.boolean(),
+    complete: z.boolean(),
+    used_quota: usageCounter.nullable(),
+    credits_per_usd: z.literal('500000'),
+  })
+  .refine((counters) => {
+    const inherited = counters.inherited
+    if (
+      BigInt(counters.native.gross_settled_credits) -
+        BigInt(counters.native.refunded_credits) !==
+      BigInt(counters.native.net_used_credits)
+    ) {
+      return false
+    }
+    return (
+      BigInt(counters.native.gross_settled_credits) +
+        BigInt(inherited?.gross_settled_credits ?? '0') ===
+        BigInt(counters.combined.gross_settled_credits) &&
+      BigInt(counters.native.refunded_credits) +
+        BigInt(inherited?.refunded_credits ?? '0') ===
+        BigInt(counters.combined.refunded_credits) &&
+      (counters.complete
+        ? counters.historical_coverage &&
+          counters.native.unknown_provenance_requests === '0' &&
+          counters.used_quota === counters.combined.net_used_credits
+        : counters.used_quota === null)
+    )
+  })
+export type NativeChannelCounters = z.infer<typeof nativeChannelCountersSchema>
+
+export async function getNativeChannelCounters(
+  scope: NativeRoutingScope,
+  id: number,
+  signal?: AbortSignal
+): Promise<NativeChannelCounters> {
+  z.number().int().positive().safe().parse(id)
+  return nativeChannelCountersSchema.parse(
+    await nativeRequest<unknown>(
+      scope,
+      'GET',
+      `${NATIVE_ROOT}/channels/${id}/counters`,
+      undefined,
+      { signal }
+    )
+  )
 }

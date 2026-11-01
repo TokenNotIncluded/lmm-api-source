@@ -347,3 +347,159 @@ mod tests {
         assert!(endpoint("https://api.example/v1", Protocol::DeepSeekFetch).is_err());
     }
 }
+
+/// Synthetic transport mapping compiled only into private unit tests.
+#[cfg(test)]
+#[derive(Clone)]
+pub(super) struct BalanceProbeLoopback {
+    origin: String,
+    endpoint: reqwest::Url,
+}
+
+#[cfg(test)]
+impl ModelGateway {
+    /// Map one published HTTPS origin to an isolated numeric-loopback HTTP
+    /// provider for synthetic tests. Requires the existing host local-mode opt-in.
+    /// This mapping applies only to balance GETs, never paid model traffic.
+    pub(crate) fn with_balance_probe_loopback(
+        mut self,
+        published_origin: &str,
+        local_endpoint: &str,
+    ) -> Result<Self, RelayError> {
+        let origin = crate::relay::honeypot_network::validate_origin(published_origin, false)?;
+        let endpoint = crate::relay::honeypot_network::validate_base_url(local_endpoint, true)?;
+        if !self.local_streaming
+            || endpoint.scheme() != "http"
+            || !crate::relay::honeypot_network::literal_ip(&endpoint)
+                .is_some_and(|ip| ip.is_loopback())
+            || endpoint.path() != "/"
+        {
+            return Err(RelayError::Invalid("invalid synthetic balance transport"));
+        }
+        self.balance_probe_loopback = Some(BalanceProbeLoopback { origin, endpoint });
+        Ok(self)
+    }
+}
+
+/// A frozen provider GET. The credential never leaves the gateway or enters a URL.
+pub(crate) struct BalanceRequest {
+    url: reqwest::Url,
+    protocol: crate::routing::Protocol,
+    credential: String,
+    pointer: String,
+}
+
+pub(crate) fn valid_balance_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains(['?', '#', '\\'])
+        && !path.chars().any(char::is_control)
+        && path
+            .parse::<axum::http::Uri>()
+            .is_ok_and(|uri| uri.scheme().is_none() && uri.authority().is_none())
+}
+
+fn parse_balance(bytes: &[u8], pointer: &str, secret: &str) -> Result<f64, RelayError> {
+    // Do not return even a numeric-looking credential reflected by a provider.
+    if !secret.is_empty() && String::from_utf8_lossy(bytes).contains(secret) {
+        return Err(RelayError::RouteUnavailable);
+    }
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| RelayError::RouteUnavailable)?;
+    let value = value.pointer(pointer).ok_or(RelayError::RouteUnavailable)?;
+    let number = match value {
+        Value::Number(number) => number.as_f64(),
+        Value::String(number) if !number.contains(secret) => number.parse::<f64>().ok(),
+        _ => None,
+    };
+    number
+        .filter(|number| number.is_finite() && !number.to_string().contains(secret))
+        .ok_or(RelayError::RouteUnavailable)
+}
+
+impl ModelGateway {
+    pub(crate) fn prepare_balance_probe(
+        &self,
+        upstream: &crate::routing::UpstreamConfig,
+        path: &str,
+        pointer: &str,
+        unit_label: Option<&str>,
+    ) -> Result<BalanceRequest, RelayError> {
+        if !valid_balance_path(path) {
+            return Err(RelayError::Invalid("invalid balance path"));
+        }
+        let credential = self
+            .channel_credential(upstream.credential)
+            .ok_or(RelayError::RouteUnavailable)?;
+        if credential.is_empty()
+            || [Some(path), Some(pointer), unit_label]
+                .into_iter()
+                .flatten()
+                .any(|value| value.contains(&credential))
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
+        let base =
+            crate::relay::honeypot_network::validate_base_url(upstream.endpoint.as_str(), true)?;
+        let url = base.join(path).map_err(|_| RelayError::RouteUnavailable)?;
+        if url.origin() != base.origin() || url.query().is_some() || url.fragment().is_some() {
+            return Err(RelayError::RouteUnavailable);
+        }
+        Ok(BalanceRequest {
+            url,
+            protocol: upstream.protocol,
+            credential,
+            pointer: pointer.to_owned(),
+        })
+    }
+
+    pub(crate) async fn probe_balance(&self, request: BalanceRequest) -> Result<f64, RelayError> {
+        #[cfg(test)]
+        let request = {
+            let mut request = request;
+            if let Some(mapping) = &self.balance_probe_loopback {
+                if request.url.origin().ascii_serialization() != mapping.origin {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                let mut endpoint = mapping.endpoint.clone();
+                endpoint.set_path(request.url.path());
+                request.url = endpoint;
+            }
+            request
+        };
+        let _permit = self
+            .native_http
+            .gate
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        tokio::time::timeout(self.limits.total_timeout, async {
+            let connection = self
+                .native_http
+                .transport
+                .prepare(&request.url, &self.limits)
+                .await?;
+            let get = connection
+                .client()
+                .get(request.url)
+                .header(header::ACCEPT, "application/json");
+            let get = match request.protocol {
+                crate::routing::Protocol::AnthropicMessages => get
+                    .header("x-api-key", &request.credential)
+                    .header("anthropic-version", "2023-06-01"),
+                crate::routing::Protocol::Gemini => {
+                    get.header("x-goog-api-key", &request.credential)
+                }
+                _ => get.bearer_auth(&request.credential),
+            };
+            let response = get.send().await.map_err(|_| RelayError::RouteUnavailable)?;
+            if !response.status().is_success() {
+                return Err(RelayError::RouteUnavailable);
+            }
+            let bytes =
+                native_http::read_response_bytes(&connection, response, &self.limits).await?;
+            parse_balance(&bytes, &request.pointer, &request.credential)
+        })
+        .await
+        .map_err(|_| RelayError::RouteUnavailable)?
+    }
+}

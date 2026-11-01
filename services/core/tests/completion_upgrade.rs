@@ -9,6 +9,8 @@ use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 const PROCEDURE: &str = "core-functional-completion-v1";
 const PRE_MANIFEST: &str = "9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829338331a4cd15";
 const PRE_CATALOG: &str = "abe3979b376da869d4a05b32dda8c3ad33197497db7af16970d8c9b1153bc6ce";
+#[path = "common/channel_accounting_history.rs"]
+mod history;
 #[path = "common/completion_predecessor.rs"]
 mod predecessor;
 
@@ -151,6 +153,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
         )
         .await
         .unwrap();
+    history::seed_history(&installer).await;
     let before_users: Vec<String> =
         sqlx::query_scalar("SELECT to_jsonb(u)::text FROM core_identity.users u ORDER BY id")
             .fetch_all(&installer)
@@ -228,6 +231,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
         .execute(&mut inspect)
         .await
         .unwrap();
+    history::check_history(&mut inspect).await;
     assert_eq!(
         sqlx::query_scalar::<_, String>(
             "SELECT to_jsonb(u)::text FROM core_identity.users u ORDER BY id"

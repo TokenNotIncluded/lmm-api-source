@@ -1,5 +1,7 @@
 //! Transactional channel controls. PostgreSQL is the publication authority;
 //! the serving snapshot changes only after its audit and release commit.
+pub(super) mod accounting;
+pub(super) mod balance;
 pub(super) mod catalog;
 pub(super) mod configuration;
 pub(super) mod copy;
@@ -81,6 +83,37 @@ pub struct ManagedChannels {
     gateway: Option<ModelGateway>,
     publication: tokio::sync::Mutex<()>,
     bindings: std::sync::RwLock<(u64, Bindings)>,
+}
+
+pub(super) enum PublicationChange {
+    Normal {
+        action: &'static str,
+        target: Value,
+    },
+    Copy {
+        source_id: u64,
+        id: u64,
+        reset_balance: bool,
+    },
+}
+pub(super) enum ReadView {
+    Current,
+    Snapshot,
+}
+impl PublicationChange {
+    fn audit(&self) -> (&'static str, Value) {
+        match self {
+            Self::Normal { action, target } => (action, target.clone()),
+            Self::Copy {
+                source_id,
+                id,
+                reset_balance,
+            } => (
+                "channel.copy",
+                json!({"source_id":source_id,"id":id,"reset_balance":reset_balance}),
+            ),
+        }
+    }
 }
 impl ManagedChannels {
     /// Called by the host before it exposes routes. This reads existing state;
@@ -304,8 +337,15 @@ impl ManagedChannels {
         &'a self,
         secret: &str,
         action: Action,
+        view: ReadView,
     ) -> Result<(Transaction<'a, Postgres>, identity::Principal), Failure> {
         let mut tx = self.pool.begin().await.map_err(ManagementError::from)?;
+        if matches!(view, ReadView::Snapshot) {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                .execute(&mut *tx)
+                .await
+                .map_err(ManagementError::from)?;
+        }
         sqlx::query("SET LOCAL statement_timeout='5s'")
             .execute(&mut *tx)
             .await
@@ -337,8 +377,7 @@ impl ManagedChannels {
             document,
             bindings,
             Vec::new(),
-            action,
-            target,
+            PublicationChange::Normal { action, target },
         )
         .await
     }
@@ -352,8 +391,7 @@ impl ManagedChannels {
         document: ReleaseDocument,
         bindings: Bindings,
         incoming_keys: Vec<crate::model_http::UpstreamCredential>,
-        action: &'static str,
-        target: Value,
+        change: PublicationChange,
     ) -> Result<Version, Failure> {
         if let Some(gateway) = &self.gateway {
             gateway
@@ -382,6 +420,7 @@ impl ManagedChannels {
         {
             return Err(ManagementError::Conflict.into());
         }
+        accounting::publish(&mut tx, self, current, &document, &change).await?;
         let routing =
             serde_json::to_value(&document.routing).map_err(|_| ManagementError::Invalid)?;
         let prices =
@@ -395,6 +434,7 @@ impl ManagedChannels {
             .execute(&mut *tx)
             .await
             .map_err(ManagementError::from)?;
+        let (action, target) = change.audit();
         sqlx::query("INSERT INTO core_identity.audit(actor_user_id,credential_id,action,target) VALUES ($1,$2,$3,$4)")
             .bind(principal.user_id).bind(principal.credential_id).bind(action)
             .bind(json!({"before":expected,"after":Version::of(&document),"change":target}))
@@ -413,7 +453,11 @@ pub(super) enum Failure {
     Management(ManagementError),
     NotFound,
     Disabled,
-    CountersUnavailable,
+    AccountingUnavailable,
+    RetiredIdentity,
+    InvalidUsageWindow,
+    AccountingIdentityAmbiguous,
+    AccountingLimit,
 }
 impl From<HistoryError> for Failure {
     fn from(v: HistoryError) -> Self {
@@ -429,10 +473,30 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
             Self::Auth(error) => return auth_error(error),
-            Self::CountersUnavailable => (
-                StatusCode::NOT_IMPLEMENTED,
-                "CHANNEL_COUNTER_COPY_UNAVAILABLE",
-                "Channel balance and usage counters are not available for copying",
+            Self::AccountingUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CHANNEL_ACCOUNTING_UNAVAILABLE",
+                "Channel accounting cannot be verified",
+            ),
+            Self::RetiredIdentity => (
+                StatusCode::CONFLICT,
+                "CHANNEL_IDENTITY_RETIRED",
+                "This channel ID has already been used; select a new ID",
+            ),
+            Self::InvalidUsageWindow => (
+                StatusCode::BAD_REQUEST,
+                "CHANNEL_USAGE_WINDOW_INVALID",
+                "Select a valid time window of at most 31 days",
+            ),
+            Self::AccountingIdentityAmbiguous => (
+                StatusCode::CONFLICT,
+                "CHANNEL_USAGE_IDENTITY_AMBIGUOUS",
+                "This channel ID was reused; its historical accounting requires review",
+            ),
+            Self::AccountingLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "CHANNEL_ACCOUNTING_LIMIT",
+                "This accounting snapshot exceeds the supported request or receipt limit",
             ),
             Self::Disabled => (
                 StatusCode::NOT_IMPLEMENTED,
@@ -568,7 +632,7 @@ async fn change_status(
     }
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(headers)?, Action::ChannelOperate)
+        .begin(bearer(headers)?, Action::ChannelOperate, ReadView::Current)
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     for id in &input.ids {
@@ -603,7 +667,7 @@ pub(super) async fn remove(
     let input: DeleteInput = serde_json::from_slice(&body).map_err(|_| ManagementError::Invalid)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelWrite)
+        .begin(bearer(&headers)?, Action::ChannelWrite, ReadView::Current)
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     if !document.routing.upstreams.iter().any(|u| u.id == id) {
@@ -619,6 +683,7 @@ pub(super) async fn remove(
         .contexts
         .retain(|context| context.upstream_id != id);
     bindings.discoveries.remove(&id);
+    bindings.balance_probes.remove(&id);
     let version = management
         .publish_bindings(
             tx,
@@ -627,8 +692,10 @@ pub(super) async fn remove(
             document,
             bindings,
             Vec::new(),
-            "channel.delete",
-            json!({"id":id}),
+            PublicationChange::Normal {
+                action: "channel.delete",
+                target: json!({"id":id}),
+            },
         )
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))
@@ -642,7 +709,11 @@ pub(super) async fn prices(
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            ReadView::Current,
+        )
         .await?;
     let document = management
         .routing
@@ -674,7 +745,11 @@ pub(super) async fn publish_prices(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            ReadView::Current,
+        )
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     if input.prices.version <= input.expected_version.pricing
@@ -715,7 +790,11 @@ pub(super) async fn preview_prices(
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            ReadView::Current,
+        )
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     if input.prices.version <= input.expected_version.pricing {
@@ -742,7 +821,7 @@ async fn channel_probe(
     super::admit(state, headers).await?;
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let (tx, _) = management
-        .begin(bearer(headers)?, Action::ChannelOperate)
+        .begin(bearer(headers)?, Action::ChannelOperate, ReadView::Current)
         .await?;
     let gateway = management.gateway.as_ref().ok_or(Failure::Disabled)?;
     tx.commit().await.map_err(ManagementError::from)?;

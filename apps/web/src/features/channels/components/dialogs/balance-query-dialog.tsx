@@ -28,7 +28,11 @@ import { IconBadge } from '@/components/ui/icon-badge'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { getCodexUsage, updateChannelBalance } from '../../api'
-import { channelsQueryKeys, formatBalance } from '../../lib'
+import {
+  channelsQueryKeys,
+  formatBalance,
+  formatObservedBalance,
+} from '../../lib'
 import { useChannels } from '../channels-provider'
 import {
   CodexUsageDialog,
@@ -48,10 +52,11 @@ export function BalanceQueryDialog({
   const { currentRow, setCurrentRow } = useChannels()
   const queryClient = useQueryClient()
   const [isQuerying, setIsQuerying] = useState(false)
-  const [balance, setBalance] = useState<number | null>(null)
-  const [balanceUpdatedTime, setBalanceUpdatedTime] = useState<number | null>(
-    null
-  )
+  const [observation, setObservation] = useState<{
+    balance: number
+    observedAt: number | null
+    provider?: import('../../types').BalanceObservation
+  } | null>(null)
   const [codexUsageResponse, setCodexUsageResponse] =
     useState<CodexUsageDialogData | null>(null)
 
@@ -89,19 +94,35 @@ export function BalanceQueryDialog({
     setIsQuerying(true)
     try {
       const response = await updateChannelBalance(currentRow.id)
-      if (response.success && response.balance !== undefined) {
+      if (
+        response.success &&
+        typeof response.balance === 'number' &&
+        Number.isFinite(response.balance)
+      ) {
         const newBalance = response.balance
-        const now = Math.floor(Date.now() / 1000)
+        const timestamp = response.observation
+          ? response.observation.balance_updated_time
+          : response.balance_updated_time
+        const observedAt =
+          typeof timestamp === 'number' &&
+          Number.isSafeInteger(timestamp) &&
+          timestamp > 0
+            ? timestamp
+            : null
 
-        setBalance(newBalance)
-        setBalanceUpdatedTime(now)
+        setObservation({
+          balance: newBalance,
+          observedAt,
+          provider: response.observation,
+        })
         toast.success(t('Balance updated successfully'))
 
         // Update currentRow immediately with new balance and timestamp
         setCurrentRow({
           ...currentRow,
           balance: newBalance,
-          balance_updated_time: now,
+          balance_updated_time: observedAt,
+          observation: response.observation,
         })
 
         // Invalidate queries to refresh the table
@@ -121,14 +142,19 @@ export function BalanceQueryDialog({
   }
 
   const handleClose = () => {
-    setBalance(null)
-    setBalanceUpdatedTime(null)
+    setObservation(null)
     setCodexUsageResponse(null)
     onOpenChange(false)
   }
 
-  const formatDate = (timestamp: number) => {
-    if (!timestamp) return 'Never'
+  const formatDate = (timestamp: number | null | undefined) => {
+    if (
+      typeof timestamp !== 'number' ||
+      !Number.isSafeInteger(timestamp) ||
+      timestamp <= 0
+    ) {
+      return '-'
+    }
     return formatTimestampToDate(timestamp)
   }
 
@@ -177,13 +203,23 @@ export function BalanceQueryDialog({
             <span>{t('Current Balance')}</span>
           </div>
           <div className='text-2xl font-bold'>
-            {balance !== null
-              ? formatBalance(balance)
-              : formatBalance(currentRow.balance)}
+            {observation !== null
+              ? observation.provider
+                ? formatObservedBalance(observation.provider)
+                : formatBalance(observation.balance)
+              : currentRow.observation
+                ? formatObservedBalance(currentRow.observation)
+                : formatBalance(currentRow.balance)}
           </div>
           <div className='text-muted-foreground mt-2 text-xs'>
             {t('Last updated:')}{' '}
-            {formatDate(balanceUpdatedTime ?? currentRow.balance_updated_time)}
+            {formatDate(
+              observation === null
+                ? currentRow.observation
+                  ? currentRow.observation.balance_updated_time
+                  : currentRow.balance_updated_time
+                : observation.observedAt
+            )}
           </div>
         </div>
 

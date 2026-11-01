@@ -102,4 +102,24 @@ REVOKE INSERT(digest,user_id,user_version,proof_kind,expires_at,request_id,creat
     UPDATE(digest,user_id,user_version,proof_kind,expires_at,request_id,created_at)
     ON core_account_appeals.flows FROM :"runtime_role";
 
+-- Remove both table and column authority before applying selected capabilities.
+REVOKE ALL PRIVILEGES ON FUNCTION public.routing_control_balance_lock() FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON SCHEMA core_channels FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_channels FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA core_channels FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_channels FROM :"runtime_role";
+REVOKE SELECT(id,origin,history_ambiguous,created_at,retired_at) ON core_channels.identities FROM :"runtime_role";
+REVOKE INSERT(id,origin,history_ambiguous,created_at,retired_at) ON core_channels.identities FROM :"runtime_role";
+REVOKE UPDATE(id,origin,history_ambiguous,created_at,retired_at) ON core_channels.identities FROM :"runtime_role";
+REVOKE REFERENCES(id,origin,history_ambiguous,created_at,retired_at) ON core_channels.identities FROM :"runtime_role";
+REVOKE SELECT(channel_id,gross_credits,refunded_credits,historical_coverage,source_channel_id,source_routing_version,captured_at) ON core_channels.counter_baselines FROM :"runtime_role";
+REVOKE INSERT(channel_id,gross_credits,refunded_credits,historical_coverage,source_channel_id,source_routing_version,captured_at) ON core_channels.counter_baselines FROM :"runtime_role";
+REVOKE UPDATE(channel_id,gross_credits,refunded_credits,historical_coverage,source_channel_id,source_routing_version,captured_at) ON core_channels.counter_baselines FROM :"runtime_role";
+REVOKE REFERENCES(channel_id,gross_credits,refunded_credits,historical_coverage,source_channel_id,source_routing_version,captured_at) ON core_channels.counter_baselines FROM :"runtime_role";
+REVOKE SELECT(channel_id,balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at) ON core_channels.balance_observations FROM :"runtime_role";
+REVOKE INSERT(channel_id,balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at) ON core_channels.balance_observations FROM :"runtime_role";
+REVOKE UPDATE(channel_id,balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at) ON core_channels.balance_observations FROM :"runtime_role";
+REVOKE REFERENCES(channel_id,balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at) ON core_channels.balance_observations FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON core_meta.channel_accounting_upgrades FROM :"runtime_role";
+
 COMMIT;

@@ -52,7 +52,11 @@ pub(in crate::channel_http) async fn list(
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = management
         .routing
@@ -77,7 +81,11 @@ pub(in crate::channel_http) async fn save(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (mut tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = next_document(management, input.expected_version)?;
     let now: i64 =
@@ -107,8 +115,10 @@ pub(in crate::channel_http) async fn save(
             document,
             bindings,
             Vec::new(),
-            "channel.prices.draft.save",
-            json!({"id":id}),
+            super::PublicationChange::Normal {
+                action: "channel.prices.draft.save",
+                target: json!({"id":id}),
+            },
         )
         .await?;
     Ok(Json(
@@ -141,7 +151,11 @@ pub(in crate::channel_http) async fn preview(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let (document, _, digest) = prepare(management, input.expected_version, id)?;
     tx.rollback().await.map_err(ManagementError::from)?;
@@ -160,7 +174,11 @@ pub(in crate::channel_http) async fn publish(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let (document, bindings, digest) = prepare(management, input.expected_version, id)?;
     if input.confirmation_digest != digest {
@@ -174,8 +192,10 @@ pub(in crate::channel_http) async fn publish(
             document,
             bindings,
             Vec::new(),
-            "channel.prices.draft.publish",
-            json!({"id":id,"confirmation_digest":digest}),
+            super::PublicationChange::Normal {
+                action: "channel.prices.draft.publish",
+                target: json!({"id":id,"confirmation_digest":digest}),
+            },
         )
         .await?;
     Ok(Json(
@@ -192,7 +212,11 @@ pub(in crate::channel_http) async fn remove(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = next_document(management, input.expected_version)?;
     let mut bindings = management.current_bindings()?;
@@ -207,8 +231,10 @@ pub(in crate::channel_http) async fn remove(
             document,
             bindings,
             Vec::new(),
-            "channel.prices.draft.delete",
-            json!({"id":id}),
+            super::PublicationChange::Normal {
+                action: "channel.prices.draft.delete",
+                target: json!({"id":id}),
+            },
         )
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))

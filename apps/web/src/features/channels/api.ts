@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { z } from 'zod'
+
 import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
 import { getServerErrorMessage } from '@/lib/server-error-message'
@@ -26,25 +28,26 @@ import {
   readNativeRoutingScope,
   type NativeRoutingScope,
 } from './native-api'
-import type {
-  AddChannelRequest,
-  BatchDeleteParams,
-  BatchSetTagParams,
-  Channel,
-  ChannelBalanceResponse,
-  ChannelOpsResponse,
-  ChannelTestResponse,
-  CopyChannelParams,
-  CopyChannelResponse,
-  FetchModelsResponse,
-  GetChannelResponse,
-  GetChannelsParams,
-  GetChannelsResponse,
-  MultiKeyManageParams,
-  MultiKeyStatusResponse,
-  SearchChannelsParams,
-  SearchChannelsResponse,
-  TagOperationParams,
+import {
+  balanceObservationSchema,
+  type AddChannelRequest,
+  type BatchDeleteParams,
+  type BatchSetTagParams,
+  type Channel,
+  type ChannelBalanceResponse,
+  type ChannelOpsResponse,
+  type ChannelTestResponse,
+  type CopyChannelParams,
+  type CopyChannelResponse,
+  type FetchModelsResponse,
+  type GetChannelResponse,
+  type GetChannelsParams,
+  type GetChannelsResponse,
+  type MultiKeyManageParams,
+  type MultiKeyStatusResponse,
+  type SearchChannelsParams,
+  type SearchChannelsResponse,
+  type TagOperationParams,
 } from './types'
 
 const channelActionConfig = (
@@ -146,7 +149,15 @@ export async function getChannelOps(
   if (res.data?.success !== true || !res.data.data) {
     throw new Error(getServerErrorMessage(res.data) ?? 'Failed to load data')
   }
-  return res.data
+  const accounting = z
+    .object({
+      native_channel_usage: z.boolean().default(false),
+      native_channel_counters: z.boolean().default(false),
+      native_balance_probe: z.boolean().default(false),
+      copy_preserve_counters: z.boolean().default(false),
+    })
+    .parse(res.data.data)
+  return { ...res.data, data: { ...res.data.data, ...accounting } }
 }
 
 /**
@@ -267,7 +278,24 @@ export async function updateChannelBalance(
     `/api/channel/update_balance/${id}`,
     channelActionConfig()
   )
-  return res.data
+  const parsed = z
+    .object({
+      success: z.boolean(),
+      message: z.string().optional(),
+      balance: z.number().optional(),
+      data: z.number().optional(),
+      balance_updated_time: z
+        .number()
+        .int()
+        .safe()
+        .nonnegative()
+        .nullish()
+        .catch(null),
+      currency: z.string().optional(),
+      observation: balanceObservationSchema.optional(),
+    })
+    .parse(res.data)
+  return { ...parsed, balance: parsed.balance ?? parsed.data }
 }
 
 /**
@@ -293,9 +321,19 @@ export async function copyChannel(
   const res = await api.post(
     `/api/channel/copy/${id}`,
     null,
-    channelActionConfig({ params })
+    channelActionConfig({ params, skipAuthRefresh: true })
   )
-  return res.data
+  const response = res.data
+  if (response?.success === true) {
+    const receipt = z
+      .object({ id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) })
+      .safeParse(response.data)
+    if (!receipt.success || receipt.data.id === id) {
+      throw new Error('Failed to copy channel')
+    }
+    return { ...response, data: receipt.data }
+  }
+  return response
 }
 
 /**

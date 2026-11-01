@@ -44,7 +44,16 @@ test('channel capabilities reject failed reads and preserve read-only unknown me
     data: { read_only: true, retry_times: null },
   }
   api.get = (async () => ({ data: payload })) as typeof api.get
-  assert.deepEqual(await getChannelOps(), payload)
+  assert.deepEqual(await getChannelOps(), {
+    ...payload,
+    data: {
+      ...payload.data,
+      native_channel_usage: false,
+      native_channel_counters: false,
+      native_balance_probe: false,
+      copy_preserve_counters: false,
+    },
+  })
 })
 
 for (const [name, read] of [
@@ -111,4 +120,31 @@ test('updateAllChannelsBalance rethrows HTTP errors without a valid summary', as
   }) as typeof api.get
 
   await assert.rejects(updateAllChannelsBalance(), invalidError)
+})
+
+test('channel accounting capabilities accept only explicit booleans', async () => {
+  const capabilities = {
+    native_channel_usage: true,
+    native_channel_counters: false,
+    native_balance_probe: true,
+    copy_preserve_counters: false,
+  }
+  try {
+    const payload = {
+      success: true,
+      data: { retry_times: null, ...capabilities },
+    }
+    api.get = (async () => ({ data: payload })) as typeof api.get
+    assert.deepEqual(await getChannelOps(), payload)
+    for (const name of Object.keys(capabilities)) {
+      for (const invalid of ['true', 1, null]) {
+        api.get = (async () => ({
+          data: { success: true, data: { ...capabilities, [name]: invalid } },
+        })) as typeof api.get
+        await assert.rejects(getChannelOps())
+      }
+    }
+  } finally {
+    api.get = originalGet
+  }
 })

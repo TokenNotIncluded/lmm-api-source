@@ -9,7 +9,9 @@ import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
@@ -32,6 +34,9 @@ import {
   type NativeVendor,
 } from '../native-api'
 import { useChannelOps } from '../use-channel-ops'
+import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialog'
+import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
+import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 
 type Section = 'channels' | 'models' | 'vendors' | 'prices'
 type Editor = {
@@ -84,6 +89,20 @@ export function NativeRoutingManagement({
       key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
       scope={scope}
       secretsAllowed={secretsAllowed}
+      accounting={{
+        usage:
+          capabilityPhase === 'fresh' &&
+          capabilities.data?.data?.native_channel_usage === true,
+        counters:
+          capabilityPhase === 'fresh' &&
+          capabilities.data?.data?.native_channel_counters === true,
+        balanceProbe:
+          capabilityPhase === 'fresh' &&
+          capabilities.data?.data?.native_balance_probe === true,
+        preserveCounters:
+          capabilityPhase === 'fresh' &&
+          capabilities.data?.data?.copy_preserve_counters === true,
+      }}
       initialSection={initialSection}
     />
   )
@@ -92,10 +111,17 @@ function NativeRoutingWorkspace({
   initialSection,
   scope,
   secretsAllowed,
+  accounting,
 }: {
   initialSection: Section
   scope: NativeRoutingScope
   secretsAllowed: boolean
+  accounting: {
+    usage: boolean
+    counters: boolean
+    balanceProbe: boolean
+    preserveCounters: boolean
+  }
 }) {
   const nativeRequest = <T,>(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
@@ -104,9 +130,16 @@ function NativeRoutingWorkspace({
   ) => scopedNativeRequest<T>(scope, method, path, data)
   const { t } = useTranslation()
   const client = useQueryClient()
+  const [copyReset, setCopyReset] = useState(true)
+  const [balanceChannel, setBalanceChannel] = useState<NativeUpstream | null>(
+    null
+  )
+  const [balanceConfigChannel, setBalanceConfigChannel] =
+    useState<NativeUpstream | null>(null)
   const [copySuffix, setCopySuffix] = useState('_copy')
   const copyPending = useRef(false)
   const [copyChannel, setCopyChannel] = useState<NativeUpstream | null>(null)
+  const [usageChannel, setUsageChannel] = useState<NativeUpstream | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
   const [section, setSection] = useState<Section>(initialSection)
   const [page, setPage] = useState(1)
@@ -201,6 +234,7 @@ function NativeRoutingWorkspace({
       !copyChannel ||
       !configuration ||
       !secretsAllowed ||
+      (!copyReset && !accounting.preserveCounters) ||
       !configuration.secret_storage_enabled ||
       busy ||
       copyPending.current
@@ -216,12 +250,14 @@ function NativeRoutingWorkspace({
         scope,
         copyChannel.id,
         configuration.version,
-        copySuffix
+        copySuffix,
+        copyReset
       )
       setResult(receipt)
       toast.success(t('Channel copied successfully'))
       setCopyChannel(null)
       setCopySuffix('_copy')
+      setCopyReset(true)
     } catch (cause) {
       setCopyError(
         getServerErrorMessage(cause) ??
@@ -237,7 +273,10 @@ function NativeRoutingWorkspace({
     if (!configuration) return
     const id =
       channel?.id ??
-      nextId(configuration.routing.upstreams.map((item) => item.id))
+      nextId([
+        ...configuration.routing.upstreams.map((item) => item.id),
+        configuration.channel_id_high_water ?? 0,
+      ])
     const attachments = configuration.routing.routes.flatMap((route) =>
       route.targets
         .filter((target) => target.upstream_id === id)
@@ -619,6 +658,37 @@ function NativeRoutingWorkspace({
                   </details>
                 )}
                 <div className='flex flex-wrap gap-2'>
+                  {accounting.usage && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      className='min-h-11'
+                      onClick={() => setUsageChannel(channel)}
+                    >
+                      {t('channelUsage.open')}
+                    </Button>
+                  )}
+                  {accounting.counters && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      className='min-h-11'
+                      onClick={() => setBalanceChannel(channel)}
+                    >
+                      {t('channelBalance.title')}
+                    </Button>
+                  )}
+                  {accounting.balanceProbe && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      className='min-h-11'
+                      disabled={busy}
+                      onClick={() => setBalanceConfigChannel(channel)}
+                    >
+                      {t('channelBalance.configure')}
+                    </Button>
+                  )}
                   <Button
                     type='button'
                     variant='outline'
@@ -882,6 +952,53 @@ function NativeRoutingWorkspace({
           {t('Next')}
         </Button>
       </div>
+      {balanceChannel && accounting.counters && (
+        <NativeBalanceDialog
+          key={balanceChannel.id}
+          scope={scope}
+          channelId={balanceChannel.id}
+          probeConfigured={
+            accounting.balanceProbe &&
+            !!configuration.bindings.balance_probes?.[balanceChannel.id]
+          }
+          channelName={
+            configuration.bindings.names[balanceChannel.id] ??
+            `Channel ${balanceChannel.id}`
+          }
+          onClose={() => setBalanceChannel(null)}
+        />
+      )}
+      {balanceConfigChannel && accounting.balanceProbe && (
+        <NativeBalanceConfigDialog
+          key={balanceConfigChannel.id}
+          scope={scope}
+          channelId={balanceConfigChannel.id}
+          channelName={
+            configuration.bindings.names[balanceConfigChannel.id] ??
+            `Channel ${balanceConfigChannel.id}`
+          }
+          version={configuration.version}
+          initialProbe={
+            configuration.bindings.balance_probes?.[balanceConfigChannel.id] ??
+            null
+          }
+          onSaved={() => void refresh()}
+          onClose={() => setBalanceConfigChannel(null)}
+        />
+      )}
+      {usageChannel && accounting.usage && (
+        <NativeChannelUsageDialog
+          key={usageChannel.id}
+          scope={scope}
+          channelId={usageChannel.id}
+          countersEnabled={accounting.counters}
+          channelName={
+            configuration.bindings.names[usageChannel.id] ??
+            `Channel ${usageChannel.id}`
+          }
+          onClose={() => setUsageChannel(null)}
+        />
+      )}
       <Dialog
         open={copyChannel !== null}
         onOpenChange={(open) => {
@@ -909,7 +1026,10 @@ function NativeRoutingWorkspace({
             </Button>
             <Button
               disabled={
-                busy || !secretsAllowed || !configuration.secret_storage_enabled
+                busy ||
+                !secretsAllowed ||
+                !configuration.secret_storage_enabled ||
+                (!copyReset && !accounting.preserveCounters)
               }
               onClick={() => void submitCopy()}
             >
@@ -932,6 +1052,22 @@ function NativeRoutingWorkspace({
             (configuration.bindings.names[copyChannel.id] ??
               `Channel ${copyChannel.id}`)}
           {copySuffix}
+        </p>
+        <div className='mt-4 flex items-center gap-2'>
+          <Checkbox
+            id='native-copy-reset'
+            checked={copyReset}
+            disabled={busy || (copyReset && !accounting.preserveCounters)}
+            onCheckedChange={(checked) => {
+              if (checked === true || accounting.preserveCounters) {
+                setCopyReset(checked === true)
+              }
+            }}
+          />
+          <Label htmlFor='native-copy-reset'>{t('channelCopy.reset')}</Label>
+        </div>
+        <p className='text-muted-foreground mt-2 text-sm'>
+          {t('channelCopy.note')}
         </p>
         {copyError && (
           <Alert variant='destructive' role='alert'>

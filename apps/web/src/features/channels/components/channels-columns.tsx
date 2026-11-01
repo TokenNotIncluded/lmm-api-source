@@ -49,7 +49,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatQuotaWithCurrency } from '@/lib/currency'
+import {
+  formatExactQuotaInCurrency,
+  getWalletDisplayCurrency,
+} from '@/lib/currency'
 import { openExternalUrl } from '@/lib/external-navigation'
 import { formatTimestampToDate } from '@/lib/format'
 import { truncateText } from '@/lib/utils'
@@ -59,6 +62,8 @@ import { getCodexUsage } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   formatBalance,
+  formatObservedBalance,
+  channelQuotaInteger,
   formatRelativeTime,
   formatResponseTime,
   getBalanceVariant,
@@ -333,37 +338,34 @@ function BalanceCell({ channel }: { channel: Channel }) {
   const layout = useContext(ChannelRowActionsLayoutContext)
   const { sensitiveVisible } = useChannels()
   const isTagRow = isTagAggregateRow(channel)
-  const balance = channel.balance || 0
-  const usedQuota = channel.used_quota || 0
+  const balance = channel.balance
+  const usedQuota = channelQuotaInteger(channel.used_quota)
   const [isUpdating, setIsUpdating] = useState(false)
   const [codexUsageOpen, setCodexUsageOpen] = useState(false)
   const [codexUsageResponse, setCodexUsageResponse] =
     useState<CodexUsageDialogData | null>(null)
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  // Precise values are kept for the tooltip; long values are shown compactly inline.
-  const usedFull = formatQuotaWithCurrency(usedQuota, {
-    digitsLarge: 2,
-    digitsSmall: 4,
-    abbreviate: true,
-    showSymbol: layout !== 'card',
-  })
-  const remainingFull = formatBalance(balance)
-  const usedDisplay =
-    usedFull.length > MAX_INLINE_BALANCE_CHARS
-      ? formatQuotaWithCurrency(usedQuota, {
-          compact: true,
-          locale,
+  const usedFull =
+    usedQuota === null
+      ? '-'
+      : formatExactQuotaInCurrency(usedQuota, getWalletDisplayCurrency(), {
           showSymbol: layout !== 'card',
         })
-      : usedFull
+  const remainingFull = channel.observation
+    ? formatObservedBalance(channel.observation)
+    : formatBalance(balance)
+  const usedDisplay = usedFull
   const remainingDisplay =
+    !channel.observation &&
+    typeof balance === 'number' &&
+    Number.isFinite(balance) &&
     remainingFull.length > MAX_INLINE_BALANCE_CHARS
       ? new Intl.NumberFormat(locale, {
           notation: 'compact',
           maximumFractionDigits: 1,
         }).format(balance)
       : remainingFull
-  const usedLabel = `${t('Used:')} ${usedFull}`
+  const usedLabel = `${t('Used:')} ${usedFull}${usedQuota === null ? '' : ` (${usedQuota})`}`
   const remainingLabel = `${t('Remaining:')} ${remainingFull}`
   const maskedUsedLabel = `${t('Used:')} ${SENSITIVE_MASK}`
   const maskedRemainingLabel = `${t('Remaining:')} ${SENSITIVE_MASK}`
@@ -398,7 +400,7 @@ function BalanceCell({ channel }: { channel: Channel }) {
   }
 
   // Regular channel row: show used and remaining with click to update
-  const variant = getBalanceVariant(balance)
+  const variant = channel.observation ? 'neutral' : getBalanceVariant(balance)
 
   const handleClickUpdate = async () => {
     if (isUpdating) {

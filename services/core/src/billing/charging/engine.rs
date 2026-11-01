@@ -733,13 +733,12 @@ impl Charging {
                     }
                 })?;
                 let charge = load(&mut tx, &request.id).await?.charge;
+                if let Some(proof) = prepared {
+                    contract::insert(&mut tx, &charge, &contract::hex_digest(&spec), proof).await?;
+                }
                 let attempt = self.hold(&mut tx, &charge, at).await;
                 match attempt {
                     Ok(()) => {
-                        if let Some(proof) = prepared {
-                            contract::insert(&mut tx, &charge, &contract::hex_digest(&spec), proof)
-                                .await?;
-                        }
                         sqlx::query("RELEASE SAVEPOINT funding_candidate")
                             .execute(&mut *tx)
                             .await?;
@@ -762,6 +761,7 @@ impl Charging {
         Err(last_error)
     }
     async fn hold(&self, c: &mut PgConnection, charge: &Charge, at: i64) -> Result<()> {
+        contract::channel_identity::reserve(c, charge).await?;
         limits::budgets(c, charge, charge.reserved).await?;
         limits::entitlement(c, charge, charge.reserved, at).await?;
         self.ledger

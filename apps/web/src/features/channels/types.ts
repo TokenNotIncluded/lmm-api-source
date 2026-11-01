@@ -34,6 +34,24 @@ export const channelInfoSchema = z.object({
 
 export type ChannelInfo = z.infer<typeof channelInfoSchema>
 
+export const balanceObservationSchema = z
+  .object({
+    balance: z
+      .string()
+      .regex(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/)
+      .nullable(),
+    unit_label: z.string().nullable(),
+    balance_updated_time: z.number().int().safe().nonnegative().nullable(),
+    kind: z.enum(['unknown', 'provider', 'copied', 'reset']),
+    recorded_at: z.number().int().safe().nonnegative().nullable(),
+    source_channel_id: z.number().int().positive().safe().nullable(),
+  })
+  .refine(
+    (observation) =>
+      observation.kind !== 'unknown' || observation.balance === null
+  )
+export type BalanceObservation = z.infer<typeof balanceObservationSchema>
+
 export const channelSchema = z.object({
   id: z.number(),
   type: z.number(),
@@ -48,11 +66,14 @@ export const channelSchema = z.object({
   response_time: z.number(), // in milliseconds
   base_url: z.string().nullish(),
   other: z.string().default(''),
-  balance: z.number().default(0), // in USD
-  balance_updated_time: z.number(),
+  observation: balanceObservationSchema.optional(),
+  balance: z.number().nullish(), // provider-reported; missing is unknown
+  balance_updated_time: z.number().int().safe().nonnegative().nullish(),
   models: z.string().default(''),
   group: z.string().default('default'),
-  used_quota: z.number().default(0),
+  used_quota: z
+    .union([z.number().int().safe(), z.string().regex(/^-?(0|[1-9]\d*)$/)])
+    .nullish(),
   model_mapping: z.string().nullish(),
   status_code_mapping: z.string().nullish(),
   priority: z.number().nullish(),
@@ -197,6 +218,10 @@ export interface ChannelOpsResponse {
     native_configuration?: boolean
     native_catalog?: boolean
     native_secrets?: boolean
+    native_channel_usage?: boolean
+    native_channel_counters?: boolean
+    native_balance_probe?: boolean
+    copy_preserve_counters?: boolean
     status?: boolean
     remove?: boolean
     price_publish?: boolean
@@ -220,6 +245,9 @@ export interface ChannelBalanceResponse {
   success: boolean
   message?: string
   balance?: number
+  balance_updated_time?: number | null
+  data?: number
+  observation?: BalanceObservation
   currency?: string
 }
 

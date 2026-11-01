@@ -94,7 +94,11 @@ pub(in crate::channel_http) async fn vendors(
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let bindings = management.current_bindings()?;
     let version = management
@@ -140,7 +144,11 @@ async fn save_vendor(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = next_document(management, input.expected_version)?;
     let mut bindings = management.current_bindings()?;
@@ -157,12 +165,14 @@ async fn save_vendor(
             document,
             bindings,
             Vec::new(),
-            if existing {
-                "vendor.update"
-            } else {
-                "vendor.create"
+            super::PublicationChange::Normal {
+                action: if existing {
+                    "vendor.update"
+                } else {
+                    "vendor.create"
+                },
+                target: json!({"id":id}),
             },
-            json!({"id":id}),
         )
         .await?;
     Ok(Json(
@@ -179,7 +189,11 @@ pub(in crate::channel_http) async fn remove_vendor(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = next_document(management, input.expected_version)?;
     let mut bindings = management.current_bindings()?;
@@ -197,8 +211,10 @@ pub(in crate::channel_http) async fn remove_vendor(
             document,
             bindings,
             Vec::new(),
-            "vendor.delete",
-            json!({"id":id}),
+            super::PublicationChange::Normal {
+                action: "vendor.delete",
+                target: json!({"id":id}),
+            },
         )
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))
@@ -212,7 +228,11 @@ pub(in crate::channel_http) async fn models(
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let bindings = management.current_bindings()?;
     let document = management
@@ -327,7 +347,11 @@ pub(in crate::channel_http) async fn preview_model(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let (document, bindings) = input.model.compile(management, input.editing)?;
     let digest = input.model.digest(input.editing)?;
@@ -364,7 +388,11 @@ async fn save_model(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let digest = input.digest(editing)?;
     if input.confirmation_digest.as_deref() != Some(digest.as_str()) {
@@ -379,12 +407,14 @@ async fn save_model(
             document,
             bindings,
             Vec::new(),
-            if editing {
-                "model.update"
-            } else {
-                "model.create"
+            super::PublicationChange::Normal {
+                action: if editing {
+                    "model.update"
+                } else {
+                    "model.create"
+                },
+                target: json!({"id":input.route.id,"confirmation_digest":digest}),
             },
-            json!({"id":input.route.id,"confirmation_digest":digest}),
         )
         .await?;
     Ok(Json(
@@ -401,7 +431,11 @@ pub(in crate::channel_http) async fn remove_model(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     let old = document
@@ -436,8 +470,10 @@ pub(in crate::channel_http) async fn remove_model(
             document,
             bindings,
             Vec::new(),
-            "model.delete",
-            json!({"id":id}),
+            super::PublicationChange::Normal {
+                action: "model.delete",
+                target: json!({"id":id}),
+            },
         )
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))
@@ -454,7 +490,11 @@ pub(in crate::channel_http) async fn synchronize_models(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (mut tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelOperate)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelOperate,
+            super::ReadView::Current,
+        )
         .await?;
     let document = next_document(management, input.expected_version)?;
     let observed: i64 =
@@ -479,8 +519,10 @@ pub(in crate::channel_http) async fn synchronize_models(
             document,
             bindings,
             Vec::new(),
-            "channel.models.synchronize",
-            json!({"id":id,"model_count":count}),
+            super::PublicationChange::Normal {
+                action: "channel.models.synchronize",
+                target: json!({"id":id,"model_count":count}),
+            },
         )
         .await?;
     Ok(Json(

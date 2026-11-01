@@ -25,6 +25,8 @@ pub(in crate::channel_http) struct Bindings {
     pub discoveries: BTreeMap<u64, super::catalog::Discovery>,
     #[serde(default)]
     pub price_drafts: BTreeMap<u64, super::price_drafts::PriceDraft>,
+    #[serde(default)]
+    pub balance_probes: BTreeMap<u64, super::balance::BalanceProbe>,
 }
 impl Bindings {
     pub(in crate::channel_http) fn validate(
@@ -53,6 +55,17 @@ impl Bindings {
                 return Err(ManagementError::Invalid);
             }
             draft.validate()?;
+        }
+        for (id, probe) in &self.balance_probes {
+            if !_document
+                .routing
+                .upstreams
+                .iter()
+                .any(|upstream| upstream.id == *id)
+            {
+                return Err(ManagementError::Invalid);
+            }
+            probe.validate()?;
         }
         super::catalog::validate_metadata(self, _document)?;
         Ok(())
@@ -110,17 +123,32 @@ pub(in crate::channel_http) async fn read(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
-    let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+    let (mut tx, _) = management
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = management
         .routing
         .catalog_document()
         .map_err(|_| ManagementError::Storage)?;
     let bindings = management.current_bindings()?;
+    let channel_id_high_water = accounting::maximum_id(&mut tx).await?.max(
+        management
+            .bootstrap
+            .routing
+            .upstreams
+            .iter()
+            .chain(document.routing.upstreams.iter())
+            .map(|u| u.id)
+            .max()
+            .unwrap_or(0),
+    );
     tx.commit().await.map_err(ManagementError::from)?;
     Ok(Json(
-        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
+        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"channel_id_high_water":channel_id_high_water,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
     ))
 }
 pub(in crate::channel_http) async fn preview(
@@ -132,7 +160,11 @@ pub(in crate::channel_http) async fn preview(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let current = next_document(management, input.expected_version)?;
     let document = input.document()?;
@@ -157,7 +189,11 @@ pub(in crate::channel_http) async fn publish(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = input.document()?;
     let digest = input.digest()?;
@@ -178,8 +214,10 @@ pub(in crate::channel_http) async fn publish(
             document,
             input.bindings,
             Vec::new(),
-            "channel.configuration.publish",
-            json!({"confirmation_digest":digest}),
+            PublicationChange::Normal {
+                action: "channel.configuration.publish",
+                target: json!({"confirmation_digest":digest}),
+            },
         )
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))
@@ -336,7 +374,11 @@ pub(in crate::channel_http) async fn create(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (mut tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     if document.routing.upstreams.iter().any(|u| u.id == input.id) {
@@ -371,8 +413,10 @@ pub(in crate::channel_http) async fn create(
             document,
             bindings,
             vec![key],
-            "channel.create",
-            json!({"id":input.id}),
+            PublicationChange::Normal {
+                action: "channel.create",
+                target: json!({"id":input.id}),
+            },
         )
         .await?;
     Ok(Json(
@@ -389,7 +433,11 @@ pub(in crate::channel_http) async fn update(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let mut document = next_document(management, input.expected_version)?;
     if id != input.id || input.secret.is_some() {
@@ -409,8 +457,10 @@ pub(in crate::channel_http) async fn update(
             document,
             bindings,
             Vec::new(),
-            "channel.update",
-            json!({"id":id}),
+            PublicationChange::Normal {
+                action: "channel.update",
+                target: json!({"id":id}),
+            },
         )
         .await?;
     Ok(Json(json!({"success":true,"data":{"version":version}})))
@@ -426,7 +476,11 @@ pub(in crate::channel_http) async fn keys(
     management.synchronize().await?;
     let _guard = management.publication.lock().await;
     let (mut tx, _) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let document = management
         .routing
@@ -476,7 +530,11 @@ pub(in crate::channel_http) async fn change_key(
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     let _guard = management.publication.lock().await;
     let (mut tx, principal) = management
-        .begin(bearer(&headers)?, Action::ChannelSensitiveWrite)
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            super::ReadView::Current,
+        )
         .await?;
     let expected = match &input {
         KeyOperation::Add {
@@ -569,8 +627,10 @@ pub(in crate::channel_http) async fn change_key(
             document,
             management.current_bindings()?,
             credentials,
-            action,
-            json!({"id":id,"reference":reference}),
+            PublicationChange::Normal {
+                action,
+                target: json!({"id":id,"reference":reference}),
+            },
         )
         .await?;
     Ok(Json(

@@ -91,6 +91,7 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/completion_upgrade.sql"),
     ),
     ("account-appeals", crate::identity::ACCOUNT_APPEALS_SCHEMA),
+    ("channel-accounting", crate::channel_http::ACCOUNTING_SCHEMA),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

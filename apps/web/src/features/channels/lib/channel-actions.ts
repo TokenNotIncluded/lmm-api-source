@@ -40,7 +40,7 @@ import {
 } from '../api'
 import { CHANNEL_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import type { ChannelTestResponse, CopyChannelParams } from '../types'
-import { formatBalance } from './channel-utils'
+import { formatBalance, formatObservedBalance } from './channel-utils'
 
 // ============================================================================
 // Query Keys
@@ -358,10 +358,16 @@ export async function handleCopyChannel(
 ): Promise<void> {
   try {
     const response = await copyChannel(id, params)
-    if (response.success) {
+    if (
+      response.success === true &&
+      response.data &&
+      Number.isSafeInteger(response.data.id) &&
+      response.data.id > 0 &&
+      response.data.id !== id
+    ) {
       toast.success(i18next.t(SUCCESS_MESSAGES.COPIED))
       queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
-      onSuccess?.(response.data?.id ?? 0)
+      onSuccess?.(response.data.id)
     } else {
       toast.error(response.message || i18next.t('Failed to copy channel'))
     }
@@ -384,7 +390,9 @@ export async function handleUpdateChannelBalance(
       const balance = response.balance
       toast.success(
         i18next.t('Balance updated: {{balance}}', {
-          balance: formatBalance(balance),
+          balance: response.observation
+            ? formatObservedBalance(response.observation)
+            : formatBalance(balance),
         })
       )
       queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })

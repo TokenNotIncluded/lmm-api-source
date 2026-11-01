@@ -29,7 +29,9 @@ Commands:\n\
   upgrade-db      Explicit offline exact-target schema upgrade; requires installer --config and bound stdin JSON.\n\
                   core-payment-gateways-v1 requires its preserved 29-component installer for the fixed 28-to-29 transition.\n\
                   core-request-operations-v1 upgrades the fixed 29-component predecessor to 31 components.\n\
-                  core-functional-completion-v1 upgrades the fixed 32-component PostgreSQL 18 predecessor to 41 components.\n\
+                  core-functional-completion-v1 upgrades the fixed 32-component PostgreSQL 18 predecessor to 43 components.\n\
+                  core-account-appeals-v1 upgrades the fixed 41-component PostgreSQL 18 predecessor to 43 components.\n\
+                  core-channel-accounting-v1 upgrades the fixed 42-component PostgreSQL 18 predecessor to 43 components.\n\
                   Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\

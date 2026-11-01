@@ -5,6 +5,18 @@ import { after, afterEach, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 const dom = new Window()
+// happy-dom omits the handled flag for the finished promise on cancellation:
+// https://www.w3.org/TR/web-animations-1/#canceling-an-animation-section
+// Keep this correction on this Window's prototype; callers still see rejection.
+const cancelAnimation = dom.Animation.prototype.cancel
+dom.Animation.prototype.cancel = function () {
+  void this.finished.catch((error: unknown) => {
+    if (!(error instanceof dom.DOMException) || error.name !== 'AbortError') {
+      throw error
+    }
+  })
+  cancelAnimation.call(this)
+}
 for (const name of [
   'window',
   'document',
@@ -105,6 +117,21 @@ async function until(check: () => boolean) {
   }
   assert.ok(check(), 'The channel view did not reach the expected state')
 }
+
+test('animation cancellation keeps its rejected receipt and stays local to this Window', async () => {
+  const otherWindow = new Window()
+  try {
+    assert.equal(otherWindow.Animation.prototype.cancel, cancelAnimation)
+    const element = dom.document.createElement('div')
+    const animation = element.animate({ opacity: [0, 1] }, { duration: 1000 })
+    const finished = animation.finished
+    animation.cancel()
+    assert.equal(animation.playState, 'idle')
+    await assert.rejects(finished, { name: 'AbortError' })
+  } finally {
+    otherWindow.close()
+  }
+})
 
 test('read-only channels show snapshot fields and paginate without mutation controls or fake metrics', async () => {
   api.get = (async (_url: string, config?: Parameters<typeof api.get>[1]) => {

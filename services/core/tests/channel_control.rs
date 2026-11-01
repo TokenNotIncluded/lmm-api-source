@@ -1545,7 +1545,10 @@ async fn channel_copy_publishes_independent_keys_and_executable_bindings(pool: P
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(audit["change"], json!({"source_id":1,"id":id}));
+    assert_eq!(
+        audit["change"],
+        json!({"source_id":1,"id":id,"reset_balance":true})
+    );
     success(&app, "POST", "/core/v1/admin/routing/channels/1/keys", &admin,
         json!({"operation":"add","expected_version":Version::of(&document),"label":"Source rotation","secret":"synthetic-source-rotated","activate":true})).await;
     let after_rotation = active(&pool).await;
@@ -1636,6 +1639,7 @@ async fn channel_copy_legacy_names_and_failures_are_atomic(pool: PgPool) {
     for (query, name) in [
         ("", "Channel 1_复制"),
         ("?suffix=", "Channel 1"),
+        ("?reset_balance=false", "Channel 1_复制"),
         (
             "?suffix=%E5%89%AF%E6%9C%AC&reset_balance=true",
             "Channel 1副本",
@@ -1672,16 +1676,6 @@ async fn channel_copy_legacy_names_and_failures_are_atomic(pool: PgPool) {
         .0,
         StatusCode::FORBIDDEN
     );
-    let (status, unavailable) = request(
-        app.clone(),
-        "POST",
-        "/api/channel/copy/1?reset_balance=false",
-        &admin,
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(unavailable["code"], "CHANNEL_COUNTER_COPY_UNAVAILABLE");
     let input = json!({"expected_version":Version::of(&before),"suffix":"_copy"});
     assert_eq!(
         request(

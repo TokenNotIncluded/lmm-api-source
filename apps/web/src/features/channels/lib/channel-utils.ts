@@ -27,7 +27,12 @@ import {
   RESPONSE_TIME_THRESHOLDS,
   TYPE_TO_KEY_PROMPT,
 } from '../constants'
-import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
+import {
+  channelSchema,
+  type Channel,
+  type ChannelSettings,
+  type ChannelOtherSettings,
+} from '../types'
 
 // ============================================================================
 // Channel Type Utilities
@@ -327,19 +332,29 @@ export function validateChannelSettings(settings: string): boolean {
 
 /** Format a provider-reported balance without guessing its currency. */
 export function formatBalance(balance: number | null | undefined): string {
-  if (balance == null || Number.isNaN(balance)) return '-'
+  if (typeof balance !== 'number' || !Number.isFinite(balance)) return '-'
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: Math.abs(balance) >= 1 ? 2 : 4,
   }).format(balance)
+}
+
+/** Provider observations retain their own units and exact decimal text. */
+export function formatObservedBalance(
+  observation: NonNullable<Channel['observation']>
+): string {
+  if (observation.balance === null) return '-'
+  return observation.unit_label
+    ? `${observation.balance} ${observation.unit_label}`
+    : observation.balance
 }
 
 /**
  * Get balance status color
  */
 export function getBalanceVariant(
-  balance: number
+  balance: number | null | undefined
 ): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (balance === 0) {
+  if (balance == null || !Number.isFinite(balance) || balance === 0) {
     return 'neutral'
   }
   if (balance < 1) {
@@ -481,6 +496,16 @@ export function formatTimestamp(timestamp: number): string {
 // Quota Formatting
 // ============================================================================
 
+/** Keep integer counters exact; unsafe JSON numbers have already lost precision. */
+export function channelQuotaInteger(
+  value: Channel['used_quota']
+): string | null {
+  const parsed = channelSchema.shape.used_quota.safeParse(value)
+  return parsed.success && parsed.data != null
+    ? BigInt(parsed.data).toString()
+    : null
+}
+
 /** Format quota units using the global currency display configuration. */
 export function formatQuota(quota: number): string {
   return formatQuotaWithCurrency(quota, {
@@ -558,7 +583,11 @@ export function channelNeedsAttention(channel: Channel): boolean {
   }
 
   // Low balance (less than $1)
-  if (channel.balance > 0 && channel.balance < 1) {
+  if (
+    typeof channel.balance === 'number' &&
+    channel.balance > 0 &&
+    channel.balance < 1
+  ) {
     return true
   }
 
@@ -582,7 +611,11 @@ export function getAttentionReason(channel: Channel): string | null {
   if (channel.status === 3) {
     return 'Auto-disabled'
   }
-  if (channel.balance > 0 && channel.balance < 1) {
+  if (
+    typeof channel.balance === 'number' &&
+    channel.balance > 0 &&
+    channel.balance < 1
+  ) {
     return 'Low balance'
   }
   if (
@@ -654,10 +687,10 @@ export function aggregateChannelsByTag(
         priority: -1 as unknown as number | null,
         // SAFETY: -1 is the pre-aggregation sentinel, replaced by a child value.
         weight: -1 as unknown as number | null,
-        balance: 0,
+        balance: undefined,
         test_time: 0,
         created_time: 0,
-        balance_updated_time: 0,
+        balance_updated_time: undefined,
         models: '',
         children: [],
       } as TagRow
@@ -675,7 +708,12 @@ export function aggregateChannelsByTag(
     const childCount = tagRow.children.length
 
     // Aggregate used_quota (sum)
-    tagRow.used_quota += channel.used_quota
+    const total = channelQuotaInteger(tagRow.used_quota)
+    const child = channelQuotaInteger(channel.used_quota)
+    tagRow.used_quota =
+      total === null || child === null
+        ? undefined
+        : (BigInt(total) + BigInt(child)).toString()
 
     // Aggregate response_time (average)
     tagRow.response_time =
