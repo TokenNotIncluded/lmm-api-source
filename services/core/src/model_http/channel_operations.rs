@@ -141,6 +141,15 @@ impl ModelGateway {
         self.bridge.provider_policy.context_document()
     }
 
+    pub(crate) fn channel_credential(
+        &self,
+        reference: crate::routing::CredentialRef,
+    ) -> Option<String> {
+        self.bridge
+            .credentials
+            .get(&(reference.id, reference.revision))
+    }
+
     pub(crate) fn has_channel_credential(&self, reference: crate::routing::CredentialRef) -> bool {
         self.bridge
             .credentials

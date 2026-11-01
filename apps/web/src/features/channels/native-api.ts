@@ -352,3 +352,33 @@ export async function getNativeKeys(
     )
   )
 }
+
+const copyReceiptSchema = z.object({
+  id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  version: versionSchema,
+})
+
+export async function copyNativeChannel(
+  scope: NativeRoutingScope,
+  id: number,
+  expectedVersion: NativeVersion,
+  suffix: string
+) {
+  z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id)
+  versionSchema.parse(expectedVersion)
+  const receipt = copyReceiptSchema.parse(
+    await nativeRequest<unknown>(
+      scope,
+      'POST',
+      `${NATIVE_ROOT}/channels/${id}/copy`,
+      { expected_version: expectedVersion, suffix }
+    )
+  )
+  if (
+    receipt.id === id ||
+    receipt.version.pricing !== expectedVersion.pricing
+  ) {
+    throw new Error('The save result is unknown. Reload before continuing.')
+  }
+  return receipt
+}

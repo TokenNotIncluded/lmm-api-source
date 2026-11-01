@@ -69,7 +69,10 @@ fn routes(state: ChannelState) -> Router {
         .route("/api/channel/test/{id}", get(control::probe))
         .route("/api/channel/update_balance/{id}", any(unsupported))
         .route("/api/channel/fetch_models/{id}", get(control::fetch_models))
-        .route("/api/channel/copy/{id}", any(unsupported))
+        .route(
+            "/api/channel/copy/{id}",
+            axum::routing::post(control::copy::legacy),
+        )
         .route(
             "/api/channel/status/batch",
             axum::routing::put(control::batch_status),
@@ -116,6 +119,10 @@ fn routes(state: ChannelState) -> Router {
         .route(
             "/core/v1/admin/routing/channels/{id}",
             axum::routing::put(control::configuration::update).delete(control::remove),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/{id}/copy",
+            axum::routing::post(control::copy::native),
         )
         .route(
             "/core/v1/admin/routing/channels/{id}/keys",
@@ -572,7 +579,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
                 "list": true, "search": true, "read": true,
                 "create": false, "update": false, "delete": false,
                 "test": false, "balance": false, "fetch_models": false,
-                "copy": false, "key": false
+                "copy": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()), "key": false
             },
             "reason": "Channel writes require durable Core configuration publication"
         }

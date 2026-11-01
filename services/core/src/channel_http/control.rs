@@ -2,6 +2,7 @@
 //! the serving snapshot changes only after its audit and release commit.
 pub(super) mod catalog;
 pub(super) mod configuration;
+pub(super) mod copy;
 pub(super) mod price_drafts;
 mod vault;
 use super::{ChannelState, auth_error, authorize_action, error_response};
@@ -412,6 +413,7 @@ pub(super) enum Failure {
     Management(ManagementError),
     NotFound,
     Disabled,
+    CountersUnavailable,
 }
 impl From<HistoryError> for Failure {
     fn from(v: HistoryError) -> Self {
@@ -427,6 +429,11 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
             Self::Auth(error) => return auth_error(error),
+            Self::CountersUnavailable => (
+                StatusCode::NOT_IMPLEMENTED,
+                "CHANNEL_COUNTER_COPY_UNAVAILABLE",
+                "Channel balance and usage counters are not available for copying",
+            ),
             Self::Disabled => (
                 StatusCode::NOT_IMPLEMENTED,
                 "CHANNEL_CONTROL_DISABLED",

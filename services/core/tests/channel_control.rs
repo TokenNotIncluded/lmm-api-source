@@ -1421,3 +1421,324 @@ async fn channel_edits_bind_actual_context_and_stale_drafts_never_replace_new_pr
     let details = success(&app, "GET", "/api/channel/2", &admin, Value::Null).await;
     assert_eq!(details["name"], "Edited provider");
 }
+
+#[sqlx::test(migrations = false)]
+async fn channel_copy_publishes_independent_keys_and_executable_bindings(pool: PgPool) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (_, _, admin, ordinary) = vault_app(&pool).await;
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_charging").await;
+    role.optional("core_model").await;
+    let live = gateway(&role.pool)
+        .with_channel_secret_key(&[83; 32])
+        .unwrap();
+    let manager = ManagedChannels::recover(role.pool.clone(), live.clone())
+        .await
+        .unwrap();
+    let app = managed_router(role.pool.clone(), manager);
+    let expected = Version::from(live.dashboard_routing().version().unwrap());
+    let input = json!({"expected_version":expected,"suffix":"_copy"});
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/1/copy",
+            &ordinary,
+            input.clone()
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (first, second) = tokio::join!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/1/copy",
+            &admin,
+            input.clone()
+        ),
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/1/copy",
+            &admin,
+            input
+        ),
+    );
+    let (status, reply) = if first.0 == StatusCode::OK {
+        assert_eq!(second.0, StatusCode::CONFLICT, "{second:?}");
+        first
+    } else {
+        assert_eq!(first.0, StatusCode::CONFLICT, "{first:?}");
+        second
+    };
+    assert_eq!(status, StatusCode::OK, "{reply}");
+    let id = reply["data"]["id"].as_u64().unwrap();
+    assert_ne!(id, 1);
+    assert_eq!(
+        reply["data"]["version"],
+        json!({"routing":expected.routing+1,"pricing":expected.pricing})
+    );
+    assert!(!reply.to_string().contains("synthetic-channel-only"));
+    let document = active(&pool).await;
+    let source = &document.routing.upstreams[0];
+    let copied = document
+        .routing
+        .upstreams
+        .iter()
+        .find(|u| u.id == id)
+        .unwrap();
+    assert_eq!(source.id, 1);
+    assert_eq!(copied.endpoint, source.endpoint);
+    assert_eq!(copied.protocol, source.protocol);
+    assert_eq!(copied.enabled, source.enabled);
+    assert_ne!(copied.credential, source.credential);
+    assert_eq!(document.pricing, fixture().pricing);
+    assert_eq!(document.routing.routes[0].targets.len(), 2);
+    let original_target = &document.routing.routes[0].targets[0];
+    let copied_target = &document.routing.routes[0].targets[1];
+    assert_eq!(copied_target.upstream_id, id);
+    assert_ne!(copied_target.id, original_target.id);
+    assert_eq!(copied_target.upstream_model, original_target.upstream_model);
+    assert_eq!(copied_target.weight, original_target.weight);
+    assert_eq!(copied_target.priority, original_target.priority);
+    let detail = success(
+        &app,
+        "GET",
+        &format!("/api/channel/{id}"),
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(detail["name"], "Channel 1_copy");
+    let keys: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.channel_secret_revisions WHERE upstream_id=$1",
+    )
+    .bind(id as i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(keys, 1, "copy must own its independent encrypted key");
+    let ciphertext: Vec<u8> = sqlx::query_scalar(
+        "SELECT ciphertext FROM public.channel_secret_revisions WHERE upstream_id=$1",
+    )
+    .bind(id as i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        !ciphertext
+            .windows(b"synthetic-channel-only".len())
+            .any(|s| s == b"synthetic-channel-only")
+    );
+    let denied = sqlx::query("SELECT ciphertext FROM public.channel_secret_revisions")
+        .fetch_all(&role.pool)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("42501")
+    );
+    let audit: Value =
+        sqlx::query_scalar("SELECT target FROM core_identity.audit WHERE action='channel.copy'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(audit["change"], json!({"source_id":1,"id":id}));
+    success(&app, "POST", "/core/v1/admin/routing/channels/1/keys", &admin,
+        json!({"operation":"add","expected_version":Version::of(&document),"label":"Source rotation","secret":"synthetic-source-rotated","activate":true})).await;
+    let after_rotation = active(&pool).await;
+    assert_eq!(
+        after_rotation
+            .routing
+            .upstreams
+            .iter()
+            .find(|u| u.id == id)
+            .unwrap()
+            .credential,
+        copied.credential
+    );
+    success(
+        &app,
+        "PUT",
+        "/api/channel/1/status",
+        &admin,
+        json!({"expected_version":Version::of(&after_rotation),"enabled":false}),
+    )
+    .await;
+    drop(app);
+    drop(live);
+    let restored = gateway(&role.pool)
+        .with_channel_secret_key(&[83; 32])
+        .unwrap();
+    let manager = ManagedChannels::recover(role.pool.clone(), restored.clone())
+        .await
+        .unwrap();
+    assert!(
+        restored.dashboard_routing().route(route_request()).is_ok(),
+        "copy must remain routable after disabling its source"
+    );
+    let hits = Arc::new(AtomicUsize::new(0));
+    let seen = hits.clone();
+    let provider = Router::new().route(
+        "/v1/models",
+        axum::routing::get(move |headers: axum::http::HeaderMap| {
+            let seen = seen.clone();
+            async move {
+                assert_eq!(
+                    headers.get(header::AUTHORIZATION).unwrap(),
+                    "Bearer synthetic-channel-only"
+                );
+                seen.fetch_add(1, Ordering::SeqCst);
+                axum::Json(json!({"data":[{"id":"model-a"}]}))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, provider).await.unwrap();
+    });
+    let mut transport_document = active(&pool).await;
+    transport_document.routing.version += 1;
+    transport_document
+        .routing
+        .upstreams
+        .iter_mut()
+        .find(|u| u.id == id)
+        .unwrap()
+        .endpoint =
+        lmm_core::routing::Endpoint::local_loopback(format!("http://{address}/v1/")).unwrap();
+    transport_document
+        .apply(&restored.dashboard_routing())
+        .unwrap();
+    let app = managed_router(role.pool.clone(), manager);
+    let probe = success(
+        &app,
+        "GET",
+        &format!("/api/channel/test/{id}"),
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(probe["models"], json!(["model-a"]));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    server.abort();
+    drop(app);
+    drop(restored);
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn channel_copy_legacy_names_and_failures_are_atomic(pool: PgPool) {
+    let (app, live, admin, ordinary) = vault_app(&pool).await;
+    for (query, name) in [
+        ("", "Channel 1_复制"),
+        ("?suffix=", "Channel 1"),
+        (
+            "?suffix=%E5%89%AF%E6%9C%AC&reset_balance=true",
+            "Channel 1副本",
+        ),
+    ] {
+        let copied = success(
+            &app,
+            "POST",
+            &format!("/api/channel/copy/1{query}"),
+            &admin,
+            Value::Null,
+        )
+        .await;
+        let detail = success(
+            &app,
+            "GET",
+            &format!("/api/channel/{}", copied["id"]),
+            &admin,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(detail["name"], name);
+    }
+    let before = active(&pool).await;
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/api/channel/copy/1?reset_balance=false",
+            &ordinary,
+            Value::Null
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, unavailable) = request(
+        app.clone(),
+        "POST",
+        "/api/channel/copy/1?reset_balance=false",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(unavailable["code"], "CHANNEL_COUNTER_COPY_UNAVAILABLE");
+    let input = json!({"expected_version":Version::of(&before),"suffix":"_copy"});
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/999/copy",
+            &admin,
+            input.clone()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let mut invalid = input.clone();
+    invalid["suffix"] = json!("x".repeat(129));
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/1/copy",
+            &admin,
+            invalid
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let keys_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.channel_secret_revisions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::raw_sql("CREATE FUNCTION public.reject_copy_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='channel.copy' THEN RAISE EXCEPTION 'synthetic copy audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_copy_audit BEFORE INSERT ON core_identity.audit FOR EACH ROW EXECUTE FUNCTION public.reject_copy_audit();").execute(&pool).await.unwrap();
+    assert_eq!(
+        request(
+            app,
+            "POST",
+            "/core/v1/admin/routing/channels/1/copy",
+            &admin,
+            input
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(active(&pool).await, before);
+    assert_eq!(
+        Version::from(live.dashboard_routing().version().unwrap()),
+        Version::of(&before)
+    );
+    let keys_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.channel_secret_revisions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        keys_before, keys_after,
+        "failed copy must roll back encrypted key"
+    );
+}

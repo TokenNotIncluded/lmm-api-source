@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   assertNativeIntegers,
+  copyNativeChannel,
   nativeRequest,
   parseNativeDocument,
   readNativeRoutingScope,
@@ -143,4 +144,80 @@ test('a changed administrator session cannot reuse a previous editor or accept a
     })
   )
   assert.equal(calls, 1)
+})
+
+test('native copy sends only the version and exact suffix and validates the new identity and exact publication', async () => {
+  const scope = login()
+  const expected = { routing: 4, pricing: 3 }
+  let calls = 0
+  let receipt: unknown = { id: 9, version: { routing: 5, pricing: 3 } }
+  let suffix = '_copy'
+  api.defaults.adapter = async (config) => {
+    calls++
+    assert.equal(config.method, 'post')
+    assert.equal(config.url, '/core/v1/admin/routing/channels/1/copy')
+    assert.equal(config.skipAuthRefresh, true)
+    assert.deepEqual(JSON.parse(String(config.data)), {
+      expected_version: expected,
+      suffix,
+    })
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: { success: true, data: receipt },
+    }
+  }
+  assert.deepEqual(await copyNativeChannel(scope, 1, expected, suffix), receipt)
+  suffix = ''
+  await copyNativeChannel(scope, 1, expected, suffix)
+  for (const invalid of [
+    {},
+    { id: 0, version: { routing: 5, pricing: 3 } },
+    { id: 1, version: { routing: 5, pricing: 3 } },
+    { id: 1.5, version: { routing: 5, pricing: 3 } },
+    { id: 9007199254740992, version: { routing: 5, pricing: 3 } },
+    { id: 9, version: { routing: 4, pricing: 3 } },
+    { id: 9, version: { routing: 5, pricing: 4 } },
+  ]) {
+    receipt = invalid
+    await assert.rejects(copyNativeChannel(scope, 1, expected, suffix))
+  }
+  assert.equal(calls, 9)
+  const before = calls
+  await assert.rejects(copyNativeChannel(scope, 0, expected, suffix))
+  assert.equal(calls, before)
+})
+
+test('native copy does not replay a lost acknowledgement or accept a response after session drift', async () => {
+  const scope = login()
+  let calls = 0
+  api.defaults.adapter = async () => {
+    calls++
+    throw new Error('copy acknowledgement lost')
+  }
+  await assert.rejects(
+    copyNativeChannel(scope, 1, { routing: 1, pricing: 1 }, '_copy'),
+    /acknowledgement lost/
+  )
+  assert.equal(calls, 1)
+  api.defaults.adapter = async (config) => {
+    calls++
+    login('replacement-copy-session')
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: {
+        success: true,
+        data: { id: 9, version: { routing: 2, pricing: 1 } },
+      },
+    }
+  }
+  await assert.rejects(
+    copyNativeChannel(scope, 1, { routing: 1, pricing: 1 }, '_copy')
+  )
+  assert.equal(calls, 2)
 })

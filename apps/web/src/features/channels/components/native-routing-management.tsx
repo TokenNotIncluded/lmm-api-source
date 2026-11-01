@@ -1,18 +1,23 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
+import { Dialog } from '@/components/dialog'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
+import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  copyNativeChannel,
   getNativeConfiguration,
   getNativeKeys,
   nativeRequest as scopedNativeRequest,
@@ -26,6 +31,7 @@ import {
   type NativeUpstream,
   type NativeVendor,
 } from '../native-api'
+import { useChannelOps } from '../use-channel-ops'
 
 type Section = 'channels' | 'models' | 'vendors' | 'prices'
 type Editor = {
@@ -55,6 +61,13 @@ export function NativeRoutingManagement({
   initialSection?: Section
 }) {
   const { t } = useTranslation()
+  const runtime = useRuntimeCapabilities()
+  const localCapabilities = useChannelOps(!runtime)
+  const capabilities = runtime?.channels ?? localCapabilities
+  const capabilityPhase = useCapabilityFreshness(capabilities)
+  const secretsAllowed =
+    capabilityPhase === 'fresh' &&
+    capabilities.data?.data?.native_secrets === true
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeRoutingScope(auth)
   if (!scope) {
@@ -70,6 +83,7 @@ export function NativeRoutingManagement({
     <NativeRoutingWorkspace
       key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
       scope={scope}
+      secretsAllowed={secretsAllowed}
       initialSection={initialSection}
     />
   )
@@ -77,9 +91,11 @@ export function NativeRoutingManagement({
 function NativeRoutingWorkspace({
   initialSection,
   scope,
+  secretsAllowed,
 }: {
   initialSection: Section
   scope: NativeRoutingScope
+  secretsAllowed: boolean
 }) {
   const nativeRequest = <T,>(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
@@ -88,6 +104,10 @@ function NativeRoutingWorkspace({
   ) => scopedNativeRequest<T>(scope, method, path, data)
   const { t } = useTranslation()
   const client = useQueryClient()
+  const [copySuffix, setCopySuffix] = useState('_copy')
+  const copyPending = useRef(false)
+  const [copyChannel, setCopyChannel] = useState<NativeUpstream | null>(null)
+  const [copyError, setCopyError] = useState<string | null>(null)
   const [section, setSection] = useState<Section>(initialSection)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
@@ -173,6 +193,43 @@ function NativeRoutingWorkspace({
       setPreview(null)
       await refresh()
     } finally {
+      setBusy(false)
+    }
+  }
+  async function submitCopy() {
+    if (
+      !copyChannel ||
+      !configuration ||
+      !secretsAllowed ||
+      !configuration.secret_storage_enabled ||
+      busy ||
+      copyPending.current
+    ) {
+      return
+    }
+    copyPending.current = true
+    setBusy(true)
+    setCopyError(null)
+    setResult(null)
+    try {
+      const receipt = await copyNativeChannel(
+        scope,
+        copyChannel.id,
+        configuration.version,
+        copySuffix
+      )
+      setResult(receipt)
+      toast.success(t('Channel copied successfully'))
+      setCopyChannel(null)
+      setCopySuffix('_copy')
+    } catch (cause) {
+      setCopyError(
+        getServerErrorMessage(cause) ??
+          (cause instanceof Error ? cause.message : t('Failed to copy channel'))
+      )
+    } finally {
+      await refresh()
+      copyPending.current = false
       setBusy(false)
     }
   }
@@ -522,6 +579,11 @@ function NativeRoutingWorkspace({
           >
             {t('Create Channel')}
           </Button>
+          {(!secretsAllowed || !configuration.secret_storage_enabled) && (
+            <p className='text-muted-foreground text-sm' role='status'>
+              {t('API Keys')}: {t('Capability unavailable')}
+            </p>
+          )}
           <div className='space-y-3'>
             {upstreams.slice(start, start + 25).map((channel) => (
               <div key={channel.id} className='min-w-0 space-y-2 border p-3'>
@@ -565,6 +627,27 @@ function NativeRoutingWorkspace({
                     onClick={() => channelEditor(channel)}
                   >
                     {t('Edit')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='min-h-11'
+                    disabled={
+                      busy ||
+                      !secretsAllowed ||
+                      !configuration.secret_storage_enabled
+                    }
+                    title={
+                      !secretsAllowed || !configuration.secret_storage_enabled
+                        ? t('Capability unavailable')
+                        : undefined
+                    }
+                    onClick={() => {
+                      setCopyError(null)
+                      setCopyChannel(channel)
+                    }}
+                  >
+                    {t('Copy Channel')}
                   </Button>
                   <Button
                     type='button'
@@ -799,6 +882,63 @@ function NativeRoutingWorkspace({
           {t('Next')}
         </Button>
       </div>
+      <Dialog
+        open={copyChannel !== null}
+        onOpenChange={(open) => {
+          if (!open && !copyPending.current) setCopyChannel(null)
+        }}
+        title={t('Copy Channel')}
+        description={
+          <>
+            {t('Create a copy of:')}{' '}
+            <strong>
+              {copyChannel &&
+                (configuration.bindings.names[copyChannel.id] ??
+                  `Channel ${copyChannel.id}`)}
+            </strong>
+          </>
+        }
+        footer={
+          <>
+            <Button
+              variant='outline'
+              disabled={busy}
+              onClick={() => setCopyChannel(null)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              disabled={
+                busy || !secretsAllowed || !configuration.secret_storage_enabled
+              }
+              onClick={() => void submitCopy()}
+            >
+              {busy ? t('Copying...') : t('Copy Channel')}
+            </Button>
+          </>
+        }
+      >
+        <label className='block space-y-2'>
+          <span className='text-sm'>{t('Name Suffix')}</span>
+          <Input
+            value={copySuffix}
+            disabled={busy}
+            onChange={(event) => setCopySuffix(event.target.value)}
+          />
+        </label>
+        <p className='text-muted-foreground mt-2 text-sm break-all'>
+          {t('New name will be:')}{' '}
+          {copyChannel &&
+            (configuration.bindings.names[copyChannel.id] ??
+              `Channel ${copyChannel.id}`)}
+          {copySuffix}
+        </p>
+        {copyError && (
+          <Alert variant='destructive' role='alert'>
+            <AlertDescription>{copyError}</AlertDescription>
+          </Alert>
+        )}
+      </Dialog>
       {editor && (
         <form
           className='space-y-3 border p-4'

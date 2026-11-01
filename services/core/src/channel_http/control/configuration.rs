@@ -297,7 +297,7 @@ fn edit_document(
     }
     Ok(())
 }
-async fn store_secret(
+pub(super) async fn store_secret(
     management: &ManagedChannels,
     tx: &mut Transaction<'_, Postgres>,
     channel: u64,
