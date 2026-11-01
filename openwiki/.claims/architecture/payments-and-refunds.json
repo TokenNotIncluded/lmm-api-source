@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:f25b95b0c18dc254d7d3673a165625969f916358688834eb4bcb12c52669a601",
+  "claims": [
+    {
+      "id": "claim_7ec2574f42884a4f8145af24a381fb2f",
+      "statement": "Rust Core owns payment intents and verified provider transitions, and provider requests execute outside the metadata transaction while money moves through the controlled ledger.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/payments/mod.rs#L1-L3",
+          "version": "repo-lines-v1:sha256:c7b50a7eb17afa92982df083677db7ed55806f12d377f51d5c1d7f98f6a8f8a7:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMWNlNzZlOTc0NDU5MzhhZjFkMTdlZTg1ODM3ZjM2MTA1MmFmZTc2ZTQ2ZDYwZDc0Yzc4YmZmNDFiZWNkYzg4NyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjk1OTQ5ZWRjYjA4MTQzYjk4MWY2NWJhOGIwNTcwZTRhOGM3ZmUyNzE1Y2NmYWVjZGMxMzQ2OTliYmNjYWZlMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNmM4MGMwZjRjM2YxZjQ1MGIyZjA0NWViYjJkYmY5ODVlMzA1MmY4NTBiYWFlMTIzMzZjYTQ3OWYwM2ZiODljNyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_5b70d343df564957b102a1fecb4d9944",
+      "statement": "The Core payment RPC exposes only explicitly permissioned operations, with separate grants for proof ingestion, preparation, credit evidence, refund hold/dispatch/commit/release, reading, and reconciliation.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/payments/rpc.rs#L11-L20",
+          "version": "repo-lines-v1:sha256:6663f5cedcdf460377c55ebcb3208c786018a0246c6c6972aa53c85b9804aa3f:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE5ZmUwOTUyYTU0NGRhNWJlYTIwMjdjZWY4NGY2MDQ1Y2RmMjk3ODhjYzdhNDA2MDgzYmNhMzIwNGM5YmM3ZTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU0MmQ0Njg2ZjNhYTVhMTBmODQ1YTJlYzAxMjdiZjY2MDEzODUxZGNmNmNkMTBjNzc1Nzc2MWU0Y2YyMGY5MzciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzMzJhNDMzZTRhZjc5ZTc2ZTk1MzFjMDY3MGYwYzEzYzlkMTA4Mjc5NTRkOWIzYmIwNTQ3YzQ5YzE1ZGNhNDEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijg0ZTkxZTc3YWE3YzU1YThiYTA2ZDAxYjYxNzM2NmQ0NDVhN2JmMGU5NTUwZTU4ODBkODE1NWQ1YTRiOTIzYTgifQ"
+        },
+        {
+          "resource": "repo://services/core/src/payments/rpc.rs#L52-L75",
+          "version": "repo-lines-v1:sha256:c4a87a144f92fce0cc9dc11808710f3fb41e189ab9972a50bb3649c14d1e3102:eyJzZWxlY3RlZExpbmVDb3VudCI6MjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE5MzdiODFkM2IwN2VjMjY4ZmNlZGM4YTNkMTAyYzZhMTE5ZTBhNTNmODY1MGM1MmU2NDU2OWNmOTIyMjU4YWMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImYxYTAxZGEzYjY3NzFiMjQwNDU2MTNhMmVmNjM5MTQzYjA4NjIwNjlmNzNjZmVlNWYzNGY4OTZhZTg0MjVjZWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI0YTM2NWE5MGVjMTFlOTA0MzI3NTJjZjkzNzZlYzVlZDM2YjgwYmE1ZThlNjg1NGZjZjk4OTcwZDMwNDQ0NjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI3MTM3YTkzMjAxMzljYzMxNmZjZDFhYzk4YjE2ZTQxNjIzMmY2NTdlZWZjNWE2ZDg5OTQ4MTRmNzY4NjJiMTYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_8c8edd7528104129a0f22ac3823974d4",
+      "statement": "The Core and Go process integration test uses synthetic signed payment proofs and does not contact an external provider or move real funds.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/tests/payments_process.rs#L1-L2",
+          "version": "repo-lines-v1:sha256:04a1c7b27e3065710659e0e49698bd81c94baab788140ef74ea2cb665e1580bf:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzVlZjE4OWRjNDJjMDBlNWYwZjA4NGIxMGRiYzdkNmJjZWMwNjI1MjM2MGNmZmZjODcxYWU0NTlkZTY0YmViMyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjk2ZGYwYjBjOWE5NzFmMWQzNzI2MTQxNTVhZTIxN2RiNGNjNmVkZDM5MzkwMGI0Yjg3NTc2ZjUyNzliZDU5NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiNDA2NDdjMDIyMDI4MzcwNTViYmE1MGE5ZWRjYmJkNzAyNTk2Y2I0OGUzNTVjNTA4YmUzZDY4NDg1ODk3ZDE0OCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1156ce98af5a4a71b7ae50ab6fda85f0",
+      "statement": "The refund process test models provider dispatch response loss and later synthetic refund evidence to exercise recovery across process restarts.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/tests/payments_refund_process.rs#L177-L195",
+          "version": "repo-lines-v1:sha256:2c580add78da9f6033863b74e3a42ce93120b5a51bbc7acb2e79bd02bd450810:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU5MGY1ZDc4Y2VlZGUyZmNkZWJjYWU0ZWE2MmZmYWIxYmRmYTliZTA0NjIxYzE0ZDBkOGY4Nzk5ZTU0MjE1NWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJiODRhNTMyZWYxZTM2YjkyNDVhNDQ5NzY1MWMyYzUyZmUxZjMwNDE2ZmQ0ZGQ3MWY3YTNhOThjNDRhM2ZkMTIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjVkOWNhNzliMmFlMmY2MWM4NDkyNzYwZWE5MTAzZDU5MDY2NzJjMzc2MWE3NGFjMTk3MjZiZGRkMWNjMDkyMDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRiNDBkNWIxNjIxODllMWU3ZGEyMzQ0YjZkYjNiZjc0NjkzY2UzMWZkOWIyNThmNzE5ZDI1YjVmOTg1MzFkZmEifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/payments_refund_process.rs#L39-L40",
+          "version": "repo-lines-v1:sha256:748639d47b499deda36eeb251b339f7d8f4a59e9c676a06d544c052ef079993d:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZWQ1NTJmNmVmNDhkZjJhYjRjNTJjNTQzNzQ2ZDI0ZTgyOWI2YzY5Y2I0ZmE0NDM1ZDlkMzc1ZDE5MmRhZjVmZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYThhMTg5MDdjNThiNGY5MGQ4NGE1MzM4ZWRjZDRmM2RhZjViODFmN2FhN2Y5YWYyMWZlNTQ4Yzg5M2NkODgzMCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNzIwMjlkZjNlOWM0NDQxNTAxYjZhZDJkNTczODk2MGNiZjg5NGExZTRmZjIxMTQ3OGNjMWM1MjE5ZDRjMzlkNiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDBmYWY1N2YwMDQ2ODIwOWQ4ZGMyZTdiMjlhOGM3ZDAwYWU5YTVhZjk4MzU0MzgwOTEwNDQxZWIzNjI0YzFkNSJ9"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

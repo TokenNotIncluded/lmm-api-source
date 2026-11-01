@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:470436fa2b3eb82dc5a1405f746db53d7034952c6aa8645f5c413adf2a5e13a7",
+  "claims": [
+    {
+      "id": "claim_d58d58d43a7b46d299cb740189cfc6e4",
+      "statement": "The documented architecture consists of three separate executables (Rust Core, Go Extensions, and CLI) plus a separately served static Web application.",
+      "evidence": [
+        {
+          "resource": "repo://docs/core-migration.md#L9-L38",
+          "version": "repo-lines-v1:sha256:9d7f20971560b4c6a6595101d297d665057751c6a1b4d93e67334b62d15ff071:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZlNzlmNWFjMDA5YTgwYjZjYmY5MTRmZTFlNDA3ZGY3N2ZhODA4ZjI0OTMwOTE1ZjE0NWRlYWEzODc3MzM0ZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRmOWY1MTdlNjJjM2RlYWFmYTZiZWQwODE1YTBkMmM5YTg0MjAxOWU2ZTc2ZjYwMmJiNzU2NmVjZWM0ODdlNDMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFlOTIwNzYwNzg3YzAzODFjNTRiZGRhMjU4OGY4MjYyOWE5MGRhZmM0YzhkOTcxY2UxMDczMjhmYWJjZTQxYjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ0MjFmZWY1MWE1NWVhMTFhMmY5M2UyNjMyNTFkYjVkNWIzZDUxYmY0ODczM2JjODM3ODEzNTMyNDA0YTYxNmMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_5b5a5683811842708be02c59e8c7faaf",
+      "statement": "The development guide says to prepare only the toolchain required for the changed component and to keep CLI work within its separate submodule.",
+      "evidence": [
+        {
+          "resource": "repo://docs/development.md#L8-L37",
+          "version": "repo-lines-v1:sha256:26bc63106283d38c49a1589bd2d47798833bfd69d93dae71cf7b7b54d751c395:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUzOGU0ZGNjNzM4YmUyNzIzODU5OWVjNzlkMzhmYmMxNzQ3YTVhZGIxMjAwNTJiNjc2NDJmMDA0M2MxZGEyMGQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk4NzU4YmE4NTA5NmY0ODk2NTAwMDA2MDRhYTlmYTMzMzQyN2EyYzhlODZiYTkzYjhkNDRlZDlmNzlmMmJmNGIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAwZTg2M2E5ZWYxYzRiNTkzMTIyODYyMWUxZDhiYzg3MDBiZTA0NWEwMzc2ZTY2NjY5ODExOGYxNzJiZjE2YTgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQzOTU2MDhkNGJlMTcxOWNmMzg1ZTI4NGRiOTJkMWEyNTc2M2M3ZGUyMzJmYmYwZjBjYjUzM2FkYmM1OTIzYzQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_6de10a222ea941dcb2bd80b6f905d562",
+      "statement": "Source presence, local tests, independent acceptance, release, and deployment are distinct evidence states; the architecture documents do not establish that a particular current checkout is deployed.",
+      "evidence": [
+        {
+          "resource": "repo://docs/agent-workflows.md#L23-L44",
+          "version": "repo-lines-v1:sha256:8fa3fe95f143212e644f146ba830a5db87810149217c77ee61548871f60d7ef7:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkzNDVlMDBiNTAyYjc0OWJjMTY0ZjhmYWQwNDkxZTYwZWUzMGQ1MmQwMzJjZjkyN2JkNDRjOGVkOGMzNzE2YzUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQwZGNlZWEzNWJkMmMyZWJkYTM3NjY0YTNmMzBkMjRhZmVmYjY4YzExOWY4OWFlMzAwY2JiN2JhMmYzZTZiYTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImNmMjljN2UzNTYxMTUzNGUxMWNiNzNhMzg1MTVjMTZjNzMzOGExYzBiOThkZDAxOWU3MTljOTJiYzFlMTk3ZmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjU1OTExNmM3NGNkNTBmMjdmNTJlN2QxYWNiYjcwOGZkNjhhNjVkOTJlMDMwZTZmOGM3MmQ0YjMxNDEwM2YxN2QifQ"
+        },
+        {
+          "resource": "repo://docs/release-architecture.md#L134-L145",
+          "version": "repo-lines-v1:sha256:233e9b38c8b736ba71ce0baec6af31ce1476aec73a305a943835df9f76630245:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBkNThkMzU4ODM0NzM5ZTY1YWM1NDQwMGQzODk1NTQyNmZkNTFjNTFkYmQ2NWVhNjFmNTUwMjY3YzA3NTllZjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEzN2IyOTMxMjUwYjdhYzQwYzhmOGEwODZlMTk0ZTkyNTQ0OTM1ZmRjNGY3N2FiNzFjZGUxNTExZDVlODZlNTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFhODAxOWI1MzQ4ODYzMDY4MDE4MjA4MjkyMWFhNjI4MmQ1NDk4OTJkY2E3Yjc3NGQyZjM2YzExYzVjNmM4YzgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoxLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUwMTA1OTU0OTVmY2U2OTEwZWViNmRlNTliZTU1MjczYWI5NzJhNmY5ZWU5NDNiYmM4MjY4MzFmMzg3ZDMyODcifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

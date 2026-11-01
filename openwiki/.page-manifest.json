@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "/openwiki/architecture/browser-identity-and-lifecycle.md": {
+      "pageVersion": "sha256:2fe944b7fe259b10b4f917e2f8063ceed2664bb1c76594a878ef888a4a2763a5",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/architecture/channel-management-and-accounting.md": {
+      "pageVersion": "sha256:99333091f7e703db2749bb15347afe02dae20c8b32623a988d67bf281379cc03",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/architecture/core-identity-and-data.md": {
+      "pageVersion": "sha256:742b03b265a3136b956290e89147aa0408247403efd2e782912bf40a727c803b",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/architecture/extensions-and-integrations.md": {
+      "pageVersion": "sha256:c2608c0d9b71a0d8a06d96e541ff0a50a3742894e95005b498d19df774f1e9e2",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/architecture/model-routing-and-billing.md": {
+      "pageVersion": "sha256:304e2a0b2acc76ca4400821635bf4e8091484c334b980e92adf76d5745df72e0",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/architecture/payments-and-refunds.md": {
+      "pageVersion": "sha256:f25b95b0c18dc254d7d3673a165625969f916358688834eb4bcb12c52669a601",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/architecture/system-boundaries.md": {
+      "pageVersion": "sha256:1a75f9d4c9457578304ecfd3cc076ef431b396aae813bb987cafaed8e0598235",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/integrations/web-and-clients.md": {
+      "pageVersion": "sha256:82691d8f4b20bc6ccef91dfbe8f5ddc3ce1716e9e0d205b8b9db0da1df6fb663",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/operations/configuration-and-lifecycle.md": {
+      "pageVersion": "sha256:a1b38387fc788e067981647b290cf2ef915b1d0f549db07a24de7743f5b51be1",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/quickstart.md": {
+      "pageVersion": "sha256:470436fa2b3eb82dc5a1405f746db53d7034952c6aa8645f5c413adf2a5e13a7",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    },
+    "/openwiki/testing/verification-map.md": {
+      "pageVersion": "sha256:92ae8ba9b255d994fb5e9184a85e88b1b0c0258d5b05ca2106fc8fa2294dcef8",
+      "completedBy": "codex",
+      "completedRunId": "bf374e32-a41c-4c09-a750-8ac5fb427ba1",
+      "gitHead": "bab2d27d5eee8ec54d5025e297b14448785a3d90",
+      "sourceFingerprint": "sha256:a31d687d8445aadb8891f566311a5bda166903731ac93b19a2c6c401d68d2271"
+    }
+  }
+}

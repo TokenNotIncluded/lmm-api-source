@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:92ae8ba9b255d994fb5e9184a85e88b1b0c0258d5b05ca2106fc8fa2294dcef8",
+  "claims": [
+    {
+      "id": "claim_67ed46acc1da43eb9fcb9eea9f328a4b",
+      "statement": "The project workflow chooses checks by changed component and behavior, requires isolated database checks for database or financial changes, and warns against treating successful mocks as real business-path validation.",
+      "evidence": [
+        {
+          "resource": "repo://docs/agent-workflows.md#L45-L70",
+          "version": "repo-lines-v1:sha256:1e487c04d9c2c7135696b3b800a3db15a479778e2f418f7dca46cbbef437bbbd:eyJzZWxlY3RlZExpbmVDb3VudCI6MjYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM4ODdmYzViYmNmNGFkNTE1ODg3ODY0NGJiZDk5YjFkMjljZGQyMzI0ZGQ1MjcxOGZmMmJkYWY3MmMwMmViZDUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ0ZTljOTZkYzBjYzNjMWEwMTZkNWI4OTJjZGJkNTk0ZmU3NDY1NThmYzI5MjQ0ZWQ3ZmFmMThhZTU1MjQwY2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImZmNTJiMGI4MTQ4NTBiODc0ZDI0OGZlYzgxYzc5NTMzOGNlNzAzYThkMzY1MzFlOThlODdhMmNkOWMwZTJiZmUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBjYWYxYmY5NjgxMzJmOTU4NTdiNmE4YTNjZDQwZDc4ZjYzYjdhZWUzMzg0MzczMDAyNmEyNGJlNTc1MjI4ZmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_3dfb741ad8c84e658ee4b32b7683a70b",
+      "statement": "The aggregate quick check modes overlap, `just check` excludes CLI and independent database modules, and even the full quality mode can leave independent business and resource acceptance unrun.",
+      "evidence": [
+        {
+          "resource": "repo://docs/agent-workflows.md#L70-L87",
+          "version": "repo-lines-v1:sha256:872c7e6025db89883f9c200441f0a9e62ae4219c052466f713dfe9294b2c4cf6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ0ZTljOTZkYzBjYzNjMWEwMTZkNWI4OTJjZGJkNTk0ZmU3NDY1NThmYzI5MjQ0ZWQ3ZmFmMThhZTU1MjQwY2UiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0YTE3MTFkYjFlNGJlM2MyNmUwNDk3ZWIxNTc1MWI1YjRlOTZmMTAyOTI4MzZmZjI2YWFiYzgzODQ5YmFlY2YiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMzNDA2NmQwZWE1OTNiOTNhY2Y2MDlhNGYzZjU3ODY1MmRhNjNjNmNkMzRjYWQwNmMxZjQwYTJlMTkwMmYxOWEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjEzMjhmNWY1NzFhNWVmNjNmNTQ2YmU3YjFhMThiY2FmMDY4Mzg5MGRhNDBkNmMyNDU2NzU2ZTFmMzIyMzA0OWUifQ"
+        },
+        {
+          "resource": "repo://docs/quality.md#L1-L35",
+          "version": "repo-lines-v1:sha256:49e7942a475c48d2fe2e6216d9bd2648770d336f8e317076605ab2fe444c3d5e:eyJzZWxlY3RlZExpbmVDb3VudCI6MzUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU3NmQ1OTU4NmUxODM1OWU4MGQyYmE4ZGMwYjc3Yjg5ZjllOTJkMGY1Y2I5Y2RhMDhiYjAzNDQwYTEyNjAyNDciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEwMDIyZmUzYWIwNjkzM2VjYzc2NDQ4YTc4YmU0M2ZkYzY3MWMxMWZkYzUyMzExOTRiZmRiNmYyMzExNGY5ZGYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjYxYTQ2NzQwMDEzMDZmNjBmY2Y2NjZjMzgyZjIwMWNmOGIzNzY0ZGJlMDJmY2NjOWNjNzBjOTkwYzU1ODk0ODcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_3ea78a600bbb4011bb97ea508d1c0833",
+      "statement": "The Go composition integration test uses actual PostgreSQL and protobuf/Unix-socket transport but a synthetic authority server, so it does not substitute for Core identity acceptance.",
+      "evidence": [
+        {
+          "resource": "repo://services/extensions/internal/composition/integration_test.go#L31-L38",
+          "version": "repo-lines-v1:sha256:4baedfed1b67f2a45764b853dbfd186ddc265197f282dd4272934bc70bf42792:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNTE2MDFiNGU4MTk1ZmZlNWM1OGYwYmU3OGJmMDA2MzBmYjFjNTUxMGIyZDIyMmQ1MmRlN2E0YjlhMmQzZjA2MiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDEyY2EzNDVjY2Y3NWJmOWMwODA2YmNlNjk1YmU4ZGU4MDhiNzk5ODQyNTFhN2E1NGQyMDJjZjYxMDFkZDQ1MSIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiNjUyYThiNmEwNDBjMDdhYTM1ZjNkZWE0YTk1MmI4MDk1ZmU0YTdlNzA3ZThhODU4NGQyNWYyODdmYzNiYjBkYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMDI0ZmNjMTE4ZTgwZjhmMGQ3ZTQ5ZTVkNTI2YzBmODgzOWQwNDc0YmRkZmVmMjY2OTdhYmUyOGQ4NGI4YmNiYyJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_52b2ae35144f477a8f2f984c4224a422",
+      "statement": "The model streaming database test verifies Chat and Responses checkpoints, terminal usage, settlement, duplicate rejection, and cleanup using a controlled local provider.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/tests/model_http.rs#L305-L368",
+          "version": "repo-lines-v1:sha256:91b5e914827912808567a673e39a26d32994fa9a8025c9fcbf3791478037d288:eyJzZWxlY3RlZExpbmVDb3VudCI6NjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmNGIyMDMwYWE5MGY2NWJmOGQ2Mzk0NjM2MzI5ZWIwNTNmOTQwMzliMTcyZTE1MTdkNjZhYjI3Yzc2NDQxNGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE4MzkzZTdmMmI5NjFhYWI1Mzc5ZjVhNmRkNTkwYTIyZWY3MGJjMGVjYTg5OTJhYTA2YTVkNDAyOTZmOTA5NzAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjMxMmFlODhlNGJmM2QzMDIzMDBkYzdjYmNjODQwYTlkMDM4MTk2MDc3MjBkNjM0ODg4NDhmNDYyZTE1NzIxNjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhiMzI4NDE5ZTAxY2MzMWZjOGJmMDJjOWU0NDY0YzBjOTkwZjBiYTgxYjNmNDNjN2FkMzc5YjlmNzUzNTk3MDkifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

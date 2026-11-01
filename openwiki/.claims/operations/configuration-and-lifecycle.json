@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:a1b38387fc788e067981647b290cf2ef915b1d0f549db07a24de7743f5b51be1",
+  "claims": [
+    {
+      "id": "claim_9e8c0f7ef24a4b36aa587ffff06ea212",
+      "statement": "The repository's development guide recommends preparing only the needed component toolchain; Web dependency setup is not a prerequisite for Core or Extensions work, and database tests use isolated PostgreSQL.",
+      "evidence": [
+        {
+          "resource": "repo://docs/development.md#L8-L25",
+          "version": "repo-lines-v1:sha256:b1a63f8b2a4ee005af9dc81d4419bc5b2570b0a3ed3ac98db01a1ade90354ea2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUzOGU0ZGNjNzM4YmUyNzIzODU5OWVjNzlkMzhmYmMxNzQ3YTVhZGIxMjAwNTJiNjc2NDJmMDA0M2MxZGEyMGQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZlMjZhZWM2NWY2ZWIxNzcyZGM5OWE3MGM1ZTlkYzJkMGJiZjdlMDVhMzgyNzcwZjZlYjJmYTBhNzA1ZjgxMjUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjAwZTg2M2E5ZWYxYzRiNTkzMTIyODYyMWUxZDhiYzg3MDBiZTA0NWEwMzc2ZTY2NjY5ODExOGYxNzJiZjE2YTgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImM5Nzk3OTg4OTkyNzViZjE3ZDQzMGM4Mzc1MmVjMTJkMTU0NzkxM2E5NjY4YTMxYzA5ODA4YmZlNmE2ZmI4MzQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_aacada52a77148ff9ebca86eefb647e1",
+      "statement": "Core uses TOML configuration and separates explicit empty-database installation and read-only database checks from normal startup, which verifies rather than alters the database.",
+      "evidence": [
+        {
+          "resource": "repo://docs/development.md#L39-L62",
+          "version": "repo-lines-v1:sha256:fbf0cf7e7d3e7a4e641c874ea53436e3e03e9990c82d913b2f2342ee28ab1b88:eyJzZWxlY3RlZExpbmVDb3VudCI6MjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM2NGNlOTc3ZTI3N2I1Y2FkMmI4YTdhZTczZjI5MjVlMzIwOWZmZWRjZDc5NDM3OGYzNzc3NmFmMTZhMmUyNzMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMwYTNmM2U0MDg0MDY1YWM5ZDFjY2QxNWVjYjA4MGJlMDI5ZmZmYTkyOWMxNjVmYmVlYjM5YjgwYTRhZGY3NDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE1YTAzNDJmNWQ1YzlhOGJmMWIzYjQxZTI2YTE4ODdjNThiZDdmYTcwMjk4OTkyMDUyZDQxNDYzYWM0YTI1ZGQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVjMDJiYWU3Zjk4MzY4MjEwMGYzMTk1Y2VkYTViODJmMmZiY2Q1OWEzMzkxYjEwZGNjODg1ODg3YjA4MGZmOGIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0dcf7769c761469cb9106d62930ecbc5",
+      "statement": "The Extensions TOML parser requires an absolute host token path, validates absolute configured file/socket paths, and requires Core socket/identity credential and database name/credential pairs to be complete.",
+      "evidence": [
+        {
+          "resource": "repo://services/extensions/internal/app/configuration.go#L143-L169",
+          "version": "repo-lines-v1:sha256:e103163cda60251409e2828542c76ded0502d083e685862a98e6e2ea5e1742f8:eyJzZWxlY3RlZExpbmVDb3VudCI6MjcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjVhYWVkMDgyZGY5MzAxMGNjYzEwMjMzYzk2Y2FmNjRhZjA5N2M1NGQ3MzkyMzM4YWNkYTcxNWZmMGFmYTIwOWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0ZWZjNDk0MThkMjZkY2YxMjliMjJhNmFhMjExMDhjZWVjMzc2NzdhMzJkMDhlOWQ1ZmVlMzVkZGE2NmJiOWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcwNDY1MGU4Y2MzMzFmYTFhNTJlZTA3Y2Q2OTg2OTI3YjRkNjRmMGVkNTg5ODAwYTA1NGFkZDgyZWIzYmFhY2QiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFhM2E1MTczMDRiNGRhMWMyMTQ0MzU5N2Q1MjYxODhjNjJlMDgzZGQ5ZjFlNmFlOThkNjM1MTZlZDRhNzFkOTYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7624bf7d905d4facad9a998bbf2fb9eb",
+      "statement": "Building and verifying a distribution archive do not establish installation, deployment, or business acceptance.",
+      "evidence": [
+        {
+          "resource": "repo://docs/release-architecture.md#L1-L20",
+          "version": "repo-lines-v1:sha256:c51796100e521cbb1b106560d0ec60f7eac49d3876ee33047c576e7d48025fac:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU2MzI0ZDFmYjg0MDVhYzQ4ZDI3YWVlY2ExYzQwNjk4NDUwY2UwOTM3MmU4NzUyMTNkMjlkY2E0ZTM5ODJhNjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU4NDFhYjdkOGMwYjY4YjRlZTZjYWQxYTQ3ZjRjYjM0ZGQxMDRhNzJhODFiOTBmNzA0YzkyYmM2Y2QwYzJjMTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImFjMDk5OGZjYmVjMTY2M2QwMWEwZGEzYmExODJjNzgzYWY3NDgwMDZlYjdiYjk1MjE5MWFlNmU4MzU4Yzg5ODkifQ"
+        },
+        {
+          "resource": "repo://docs/release-architecture.md#L134-L145",
+          "version": "repo-lines-v1:sha256:233e9b38c8b736ba71ce0baec6af31ce1476aec73a305a943835df9f76630245:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBkNThkMzU4ODM0NzM5ZTY1YWM1NDQwMGQzODk1NTQyNmZkNTFjNTFkYmQ2NWVhNjFmNTUwMjY3YzA3NTllZjQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEzN2IyOTMxMjUwYjdhYzQwYzhmOGEwODZlMTk0ZTkyNTQ0OTM1ZmRjNGY3N2FiNzFjZGUxNTExZDVlODZlNTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFhODAxOWI1MzQ4ODYzMDY4MDE4MjA4MjkyMWFhNjI4MmQ1NDk4OTJkY2E3Yjc3NGQyZjM2YzExYzVjNmM4YzgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoxLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUwMTA1OTU0OTVmY2U2OTEwZWViNmRlNTliZTU1MjczYWI5NzJhNmY5ZWU5NDNiYmM4MjY4MzFmMzg3ZDMyODcifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

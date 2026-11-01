@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:99333091f7e703db2749bb15347afe02dae20c8b32623a988d67bf281379cc03",
+  "claims": [
+    {
+      "id": "claim_2556b5cab97042968ed93cd3cf75450e",
+      "statement": "ManagedChannels startup recovers an existing durable publication without initializing the database or creating one; publication commits routing and audit state before installing the serving snapshot.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/channel_http/control.rs#L118-L134",
+          "version": "repo-lines-v1:sha256:4ab13392e58507dd9f32d2df33a506d99e5c61244abeb42f0772a464cdddd02c:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJkNDZmNjIxYzg0YTMzNTZlY2M5NmQ1YzZhM2UzMzRjMmU2NTkzMGU1NmYxZGFkY2NmMDhjNzQxMTY2YWM4YjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNlMTVhNWE2YmMwYWYzYjU0OGVkYmEwMjZkN2RiYmY3ODBmYTQ1ZGU3NGI3NDgwYTIyM2ViOWE1NGFlOWMyYWQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI0YTM2NWE5MGVjMTFlOTA0MzI3NTJjZjkzNzZlYzVlZDM2YjgwYmE1ZThlNjg1NGZjZjk4OTcwZDMwNDQ0NjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFhM2Y1ZjY0OTY0ZDVjZWRjMjI5OWMzYjc1Y2ExYjkxODg1ZmRhMWI4ZjIyNDYyNTMzODY2OWQ2ZjFiOWYxM2EifQ"
+        },
+        {
+          "resource": "repo://services/core/src/channel_http/control.rs#L386-L447",
+          "version": "repo-lines-v1:sha256:9071a875b306ea6a80ba5903fc5a7286b98a09bd63384d2bdacb0f6fac5c3342:eyJzZWxlY3RlZExpbmVDb3VudCI6NjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc0OTdiZTNhODNjYzk2MTMxZjMzNjI0M2U0ODJlZDNmNmY2OWI5OWY3NTlhZmNmNzVmM2VkNDZmOWNmOTk3NWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIwNDRkMjgyMzZiOGU2MThiMTU1YWQ3NGUwYzNiMTU4NDdhZGYxODQ2MDIyMWMzNjdjM2ViY2Q5YmFjNzRjY2EiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg2NzMyM2NkMGMzNzNkOGJkZmQ1Zjk3YWU5Y2JjYjI0ZDU4NjJhZTM3ODVjZWE2NTk3NjJmNzcyY2I2ZDExNzciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE5ZTc2MzU1Y2YxMTk5NDgwYzNmOTk4MzZiMTQ4NmM4NDFkODkxZmFhZDkwNGM2MDhlMDkzMDIyZDM3NTdhZWUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_8b7e17f5341b4a709f526752ff202dfd",
+      "statement": "The channel vault encrypts credentials using AES-256-GCM, a derived key, fresh nonce, and associated data containing the credential ID and revision.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/channel_http/control/vault.rs#L18-L54",
+          "version": "repo-lines-v1:sha256:0d40786ccff66e635e3e37361ce9f553bb54cd862b65d54024977b29544a42f0:eyJzZWxlY3RlZExpbmVDb3VudCI6MzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZiZGQ3NjUzNmI4MjA4NjdlZTNiMTgzY2ZjNDk5ZWMxMTk5NzcwMGEyNTQ3Zjc4NjZlNTYyMWJhY2M5MmE4ZDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVlOTI4MTExOTYyYmVmMjk1ZjM0YThkY2QwNDQwNzYwYTUyNzY1YTg5NDUyYzcxM2U3ZmE3ZjkxZTNhYWFkM2EiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjBlYjcyMDI3YjQ3ZTIwNzAyNWU0YzZkYmU4ZjBkNWE3NzUyOWE3MzI5NjRjZGU4MjJmNjJjMmIwZTFlNGNmOTIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJkMjA5MjRlNzJhZDViMTJlM2Y1OTRiZjZhOWRiMzQxOTBiOTQ5OGY5MjgwMDEzZTljNTNmNjU5NzhlYjYwMjAifQ"
+        },
+        {
+          "resource": "repo://services/core/src/channel_http/control/vault.rs#L56-L73",
+          "version": "repo-lines-v1:sha256:05f7c35badc947075aa38b19a0c461c50ed846dd3b4f62eecb4ea34de880b278:eyJzZWxlY3RlZExpbmVDb3VudCI6MTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQzZDQ5ODI0ODZjZmZiNDQ4MWNjZTQxZTlhMzk2MjFhMTc2ZGI4N2EzNjBjNzlkZWJlZTk2MDIwMDc2MTU0NzEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBiNzRjNTcxZGExM2JhNDQ0OTcwN2Y2MDFkMTFhNWViZWQ3M2JlNzM5OTUxYWI0N2QwMWQ5YmVmOTVkMmZhYWEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjUwMTJjN2QzNWYwNDNhNmM2ZTgyNDY0MmQwOTY4NmIxNWIyNGY4MTA5MDczYzYyYzBkNWZlODE3NzgzMGFhMjgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNhMjc0MTk5ZDgwOTVmNjEwYmZmMGY4NjU1NmVlMmUzMWViMzcyNTBhNzAyMDM4NjRjMTBjMDJmOWQ3MDcxOTEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_97fcb993b16e49e9a892caf978eefa27",
+      "statement": "Channel accounting tables track display-only continuity facts such as identity, historical counter baselines, and provider balance observations.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/schema/channel_accounting.sql#L1-L49",
+          "version": "repo-lines-v1:sha256:1ba834e534ff7ab0f0e3330ffa511256fe96479390c54c5ca9589ba7f03cd713:eyJzZWxlY3RlZExpbmVDb3VudCI6NDksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU0MWVkNzI5ZjllNmU1OWI0ZWFkZDVhYjA2ZTE1NjY3MTk4NjBjMzVhNDkzMTY5NGQ3MzA4MGE5NWE0MTcyY2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmMDYwMjNhYWI1ODcxYTVkOTU0NDdmY2Y0MzA3ZGQ2MTBlY2IzODRlMjlkYzZmNjRlODZmNDAyNGU4OTg2YjUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjYwNjc5OGE5MTkzNGUyMDg2Yzk2MzY3NzM5OTQ2ODFkNTUzZDFhNTkwMDFjNWQ3YWVkNTUwY2E2MGZhYjI3MmIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_2da317dc094145688da6c3859a6be64e",
+      "statement": "Channel publication carries or resets copied accounting baselines, creates unknown observations for new identities, and retires removed identities in the publication transaction.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/channel_http/control/accounting.rs#L153-L208",
+          "version": "repo-lines-v1:sha256:670625bf12cbe60b9b707e8ec20103dfec60a36143cc56e3eb2bafaa65105ba2:eyJzZWxlY3RlZExpbmVDb3VudCI6NTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEzN2UyNDI2NDgzZTE0NGYzMmE2M2NhZTNlY2RjNDU1ZDA4ODA3N2VkOWZiNmY0NGJiZWRlODA0NTg0M2U2MjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ4OTc3MWZlMWI2NjI4ODc1YWEyM2U3ZGJlNGFhNzE0NjFkMDBjZGZiNjZkZGYxMWI5ZDgyMGFjNTg5N2ZkZjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjYwNjNjNGQxYWY4Y2Q4OWJiMGJkZDc2NTdmZmNiZjY4MDZhNjEwZDc5ZDZjOGQ0YzMwN2MyNDFkZjM5MDA1MjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImIxMThiODVkMzM0MGNmNTYxNGU3OWU4NDRhMjQ5NWY3ZWZlNDYxZDFmZTZmNGNjZTk4ZjgzODM1MmY2YzY1ZjUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_adb3513caac44fc1b35ba62cf92b15fc",
+      "statement": "Channel integration tests cover publication, credential prerequisites, audit failure behavior, accounting constraints, and runtime authority boundaries.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/tests/channel_accounting_schema.rs#L10-L37",
+          "version": "repo-lines-v1:sha256:d72289036d17bfdd0449d984916a176ab02c71d2601a7448e5088eb5348a1d50:eyJzZWxlY3RlZExpbmVDb3VudCI6MjgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjcxNWZiMGE0NDQ5ZmYyMmI3YzY5NDc2MGJlMmNjZTcyNzZiMzM0MjY4ZTQzMjI0MzY0NzNmOTBkNTRkYjZkYzciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE5N2NlMmI1MTUyNzdhM2RjYjZlNjc2Y2YwYzJhOTZlNDRkOGM3ODZmMzM4OTViZDRlY2MxNGE5YTlkM2Y2YTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjkxZTcwMDM4NWQwYjYxMTA4ODk4NWU1NWM4NjFjNDQ4ZjgzNzhiZmU0NzNmM2M3OTc2ZWU5MzlkZmI2NWMzN2EiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI5YmQ0ZTIzZjA2YTU5OTExOWI4ZDI0ZmEzN2I3OTQ2ZDVhNjBiMDM1NmYyNDcxODYzNjMwNzY3MWUzY2JhZjAifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/channel_accounting_schema.rs#L151-L181",
+          "version": "repo-lines-v1:sha256:c0211b08bfc532abb3f8b92fc6f77760a563574ae212922d7fd4d655066b5f4a:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MmZjYzgwYmViNDRjYmMwNTM5OTRjNDlkNDZiODgwZmJiMzkyZGI2Mjg2NDM3NDkzYjk1MmIwZDVmZGFkNGYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRkODhiMTk0ODljMTI3NmM1NTRkZDlhMGIwMDA5OWUxOWNkNjBjZTEzODBkMjJkMWI4OGFlNmI1NjZhNDMwMTkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjM3YmFjODc0ZWU3ODlkZDVhMzM5MjU4YzdjNWQ5YTdmZGFmZmRiYjA5NDgxZWIwOGQ5MzE0ZTRlODkwY2Q1YjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY3M2I2OTVhNzZiYmI5YmQwMzE0MTVmYjQzMjBlNDFiNDZjYTE0YzBhMDkwZWI0MDU4NDQzNjg0N2E0NTUyYjIifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/channel_control.rs#L176-L190",
+          "version": "repo-lines-v1:sha256:73e9443fc462f39993b545ea515d4cf2b613bf2e40e74ee669b920a32b124a81:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjUwMDZmNmI5N2Y5NzMzM2ZjYWJlMTY0NTZjNWYxZDQ4YmE4NWE3OWMwYWEwMWFkM2U2OTNhOTJjZDI5ZjlmYmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJhZTY0NGE3MjRmNTYzODJmNmE3Y2JmOTc3YTFhZmYxNWM3YmUwZjBmMzUxODMyMTg5MDlmMGM2YWVhZDJjZTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImJmYjhkYjg2ODUwNDJmODM3NWU2OWE0NjJkZGY0NDhiZGE3OTYwYjBmM2Y4NzE3Njg4ZjJmZDAxZjA2ZDg0NmIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImExZmRjN2QzMWYwNWFjNjNiNjM4OWJmM2I0YzI5MDE3Zjc4YWFlYTk5Nzc5NDg4NTk1NjViMmI2YzAxMWZiZmEifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/channel_control.rs#L370-L400",
+          "version": "repo-lines-v1:sha256:72ff58a14e67e30ccdcb28bd38f5fb3914dbe4b812ab6fcfa1318358529b04f0:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEwZWUzOGVlNzM2M2JmNDY3MDBlZjNiNTIxMzYzNTcyMWE2ZjljZTMxNDIzMGE0ZmM1NWE2NTdiYWQ3NmYzYWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmNGIyMDMwYWE5MGY2NWJmOGQ2Mzk0NjM2MzI5ZWIwNTNmOTQwMzliMTcyZTE1MTdkNjZhYjI3Yzc2NDQxNGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjZjYjlmY2Q4ZGExMDU3NGE1MTE4ZjljYTI2ZmRmYTg0NWFkMTE2OTk0ZWYwMmY3MDk0ZDU1YTJiZTg0ZGZlYWYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU3NjFiYzAyYjUzNmYwN2M1ZWEwY2JmNGQ2OWFhMjk0YjVjNDU5OTUzNzQyZTAyMGY3NjYyMDA3YjE0NDZlOTAifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/channel_control.rs#L518-L553",
+          "version": "repo-lines-v1:sha256:d5ce833e46b1c0137e05347ee2273b67b8194491046dbe9dac5d0c29c3ae2657:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgwYjUyZDJmN2RjZTM2NzdmNzcxOWM1YWE3OTllODgwMjUyODY2YmY4YWI3ZmYwODU3OTVmZjg1MDk2MTNmYmMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmNGIyMDMwYWE5MGY2NWJmOGQ2Mzk0NjM2MzI5ZWIwNTNmOTQwMzliMTcyZTE1MTdkNjZhYjI3Yzc2NDQxNGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhiMzI4NDE5ZTAxY2MzMWZjOGJmMDJjOWU0NDY0YzBjOTkwZjBiYTgxYjNmNDNjN2FkMzc5YjlmNzUzNTk3MDkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjA1ZjJlMTM0NGE0NTNlNDVhMjIxZmJlNWRiYzA0ZjUwNWJmYjJlYzUxZmZmMzRmMTAxM2ExMmYzODJiYjg2NjQifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

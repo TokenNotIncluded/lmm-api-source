@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:1a75f9d4c9457578304ecfd3cc076ef431b396aae813bb987cafaed8e0598235",
+  "claims": [
+    {
+      "id": "claim_e07e37bccf33413984bd69bc0fd3825c",
+      "statement": "The system comprises independent Rust Core, Go Extensions, and CLI executables plus a separately served static Web application; Core owns identity, permissions, financial state, model routing, and forwarding.",
+      "evidence": [
+        {
+          "resource": "repo://docs/core-migration.md#L9-L38",
+          "version": "repo-lines-v1:sha256:9d7f20971560b4c6a6595101d297d665057751c6a1b4d93e67334b62d15ff071:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZlNzlmNWFjMDA5YTgwYjZjYmY5MTRmZTFlNDA3ZGY3N2ZhODA4ZjI0OTMwOTE1ZjE0NWRlYWEzODc3MzM0ZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRmOWY1MTdlNjJjM2RlYWFmYTZiZWQwODE1YTBkMmM5YTg0MjAxOWU2ZTc2ZjYwMmJiNzU2NmVjZWM0ODdlNDMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFlOTIwNzYwNzg3YzAzODFjNTRiZGRhMjU4OGY4MjYyOWE5MGRhZmM0YzhkOTcxY2UxMDczMjhmYWJjZTQxYjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ0MjFmZWY1MWE1NWVhMTFhMmY5M2UyNjMyNTFkYjVkNWIzZDUxYmY0ODczM2JjODM3ODEzNTMyNDA0YTYxNmMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7bb2345324884b9bb3eb6f91430e0949",
+      "statement": "Go Extensions own extension business modules and do not own Core identity, directly alter Core balances, or access the Core database.",
+      "evidence": [
+        {
+          "resource": "repo://docs/core-migration.md#L9-L19",
+          "version": "repo-lines-v1:sha256:1836454cf15f289fe2faaad98d3c6ffb03990287443c4e526983e353c656931b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZlNzlmNWFjMDA5YTgwYjZjYmY5MTRmZTFlNDA3ZGY3N2ZhODA4ZjI0OTMwOTE1ZjE0NWRlYWEzODc3MzM0ZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjlmMjFlNmMwN2EyZDZiYmNmZmExYWEyZjQ0MjNjMWYyNmM3MDEyMmUyMzBmODk2MjYwNzNhYjJhMmY0ZDQ4NDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFlOTIwNzYwNzg3YzAzODFjNTRiZGRhMjU4OGY4MjYyOWE5MGRhZmM0YzhkOTcxY2UxMDczMjhmYWJjZTQxYjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIzZmFlMTQxOWIwNjIxODcyMDg2MWY5NWM5MzFkMTA4MmE2ODQ3OTU5NmU4NmQyMjI0NjU3ZTEyN2E0NzM0OTAifQ"
+        },
+        {
+          "resource": "repo://services/extensions/internal/coreclient/client.go#L1-L3",
+          "version": "repo-lines-v1:sha256:e93fc726a6537decd0ae11e3704f4528be76f886cbc0b7cb9739120fdeca2114:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjUyYzEwMTQ5OTA0MGI2MDE1MGZlMmJkNzc3ZTUyOGYyMDEzMWI1MzMwMmFkNDFkOGRjZmY3MTgxNWMzYzYzYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjIxMTU3OWU2Y2VlOGZmZTQ0MjU2OTY1YTAzNDlmNWIwMDAzZDkxYjQ0NTliMGU3ZDZlMjZmZGM5NTE3MDU0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzJjOTRkNmVjOTQ2NjFjNjY2NTY5ZmJmMzJjMTE3YmQxZWUwNjU1MTRiZjUyN2JmNGM3OWZlOWM2N2I2OGRmNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_3ab801928fdd4adb81f25a97c0b71c3f",
+      "statement": "The Core CLI exposes explicit install, first-owner, upgrade, and read-only database check operations within the service binary; no separate administrative daemon is required.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/main.rs#L21-L39",
+          "version": "repo-lines-v1:sha256:eae458697a6ea87334f16ad8600e8bc8dd7913e210a0fd20443258488e2cb779:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkwMzZkNzRjYzgyNDhlOTViOWQxMTljNzQxZGFjMWQyYjU4YmY0ZmE3NzhhOTM5ZTM1NmRiZGMzNmU2MDgwOTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3ZmVjNjc4ZWQ1OWEwYWZkYjA5NmIyN2MxMjgwOGJjYTllYjFmY2ZmYzk2OGE4ZTM4MWIzMTkzZTNlNTM1ZDkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU3MGUyY2YyMmI1MzBmZGFjMmE1YTE4YTRkZjA1N2IwNWU1NzNmNTk4ZGJmMzE3OGIzMjJiMzkyZGVlNzIxZGEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMzMDQzMjExNmQxNzBlYTNhMDBiZWEzOWUwYzVjZTM4OGViMzQ4MWM3NzhhYzdhMGUzMGUwOWI5YzgyY2NiODgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_90ec0b7305a646e080f4c4b6b13360ce",
+      "statement": "A Protobuf contract or generated binding alone does not establish that a business service is implemented or registered.",
+      "evidence": [
+        {
+          "resource": "repo://contracts/proto/INTEGRATION.md#L1-L12",
+          "version": "repo-lines-v1:sha256:c0301d10ab419f66eb5cf9e2e56209c985d40b7d9909528b6e8834ba0d7e8c95:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjllOWRhMDExMzMyYWE2OTNjMmI4ZTljZTA3MjkzMTQwNjg3ZmU0MTczMjM5MjBhYTM2OGFjMzE3NmQ5MjBmNzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZhMTFhZmI2ODFmNjAxZjI3MjZkYzZlYWQ3OTM5MDRjMThlNzU2NDc2MmViMDNmN2Q4YWExNjlhNGQ4ODE3MTQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI1YWFmZjg1MWIzNTljMjU1NmMxZGU4NDM1MDBkZGI4ODBkYTQ1M2RhMjRlYThjNzU0OGJlMTJjOGE4ZWE3YjEifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

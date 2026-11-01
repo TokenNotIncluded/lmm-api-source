@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:82691d8f4b20bc6ccef91dfbe8f5ddc3ce1716e9e0d205b8b9db0da1df6fb663",
+  "claims": [
+    {
+      "id": "claim_35a3a33371584bf3a28ae5da283dae1c",
+      "statement": "The Web frontend is a private React workspace package built into static assets, with its own focused test, typecheck, lint, formatting, bundle, and build commands.",
+      "evidence": [
+        {
+          "resource": "repo://apps/web/package.json#L1-L31",
+          "version": "repo-lines-v1:sha256:caac8cc92ac4190761834b361e165dfbfc8e1de0ef9d406e9aee464e8168068b:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE2ZmIwOGZkYTFhY2I5NTdiNjExNmJkMzc4MTFhMWZlNDFhMDE2MTFjMDYzMWVkYmY3ODZkNjg4OWEyN2E1NWMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg2MmM0YjU2MTJkNDEwOGI0N2U5MTdmZTU0ZjNmYTdkNDdjN2QzYjk2MDlkZDAxYjBmOTA4NmE3YzJmMzFlN2EiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJjM2QxYzEyZGQ0YmEwY2RiYjYxMzVhM2YyNmRjNjEwZWExMmI3NDk1M2YyNDIxMWFjYjdmYTkxMTRhYzcwNmEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7bc0a49193534cb483545349989144b5",
+      "statement": "The CLI source is maintained in a separate repository and pinned at apps/cli as a Git submodule; its submodule worktree is initialized only when CLI work requires it.",
+      "evidence": [
+        {
+          "resource": "repo://.gitmodules#L16-L18",
+          "version": "repo-lines-v1:sha256:66cf5d28eaf3bf5d5a589275f00f409f315128c7944fbdd712a60ced3cd5c579:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYmRjOWRlY2QyNTlmMjMwMmY5N2JmOTQ2MzYwM2U3MWY0ZDg5MmFiZjRmNTYyZjBlZjc2YWJmNjZmMjhlZDMyYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYmNmZTJlMDhlYzZmNzkwYjJkNmJkNDVjMzA3ZjNkNTZjZTY3ZTE1NzNlNTQ2NjNjYjlmOGViYmM3MjRmOTE1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiYmI0MTM1YTcyZDlkZDliODU0NDMyMTk0ZmNmMWJhOWEzODlkM2IwNmFkMjk0ZjY4ZDMzMmRkOTJmY2FjN2QzMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWE0NTc3ZDM0NDNhZDRkZjZhMTlkM2ZkN2QxODBkYTFiODk2MTUwNTJmNWQ2Nzk5YTFjMGVmZDk0NTdkNDUzNCJ9"
+        },
+        {
+          "resource": "repo://docs/development.md#L28-L35",
+          "version": "repo-lines-v1:sha256:4f443756e9ffe8fc56a843dee02998b325e460a2c2728a6ef242fe7b16d1f476:eyJzZWxlY3RlZExpbmVDb3VudCI6OCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTk4MTkxMDg3M2MwZTdjNTg4YmExMGFiNWI1ZGY2MDNhZDMzMjkyYjY1YTcyYmFmMmM5YmJhYTU4Yzc3NTkwZCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGU0M2NjOTFiZTE5ZDkyMDZlYmU3MDhiYzQxZmJjM2YyZTA0OWZjMzgyZDY4OGMwOTVmNTlmMTQ5NTAwYjA1MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMmVkODc2NTY1OTU1YjlkOGYxMTc2ODY4MzMzZmMyNmJmNDhlNmZiNzQ4MDBiMjg3OTBkMDI5MzlhNWM5NDk1NCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTVhMDM0MmY1ZDVjOWE4YmYxYjNiNDFlMjZhMTg4N2M1OGJkN2ZhNzAyOTg5OTIwNTJkNDE0NjNhYzRhMjVkZCJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff9c569ba96e49ad8e6d0f92837f31b1",
+      "statement": "Pi, Zed, VS Code, OpenCode, DSH, and CodeWhale integrations are separate Git submodules whose repository identities are recorded in the parent .gitmodules file.",
+      "evidence": [
+        {
+          "resource": "repo://.gitmodules#L1-L25",
+          "version": "repo-lines-v1:sha256:65d200010bf7a385cd779666b0298fa3febc639e679b92f6c9a903ab139189b7:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM5ZDFhYTczYTkyNmZlODJmNzI2ZWU5YWM1MjIxOGIxM2MyNzlhODUzNzlmMmExMjI4YmM5MDhlNTRjYTUwMTUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNhNjNmNzZjOGQwOTUyMmRjMjZjM2NmYzVkNzcyMTkyNWRkYzFlNDViMjQ3N2QxZjg0MWJjYzkyMDMxZjU3NmMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQ0MGI4YjQ2NTkxYzQ5ZTgxZTE4YTk0MThiMTE4ODljMjk5ZmNkMTZiNWQ5NzhkYWIyYjQ2ZDMxNDdjMzdhMWEifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

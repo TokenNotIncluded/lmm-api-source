@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:2fe944b7fe259b10b4f917e2f8063ceed2664bb1c76594a878ef888a4a2763a5",
+  "claims": [
+    {
+      "id": "claim_592608dfc069467ea4f9261e6cbb2a3e",
+      "statement": "Core BrowserAuth owns browser registration and session issuance; refresh uses a server-held key and performs token-family rotation transactionally.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/identity/browser.rs#L359-L405",
+          "version": "repo-lines-v1:sha256:df73e49358daf1aad319bc7020cf2c21f3ae77a7c3de1b67a4133e0d4f0465ca:eyJzZWxlY3RlZExpbmVDb3VudCI6NDcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg5NjY1ZDVmZGIwNjNiMTA3OGRkYzRlNzNkMDc3ODZkZmNiYzVhYTdiNjcwMDVlYzliOWQ3NGI1ZTMyNjUyNjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZjMTllMmY0OGU0MTE2NTFhZDk1YWQ4NTk5YzkxYTYzZDk5MGQ4NDE5ZDA2ZmYyNmYzYzJkNjA0MGVmYWMwODYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImQxOGFkODk2YTIyYjg5ZTcxYmZmNDMzMmZlMjIyZjAxOTRkYWVmMTg1OGU4ZjUxNmQzZTE5ZjQxOWVjMGI4YzEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjY4ZjlmY2UxYWRhZDdmMDFjNTVkNmU1ZjFjNWMwYTM2MTYxNmU1ZTcyNWNhOTUxNTBmMjE2MjcwOTMwYzFkYjIifQ"
+        },
+        {
+          "resource": "repo://services/core/src/identity/browser.rs#L69-L83",
+          "version": "repo-lines-v1:sha256:b2fd7c80b978e39f5a7db9f7a4f1ed90b1f8915673b1fd1d8d9b46f904a3f4b5:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI5MDZjYWZiZDM3ODM1NmQ2ZTI1NWJiMGE4NWNjYWMyMzMzMDZmMjQwNmViN2QwMzM1MjRhNDc5OGM5MDM0YzIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4OTNmNDBlMzc4MWViODk2YzgyZDA0NmEwODA2N2ExMWUzNWNkZjJmMWRmYWYyNmZlYTkwYjhkYjY2NzY0MTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI3ZjFmNGE3M2Q1YjlkNDc5ODM2NGFhNDkyMDM4ZDUxZGZkMWI5Y2EwM2QwMDA5OTRiN2QzZjBjNzdiMGE2YzIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImJiYThlYjc2OWRjMjk0ZTJmMmYwZjAzMmJmZTY1OGFlM2Q1MThjYmEyNDM3Yjk2NzJmNTcxMzgzYTlhMGMwYTEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1c6d81263bb8472f9124facb9d27c9c7",
+      "statement": "Browser registration rejects non-empty email while email verification is not implemented, instead of silently dropping the requested address.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/identity/browser.rs#L105-L126",
+          "version": "repo-lines-v1:sha256:bb1d4b484cb654ab35bafd4900bf6fda6d6bd45b4edd7f210703d1b9aa07d390:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVjMjEzNTdmN2FlOTU3NzNiOTgxNDc2YmM1MzcyM2I3YWM5NDU5NzA5YTRmYmVmNWY3NWVkNTYzNjgzMmRkMGQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjcxNmRiYWVjZWU4NjEyZDcxNmQ3NTVkOTdkNmU0ZjdmZGYxMWNjNTUzYWM2Y2YwZjQ5OTM3MDFmMmUzZDFkNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFkNjRkNTcxYTgwMGEzN2ZjNmU3YjUzYTBkNjJiZTRmODI3M2UzMGI5M2FjZThhMWMwYmE3OTYxNTg2YjQ0MzQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU5YmY5NTQ2NjU0YTI4NzYxMDViNWNkNTYzNmVmYTgwOWZkOGEwZTM4NDRmOGUzYTRiODBmNmMwOTlmNzM5NjAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d542a01849c2479cbceea356d9cdba6b",
+      "statement": "Account closure checks for active entitlements and pending financial or business state, then requires operation idempotency, explicit username confirmation, and the expected authentication version before revoking credentials and disabling the account.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/identity/browser/account_lifecycle.rs#L118-L160",
+          "version": "repo-lines-v1:sha256:d26d1cf151439f168e9b61881a2ebb90e7f781e16f81683f1518f81fa5f16bb4:eyJzZWxlY3RlZExpbmVDb3VudCI6NDMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQzMTkzZThiNzllODI4YjY1ODI4ZGNiODQ0YjA2MTdmYmMyYWY3OWNhOTFmMDJhNTgzZWY2OGE2YmU2NWFkZWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjE1ODdkZjcyZWI0Y2VlMzA3ZmI4NWY3M2Q3MWEzYWQ4MmZlM2JiYjI1NjNmZGMwMmU5NTMzYTMzODlhNzM1MTIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjUzNGE2Njg3M2FjZmIyMTA4ZWM0OGE2ZmRlN2VhOWQ3NjE5MDkxMTQ5NjBjNGExOGI4ZjZjNmQxODk0MTE5M2UiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6Ijk2NWZjMWRkMDVkNTdjMTA5M2UyNTNiNDI1NGY2ZTYzYzM5MmYxN2QyZDQ1NGQ5N2ZlNzQ1YjQ5YjVkNDA2YWMifQ"
+        },
+        {
+          "resource": "repo://services/core/src/identity/browser/account_lifecycle.rs#L85-L103",
+          "version": "repo-lines-v1:sha256:e4584170f65d9cb908717e08693692aba0846c53a3f9912acc5d3f817ed83da6:eyJzZWxlY3RlZExpbmVDb3VudCI6MTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjFiMjcyZWZhNmU3OWM0NGJiYmI3OGM4NjE1M2UxNjFlNzkyYWIyYTIzYzIwODFhM2JmY2VmZDAzNGRmYmM4ZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0NzVlOTRhOTA0YWM0OWIzMTU0ZDQ2NzJhNjZlODYyOWI4NmRhYzc0ZTNlMjkzN2JlNjkyN2FlM2RhMTFjNTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijg3ZWJkOTQ1OWE1ZWRlODI0YWFjMzI0MDNkZDNiNzEyMDUxMTYxN2MyYzUzZDE5NTY4NmUwODg4NDVhY2M0ODQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImQyOGFmMDVjMzVjZWYxNzAzMDdlNWE5ZDM4ZDY5ZThmZDhmOGY1NGVkODc2YzMwY2MxZjE3YjI1NTVmNWY3M2IifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_d89be6dcd2374d38a0705a0c44182a97",
+      "statement": "Account closure database tests cover authority revocation, history preservation, refusal conditions, and concurrent credit versus closure.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/tests/account_closure.rs#L226-L250",
+          "version": "repo-lines-v1:sha256:f43ba927f5a866f4437a17a0def3f2694e65a0f0324e4224fcb33461b71eadb9:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI5ODQxZTI1M2IwZmYyOWZlZDg1MDRkMTIxYTQxZjIyMGYyNDE2ZjU1MzFiN2ZjYjhiM2RhYmQyOTc1YjdhMjkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU2YjA0NDkxNDY5NzIyZTgzNjNhOTRlNDA0NDUzOGUwMTNhMmEyMTdlMzZiMWU1NjhiYTYwYWNiN2I0YzhmMmUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjhiMzI4NDE5ZTAxY2MzMWZjOGJmMDJjOWU0NDY0YzBjOTkwZjBiYTgxYjNmNDNjN2FkMzc5YjlmNzUzNTk3MDkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImExYTZiZTk4MDlkOTliZjg2NTQwODYzOTJhZDNjMDk4NzhiOTcwNTQ3ZDExM2JhY2I1ZjYzOWRlMzVkYzg0MTIifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/account_closure.rs#L72-L110",
+          "version": "repo-lines-v1:sha256:9692a648982595c546edd41f21347eb78af3ef31eeda7bd8a70c8220892e6f4f:eyJzZWxlY3RlZExpbmVDb3VudCI6MzksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmNGIyMDMwYWE5MGY2NWJmOGQ2Mzk0NjM2MzI5ZWIwNTNmOTQwMzliMTcyZTE1MTdkNjZhYjI3Yzc2NDQxNGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU2YWJjNjNmMmRkOWQxZjFmNmNjMGNkMTE2YzgwM2VlZTQ2ZDUwNWRlMTUwOWY5ZTdiNzFlZmUwMDMzYzJlNmQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjE5ZTc2MzU1Y2YxMTk5NDgwYzNmOTk4MzZiMTQ4NmM4NDFkODkxZmFhZDkwNGM2MDhlMDkzMDIyZDM3NTdhZWUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjBiMmQ4NGNiMGJlNGFhNWZkNjAwZGZhOGJjZDcxNWQxMGNjMTNlNzJiNjY2OTRkMWY5OGFlYTZjMmIwMDRlMmUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

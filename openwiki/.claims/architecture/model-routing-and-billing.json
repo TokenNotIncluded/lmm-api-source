@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:304e2a0b2acc76ca4400821635bf4e8091484c334b980e92adf76d5745df72e0",
+  "claims": [
+    {
+      "id": "claim_2eb1e2077bee489abb0ffa6bfd32c49e",
+      "statement": "Core model requests use host-supplied routing, provider credentials, grants, and charging policy; clients cannot choose the upstream URL, provider credential, payer, or price.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/model_http.rs#L132-L142",
+          "version": "repo-lines-v1:sha256:94eb647145bd04025942bc2f44d48a956bf49d7d57a85c181823db8a5c807f73:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZiYjBkMTE4Mzk5YzZkNDdmMjllMDE2NWU0OWMyOTc5Y2JmOTE2YTk3NGJjM2VhMjU1YzI2YmZlOTIyMjI0YWUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImJhNDdmYmNmNzNjZjgxZDcwMTVkN2QwY2NlMGVlZDE3MGQxMjkzMjU1YzJkNmU0OWIzZTE5NzQ2MTcyZDMzMDYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImVjMTE5MjkzY2Y5NDE0M2VlZWI2NWNkNWMyOTY3Yjc4MmYxNjgwNmNmNDYwOTM2NjIwNWQyMWZlZjhkODcxZDEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjQxMGRhYmI0MmM5ZTA1OWM0Y2RlN2YzMGU4YTFlODc5OWRkYTkyYzQxNzg0YWNlNTUyYzk4YjdhMmJiYmYzZmQifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_e2b84a17161d44faa38bda364ca1e060",
+      "statement": "The model gateway shares the Core PostgreSQL pool with its real charging and ledger adapters and maps only supported selected protocols to relay protocols; unsupported attempts return route unavailable.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/model_http.rs#L132-L135",
+          "version": "repo-lines-v1:sha256:f53e8d4030be93b36c4894c0aab2fd1eb94abfb4cbb9262f68de9dcb37704de9:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNmJiMGQxMTgzOTljNmQ0N2YyOWUwMTY1ZTQ5YzI5NzljYmY5MTZhOTc0YmMzZWEyNTVjMjZiZmU5MjIyMjRhZSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNjI3Y2VjZTkzY2FlY2Q3ZTFhMTk5YWI4NzQxMjhlYTA1NmI4N2QzNmE4Zjg3ZjFhNjIwYzZlYjBiYmQwNGJiNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZWMxMTkyOTNjZjk0MTQzZWVlYjY1Y2Q1YzI5NjdiNzgyZjE2ODA2Y2Y0NjA5MzY2MjA1ZDIxZmVmOGQ4NzFkMSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMjc3OTE1ODU1NjQyNWQ3MDBmYzBmNzVmMzkzZmQ0NmMzYTE3MTFkOTQ2YTgxZWViMzEzNjZiMjFkOTIwM2E2MSJ9"
+        },
+        {
+          "resource": "repo://services/core/src/model_http/billing.rs#L245-L261",
+          "version": "repo-lines-v1:sha256:3d2b8d5ff3bd39184d0c63b34b1934975c293985c059f65f4bd485ad27eeafc3:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjBlMWYyMWZkYjliYjcxNmExYmZlYWJmMDIwOWIzYzdiNGQ1YTU0MWIxY2Y5ZjMyNmY1Njk3NTNhMTMxOTExZjYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJhYzJiYzc1YjdhMWI4N2QwZjFlMjJjMGMyNDVmYmM5MzZiNmVkYzAyYzI2NjQ4OWMxMzliYWMxNjJhMjIwNzciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI0ZTQzOWVlYmQ0OGQyNzE4NWE2ODRlMTU2YzRkNDllZTJmY2Q5MDdmZDBmMmYyMTEwZDhkYmZiOGU0YWNjMzMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjRhZDlhMDY4Yjg3ZDVjNzU2ZjAyMDMzM2I1ZDRmMTEyZGI4MTMyZmI1NTI2ZmU4YTZhZmI0Y2QzYzEyNGIwOGUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a60f6c7ecb8c4b7aa8c5a1c1eeee1414",
+      "statement": "Billing retries only explicitly rolled-back retryable operations with the same identity; unknown commit outcomes are not blindly retried.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/model_http/billing.rs#L50-L62",
+          "version": "repo-lines-v1:sha256:14338430af4e614f348e8381fc26f65ffb18592e09868fbac081e7a256c4a70a:eyJzZWxlY3RlZExpbmVDb3VudCI6MTMsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQzMjY5YjAxYTc5YmU2MjE1ZTQ2N2M0MjUyZjcxMTI2YzhlOGRlYWRmMmFjMWNjZTE4ZWE3OWM0NTNhNWZlOTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY0YjBmZTk5ZDU4N2U4YTQzMjRiZjNhNmM0MjQ0NGZkYTYwNDNmYjA4ZGI4MmIxNzFhMzBmNGIyOGZlNDQ0YTUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjNhM2I2YmNjZmI5YmY5NjBmNWQ0Yzk4NTI2MGY4NzVjYWEzMTIxMzQ4NzVjMzQzYzVlYzdjZmQxNjcwNWYzNGQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjFmOTVmMzliZWZkYzU1NzQwMzEyMWRhNjhhZGI5ZDZhZWQ2MGU4OWYzYjg0M2FkZDI0NDJiYzE0NDA5YzlmNTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_4d4a039e54b849f6aa2b46c04eb16679",
+      "statement": "Completed text streams persist ordered checkpoints and can be reconciled after restart, while partial streams remain frozen and expired holds require authoritative provider evidence.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/model_http.rs#L456-L480",
+          "version": "repo-lines-v1:sha256:14217a9e8427884a813fd2c805dc5dd4446188ad920c87d9a3288b488a1ac1f1:eyJzZWxlY3RlZExpbmVDb3VudCI6MjUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU5NzRlNTg4NDQzN2FlZjA5MjllY2IzMTAzZTQ4MmY4OGVkY2M2ZDU0NDMxYmM5NDY0OGU0MjA1YWQxMDc2YWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImM0Y2M2Y2E5ZjA2ZDUwMjg3ZmU0ODVhMDQxYTAzMjNjZDcwNjRlNTMxZTBjYzg3NGUxNGVlM2UxYTYzZDIyYjQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijk5OWJkZWZlZWFjYTYzNDBlMDI5MGRjODZlODg5Yzg5ZDVlMTg5YWE1YmE0NGI1ODViM2I3MDczNGY0YTYyZDgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjAyZGU0ZDQzNjgyMzJhNGYwNTczNGU5N2E2M2QyYWJhZGUwOTY1ZWNjODg5YzgxMWUyMzM4MjA5OTE4YWMwNmEifQ"
+        },
+        {
+          "resource": "repo://services/core/tests/model_http.rs#L305-L354",
+          "version": "repo-lines-v1:sha256:82a3b5cdf22ae38ddae528435ffc87681f39ea97b98cdb700bcf9ec45b9ea30e:eyJzZWxlY3RlZExpbmVDb3VudCI6NTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNmNGIyMDMwYWE5MGY2NWJmOGQ2Mzk0NjM2MzI5ZWIwNTNmOTQwMzliMTcyZTE1MTdkNjZhYjI3Yzc2NDQxNGEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQ4OTNmNDBlMzc4MWViODk2YzgyZDA0NmEwODA2N2ExMWUzNWNkZjJmMWRmYWYyNmZlYTkwYjhkYjY2NzY0MTMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjMxMmFlODhlNGJmM2QzMDIzMDBkYzdjYmNjODQwYTlkMDM4MTk2MDc3MjBkNjM0ODg4NDhmNDYyZTE1NzIxNjIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjEwMTIzNGFkZGUyMzVhNGMxZWM0ZTY3MDk4ZWMwZDNlNzQ3MjAzMWE4Mzg0ZGQ0YTkwZjIzNjEwZTY3OGFjZmEifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

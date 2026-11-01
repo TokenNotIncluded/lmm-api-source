@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:742b03b265a3136b956290e89147aa0408247403efd2e782912bf40a727c803b",
+  "claims": [
+    {
+      "id": "claim_4b5a050a6a8747398a3a2e0ab530f71f",
+      "statement": "The Rust Core owns identity, permissions, account funding and ledger state, budgets, subscriptions, and model routing; extensions use separate databases and call the Core through versioned Protobuf services.",
+      "evidence": [
+        {
+          "resource": "repo://docs/core-migration.md#L9-L19",
+          "version": "repo-lines-v1:sha256:1836454cf15f289fe2faaad98d3c6ffb03990287443c4e526983e353c656931b:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZlNzlmNWFjMDA5YTgwYjZjYmY5MTRmZTFlNDA3ZGY3N2ZhODA4ZjI0OTMwOTE1ZjE0NWRlYWEzODc3MzM0ZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjlmMjFlNmMwN2EyZDZiYmNmZmExYWEyZjQ0MjNjMWYyNmM3MDEyMmUyMzBmODk2MjYwNzNhYjJhMmY0ZDQ4NDEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFlOTIwNzYwNzg3YzAzODFjNTRiZGRhMjU4OGY4MjYyOWE5MGRhZmM0YzhkOTcxY2UxMDczMjhmYWJjZTQxYjkiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjIzZmFlMTQxOWIwNjIxODcyMDg2MWY5NWM5MzFkMTA4MmE2ODQ3OTU5NmU4NmQyMjI0NjU3ZTEyN2E0NzM0OTAifQ"
+        },
+        {
+          "resource": "repo://services/core/schema/README.md#L5-L5",
+          "version": "repo-lines-v1:sha256:14039113496cd91c0652459577f287d37c564e1008198b1f955ea8783e92c4e2:eyJzZWxlY3RlZExpbmVDb3VudCI6MSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMTQwMzkxMTM0OTZjZDkxYzA2NTI0NTk1NzdmMjg3ZDM3YzU2NGUxMDA4MTk4YjFmOTU1ZWE4NzgzZTkyYzRlMiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMTQwMzkxMTM0OTZjZDkxYzA2NTI0NTk1NzdmMjg3ZDM3YzU2NGUxMDA4MTk4YjFmOTU1ZWE4NzgzZTkyYzRlMiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2RmY2ZiOGRmNTkyNWE1YTFlY2I3NDVlOTJiMmFjZDY4NGI3YTkxNzA4OTU2MDQxMmY3NjEwYzAyMDE4ZWJmMyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZjc1YTcyNWM1NzM5NmZkNDlhZDMyZWQyMGE1YTEyNWM4MmFiYTMyMmZjNWI1N2QzZTEyNjkxMjIzZWUwN2ViYiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_2a153ff228c842e3a2ef888b452a614f",
+      "statement": "Core schema installation is an explicit operation; normal startup checks installed definitions and catalog state without executing DDL.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/core_schema.rs#L1-L2",
+          "version": "repo-lines-v1:sha256:d86f0542fec88a6716bcf83f170d16d22e3a6a389bddbc73ff7faf0507e8aed4:eyJzZWxlY3RlZExpbmVDb3VudCI6MiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiZTMxYjEwMGQ0ODA3OWEwYmU5NzNmMDdkYWZjZWVlODQ2YTZlODJmM2FkYzk2YjM0YTJkOWIyZGFmY2YxYWMzOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiNDUyMDY1MDRiMWVkNGYwMDY4OTMzNzZiODdmMmRkZWU2Y2FlYzIyY2QzMWI1YmQzNWM4N2EzMjUwYjI4MDU3YyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZDhmNjQ5NzU0MGJjMWZiNTMwZGU2M2ZiMjJkYTIzNTliNWIzOTVhYWFiZmQ2NzE3MGUwNDUzYTQ1NGEyZGY5OSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_429a891b9ba543b49ae10946591923ae",
+      "statement": "Runtime database authority is checked in a read-only repeatable-read transaction with a statement timeout, and unsafe authority, missing grants, and unverifiable database state are distinct failures.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/src/runtime_database.rs#L39-L78",
+          "version": "repo-lines-v1:sha256:a04c2d8fea10f6efdff2ce20aec5aa9d7199908a31e3f1a6d8a6116414b9688f:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3MTZhZjcwOWZlZDM0OWNiNzdjYjRkYTYyZjk2ZjI3NTEyMmE4MzEzMTRlNGM1NmNkZjdlOGI4ZmZhNDFjZTciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ4OTc3MWZlMWI2NjI4ODc1YWEyM2U3ZGJlNGFhNzE0NjFkMDBjZGZiNjZkZGYxMWI5ZDgyMGFjNTg5N2ZkZjYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImMwYzJlYjAwNTMyYzFmMDc0OWZlNTBmZGVhZGE0YjRjYWEzYTYxOGNlNGM3ZWYyMmI4NWM1ZjAwNmNhNTJkNWEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjU2N2UxNzNhODlkNWFjNmRjOTg3YTUzMzI0MDE0NGI4NzYwNWZiMWNmMWFkNTZjN2YzMTY5MjI4NTYxYTRjMGMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a671769a9bec43a1b603f62df2c442dc",
+      "statement": "The runtime role must remain separate from the installer owner, and existing Core databases require a matching explicit upgrade procedure rather than implicit startup migration.",
+      "evidence": [
+        {
+          "resource": "repo://services/core/schema/README.md#L11-L13",
+          "version": "repo-lines-v1:sha256:b9963fc8128cb4eecbe604fa68d49a6aaddaae225561c0953f5aca94cfbc75cc:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTEwYTZiZTk5YjFkMjFiODM3ZDA4MTIyYTE2MzBjODE2ZWI2Mzc4NmNmZWI0NjVlZDM3OTI1MDVmMjQ0NzlkNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTIxM2Y0NGYyNjUzZGFmNzEyZmZlYTI0MTg4MWExMTMxMzZlYTZiZmFhMDU1ZmZkNDRmMTQ0ZGE1ZWUwYzIzNyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZjc1YTcyNWM1NzM5NmZkNDlhZDMyZWQyMGE1YTEyNWM4MmFiYTMyMmZjNWI1N2QzZTEyNjkxMjIzZWUwN2ViYiIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiOWFjYzMxZDAwYmQyM2IwOTRkZDUyMzRmYjdhN2JkYTZkNzk4M2I1Y2VkNWZlODM0N2QxODllMGZhYzQ4MGIwMCJ9"
+        },
+        {
+          "resource": "repo://services/core/src/main.rs#L203-L213",
+          "version": "repo-lines-v1:sha256:e3b4b901d442dc108b779823727129fef364fe0a8ddb1560fcc7d39771961544:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEzNjBkZjUyNTEzNDk4YjY3ODUwMjUwYzM4ODA0ODYwZTE4MTgxZWM3YWJmODEzMjVhNWVkNjRiYmQ0NjQ3NjgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjEzNjBkZjUyNTEzNDk4YjY3ODUwMjUwYzM4ODA0ODYwZTE4MTgxZWM3YWJmODEzMjVhNWVkNjRiYmQ0NjQ3NjgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFmODI2Yjk2ZGQ2Y2M0ZDJlMjU4NDdiZTE2MDZjOTQ5NjM1Y2M5OTQ3MTRkNDk1MzZmOGU2ZWM1ZjZkNGIzMGUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjkyMTM4NzM4NzVhMjM4NWJlMTgzNzJjZDdhMmNjNGRmNTA4ZDFlYWU4NjQ5ZjAzMWFlMjI0N2NiZDFkNTY3MjcifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}

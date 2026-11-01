@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c2608c0d9b71a0d8a06d96e541ff0a50a3742894e95005b498d19df774f1e9e2",
+  "claims": [
+    {
+      "id": "claim_6548be8748874043bdfde6c4157f87d1",
+      "statement": "Go extension modules access Core only through the dedicated Core client; that client does not connect to the Core database, cache authorization decisions, or relay model traffic.",
+      "evidence": [
+        {
+          "resource": "repo://services/extensions/internal/coreclient/client.go#L1-L3",
+          "version": "repo-lines-v1:sha256:e93fc726a6537decd0ae11e3704f4528be76f886cbc0b7cb9739120fdeca2114:eyJzZWxlY3RlZExpbmVDb3VudCI6MywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjUyYzEwMTQ5OTA0MGI2MDE1MGZlMmJkNzc3ZTUyOGYyMDEzMWI1MzMwMmFkNDFkOGRjZmY3MTgxNWMzYzYzYyIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjIxMTU3OWU2Y2VlOGZmZTQ0MjU2OTY1YTAzNDlmNWIwMDAzZDkxYjQ0NTliMGU3ZDZlMjZmZGM5NTE3MDU0NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzJjOTRkNmVjOTQ2NjFjNjY2NTY5ZmJmMzJjMTE3YmQxZWUwNjU1MTRiZjUyN2JmNGM3OWZlOWM2N2I2OGRmNiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_dcedbfc036704e4c9cf5b7ee1b1fc6cb",
+      "statement": "Selected extension modules require configured Core RPC, and composition validates module dependencies before assembly; an empty module selection can avoid a Core connection.",
+      "evidence": [
+        {
+          "resource": "repo://services/extensions/internal/composition/runtime.go#L155-L194",
+          "version": "repo-lines-v1:sha256:9d6e667a0fbff28c45bacd97ad2b6246e5085dfff455bfc035c33791d8c2f858:eyJzZWxlY3RlZExpbmVDb3VudCI6NDAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc3YTYzNjAwZjI0MGYzNmJmNjI2NWYzODYxOGE4Nzk4NjcxMTcwMGYyMjQ0N2FiNjJhYWYzNjk4NzAwZDI2NjIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjhmN2Y5ZDdiOGUyMjNkNjI3ZWYzZWE5MGE4MDM3OWQ0MDRlMjNmZDdhYjQzOGRlNzFiNWUyMzA2NWU4ZDU5NGEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjkzYzhjODdlNTc4NGY3YmM2ZDRhNTJkNTQ5YTdkZjQ3MGY5MmExNGNiYTdkNzkxNWI5ZWFjZWM5M2Y2NjUxNzEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImI5MThmYTFlYTRlNWVmN2Y1OWFiZWNjMmYyOGQwNzQwODU4YWMwMTAwYjYzMDI0MjdlYjkwODFjN2U3ZmMyODIifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_94eb32daad1e438ca22cfb6289990566",
+      "statement": "The extension Core client uses an absolute Unix socket and bounded, protected credential files, with request and concurrency limits.",
+      "evidence": [
+        {
+          "resource": "repo://services/extensions/internal/coreclient/client.go#L23-L68",
+          "version": "repo-lines-v1:sha256:b3771162ccfb0ecd58d09ac347b0d035b684be16b266a9d876c25da3188a96f2:eyJzZWxlY3RlZExpbmVDb3VudCI6NDYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjY0NTFiZGY1ZTI1OWExNzY4YWVkZDI4Y2IyMTkwYTE2NDVhY2E2ZTRiNGQzMzgyYzNkZGJjYTEyZjU2OWI1YWQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijc1NDc2NTUyOWUxNTc4MmVkMDlmYmFiZDQ1MGZhOTBhMjY1MzVmZGUzMmE3NDdjZTA2MGQ1NDYwZjZhMDFhOTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY1MmE4YjZhMDQwYzA3YWEzNWYzZGVhNGE5NTJiODA5NWZlNGE3ZTcwN2U4YTg1ODRkMjVmMjg3ZmMzYmIwZGMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImNkMDI4MmE0YTljYWY0NWIwMjYxNTA3NGM4MmJiMmNmMGQ0NWJmZTM3ZjFmMzIzZjk0YWRhNjQ5MmI1MjEzYTYifQ"
+        },
+        {
+          "resource": "repo://services/extensions/internal/coreclient/client.go#L94-L115",
+          "version": "repo-lines-v1:sha256:af22fe0fe5657d93c918809e2b3e8770874f4ffee7d2fd6b7cf7799d875af514:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijg4Y2Y4ODVkNzE2OGQ1MWIwMGM4NWEwOTI2ZjYxZjBjZTgzNjI1YzIwMDg3ZDk3YmE2MTZhNDczNDYwMGE5NjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImZlMWI0OWRjNzJmNjMyNjNkYzRmODFkZDIxZGYzZWRiZmU2NWU5NjVlN2FmMjhjNDM4OGFmMjc0NThlZTYwY2YiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjljNWZmMTI0OGM0OTY4Mzc3NjgwODhmODgxOTAyYTc1NDRjMGIzYTliZWNjOTE0MzU1YThlY2QwZWU0YzExYjEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImViYzE0NjA1MGQzOTkwMjBhMzk5MGFhMzZiZjZiMzA4ZjY2NGVmMWQyNzc0ZWJjOTRjZDY2ODYzMGRlNjJiZDAifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0772e84ecdf847829d157739b2624a2b",
+      "statement": "Extension recovery workers start explicitly, run bounded recovery tasks under host admission, and are canceled and joined before resources close.",
+      "evidence": [
+        {
+          "resource": "repo://services/extensions/internal/composition/runtime.go#L85-L153",
+          "version": "repo-lines-v1:sha256:64a11ea8acb328e832e854f5bd1ebf39814407cac9088d554eedcdf8f18c9a22:eyJzZWxlY3RlZExpbmVDb3VudCI6NjksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU1YmMzMGZhNGIyNTEwMjhmZGZiNmNlZmVkYjk0NTBkZTcwNzEyMTliZTU1ZTRiNzM5YmIwNzQyYWZmNTU2MTgiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjQxMmNhMzQ1Y2NmNzViZjljMDgwNmJjZTY5NWJlOGRlODA4Yjc5OTg0MjUxYTdhNTRkMjAyY2Y2MTAxZGQ0NTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImU3MzczMTcxZGMwNWZhOTU1ZDRkMWM3ZTQ5ODE4NGM1NWM4Y2UxMzc0MTRlYzcyN2JkZGI2Y2MxZjViMGNkYjUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImE3MmEyNWQyZDZhNjBhYzE0N2M5MzRiZDkwNjg4MTg5MjU1NmYyZTU4MDgzYzEzMzZkN2QxZDNkNWUxZWI0YjkifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.7.2",
+    "at": "2026-11-01T04:43:29.750Z"
+  }
+}
