@@ -3883,6 +3883,7 @@
     "Enter Creem API key": "Введите ключ API Creem",
     "Enter custom API endpoint URL": "Введите URL пользовательской конечной точки API",
     "Enter delivery content within 128 KiB.": "Введите содержимое для выдачи размером не более 128 КиБ.",
+    "Enter delivery content within 16,000 bytes.": "Введите содержимое для выдачи размером не более 16 000 байт.",
     "Enter deployment region or JSON mapping:": "Введите регион развертывания или JSON-сопоставление:",
     "Enter display name": "Введите отображаемое имя",
     "Enter full screen": "Открыть на весь экран",

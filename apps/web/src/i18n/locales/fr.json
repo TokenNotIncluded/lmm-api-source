@@ -3883,6 +3883,7 @@
     "Enter Creem API key": "Saisir la clé API Creem",
     "Enter custom API endpoint URL": "Saisir l'URL du point de terminaison API personnalisé",
     "Enter delivery content within 128 KiB.": "Saisissez un contenu à livrer de 128 Kio maximum.",
+    "Enter delivery content within 16,000 bytes.": "Saisissez un contenu à livrer de 16 000 octets maximum.",
     "Enter deployment region or JSON mapping:": "Saisir la région de déploiement ou le mappage JSON :",
     "Enter display name": "Saisir le nom d'affichage",
     "Enter full screen": "Passer en plein écran",

@@ -30,7 +30,7 @@ export function useStoreFixedContentDraft(
     !loading &&
     !query.error &&
     content.trim().length > 0 &&
-    new TextEncoder().encode(content).length <= 128 * 1024
+    new TextEncoder().encode(content).length <= 16000
   return {
     content,
     setContent: setEdited,

@@ -3883,6 +3883,7 @@
     "Enter Creem API key": "Nhập khóa API Creem",
     "Enter custom API endpoint URL": "Nhập URL điểm cuối API tùy chỉnh",
     "Enter delivery content within 128 KiB.": "Nhập nội dung giao hàng không quá 128 KiB.",
+    "Enter delivery content within 16,000 bytes.": "Nhập nội dung giao hàng không quá 16.000 byte.",
     "Enter deployment region or JSON mapping:": "Nhập khu vực triển khai hoặc ánh xạ JSON:",
     "Enter display name": "Nhập tên hiển thị",
     "Enter full screen": "Mở toàn màn hình",

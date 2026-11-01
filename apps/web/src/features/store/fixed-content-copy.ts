@@ -6,7 +6,7 @@ export const STORE_FIXED_CONTENT_COPY = {
   help: 'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.',
   privateHelp:
     'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.',
-  invalid: 'Enter delivery content within 128 KiB.',
+  invalid: 'Enter delivery content within 16,000 bytes.',
   noImport:
     'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.',
   draftHelp:

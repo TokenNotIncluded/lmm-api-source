@@ -3883,6 +3883,7 @@
     "Enter Creem API key": "輸入 Creem API 金鑰",
     "Enter custom API endpoint URL": "輸入自訂 API 端點 URL",
     "Enter delivery content within 128 KiB.": "請輸入不超過 128 KiB 的交付內容。",
+    "Enter delivery content within 16,000 bytes.": "請輸入不超過 16,000 位元組的交付內容。",
     "Enter deployment region or JSON mapping:": "輸入部署區域或 JSON 映射：",
     "Enter display name": "輸入顯示名稱",
     "Enter full screen": "進入全螢幕",

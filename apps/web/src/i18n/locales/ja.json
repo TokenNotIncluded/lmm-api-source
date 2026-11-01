@@ -3883,6 +3883,7 @@
     "Enter Creem API key": "Creem API キーを入力",
     "Enter custom API endpoint URL": "カスタムAPIエンドポイントURLを入力",
     "Enter delivery content within 128 KiB.": "配信コンテンツは128 KiB以内で入力してください。",
+    "Enter delivery content within 16,000 bytes.": "配信コンテンツは16,000バイト以内で入力してください。",
     "Enter deployment region or JSON mapping:": "デプロイリージョンまたはJSONマッピングを入力:",
     "Enter display name": "表示名を入力",
     "Enter full screen": "全画面表示",
