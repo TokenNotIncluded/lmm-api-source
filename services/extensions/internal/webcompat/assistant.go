@@ -130,7 +130,7 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 		if err == nil && !access.Missing(chat) {
 			value["enabled"], value["route_available"] = true, true
 			value["funding"] = map[string]any{"mode": "personal", "configured": true}
-			value["agent"] = map[string]any{"enabled": true, "stream_enabled": false}
+			value["agent"] = map[string]any{"enabled": false, "stream_enabled": false}
 			value["unavailable_reason"] = ""
 		}
 		if err == nil && !access.Missing(gifts) && gifts.GiftsAvailable() {

@@ -21,6 +21,43 @@ type assistantChatFixture struct {
 	pending      bool
 }
 
+type agentChatFixture struct{ assistantChatFixture }
+
+func (*agentChatFixture) MultiRoundAvailable() bool { return true }
+
+func TestAssistantStatusReportsTheSelectedChatMode(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		chat        AssistantChat
+		wantAgent   bool
+		wantFunding string
+	}{
+		{name: "personal text", chat: &assistantChatFixture{}, wantFunding: "personal"},
+		{name: "agent", chat: &agentChatFixture{}, wantAgent: true, wantFunding: "core_policy"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			RegisterAssistant(mux, newAuth(t, &authCore{}), &assistantPort{}, test.chat)
+			w := assistantRequest(mux, "GET", "/api/assistant/status", webToken, "")
+			var response struct {
+				Success bool `json:"success"`
+				Data    struct {
+					Agent struct {
+						Enabled    bool `json:"enabled"`
+						MultiRound bool `json:"multi_round"`
+					} `json:"agent"`
+					Funding struct {
+						Mode string `json:"mode"`
+					} `json:"funding"`
+				} `json:"data"`
+			}
+			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &response) != nil || !response.Success || response.Data.Agent.Enabled != test.wantAgent || response.Data.Agent.MultiRound != test.wantAgent || response.Data.Funding.Mode != test.wantFunding {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func (p *assistantChatFixture) Chat(_ context.Context, token string, request assistant.PersonalChatRequest) (assistant.PersonalChatReply, error) {
 	p.calls++
 	p.request, p.token = request, token
