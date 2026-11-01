@@ -2674,7 +2674,7 @@ describe('AssistantPanel', () => {
   })
 
   test('continues owned history without retaining an unsubmitted starter', async () => {
-    let postedBody: Record<string, unknown> | undefined
+    const postedBodies: Record<string, unknown>[] = []
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return { data: { success: true, data: assistantStatus } }
@@ -2761,7 +2761,7 @@ describe('AssistantPanel', () => {
         return { data: { success: true } }
       }
       assert.equal(url, '/api/assistant/chat')
-      postedBody = body as Record<string, unknown>
+      postedBodies.push(body as Record<string, unknown>)
       return {
         data: {
           choices: [
@@ -2793,8 +2793,8 @@ describe('AssistantPanel', () => {
         'Where should I start?'
       )
       assert.equal(
-        postedBody,
-        undefined,
+        postedBodies.length,
+        0,
         'Selecting a starter must not send chat'
       )
       await act(async () => {
@@ -2841,13 +2841,13 @@ describe('AssistantPanel', () => {
       })
       await act(async () =>
         waitForCondition(
-          () => postedBody?.conversation_id === 73,
+          () => postedBodies[0]?.conversation_id === 73,
           'Continued request did not reuse its conversation id'
         )
       )
-      assert.equal(postedBody?.conversation_id, 73)
-      assert.equal(postedBody?.preset_id, undefined)
-      assert.equal(postedBody?.message, 'What changes on Windows?')
+      assert.equal(postedBodies[0]?.conversation_id, 73)
+      assert.equal(postedBodies[0]?.preset_id, undefined)
+      assert.equal(postedBodies[0]?.message, 'What changes on Windows?')
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
