@@ -1,0 +1,65 @@
+{
+  "provenance": "Synthetic fixture in frozen chat-stream-v3 journal schema, not provider capture. Only runtime price SHA and dependent chain are bound by the loader.",
+  "raw_usage": "{ \"prompt_tokens\":4,\"completion_tokens\":6,\"total_tokens\":10,\"prompt_tokens_details\":{\"text_tokens\":1,\"audio_tokens\":3},\"completion_tokens_details\":{\"text_tokens\":2,\"audio_tokens\":4} }",
+  "frames": [
+    "data: {\"id\":\"s1\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic-audio-upstream\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":null}\n\n",
+    "data: {\"id\":\"s1\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic-audio-upstream\",\"choices\":[],\"usage\":{ \"prompt_tokens\":4,\"completion_tokens\":6,\"total_tokens\":10,\"prompt_tokens_details\":{\"text_tokens\":1,\"audio_tokens\":3},\"completion_tokens_details\":{\"text_tokens\":2,\"audio_tokens\":4} }}\n\n",
+    "data: [DONE]\n\n"
+  ],
+  "rows": [
+    {
+      "kind": "audio_output_packet",
+      "journal_version": 3,
+      "sequence": 1,
+      "packet_sha256": "edea620fa4e1a9e07746d353f2c343a66446d32b3a7820f9daf34a102d4bb9eb",
+      "bytes": 158,
+      "total_bytes": 158,
+      "stream_sha256": "edea620fa4e1a9e07746d353f2c343a66446d32b3a7820f9daf34a102d4bb9eb",
+      "terminal": false,
+      "http_eof": false,
+      "state": {
+        "id": "e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
+        "finished": true,
+        "has_usage": false,
+        "done": false
+      },
+      "usage_packet": null
+    },
+    {
+      "kind": "audio_output_packet",
+      "journal_version": 3,
+      "sequence": 2,
+      "packet_sha256": "8dc34ab50f52be4d657e71517a86bab91765b3a3c6b2523ed9d79cefaa3ef0d4",
+      "bytes": 292,
+      "total_bytes": 450,
+      "stream_sha256": "13a28197aa9670c45372509d8d4d23c03b4f5d5879d4cda3d7df32218babd8d0",
+      "terminal": false,
+      "http_eof": false,
+      "state": {
+        "id": "e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
+        "finished": true,
+        "has_usage": true,
+        "done": false
+      },
+      "usage_packet": "data: {\"id\":\"s1\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic-audio-upstream\",\"choices\":[],\"usage\":{ \"prompt_tokens\":4,\"completion_tokens\":6,\"total_tokens\":10,\"prompt_tokens_details\":{\"text_tokens\":1,\"audio_tokens\":3},\"completion_tokens_details\":{\"text_tokens\":2,\"audio_tokens\":4} }}\n\n"
+    },
+    {
+      "kind": "audio_output_packet",
+      "journal_version": 3,
+      "sequence": 3,
+      "packet_sha256": "d8d37da081f11203f2af42092a92cb35508f27db75eba643058a0a580454517d",
+      "bytes": 14,
+      "total_bytes": 464,
+      "stream_sha256": "c4f306ebefedeb95204fb489e4b95500d5d1278b4e4d97085c89bf264f2cadea",
+      "terminal": true,
+      "http_eof": true,
+      "state": {
+        "id": "e8bc163c82eee18733288c7d4ac636db3a6deb013ef2d37b68322be20edc45cc",
+        "finished": true,
+        "has_usage": true,
+        "done": true
+      },
+      "usage_packet": null
+    }
+  ]
+}

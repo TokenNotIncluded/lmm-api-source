@@ -982,3 +982,6 @@ fn audio_chat_v2_nonstream_official_shape_and_ambiguous_evidence() {
         assert!(response(bad.as_bytes(), "m", AudioUsageFormat::OpenAiChatV2).is_err());
     }
 }
+
+#[path = "legacy_journal_tests.rs"]
+mod legacy_journal_tests;

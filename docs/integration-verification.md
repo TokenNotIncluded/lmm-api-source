@@ -1,5 +1,23 @@
 # Current integration verification
 
+## Legacy audio v3 journal recovery
+
+This test-only addition extends source 2d0b0748f0609f177f7fc26cdc754aed9352438d.
+Two actual isolated PostgreSQL cases passed with a fixed synthetic v3 journal.
+After gateway reconstruction and a changed current quote, recovery settles the
+original 62-credit price exactly once, preserves the old journal rows and makes
+no new provider request. A changed usage packet with its original frame hash is
+rejected and leaves the reservation pending without a terminal receipt.
+
+The first run failed during fixture insertion because charging writes require
+a SERIALIZABLE transaction. The fixture now uses that existing requirement;
+no production guard changed. Both the failure and passing follow-up are retained.
+The actual test executable SHA is 5d98977ae36a16a7c8433e10051202a1808923208b931afc573ed5a4b1d5af86. Its 567 compiler source
+inputs and generated inputs are bound in audio-legacy-v3-frozen/bindings.json
+under ~/.cache/lmm-module-migration/evidence. This is gateway object recreation,
+not an operating-system crash/restart or real-provider acceptance. Production
+code, schema, Web assets and recipe capabilities are unchanged.
+
 ## Native credit wallet workspaces
 
 This change extends source 9d776409331130b263ebda6a42431ef578e52d44.
@@ -85,7 +103,7 @@ core46-targets, observations46-acceptance and audio-v31-tests.log. Private
 observation fixtures were stopped and removed; public captures and failures
 remain. Audio tests use synthetic providers and gateway reconstruction, not
 paid providers or operating-system crash/restart acceptance. The older v3
-journal fixture, remaining audio entries, final projection/resource tests,
+journal fixture now has the scoped evidence above; remaining audio entries, final projection/resource tests,
 sorting browser acceptance, imports and production cutover remain unfinished.
 
 ## Earlier projection and trust-policy integration
