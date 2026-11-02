@@ -358,7 +358,9 @@ mod tests {
               AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_edit_signing_key)
               AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_editors)
               AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_edit_audit)
-              AND NOT EXISTS(SELECT FROM core_meta.trust_policy_upgrades)"
+              AND NOT EXISTS(SELECT FROM core_meta.trust_policy_upgrades)
+              AND NOT EXISTS(SELECT FROM core_channels.catalog_observations)
+              AND NOT EXISTS(SELECT FROM core_meta.channel_observations_upgrades)"
         ).fetch_one(&pool).await.unwrap();
         assert!(correct);
         let error = run(&pool, read(VALID.as_bytes()).unwrap())
@@ -495,5 +497,25 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod component46_tests {
+    use super::*;
+    #[sqlx::test(migrations = false)]
+    async fn populated_observation_receipt_is_not_fresh(pool: PgPool) {
+        core_schema::init(&pool).await.unwrap();
+        sqlx::query("INSERT INTO core_meta.channel_observations_upgrades(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256) VALUES('not-a-fresh-install',decode(repeat('ab',32),'hex'),'{}',decode(repeat('ab',32),'hex'),decode(repeat('ab',32),'hex'),decode(repeat('ab',32),'hex'))").execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let error = lock_fresh_database(&mut tx)
+            .await
+            .err()
+            .expect("component46 receipt is not a first-owner seed");
+        assert_eq!(
+            error.to_string(),
+            "first-owner requires an untouched fresh database"
+        );
+        tx.rollback().await.unwrap();
     }
 }

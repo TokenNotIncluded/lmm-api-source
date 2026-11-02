@@ -29,6 +29,7 @@ macro_rules! reject_suffix {
             "core-functional-completion-v1" => concat!("COMPLETION_", $code),
             "core-account-appeals-v1" => concat!("ACCOUNT_APPEALS_", $code),
             "core-channel-accounting-v1" => concat!("CHANNEL_ACCOUNTING_", $code),
+            "core-channel-observations-v1" => concat!("CHANNEL_OBSERVATIONS_", $code),
             "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
             _ => concat!("CHANNEL_PROJECTION_", $code),
         })

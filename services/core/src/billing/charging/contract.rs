@@ -585,6 +585,16 @@ impl PreparedReservation {
     fn validate_native_price(&self, price: &super::Price) -> Result<(), Error> {
         if let Some(audio) = &price.audio {
             price.validate()?;
+            if audio.usage_format == crate::model_http::audio::AudioUsageFormat::OpenAiChatV2
+                && !matches!(
+                    self.fields.binding.projection_revision.as_str(),
+                    "audio-chat-raw-v2-no-other-modalities"
+                        | "audio-chat-stream-raw-v2-no-other-modalities"
+                )
+            {
+                return Err(Error::Invalid);
+            }
+
             if self.fields.mode != "audio_chat_v1"
                 || self.fields.binding.provider_contract_revision
                     != audio.provider_contract_revision
@@ -715,6 +725,18 @@ impl ReservationContract {
 
     pub(crate) fn bounds(&self) -> (u64, u64) {
         (self.fields.bounds.input, self.fields.bounds.output)
+    }
+
+    pub(crate) fn audio_stream_model(&self) -> &str {
+        &self.fields.binding.model_snapshot
+    }
+
+    pub(crate) fn audio_stream(&self) -> bool {
+        self.fields.mode == "audio_chat_v1"
+            && matches!(
+                self.fields.binding.projection_revision.as_str(),
+                "audio-chat-stream-raw-v1" | "audio-chat-stream-raw-v2-no-other-modalities"
+            )
     }
 
     pub(crate) fn semantics(&self) -> &ReservationSemantics {

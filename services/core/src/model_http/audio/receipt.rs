@@ -7,22 +7,35 @@ use sha2::{Digest, Sha256};
 
 const MAX_USAGE_BYTES: usize = 65_536;
 
-/// Frozen provider projection. Chat/realtime require explicit modality counts;
+/// Frozen provider projection. Chat/realtime V1 require explicit modality counts;
 /// a provider omitting text counts needs a separately reviewed adapter contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AudioUsageFormat {
     FourCountersV1,
     OpenAiChatV1,
+    /// Reviewed text/audio-only request projection; explicit audio, optional text.
+    OpenAiChatV2,
     OpenAiRealtimeV1,
 }
 impl AudioUsageFormat {
+    pub(crate) fn validate_retained_chat_usage(self, raw: &[u8]) -> Result<()> {
+        if !matches!(self, Self::OpenAiChatV1 | Self::OpenAiChatV2) {
+            return Err(AudioError::InvalidUsage);
+        }
+        validate_chat_usage_retention(raw)
+    }
+
     pub(crate) fn parse(self, raw: &[u8]) -> Result<AudioUsage> {
         if raw.is_empty() {
             return Err(AudioError::UnknownUsage);
         }
         if raw.len() > MAX_USAGE_BYTES {
             return Err(AudioError::InvalidUsage);
+        }
+        validate_unique_json(raw)?;
+        if self == Self::OpenAiChatV2 {
+            return parse_chat_v2(raw);
         }
         if self == Self::FourCountersV1 {
             // Required counters; zero must be explicitly present in the receipt.
@@ -48,7 +61,7 @@ impl AudioUsageFormat {
                 "input_tokens",
                 "output_tokens",
             ),
-            Self::FourCountersV1 => unreachable!(),
+            Self::FourCountersV1 | Self::OpenAiChatV2 => unreachable!(),
         };
         let count = |path: &str| -> Result<u64> {
             let n = value
@@ -177,4 +190,175 @@ impl AudioQuote {
         }
         Ok(expected.credits)
     }
+}
+
+/// Optional means absent, not null or an invalid numeric value.
+#[derive(Default)]
+struct OptionalCount(Option<u64>);
+impl<'de> Deserialize<'de> for OptionalCount {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        u64::deserialize(d).map(|n| Self(Some(n)))
+    }
+}
+fn parse_chat_v2(raw: &[u8]) -> Result<AudioUsage> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Details {
+        audio_tokens: u64,
+        #[serde(default)]
+        text_tokens: OptionalCount,
+        #[serde(default)]
+        image_tokens: OptionalCount,
+        #[serde(default)]
+        cached_tokens: OptionalCount,
+        #[serde(default)]
+        cache_write_tokens: OptionalCount,
+        #[serde(default)]
+        reasoning_tokens: OptionalCount,
+        #[serde(default)]
+        accepted_prediction_tokens: OptionalCount,
+        #[serde(default)]
+        rejected_prediction_tokens: OptionalCount,
+    }
+    impl Details {
+        fn text(&self, total: u64) -> Result<u64> {
+            if self.image_tokens.0.is_some_and(|n| n != 0) {
+                return Err(AudioError::InvalidUsage);
+            }
+            let text = total
+                .checked_sub(self.audio_tokens)
+                .ok_or(AudioError::InvalidUsage)?;
+            if self.text_tokens.0.is_some_and(|n| n != text) {
+                return Err(AudioError::InvalidUsage);
+            }
+            for n in [
+                &self.cached_tokens,
+                &self.cache_write_tokens,
+                &self.reasoning_tokens,
+                &self.accepted_prediction_tokens,
+                &self.rejected_prediction_tokens,
+            ] {
+                if n.0.is_some_and(|n| n > total) {
+                    return Err(AudioError::InvalidUsage);
+                }
+            }
+            Ok(text)
+        }
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Receipt {
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        total_tokens: u64,
+        prompt_tokens_details: Details,
+        completion_tokens_details: Details,
+    }
+    let r: Receipt = serde_json::from_slice(raw).map_err(|_| AudioError::InvalidUsage)?;
+    if r.prompt_tokens.checked_add(r.completion_tokens) != Some(r.total_tokens) {
+        return Err(AudioError::InvalidUsage);
+    }
+    Ok(AudioUsage {
+        text_input: r.prompt_tokens_details.text(r.prompt_tokens)?,
+        text_output: r.completion_tokens_details.text(r.completion_tokens)?,
+        audio_input: r.prompt_tokens_details.audio_tokens,
+        audio_output: r.completion_tokens_details.audio_tokens,
+    })
+}
+
+/// Reject ambiguous authoritative JSON before any Value map can overwrite keys.
+pub(crate) fn validate_unique_json(raw: &[u8]) -> Result<()> {
+    struct Checked;
+    impl<'de> Deserialize<'de> for Checked {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = Checked;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("unambiguous JSON")
+                }
+                fn visit_map<M: serde::de::MapAccess<'de>>(
+                    self,
+                    mut m: M,
+                ) -> std::result::Result<Checked, M::Error> {
+                    let mut keys = std::collections::HashSet::new();
+                    while let Some(key) = m.next_key::<String>()? {
+                        if !keys.insert(key) {
+                            return Err(serde::de::Error::custom("duplicate JSON key"));
+                        }
+                        m.next_value::<Checked>()?;
+                    }
+                    Ok(Checked)
+                }
+                fn visit_seq<S: serde::de::SeqAccess<'de>>(
+                    self,
+                    mut s: S,
+                ) -> std::result::Result<Checked, S::Error> {
+                    while s.next_element::<Checked>()?.is_some() {}
+                    Ok(Checked)
+                }
+                fn visit_bool<E: serde::de::Error>(
+                    self,
+                    _: bool,
+                ) -> std::result::Result<Checked, E> {
+                    Ok(Checked)
+                }
+                fn visit_u64<E: serde::de::Error>(self, _: u64) -> std::result::Result<Checked, E> {
+                    Ok(Checked)
+                }
+                fn visit_i64<E: serde::de::Error>(self, _: i64) -> std::result::Result<Checked, E> {
+                    Ok(Checked)
+                }
+                fn visit_f64<E: serde::de::Error>(self, _: f64) -> std::result::Result<Checked, E> {
+                    Ok(Checked)
+                }
+                fn visit_str<E: serde::de::Error>(
+                    self,
+                    _: &str,
+                ) -> std::result::Result<Checked, E> {
+                    Ok(Checked)
+                }
+                fn visit_unit<E: serde::de::Error>(self) -> std::result::Result<Checked, E> {
+                    Ok(Checked)
+                }
+            }
+            d.deserialize_any(Visitor)
+        }
+    }
+    serde_json::from_slice::<Checked>(raw)
+        .map(|_| ())
+        .map_err(|_| AudioError::InvalidUsage)
+}
+
+/// Fresh Chat evidence admits counters only; historical V1 receipt replay keeps
+/// its original projection. Never persist provider body hidden inside usage.
+pub(crate) fn validate_chat_usage_retention(raw: &[u8]) -> Result<()> {
+    validate_unique_json(raw)?;
+    let value: Value = serde_json::from_slice(raw).map_err(|_| AudioError::InvalidUsage)?;
+    let object = value.as_object().ok_or(AudioError::InvalidUsage)?;
+    for (key, value) in object {
+        match key.as_str() {
+            "prompt_tokens" | "completion_tokens" | "total_tokens" if value.as_u64().is_some() => {}
+            "prompt_tokens_details" | "completion_tokens_details" => {
+                let details = value.as_object().ok_or(AudioError::InvalidUsage)?;
+                if details.iter().any(|(key, value)| {
+                    !matches!(
+                        key.as_str(),
+                        "text_tokens"
+                            | "audio_tokens"
+                            | "image_tokens"
+                            | "cached_tokens"
+                            | "cache_write_tokens"
+                            | "reasoning_tokens"
+                            | "accepted_prediction_tokens"
+                            | "rejected_prediction_tokens"
+                    ) || value.as_u64().is_none()
+                }) {
+                    return Err(AudioError::InvalidUsage);
+                }
+            }
+            _ => return Err(AudioError::InvalidUsage),
+        }
+    }
+    Ok(())
 }

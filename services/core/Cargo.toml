@@ -50,7 +50,7 @@ ring = "=0.17.14"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
 sha2 = { version = "=0.10.9", features = ["oid"] }
-sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "macros"] }
+sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "macros", "chrono"] }
 tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "signal", "time", "sync", "io-util"] }
 fs2 = "=0.4.3"
 flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }

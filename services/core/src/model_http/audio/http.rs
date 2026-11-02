@@ -1,4 +1,4 @@
-//! Non-streaming OpenAI Chat audio. No fabricated usage or text billing fallback.
+//! OpenAI Chat audio with durable stream checkpoints. No fabricated usage or text billing fallback.
 use super::super::*;
 use super::*;
 use crate::{
@@ -18,7 +18,10 @@ pub(crate) fn validate_rules(rules: &[AudioRule]) -> std::result::Result<(), Rel
         if rule.route_version == 0
             || rule.upstream_id == 0
             || rule.upstream_model.is_empty()
-            || rule.price.usage_format != AudioUsageFormat::OpenAiChatV1
+            || !matches!(
+                rule.price.usage_format,
+                AudioUsageFormat::OpenAiChatV1 | AudioUsageFormat::OpenAiChatV2
+            )
             || rule.price.max_input_tokens == 0
             || rule.price.max_input_tokens > u32::MAX as u64 / 2
             || rule.price.max_output_tokens == 0
@@ -106,17 +109,28 @@ struct ChatRequest {
     modalities: Vec<String>,
     audio: Option<Value>,
     stream: Option<bool>,
+    stream_options: Option<StreamOptions>,
     n: Option<u32>,
     temperature: Option<serde_json::Number>,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StreamOptions {
+    include_usage: bool,
+}
 impl ChatRequest {
     fn parse(raw: &[u8]) -> std::result::Result<Self, RelayError> {
+        super::receipt::validate_unique_json(raw)
+            .map_err(|_| RelayError::Invalid("duplicate audio request fields"))?;
         let request: Self = serde_json::from_slice(raw)
             .map_err(|_| RelayError::Invalid("unsupported audio chat request fields"))?;
         if request.model.is_empty()
             || request.messages.is_empty()
             || request.max_completion_tokens == 0
-            || request.stream == Some(true)
+            || request
+                .stream_options
+                .as_ref()
+                .is_some_and(|v| !v.include_usage || request.stream != Some(true))
             || request.n.is_some_and(|n| n != 1)
             || request
                 .modalities
@@ -124,7 +138,7 @@ impl ChatRequest {
                 .any(|m| !matches!(m.as_str(), "text" | "audio"))
         {
             return Err(RelayError::Unsupported(
-                "audio requires non-streaming single-choice Chat with explicit output limit",
+                "audio requires single-choice Chat with explicit output limit and final usage",
             ));
         }
         if request.modalities.iter().any(|m| m == "audio") {
@@ -149,6 +163,16 @@ impl ChatRequest {
             }
         } else if request.audio.is_some() {
             return Err(RelayError::Invalid("audio output requires audio modality"));
+        }
+        if request.stream == Some(true)
+            && request
+                .audio
+                .as_ref()
+                .is_some_and(|a| a["format"] != "pcm16")
+        {
+            return Err(RelayError::Unsupported(
+                "streamed audio output requires pcm16",
+            ));
         }
         for message in &request.messages {
             let object = message
@@ -205,7 +229,10 @@ impl ChatRequest {
         Ok(request)
     }
     fn wire(&self, model: &str) -> std::result::Result<Vec<u8>, RelayError> {
-        let mut value = json!({"model":model,"messages":self.messages,"max_completion_tokens":self.max_completion_tokens,"stream":false,"n":1});
+        let mut value = json!({"model":model,"messages":self.messages,"max_completion_tokens":self.max_completion_tokens,"stream":self.stream == Some(true),"n":1});
+        if self.stream == Some(true) {
+            value["stream_options"] = json!({"include_usage":true});
+        }
         if !self.modalities.is_empty() {
             value["modalities"] = json!(self.modalities);
         }
@@ -253,7 +280,7 @@ pub(crate) async fn handle(
     let worker_id = id.clone();
     let result = tokio::spawn(execute(gateway, caller, request, worker_id, permit)).await;
     let response = match result {
-        Ok(Ok(value)) => Json(value).into_response(),
+        Ok(Ok(response)) => response,
         Ok(Err(error)) => public_error(error),
         Err(_) => public_error(RelayError::SettlementPending),
     };
@@ -270,7 +297,7 @@ async fn execute(
     request: ChatRequest,
     id: String,
     _permit: OwnedSemaphorePermit,
-) -> std::result::Result<Value, RelayError> {
+) -> std::result::Result<Response, RelayError> {
     if gateway
         .bridge
         .charging
@@ -328,6 +355,11 @@ async fn execute(
         .ok_or(RelayError::Unsupported(
             "reviewed audio tariff and provider bounds are not configured",
         ))?;
+    if request.stream == Some(true) && !rule.chat_streaming {
+        return Err(RelayError::Unsupported(
+            "audio streaming provider contract is not enabled",
+        ));
+    }
     if u64::from(request.max_completion_tokens) > rule.price.max_output_tokens {
         return Err(RelayError::Limit("audio output limit"));
     }
@@ -392,7 +424,14 @@ async fn execute(
         .client()
         .post(endpoint)
         .bearer_auth(&credential)
-        .header(header::ACCEPT, "application/json")
+        .header(
+            header::ACCEPT,
+            if request.stream == Some(true) {
+                "text/event-stream"
+            } else {
+                "application/json"
+            },
+        )
         .header(header::CONTENT_TYPE, "application/json")
         .body(wire.clone())
         .build()
@@ -425,7 +464,20 @@ async fn execute(
             payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
                 .map_err(billing::error)?,
             provider_contract_revision: audio_price.provider_contract_revision.clone(),
-            projection_revision: "audio-chat-raw-v1".into(),
+            projection_revision: if request.stream == Some(true) {
+                if audio_price.usage_format == AudioUsageFormat::OpenAiChatV2 {
+                    "audio-chat-stream-raw-v2-no-other-modalities"
+                } else {
+                    "audio-chat-stream-raw-v1"
+                }
+            } else {
+                if audio_price.usage_format == AudioUsageFormat::OpenAiChatV2 {
+                    "audio-chat-raw-v2-no-other-modalities"
+                } else {
+                    "audio-chat-raw-v1"
+                }
+            }
+            .into(),
             quote_version: attempt.quote().version(),
         },
         wire_sha.clone(),
@@ -511,25 +563,45 @@ async fn execute(
         })
         .await
         .map_err(billing::error)?;
-        let raw = tokio::time::timeout(gateway.limits.total_timeout, async {
-            let response = tokio::time::timeout(
-                gateway.limits.header_timeout,
-                connection.client().execute(upstream_request),
-            )
-            .await
-            .map_err(|_| RelayError::SettlementPending)?
-            .map_err(|_| RelayError::SettlementPending)?;
-            if !response.status().is_success() {
-                return Err(RelayError::SettlementPending);
-            }
-            native_http::read_response_bytes(&connection, response, &gateway.limits).await
-        })
+        let upstream = tokio::time::timeout(
+            gateway.limits.header_timeout,
+            connection.client().execute(upstream_request),
+        )
+        .await
+        .map_err(|_| RelayError::SettlementPending)?
+        .map_err(|_| RelayError::SettlementPending)?;
+        if !upstream.status().is_success() {
+            return Err(RelayError::SettlementPending);
+        }
+        if request.stream == Some(true) {
+            return stream::launch(
+                gateway.clone(),
+                id.clone(),
+                worker,
+                charge.price.clone(),
+                attempt.upstream_model().into(),
+                credential.to_string(),
+                connection,
+                upstream,
+                _permit,
+            );
+        }
+        let raw = tokio::time::timeout(
+            gateway.limits.total_timeout,
+            native_http::read_response_bytes(&connection, upstream, &gateway.limits),
+        )
         .await
         .map_err(|_| RelayError::SettlementPending)??;
         if std::str::from_utf8(&raw).is_ok_and(|s| s.contains(credential.as_str())) {
             return Err(RelayError::SettlementPending);
         }
-        let (output, usage) = response(&raw, attempt.upstream_model())?;
+        let frozen_format = charge
+            .price
+            .audio
+            .as_ref()
+            .ok_or(RelayError::SettlementPending)?
+            .usage_format;
+        let (output, usage) = response(&raw, attempt.upstream_model(), frozen_format)?;
         let checkpoint = billing::retry(|| {
             gateway.bridge.charging.checkpoint_audio(
                 &id,
@@ -568,7 +640,7 @@ async fn execute(
         }) {
             return Err(RelayError::SettlementPending);
         }
-        Ok(output)
+        Ok(Json(output).into_response())
     }
     .await;
     if completed.is_err() {
@@ -580,11 +652,13 @@ async fn execute(
 fn response(
     raw: &[u8],
     expected_model: &str,
+    format: AudioUsageFormat,
 ) -> std::result::Result<(Value, Box<RawValue>), RelayError> {
     #[derive(Deserialize)]
     struct ResponseUsage {
         usage: Box<RawValue>,
     }
+    super::receipt::validate_unique_json(raw).map_err(|_| RelayError::SettlementPending)?;
     let receipt: ResponseUsage =
         serde_json::from_slice(raw).map_err(|_| RelayError::SettlementPending)?;
     let output: Value = serde_json::from_slice(raw).map_err(|_| RelayError::SettlementPending)?;
@@ -606,9 +680,41 @@ fn response(
     {
         return Err(RelayError::SettlementPending);
     }
+    if format == AudioUsageFormat::OpenAiChatV2 {
+        let message = choices[0]["message"]
+            .as_object()
+            .ok_or(RelayError::SettlementPending)?;
+        if message.keys().any(|k| {
+            !matches!(
+                k.as_str(),
+                "role" | "content" | "audio" | "refusal" | "annotations"
+            )
+        }) || !(choices[0]["message"]["content"].is_null()
+            || choices[0]["message"]["content"].is_string())
+        {
+            return Err(RelayError::SettlementPending);
+        }
+        if let Some(audio) = message.get("audio").filter(|a| !a.is_null()) {
+            let fields = audio.as_object().ok_or(RelayError::SettlementPending)?;
+            if fields
+                .keys()
+                .any(|k| !matches!(k.as_str(), "id" | "data" | "expires_at" | "transcript"))
+            {
+                return Err(RelayError::SettlementPending);
+            }
+        }
+    }
+    super::receipt::validate_chat_usage_retention(receipt.usage.get().as_bytes())
+        .map_err(|_| RelayError::SettlementPending)?;
+    format
+        .parse(receipt.usage.get().as_bytes())
+        .map_err(|_| RelayError::SettlementPending)?;
     Ok((output, receipt.usage))
 }
 
 #[cfg(test)]
 #[path = "http_tests.rs"]
 mod tests;
+
+#[path = "stream.rs"]
+pub(crate) mod stream;

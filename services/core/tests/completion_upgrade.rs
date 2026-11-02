@@ -64,6 +64,67 @@ SELECT jsonb_build_object(
         .unwrap()
 }
 
+// A completed client close is not proof that PostgreSQL removed its backend.
+// Only the SQLx-owned test database is observed; the production guard stays strict.
+async fn await_offline_boundary(request: &UpgradeRequest, boundary: &str) {
+    let mut remaining: Vec<serde_json::Value> = Vec::new();
+    let waited = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut control = PgConnection::connect(&std::env::var("DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+        let control_database: String = sqlx::query_scalar("SELECT current_database()::text")
+            .fetch_one(&mut control)
+            .await
+            .unwrap();
+        assert_ne!(
+            control_database, request.database.name,
+            "observer must use a control database"
+        );
+        let target_oid: Option<i64> =
+            sqlx::query_scalar("SELECT oid::bigint FROM pg_database WHERE datname=$1")
+                .bind(&request.database.name)
+                .fetch_optional(&mut control)
+                .await
+                .unwrap();
+        assert_eq!(target_oid, Some(i64::from(request.database.oid)));
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(10));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut reported = false;
+        loop {
+            // No transaction: each observation gets a fresh statistics snapshot.
+            remaining = sqlx::query_scalar(
+                "SELECT jsonb_build_object('pid',pid,'backend_start',backend_start, \
+                 'role',usename,'application_name',application_name, \
+                 'backend_type',backend_type,'state',state) \
+                 FROM pg_stat_activity WHERE datid::bigint=$1 ORDER BY pid",
+            )
+            .bind(i64::from(request.database.oid))
+            .fetch_all(&mut control)
+            .await
+            .unwrap();
+            if remaining.is_empty() {
+                if reported {
+                    eprintln!("offline boundary {boundary}: test database sessions drained");
+                }
+                break;
+            }
+            if !reported {
+                eprintln!("offline boundary {boundary}: waiting for {remaining:?}");
+                reported = true;
+            }
+            // Rate limit condition polling; elapsed time never authorizes upgrade.
+            tick.tick().await;
+        }
+        control.close().await.unwrap();
+    })
+    .await;
+    assert!(
+        waited.is_ok(),
+        "offline boundary {boundary}: test database {} observation did not finish within 5s; last observed sessions: {remaining:?}",
+        request.database.name
+    );
+}
+
 fn request() -> UpgradeRequest {
     UpgradeRequest {
         version: 1,
@@ -204,9 +265,11 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     url.set_password(Some(&password)).unwrap();
     installer.close().await;
     pool.close().await;
+    await_offline_boundary(&r, "first upgrade after fixture pool close").await;
     let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(result.status, "committed");
     assert_eq!(result.components, 44);
+    await_offline_boundary(&r, "original-id replay").await;
     let replay = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(replay.status, "already_committed");
     assert_eq!(
@@ -215,15 +278,22 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     );
     let mut another = r.clone();
     another.upgrade_id.push('2');
-    assert!(matches!(
-        upgrade_database(url.as_str(), another).await,
-        Err(UpgradeError::Rejected("COMPLETION_ORIGINAL_RECEIPT_ABSENT"))
-    ));
+    await_offline_boundary(&r, "different-id receipt check").await;
+    let absent_receipt = upgrade_database(url.as_str(), another).await;
+    assert!(
+        matches!(
+            &absent_receipt,
+            Err(UpgradeError::Rejected("COMPLETION_ORIGINAL_RECEIPT_ABSENT"))
+        ),
+        "unexpected receipt rejection: {:?}",
+        absent_receipt.as_ref().err()
+    );
     let mut changed_request = r.clone();
     std::mem::swap(
         &mut changed_request.roles.runtime,
         &mut changed_request.roles.extensions,
     );
+    await_offline_boundary(&r, "changed-role receipt check").await;
     assert!(matches!(
         upgrade_database(url.as_str(), changed_request).await,
         Err(UpgradeError::Rejected(
@@ -277,12 +347,18 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     // The offline API requires an exclusive connection. Validate the same
     // original receipt through that API, not by exporting private privilege helpers.
     inspect.close().await.unwrap();
-    assert!(matches!(
-        upgrade_database(url.as_str(), r.clone()).await,
-        Err(UpgradeError::Rejected(
-            "COMPLETION_RECEIPT_PRIVILEGES_INVALID"
-        ))
-    ));
+    await_offline_boundary(&r, "receipt ACL widened after inspection close").await;
+    let invalid_privileges = upgrade_database(url.as_str(), r.clone()).await;
+    assert!(
+        matches!(
+            &invalid_privileges,
+            Err(UpgradeError::Rejected(
+                "COMPLETION_RECEIPT_PRIVILEGES_INVALID"
+            ))
+        ),
+        "unexpected receipt-privilege rejection: {:?}",
+        invalid_privileges.as_ref().map(|report| report.status)
+    );
     let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
     sqlx::query(&format!("SET ROLE {}", quote(&r.roles.owner)))
         .execute(&mut inspect)
@@ -296,6 +372,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     .await
     .unwrap();
     inspect.close().await.unwrap();
+    await_offline_boundary(&r, "receipt ACL restored after inspection close").await;
     let restored = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(restored.status, "already_committed");
     assert_eq!(

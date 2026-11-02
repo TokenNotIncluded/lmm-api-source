@@ -145,4 +145,11 @@ REVOKE SELECT(source_key,archive_sha256,export_sha256,mapping_sha256,unit_eviden
 
 REVOKE SELECT(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at),INSERT(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at),UPDATE(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at),REFERENCES(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at) ON core_channels.opening_baselines FROM :"runtime_role";
 
+
+
+-- Component46, including accidental column grants on private receipts.
+REVOKE ALL PRIVILEGES ON core_channels.catalog_observations,core_meta.channel_observations_upgrades FROM :"runtime_role";
+REVOKE SELECT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), INSERT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), UPDATE(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), REFERENCES(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms) ON core_channels.catalog_observations FROM :"runtime_role";
+REVOKE SELECT(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256,recorded_at), INSERT(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256,recorded_at), UPDATE(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256,recorded_at), REFERENCES(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256,recorded_at) ON core_meta.channel_observations_upgrades FROM :"runtime_role";
+
 COMMIT;

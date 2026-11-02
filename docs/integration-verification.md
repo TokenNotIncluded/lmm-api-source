@@ -1,6 +1,69 @@
 # Current integration verification
 
-This delivery extends source base 6ae84b4e5ab65120c5542ae9d2ed2921a9ba2da8
+## Channel observations and audio Chat streams
+
+The current change extends source 2842ce19de058338f5b87628001753dd2c65cdb1.
+Component 46 stores model-directory observations separately from money and
+routing publication. Native channel statistics compare exact consumption,
+explicit balance units and scoped probe times before pagination. Unknowns stay
+last; changed data rejects the previous page digest. Cached pages are validated
+again, including an A-to-B-to-A navigation within the normal ten-second cache.
+
+Chat audio streams retain the four text/audio counters, frozen exact pricing
+and pending holds when final usage is unavailable. The worker reads through
+actual HTTP EOF and atomically records terminal evidence and settlement usage.
+Explicit OpenAiChatV2 supports omitted text counters only within its restricted
+text/audio contract and with explicit audio counters. Normal obfuscation and
+service_tier metadata is accepted without persisting response content. New
+journals retain raw usage and frame hashes; recovery uses the original format
+and price. V1 valid explicit-counter receipts retain their pricing semantics;
+duplicate JSON keys are now rejected, including in V1.
+
+| Current scoped check | Result |
+| --- | --- |
+| Core observation, sorting, HTTP, permissions, first-owner and new upgrade targets | 23 passed |
+| Five older upgrade procedures | Six cases have passing follow-ups; initial completion and trust-policy failures remain recorded |
+| Chat audio module, including PostgreSQL and synthetic streaming peers | 27 passed |
+| Charging regression on the Chat V2 test executable | 73 passed |
+| Web statistics, cache navigation and existing management regressions | 30 passed |
+| Web typecheck, production build and initial bundle budget | Passed; 558663 gzip bytes against 786432 |
+| Independent component46 CLI and actual role scripts | 58 commands matched expectations, including 16 expected refusals |
+| Independent audio v3.1 source review | No scoped blocker; not independent process-level business acceptance |
+
+The initial combined upgrade run failed two exact-rejection assertions. Each
+subsequently passed with diagnostics; the first failures' actual rejection
+causes remain UNKNOWN. The completion fixture now observes its own database's
+session exit at six explicitly offline boundaries. It never retries an upgrade,
+terminates another connection or relaxes the production guard or assertions.
+That modified target passed. This is not proof of a full green Core suite.
+
+The exact 45-to-46 procedure is core-channel-observations-v1. Actual PostgreSQL
+catalog comparison found 61 added definitions and no removed definitions; all
+match the observation table and private upgrade receipt. Earlier 44 and 45
+upgrade targets remain frozen. Independent fresh installation completed the
+entire CLI with exit0; actual restricted runtime check-db, create/grant/revoke/
+regrant and excessive-authority refusal passed. Both new tables stayed empty.
+The earlier unpinned capture's committed construction followed by exit1 remains
+a failed initialization, not a passing installation.
+
+- Component46 manifest: 7e69eafaa516a67dfc1b719ae2f5a950a90596f912f47d187422c470f9c170ee
+- Component46 catalog: c1b305360f39946be511368c8aba21635158dc767ca65eaab380784673a5d9a6
+- Independently installed Core: 79932aae8473e4c74a9833e1369ae7b625020f0e1542aac89f8e168694a8fad2
+- Subsequent Chat V2 Core build: 54973d793e10b3b100cf71af87f515b193ccc0ed43c8fc96782516dbbc71b6ec
+- Chat V2 test executable: 7fc35094e84402f95436f141ab298d2ed932cfd7e16a098178c180155aa36911
+
+The two executable cohorts are distinct. Their compiler inputs and scoped
+results are retained under ~/.cache/lmm-module-migration/evidence in core46-frozen,
+core46-targets, observations46-acceptance and audio-v31-tests.log. Private
+observation fixtures were stopped and removed; public captures and failures
+remain. Audio tests use synthetic providers and gateway reconstruction, not
+paid providers or operating-system crash/restart acceptance. The older v3
+journal fixture, remaining audio entries, final projection/resource tests,
+sorting browser acceptance, imports and production cutover remain unfinished.
+
+## Earlier projection and trust-policy integration
+
+The earlier delivery extended source base 6ae84b4e5ab65120c5542ae9d2ed2921a9ba2da8
 with the preserved channel projection work and the current feature candidates.
 It is a local development delivery, not deployment or complete business acceptance.
 
@@ -26,7 +89,7 @@ It is a local development delivery, not deployment or complete business acceptan
   WebAuthn and same-token outcome recovery. Unavailable editor authority is
   read-only. The existing quoted-wallet behavior remains available.
 
-## Local evidence
+## Earlier local evidence
 
 Checks used Rust 1.99.0, Bun 1.3.14 and isolated PostgreSQL 18 with synthetic
 records. Provider tests use synthetic peers; no paid provider call was made.
@@ -104,9 +167,24 @@ The real Go host was built and its health endpoint checked, with modules set to
 none; trust-policy requests are owned by Core. Its executable SHA-256 is
 48c45ce698bf3e92165a0df20a2f1d04bd90e219d01a47ca47fed652e885ce95.
 This does not cover Go extension business or Core-Go RPC. The browser used a
-CTAP2 virtual authenticator with user verification. Physical keys, MFA-enabled
-accounts, elapsed TTL expiration, lost-commit recovery, existing-site upgrades
-and the full-site route/theme matrix remain unrun in this acceptance.
+CTAP2 virtual authenticator with user verification. Physical keys,
+existing-site upgrades and the full-site route/theme matrix remain unrun in
+this acceptance.
+
+A further 15 independent checks used the same frozen Core, Go and Web artifacts.
+Actual TOTP setup, invalid-code rejection, old-session revocation and the real
+OTP login screen passed; the policy audit was bound to the resulting persisted
+MFA session. Preview and challenge expiration used the actual five-minute wait,
+without changing clocks or database expiration values. A fresh authorized
+preview subsequently committed successfully.
+
+The other cases suppressed the real PostgreSQL COMMIT acknowledgment and,
+separately, disconnected the successful HTTP confirmation response. The browser
+kept the original review, did not repeat confirmation, and resolved the original
+operation once. Database observations before and after resolution proved one
+policy revision and audit per operation. These supplemental cases and their
+retained harness failures are recorded under
+core-go-trust-browser/gaps-mfa-ttl-commit. They do not expand Go business coverage.
 
 Public results, artifact bindings, screenshots and runners are retained locally
 under ~/.cache/lmm-module-migration/evidence/core-go-trust-browser. Its private
@@ -117,9 +195,9 @@ Only test expectations changed for that payment fix, not production logic.
 
 ## Still incomplete
 
-Streaming and other audio entry points, the full provider/format matrix,
-historical channel sorting and freshness, final identity import-contract
-review, complete financial capability parity, and final resource/rollback
+Other audio entry points and process-level recovery, the full provider/format
+matrix, sorting browser and final freshness/resource acceptance, final identity
+import-contract review, complete financial capability parity, and final resource/rollback
 acceptance remain open. The importer candidate is intentionally held for the
 final schema review; source-fingerprint rejection still blocks its dependent
 trust-import suite. No fingerprint was changed merely to make that suite pass.

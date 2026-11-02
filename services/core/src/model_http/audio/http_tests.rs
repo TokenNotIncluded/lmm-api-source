@@ -14,6 +14,11 @@ use tower::ServiceExt;
 struct SupplierState {
     hits: Arc<AtomicUsize>,
     missing: bool,
+    official: bool,
+    pause: Option<Arc<tokio::sync::Notify>>,
+    tail: u8,
+    packed: bool,
+    tail_gate: Arc<tokio::sync::Notify>,
 }
 struct Supplier {
     endpoint: String,
@@ -27,10 +32,30 @@ impl Drop for Supplier {
 }
 impl Supplier {
     async fn start(missing: bool) -> Self {
+        Self::start_inner(missing, None).await
+    }
+    async fn start_inner(missing: bool, pause: Option<Arc<tokio::sync::Notify>>) -> Self {
+        Self::start_tail(missing, pause, 0, false).await
+    }
+    async fn start_tail(
+        missing: bool,
+        pause: Option<Arc<tokio::sync::Notify>>,
+        tail: u8,
+        packed: bool,
+    ) -> Self {
+        Self::start_style(missing, pause, tail, packed, false).await
+    }
+    async fn start_style(
+        missing: bool,
+        pause: Option<Arc<tokio::sync::Notify>>,
+        tail: u8,
+        packed: bool,
+        official: bool,
+    ) -> Self {
         async fn answer(
             State(state): State<SupplierState>,
             Json(request): Json<Value>,
-        ) -> Json<Value> {
+        ) -> Response {
             state.hits.fetch_add(1, Ordering::SeqCst);
             assert_eq!(request["model"], "synthetic-audio-upstream");
             assert_eq!(request["max_completion_tokens"], 16);
@@ -42,13 +67,95 @@ impl Supplier {
                     .unwrap()
                     .remove("audio_tokens");
             }
-            Json(value)
+            if state.official {
+                value["usage"]["prompt_tokens_details"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("text_tokens");
+                value["usage"]["completion_tokens_details"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("text_tokens");
+                value["usage"]["prompt_tokens_details"]["cache_write_tokens"] = json!(0);
+                value["usage"]["prompt_tokens_details"]["image_tokens"] = json!(0);
+                value["service_tier"] = json!("default");
+            }
+            if request["stream"] == true {
+                assert_eq!(request["stream_options"]["include_usage"], true);
+                let packet = |choices: Value, usage: Value| {
+                    format!(
+                        "data: {}\n\n",
+                        json!({"id":"stream-1","object":"chat.completion.chunk","model":"synthetic-audio-upstream","choices":choices,"usage":usage,"service_tier":"default","obfuscation":"EPHEMERAL_PADDING"})
+                    )
+                };
+                let mut frames = vec![
+                    packet(
+                        json!([{"index":0,"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]),
+                        Value::Null,
+                    ),
+                    packet(
+                        json!([{"index":0,"delta":{},"finish_reason":"stop"}]),
+                        Value::Null,
+                    ),
+                    packet(json!([]), value["usage"].clone()),
+                    "data: [DONE]\n\n".into(),
+                ];
+                match state.tail {
+                    1 => frames.push(frames[2].clone()), // duplicate usage after DONE
+                    2 => frames.push("data: [DONE]\n\n".into()),
+                    3 => {
+                        frames.pop();
+                    } // EOF before DONE
+                    4 => frames.push("data: {\"error\":\"late\"}\n\n".into()),
+                    5 => frames.push("data: partial".into()),
+                    _ => (),
+                }
+                if state.packed {
+                    frames = vec![frames.concat()];
+                }
+                let (tx, rx) =
+                    tokio::sync::mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(1);
+                tokio::spawn(async move {
+                    for (i, frame) in frames.into_iter().enumerate() {
+                        if i == 1 {
+                            if let Some(pause) = &state.pause {
+                                pause.notified().await;
+                            }
+                        }
+                        if tx.send(Ok(Bytes::from(frame))).await.is_err() {
+                            break;
+                        }
+                    }
+                    if state.tail == 7 {
+                        state.tail_gate.notified().await;
+                    }
+                    if state.tail == 6 {
+                        state.tail_gate.notified().await;
+                        let _ = tx
+                            .send(Err(std::io::Error::other("late transport failure")))
+                            .await;
+                    }
+                });
+                let body = Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
+                let mut response = Response::new(body);
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                );
+                return response;
+            }
+            Json(value).into_response()
         }
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
         let state = SupplierState {
             hits: Arc::new(AtomicUsize::new(0)),
             missing,
+            official,
+            pause,
+            tail,
+            packed,
+            tail_gate: Arc::new(tokio::sync::Notify::new()),
         };
         let app = Router::new()
             .route("/v1/chat/completions", post(answer))
@@ -69,6 +176,7 @@ fn rule(endpoint: &str) -> AudioRule {
         denominator: 1,
     };
     AudioRule {
+        chat_streaming: true,
         route_version: 1,
         upstream_id: 1,
         upstream_model: "synthetic-audio-upstream".into(),
@@ -248,10 +356,10 @@ async fn audio_http_pg_missing_modality_keeps_hold_and_cannot_settle_zero(pool: 
 }
 
 #[test]
-fn unsupported_stream_tools_and_unbounded_requests_are_rejected() {
+fn unsupported_tools_and_unbounded_requests_are_rejected() {
     let base = json!({"model":"audio-public","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":16});
     for (field, value) in [
-        ("stream", json!(true)),
+        ("stream_options", json!({"include_usage":false})),
         ("tools", json!([])),
         ("max_completion_tokens", json!(0)),
     ] {
@@ -269,6 +377,13 @@ fn unsupported_stream_tools_and_unbounded_requests_are_rejected() {
 
 #[sqlx::test(migrations = false)]
 async fn audio_pg_recovery_uses_durable_receipt_and_original_price(pool: PgPool) {
+    recovery_with_format(pool, AudioUsageFormat::OpenAiChatV1).await;
+}
+#[sqlx::test(migrations = false)]
+async fn audio_chat_v2_pg_recovery_retains_original_format_and_price(pool: PgPool) {
+    recovery_with_format(pool, AudioUsageFormat::OpenAiChatV2).await;
+}
+async fn recovery_with_format(pool: PgPool, format: AudioUsageFormat) {
     // Directly exercise the checkpoint/finalize gap. This is object recreation,
     // not an OS-crash acceptance runner, and does not call an external supplier.
     let f = native_http::test_support::fixture(pool, 10000, &["audio-public"]).await;
@@ -277,7 +392,8 @@ async fn audio_pg_recovery_uses_durable_receipt_and_original_price(pool: PgPool)
     runtime.optional("core_model").await;
     let supplier = Supplier::start(false).await;
     let old = gateway(&runtime.pool, &supplier);
-    let audio = rule(&supplier.endpoint).price;
+    let mut audio = rule(&supplier.endpoint).price;
+    audio.usage_format = format;
     let price = charging::Price {
         audio: Some(audio.clone()),
         text_request: None,
@@ -309,7 +425,12 @@ async fn audio_pg_recovery_uses_durable_receipt_and_original_price(pool: PgPool)
             credential_ref: CredentialRef { id: 7, revision: 1 },
             payload_policy_sha256: "06".repeat(32),
             provider_contract_revision: audio.provider_contract_revision.clone(),
-            projection_revision: "audio-chat-raw-v1".into(),
+            projection_revision: if format == AudioUsageFormat::OpenAiChatV2 {
+                "audio-chat-stream-raw-v2-no-other-modalities"
+            } else {
+                "audio-chat-stream-raw-v1"
+            }
+            .into(),
             quote_version: 1,
         },
         wire_hash.clone(),
@@ -345,12 +466,117 @@ async fn audio_pg_recovery_uses_durable_receipt_and_original_price(pool: PgPool)
         .record_route_dispatch(&spec.id, &worker, 1, "r1-t1-u1", "allowed", &wire_hash)
         .await
         .unwrap();
+    let packet = b"data: [DONE]\n\n";
     let raw = r#"{ "prompt_tokens":4,"completion_tokens":6,"total_tokens":10,"prompt_tokens_details":{"text_tokens":1,"audio_tokens":3},"completion_tokens_details":{"text_tokens":2,"audio_tokens":4} }"#;
+    let raw = if format == AudioUsageFormat::OpenAiChatV2 {
+        raw.replace("\"text_tokens\":1,", "")
+            .replace("\"text_tokens\":2,", "")
+    } else {
+        raw.to_owned()
+    };
+    let raw = raw.as_str();
+    let finish = format!(
+        "data: {}\n\n",
+        json!({"id":"s1","object":"chat.completion.chunk","model":"synthetic-audio-upstream","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null})
+    );
+    let usage_packet = format!(
+        "data: {{\"id\":\"s1\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic-audio-upstream\",\"choices\":[],\"usage\":{raw}}}\n\n"
+    );
+    // Reject the v1 counterexample: DONE alone plus independently supplied usage.
+    assert!(
+        old.bridge
+            .charging
+            .checkpoint_audio_stream(&spec.id, &worker, 1, packet, Sha256::digest(packet).into())
+            .await
+            .is_err()
+    );
+    assert!(
+        old.bridge
+            .charging
+            .checkpoint_audio(&spec.id, &worker, raw, Sha256::digest(packet).into())
+            .await
+            .is_err()
+    );
+    let mut digest = Sha256::new();
+    for (i, p) in [finish.as_bytes(), usage_packet.as_bytes()]
+        .into_iter()
+        .enumerate()
+    {
+        digest.update(p);
+        let sha: [u8; 32] = digest.clone().finalize().into();
+        old.bridge
+            .charging
+            .checkpoint_audio_packet(&spec.id, &worker, (i + 1) as u64, p, sha, false)
+            .await
+            .unwrap();
+    }
+    let before:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='audio-terminal:v1'")
+        .bind(&spec.id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(before, 0);
+    digest.update(packet);
+    let stream_sha: [u8; 32] = digest.finalize().into();
+    // A malformed terminal append must leave no terminal row. Body SHA is a trusted worker observation.
+    assert!(
+        old.bridge
+            .charging
+            .checkpoint_audio_stream(
+                &spec.id,
+                &worker,
+                3,
+                b"data: [DONE]\n\ntrailing",
+                stream_sha
+            )
+            .await
+            .is_err()
+    );
+    let tail:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='audio-packet:v1:0003'")
+        .bind(&spec.id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(tail, 0);
+    // Database fault after DONE + terminal receipt INSERT but before normalized
+    // usage INSERT: all three rows must roll back together. This is a transaction
+    // fault test, not a claimed OS-crash acceptance test.
+    sqlx::raw_sql(r#"CREATE FUNCTION public.audio_test_receipt_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.request_id='synthetic-audio-recovery' AND NEW.event_id='usage:audio-terminal:v1' THEN
+            RAISE EXCEPTION 'injected receipt boundary failure'; END IF; RETURN NEW; END $$;
+        CREATE TRIGGER audio_test_receipt_fault BEFORE INSERT ON core_charging.usage_events
+        FOR EACH ROW EXECUTE FUNCTION public.audio_test_receipt_fault();"#).execute(&f.pool).await.unwrap();
+    assert!(
+        old.bridge
+            .charging
+            .checkpoint_audio_stream(&spec.id, &worker, 3, packet, stream_sha)
+            .await
+            .is_err()
+    );
+    let rolled_back:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id IN ('audio-packet:v1:0003','audio-terminal:v1','usage:audio-terminal:v1')")
+        .bind(&spec.id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(rolled_back, 0);
+    sqlx::raw_sql("DROP TRIGGER audio_test_receipt_fault ON core_charging.usage_events; DROP FUNCTION public.audio_test_receipt_fault();")
+        .execute(&f.pool).await.unwrap();
     old.bridge
         .charging
-        .checkpoint_audio(&spec.id, &worker, raw, [5; 32])
+        .checkpoint_audio_stream(&spec.id, &worker, 3, packet, stream_sha)
         .await
         .unwrap();
+    // An ACK-loss retry is identical; no second receipt or debit.
+    old.bridge
+        .charging
+        .checkpoint_audio_stream(&spec.id, &worker, 3, packet, stream_sha)
+        .await
+        .unwrap();
+    let wrong = raw
+        .replace("\"text_tokens\":1", "\"text_tokens\":2")
+        .replace("\"prompt_tokens\":4", "\"prompt_tokens\":5")
+        .replace("\"total_tokens\":10", "\"total_tokens\":11");
+    assert!(
+        old.bridge
+            .charging
+            .checkpoint_audio(&spec.id, &worker, &wrong, stream_sha)
+            .await
+            .is_err()
+    );
+    let atomic:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id IN ('audio-packet:v1:0003','audio-terminal:v1','usage:audio-terminal:v1')")
+        .bind(&spec.id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(atomic, 3);
     old.bridge
         .charging
         .mark_unknown(&spec.id, &worker)
@@ -396,9 +622,9 @@ async fn audio_pg_recovery_uses_durable_receipt_and_original_price(pool: PgPool)
     assert!(matches!(
         new.bridge
             .charging
-            .checkpoint_audio(&spec.id, &worker, &changed, [5; 32])
+            .checkpoint_audio(&spec.id, &worker, &changed, stream_sha)
             .await,
-        Err(charging::Error::Conflict)
+        Err(charging::Error::Invalid)
     ));
     assert_eq!(
         new.bridge
@@ -412,4 +638,347 @@ async fn audio_pg_recovery_uses_durable_receipt_and_original_price(pool: PgPool)
     );
     drop(new);
     runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn audio_stream_pg_checkpoints_before_delivery_then_settles_once(pool: PgPool) {
+    use tokio_stream::StreamExt;
+    let f = native_http::test_support::fixture(pool, 10000, &["audio-public"]).await;
+    let runtime = RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    let supplier = Supplier::start(false).await;
+    let gateway = gateway(&runtime.pool, &supplier);
+    let stream_request = || {
+        let mut r = request(&f.key, "audio-stream-success");
+        *r.body_mut() = Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"input"}],"max_completion_tokens":16,"stream":true}).to_string());
+        r
+    };
+    let reply = gateway.router().oneshot(stream_request()).await.unwrap();
+    assert_eq!(reply.status(), StatusCode::OK);
+    let mut body = reply.into_body().into_data_stream();
+    let first = body.next().await.unwrap().unwrap();
+    let detail: Value = sqlx::query_scalar(
+        "SELECT detail FROM core_charging.usage_events WHERE event_id='audio-packet:v1:0001'",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(detail["packet_sha256"], charging::contract::digest(&first));
+    let mut bytes = first.to_vec();
+    while let Some(chunk) = body.next().await {
+        bytes.extend_from_slice(&chunk.unwrap());
+    }
+    assert!(bytes.ends_with(b"data: [DONE]\n\n"));
+    assert_eq!(
+        gateway
+            .router()
+            .oneshot(stream_request())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(gateway.native_http.drain(Duration::from_secs(3)).await, 0);
+    let (state, settled): (String, i64) =
+        sqlx::query_as("SELECT state,settled FROM core_charging.requests")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert_eq!((state.as_str(), settled), ("settled", 62));
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.usage_events WHERE event_id LIKE 'audio-packet:v1:%'",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 4);
+    let rows:Vec<Value>=sqlx::query_scalar("SELECT detail FROM core_charging.usage_events WHERE event_id LIKE 'audio-packet:v1:%' ORDER BY event_id").fetch_all(&f.pool).await.unwrap();
+    assert!(rows.iter().all(|r| r.get("packet").is_none()));
+    assert_eq!(
+        rows.iter().filter(|r| r["raw_usage"].is_string()).count(),
+        1
+    );
+    let journal = serde_json::to_string(&rows).unwrap();
+    assert!(!journal.contains("hello"));
+    assert!(!journal.contains("delta"));
+    assert!(!journal.contains("obfuscation"));
+    assert!(!journal.contains("service_tier"));
+    assert!(!journal.contains("EPHEMERAL_PADDING"));
+    assert!(
+        rows[2]["raw_usage"]
+            .as_str()
+            .unwrap()
+            .contains("prompt_tokens_details")
+    );
+
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!((balance.available_units, balance.reserved_units), (9938, 0));
+    drop(body);
+    drop(gateway);
+    runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn audio_stream_pg_missing_terminal_usage_retains_hold(pool: PgPool) {
+    let f = native_http::test_support::fixture(pool, 10000, &["audio-public"]).await;
+    let runtime = RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    let supplier = Supplier::start(true).await;
+    let gateway = gateway(&runtime.pool, &supplier);
+    let mut r = request(&f.key, "audio-stream-missing");
+    *r.body_mut()=Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"input"}],"max_completion_tokens":16,"stream":true}).to_string());
+    let reply = gateway.router().oneshot(r).await.unwrap();
+    assert_eq!(reply.status(), StatusCode::OK);
+    assert!(to_bytes(reply.into_body(), 1024 * 1024).await.is_err());
+    assert_eq!(gateway.native_http.drain(Duration::from_secs(3)).await, 0);
+    let (state, settled): (String, i64) =
+        sqlx::query_as("SELECT state,settled FROM core_charging.requests")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert_eq!((state.as_str(), settled), ("reconcile", 0));
+    assert_eq!(
+        gateway
+            .bridge
+            .charging
+            .reconcile_audio_receipts(10)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (9376, 624)
+    );
+    drop(gateway);
+    runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn audio_stream_pg_disconnect_before_usage_keeps_hold(pool: PgPool) {
+    use tokio_stream::StreamExt;
+    let f = native_http::test_support::fixture(pool, 10000, &["audio-public"]).await;
+    let runtime = RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    let pause = Arc::new(tokio::sync::Notify::new());
+    let supplier = Supplier::start_inner(false, Some(pause.clone())).await;
+    let gateway = gateway(&runtime.pool, &supplier);
+    let mut r = request(&f.key, "audio-stream-disconnect");
+    *r.body_mut()=Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"input"}],"max_completion_tokens":16,"stream":true}).to_string());
+    let reply = gateway.router().oneshot(r).await.unwrap();
+    let mut body = reply.into_body().into_data_stream();
+    assert!(body.next().await.unwrap().is_ok());
+    drop(body);
+    pause.notify_one();
+    assert_eq!(gateway.native_http.drain(Duration::from_secs(3)).await, 0);
+    let (state, settled): (String, i64) =
+        sqlx::query_as("SELECT state,settled FROM core_charging.requests")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert_eq!((state.as_str(), settled), ("reconcile", 0));
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (9376, 624)
+    );
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
+    drop(gateway);
+    runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn audio_stream_pg_unreviewed_rule_rejects_before_hold(pool: PgPool) {
+    let f = native_http::test_support::fixture(pool, 10000, &["audio-public"]).await;
+    let supplier = Supplier::start(false).await;
+    let mut gateway = gateway(&f.pool, &supplier);
+    let mut rule = rule(&supplier.endpoint);
+    rule.chat_streaming = false;
+    gateway.audio_rules = Arc::new(vec![rule]);
+    let mut r = request(&f.key, "audio-stream-disabled");
+    *r.body_mut()=Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"input"}],"max_completion_tokens":16,"stream":true}).to_string());
+    assert!(
+        !gateway
+            .router()
+            .oneshot(r)
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_charging.requests")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 0);
+}
+
+#[sqlx::test(migrations = false)]
+async fn audio_stream_pg_eof_tails_are_partition_invariant(pool: PgPool) {
+    let f = native_http::test_support::fixture(pool, 20000, &["audio-public"]).await;
+    let runtime = RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    for tail in 0..=7 {
+        for packed in [false, true] {
+            let supplier = Supplier::start_tail(false, None, tail, packed).await;
+            let mut gateway = gateway(&runtime.pool, &supplier);
+            if tail == 7 {
+                gateway.limits.read_timeout = Duration::from_millis(100);
+            }
+            let mut r = request(&f.key, &format!("audio-tail-{tail}-{packed}"));
+            *r.body_mut()=Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"input"}],"max_completion_tokens":16,"stream":true}).to_string());
+            let reply = gateway.router().oneshot(r).await.unwrap();
+            let id = reply
+                .headers()
+                .get("x-request-id")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            if tail == 6 {
+                // Ensure the complete usage packet reached durable storage before
+                // allowing the provider to fail its body after the DONE bytes.
+                tokio::time::timeout(Duration::from_secs(2),async {
+                    loop {
+                        let n:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='audio-packet:v1:0003'").bind(&id).fetch_one(&f.pool).await.unwrap();
+                        if n==1 {break;}
+                        tokio::task::yield_now().await;
+                    }
+                }).await.unwrap();
+                let n:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='audio-terminal:v1'").bind(&id).fetch_one(&f.pool).await.unwrap();
+                assert_eq!(n, 0);
+                supplier.state.tail_gate.notify_one();
+            }
+            let bytes = to_bytes(reply.into_body(), 1024 * 1024).await;
+            assert_eq!(gateway.native_http.drain(Duration::from_secs(3)).await, 0);
+            let charge = gateway.bridge.charging.resolve(&id).await.unwrap().unwrap();
+            if tail == 0 {
+                assert!(bytes.unwrap().ends_with(b"data: [DONE]\n\n"));
+                assert_eq!(charge.settled, 62);
+            } else {
+                assert!(bytes.is_err());
+                assert_eq!(
+                    (charge.state.as_str(), charge.reserved, charge.settled),
+                    ("reconcile", 624, 0)
+                );
+                let terminal:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='audio-terminal:v1'").bind(&id).fetch_one(&f.pool).await.unwrap();
+                assert_eq!(terminal, 0);
+                assert_eq!(
+                    gateway
+                        .bridge
+                        .charging
+                        .reconcile_audio_receipts(100)
+                        .await
+                        .unwrap(),
+                    0
+                );
+            }
+            assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
+            drop(gateway);
+        }
+    }
+    runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn audio_chat_v2_pg_official_usage_shape_nonstream_and_stream(pool: PgPool) {
+    let f = native_http::test_support::fixture(pool, 10000, &["audio-public"]).await;
+    let runtime = RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    let supplier = Supplier::start_style(false, None, 0, false, true).await;
+    for stream in [false, true] {
+        for format in [
+            AudioUsageFormat::OpenAiChatV1,
+            AudioUsageFormat::OpenAiChatV2,
+        ] {
+            let mut contract = rule(&supplier.endpoint);
+            contract.price.usage_format = format;
+            let gateway = gateway(&runtime.pool, &supplier)
+                .with_audio_rules(vec![contract])
+                .unwrap();
+            let mut r = request(&f.key, &format!("official-{stream}-{format:?}"));
+            *r.body_mut()=Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"input"}],"max_completion_tokens":16,"stream":stream}).to_string());
+            let reply = gateway.router().oneshot(r).await.unwrap();
+            let status = reply.status();
+            let id = reply
+                .headers()
+                .get("x-request-id")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            let body = to_bytes(reply.into_body(), 1024 * 1024).await;
+            assert_eq!(gateway.native_http.drain(Duration::from_secs(3)).await, 0);
+            let charge = gateway.bridge.charging.resolve(&id).await.unwrap().unwrap();
+            assert_eq!(charge.price.audio.as_ref().unwrap().usage_format, format);
+            if format == AudioUsageFormat::OpenAiChatV2 {
+                assert_eq!(status, StatusCode::OK);
+                assert!(body.is_ok());
+                assert_eq!(charge.settled, 62);
+                assert_eq!(
+                    charge.usage.audio.unwrap().counts,
+                    AudioUsage {
+                        text_input: 1,
+                        text_output: 2,
+                        audio_input: 3,
+                        audio_output: 4
+                    }
+                );
+            } else {
+                assert_eq!(
+                    (charge.state.as_str(), charge.settled, charge.reserved),
+                    ("reconcile", 0, 624)
+                );
+            }
+            drop(gateway);
+        }
+    }
+    assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 4);
+    runtime.cleanup().await;
+}
+
+#[test]
+fn audio_chat_v2_request_boundary_excludes_images_and_other_modalities() {
+    let image = json!({"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}],"max_completion_tokens":16});
+    assert!(ChatRequest::parse(&serde_json::to_vec(&image).unwrap()).is_err());
+    let valid = json!({"model":"m","messages":[{"role":"user","content":"text"}],"max_completion_tokens":16});
+    assert!(ChatRequest::parse(&serde_json::to_vec(&valid).unwrap()).is_ok());
+}
+
+#[test]
+fn audio_chat_v2_nonstream_official_shape_and_ambiguous_evidence() {
+    let raw = r#"{"id":"chatcmpl-synthetic","object":"chat.completion","model":"m","service_tier":"default","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic"},"finish_reason":"stop"}],"usage":{"prompt_tokens":19,"completion_tokens":10,"total_tokens":29,"prompt_tokens_details":{"audio_tokens":0,"cached_tokens":0,"cache_write_tokens":0},"completion_tokens_details":{"audio_tokens":0,"reasoning_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}}}"#;
+    let (output, usage) = response(raw.as_bytes(), "m", AudioUsageFormat::OpenAiChatV2).unwrap();
+    assert_eq!(output["service_tier"], "default");
+    assert!(!usage.get().contains("service_tier"));
+    assert!(response(raw.as_bytes(), "m", AudioUsageFormat::OpenAiChatV1).is_err());
+    for bad in [
+        raw.replace("\"audio_tokens\":0", "\"audio_tokens\":null"),
+        raw.replace("\"audio_tokens\":0", "\"audio_tokens\":-1"),
+        raw.replace("\"audio_tokens\":0", "\"audio_tokens\":1.0"),
+        raw.replace(
+            "\"audio_tokens\":0",
+            "\"audio_tokens\":0,\"image_tokens\":1",
+        ),
+        raw.replace(
+            "\"prompt_tokens\":19",
+            "\"prompt_tokens\":20,\"prompt_tokens\":19",
+        ),
+        raw.replace("\"usage\":{", "\"usage\":null,\"usage\":{"),
+        raw.replace(
+            "\"role\":\"assistant\"",
+            "\"role\":\"assistant\",\"images\":[]",
+        ),
+    ] {
+        assert!(response(bad.as_bytes(), "m", AudioUsageFormat::OpenAiChatV2).is_err());
+    }
 }

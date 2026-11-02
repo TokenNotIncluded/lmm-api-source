@@ -8,6 +8,8 @@ mod account_security;
 mod assistant_agent;
 #[path = "runtime_channel_accounting.rs"]
 mod channel_accounting;
+#[path = "runtime_channel_observations.rs"]
+mod channel_observations;
 #[path = "runtime_channel_projection.rs"]
 mod channel_projection;
 #[path = "runtime_operations.rs"]
@@ -258,6 +260,7 @@ pub(crate) async fn check_connection(
     account_security::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;
     channel_projection::check(connection, required.models).await?;
+    channel_observations::check(connection, required.models).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
 
     // Identity is always mounted when the runtime has a database. Normal identity

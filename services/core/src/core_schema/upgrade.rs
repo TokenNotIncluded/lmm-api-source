@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, fmt, io::Read};
 mod account_appeals;
 mod additive;
 mod channel_accounting;
+mod channel_observations;
 mod channel_projection;
 mod coinbase_payments;
 mod completion;
@@ -233,6 +234,9 @@ impl UpgradeRequest {
         if self.procedure == channel_projection::PROCEDURE {
             return channel_projection::validate(self);
         }
+        if self.procedure == channel_observations::PROCEDURE {
+            return channel_observations::validate(self);
+        }
         if self.procedure == trust_policy::PROCEDURE {
             return trust_policy::validate(self);
         }
@@ -314,6 +318,9 @@ impl UpgradeRequest {
         self.validate()?;
         if self.procedure == channel_projection::PROCEDURE {
             return channel_projection::authorize_target();
+        }
+        if self.procedure == channel_observations::PROCEDURE {
+            return channel_observations::authorize_target();
         }
         if self.procedure == trust_policy::PROCEDURE {
             return trust_policy::authorize_target();
@@ -410,7 +417,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == trust_policy::PROCEDURE {
+    let result = if request.procedure == channel_observations::PROCEDURE {
+        channel_observations::connected(&mut connection, &request).await
+    } else if request.procedure == trust_policy::PROCEDURE {
         trust_policy::connected(&mut connection, &request).await
     } else if request.procedure == channel_projection::PROCEDURE {
         channel_projection::connected(&mut connection, &request).await

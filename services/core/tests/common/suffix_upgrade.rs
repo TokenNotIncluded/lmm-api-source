@@ -15,7 +15,9 @@ fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 fn target_count() -> usize {
-    if PROCEDURE == "core-trust-policy-edit-v1" {
+    if PROCEDURE == "core-channel-observations-v1" {
+        46
+    } else if PROCEDURE == "core-trust-policy-edit-v1" {
         45
     } else {
         44
@@ -265,10 +267,15 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         &mut changed_request.roles.runtime,
         &mut changed_request.roles.extensions,
     );
-    assert!(matches!(
-        upgrade_database(url.as_str(), changed_request).await,
-        Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_RECEIPT_OR_CATALOG_CONFLICT")
-    ));
+    let changed_result = upgrade_database(url.as_str(), changed_request).await;
+    assert!(
+        matches!(
+            &changed_result,
+            Err(UpgradeError::Rejected(code)) if *code == format!("{ERROR_PREFIX}_RECEIPT_OR_CATALOG_CONFLICT")
+        ),
+        "unexpected changed-request rejection: {:?}",
+        changed_result.as_ref().err()
+    );
     let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
     sqlx::query(&format!("SET ROLE {}", quote(&r.roles.owner)))
         .execute(&mut inspect)

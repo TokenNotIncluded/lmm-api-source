@@ -221,3 +221,89 @@ fn fractional_fixed_prices_and_limits_never_clamp_or_wrap() {
         Err(AudioError::InvalidQuote)
     ));
 }
+
+#[test]
+fn chat_v2_normalizes_official_optional_text_without_changing_v1() {
+    let raw=br#"{"prompt_tokens":19,"completion_tokens":10,"total_tokens":29,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}}"#;
+    assert!(AudioUsageFormat::OpenAiChatV1.parse(raw).is_err());
+    assert_eq!(
+        AudioUsageFormat::OpenAiChatV2.parse(raw).unwrap(),
+        usage(19, 10, 0, 0)
+    );
+    let explicit=br#"{"prompt_tokens":4,"completion_tokens":6,"total_tokens":10,"prompt_tokens_details":{"text_tokens":1,"audio_tokens":3,"cache_write_tokens":0,"image_tokens":0},"completion_tokens_details":{"text_tokens":2,"audio_tokens":4}}"#;
+    assert_eq!(
+        AudioUsageFormat::OpenAiChatV1.parse(explicit).unwrap(),
+        AudioUsageFormat::OpenAiChatV2.parse(explicit).unwrap()
+    );
+    let mut value: serde_json::Value = serde_json::from_slice(explicit).unwrap();
+    for bad in [
+        serde_json::json!(1),
+        serde_json::Value::Null,
+        serde_json::json!("0"),
+    ] {
+        value["prompt_tokens_details"]["image_tokens"] = bad;
+        assert!(
+            AudioUsageFormat::OpenAiChatV2
+                .parse(&serde_json::to_vec(&value).unwrap())
+                .is_err()
+        );
+    }
+    value["prompt_tokens_details"]["image_tokens"] = serde_json::json!(0);
+    value["prompt_tokens_details"]["text_tokens"] = serde_json::json!(2);
+    assert!(
+        AudioUsageFormat::OpenAiChatV2
+            .parse(&serde_json::to_vec(&value).unwrap())
+            .is_err()
+    );
+    value["prompt_tokens_details"]["text_tokens"] = serde_json::json!(1);
+    value["prompt_tokens_details"]
+        .as_object_mut()
+        .unwrap()
+        .remove("audio_tokens");
+    assert!(
+        AudioUsageFormat::OpenAiChatV2
+            .parse(&serde_json::to_vec(&value).unwrap())
+            .is_err()
+    );
+    let duplicate = std::str::from_utf8(explicit).unwrap().replace(
+        "\"audio_tokens\":3",
+        "\"audio_tokens\":9,\"audio_tokens\":3",
+    );
+    for format in [
+        AudioUsageFormat::OpenAiChatV1,
+        AudioUsageFormat::OpenAiChatV2,
+    ] {
+        assert!(format.parse(duplicate.as_bytes()).is_err());
+    }
+    let underflow = std::str::from_utf8(explicit)
+        .unwrap()
+        .replace("\"audio_tokens\":3", "\"audio_tokens\":5");
+    assert!(
+        AudioUsageFormat::OpenAiChatV2
+            .parse(underflow.as_bytes())
+            .is_err()
+    );
+    let invalid_cache = std::str::from_utf8(explicit)
+        .unwrap()
+        .replace("\"cache_write_tokens\":0", "\"cache_write_tokens\":null");
+    assert!(
+        AudioUsageFormat::OpenAiChatV2
+            .parse(invalid_cache.as_bytes())
+            .is_err()
+    );
+}
+
+#[test]
+fn fresh_chat_usage_does_not_persist_body_inside_unknown_fields() {
+    let raw=br#"{"prompt_tokens":4,"completion_tokens":6,"prompt_tokens_details":{"text_tokens":1,"audio_tokens":3},"completion_tokens_details":{"text_tokens":2,"audio_tokens":4},"body":"PRIVATE_BODY"}"#;
+    // Historical V1 decoding semantics remain separate from new evidence capture.
+    assert_eq!(
+        AudioUsageFormat::OpenAiChatV1.parse(raw).unwrap(),
+        usage(1, 2, 3, 4)
+    );
+    assert!(
+        AudioUsageFormat::OpenAiChatV1
+            .validate_retained_chat_usage(raw)
+            .is_err()
+    );
+}

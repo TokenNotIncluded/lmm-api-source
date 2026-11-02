@@ -315,7 +315,13 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON core_channels.usage_contributions,core_chan
 GRANT SELECT,DELETE ON core_channels.projection_dirty TO :"runtime_role";
 GRANT SELECT ON core_channels.projection_state,core_channels.opening_sources,core_channels.opening_baselines TO :"runtime_role";
 GRANT INSERT ON core_channels.opening_baselines TO :"runtime_role";
+
 -- END channel-projection runtime grants
+\ir verify-channel-observations-owner.sql
+-- BEGIN channel-observations runtime grants
+-- Component46 display observations: no table-wide or receipt privileges.
+GRANT SELECT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), INSERT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), UPDATE(credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms) ON core_channels.catalog_observations TO :"runtime_role";
+-- END channel-observations runtime grants
 GRANT EXECUTE ON FUNCTION public.routing_control_read(),
     public.routing_control_publish(jsonb,jsonb,bigint,bigint),
     public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),

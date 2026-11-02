@@ -5,6 +5,7 @@ pub(super) mod balance;
 pub(super) mod catalog;
 pub(super) mod configuration;
 pub(super) mod copy;
+pub(super) mod observations;
 mod opening;
 pub(super) mod price_drafts;
 mod vault;
@@ -461,6 +462,8 @@ pub(super) enum Failure {
     NotFound,
     Disabled,
     AccountingUnavailable,
+    SnapshotChanged,
+    BalanceUnitRequired(Vec<String>),
     RetiredIdentity,
     InvalidUsageWindow,
     AccountingIdentityAmbiguous,
@@ -479,6 +482,8 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
             Self::Auth(error) => return auth_error(error),
+            Self::BalanceUnitRequired(units) => return (StatusCode::BAD_REQUEST, Json(json!({"success":false,"code":"CHANNEL_BALANCE_UNIT_REQUIRED","message":"Select a balance unit","data":{"balance_units":units}}))).into_response(),
+            Self::SnapshotChanged => (StatusCode::CONFLICT, "CHANNEL_SNAPSHOT_CHANGED", "Channel observations changed; refresh from the first page"),
             Self::AccountingUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "CHANNEL_ACCOUNTING_UNAVAILABLE",
@@ -820,17 +825,7 @@ async fn channel_probe(
     headers: &HeaderMap,
     id: u64,
 ) -> Result<crate::model_http::channel_operations::ChannelProbe, Failure> {
-    super::admit(state, headers).await?;
-    let management = state.management.as_ref().ok_or(Failure::Disabled)?;
-    let (tx, _) = management
-        .begin(bearer(headers)?, Action::ChannelOperate, ReadView::Current)
-        .await?;
-    let gateway = management.gateway.as_ref().ok_or(Failure::Disabled)?;
-    tx.commit().await.map_err(ManagementError::from)?;
-    gateway
-        .probe_channel(id)
-        .await
-        .map_err(|_| ManagementError::Storage.into())
+    observations::probe(state, headers, id).await
 }
 pub(super) async fn probe(
     State(state): State<ChannelState>,

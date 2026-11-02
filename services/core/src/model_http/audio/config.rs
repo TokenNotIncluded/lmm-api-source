@@ -11,4 +11,7 @@ pub struct AudioRule {
     pub upstream_model: String,
     pub endpoint: String,
     pub price: AudioPrice,
+    /// Explicit review of streaming usage/terminal semantics, disabled for old rules.
+    #[serde(default)]
+    pub chat_streaming: bool,
 }

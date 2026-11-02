@@ -33,10 +33,19 @@ import {
   type NativeUpstream,
   type NativeVendor,
 } from '../native-api'
+import {
+  isChannelSnapshotChanged,
+  getNativeChannelPage,
+  type NativeChannelSortInput,
+} from '../native-channel-statistics'
 import { useChannelOps } from '../use-channel-ops'
 import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialog'
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
+import {
+  NativeChannelSortFields,
+  NativeChannelStatisticsRow,
+} from './native-channel-statistics'
 
 type Section = 'channels' | 'models' | 'vendors' | 'prices'
 type Editor = {
@@ -90,6 +99,9 @@ export function NativeRoutingManagement({
       scope={scope}
       secretsAllowed={secretsAllowed}
       accounting={{
+        observations:
+          capabilityPhase === 'fresh' &&
+          capabilities.data?.data?.native_channel_observations === true,
         usage:
           capabilityPhase === 'fresh' &&
           capabilities.data?.data?.native_channel_usage === true,
@@ -117,6 +129,7 @@ function NativeRoutingWorkspace({
   scope: NativeRoutingScope
   secretsAllowed: boolean
   accounting: {
+    observations: boolean
     usage: boolean
     counters: boolean
     balanceProbe: boolean
@@ -144,6 +157,14 @@ function NativeRoutingWorkspace({
   const [section, setSection] = useState<Section>(initialSection)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [channelSort, setChannelSort] = useState<
+    Pick<NativeChannelSortInput, 'sort' | 'order' | 'unit'>
+  >({ sort: 'id', order: 'asc', unit: '' })
+  const [listingRevision, setListingRevision] = useState(0)
+  const snapshotAnchor = useRef<{ selection: string; digest: string } | null>(
+    null
+  )
+  const [balanceUnits, setBalanceUnits] = useState<string[]>([])
   const [editor, setEditor] = useState<Editor | null>(null)
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -173,6 +194,14 @@ function NativeRoutingWorkspace({
     () => () => {
       client.removeQueries({
         queryKey: [
+          'native-channel-statistics',
+          scope.userId,
+          scope.sessionId,
+          scope.role,
+        ],
+      })
+      client.removeQueries({
+        queryKey: [
           'native-routing-configuration',
           scope.userId,
           scope.sessionId,
@@ -184,6 +213,70 @@ function NativeRoutingWorkspace({
     [client, scope.userId, scope.sessionId, scope.role]
   )
   const configuration = query.data
+  const selection = JSON.stringify([
+    scope,
+    query.data?.version,
+    channelSort,
+    search,
+    listingRevision,
+  ])
+  const sortedChannels = useQuery({
+    // Every page visit must validate its digest, even with the app's 10s cache.
+    staleTime: 0,
+    refetchOnMount: 'always',
+    queryKey: [
+      'native-channel-statistics',
+      scope.userId,
+      scope.sessionId,
+      scope.role,
+      query.data?.version,
+      channelSort,
+      page,
+      search,
+      listingRevision,
+    ],
+    enabled:
+      accounting.observations &&
+      section === 'channels' &&
+      !!query.data &&
+      (channelSort.sort !== 'balance' || channelSort.unit.trim() !== ''),
+    queryFn: async ({ signal }) => {
+      const snapshotDigest =
+        snapshotAnchor.current?.selection === selection
+          ? snapshotAnchor.current.digest
+          : undefined
+      if (page > 1 && !snapshotDigest) {
+        throw new Error('Refresh from the first page')
+      }
+      const current = query.data
+      if (!current) throw new Error('Routing configuration is unavailable')
+      const result = await getNativeChannelPage(
+        scope,
+        current.version,
+        { ...channelSort, page, search, snapshotDigest },
+        signal
+      )
+      if (!signal.aborted) {
+        snapshotAnchor.current = { selection, digest: result.snapshot_digest }
+      }
+      return result
+    },
+    retry: false,
+  })
+  const verifiedChannelPage =
+    sortedChannels.isSuccess &&
+    sortedChannels.isFetchedAfterMount &&
+    !sortedChannels.isFetching &&
+    snapshotAnchor.current?.selection === selection &&
+    snapshotAnchor.current.digest === sortedChannels.data.snapshot_digest
+      ? sortedChannels.data
+      : undefined
+  useEffect(() => {
+    if (verifiedChannelPage) {
+      setBalanceUnits(verifiedChannelPage.balance_units)
+    }
+  }, [verifiedChannelPage])
+  const serverChannels = accounting.observations && section === 'channels'
 
   function report(cause: unknown) {
     setError(
@@ -200,8 +293,19 @@ function NativeRoutingWorkspace({
     setResult(null)
   }
   async function refresh() {
+    snapshotAnchor.current = null
+    setPage(1)
+    setListingRevision((revision) => revision + 1)
     await Promise.all([
       query.refetch(),
+      client.invalidateQueries({
+        queryKey: [
+          'native-channel-statistics',
+          scope.userId,
+          scope.sessionId,
+          scope.role,
+        ],
+      }),
       client.invalidateQueries({ queryKey: ['channels'] }),
       client.invalidateQueries({ queryKey: ['pricing'] }),
     ])
@@ -519,12 +623,25 @@ function NativeRoutingWorkspace({
     values.some((value) =>
       String(value).toLowerCase().includes(search.trim().toLowerCase())
     )
-  const upstreams = configuration.routing.upstreams.filter((channel) =>
+  const localUpstreams = configuration.routing.upstreams.filter((channel) =>
     matches(
       channel.id,
       configuration.bindings.names[channel.id] ?? '',
       channel.endpoint
     )
+  )
+  const upstreamById = new Map(
+    configuration.routing.upstreams.map((channel) => [channel.id, channel])
+  )
+  const listedItems = verifiedChannelPage?.items ?? []
+  const upstreams = serverChannels
+    ? listedItems.flatMap((item) => {
+        const channel = upstreamById.get(item.id)
+        return channel ? [channel] : []
+      })
+    : localUpstreams
+  const statisticsById = new Map(
+    verifiedChannelPage?.items.map((item) => [item.id, item]) ?? []
   )
   const models = configuration.routing.routes.filter((route) =>
     matches(
@@ -542,7 +659,9 @@ function NativeRoutingWorkspace({
   )
   const total =
     section === 'channels'
-      ? upstreams.length
+      ? serverChannels
+        ? (verifiedChannelPage?.total ?? 0)
+        : upstreams.length
       : section === 'models'
         ? models.length
         : section === 'vendors'
@@ -623,8 +742,44 @@ function NativeRoutingWorkspace({
               {t('API Keys')}: {t('Capability unavailable')}
             </p>
           )}
+          {serverChannels && (
+            <>
+              <NativeChannelSortFields
+                disabled={sortedChannels.isFetching}
+                units={balanceUnits}
+                value={{ ...channelSort, page, search }}
+                onChange={(value) => {
+                  setChannelSort({
+                    sort: value.sort,
+                    order: value.order,
+                    unit: value.unit,
+                  })
+                  setPage(1)
+                }}
+              />
+              {channelSort.sort === 'balance' &&
+              channelSort.unit.trim() === '' ? (
+                <p role='status'>{t('channelSorting.balanceUnit')}</p>
+              ) : sortedChannels.isFetching ? (
+                <LoadingState />
+              ) : null}
+              {sortedChannels.isError && (
+                <ErrorState
+                  description={t(
+                    isChannelSnapshotChanged(sortedChannels.error)
+                      ? 'channelSorting.snapshotChanged'
+                      : 'channelUsage.error'
+                  )}
+                  onRetry={() => void refresh()}
+                />
+              )}
+            </>
+          )}
           <div className='space-y-3'>
-            {upstreams.slice(start, start + 25).map((channel) => (
+            {(serverChannels
+              ? upstreams
+              : upstreams.slice(start, start + 25)
+            ).map((channel) => (
               <div key={channel.id} className='min-w-0 space-y-2 border p-3'>
                 <h3 className='font-medium [overflow-wrap:anywhere]'>
                   {configuration.bindings.names[channel.id] ??
@@ -633,6 +788,11 @@ function NativeRoutingWorkspace({
                 <p className='text-muted-foreground text-sm break-all'>
                   {channel.endpoint}
                 </p>
+                {serverChannels && (
+                  <NativeChannelStatisticsRow
+                    value={statisticsById.get(channel.id)}
+                  />
+                )}
                 {configuration.bindings.discoveries[channel.id] && (
                   <details className='min-w-0'>
                     <summary className='cursor-pointer text-sm'>
@@ -934,7 +1094,9 @@ function NativeRoutingWorkspace({
           type='button'
           variant='outline'
           className='min-h-11'
-          disabled={page === 1 || busy}
+          disabled={
+            page === 1 || busy || (serverChannels && sortedChannels.isFetching)
+          }
           onClick={() => setPage((value) => value - 1)}
         >
           {t('Previous')}
@@ -946,7 +1108,12 @@ function NativeRoutingWorkspace({
           type='button'
           variant='outline'
           className='min-h-11'
-          disabled={page * 25 >= total || busy}
+          disabled={
+            page * 25 >= total ||
+            busy ||
+            (serverChannels &&
+              (sortedChannels.isFetching || sortedChannels.isError))
+          }
           onClick={() => setPage((value) => value + 1)}
         >
           {t('Next')}

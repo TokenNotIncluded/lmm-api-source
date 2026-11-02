@@ -4,9 +4,11 @@
 //! Mutations use the durable control plane when installed by the host.
 
 mod control;
+mod sorting;
 pub use control::{ManagedChannels, ManagementError};
 pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
 pub const VAULT_SCHEMA: &str = include_str!("../schema/channel_vault.sql");
+pub const OBSERVATIONS_SCHEMA: &str = include_str!("../schema/channel_observations.sql");
 pub const ACCOUNTING_SCHEMA: &str = include_str!("../schema/channel_accounting.sql");
 
 use std::{collections::BTreeSet, sync::Arc};
@@ -190,6 +192,10 @@ struct Params {
     channel_type: Option<u16>,
     sort_by: Option<String>,
     sort_order: Option<String>,
+    #[serde(alias = "balance_unit")]
+    sort_unit: Option<String>,
+    snapshot_digest: Option<String>,
+    statistics: Option<bool>,
     id_sort: Option<bool>,
     tag_mode: Option<bool>,
 }
@@ -197,6 +203,8 @@ struct Params {
 /// Explicit allowlist: never serialize UpstreamConfig or ReleaseDocument.
 #[derive(Serialize)]
 struct Channel {
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    statistics: Option<control::observations::Statistics>,
     id: u64,
     name: String,
     name_source: &'static str,
@@ -243,6 +251,7 @@ fn channels(config: &RoutingConfig) -> Vec<Channel> {
                 }
             }
             Channel {
+                statistics: None,
                 id: upstream.id,
                 name: format!("Channel {}", upstream.id),
                 name_source: "generated_from_upstream_id",
@@ -279,6 +288,21 @@ fn page_with_names(
     params: Params,
     names: &std::collections::BTreeMap<u64, String>,
 ) -> Result<Value, &'static str> {
+    page_with_statistics(config, params, names, std::collections::BTreeMap::new())
+}
+
+fn page_with_statistics(
+    config: &RoutingConfig,
+    params: Params,
+    names: &std::collections::BTreeMap<u64, String>,
+    mut statistics: std::collections::BTreeMap<u64, control::observations::Statistics>,
+) -> Result<Value, &'static str> {
+    let extended = params.statistics == Some(true)
+        || params.snapshot_digest.is_some()
+        || matches!(
+            params.sort_by.as_deref(),
+            Some("lifetime" | "balance" | "response_time" | "test_time")
+        );
     let current_page = params.p.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(10);
     if current_page == 0 || !(1..=1000).contains(&page_size) {
@@ -288,8 +312,21 @@ fn page_with_names(
         return Err("Legacy channel tags are unavailable in the routing snapshot");
     }
     let sort_by = params.sort_by.as_deref().unwrap_or("id");
-    if !matches!(sort_by, "id" | "name" | "priority") {
-        return Err("Only id, name and priority sorting are available");
+    if !matches!(
+        sort_by,
+        "id" | "name" | "priority" | "lifetime" | "balance" | "response_time" | "test_time"
+    ) {
+        return Err("Invalid channel sort field");
+    }
+    if sort_by == "balance"
+        && params.sort_unit.as_deref().is_none_or(|unit| {
+            unit.is_empty()
+                || unit.trim() != unit
+                || unit.chars().count() > 32
+                || unit.chars().any(char::is_control)
+        })
+    {
+        return Err("Balance sorting requires an explicit provider unit");
     }
     let sort_order = params.sort_order.as_deref().unwrap_or("asc");
     if !matches!(sort_order, "asc" | "desc") {
@@ -303,6 +340,9 @@ fn page_with_names(
     };
     let mut items = channels(config);
     for channel in &mut items {
+        if extended {
+            channel.statistics = Some(statistics.remove(&channel.id).unwrap_or_default());
+        }
         if let Some(name) = names.get(&channel.id) {
             channel.name.clone_from(name);
             channel.name_source = "published_channel_configuration";
@@ -330,17 +370,9 @@ fn page_with_names(
             .filter(|value| *value != 0)
             .is_none_or(|kind| channel.channel_type == kind)
     });
-    items.sort_by(|a, b| {
-        let order = match sort_by {
-            "name" => a.name.cmp(&b.name),
-            "priority" => a.priority.cmp(&b.priority),
-            _ => a.id.cmp(&b.id),
-        };
-        order.then(a.id.cmp(&b.id))
-    });
-    if sort_order == "desc" || (params.sort_order.is_none() && params.id_sort == Some(true)) {
-        items.reverse();
-    }
+    let descending =
+        sort_order == "desc" || (params.sort_order.is_none() && params.id_sort == Some(true));
+    items.sort_by(|a, b| sorting::compare(a, b, sort_by, params.sort_unit.as_deref(), descending));
     let total = items.len();
     let offset = current_page
         .checked_sub(1)
@@ -362,7 +394,11 @@ fn page_with_names(
             "read_only": true,
             "config_version": config.version,
             "status_source": "configured_enabled_flag",
-            "unavailable_fields": ["legacy_name", "legacy_type", "balance", "used_quota", "response_time", "test_time", "tag"]
+            "statistics_scope": if extended { Some("channel_display_v1") } else { None },
+            "probe_scope": if extended { Some("model_catalog") } else { None },
+            "inference_tested": false,
+            "sort_unit": params.sort_unit,
+            "unavailable_fields": if extended { vec!["legacy_name", "legacy_type", "used_quota", "tag"] } else { vec!["legacy_name", "legacy_type", "balance", "used_quota", "response_time", "test_time", "tag"] }
         }
     }))
 }
@@ -498,6 +534,18 @@ async fn list(
             );
         }
     };
+    if params.statistics == Some(true)
+        || params.snapshot_digest.is_some()
+        || matches!(
+            params.sort_by.as_deref(),
+            Some("lifetime" | "balance" | "response_time" | "test_time")
+        )
+    {
+        return match control::observations::list(&state, &headers, params).await {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => error.into_response(),
+        };
+    }
     if let Some(management) = &state.management {
         if let Err(error) = management.synchronize().await {
             return control::Failure::from(error).into_response();
@@ -596,6 +644,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
             "native_channel_usage": state.management.is_some(),
             "native_channel_counters": state.management.is_some(),
             "native_channel_lifetime": state.management.is_some(),
+            "native_channel_observations": state.management.is_some(),
             "native_balance_probe": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "copy_preserve_counters": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "source": "active_routing_snapshot",

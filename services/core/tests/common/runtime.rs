@@ -77,6 +77,23 @@ impl RuntimeRole {
                 .replace(":\"runtime_role\"", &name);
             sqlx::raw_sql(&grants).execute(owner).await.unwrap();
         }
+        let observations_installed: bool = sqlx::query_scalar(
+            "SELECT to_regclass('core_channels.catalog_observations') IS NOT NULL",
+        )
+        .fetch_one(owner)
+        .await
+        .unwrap();
+        if observations_installed {
+            let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                .split_once("-- BEGIN channel-observations runtime grants\n")
+                .unwrap()
+                .1
+                .split_once("-- END channel-observations runtime grants")
+                .unwrap()
+                .0
+                .replace(":\"runtime_role\"", &name);
+            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+        }
         let links_installed: bool =
             sqlx::query_scalar("SELECT to_regnamespace('core_account_links') IS NOT NULL")
                 .fetch_one(owner)

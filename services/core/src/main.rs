@@ -36,6 +36,7 @@ Commands:\n\
                   Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
                   core-channel-projection-v1 upgrades the fixed 43-component PostgreSQL 18 predecessor to 44 components.\n\
                   core-trust-policy-edit-v1 upgrades the fixed 44-component PostgreSQL 18 predecessor to 45 components.\n\
+                  core-channel-observations-v1 upgrades the fixed 45-component PostgreSQL 18 predecessor to 46 components.\n\
   rebuild-channel-usage  Rebuild derived channel statistics offline as owner; requires explicit --config and preserves money receipts.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\

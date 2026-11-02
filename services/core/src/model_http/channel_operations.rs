@@ -267,12 +267,31 @@ impl ModelGateway {
             .iter()
             .find(|u| u.id == id)
             .ok_or(RelayError::RouteUnavailable)?;
+        self.probe_channel_snapshot(upstream).await
+    }
+
+    pub(crate) async fn probe_channel_snapshot(
+        &self,
+        upstream: &crate::routing::UpstreamConfig,
+    ) -> Result<ChannelProbe, RelayError> {
         let credential = self
             .bridge
             .credentials
             .get(&(upstream.credential.id, upstream.credential.revision))
             .ok_or(RelayError::RouteUnavailable)?;
         let url = endpoint(upstream.endpoint.as_str(), upstream.protocol)?;
+        #[cfg(test)]
+        let url = if let Some(mapping) = &self.balance_probe_loopback {
+            if url.origin().ascii_serialization() != mapping.origin {
+                return Err(RelayError::RouteUnavailable);
+            }
+            let mut endpoint = mapping.endpoint.clone();
+            endpoint.set_path(url.path());
+            endpoint
+        } else {
+            url
+        };
+
         let _permit = self
             .native_http
             .gate
