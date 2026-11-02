@@ -346,6 +346,40 @@ mod tests {
         let receipt = run(&pool, read(VALID.as_bytes()).unwrap()).await.unwrap();
         assert_eq!(receipt.platform_role, "superadmin");
         assert!(receipt.setup_completed);
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let wallet = lmm_core::financial_profile::read_wallet(&mut tx, receipt.user_id)
+            .await
+            .unwrap();
+        assert!(wallet.financial_projection_available);
+        assert_eq!(wallet.wallet_unit, "core_credit");
+        assert_eq!(
+            (
+                wallet.quota,
+                wallet.wallet_reserved_quota,
+                wallet.wallet_debt
+            ),
+            (0, 0, 0)
+        );
+        assert!(!wallet.wallet_money_available);
+        let profile = lmm_core::financial_profile::read(&mut tx, receipt.user_id)
+            .await
+            .unwrap();
+        assert!(profile.financial_projection_available && profile.usage_projection_available);
+        assert_eq!(
+            (
+                profile.quota,
+                profile.used_quota,
+                profile.request_count,
+                profile.aff_quota
+            ),
+            (0, 0, 0, 0)
+        );
+        assert_eq!(profile.normalized_used_quota, Some(0));
+        tx.commit().await.unwrap();
         let correct: bool=sqlx::query_scalar(
             "SELECT (SELECT count(*)=1 AND bool_and(platform_role='superadmin') FROM core_identity.users)
               AND (SELECT count(*)=1 FROM core_identity.password_logins)

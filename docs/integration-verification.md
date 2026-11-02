@@ -1,5 +1,34 @@
 # Current integration verification
 
+## Fresh first-owner wallet recognition
+
+Independent acceptance of source 2d0b074 and Core 54973 found that the real
+first-owner installer audit was missing from both native zero-balance reads.
+The owner self response therefore omitted wallet_unit and the subscriptions
+admin page selected a legacy endpoint that returned 503. Ordinary native users
+passed redemption, check-in, envelope, purchase, renewal, unused refund,
+original-request response-loss recovery, account isolation and actual Core
+restart. The final fixture held 900606 credits and six balanced journals.
+Admin creation via direct APIs was not counted as admin-page acceptance.
+
+Both financial profile reads now recognize installation.first-owner with the
+existing matching actor/target user condition. Other empty, unproven historical
+wallets remain unavailable. The actual first-owner creation test and all six
+financial-profile PostgreSQL cases passed, including no new ledger rows,
+unknown fiat valuation, historical signed balances and restricted runtime reads.
+Scoped rustfmt and the production Core build passed. The actual Core SHA is
+6c5b096105ad71ce8c9aba505a05e4a693a89300f5cd432b1ffc5f2b54cdc0ba; its two test executables and 446
+combined compiler inputs are frozen in first-owner-wallet-frozen under
+~/.cache/lmm-module-migration/evidence. Component46 manifest/catalog, Web and
+recipe capabilities are unchanged. The existing 545-asset wallet Web is reused.
+
+Independent first-owner subscription and reward management page retesting is
+pending on this new Core. The prior admin-page failure and an earlier preview
+refresh timeout with uncertain authentication remain recorded in
+core-go-wallet-browser/acceptance-summary.md; subsequent normal-load preview
+reload passed, but the earlier timeout's cause is not established. No production
+users, paid providers or servers were used for these fixtures.
+
 ## Legacy audio v3 journal recovery
 
 This test-only addition extends source 2d0b0748f0609f177f7fc26cdc754aed9352438d.

@@ -73,7 +73,8 @@ pub struct WalletProfile {
 
 /// Caller must first authenticate a native personal Web session. Reads only
 /// committed balance_state, never opening counters, receipts or request counts.
-/// An absent wallet is zero only for an audited native registration/bootstrap.
+/// An absent wallet is zero only for audited native registration, bootstrap or
+/// fresh first-owner installation.
 pub async fn read_wallet(
     connection: &mut PgConnection,
     user_id: i64,
@@ -86,7 +87,7 @@ pub async fn read_wallet(
 WITH person AS (
  SELECT u.id,u.personal_account_id,
    EXISTS(SELECT 1 FROM core_identity.audit a
-     WHERE a.actor_user_id=u.id AND a.action IN ('user.register','user.bootstrap')
+     WHERE a.actor_user_id=u.id AND a.action IN ('user.register','user.bootstrap','installation.first-owner')
        AND a.target->>'user_id'=u.id::text) AS native_zero_basis
  FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
  WHERE u.id=$1 AND u.active AND a.active AND a.kind='personal'
@@ -155,7 +156,7 @@ pub async fn read(
 WITH person AS (
  SELECT u.id,u.personal_account_id,
    EXISTS(SELECT 1 FROM core_identity.audit a
-     WHERE a.actor_user_id=u.id AND a.action IN ('user.register','user.bootstrap')
+     WHERE a.actor_user_id=u.id AND a.action IN ('user.register','user.bootstrap','installation.first-owner')
        AND a.target->>'user_id'=u.id::text) AS native_zero_basis
  FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
  WHERE u.id=$1 AND u.active AND a.active AND a.kind='personal'

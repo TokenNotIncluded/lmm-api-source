@@ -130,6 +130,12 @@ async fn imported_identity_requires_both_economic_opening_and_historical_counter
     core_schema::init(&pool).await.unwrap();
     let account = imported_person(&pool, 7).await;
     assert_eq!(profile(&pool, 7).await, Err(ProfileError::Unavailable));
+    let mut connection = pool.acquire().await.unwrap();
+    assert_eq!(
+        financial_profile::read_wallet(&mut connection, 7).await,
+        Err(ProfileError::Unavailable)
+    );
+    drop(connection);
     import(&pool, 7, account, 120, 0, None).await;
     assert_eq!(profile(&pool, 7).await, Err(ProfileError::Unavailable));
     // A proven current ledger wallet is usable even when history is unknown.
