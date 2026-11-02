@@ -144,6 +144,10 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
     projection.native &&
     user?.financial_projection_available === true &&
     projection.available !== null
+  // An unknown historical money basis only permits the explicitly quoted
+  // native recharge path; do not infer permission for other money actions.
+  const nativeOtherActions =
+    nativePayments && user?.wallet_money_available !== false
   const { refreshUser } = useAuthUserRefresh()
   const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
   const [refreshing, setRefreshing] = useState(false)
@@ -190,17 +194,17 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
             <WalletStatsCard user={user} />
             {nativePayments ? <NativeWalletCheckout /> : null}
-            {nativePayments ? (
+            {nativeOtherActions ? (
               <NativeWalletSubscriptions onUpdated={() => void refresh()} />
             ) : null}
-            {nativePayments ? (
+            {nativeOtherActions ? (
               <NativeWalletPromotions onUpdated={() => void refresh()} />
             ) : null}
             <div className='flex flex-wrap gap-2'>
               {!nativePayments ? (
                 <Button disabled>{t('Add funds')}</Button>
               ) : null}
-              {!nativePayments ? (
+              {!nativeOtherActions ? (
                 <Button variant='outline' disabled>
                   {t('Subscriptions')}
                 </Button>

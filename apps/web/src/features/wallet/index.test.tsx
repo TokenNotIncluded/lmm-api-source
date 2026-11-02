@@ -491,6 +491,7 @@ async function renderWallet(
     selfQuota?: number
     topupRecords?: TopupRecord[]
     paymentReturn?: 'return' | 'cancel'
+    nativeChannels?: unknown
     user?: Partial<AuthUser>
   } = {}
 ) {
@@ -509,33 +510,35 @@ async function renderWallet(
     data: {
       success: true,
       data:
-        url === '/api/user/topup/info'
-          ? modernTopupInfo({
-              enable_online_topup: true,
-              enable_stripe_topup: false,
-              pay_methods: ['alipay', 'wxpay'].map((type) => ({
-                name: type,
-                type,
-                settlement_currency: 'CNY',
-                platform_units_per_usd: '7',
-                settlement_units_per_usd: '7',
-              })),
-              min_topup: 10,
-              stripe_min_topup: 10,
-              amount_options: [10, 100],
-              discount: {},
-              ...options.topupInfo,
-            })
-          : url === '/api/user/self'
-            ? refreshedUser
-            : url.startsWith('/api/user/topup/self?')
-              ? {
-                  items: options.topupRecords ?? [],
-                  total: options.topupRecords?.length ?? 0,
-                }
-              : url === '/api/user/aff'
-                ? ''
-                : [],
+        url === '/api/user/payments/channels'
+          ? (options.nativeChannels ?? { available: false, channels: [] })
+          : url === '/api/user/topup/info'
+            ? modernTopupInfo({
+                enable_online_topup: true,
+                enable_stripe_topup: false,
+                pay_methods: ['alipay', 'wxpay'].map((type) => ({
+                  name: type,
+                  type,
+                  settlement_currency: 'CNY',
+                  platform_units_per_usd: '7',
+                  settlement_units_per_usd: '7',
+                })),
+                min_topup: 10,
+                stripe_min_topup: 10,
+                amount_options: [10, 100],
+                discount: {},
+                ...options.topupInfo,
+              })
+            : url === '/api/user/self'
+              ? refreshedUser
+              : url.startsWith('/api/user/topup/self?')
+                ? {
+                    items: options.topupRecords ?? [],
+                    total: options.topupRecords?.length ?? 0,
+                  }
+                : url === '/api/user/aff'
+                  ? ''
+                  : [],
     },
   })) as typeof api.get
   const queryClient = new QueryClient({
@@ -590,7 +593,7 @@ test('unavailable ledger facts disable wallet writes without inventing zero amou
   queryClient.clear()
 })
 
-test('native read-only wallet renders actual credits without mounting payment effects', async () => {
+test('unknown historical money retains credits and restricts unquoted wallet actions', async () => {
   window.history.replaceState({}, '', '/wallet')
   const posts: string[] = []
   api.post = (async (url: string) => {
@@ -624,19 +627,133 @@ test('native read-only wallet renders actual credits without mounting payment ef
     /280 Credits/
   )
   assert.equal(container.querySelector('#topup-amount'), null)
-  for (const label of [
-    'Add funds',
-    'Subscriptions',
-    'Transfer',
-    'Transfer to Balance',
-  ]) {
+  for (const label of ['Subscriptions', 'Transfer', 'Transfer to Balance']) {
     const button = [
       ...container.querySelectorAll<HTMLButtonElement>('button'),
     ].find((item) => item.textContent?.trim() === label)
     assert.ok(button?.disabled, label)
     await act(async () => button.click())
   }
+  assert.equal(container.querySelector('#native-payment-amount'), null)
   assert.equal(posts.length, 0)
+  queryClient.clear()
+})
+
+test('native recharge stays disabled for unavailable or unreadable wallet facts even if a channel exists', async () => {
+  const channels = {
+    available: true,
+    channels: [
+      { id: '1', provider: 'stripe', environment: 'test', currency: 'USD' },
+    ],
+  }
+  for (const [financial, quota] of [
+    [false, 199671],
+    [true, Number.MAX_SAFE_INTEGER + 1],
+  ] as const) {
+    const posts: string[] = []
+    api.post = (async (url: string) => {
+      posts.push(url)
+      throw new Error('unavailable wallet must not initiate payment')
+    }) as typeof api.post
+    const { container, queryClient } = await renderWallet(true, {
+      quota,
+      nativeChannels: channels,
+      user: {
+        financial_projection_available: financial,
+        wallet_unit: 'core_credit',
+        wallet_money_basis: 'unknown',
+        wallet_money_available: false,
+      },
+    })
+    assert.equal(container.querySelector('#native-payment-amount'), null)
+    assert.equal(posts.length, 0)
+    queryClient.clear()
+    for (const { root, container } of mounted.splice(0)) {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  }
+})
+
+test('unknown historical money allows only explicitly confirmed quoted native recharge', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  window.sessionStorage.clear()
+  const posts: Array<{ url: string; data: Record<string, string> }> = []
+  api.post = (async (url: string, data: Record<string, string>) => {
+    posts.push({ url, data: { ...data } })
+    if (url.endsWith('/quote')) {
+      return {
+        data: {
+          success: true,
+          data: {
+            ...data,
+            order_id: 'top_42',
+            account_id: '7',
+            provider: 'stripe',
+            environment: 'test',
+            credit_units: '5000000',
+            credit_unit: 'credit_500k_usd',
+          },
+        },
+      }
+    }
+    throw new Error('synthetic confirmation deliberately stops before payment')
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 199671,
+    user: {
+      financial_projection_available: true,
+      usage_projection_available: false,
+      wallet_unit: 'core_credit',
+      wallet_money_basis: 'unknown',
+      wallet_money_available: false,
+      wallet_spendable_quota: 199671,
+      wallet_reserved_quota: 280,
+      wallet_debt: 0,
+    },
+    nativeChannels: {
+      available: true,
+      channels: [
+        { id: '1', provider: 'stripe', environment: 'test', currency: 'USD' },
+      ],
+    },
+  })
+  const button = (label: string) => {
+    const value = [
+      ...container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((item) => item.textContent?.trim() === label)
+    assert.ok(value, label)
+    return value
+  }
+  assert.match(
+    container.querySelector('#wallet-balance')?.textContent ?? '',
+    /199,671 Credits/
+  )
+  assert.match(
+    container.querySelector('#wallet-balance')?.textContent ?? '',
+    /Credit conversion unavailable: USD \/ CNY — Unknown/
+  )
+  assert.equal(posts.length, 0)
+  assert.equal(button('Subscriptions').disabled, true)
+  assert.equal(button('Transfer').disabled, true)
+  assert.equal(button('Transfer to Balance').disabled, true)
+  await act(async () => {
+    button('Review payment').click()
+    await new Promise((r) => setTimeout(r, 20))
+  })
+  assert.equal(posts.length, 1)
+  assert.match(posts[0].url, /\/quote$/)
+  assert.match(container.textContent ?? '', /5,000,000 Credits/)
+  assert.match(container.textContent ?? '', /USD 10\.00/)
+  await act(async () => {
+    button('Confirm payment').click()
+    await new Promise((r) => setTimeout(r, 20))
+  })
+  assert.equal(posts.length, 2)
+  assert.equal(posts[1].data.request_key, posts[0].data.request_key)
+  assert.equal(posts[1].data.expected_credit_units, '5000000')
+  assert.equal(posts[1].data.amount_minor, '1000')
+  assert.equal(posts[1].data.currency, 'USD')
   queryClient.clear()
 })
 

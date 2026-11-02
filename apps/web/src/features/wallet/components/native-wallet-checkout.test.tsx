@@ -73,6 +73,60 @@ async function click(label: string) {
   })
 }
 
+test('unavailable native payment channels cannot start a quote, including after refresh', async () => {
+  const oldGet = api.get
+  const oldPost = api.post
+  dom.sessionStorage.clear()
+  login(21, 'unavailable-payment-session')
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  let reads = 0
+  let writes = 0
+  api.get = (async (url: string) => {
+    assert.equal(url, '/api/user/payments/channels')
+    reads++
+    return { data: { success: true, data: { available: false, channels: [] } } }
+  }) as typeof api.get
+  api.post = (async () => {
+    writes++
+    throw new Error('unavailable payment channels must not write')
+  }) as typeof api.post
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+      await flush()
+    })
+    assert.ok(
+      container.textContent?.includes(
+        'No payment channel is available right now.'
+      )
+    )
+    assert.equal(container.querySelector('form'), null)
+    assert.equal(container.querySelector('#native-payment-amount'), null)
+    assert.equal(writes, 0)
+    await click('Refresh')
+    assert.equal(reads, 2)
+    assert.equal(container.querySelector('form'), null)
+    assert.equal(writes, 0)
+    assert.equal(
+      readNativeCheckout(
+        '[21,"unavailable-payment-session"]',
+        dom.sessionStorage
+      ),
+      null
+    )
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.get = oldGet
+    api.post = oldPost
+  }
+})
+
 test('native checkout reviews exact Core quote, preserves a lost checkout and resumes by read', async () => {
   const oldGet = api.get,
     oldPost = api.post
