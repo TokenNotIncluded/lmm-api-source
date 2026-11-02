@@ -26,6 +26,7 @@ import {
   type TrustPolicyPreview,
   type TrustPolicyResolution,
 } from './trust-policy-editor-client'
+import { TrustPolicyEditorRegistration } from './trust-policy-editor-registration'
 import { TrustPolicyReview } from './trust-policy-editor-review'
 
 export function TrustPolicyEditor({ enabled }: { enabled: boolean }) {
@@ -160,6 +161,16 @@ function LoadedEditor({
             )}
           </AlertDescription>
         </Alert>
+        {!editors.length && (
+          <details className='rounded-lg border p-4'>
+            <summary className='cursor-pointer text-sm font-medium'>
+              {t('Offline editor credential creation')}
+            </summary>
+            <div className='pt-4'>
+              <TrustPolicyEditorRegistration />
+            </div>
+          </details>
+        )}
         <TrustPolicyReview
           current={read.policy}
           currentConsole={read.console}

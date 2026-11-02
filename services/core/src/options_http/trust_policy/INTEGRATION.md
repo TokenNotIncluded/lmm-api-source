@@ -2,13 +2,14 @@
 
 Single schema component name: `trust-policy-edit`. Concatenate, in this order:
 `services/core/schema/trust_policy_edit.sql`, `trust_policy_edit_proof.sql`,
-`trust_policy_edit_editor.sql`. These are one unpublished atomic component, not
-three independently enabled protocols. No preseeded signing key or editor.
+`trust_policy_edit_editor.sql`, and `trust_policy_upgrade.sql`. These form
+component 45 with its upgrade receipt. No preseeded signing key or editor.
 
-The companion `options_http.patch` adds an opt-in
-`OptionsHttp::with_trust_policy_editor(service)` builder and mounts all five routes.
-It is not applied by this owner. Keep the option disabled until frontend wiring and
-central acceptance are complete.
+`OptionsHttp::with_trust_policy_editor(service)` mounts the five routes and is
+connected to the validated startup configuration. The owner CLI, explicit
+44-to-45 upgrade, runtime grants and frontend are integrated. The option remains
+disabled by default. Current checks and outstanding acceptance are recorded in
+[integration verification](../../../../../docs/integration-verification.md).
 
 Core public API (export `pub mod trust_policy` from `options_http.rs`):
 

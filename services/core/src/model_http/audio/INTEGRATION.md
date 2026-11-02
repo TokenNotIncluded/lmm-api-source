@@ -1,8 +1,10 @@
-# Audio actual entry v2 handoff
+# Audio non-streaming integration
 
-Base: `8d25d83742dcf60c0e7f757b2ea8a05c654ae4f9` plus imported WIP.
-No commit/reset/clean/stash/worktree, production access, paid call or Cargo/DB run.
-This is implementation plus unexecuted targeted tests, not independent acceptance.
+This initial slice is integrated in source commit
+`3f0e50c9a66f2fdf69d091c1bfb754bc12636ae0`. Its local tests and remaining
+scope are recorded in [integration verification](../../../../../docs/integration-verification.md).
+The contract below describes the non-streaming entry; it does not claim that
+streaming, other audio endpoints or production acceptance are complete.
 
 ## Typed integration and authority
 

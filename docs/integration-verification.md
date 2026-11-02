@@ -63,6 +63,28 @@ The historical catalog fixture and extraction evidence are in
 [index26_a7e1105d3.md](../services/core/tests/core_schema/index26_a7e1105d3.md).
 The new catalog does not replace that historical approval.
 
+## Offline registration follow-up
+
+The Web now accepts only the complete public owner-CLI begin response, checks
+the RP and browser origin, creates a user-verified WebAuthn credential and
+exports its public response. Creation does not approve an editor. Owner
+database access, key provisioning, review and fingerprint approval stay offline.
+All seven locales include the registration flow.
+
+On the Core executable identified above, a new isolated 45-component database
+completed actual init-db, create-first-owner, initial signing-key provisioning,
+CLI begin, Chromium credential creation, CLI review and explicit approval.
+No bootstrap fallback was used. Nine browser/CLI cases passed, including wrong
+origin, cancellation, public-only export and pending/reviewed/approved states.
+The actual CLI also rejected the extra-field status-request counterexample.
+The browser used a CTAP2 virtual authenticator and the real staged component
+with minimal fixture CSS; this is not full-app routing or theme acceptance.
+
+The integrated Web passed 28 focused tests, scoped lint/format, typecheck and
+a fresh production build. Its initial gzip bundle is 558670 bytes against the
+786432-byte limit. All 2742 frozen Web inputs remained unchanged through these
+checks. Older binary and selector failures remain separate evidence.
+
 ## Still incomplete
 
 Streaming and other audio entry points, the full provider/format matrix,
@@ -72,7 +94,7 @@ acceptance remain open. The importer candidate is intentionally held for the
 final schema review; source-fingerprint rejection still blocks its dependent
 trust-import suite. No fingerprint was changed merely to make that suite pass.
 
-Real Core/Go browser business acceptance, owner-registration browser ceremony,
+Real Core/Go browser business acceptance, full-app registration presentation,
 final million-record projection evidence, independent whole-business sign-off,
 and production deployment are not complete. No production user, account,
 business database or running service was changed by these local checks.
