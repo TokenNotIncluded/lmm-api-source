@@ -65,13 +65,14 @@ try:
         "reqwest": one("reqwest", "libreqwest-d83504b525fac7e8"),
     }
     inputs = [module / name for name in
-              ("mod.rs", "crypto.rs", "smtp.rs", "store.rs", "schema.sql",
+              ("crypto.rs", "smtp.rs", "store.rs", "schema.sql",
                "test_grants.sql", "README.md", "run_selftest.py")]
     inputs += [module / "store/tests.rs", module / "store/reset_smtp_cases.rs", module / "reset_link.rs"]
     inputs += [core / "src/identity/email" / name for name in
-               ("mod.rs", "address.rs", "store.rs", "schema.sql",
+               ("address.rs", "store.rs", "schema.sql",
                 "test_grants.sql", "tests.rs")]
-    inputs += [core / "schema/identity.sql", core / "Cargo.lock"]
+    inputs += [module.with_suffix(".rs"), core / "src/identity/email.rs",
+               core / "schema/identity.sql", core / "Cargo.lock"]
     hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     (evidence / "inputs.json").write_text(json.dumps(hashes, indent=2) + "\n")
     (evidence / "dependencies.json").write_text(json.dumps({
@@ -85,10 +86,10 @@ try:
 
     harness = scratch / "harness.rs"
     harness.write_text(
-        f'#[path = {json.dumps(str(core / "src/identity/email/mod.rs"))}]\n'
+        f'#[path = {json.dumps(str(core / "src/identity/email.rs"))}]\n'
         'pub mod email_challenges;\n'
         'pub mod identity { pub use crate::email_challenges as email; }\n'
-        f'#[path = {json.dumps(str(module / "mod.rs"))}]\n'
+        f'#[path = {json.dumps(str(module.with_suffix(".rs")))}]\n'
         'pub mod email_delivery;\n'
     )
     binary = scratch / "email-delivery-tests"

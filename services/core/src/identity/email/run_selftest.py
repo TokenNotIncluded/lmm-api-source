@@ -25,7 +25,7 @@ env = {k: v for k, v in os.environ.items() if not k.startswith(("PG", "EMAIL_TES
 records = []
 started = False
 status = 1
-paths = sorted(module.glob("*.rs")) + [module / "schema.sql", module / "test_grants.sql",
+paths = [module.with_suffix(".rs")] + sorted(module.glob("*.rs")) + [module / "schema.sql", module / "test_grants.sql",
                                       core / "schema/identity.sql", core / "Cargo.lock"]
 inputs = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 (evidence / "inputs.json").write_text(json.dumps(inputs, indent=2) + "\n")
@@ -59,7 +59,7 @@ try:
     run([args.rustc, "--version", "--verbose"], "rustc-version.log")
     run(["postgres", "--version"], "postgres-version.log")
     harness = scratch / "harness.rs"
-    harness.write_text(f'#[path = {json.dumps(str(module / "mod.rs"))}]\npub mod email;\n')
+    harness.write_text(f'#[path = {json.dumps(str(module.with_suffix(".rs")))}]\npub mod email;\n')
     binary = scratch / "email-tests"
     command = [args.rustc, "--crate-name", "email_slice", "--edition=2024",
                "--test", harness, "-C", "debuginfo=0", "-C", "strip=symbols",

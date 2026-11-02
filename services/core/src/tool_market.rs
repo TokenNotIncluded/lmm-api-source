@@ -32,7 +32,7 @@ mod result_contract;
 pub mod server;
 #[cfg(test)]
 mod tests;
-pub const SCHEMA: &str = include_str!("../../schema/tool_market.sql");
+pub const SCHEMA: &str = include_str!("../schema/tool_market.sql");
 pub const POLICY: &str = "exact-usd-micros-500k-v1";
 pub const AUDIENCE: &str = "lmm-toolmarket/grant/v1";
 

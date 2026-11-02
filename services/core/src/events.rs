@@ -9,7 +9,7 @@ use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOpt
 use std::{fmt, time::Duration};
 use subtle::ConstantTimeEq;
 
-pub const SCHEMA: &str = include_str!("../../schema/events.sql");
+pub const SCHEMA: &str = include_str!("../schema/events.sql");
 pub const MAX_PAYLOAD: usize = 16 * 1024;
 pub const MAX_BATCH: u32 = 8;
 pub const MAX_BATCH_BYTES: usize = 48 * 1024;

@@ -79,7 +79,7 @@ try:
         raise RuntimeError(f"source changed during snapshot; compilation not started: {changed}")
     (evidence / "source-inputs.json").write_text(json.dumps(inputs, indent=2) + "\n")
     # This is the only source-composition patch; never applied to the workspace.
-    entry = frozen_core / "src/identity/mod.rs"
+    entry = frozen_core / "src/identity.rs"
     patch = "\npub mod email_business;\n"
     entry.write_text(entry.read_text() + patch)
     (evidence / "composition-patch.txt").write_text(patch)

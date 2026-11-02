@@ -4,7 +4,9 @@
 //! identity mutation through `connection()` and then `finish()`; dropping it
 //! rolls back both the mutation and consumption. Rejections commit guessing
 //! budgets before returning. Never return an `Issued` secret through HTTP.
+#[path = "email/address.rs"]
 mod address;
+#[path = "email/store.rs"]
 mod store;
 
 pub use address::EmailAddress;
@@ -44,4 +46,5 @@ impl From<sqlx::Error> for EmailError {
 type Result<T> = std::result::Result<T, EmailError>;
 
 #[cfg(test)]
+#[path = "email/tests.rs"]
 mod tests;

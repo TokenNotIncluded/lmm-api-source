@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, types::Json};
 pub use types::*;
 
-pub const SCHEMA: &str = include_str!("../../schema/promotions.sql");
+pub const SCHEMA: &str = include_str!("../schema/promotions.sql");
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Invalid,

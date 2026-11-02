@@ -60,8 +60,7 @@ PROCESS_TESTS = {
 PRODUCT_TREES = ('services/core/src', 'services/core/schema', 'contracts/proto')
 PRODUCT_FILES = ('services/core/Cargo.toml', 'services/core/Cargo.lock',
                  'services/core/build.rs', 'deployment/postgres/grant-core-runtime.sql')
-TEST_TREES = ('services/core/tests/common', 'services/core/tests/model_http_runtime',
-              'services/core/tests/model_http_upstream_cost', 'tests/model_process')
+TEST_TREES = ('services/core/tests/common', 'services/core/tests/model_http', 'tests/model_process')
 TEST_FILES = ('services/core/tests/model_process.rs', 'services/core/tests/model_http.rs',
               'scripts/verify_model_process.py', 'tests/architecture_completion/pg_fixture.py',
               'tests/architecture_completion/build_lease.py', 'mise.toml',

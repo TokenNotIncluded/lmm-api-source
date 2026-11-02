@@ -68,6 +68,6 @@ pub mod humangrant;
 #[cfg(test)]
 mod independent_966_log_tests;
 
-#[path = "../staged/email_delivery/mod.rs"]
+#[path = "../staged/email_delivery.rs"]
 pub mod email_delivery;
 pub mod email_http;

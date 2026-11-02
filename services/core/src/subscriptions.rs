@@ -18,7 +18,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, types::Json};
 
-pub const SCHEMA: &str = include_str!("../../schema/subscriptions.sql");
+pub const SCHEMA: &str = include_str!("../schema/subscriptions.sql");
 const SCOPE: &str = "core-subscription-wallet";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

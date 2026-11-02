@@ -9,7 +9,7 @@ pub use protocol::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgRow};
-pub const SCHEMA: &str = include_str!("../../schema/market_oauth.sql");
+pub const SCHEMA: &str = include_str!("../schema/market_oauth.sql");
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Invalid,

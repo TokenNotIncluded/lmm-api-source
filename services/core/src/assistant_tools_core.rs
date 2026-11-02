@@ -173,7 +173,8 @@ mod tests;
 /// Core's own implemented adapters. Host discovery intersects these immutable
 /// definitions with its explicit approved scope; Go metadata adds no authority.
 pub fn implemented_manifest() -> Result<Value, Error> {
-    serde_json::from_str(include_str!("manifest.json")).map_err(|_| Error::Unavailable)
+    serde_json::from_str(include_str!("assistant_tools_core/manifest.json"))
+        .map_err(|_| Error::Unavailable)
 }
 
 /// The real worker injects its serving gateway; the generic DB-only entry cannot

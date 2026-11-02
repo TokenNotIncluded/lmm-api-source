@@ -544,9 +544,9 @@ class IdentityContractTests(unittest.TestCase):
                 ("core_schema.rs", "crate::billing::trust_pricing::SCHEMA", "crate::billing::unknown::SCHEMA"),
                 ("billing/trust_pricing.rs", '"\\n",', '"\\n ",'),
                 ("billing/trust_pricing.rs", '"\\n",', '"\\r\\n",'),
-                ("identity/mod.rs", "pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA;",
+                ("identity.rs", "pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA;",
                  "/* pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA; */"),
-                ("identity/mod.rs", "pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA;",
+                ("identity.rs", "pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA;",
                  "pub(crate) use missing::SCHEMA as TELEGRAM_AUTH_SCHEMA;"),
                 ("identity/telegram.rs", 'include_str!("../../schema/telegram_auth.sql")',
                  'include_str!("../../schema/telegram_auth.sql ")'),
@@ -613,7 +613,7 @@ class IdentityContractTests(unittest.TestCase):
             root = Path(temporary)
             shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
             shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
-            identity = root / "services/core/src/identity/mod.rs"
+            identity = root / "services/core/src/identity.rs"
             identity.write_bytes(identity.read_bytes() + b"\n")
             with patch.object(MODULE, "ROOT", root):
                 with self.assertRaisesRegex(MODULE.MappingError, "^component_rust_source_fingerprint_mismatch$"):

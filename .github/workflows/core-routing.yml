@@ -36,7 +36,7 @@ jobs:
       - name: Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - name: Format
-        run: rustfmt --edition 2024 --check src/routing/mod.rs src/routing/tests.rs src/upstream_cost.rs
+        run: rustfmt --edition 2024 --check src/routing.rs src/routing/tests.rs src/upstream_cost.rs
       - name: Compile and lint routing contract
         if: ${{ !cancelled() }}
         run: cargo clippy --locked --all-targets -- -D warnings
@@ -48,8 +48,8 @@ jobs:
       - name: Prepare formatting repair patch
         if: ${{ always() }}
         run: |
-          rustfmt --edition 2024 src/routing/mod.rs src/routing/tests.rs src/upstream_cost.rs
-          git diff -- src/routing src/upstream_cost.rs > "$RUNNER_TEMP/routing-format.patch"
+          rustfmt --edition 2024 src/routing.rs src/routing/tests.rs src/upstream_cost.rs
+          git diff -- src/routing.rs src/routing src/upstream_cost.rs > "$RUNNER_TEMP/routing-format.patch"
       - name: Preserve formatting evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

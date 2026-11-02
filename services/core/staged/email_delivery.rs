@@ -1,7 +1,11 @@
 //! Durable encrypted mail outbox for configured Core identity email flows.
+#[path = "email_delivery/crypto.rs"]
 mod crypto;
+#[path = "email_delivery/reset_link.rs"]
 mod reset_link;
+#[path = "email_delivery/smtp.rs"]
 mod smtp;
+#[path = "email_delivery/store.rs"]
 mod store;
 
 pub use crypto::MailKeys;

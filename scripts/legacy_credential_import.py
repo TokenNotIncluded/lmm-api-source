@@ -101,7 +101,7 @@ def source_hashes() -> dict:
              "migrate-legacy-snapshot.py", "legacy_financial_preflight.py")
     result = {name: IDENTITY.sha256_file(Path(__file__).with_name(name)) for name in names}
     root = Path(__file__).resolve().parents[1]
-    for name in ("services/core/src/identity/compat.rs", "services/core/src/identity/mod.rs"):
+    for name in ("services/core/src/identity/compat.rs", "services/core/src/identity.rs"):
         result[name] = IDENTITY.sha256_file(root / name)
     return result
 

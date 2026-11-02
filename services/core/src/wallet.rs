@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
 pub mod http;
-pub const SCHEMA: &str = include_str!("schema.sql");
+pub const SCHEMA: &str = include_str!("wallet/schema.sql");
 #[derive(Debug, Clone, Copy)]
 pub enum Error {
     Invalid,

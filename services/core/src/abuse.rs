@@ -19,7 +19,7 @@ use std::{
 };
 
 const RESOURCE_LOCK: i64 = 741_803_140;
-pub const SCHEMA: &str = include_str!("../../schema/abuse.sql");
+pub const SCHEMA: &str = include_str!("../schema/abuse.sql");
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AbuseError {
     Unauthorized,

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
 
-pub const SCHEMA: &str = include_str!("../../schema/gift.sql");
+pub const SCHEMA: &str = include_str!("../schema/gift.sql");
 #[cfg(test)]
 mod tests;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

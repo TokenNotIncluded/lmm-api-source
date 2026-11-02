@@ -1251,7 +1251,7 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertIn("CREATE TABLE core_identity." + table, schema)
         self.assertNotIn("funding_policy JSONB", schema)
         self.assertNotIn("DROP ", schema)
-        runtime = (ROOT / "services/core/src/identity/mod.rs").read_text()
+        runtime = (ROOT / "services/core/src/identity.rs").read_text()
         self.assertNotIn("MIGRATOR", runtime)
         self.assertNotIn("sqlx::migrate!", runtime)
         admin = (ROOT / "services/core/src/admin.rs").read_text()

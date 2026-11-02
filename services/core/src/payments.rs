@@ -28,11 +28,11 @@ use std::{
 };
 
 pub const SCHEMA: &str = concat!(
-    include_str!("../../schema/payments.sql"),
+    include_str!("../schema/payments.sql"),
     "\n",
-    include_str!("../../schema/payment_gateways.sql"),
+    include_str!("../schema/payment_gateways.sql"),
     "\n",
-    include_str!("../../schema/coinbase_payments.sql")
+    include_str!("../schema/coinbase_payments.sql")
 );
 const CREDIT_UNIT: &str = "credit_500k_usd";
 const PREPARED: i32 = 7;

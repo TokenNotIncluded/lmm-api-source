@@ -100,7 +100,7 @@ REVIEWED_RUST_FILES = {
     'services/core/src/identity/grants.rs': 'f54840add7d997dc90e6a4f6f817f61b1fc1ff0acb6c8f5a29d6ae1f19f8b060',
     # Reviewed 10cb3e87f + 7f83986c9: five registration-policy fields/defaults;
     # identity DDL and offline mapping/credential whitelist remain unchanged.
-    'services/core/src/identity/mod.rs': 'd3fcbbc9ceed9ee0e98b4037f707a60d6b31fed5414320cc49f54384073aa236',
+    'services/core/src/identity.rs': 'd3fcbbc9ceed9ee0e98b4037f707a60d6b31fed5414320cc49f54384073aa236',
     'services/core/src/identity/telegram.rs': '2dd9950fa5052230155ebc512dd12038adbeeab90bd7963bb8cbf3ca145bb5eb',
     'services/core/src/billing/trust_pricing.rs': 'c4c5f47d372fde4e5f7afd854a7a4691ef1b31ff74c1695d4242f0ab5133312f',
 }
@@ -203,7 +203,7 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
             _reviewed_constant(trust, "SCHEMA", 'concat!(include_str!("../../schema/trust_pricing.sql"),"\\n",include_str!("../../schema/image_trust_extension.sql"))')
             data = (root / "services/core/schema/trust_pricing.sql").read_bytes() + b"\n" + (root / "services/core/schema/image_trust_extension.sql").read_bytes()
         elif name == "telegram-auth":
-            identity = _reviewed_rust(root, "services/core/src/identity/mod.rs")
+            identity = _reviewed_rust(root, "services/core/src/identity.rs")
             aliases = re.findall(r"pub(?:\(crate\))?\s+use\s+([^;]*?)\s+as\s+TELEGRAM_AUTH_SCHEMA\s*;", identity)
             require(aliases == ["telegram::SCHEMA"], "component_alias_not_reviewed")
             telegram = _reviewed_rust(root, "services/core/src/identity/telegram.rs")
@@ -245,7 +245,7 @@ def current_contract(root: Path | None = None) -> dict:
     require(len(catalogs) == 1, "catalog_contract_syntax_unknown")
     require(hashlib.sha256(catalogs[0].encode()).hexdigest() == CATALOG_QUERY_SHA256, "catalog_source_fingerprint_mismatch")
     paths = {"services/core/src/core_schema.rs", "services/core/src/identity/schema.rs",
-             "services/core/src/identity/grants.rs", "services/core/src/identity/mod.rs",
+             "services/core/src/identity/grants.rs", "services/core/src/identity.rs",
              "services/core/src/identity/telegram.rs", "services/core/src/billing/trust_pricing.rs",
              "services/core/schema/core_upgrade.sql", "services/core/schema/component_upgrade.sql",
              "services/core/schema/trust_pricing.sql", "services/core/schema/image_trust_extension.sql",

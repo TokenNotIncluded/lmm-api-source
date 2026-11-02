@@ -411,7 +411,7 @@ No live model provider or paid API is used. With the pinned Rust toolchain:
 
 ```sh
 cd services/core
-rustfmt --edition 2024 --check src/routing/mod.rs src/routing/tests.rs src/upstream_cost.rs
+rustfmt --edition 2024 --check src/routing.rs src/routing/tests.rs src/upstream_cost.rs
 cargo clippy --locked --all-targets -- -D warnings
 # Mock/in-memory tests only, without PostgreSQL:
 cargo test --locked --lib routing:: -- --skip postgres_

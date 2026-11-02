@@ -12,7 +12,7 @@ use super::Credits;
 
 pub const UNIT: &str = "credit_500k_usd";
 /// Fresh-install definition. Applying it requires the separate schema-owner role.
-pub const SCHEMA: &str = include_str!("../../../schema/ledger.sql");
+pub const SCHEMA: &str = include_str!("../../schema/ledger.sql");
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

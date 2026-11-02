@@ -18,7 +18,7 @@ INPUTS = (
     "services/core/src/routing/config.rs",
     "services/core/src/routing/engine.rs",
     "services/core/src/routing/group_name.rs",
-    "services/core/src/routing/mod.rs",
+    "services/core/src/routing.rs",
     "services/core/src/routing/pricing.rs",
     "services/core/src/routing/tiered.rs",
 )

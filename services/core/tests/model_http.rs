@@ -40,7 +40,7 @@ use tower::ServiceExt;
 mod model_fixture;
 use model_fixture::{Provider, fixture};
 
-#[path = "model_http_runtime/mod.rs"]
+#[path = "model_http/runtime.rs"]
 mod runtime_models;
 
 fn routes(
@@ -1525,5 +1525,5 @@ async fn failed_final_transaction_never_exposes_success_or_releases_hold(pool: P
     balanced(&pool).await;
 }
 
-#[path = "model_http_upstream_cost/mod.rs"]
+#[path = "model_http/upstream_cost.rs"]
 mod upstream_cost_models;
