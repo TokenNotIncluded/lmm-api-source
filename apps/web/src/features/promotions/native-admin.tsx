@@ -401,284 +401,287 @@ function CampaignAdmin({ scope }: { scope: CommerceScope }) {
             </li>
           ))}
         </ul>
-      </SectionPageLayout.Content>
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!value) close()
-        }}
-      >
-        <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {t(
-                mode === 'save'
-                  ? editing
-                    ? 'Edit campaign'
-                    : 'Create campaign'
-                  : mode === 'issue'
-                    ? 'Generate codes'
-                    : mode === 'revoke'
-                      ? 'Revoke code'
-                      : 'Redemption Codes'
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              {t(
-                mode === 'save'
-                  ? 'Rewards and budgets use exact credits. All campaign times are UTC.'
-                  : mode === 'issue'
-                    ? 'Copy issued codes before closing. Codes clear when hidden or after five minutes.'
-                    : 'Claimed rewards remain in the financial history.'
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          {notice && (
-            <Alert role='alert'>
-              <AlertDescription>{notice}</AlertDescription>
-            </Alert>
-          )}
-          {mode === 'codes' ? (
-            <>
-              <ul className='divide-y'>
-                {codes.map((code) => (
-                  <li
-                    key={code.id}
-                    className='flex items-center justify-between gap-2 py-2'
-                  >
-                    <span className='min-w-0 truncate font-mono text-xs'>
-                      {code.id}
-                    </span>
-                    <Badge variant='secondary'>
-                      {t(
-                        code.claimed
-                          ? 'Claimed'
-                          : code.revoked
-                            ? 'Revoked'
-                            : 'Available'
-                      )}
-                    </Badge>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      disabled={code.claimed || code.revoked}
-                      onClick={() => {
-                        setSelectedCode(code)
-                        setMode('revoke')
-                      }}
+        <Dialog
+          open={open}
+          onOpenChange={(value) => {
+            if (!value) close()
+          }}
+        >
+          <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-xl'>
+            <DialogHeader>
+              <DialogTitle>
+                {t(
+                  mode === 'save'
+                    ? editing
+                      ? 'Edit campaign'
+                      : 'Create campaign'
+                    : mode === 'issue'
+                      ? 'Generate codes'
+                      : mode === 'revoke'
+                        ? 'Revoke code'
+                        : 'Redemption Codes'
+                )}
+              </DialogTitle>
+              <DialogDescription>
+                {t(
+                  mode === 'save'
+                    ? 'Rewards and budgets use exact credits. All campaign times are UTC.'
+                    : mode === 'issue'
+                      ? 'Copy issued codes before closing. Codes clear when hidden or after five minutes.'
+                      : 'Claimed rewards remain in the financial history.'
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            {notice && (
+              <Alert role='alert'>
+                <AlertDescription>{notice}</AlertDescription>
+              </Alert>
+            )}
+            {mode === 'codes' ? (
+              <>
+                <ul className='divide-y'>
+                  {codes.map((code) => (
+                    <li
+                      key={code.id}
+                      className='flex items-center justify-between gap-2 py-2'
                     >
-                      {t('Revoke')}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-              <DialogFooter>
-                <Button onClick={close}>{t('Close')}</Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <form onSubmit={submit} className='space-y-4'>
-              {mode === 'save' && (
-                <div className='grid gap-4 sm:grid-cols-2'>
-                  <div className='space-y-2 sm:col-span-2'>
-                    <Label htmlFor='campaign-title'>{t('Name')}</Label>
-                    <Input
-                      id='campaign-title'
-                      value={spec.title}
-                      disabled={locked}
-                      required
-                      maxLength={160}
-                      onChange={(e) => field('title', e.target.value)}
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='campaign-kind'>{t('Type')}</Label>
-                    <NativeSelect
-                      id='campaign-kind'
-                      value={spec.kind}
-                      disabled={locked || !!editing}
-                      onChange={(e) => {
-                        field('kind', e.target.value as CampaignSpec['kind'])
-                        if (e.target.value === 'envelope') {
-                          field('max_claims_per_user', 1)
-                        }
-                      }}
-                    >
-                      <NativeSelectOption value='redemption'>
-                        {t('Redemption Codes')}
-                      </NativeSelectOption>
-                      <NativeSelectOption value='checkin'>
-                        {t('Daily check-in')}
-                      </NativeSelectOption>
-                      <NativeSelectOption value='envelope'>
-                        {t('Activity reward')}
-                      </NativeSelectOption>
-                    </NativeSelect>
-                  </div>
-                  {(['award_units', 'budget_units'] as const).map((key) => (
-                    <div key={key} className='space-y-2'>
-                      <Label htmlFor={`campaign-${key}`}>
+                      <span className='min-w-0 truncate font-mono text-xs'>
+                        {code.id}
+                      </span>
+                      <Badge variant='secondary'>
                         {t(
-                          key === 'award_units'
-                            ? 'Reward (credits)'
-                            : 'Budget (credits)'
+                          code.claimed
+                            ? 'Claimed'
+                            : code.revoked
+                              ? 'Revoked'
+                              : 'Available'
                         )}
-                      </Label>
+                      </Badge>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={code.claimed || code.revoked}
+                        onClick={() => {
+                          setSelectedCode(code)
+                          setMode('revoke')
+                        }}
+                      >
+                        {t('Revoke')}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <DialogFooter>
+                  <Button onClick={close}>{t('Close')}</Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <form onSubmit={submit} className='space-y-4'>
+                {mode === 'save' && (
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    <div className='space-y-2 sm:col-span-2'>
+                      <Label htmlFor='campaign-title'>{t('Name')}</Label>
                       <Input
-                        id={`campaign-${key}`}
-                        value={spec[key]}
-                        disabled={
-                          locked || (key === 'award_units' && !!editing)
-                        }
-                        inputMode='numeric'
-                        pattern='[1-9][0-9]*'
+                        id='campaign-title'
+                        value={spec.title}
+                        disabled={locked}
                         required
-                        onChange={(e) => field(key, e.target.value)}
+                        maxLength={160}
+                        onChange={(e) => field('title', e.target.value)}
                       />
                     </div>
-                  ))}
-                  {(['max_claims', 'max_claims_per_user'] as const).map(
-                    (key) => (
+                    <div className='space-y-2'>
+                      <Label htmlFor='campaign-kind'>{t('Type')}</Label>
+                      <NativeSelect
+                        id='campaign-kind'
+                        value={spec.kind}
+                        disabled={locked || !!editing}
+                        onChange={(e) => {
+                          field('kind', e.target.value as CampaignSpec['kind'])
+                          if (e.target.value === 'envelope') {
+                            field('max_claims_per_user', 1)
+                          }
+                        }}
+                      >
+                        <NativeSelectOption value='redemption'>
+                          {t('Redemption Codes')}
+                        </NativeSelectOption>
+                        <NativeSelectOption value='checkin'>
+                          {t('Daily check-in')}
+                        </NativeSelectOption>
+                        <NativeSelectOption value='envelope'>
+                          {t('Activity reward')}
+                        </NativeSelectOption>
+                      </NativeSelect>
+                    </div>
+                    {(['award_units', 'budget_units'] as const).map((key) => (
                       <div key={key} className='space-y-2'>
                         <Label htmlFor={`campaign-${key}`}>
                           {t(
-                            key === 'max_claims'
-                              ? 'Maximum claims'
-                              : 'Claims per user'
+                            key === 'award_units'
+                              ? 'Reward (credits)'
+                              : 'Budget (credits)'
                           )}
                         </Label>
                         <Input
                           id={`campaign-${key}`}
-                          type='number'
-                          min={1}
-                          max={key === 'max_claims' ? 1000000 : 10000}
                           value={spec[key]}
                           disabled={
-                            locked ||
-                            (key === 'max_claims_per_user' &&
-                              spec.kind === 'envelope')
+                            locked || (key === 'award_units' && !!editing)
                           }
+                          inputMode='numeric'
+                          pattern='[1-9][0-9]*'
                           required
-                          onChange={(e) => field(key, Number(e.target.value))}
+                          onChange={(e) => field(key, e.target.value)}
                         />
                       </div>
-                    )
-                  )}
-                  {(['starts_at', 'ends_at'] as const).map((key) => (
-                    <div key={key} className='space-y-2'>
-                      <Label htmlFor={`campaign-${key}`}>
-                        {t(
-                          key === 'starts_at'
-                            ? 'Starts at (UTC)'
-                            : 'Ends at (UTC)'
-                        )}
-                      </Label>
-                      <Input
-                        id={`campaign-${key}`}
-                        type='datetime-local'
-                        value={utcInput(spec[key])}
-                        disabled={locked}
-                        required
-                        onChange={(e) => field(key, utcTime(e.target.value))}
-                      />
-                    </div>
-                  ))}
-                  <div className='flex items-center gap-3 sm:col-span-2'>
-                    <Switch
-                      id='campaign-enabled'
-                      checked={spec.enabled}
-                      disabled={locked}
-                      onCheckedChange={(value) => field('enabled', value)}
-                    />
-                    <Label htmlFor='campaign-enabled'>{t('Enabled')}</Label>
-                  </div>
-                </div>
-              )}
-              {mode === 'issue' && (
-                <>
-                  <div className='space-y-2'>
-                    <Label htmlFor='campaign-quantity'>{t('Quantity')}</Label>
-                    <Input
-                      id='campaign-quantity'
-                      type='number'
-                      min={1}
-                      max={100}
-                      value={quantity}
-                      disabled={locked}
-                      onChange={(e) => setQuantity(Number(e.target.value))}
-                      required
-                    />
-                  </div>
-                  {editing &&
-                    quantity >= 1 &&
-                    quantity <= 100 &&
-                    Number.isSafeInteger(quantity) && (
-                      <p className='text-sm'>
-                        {t('Reserved')}:{' '}
-                        {credits(
-                          (
-                            BigInt(editing.spec.award_units) * BigInt(quantity)
-                          ).toString()
-                        )}
-                      </p>
+                    ))}
+                    {(['max_claims', 'max_claims_per_user'] as const).map(
+                      (key) => (
+                        <div key={key} className='space-y-2'>
+                          <Label htmlFor={`campaign-${key}`}>
+                            {t(
+                              key === 'max_claims'
+                                ? 'Maximum claims'
+                                : 'Claims per user'
+                            )}
+                          </Label>
+                          <Input
+                            id={`campaign-${key}`}
+                            type='number'
+                            min={1}
+                            max={key === 'max_claims' ? 1000000 : 10000}
+                            value={spec[key]}
+                            disabled={
+                              locked ||
+                              (key === 'max_claims_per_user' &&
+                                spec.kind === 'envelope')
+                            }
+                            required
+                            onChange={(e) => field(key, Number(e.target.value))}
+                          />
+                        </div>
+                      )
                     )}
-                  {issued && (
-                    <div className='space-y-2'>
-                      <Label htmlFor='campaign-issued-codes'>
-                        {t('Issued redemption codes')}
-                      </Label>
-                      <Textarea
-                        id='campaign-issued-codes'
-                        readOnly
-                        value={issued.codes.map((code) => code.code).join('\n')}
-                        rows={Math.min(6, issued.codes.length)}
+                    {(['starts_at', 'ends_at'] as const).map((key) => (
+                      <div key={key} className='space-y-2'>
+                        <Label htmlFor={`campaign-${key}`}>
+                          {t(
+                            key === 'starts_at'
+                              ? 'Starts at (UTC)'
+                              : 'Ends at (UTC)'
+                          )}
+                        </Label>
+                        <Input
+                          id={`campaign-${key}`}
+                          type='datetime-local'
+                          value={utcInput(spec[key])}
+                          disabled={locked}
+                          required
+                          onChange={(e) => field(key, utcTime(e.target.value))}
+                        />
+                      </div>
+                    ))}
+                    <div className='flex items-center gap-3 sm:col-span-2'>
+                      <Switch
+                        id='campaign-enabled'
+                        checked={spec.enabled}
+                        disabled={locked}
+                        onCheckedChange={(value) => field('enabled', value)}
                       />
-                      <Button
-                        type='button'
-                        variant='outline'
-                        onClick={() =>
-                          void navigator.clipboard
-                            .writeText(
-                              issued.codes.map((code) => code.code).join('\n')
-                            )
-                            .then(() => {
-                              if (current()) setNotice(t('Copied!'))
-                            })
-                            .catch(() => {
-                              if (current()) setNotice(t('Request failed'))
-                            })
-                        }
-                      >
-                        {t('Copy')}
-                      </Button>
+                      <Label htmlFor='campaign-enabled'>{t('Enabled')}</Label>
                     </div>
-                  )}
-                </>
-              )}
-              {mode === 'revoke' && (
-                <p className='font-mono text-sm break-all'>
-                  {selectedCode?.id}
-                </p>
-              )}
-              <DialogFooter>
-                {(!pending || resolved) && (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    disabled={busy}
-                    onClick={close}
-                  >
-                    {t('Close')}
-                  </Button>
+                  </div>
                 )}
-                <Button type='submit' disabled={busy || blocked}>
-                  {t(pending ? 'Retry saved request' : 'Confirm')}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+                {mode === 'issue' && (
+                  <>
+                    <div className='space-y-2'>
+                      <Label htmlFor='campaign-quantity'>{t('Quantity')}</Label>
+                      <Input
+                        id='campaign-quantity'
+                        type='number'
+                        min={1}
+                        max={100}
+                        value={quantity}
+                        disabled={locked}
+                        onChange={(e) => setQuantity(Number(e.target.value))}
+                        required
+                      />
+                    </div>
+                    {editing &&
+                      quantity >= 1 &&
+                      quantity <= 100 &&
+                      Number.isSafeInteger(quantity) && (
+                        <p className='text-sm'>
+                          {t('Reserved')}:{' '}
+                          {credits(
+                            (
+                              BigInt(editing.spec.award_units) *
+                              BigInt(quantity)
+                            ).toString()
+                          )}
+                        </p>
+                      )}
+                    {issued && (
+                      <div className='space-y-2'>
+                        <Label htmlFor='campaign-issued-codes'>
+                          {t('Issued redemption codes')}
+                        </Label>
+                        <Textarea
+                          id='campaign-issued-codes'
+                          readOnly
+                          value={issued.codes
+                            .map((code) => code.code)
+                            .join('\n')}
+                          rows={Math.min(6, issued.codes.length)}
+                        />
+                        <Button
+                          type='button'
+                          variant='outline'
+                          onClick={() =>
+                            void navigator.clipboard
+                              .writeText(
+                                issued.codes.map((code) => code.code).join('\n')
+                              )
+                              .then(() => {
+                                if (current()) setNotice(t('Copied!'))
+                              })
+                              .catch(() => {
+                                if (current()) setNotice(t('Request failed'))
+                              })
+                          }
+                        >
+                          {t('Copy')}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+                {mode === 'revoke' && (
+                  <p className='font-mono text-sm break-all'>
+                    {selectedCode?.id}
+                  </p>
+                )}
+                <DialogFooter>
+                  {(!pending || resolved) && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      disabled={busy}
+                      onClick={close}
+                    >
+                      {t('Close')}
+                    </Button>
+                  )}
+                  <Button type='submit' disabled={busy || blocked}>
+                    {t(pending ? 'Retry saved request' : 'Confirm')}
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+      </SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }

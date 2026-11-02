@@ -1,5 +1,29 @@
 # Current integration verification
 
+## Subscription and reward management dialogs
+
+Independent retesting of source 2e29e82 and Core 6c5b0961 confirmed fresh
+first-owner initialization, login/relogin, native zero balance with unknown fiat
+valuation and ordinary-user denial on both management APIs. It found a second
+page defect: SectionPageLayout only renders its named slots, while both admin
+dialogs were direct children outside those slots. Clicking Create Plan or
+Create campaign therefore never opened a form; no creation request occurred.
+
+Both dialogs now live inside the existing Content slot. Shared layout behavior,
+financial confirmation, idempotency, Core and schema contracts are unchanged.
+Two interaction regressions render the actual layout and dialog, open the form,
+cancel and verify that only the initial read occurred. These two tests,
+typecheck, scoped lint/format, Web build and bundle check passed. The initial
+gzip total is 558684 bytes against 786432. This is scoped developer verification;
+actual browser creation and readback remain pending on the rebuilt Web.
+
+The new Web has 2749 source input hashes and 545 assets in
+~/.cache/lmm-module-migration/evidence/admin-dialog-web-frozen. Its bindings SHA
+is 0fdc5baf69ce36d57427070dce679591d8d471a6c9542fd2ba9e6e2542c13c16.
+It uses the unchanged Core 6c5b0961 executable. Independent findings and prior
+failures remain in core-go-wallet-browser/first-owner-followup/RESULT.md.
+No production environment was changed.
+
 ## Fresh first-owner wallet recognition
 
 Independent acceptance of source 2d0b074 and Core 54973 found that the real
@@ -22,8 +46,8 @@ combined compiler inputs are frozen in first-owner-wallet-frozen under
 ~/.cache/lmm-module-migration/evidence. Component46 manifest/catalog, Web and
 recipe capabilities are unchanged. The existing 545-asset wallet Web is reused.
 
-Independent first-owner subscription and reward management page retesting is
-pending on this new Core. The prior admin-page failure and an earlier preview
+Independent first-owner retesting passed the Core behavior and identified the
+separate management-dialog defect recorded above. The prior admin-page failure and an earlier preview
 refresh timeout with uncertain authentication remain recorded in
 core-go-wallet-browser/acceptance-summary.md; subsequent normal-load preview
 reload passed, but the earlier timeout's cause is not established. No production

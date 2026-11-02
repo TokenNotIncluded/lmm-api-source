@@ -296,222 +296,228 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
             {t('No subscription plans yet')}
           </p>
         )}
-      </SectionPageLayout.Content>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next && !busy && (!pending || refused)) {
-            if (refused) remember(null)
-            setOpen(false)
-          }
-        }}
-      >
-        <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {t(
-                archive ? 'Archive plan' : editing ? 'Edit Plan' : 'Create Plan'
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              {t(
-                archive
-                  ? 'Existing paid benefits and financial history are retained.'
-                  : 'Prices use exact credit units. Saved changes apply to new purchases.'
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={submit} className='space-y-4'>
-            {notice && (
-              <Alert role='alert'>
-                <AlertDescription>{notice}</AlertDescription>
-              </Alert>
-            )}
-            {archive ? (
-              <p>{archive.terms.title}</p>
-            ) : (
-              <div className='grid gap-4 sm:grid-cols-2'>
-                <div className='space-y-2 sm:col-span-2'>
-                  <Label htmlFor='native-plan-title'>{t('Plan Name')}</Label>
-                  <Input
-                    id='native-plan-title'
-                    value={terms.title}
-                    disabled={locked}
-                    onChange={(e) => field('title', e.target.value)}
-                    required
-                    maxLength={160}
-                  />
-                </div>
-                {(['price_units', 'limit_units'] as const).map((key) => (
-                  <div key={key} className='space-y-2'>
-                    <Label htmlFor={`native-plan-${key}`}>
-                      {t(
-                        key === 'price_units'
-                          ? 'Price (credits)'
-                          : 'Quota (credits)'
-                      )}
-                    </Label>
-                    <Input
-                      id={`native-plan-${key}`}
-                      value={terms[key]}
-                      disabled={locked}
-                      inputMode='numeric'
-                      pattern='[1-9][0-9]*'
-                      required
-                      onChange={(e) => field(key, e.target.value)}
-                    />
-                  </div>
-                ))}
-                <div className='space-y-2'>
-                  <Label htmlFor='native-plan-duration'>
-                    {t('Duration (seconds)')}
-                  </Label>
-                  <Input
-                    id='native-plan-duration'
-                    type='number'
-                    min={60}
-                    max={315576000}
-                    value={terms.duration_seconds}
-                    disabled={locked}
-                    onChange={(e) =>
-                      field('duration_seconds', Number(e.target.value))
-                    }
-                    required
-                  />
-                </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='native-plan-limit'>
-                    {t('Purchase limit per user')}
-                  </Label>
-                  <Input
-                    id='native-plan-limit'
-                    type='number'
-                    min={0}
-                    max={10000}
-                    value={terms.max_purchases_per_user}
-                    disabled={locked}
-                    onChange={(e) =>
-                      field('max_purchases_per_user', Number(e.target.value))
-                    }
-                  />
-                  <p className='text-muted-foreground text-xs'>
-                    {t('0 = unlimited')}
-                  </p>
-                </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='native-plan-reset'>
-                    {t('Quota reset period')}
-                  </Label>
-                  <NativeSelect
-                    id='native-plan-reset'
-                    value={terms.reset_period}
-                    disabled={locked}
-                    onChange={(e) => {
-                      field(
-                        'reset_period',
-                        e.target.value as NativePlanTerms['reset_period']
-                      )
-                      field(
-                        'reset_seconds',
-                        e.target.value === 'custom' ? 86400 : 0
-                      )
-                    }}
-                  >
-                    {(
-                      [
-                        'grant',
-                        'day',
-                        'week',
-                        'month',
-                        'anniversary_month',
-                        'custom',
-                      ] as const
-                    ).map((period) => (
-                      <NativeSelectOption key={period} value={period}>
-                        {t(
-                          {
-                            grant: 'Never',
-                            day: 'Daily',
-                            week: 'Weekly',
-                            month: 'Monthly',
-                            anniversary_month: 'Anniversary month',
-                            custom: 'Custom',
-                          }[period]
-                        )}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </div>
-                {terms.reset_period === 'custom' && (
-                  <div className='space-y-2'>
-                    <Label htmlFor='native-plan-reset-seconds'>
-                      {t('Reset interval (seconds)')}
-                    </Label>
-                    <Input
-                      id='native-plan-reset-seconds'
-                      type='number'
-                      min={1}
-                      value={terms.reset_seconds}
-                      disabled={locked}
-                      onChange={(e) =>
-                        field('reset_seconds', Number(e.target.value))
-                      }
-                    />
-                  </div>
+        <Dialog
+          open={open}
+          onOpenChange={(next) => {
+            if (!next && !busy && (!pending || refused)) {
+              if (refused) remember(null)
+              setOpen(false)
+            }
+          }}
+        >
+          <DialogContent className='max-h-[90dvh] overflow-y-auto sm:max-w-xl'>
+            <DialogHeader>
+              <DialogTitle>
+                {t(
+                  archive
+                    ? 'Archive plan'
+                    : editing
+                      ? 'Edit Plan'
+                      : 'Create Plan'
                 )}
-                {(['models', 'groups'] as const).map((key) => (
-                  <div key={key} className='space-y-2'>
-                    <Label htmlFor={`native-plan-${key}`}>
-                      {t(key === 'models' ? 'Models' : 'Groups')}
+              </DialogTitle>
+              <DialogDescription>
+                {t(
+                  archive
+                    ? 'Existing paid benefits and financial history are retained.'
+                    : 'Prices use exact credit units. Saved changes apply to new purchases.'
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submit} className='space-y-4'>
+              {notice && (
+                <Alert role='alert'>
+                  <AlertDescription>{notice}</AlertDescription>
+                </Alert>
+              )}
+              {archive ? (
+                <p>{archive.terms.title}</p>
+              ) : (
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <div className='space-y-2 sm:col-span-2'>
+                    <Label htmlFor='native-plan-title'>{t('Plan Name')}</Label>
+                    <Input
+                      id='native-plan-title'
+                      value={terms.title}
+                      disabled={locked}
+                      onChange={(e) => field('title', e.target.value)}
+                      required
+                      maxLength={160}
+                    />
+                  </div>
+                  {(['price_units', 'limit_units'] as const).map((key) => (
+                    <div key={key} className='space-y-2'>
+                      <Label htmlFor={`native-plan-${key}`}>
+                        {t(
+                          key === 'price_units'
+                            ? 'Price (credits)'
+                            : 'Quota (credits)'
+                        )}
+                      </Label>
+                      <Input
+                        id={`native-plan-${key}`}
+                        value={terms[key]}
+                        disabled={locked}
+                        inputMode='numeric'
+                        pattern='[1-9][0-9]*'
+                        required
+                        onChange={(e) => field(key, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                  <div className='space-y-2'>
+                    <Label htmlFor='native-plan-duration'>
+                      {t('Duration (seconds)')}
                     </Label>
                     <Input
-                      id={`native-plan-${key}`}
-                      value={terms[key].join(',')}
+                      id='native-plan-duration'
+                      type='number'
+                      min={60}
+                      max={315576000}
+                      value={terms.duration_seconds}
                       disabled={locked}
                       onChange={(e) =>
-                        field(
-                          key,
-                          e.target.value.split(',').map((value) => value.trim())
-                        )
+                        field('duration_seconds', Number(e.target.value))
+                      }
+                      required
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='native-plan-limit'>
+                      {t('Purchase limit per user')}
+                    </Label>
+                    <Input
+                      id='native-plan-limit'
+                      type='number'
+                      min={0}
+                      max={10000}
+                      value={terms.max_purchases_per_user}
+                      disabled={locked}
+                      onChange={(e) =>
+                        field('max_purchases_per_user', Number(e.target.value))
                       }
                     />
                     <p className='text-muted-foreground text-xs'>
-                      {t('Comma separated; * matches all eligible entries.')}
+                      {t('0 = unlimited')}
                     </p>
                   </div>
-                ))}
-                <div className='flex items-center gap-3 sm:col-span-2'>
-                  <Switch
-                    id='native-plan-enabled'
-                    checked={terms.enabled}
-                    disabled={locked}
-                    onCheckedChange={(value) => field('enabled', value)}
-                  />
-                  <Label htmlFor='native-plan-enabled'>{t('Enabled')}</Label>
+                  <div className='space-y-2'>
+                    <Label htmlFor='native-plan-reset'>
+                      {t('Quota reset period')}
+                    </Label>
+                    <NativeSelect
+                      id='native-plan-reset'
+                      value={terms.reset_period}
+                      disabled={locked}
+                      onChange={(e) => {
+                        field(
+                          'reset_period',
+                          e.target.value as NativePlanTerms['reset_period']
+                        )
+                        field(
+                          'reset_seconds',
+                          e.target.value === 'custom' ? 86400 : 0
+                        )
+                      }}
+                    >
+                      {(
+                        [
+                          'grant',
+                          'day',
+                          'week',
+                          'month',
+                          'anniversary_month',
+                          'custom',
+                        ] as const
+                      ).map((period) => (
+                        <NativeSelectOption key={period} value={period}>
+                          {t(
+                            {
+                              grant: 'Never',
+                              day: 'Daily',
+                              week: 'Weekly',
+                              month: 'Monthly',
+                              anniversary_month: 'Anniversary month',
+                              custom: 'Custom',
+                            }[period]
+                          )}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  {terms.reset_period === 'custom' && (
+                    <div className='space-y-2'>
+                      <Label htmlFor='native-plan-reset-seconds'>
+                        {t('Reset interval (seconds)')}
+                      </Label>
+                      <Input
+                        id='native-plan-reset-seconds'
+                        type='number'
+                        min={1}
+                        value={terms.reset_seconds}
+                        disabled={locked}
+                        onChange={(e) =>
+                          field('reset_seconds', Number(e.target.value))
+                        }
+                      />
+                    </div>
+                  )}
+                  {(['models', 'groups'] as const).map((key) => (
+                    <div key={key} className='space-y-2'>
+                      <Label htmlFor={`native-plan-${key}`}>
+                        {t(key === 'models' ? 'Models' : 'Groups')}
+                      </Label>
+                      <Input
+                        id={`native-plan-${key}`}
+                        value={terms[key].join(',')}
+                        disabled={locked}
+                        onChange={(e) =>
+                          field(
+                            key,
+                            e.target.value
+                              .split(',')
+                              .map((value) => value.trim())
+                          )
+                        }
+                      />
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Comma separated; * matches all eligible entries.')}
+                      </p>
+                    </div>
+                  ))}
+                  <div className='flex items-center gap-3 sm:col-span-2'>
+                    <Switch
+                      id='native-plan-enabled'
+                      checked={terms.enabled}
+                      disabled={locked}
+                      onCheckedChange={(value) => field('enabled', value)}
+                    />
+                    <Label htmlFor='native-plan-enabled'>{t('Enabled')}</Label>
+                  </div>
                 </div>
-              </div>
-            )}
-            <DialogFooter>
-              {(!pending || refused) && (
-                <Button
-                  type='button'
-                  variant='outline'
-                  disabled={busy}
-                  onClick={() => {
-                    if (refused) remember(null)
-                    setOpen(false)
-                  }}
-                >
-                  {t('Cancel')}
-                </Button>
               )}
-              <Button type='submit' disabled={busy || storageBlocked}>
-                {t(pending ? 'Retry saved request' : 'Confirm')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+              <DialogFooter>
+                {(!pending || refused) && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    disabled={busy}
+                    onClick={() => {
+                      if (refused) remember(null)
+                      setOpen(false)
+                    }}
+                  >
+                    {t('Cancel')}
+                  </Button>
+                )}
+                <Button type='submit' disabled={busy || storageBlocked}>
+                  {t(pending ? 'Retry saved request' : 'Confirm')}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }
