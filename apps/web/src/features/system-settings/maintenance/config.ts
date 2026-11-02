@@ -18,8 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   cloneHeaderNavDefaults,
-  isHeaderNavAccessModule,
-  parseHeaderNavAccess,
+  parseHeaderNavModules as parseHeaderNavConfig,
   parseHeaderNavBoolean,
   type HeaderNavModules as HeaderNavModulesConfig,
 } from '@/lib/header-nav-config'
@@ -84,37 +83,8 @@ const cloneSidebarDefault = (): SidebarModulesAdminConfig =>
     {}
   )
 
-export function parseHeaderNavModules(
-  value: string | null | undefined
-): HeaderNavModulesConfig {
-  const base = cloneHeaderNavDefaults(HEADER_NAV_DEFAULT)
-  if (!value) {
-    return base
-  }
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>
-    const result = cloneHeaderNavDefaults(base)
-
-    Object.entries(parsed).forEach(([key, raw]) => {
-      if (isHeaderNavAccessModule(key)) {
-        result[key] = parseHeaderNavAccess(raw, base[key], toBoolean)
-        return
-      }
-
-      if (typeof raw === 'boolean') {
-        result[key] = raw
-        return
-      }
-      if (typeof raw === 'string' || typeof raw === 'number') {
-        result[key] = toBoolean(raw, Boolean(base[key]))
-        return
-      }
-    })
-
-    return result
-  } catch {
-    return base
-  }
+export function parseHeaderNavModules(value: unknown): HeaderNavModulesConfig {
+  return parseHeaderNavConfig(value)
 }
 
 export function serializeHeaderNavModules(
@@ -183,4 +153,87 @@ export function serializeSidebarModulesAdmin(
   config: SidebarModulesAdminConfig
 ): string {
   return JSON.stringify(config)
+}
+
+export const toHeaderNavFormValues = (config: HeaderNavModulesConfig) => ({
+  directory: config.directory ?? HEADER_NAV_DEFAULT.directory,
+  developers: config.developers ?? HEADER_NAV_DEFAULT.developers,
+  guide: config.guide ?? HEADER_NAV_DEFAULT.guide,
+  scripts: config.scripts ?? HEADER_NAV_DEFAULT.scripts,
+  webmcp: config.webmcp ?? HEADER_NAV_DEFAULT.webmcp,
+  signal: config.signal ?? HEADER_NAV_DEFAULT.signal,
+  challenges: config.challenges ?? HEADER_NAV_DEFAULT.challenges,
+  home:
+    config.home === undefined ? HEADER_NAV_DEFAULT.home : Boolean(config.home),
+  console:
+    config.console === undefined
+      ? HEADER_NAV_DEFAULT.console
+      : Boolean(config.console),
+  pricingEnabled:
+    config.pricing?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.pricing.enabled
+      : Boolean(config.pricing.enabled),
+  pricingRequireAuth:
+    config.pricing?.requireAuth === undefined
+      ? HEADER_NAV_DEFAULT.pricing.requireAuth
+      : Boolean(config.pricing.requireAuth),
+  rankingsEnabled:
+    config.rankings?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.rankings.enabled
+      : Boolean(config.rankings.enabled),
+  rankingsRequireAuth:
+    config.rankings?.requireAuth === undefined
+      ? HEADER_NAV_DEFAULT.rankings.requireAuth
+      : Boolean(config.rankings.requireAuth),
+  securityEnabled:
+    config.security?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.security.enabled
+      : Boolean(config.security.enabled),
+  securityRequireAuth:
+    config.security?.requireAuth === undefined
+      ? HEADER_NAV_DEFAULT.security.requireAuth
+      : Boolean(config.security.requireAuth),
+  docs:
+    config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
+  about:
+    config.about === undefined
+      ? HEADER_NAV_DEFAULT.about
+      : Boolean(config.about),
+})
+
+export type HeaderNavFormValues = ReturnType<typeof toHeaderNavFormValues>
+
+export function applyHeaderNavFormValues(
+  config: HeaderNavModulesConfig,
+  values: HeaderNavFormValues
+): HeaderNavModulesConfig {
+  return {
+    ...config,
+    directory: values.directory,
+    developers: values.developers,
+    guide: values.guide,
+    scripts: values.scripts,
+    webmcp: values.webmcp,
+    signal: values.signal,
+    challenges: values.challenges,
+    home: values.home,
+    console: values.console,
+    docs: values.docs,
+    about: values.about,
+    pricing: {
+      ...(config.pricing ?? HEADER_NAV_DEFAULT.pricing),
+      enabled: values.pricingEnabled,
+      requireAuth: values.pricingRequireAuth,
+    },
+    rankings: {
+      ...(config.rankings ?? HEADER_NAV_DEFAULT.rankings),
+      enabled: values.rankingsEnabled,
+      requireAuth: values.rankingsRequireAuth,
+    },
+    security: {
+      ...(config.security ?? HEADER_NAV_DEFAULT.security),
+      enabled: values.securityEnabled,
+      requireAuth: values.securityRequireAuth,
+    },
+  }
 }

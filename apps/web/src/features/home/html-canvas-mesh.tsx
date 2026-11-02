@@ -23,6 +23,8 @@ type DrawableContext = CanvasRenderingContext2D & {
 type MeshProps = {
   brandName: string
   brandLogo: string
+  pricingHref: string | null
+  guideHref: string | null
   t: (key: string) => string
 }
 
@@ -68,7 +70,14 @@ function supportsHtmlCanvas() {
 }
 
 /** One React scene, rendered either as live drawable HTML or regular HTML. */
-export function HtmlCanvasMesh({ brandName, brandLogo, t }: MeshProps) {
+export function HtmlCanvasMesh({
+  brandName,
+  brandLogo,
+  pricingHref,
+  guideHref,
+  t,
+}: MeshProps) {
+  const CoreNode = guideHref ? 'a' : 'span'
   const stageRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -242,34 +251,38 @@ export function HtmlCanvasMesh({ brandName, brandLogo, t }: MeshProps) {
         ))}
         <circle cx='500' cy='280' r='4' />
       </svg>
-      {NODES.map(({ label, path, x, y }, index) => (
-        <a
-          key={label}
-          className='lmm-mesh-node'
-          href={label === 'Code' ? '/guide' : '/pricing'}
-          style={{ left: `${x}%`, top: `${y}%` }}
-        >
-          <span className='lmm-mesh-node-number' aria-hidden='true'>
-            0{index + 1}
-          </span>
-          <svg
-            viewBox='0 0 24 24'
-            fill='none'
-            stroke='currentColor'
-            strokeWidth='1.35'
-            strokeLinecap='round'
-            strokeLinejoin='round'
-            aria-hidden='true'
+      {NODES.map(({ label, path, x, y }, index) => {
+        const href = label === 'Code' ? guideHref : pricingHref
+        const Node = href ? 'a' : 'span'
+        return (
+          <Node
+            key={label}
+            className='lmm-mesh-node'
+            href={href ?? undefined}
+            style={{ left: `${x}%`, top: `${y}%` }}
           >
-            <path d={path} />
-          </svg>
-          <span>{t(label)}</span>
-        </a>
-      ))}
-      <a className='lmm-mesh-core' href='/guide'>
+            <span className='lmm-mesh-node-number' aria-hidden='true'>
+              0{index + 1}
+            </span>
+            <svg
+              viewBox='0 0 24 24'
+              fill='none'
+              stroke='currentColor'
+              strokeWidth='1.35'
+              strokeLinecap='round'
+              strokeLinejoin='round'
+              aria-hidden='true'
+            >
+              <path d={path} />
+            </svg>
+            <span>{t(label)}</span>
+          </Node>
+        )
+      })}
+      <CoreNode className='lmm-mesh-core' href={guideHref ?? undefined}>
         <span className='lmm-mesh-core-name'>{brandName}</span>
         <span className='lmm-mesh-core-caption'>{t('One endpoint')}</span>
-      </a>
+      </CoreNode>
       <span
         className='lmm-mesh-coordinate lmm-mesh-coordinate-left'
         aria-hidden='true'

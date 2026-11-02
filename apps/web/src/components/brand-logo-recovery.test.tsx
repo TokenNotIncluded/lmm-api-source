@@ -85,19 +85,7 @@ async function withLogo(
   }
 }
 
-for (const src of [
-  undefined,
-  '',
-  '   ',
-  '/lmm-api-mark.svg',
-  '/lmm-cut-mark.svg',
-  'https://console.example.test/lmm-cut-mark.svg?v=1#logo',
-  'https://api.lmm.best/lmm-best-mark.svg?v=old#logo',
-  '/lmm-best-mark.svg',
-  '/lmm-forge-mark.svg',
-  '/logo.png',
-  '/favicon.ico?v=1',
-]) {
+for (const src of [undefined, '', '   ', '/lmm-api-mark.svg']) {
   test(`built-in logo does not create an image request: ${String(src)}`, async () => {
     await withLogo({ src }, (container) => {
       assert.ok(container.querySelector('svg'))
@@ -177,7 +165,7 @@ test('failure is stable on rerender but resets for a new URL', async () => {
       container.querySelector('img')?.getAttribute('src'),
       '/replacement.svg'
     )
-    await update({ src: '/logo.png' })
+    await update({ src: '/lmm-api-mark.svg' })
     assert.equal(container.querySelector('img'), null)
     await update({ src: '/replacement.svg' })
     assert.equal(
@@ -187,8 +175,15 @@ test('failure is stable on rerender but resets for a new URL', async () => {
   })
 })
 
-test('external artwork is preserved even when its path matches a default', async () => {
+test('configured artwork is preserved even when its path matches a historical default', async () => {
   for (const src of [
+    '/lmm-cut-mark.svg',
+    'https://console.example.test/lmm-cut-mark.svg?v=1#logo',
+    'https://api.lmm.best/lmm-best-mark.svg?v=old#logo',
+    '/lmm-best-mark.svg',
+    '/lmm-forge-mark.svg',
+    '/logo.png',
+    '/favicon.ico?v=1',
     'https://tenant.example/logo.png',
     'https://tenant.example/lmm-cut-mark.svg',
     'https://tenant.example/lmm-best-mark.svg',

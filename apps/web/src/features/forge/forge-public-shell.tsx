@@ -20,7 +20,7 @@ import { useRouterState } from '@tanstack/react-router'
 import { useEffect } from 'react'
 
 import { BrandLogo } from '@/components/brand-logo'
-import { PublicLayout } from '@/components/layout'
+import { PublicLayout } from '@/components/layout/components/public-layout'
 import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
@@ -43,8 +43,9 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
   const isHome = useRouterState({
     select: (state) => state.location.pathname === '/',
   })
-  const securityLink = useTopNavLinks().find(
-    (link) => link.href === '/security'
+  const navLinks = useTopNavLinks('public')
+  const directoryEnabled = navLinks.some(
+    (link) => link.href === '/ai-directory'
   )
 
   useEffect(() => {
@@ -64,18 +65,7 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
           <BrandLogo src={logo} className='size-7 object-contain' />
         )
       }
-      navLinks={[
-        { title: 'Home', href: '/' },
-        { title: 'AI directory', href: '/ai-directory' },
-        { title: 'Models and pricing', href: '/pricing' },
-        { title: 'Developers', href: '/developers' },
-        { title: 'Guide', href: '/guide' },
-        { title: 'Scripts', href: '/scripts' },
-        { title: 'WebMCP', href: '/webmcp' },
-        { title: 'Signal path', href: '/games/signal' },
-        { title: 'Challenges', href: '/challenges' },
-        ...(securityLink ? [securityLink] : []),
-      ]}
+      navLinks={navLinks}
       showNotifications={false}
       headerProps={{
         useDynamicNavLinks: false,
@@ -84,7 +74,7 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
     >
       {/* Keep page controls below the full-screen header navigation. */}
       <div className='forge-surface relative z-0 min-h-svh'>
-        {isHome && <HomeDirectoryLink />}
+        {isHome && directoryEnabled && <HomeDirectoryLink />}
         {props.children}
       </div>
     </PublicLayout>

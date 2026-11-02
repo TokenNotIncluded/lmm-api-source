@@ -22,14 +22,13 @@ import { useTranslation } from 'react-i18next'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { cn } from '@/lib/utils'
 
-import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
 import { getNavLinkKey } from './nav-link-key'
 
 interface PublicNavigationProps {
   /**
    * Custom navigation links
-   * If not provided, will use dynamic links from backend or defaults
+   * If not provided, uses the configured navigation, including an empty list.
    */
   links?: TopNavLink[]
   /**
@@ -46,12 +45,11 @@ export function PublicNavigation({
   links: providedLinks,
   className,
 }: PublicNavigationProps = {}) {
-  // Use the same logic as AppHeader: prioritize dynamic links from backend
+  // Explicit links are authoritative; an empty configured menu stays empty.
   const dynamicLinks = useTopNavLinks()
   const { t } = useTranslation()
   const pathname = useRouterState().location.pathname
-  const defaultLinks = providedLinks || defaultTopNavLinks
-  const links = dynamicLinks.length > 0 ? dynamicLinks : defaultLinks
+  const links = providedLinks ?? dynamicLinks
 
   return (
     <nav

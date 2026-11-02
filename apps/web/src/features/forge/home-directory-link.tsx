@@ -4,14 +4,12 @@ import { ArrowUpRight, Globe2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { directoryGestureHints } from './home-directory-copy'
 import { attachDirectoryGesture } from './home-directory-gesture'
 
 import './home-directory-link.css'
 
 export function HomeDirectoryLink() {
-  const { t, i18n } = useTranslation()
-  const hints = directoryGestureHints(i18n.resolvedLanguage ?? i18n.language)
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const entryRef = useRef<HTMLElement>(null)
   const [progress, setProgress] = useState(0)
@@ -43,13 +41,19 @@ export function HomeDirectoryLink() {
           <div className='min-w-0 flex-1'>
             <strong>{t('AI directory')}</strong>
             <span id='home-directory-hint' className='home-directory-hint'>
-              <span className='home-directory-wheel-hint'>{hints.wheel}</span>
-              <span className='home-directory-touch-hint'>{hints.touch}</span>
+              <span className='home-directory-wheel-hint'>
+                {t('Scroll up to explore')}
+              </span>
+              <span className='home-directory-touch-hint'>
+                {t('Swipe up here to explore')}
+              </span>
             </span>
           </div>
-          <span className='home-directory-percent' aria-hidden='true'>
-            {percent.toString().padStart(2, '0')}%
-          </span>
+          {percent > 0 && (
+            <span className='home-directory-percent' aria-hidden='true'>
+              {percent}%
+            </span>
+          )}
           <ArrowUpRight className='home-directory-arrow' aria-hidden='true' />
         </Link>
         <div

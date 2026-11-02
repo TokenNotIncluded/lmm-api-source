@@ -181,8 +181,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   )
   const showsDefaultWordmark =
     usesDefaultBrand && !customSiteName && systemName === DEFAULT_SYSTEM_NAME
-  const links =
-    useDynamicNavLinks && dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const links = useDynamicNavLinks ? dynamicLinks : navLinks
   const mobileNavigationLinks = props.mobileLinks ?? links
 
   const mobileOpen = mobileMenuPath === pathname

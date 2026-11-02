@@ -8,8 +8,11 @@ test('the public navigation and homepage both link directly to the directory', (
     new URL('./forge-public-shell.tsx', import.meta.url),
     'utf8'
   )
-  assert.match(shell, /title: 'AI directory', href: '\/ai-directory'/)
-  assert.match(shell, /\{isHome && <HomeDirectoryLink \/>\}/)
+  assert.match(shell, /useTopNavLinks\('public'\)/)
+  assert.match(
+    shell,
+    /\{isHome && directoryEnabled && <HomeDirectoryLink \/>\}/
+  )
   assert.ok(
     shell.indexOf('<HomeDirectoryLink />') < shell.indexOf('{props.children}')
   )

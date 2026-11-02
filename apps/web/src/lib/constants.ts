@@ -24,41 +24,11 @@ For commercial licensing, please contact support@quantumnous.com
 export const DEFAULT_SYSTEM_NAME = 'LMM API'
 export const DEFAULT_LOGO = '/lmm-api-mark.svg'
 
-/** Normalize only our shipped defaults; preserve tenant-provided artwork. */
+/** Only the built-in sentinel is a default; configured artwork keeps its URL. */
 export function isDefaultLogo(src?: string): boolean {
-  if (!src?.trim()) return true
-  try {
-    const url = new URL(src.trim(), 'https://api.lmm.best')
-    const ownOrigin =
-      url.hostname === 'api.lmm.best' ||
-      (typeof window !== 'undefined' && url.origin === window.location.origin)
-    return (
-      ownOrigin &&
-      [
-        DEFAULT_LOGO,
-        '/lmm-cut-mark.svg',
-        '/lmm-best-mark.svg',
-        '/logo.png',
-        '/favicon.ico',
-        '/lmm-forge-mark.svg',
-      ].includes(url.pathname)
-    )
-  } catch {
-    return false
-  }
+  return !src?.trim() || src.trim() === DEFAULT_LOGO
 }
 
 export function resolveSystemName(value?: string): string {
-  const name = value?.trim()
-  return !name ||
-    [
-      'New API',
-      'NewAPI',
-      'LMM API',
-      'LMM Best',
-      'lmm.best',
-      'LMM Forge',
-    ].includes(name)
-    ? DEFAULT_SYSTEM_NAME
-    : name
+  return value?.trim() || DEFAULT_SYSTEM_NAME
 }

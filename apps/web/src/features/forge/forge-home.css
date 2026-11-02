@@ -1012,6 +1012,7 @@
 }
 .lmm-endpoint-panel > code {
   display: block;
+  overflow-wrap: anywhere;
   font-size: 1.4rem;
   letter-spacing: -0.035em;
 }

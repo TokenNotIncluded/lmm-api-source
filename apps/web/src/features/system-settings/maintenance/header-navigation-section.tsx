@@ -44,11 +44,21 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import {
   HEADER_NAV_DEFAULT,
+  applyHeaderNavFormValues,
+  toHeaderNavFormValues,
+  type HeaderNavFormValues,
   type HeaderNavModulesConfig,
   serializeHeaderNavModules,
 } from './config'
 
 const headerNavSchema = z.object({
+  directory: z.boolean(),
+  developers: z.boolean(),
+  guide: z.boolean(),
+  scripts: z.boolean(),
+  webmcp: z.boolean(),
+  signal: z.boolean(),
+  challenges: z.boolean(),
   home: z.boolean(),
   console: z.boolean(),
   pricingEnabled: z.boolean(),
@@ -61,51 +71,10 @@ const headerNavSchema = z.object({
   about: z.boolean(),
 })
 
-type HeaderNavFormValues = z.infer<typeof headerNavSchema>
-
 type HeaderNavigationSectionProps = {
   config: HeaderNavModulesConfig
   initialSerialized: string
 }
-
-const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
-  home:
-    config.home === undefined ? HEADER_NAV_DEFAULT.home : Boolean(config.home),
-  console:
-    config.console === undefined
-      ? HEADER_NAV_DEFAULT.console
-      : Boolean(config.console),
-  pricingEnabled:
-    config.pricing?.enabled === undefined
-      ? HEADER_NAV_DEFAULT.pricing.enabled
-      : Boolean(config.pricing.enabled),
-  pricingRequireAuth:
-    config.pricing?.requireAuth === undefined
-      ? HEADER_NAV_DEFAULT.pricing.requireAuth
-      : Boolean(config.pricing.requireAuth),
-  rankingsEnabled:
-    config.rankings?.enabled === undefined
-      ? HEADER_NAV_DEFAULT.rankings.enabled
-      : Boolean(config.rankings.enabled),
-  rankingsRequireAuth:
-    config.rankings?.requireAuth === undefined
-      ? HEADER_NAV_DEFAULT.rankings.requireAuth
-      : Boolean(config.rankings.requireAuth),
-  securityEnabled:
-    config.security?.enabled === undefined
-      ? HEADER_NAV_DEFAULT.security.enabled
-      : Boolean(config.security.enabled),
-  securityRequireAuth:
-    config.security?.requireAuth === undefined
-      ? HEADER_NAV_DEFAULT.security.requireAuth
-      : Boolean(config.security.requireAuth),
-  docs:
-    config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
-  about:
-    config.about === undefined
-      ? HEADER_NAV_DEFAULT.about
-      : Boolean(config.about),
-})
 
 export function HeaderNavigationSection({
   config,
@@ -113,7 +82,7 @@ export function HeaderNavigationSection({
 }: HeaderNavigationSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const formDefaults = useMemo(() => toFormValues(config), [config])
+  const formDefaults = useMemo(() => toHeaderNavFormValues(config), [config])
 
   const form = useForm<HeaderNavFormValues>({
     resolver: zodResolver(headerNavSchema),
@@ -125,28 +94,7 @@ export function HeaderNavigationSection({
   }, [formDefaults, form])
 
   const onSubmit = async (values: HeaderNavFormValues) => {
-    const payload: HeaderNavModulesConfig = {
-      ...config,
-      home: values.home,
-      console: values.console,
-      docs: values.docs,
-      about: values.about,
-      pricing: {
-        ...(config.pricing ?? HEADER_NAV_DEFAULT.pricing),
-        enabled: values.pricingEnabled,
-        requireAuth: values.pricingRequireAuth,
-      },
-      rankings: {
-        ...(config.rankings ?? HEADER_NAV_DEFAULT.rankings),
-        enabled: values.rankingsEnabled,
-        requireAuth: values.rankingsRequireAuth,
-      },
-      security: {
-        ...(config.security ?? HEADER_NAV_DEFAULT.security),
-        enabled: values.securityEnabled,
-        requireAuth: values.securityRequireAuth,
-      },
-    }
+    const payload = applyHeaderNavFormValues(config, values)
 
     const serialized = serializeHeaderNavModules(payload)
     if (serialized === initialSerialized) {
@@ -160,19 +108,26 @@ export function HeaderNavigationSection({
   }
 
   const resetToDefault = () => {
-    form.reset(toFormValues(HEADER_NAV_DEFAULT))
+    form.reset(toHeaderNavFormValues(HEADER_NAV_DEFAULT))
   }
 
   const simpleModules: Array<{
     key: keyof HeaderNavFormValues
     title: string
-    description: string
+    description?: string
   }> = [
     {
       key: 'home',
       title: t('Home'),
       description: t('Landing page with system overview.'),
     },
+    { key: 'directory', title: t('AI directory') },
+    { key: 'developers', title: t('Developers') },
+    { key: 'guide', title: t('Guide') },
+    { key: 'scripts', title: t('Scripts') },
+    { key: 'webmcp', title: 'WebMCP' },
+    { key: 'signal', title: t('Signal path') },
+    { key: 'challenges', title: t('Challenges') },
     {
       key: 'console',
       title: t('Console'),
@@ -258,7 +213,9 @@ export function HeaderNavigationSection({
                   <SettingsSwitchItem>
                     <SettingsSwitchContent>
                       <FormLabel>{module.title}</FormLabel>
-                      <FormDescription>{module.description}</FormDescription>
+                      {module.description && (
+                        <FormDescription>{module.description}</FormDescription>
+                      )}
                     </SettingsSwitchContent>
                     <FormControl>
                       <Switch

@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+import type { HeaderNavModules } from '@/lib/header-nav-config'
 
 import { HtmlCanvasMesh } from './html-canvas-mesh'
 
@@ -36,7 +37,10 @@ type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
   brandName: string
   brandLogo: string
-  t: (key: string) => string
+  apiBaseUrl: string | null
+  pricingHref: string | null
+  navigation: Pick<HeaderNavModules, 'guide' | 'directory' | 'about'>
+  t: (key: string, options?: { brand: string }) => string
   language: string
   primaryAction: ReactNode
   storeAction: ReactNode
@@ -105,6 +109,9 @@ export function HomeLanding({
   rootRef,
   brandName,
   brandLogo,
+  apiBaseUrl,
+  pricingHref,
+  navigation,
   t,
   primaryAction,
   storeAction,
@@ -188,7 +195,10 @@ export function HomeLanding({
             </div>
           </section>
 
-          <ol className='lmm-core-steps' aria-label={t('Explore LMM')}>
+          <ol
+            className='lmm-core-steps'
+            aria-label={t('Explore {{brand}}', { brand: brandName })}
+          >
             {['Home', 'Store', 'Tool market', 'Ecosystem', 'Future'].map(
               (label, index) => (
                 <li
@@ -254,12 +264,16 @@ export function HomeLanding({
               )}
             </p>
             <div className='lmm-world-links'>
-              <a className='lmm-core-link' href='/guide#client-setup'>
-                {t('Explore plugins')} <Arrow />
-              </a>
-              <a className='lmm-core-link' href='/ai-directory'>
-                {t('AI directory')} <Arrow />
-              </a>
+              {navigation.guide && (
+                <a className='lmm-core-link' href='/guide#client-setup'>
+                  {t('Explore plugins')} <Arrow />
+                </a>
+              )}
+              {navigation.directory && (
+                <a className='lmm-core-link' href='/ai-directory'>
+                  {t('AI directory')} <Arrow />
+                </a>
+              )}
             </div>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='4'>
@@ -274,9 +288,11 @@ export function HomeLanding({
                 'An idea becomes a tool. A tool opens a new path. Bring your imagination, and help shape what comes next.'
               )}
             </p>
-            <a className='lmm-core-link lmm-world-primary' href='/about'>
-              {t('Explore the project')} <Arrow />
-            </a>
+            {navigation.about && (
+              <a className='lmm-core-link lmm-world-primary' href='/about'>
+                {t('Explore the project')} <Arrow />
+              </a>
+            )}
           </section>
         </div>
       </section>
@@ -298,12 +314,15 @@ export function HomeLanding({
               'Chat, reasoning, vision, and audio models behind one endpoint.'
             )}
           </p>
-          <a className='lmm-text-link' href='/pricing'>
-            {t('Browse models')}
-            <Arrow diagonal />
-          </a>
+          {pricingAction}
         </div>
-        <HtmlCanvasMesh brandName={brandName} brandLogo={brandLogo} t={t} />
+        <HtmlCanvasMesh
+          brandName={brandName}
+          brandLogo={brandLogo}
+          pricingHref={pricingHref}
+          guideHref={navigation.guide ? '/guide' : null}
+          t={t}
+        />
       </section>
 
       <section
@@ -312,10 +331,12 @@ export function HomeLanding({
       >
         <div className='lmm-section-intro'>
           <h2 id='lmm-connect-title'>{t('Connect in three steps')}</h2>
-          <a className='lmm-text-link' href='/guide'>
-            {t('Read the guide')}
-            <Arrow />
-          </a>
+          {navigation.guide && (
+            <a className='lmm-text-link' href='/guide'>
+              {t('Read the guide')}
+              <Arrow />
+            </a>
+          )}
         </div>
         <div
           className='lmm-connection-method'
@@ -410,7 +431,7 @@ export function HomeLanding({
                     <Arrow diagonal />
                   </span>
                   <h3>{t('One endpoint')}</h3>
-                  <code>api.lmm.best</code>
+                  <code>{apiBaseUrl ?? t('API address unavailable')}</code>
                   <p className='lmm-panel-note'>
                     {t(
                       'After access approval, create a key and configure your app.'
@@ -449,7 +470,9 @@ export function HomeLanding({
         aria-labelledby='lmm-explore-title'
       >
         <div className='lmm-section-intro'>
-          <h2 id='lmm-explore-title'>{t('Explore LMM')}</h2>
+          <h2 id='lmm-explore-title'>
+            {t('Explore {{brand}}', { brand: brandName })}
+          </h2>
         </div>
         <div className='lmm-destinations'>{explore}</div>
       </section>
@@ -457,13 +480,15 @@ export function HomeLanding({
         className='lmm-section lmm-resources'
         aria-label={t('Account and access')}
       >
-        <details>
-          <summary>
-            {t('Scripts')}
-            <Arrow diagonal />
-          </summary>
-          <div className='lmm-resource-body'>{scripts}</div>
-        </details>
+        {scripts && (
+          <details>
+            <summary>
+              {t('Scripts')}
+              <Arrow diagonal />
+            </summary>
+            <div className='lmm-resource-body'>{scripts}</div>
+          </details>
+        )}
         <details>
           <summary>
             {t('Account and access')}
@@ -480,10 +505,12 @@ export function HomeLanding({
       <footer className='lmm-home-footer'>
         <div>
           <RepositoryLink kind='project' className='lmm-home-repository' />
-          <a className='lmm-text-link' href='/guide'>
-            {t('Read the guide')}
-            <Arrow />
-          </a>
+          {navigation.guide && (
+            <a className='lmm-text-link' href='/guide'>
+              {t('Read the guide')}
+              <Arrow />
+            </a>
+          )}
         </div>
         <span className='lmm-footer-brand'>
           {usesDefaultBrand ? (

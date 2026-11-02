@@ -53,7 +53,9 @@ import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { resolveApiBaseUrl } from '@/lib/api-base-url'
 import { isConsoleActivated } from '@/lib/console-activation'
+import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ForgePublicShell } from './forge-public-shell'
@@ -71,7 +73,7 @@ const HOME_SETUP_PROMPTS = [
   {
     label: 'Connect my API key',
     prompt:
-      'Help me connect an AI app to LMM step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.',
+      'Help me connect an AI app to {{brand}} step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.',
   },
   {
     label: 'Fix a connection issue',
@@ -158,11 +160,30 @@ export function ForgeHome() {
       'Continue client setup': t('Continue setup'),
     }[nextStep.label] ?? t(nextStep.label)
   const user = useAuthStore((state) => state.auth.user)
-  const { status } = useStatus()
+  const { status, loading: statusLoading } = useStatus()
+  const apiBaseUrl = status
+    ? resolveApiBaseUrl(
+        status.server_address ?? status.data?.server_address,
+        typeof window === 'undefined' ? '' : window.location.origin
+      )
+    : null
   const { systemName, logo } = useSystemConfig()
-  const securityLink = useTopNavLinks().find(
-    (link) => link.href === '/security'
-  )
+  const navLinks = useTopNavLinks('public')
+  const navigation = parseHeaderNavModulesFromStatus(status)
+  const pricingLink = navLinks.find((link) => link.href === '/pricing')
+  const visibleDestinations = EXPLORE_DESTINATIONS.filter(
+    (destination) =>
+      destination.id === 'market' ||
+      navLinks.some((link) => link.href === destination.href)
+  ).map((destination) => {
+    const link = navLinks.find((item) => item.href === destination.href)
+    return {
+      ...destination,
+      href: link?.requiresAuth
+        ? `/sign-in?redirect=${encodeURIComponent(link.href)}`
+        : destination.href,
+    }
+  })
   const rootRef = useRef<HTMLElement>(null)
   const [message, setMessage] = useState('')
   const [messageFocused, setMessageFocused] = useState(false)
@@ -172,6 +193,7 @@ export function ForgeHome() {
   const dshCopy = useCopyFeedback()
   const codewhaleCopy = useCopyFeedback()
   const codeCopy = useCopyFeedback()
+  const snippet = apiBaseUrl ? codeForTab(codeTab, apiBaseUrl) : ''
   const assistantEnabled = status?.assistant?.enabled !== false
   const messageInvalid = getAssistantPromptValidation(message).invalid
   const presetLanguage = i18n.resolvedLanguage || i18n.language || 'en'
@@ -242,6 +264,15 @@ export function ForgeHome() {
         rootRef={rootRef}
         brandName={systemName}
         brandLogo={logo}
+        apiBaseUrl={apiBaseUrl}
+        pricingHref={
+          pricingLink
+            ? pricingLink.requiresAuth
+              ? '/sign-in?redirect=%2Fpricing'
+              : pricingLink.href
+            : null
+        }
+        navigation={navigation}
         language={presetLanguage}
         connectionMethod={connectionMethod}
         onConnectionMethodChange={setConnectionMethod}
@@ -271,10 +302,18 @@ export function ForgeHome() {
           </Button>
         }
         pricingAction={
-          <Link to='/pricing' className='lmm-text-link'>
-            {t('View pricing')}
-            <ArrowRight aria-hidden='true' />
-          </Link>
+          pricingLink ? (
+            <Link
+              to={pricingLink.requiresAuth ? '/sign-in' : '/pricing'}
+              search={
+                pricingLink.requiresAuth ? { redirect: '/pricing' } : undefined
+              }
+              className='lmm-text-link'
+            >
+              {t('View pricing')}
+              <ArrowRight aria-hidden='true' />
+            </Link>
+          ) : null
         }
         topUpAction={
           user ? (
@@ -289,8 +328,12 @@ export function ForgeHome() {
             t={t}
             tab={codeTab}
             copied={codeCopy.copied}
+            code={snippet}
+            loading={statusLoading}
             onTabChange={setCodeTab}
-            onCopy={() => void codeCopy.copy(codeForTab(codeTab))}
+            onCopy={() => {
+              if (snippet) void codeCopy.copy(snippet)
+            }}
           />
         }
         assistant={
@@ -349,10 +392,16 @@ export function ForgeHome() {
             )}
             {!assistantEnabled && (
               <p className='text-muted-foreground mt-3 text-sm'>
-                {t('Assistant is unavailable. Open the guide to continue.')}{' '}
-                <Link to='/guide' className='underline underline-offset-4'>
-                  {t('Open guide')}
-                </Link>
+                {t(
+                  navigation.guide
+                    ? 'Assistant is unavailable. Open the guide to continue.'
+                    : 'Assistant unavailable'
+                )}{' '}
+                {navigation.guide && (
+                  <Link to='/guide' className='underline underline-offset-4'>
+                    {t('Open guide')}
+                  </Link>
+                )}
               </p>
             )}
             {assistantEnabled && (
@@ -361,7 +410,9 @@ export function ForgeHome() {
                   <button
                     key={preset.label}
                     type='button'
-                    onClick={() => startAssistant(t(preset.prompt))}
+                    onClick={() =>
+                      startAssistant(t(preset.prompt, { brand: systemName }))
+                    }
                   >
                     {t(preset.label)}
                     <ArrowRight className='size-3.5' aria-hidden='true' />
@@ -400,10 +451,12 @@ export function ForgeHome() {
                   </span>
                 </Button>
               </div>
-              <a href='/guide#client-setup' className='lmm-text-link'>
-                {t('Read the Pi OAuth setup steps')}
-                <ArrowRight aria-hidden='true' />
-              </a>
+              {navigation.guide && (
+                <a href='/guide#client-setup' className='lmm-text-link'>
+                  {t('Read the Pi OAuth setup steps')}
+                  <ArrowRight aria-hidden='true' />
+                </a>
+              )}
             </section>
 
             <section className='lmm-provider-item'>
@@ -431,10 +484,12 @@ export function ForgeHome() {
                   </span>
                 </Button>
               </div>
-              <a href='/guide#client-setup' className='lmm-text-link'>
-                {t('Open guide')}
-                <ArrowRight aria-hidden='true' />
-              </a>
+              {navigation.guide && (
+                <a href='/guide#client-setup' className='lmm-text-link'>
+                  {t('Open guide')}
+                  <ArrowRight aria-hidden='true' />
+                </a>
+              )}
             </section>
 
             <section className='lmm-provider-item'>
@@ -483,20 +538,15 @@ export function ForgeHome() {
         }
         explore={
           <div className='lmm-explore-console'>
-            <nav className='lmm-destinations' aria-label={t('Explore LMM')}>
-              {EXPLORE_DESTINATIONS.filter(
-                (destination) => destination.id !== 'security' || securityLink
-              ).map((destination) => {
-                const requiresAuth =
-                  destination.id === 'security' && securityLink?.requiresAuth
+            <nav
+              className='lmm-destinations'
+              aria-label={t('Explore {{brand}}', { brand: systemName })}
+            >
+              {visibleDestinations.map((destination) => {
                 return (
                   <a
                     key={destination.id}
-                    href={
-                      requiresAuth
-                        ? '/sign-in?redirect=%2Fsecurity'
-                        : destination.href
-                    }
+                    href={destination.href}
                     data-preview-active={
                       activeExplore === destination.id || undefined
                     }
@@ -519,12 +569,12 @@ export function ForgeHome() {
               {(() => {
                 const index = Math.max(
                   0,
-                  EXPLORE_DESTINATIONS.findIndex(
+                  visibleDestinations.findIndex(
                     (destination) => destination.id === activeExplore
                   )
                 )
                 const active =
-                  EXPLORE_DESTINATIONS[index] ?? EXPLORE_DESTINATIONS[0]
+                  visibleDestinations[index] ?? visibleDestinations[0]
                 return (
                   <>
                     <strong>{t(active.label)}</strong>
@@ -535,7 +585,7 @@ export function ForgeHome() {
             </div>
           </div>
         }
-        scripts={<PublicScriptsPanel />}
+        scripts={navigation.scripts ? <PublicScriptsPanel /> : null}
         purchase={<PurchaseJourney />}
       />
     </ForgePublicShell>

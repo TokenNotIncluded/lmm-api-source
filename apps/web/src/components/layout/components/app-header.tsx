@@ -46,8 +46,6 @@ import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { defaultTopNavLinks } from '../config/top-nav.config'
-import type { TopNavLink } from '../types'
 import { AccountBalanceBadge } from './account-balance-badge'
 import { Header } from './header'
 import { HeaderTools, type HeaderTool } from './header-tools'
@@ -56,7 +54,6 @@ import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
 
 type AppHeaderProps = {
-  navLinks?: TopNavLink[]
   showTopNav?: boolean
   leftContent?: React.ReactNode
   rightContent?: React.ReactNode
@@ -77,7 +74,6 @@ type AppHeaderProps = {
 }
 
 export function AppHeader({
-  navLinks = defaultTopNavLinks,
   showTopNav = true,
   leftContent,
   rightContent,
@@ -93,7 +89,7 @@ export function AppHeader({
   showStore = true,
 }: AppHeaderProps) {
   const dynamicLinks = useTopNavLinks()
-  const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
+  const links = dynamicLinks
   const { t } = useTranslation()
   const { status } = useStatus()
   const notifications = useNotifications()

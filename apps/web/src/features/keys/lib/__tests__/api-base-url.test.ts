@@ -4,7 +4,7 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { resolveApiBaseUrl } from '../api-base-url'
+import { resolveApiBaseUrl } from '@/lib/api-base-url'
 
 test('uses configured public API address and includes /v1 exactly once', () => {
   for (const suffix of ['', '/', '/v1', '/v1/', '/v1/v1']) {

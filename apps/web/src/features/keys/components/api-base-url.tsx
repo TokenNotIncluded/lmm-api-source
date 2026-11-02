@@ -6,9 +6,8 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { useStatus } from '@/hooks/use-status'
+import { resolveApiBaseUrl } from '@/lib/api-base-url'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
-
-import { resolveApiBaseUrl } from '../lib/api-base-url'
 
 export function ApiBaseUrl() {
   const { t } = useTranslation()

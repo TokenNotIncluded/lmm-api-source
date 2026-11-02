@@ -180,6 +180,7 @@ async function renderHome(
     registrationEnabled?: boolean
     component?: typeof ForgeHome
     headerNavModules?: string
+    serverAddress?: string
   } = {}
 ) {
   useAuthStore.getState().auth.setUser(user)
@@ -211,6 +212,7 @@ async function renderHome(
             assistant: { enabled: assistantEnabled },
             register_enabled: options.registrationEnabled ?? true,
             HeaderNavModules: options.headerNavModules,
+            server_address: options.serverAddress,
           },
         },
       }
@@ -254,6 +256,17 @@ async function renderHome(
   await act(flushEffects)
 
   return { container, queryClient, root, router }
+}
+
+async function selectApiExamples(container: HTMLElement) {
+  const toggle = Array.from(container.querySelectorAll('button')).find(
+    (button) => button.textContent === 'Other clients / API key'
+  )
+  assert.ok(toggle)
+  await act(async () => {
+    toggle.click()
+    await flushEffects()
+  })
 }
 
 async function unmountHome(rendered: Awaited<ReturnType<typeof renderHome>>) {
@@ -335,6 +348,68 @@ describe('ForgeHome code preview accessibility', () => {
 })
 
 describe('ForgeHome configured destinations', () => {
+  test('closed navigation stays closed across the shell and duplicate homepage entries', async () => {
+    const rendered = await renderHome(null, false, false, {
+      headerNavModules: JSON.stringify({
+        home: false,
+        console: false,
+        directory: false,
+        developers: false,
+        guide: false,
+        scripts: false,
+        webmcp: false,
+        signal: false,
+        challenges: false,
+        pricing: false,
+        rankings: false,
+        security: false,
+        docs: false,
+        about: false,
+      }),
+    })
+    try {
+      assert.equal(
+        rendered.container.querySelectorAll(
+          '.forge-public-nav-link, .forge-public-nav-link-active'
+        ).length,
+        0
+      )
+      assert.equal(
+        rendered.container.querySelectorAll('.home-directory-link').length,
+        0
+      )
+      for (const path of [
+        '/ai-directory',
+        '/pricing',
+        '/guide',
+        '/scripts',
+        '/challenges',
+        '/security',
+        '/about',
+      ]) {
+        assert.equal(
+          rendered.container.querySelectorAll(
+            `a[href="${path}"], a[href^="${path}#"]`
+          ).length,
+          0,
+          path
+        )
+      }
+      assert.equal(
+        rendered.container.querySelectorAll(
+          '.lmm-resource-body .public-scripts-panel'
+        ).length,
+        0
+      )
+      assert.ok(
+        rendered.container.querySelector('a[href="/tool-market"]'),
+        'independent tool market stays available'
+      )
+    } finally {
+      await unmountHome(rendered)
+    }
+  })
+
   test('hides the security destination when disabled and sends gated visitors to login', async () => {
     const hidden = await renderHome(null, true, false, {
       headerNavModules: JSON.stringify({
@@ -370,6 +445,85 @@ describe('ForgeHome configured destinations', () => {
 })
 
 describe('ForgeHome API examples', () => {
+  test('shows and copies the exact configured endpoint for every example', async () => {
+    const rendered = await renderHome(null, false, false, {
+      serverAddress: 'https://tenant.example.test:8443/gateway/v1/',
+    })
+    const previousClipboard = Object.getOwnPropertyDescriptor(
+      navigator,
+      'clipboard'
+    )
+    const copied: string[] = []
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          copied.push(value)
+        },
+      },
+    })
+    try {
+      await selectApiExamples(rendered.container)
+      assert.equal(
+        rendered.container.querySelector('.lmm-endpoint-panel > code')
+          ?.textContent,
+        'https://tenant.example.test:8443/gateway/v1'
+      )
+      for (const tab of rendered.container.querySelectorAll<HTMLButtonElement>(
+        '[role="tab"]'
+      )) {
+        await act(async () => {
+          tab.click()
+          await flushEffects()
+        })
+        const text = rendered.container.querySelector(
+          '.forge-home-code-block code'
+        )?.textContent
+        assert.ok(text)
+        assert.ok(text.includes('https://tenant.example.test:8443/gateway/'))
+        assert.equal(text.includes('api.lmm.best'), false)
+        const button = rendered.container.querySelector<HTMLButtonElement>(
+          '.forge-home-code-card button[aria-label="Copy"]'
+        )
+        assert.ok(button)
+        await act(async () => {
+          button.click()
+          await flushEffects()
+        })
+        assert.equal(copied.at(-1), text)
+      }
+      assert.equal(copied.length, 4)
+    } finally {
+      if (previousClipboard) {
+        Object.defineProperty(navigator, 'clipboard', previousClipboard)
+      } else {
+        Reflect.deleteProperty(navigator, 'clipboard')
+      }
+      await unmountHome(rendered)
+    }
+  })
+
+  test('an invalid configured endpoint cannot produce a copyable request to a fallback service', async () => {
+    const rendered = await renderHome(null, false, false, {
+      serverAddress: 'https://key:secret@tenant.example.test',
+    })
+    try {
+      await selectApiExamples(rendered.container)
+      const button = rendered.container.querySelector<HTMLButtonElement>(
+        '.forge-home-code-card button[aria-label="Copy"]'
+      )
+      assert.ok(button)
+      assert.equal(button.disabled, true)
+      assert.equal(
+        rendered.container.querySelector('.forge-home-code-block code')
+          ?.textContent,
+        'API address unavailable'
+      )
+    } finally {
+      await unmountHome(rendered)
+    }
+  })
+
   test('provides complete Claude and Gemini request bodies with JSON headers', async () => {
     const rendered = await renderHome(null)
     await act(async () => {

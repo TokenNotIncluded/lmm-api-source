@@ -21,7 +21,7 @@ import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
-const domWindow = new Window()
+const domWindow = new Window({ url: 'https://console.example.test/' })
 for (const key of [
   'window',
   'document',
@@ -39,7 +39,7 @@ for (const key of [
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { BrandLogo } = await import('./brand-logo')
-const { DEFAULT_SYSTEM_NAME, resolveSystemName } =
+const { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME, resolveSystemName } =
   await import('@/lib/constants')
 
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -53,20 +53,19 @@ describe('BrandLogo', () => {
   test('renders the default logo as an inline decorative SVG without an image URL', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)
-    await act(async () => root.render(<BrandLogo src='/logo.png' />))
+    await act(async () => root.render(<BrandLogo src={DEFAULT_LOGO} />))
 
     const mark = container.querySelector('svg')
     assert.ok(mark)
     assert.equal(mark.getAttribute('aria-hidden'), 'true')
     assert.equal(container.querySelector('img'), null)
-    assert.equal(container.innerHTML.includes('/logo.png'), false)
+    assert.equal(container.innerHTML.includes(DEFAULT_LOGO), false)
 
     await act(async () => root.unmount())
   })
 
-  test('normalizes current and cached legacy defaults to the LMM API mark', async () => {
+  test('preserves configured artwork even when it has a historical default filename', async () => {
     for (const src of [
-      '/lmm-api-mark.svg',
       '/lmm-cut-mark.svg',
       '/lmm-best-mark.svg',
       'https://api.lmm.best/logo.png?v=old',
@@ -76,19 +75,20 @@ describe('BrandLogo', () => {
       const container = document.createElement('div')
       const root = createRoot(container)
       await act(async () => root.render(<BrandLogo src={src} alt='LMM API' />))
-      assert.equal(container.querySelector('img'), null)
+      assert.equal(Boolean(container.querySelector('svg')), false, src)
+      assert.equal(container.querySelector('img')?.getAttribute('src'), src)
       assert.equal(
-        container.querySelector('svg')?.getAttribute('aria-label'),
+        container.querySelector('img')?.getAttribute('alt'),
         'LMM API'
       )
       await act(async () => root.unmount())
     }
   })
 
-  test('migrates stock system names while preserving tenant names', () => {
+  test('defaults missing names and preserves every explicitly configured name', () => {
+    assert.equal(resolveSystemName(undefined), DEFAULT_SYSTEM_NAME)
+    assert.equal(resolveSystemName('  '), DEFAULT_SYSTEM_NAME)
     for (const name of [
-      undefined,
-      '  ',
       'LMM Best',
       'lmm.best',
       'LMM API',
@@ -96,7 +96,7 @@ describe('BrandLogo', () => {
       'NewAPI',
       'LMM Forge',
     ]) {
-      assert.equal(resolveSystemName(name), DEFAULT_SYSTEM_NAME)
+      assert.equal(resolveSystemName(name), name)
     }
     assert.equal(resolveSystemName('  Example tenant  '), 'Example tenant')
   })
@@ -146,7 +146,7 @@ describe('BrandLogo', () => {
     assert.ok(image)
     assert.equal(image.getAttribute('src'), 'https://tenant.example/logo.svg')
     assert.equal(image.getAttribute('alt'), 'Example tenant logo')
-    assert.equal(container.querySelector('svg'), null)
+    assert.equal(Boolean(container.querySelector('svg')), false)
 
     await act(async () => root.unmount())
   })

@@ -140,6 +140,8 @@ async function mount() {
       <HtmlCanvasMesh
         brandName='Tenant Studio'
         brandLogo='https://assets.example.test/logo.svg'
+        pricingHref='/pricing'
+        guideHref='/guide'
         t={(key) => key}
       />
     )

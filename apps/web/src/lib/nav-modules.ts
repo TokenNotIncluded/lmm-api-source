@@ -19,9 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { getStatus } from '@/lib/api'
 import {
   cloneHeaderNavDefaults,
-  isHeaderNavAccessModule,
-  parseHeaderNavAccess,
-  parseHeaderNavBoolean,
+  parseHeaderNavModules,
   type HeaderNavModule,
   type HeaderNavModules,
   type ModuleAccess,
@@ -47,49 +45,7 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseHeaderNavRecord(raw: unknown): Record<string, unknown> | null {
-  if (isUnknownRecord(raw)) return raw
-  if (raw == null || String(raw).trim() === '') return null
-
-  try {
-    const parsed: unknown = JSON.parse(String(raw))
-    return isUnknownRecord(parsed) ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
-  const result = cloneHeaderNavDefaults()
-  const parsed = parseHeaderNavRecord(raw)
-  if (!parsed) return result
-
-  Object.entries(parsed).forEach(([key, value]) => {
-    if (isHeaderNavAccessModule(key)) {
-      // Runtime status treats arrays as invalid access objects.
-      result[key] = parseHeaderNavAccess(
-        Array.isArray(value) ? undefined : value,
-        result[key]
-      )
-      return
-    }
-
-    const fallback = result[key]
-    if (
-      typeof fallback === 'boolean' ||
-      typeof value === 'boolean' ||
-      typeof value === 'number' ||
-      typeof value === 'string'
-    ) {
-      result[key] = parseHeaderNavBoolean(
-        value,
-        typeof fallback === 'boolean' ? fallback : true
-      )
-    }
-  })
-
-  return result
-}
+export { parseHeaderNavModules } from '@/lib/header-nav-config'
 
 export function parseHeaderNavModulesFromStatus(
   status: Record<string, unknown> | null

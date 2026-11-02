@@ -16,12 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CODE_TABS, codeForTab, type CodeTab } from './home-code-examples'
+import { CODE_TABS, type CodeTab } from './home-code-examples'
 
 type CodePreviewProps = {
   t: (key: string) => string
   tab: CodeTab
   copied: boolean
+  code: string
+  loading: boolean
   onTabChange: (tab: CodeTab) => void
   onCopy: () => void
 }
@@ -30,6 +32,8 @@ export function CodePreview({
   t,
   tab,
   copied,
+  code,
+  loading,
   onTabChange,
   onCopy,
 }: CodePreviewProps) {
@@ -85,6 +89,7 @@ export function CodePreview({
             className='lmm-copy-button'
             type='button'
             onClick={onCopy}
+            disabled={!code}
             aria-label={t('Copy')}
           >
             <span aria-live='polite'>{copied ? t('Copied') : t('Copy')}</span>
@@ -95,7 +100,9 @@ export function CodePreview({
           tabIndex={0}
           aria-label={t('API Requests')}
         >
-          <code>{codeForTab(tab)}</code>
+          <code>
+            {code || t(loading ? 'Loading...' : 'API address unavailable')}
+          </code>
         </pre>
         <p className='forge-home-code-help'>
           {t(

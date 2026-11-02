@@ -227,8 +227,7 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   useEffect(() => {
     const { logo } = config
 
-    // The built-in brand is inline SVG. Never issue a request for the legacy
-    // bitmap sentinel; only tenant-provided logos need asynchronous loading.
+    // The built-in brand is inline SVG; configured logos load from their URL.
     if (isDefaultLogo(logo)) return
 
     // Skip if logo is already loaded

@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
+export type ModuleAccess = {
+  enabled: boolean
+  requireAuth: boolean
+  [key: string]: unknown
+}
 
 const HEADER_NAV_ACCESS_MODULES = ['rankings', 'pricing', 'security'] as const
 
@@ -27,6 +31,13 @@ export function isHeaderNavAccessModule(key: string): key is HeaderNavModule {
 }
 
 export type HeaderNavModules = {
+  directory: boolean
+  developers: boolean
+  guide: boolean
+  scripts: boolean
+  webmcp: boolean
+  signal: boolean
+  challenges: boolean
   home: boolean
   console: boolean
   pricing: ModuleAccess
@@ -34,10 +45,17 @@ export type HeaderNavModules = {
   security: ModuleAccess
   docs: boolean
   about: boolean
-  [key: string]: boolean | ModuleAccess
+  [key: string]: unknown
 }
 
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
+  directory: true,
+  developers: true,
+  guide: true,
+  scripts: true,
+  webmcp: true,
+  signal: true,
+  challenges: true,
   home: true,
   console: true,
   pricing: { enabled: true, requireAuth: false },
@@ -101,12 +119,39 @@ export function parseHeaderNavAccess(
       requireAuth: fallback.requireAuth,
     }
   }
-  if (raw && typeof raw === 'object') {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const record = raw as Record<string, unknown>
     return {
+      ...record,
       enabled: parseBoolean(record.enabled, fallback.enabled),
       requireAuth: parseBoolean(record.requireAuth, fallback.requireAuth),
     }
   }
   return { ...fallback }
+}
+
+/** Decode known switches while retaining extension fields verbatim for editing. */
+export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
+  const defaults = cloneHeaderNavDefaults()
+  let parsed: unknown = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return defaults
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return defaults
+  }
+  const record = parsed as Record<string, unknown>
+  const result = { ...defaults, ...record } as HeaderNavModules
+  for (const key of Object.keys(defaults)) {
+    if (isHeaderNavAccessModule(key)) {
+      result[key] = parseHeaderNavAccess(record[key], defaults[key])
+    } else {
+      result[key] = parseHeaderNavBoolean(record[key], defaults[key] as boolean)
+    }
+  }
+  return result
 }
