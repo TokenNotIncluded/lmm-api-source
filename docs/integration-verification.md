@@ -43,10 +43,13 @@ records. Provider tests use synthetic peers; no paid provider call was made.
 | Production Web build and Core executable build | Passed |
 | Historical channel accounting Python tests | 26 passed |
 | Fresh 45-component installation | Passed; its measured catalog equals the separate 44-to-45 additive construction |
+| Ignored payment gateway PostgreSQL follow-up | Passed after correcting five aggregate test expectations to include the already-configured Coinbase profile; all six profiles and balanced journals checked |
+| Ignored email PostgreSQL follow-up | All 17 cases passed from the current complete Core test executable, using a private PostgreSQL cluster and synthetic SMTP peers |
 
 The original Core failures and their follow-ups are separate evidence; the
-complete library suite was not rerun after those targeted fixes. Ignored email,
-payment and benchmark cases are not counted as passed. The trust service's
+complete library suite was not rerun after those targeted fixes. The separately
+run email and payment cases do not turn that historical aggregate into a green
+run; the ignored routing benchmark remains unrun. The trust service's
 23 tests, audio module's 10 tests, charging module's 73 tests and balance
 control's 7 tests passed within the complete library run.
 
@@ -85,6 +88,33 @@ a fresh production build. Its initial gzip bundle is 558670 bytes against the
 786432-byte limit. All 2742 frozen Web inputs remained unchanged through these
 checks. Older binary and selector failures remain separate evidence.
 
+## Independent trust-policy browser acceptance
+
+A different owner verified 27 cases against source
+81d2c65f86dc9637b5fb4d011f655196dc8e8be2, the Core executable above, a fresh
+private 45-component database and the actual bundled Web application. Actual
+login, offline enrollment and fingerprint approval, user-verified WebAuthn
+confirmation, persistent audit, reload, Core restart and editor revocation
+passed. Ordinary administrators, API keys and a runtime-forged root session
+with an unapproved security key could not change the policy. Wrong signed
+WebAuthn origin, stale preview, public-only export, cancellation and the
+390-pixel read-only page were also checked.
+
+The real Go host was built and its health endpoint checked, with modules set to
+none; trust-policy requests are owned by Core. Its executable SHA-256 is
+48c45ce698bf3e92165a0df20a2f1d04bd90e219d01a47ca47fed652e885ce95.
+This does not cover Go extension business or Core-Go RPC. The browser used a
+CTAP2 virtual authenticator with user verification. Physical keys, MFA-enabled
+accounts, elapsed TTL expiration, lost-commit recovery, existing-site upgrades
+and the full-site route/theme matrix remain unrun in this acceptance.
+
+Public results, artifact bindings, screenshots and runners are retained locally
+under ~/.cache/lmm-module-migration/evidence/core-go-trust-browser. Its private
+fixture processes were stopped and credentials removed. The payment and email
+follow-ups are recorded separately in gateway-proof-corrected.log and
+current-email-ignored; the earlier payment aggregate failure is retained.
+Only test expectations changed for that payment fix, not production logic.
+
 ## Still incomplete
 
 Streaming and other audio entry points, the full provider/format matrix,
@@ -94,7 +124,7 @@ acceptance remain open. The importer candidate is intentionally held for the
 final schema review; source-fingerprint rejection still blocks its dependent
 trust-import suite. No fingerprint was changed merely to make that suite pass.
 
-Real Core/Go browser business acceptance, full-app registration presentation,
-final million-record projection evidence, independent whole-business sign-off,
+Beyond the trust-policy slice above, real Core/Go browser business acceptance,
+final million-record projection evidence, independent whole-business sign-off
 and production deployment are not complete. No production user, account,
 business database or running service was changed by these local checks.

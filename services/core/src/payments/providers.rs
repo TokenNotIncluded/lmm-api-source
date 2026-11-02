@@ -1470,10 +1470,10 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(journals, 5);
+        assert_eq!(journals, 6);
         let balance: i64 = sqlx::query_scalar("SELECT balance_units FROM core_billing.balance_state b JOIN core_billing.ledger_accounts a ON a.id=b.ledger_account_id WHERE a.owner_account_id=$1 AND a.bucket='wallet'")
             .bind(payer).fetch_one(&pool).await.unwrap();
-        assert_eq!(balance, 2_500_000);
+        assert_eq!(balance, 3_000_000);
         let unbalanced: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) AS broken")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(unbalanced, 0);
@@ -1481,8 +1481,8 @@ mod tests {
             .site_statistics(&admin.secret)
             .await
             .unwrap();
-        assert_eq!(statistics.total_balance_credits, "2500000");
-        assert_eq!(statistics.recharge.confirmed_orders, 5);
+        assert_eq!(statistics.total_balance_credits, "3000000");
+        assert_eq!(statistics.recharge.confirmed_orders, 6);
         let virtual_units = &statistics.recharge.virtual_units;
         assert_eq!(virtual_units.len(), 1);
         assert_eq!(virtual_units[0].currency, "LDC");
@@ -1505,7 +1505,7 @@ mod tests {
                 &cash[1].gross_amount_micros[..],
                 cash[1].orders
             ),
-            ("USD", "3000000", 3)
+            ("USD", "4000000", 4)
         );
         sqlx::query(
             "UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE user_id=7301",
