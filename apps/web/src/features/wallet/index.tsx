@@ -140,14 +140,14 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user) as UserWalletData | null
   const projection = walletProjection(user)
-  const nativePayments =
+  const nativeCreditsAvailable =
     projection.native &&
     user?.financial_projection_available === true &&
     projection.available !== null
-  // An unknown historical money basis only permits the explicitly quoted
-  // native recharge path; do not infer permission for other money actions.
-  const nativeOtherActions =
-    nativePayments && user?.wallet_money_available !== false
+  // Credit-denominated subscriptions and rewards do not require a fiat basis.
+  // These facts permit loading the native workspaces, not authorizing a write:
+  // their APIs still enforce the current session, plan, campaign and balance.
+  // Recharge separately requires its provider catalog and explicit quote.
   const { refreshUser } = useAuthUserRefresh()
   const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
   const [refreshing, setRefreshing] = useState(false)
@@ -180,7 +180,7 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
-            {!nativePayments ? (
+            {!nativeCreditsAvailable ? (
               <Alert>
                 <AlertDescription>
                   {walletProjection(user).readOnly
@@ -193,18 +193,18 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
             ) : null}
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
             <WalletStatsCard user={user} />
-            {nativePayments ? <NativeWalletCheckout /> : null}
-            {nativeOtherActions ? (
+            {nativeCreditsAvailable ? <NativeWalletCheckout /> : null}
+            {nativeCreditsAvailable ? (
               <NativeWalletSubscriptions onUpdated={() => void refresh()} />
             ) : null}
-            {nativeOtherActions ? (
+            {nativeCreditsAvailable ? (
               <NativeWalletPromotions onUpdated={() => void refresh()} />
             ) : null}
             <div className='flex flex-wrap gap-2'>
-              {!nativePayments ? (
+              {!nativeCreditsAvailable ? (
                 <Button disabled>{t('Add funds')}</Button>
               ) : null}
-              {!nativeOtherActions ? (
+              {!nativeCreditsAvailable ? (
                 <Button variant='outline' disabled>
                   {t('Subscriptions')}
                 </Button>

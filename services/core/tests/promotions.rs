@@ -111,6 +111,16 @@ async fn redemption_codes_reserve_budget_and_recover_exact_issue_and_claim(pool:
     let runtime = runtime::RuntimeRole::create(&pool).await;
     runtime.optional("core_promotions").await;
     f.store = PromotionStore::new(runtime.pool.clone());
+    // A real zero-credit wallet with no fiat basis can receive a budgeted gift.
+    let mut connection = runtime.pool.acquire().await.unwrap();
+    let wallet = lmm_core::financial_profile::read_wallet(&mut connection, 8401)
+        .await
+        .unwrap();
+    assert!(wallet.financial_projection_available);
+    assert_eq!(wallet.quota, 0);
+    assert_eq!(wallet.wallet_money_basis, "unknown");
+    assert!(!wallet.wallet_money_available);
+    drop(connection);
     assert_eq!(
         f.store
             .save_campaign(
@@ -167,6 +177,14 @@ async fn redemption_codes_reserve_budget_and_recover_exact_issue_and_claim(pool:
         )
         .await
         .unwrap();
+    let mut connection = runtime.pool.acquire().await.unwrap();
+    let wallet = lmm_core::financial_profile::read_wallet(&mut connection, 8401)
+        .await
+        .unwrap();
+    assert_eq!(wallet.quota, 100);
+    assert_eq!(wallet.wallet_money_basis, "unknown");
+    assert!(!wallet.wallet_money_available);
+    drop(connection);
     assert_eq!(
         f.store
             .redeem(

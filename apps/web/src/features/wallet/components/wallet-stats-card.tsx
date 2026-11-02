@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
 import { cn } from '@/lib/utils'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -56,7 +57,7 @@ interface WalletStatsCardProps {
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const walletCurrency = useWalletCurrency()
   const { formatQuota, formatUserUsage } = walletCurrency
   const projection = walletProjection(props.user)
@@ -120,7 +121,15 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
       value:
         props.user?.financial_projection_available !== false &&
         (!projection.native || projection.history)
-          ? formatUserUsage(props.user)
+          ? projection.native
+            ? formatCumulativeUserUsage(
+                props.user,
+                (quota) =>
+                  nativeCreditDisplay(quota, t('Credits'), t('Unknown')),
+                t('Credits'),
+                i18n.language
+              )
+            : formatUserUsage(props.user)
           : t('Unavailable'),
       description: t('Total consumed quota'),
       icon: BarChart3,

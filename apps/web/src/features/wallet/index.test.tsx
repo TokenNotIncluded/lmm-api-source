@@ -128,6 +128,7 @@ const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
 const originalGet = api.get
 const originalPost = api.post
+const originalAdapter = api.defaults.adapter
 const mounted: Array<{
   root: ReturnType<typeof createRoot>
   container: HTMLDivElement
@@ -236,6 +237,8 @@ afterEach(async () => {
   }
   api.get = originalGet
   api.post = originalPost
+  api.defaults.adapter = originalAdapter
+  window.sessionStorage.clear()
   useAuthStore.getState().auth.reset('complete')
   window.sessionStorage.removeItem('wallet-pending-topup-cloud')
   window.localStorage.removeItem('wallet-topup-cloud:7')
@@ -492,6 +495,7 @@ async function renderWallet(
     topupRecords?: TopupRecord[]
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
+    nativeResponse?: (url: string, method: string, data: unknown) => unknown
     user?: Partial<AuthUser>
   } = {}
 ) {
@@ -506,6 +510,41 @@ async function renderWallet(
   }
   const refreshedUser = { ...user, quota: options.selfQuota ?? user.quota }
   useAuthStore.getState().auth.setUser(user)
+  if (user.wallet_unit === 'core_credit') {
+    useAuthStore.getState().auth.setBundle({
+      user,
+      access_token: 'synthetic-wallet-session',
+      token_type: 'Bearer',
+      access_expires_at: 9999999999,
+      session: {
+        sid: 'native-wallet-scope',
+        current: true,
+        login_method: 'password',
+        ip: null,
+        user_agent: null,
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 9999999999,
+      },
+    })
+    api.defaults.adapter = async (config) => {
+      const url = config.url ?? ''
+      const body = options.nativeResponse
+        ? options.nativeResponse(url, config.method ?? 'get', config.data)
+        : url.endsWith('/plans')
+          ? { contract: 'core.subscriptions.v1', plans: [] }
+          : url.endsWith('/purchases')
+            ? { contract: 'core.subscriptions.v1', purchases: [] }
+            : url.endsWith('/campaigns')
+              ? { contract: 'core.promotions.v1', campaigns: [] }
+              : url.endsWith('/history')
+                ? { contract: 'core.promotions.v1', claims: [] }
+                : (() => {
+                    throw new Error(`Unexpected native request: ${url}`)
+                  })()
+      return { data: body, status: 200, statusText: 'OK', headers: {}, config }
+    }
+  }
   api.get = (async (url) => ({
     data: {
       success: true,
@@ -593,7 +632,7 @@ test('unavailable ledger facts disable wallet writes without inventing zero amou
   queryClient.clear()
 })
 
-test('unknown historical money retains credits and restricts unquoted wallet actions', async () => {
+test('unknown historical money retains credits and loads native workspaces without enabling transfers', async () => {
   window.history.replaceState({}, '', '/wallet')
   const posts: string[] = []
   api.post = (async (url: string) => {
@@ -627,7 +666,9 @@ test('unknown historical money retains credits and restricts unquoted wallet act
     /280 Credits/
   )
   assert.equal(container.querySelector('#topup-amount'), null)
-  for (const label of ['Subscriptions', 'Transfer', 'Transfer to Balance']) {
+  assert.match(container.textContent ?? '', /No subscription plans yet/)
+  assert.ok(container.querySelector('#native-redeem-code'))
+  for (const label of ['Transfer', 'Transfer to Balance']) {
     const button = [
       ...container.querySelectorAll<HTMLButtonElement>('button'),
     ].find((item) => item.textContent?.trim() === label)
@@ -675,7 +716,7 @@ test('native recharge stays disabled for unavailable or unreadable wallet facts 
   }
 })
 
-test('unknown historical money allows only explicitly confirmed quoted native recharge', async () => {
+test('unknown historical money still requires explicitly confirmed quoted native recharge', async () => {
   window.history.replaceState({}, '', '/wallet')
   window.sessionStorage.clear()
   const posts: Array<{ url: string; data: Record<string, string> }> = []
@@ -734,7 +775,8 @@ test('unknown historical money allows only explicitly confirmed quoted native re
     /Credit conversion unavailable: USD \/ CNY — Unknown/
   )
   assert.equal(posts.length, 0)
-  assert.equal(button('Subscriptions').disabled, true)
+  assert.match(container.textContent ?? '', /No subscription plans yet/)
+  assert.ok(container.querySelector('#native-redeem-code'))
   assert.equal(button('Transfer').disabled, true)
   assert.equal(button('Transfer to Balance').disabled, true)
   await act(async () => {
@@ -2432,7 +2474,9 @@ test('preset savings stay outside the coupon zone until a verified manual code i
 test('invalid URL discount code reverts to regular price and allows checkout without error', async () => {
   window.history.replaceState({}, '', '/wallet?discount_code=EXPIRED')
   let validationCalled = 0
-  const validation = deferred<{ data: { success: boolean; message: string } }>()
+  const validation = deferred<{
+    data: { success: boolean; message: string }
+  }>()
   const quotes: AmountRequest[] = []
   api.post = v2PaymentPost((async (url, request) => {
     if (url === '/api/user/topup/currency/v2/discount-code/validate') {
@@ -2559,7 +2603,9 @@ test('typing a discount code draft and deleting it back to empty keeps Pay butto
 test('invalid URL discount code does not abort checkout when switching payment methods', async () => {
   window.history.replaceState({}, '', '/wallet?discount_code=EXPIRED')
   let validationCalled = 0
-  const validation = deferred<{ data: { success: boolean; message: string } }>()
+  const validation = deferred<{
+    data: { success: boolean; message: string }
+  }>()
   const wxpayQuote = deferred<{ data: { message: string; data: string } }>()
   const quotes: AmountRequest[] = []
 
@@ -2985,3 +3031,202 @@ for (const quotaPerUnit of [300000, 500000]) {
     })
   }
 }
+
+// Component regression with synthetic HTTP contracts, not backend acceptance.
+test('native wallet exposes credit subscriptions and rewards without fiat conversion or implicit writes', async () => {
+  const plan = {
+    id: 4,
+    revision: 1,
+    archived: false,
+    terms: {
+      title: 'Credit-only plan',
+      price_units: '100001',
+      duration_seconds: 3600,
+      reset_period: 'grant',
+      reset_seconds: 0,
+      limit_units: '170003',
+      models: ['*'],
+      groups: ['*'],
+      max_purchases_per_user: 0,
+      enabled: true,
+    },
+  }
+  const campaigns = (['checkin', 'envelope'] as const).map((kind, i) => ({
+    id: String(i + 1).repeat(64),
+    revision: 1,
+    spec: {
+      kind,
+      title: `${kind} credits`,
+      award_units: '230007',
+      budget_units: '920028',
+      max_claims: 4,
+      max_claims_per_user: 1,
+      starts_at: 1,
+      ends_at: 9999999999,
+      enabled: true,
+    },
+    spent_units: '0',
+    reserved_units: '0',
+    claims: 0,
+    reserved_claims: 0,
+  }))
+  const quote = {
+    id: 'a'.repeat(64),
+    plan,
+    starts_at: 1700000000,
+    ends_at: 1700003600,
+    expires_at: 9999999999,
+    renew_from: null,
+  }
+  for (const preference of ['USD', 'CNY'] as const) {
+    useWalletCurrencyPreferenceStore.getState().setPreference(preference)
+    const requests: Array<{ url: string; method: string }> = []
+    const { container, queryClient } = await renderWallet(true, {
+      quota: 500009,
+      user: {
+        financial_projection_available: true,
+        usage_projection_available: true,
+        wallet_unit: 'core_credit',
+        wallet_money_basis: 'unknown',
+        wallet_money_available: false,
+        wallet_spendable_quota: 500009,
+        wallet_reserved_quota: 0,
+        wallet_debt: 0,
+        used_quota: 300013,
+        normalized_used_quota: 300013,
+        request_count: 2,
+      },
+      nativeResponse: (url, method) => {
+        requests.push({ url, method })
+        if (url.endsWith('/plans')) {
+          return { contract: 'core.subscriptions.v1', plans: [plan] }
+        }
+        if (url.endsWith('/purchases')) {
+          return { contract: 'core.subscriptions.v1', purchases: [] }
+        }
+        if (url.endsWith('/campaigns')) {
+          return { contract: 'core.promotions.v1', campaigns }
+        }
+        if (url.endsWith('/history')) {
+          return { contract: 'core.promotions.v1', claims: [] }
+        }
+        if (url.endsWith('/quotes')) return quote
+        if (url.endsWith('/confirm')) {
+          return {
+            quote_id: quote.id,
+            status: 'posted',
+            purchase_id: 1,
+            subscription_id: 1,
+            journal_id: 1,
+            amount_units: '100001',
+            rejection: null,
+          }
+        }
+        const campaign = campaigns.find((c) => url.endsWith(`/${c.spec.kind}`))
+        if (campaign || url.endsWith('/redemptions')) {
+          return {
+            id: 'b'.repeat(64),
+            campaign_id: campaign?.id ?? 'c'.repeat(64),
+            amount_units: '230007',
+            journal_id: 2,
+            claimed_at: 1700000000,
+          }
+        }
+        throw new Error(`Unexpected native path: ${url}`)
+      },
+    })
+    const click = async (label: string) => {
+      const button = [
+        ...container.querySelectorAll<HTMLButtonElement>('button'),
+      ].find((item) => item.textContent?.trim() === label)
+      assert.ok(button && !button.disabled, label)
+      await act(async () => {
+        button.click()
+        await new Promise((r) => setTimeout(r, 20))
+      })
+    }
+    assert.match(container.textContent ?? '', /100,001 Core credits/)
+    assert.match(container.textContent ?? '', /230,007 Core credits/)
+    assert.match(
+      container.querySelector('#wallet-balance')?.textContent ?? '',
+      /300,013 Credits/
+    )
+    assert.equal(requests.filter((r) => r.method === 'post').length, 0)
+    await click('Preview purchase')
+    assert.match(container.textContent ?? '', /170,003 Core credits/)
+    assert.equal(requests.filter((r) => r.url.endsWith('/confirm')).length, 0)
+    await click('Confirm')
+    assert.match(
+      container.textContent ?? '',
+      /Subscription purchased successfully · 100,001 Core credits/
+    )
+    await click('Check In')
+    await click('Claim reward')
+    const input = container.querySelector<HTMLInputElement>(
+      '#native-redeem-code'
+    )
+    assert.ok(input)
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setValue)
+    await act(async () => {
+      setValue.call(input, `lmmr_${'x'.repeat(43)}`)
+      input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await click('Redeem')
+    assert.match(
+      container.textContent ?? '',
+      /Reward received · 230,007 Core credits/
+    )
+    assert.deepEqual(
+      requests.filter((r) => r.method === 'post').map((r) => r.url),
+      [
+        '/core/v1/subscriptions/quotes',
+        `/core/v1/subscriptions/quotes/${quote.id}/confirm`,
+        `/core/v1/promotions/campaigns/${campaigns[0].id}/checkin`,
+        `/core/v1/promotions/campaigns/${campaigns[1].id}/envelope`,
+        '/core/v1/promotions/redemptions',
+      ]
+    )
+    assert.doesNotMatch(container.textContent ?? '', /[$¥￥]|(?:USD|CNY)\s+\d/)
+    assert.equal(
+      useAuthStore.getState().auth.user?.wallet_money_available,
+      false
+    )
+    queryClient.clear()
+    for (const { root, container } of mounted.splice(0)) {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+    window.sessionStorage.clear()
+  }
+})
+
+test('native workspaces fail closed when their actual catalogs are unavailable', async () => {
+  const requests: string[] = []
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 500000,
+    user: {
+      financial_projection_available: true,
+      wallet_unit: 'core_credit',
+      wallet_money_basis: 'unknown',
+      wallet_money_available: false,
+    },
+    nativeResponse: (url, method) => {
+      requests.push(method)
+      throw new Error(`Unavailable module: ${url}`)
+    },
+  })
+  assert.match(container.textContent ?? '', /Request failed/)
+  assert.equal(
+    [...container.querySelectorAll('button')].some(
+      (b) => b.textContent === 'Preview purchase'
+    ),
+    false
+  )
+  assert.ok(requests.length > 0)
+  assert.ok(requests.every((method) => method === 'get'))
+  queryClient.clear()
+})

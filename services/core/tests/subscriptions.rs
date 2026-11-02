@@ -122,6 +122,17 @@ async fn wallet_purchase_renewal_cancellation_and_unused_refund_are_atomic(pool:
             .await,
         Err(Error::Forbidden)
     );
+    // Unknown historical fiat valuation must not disable native credit spending.
+    let mut connection = runtime.pool.acquire().await.unwrap();
+    let wallet = lmm_core::financial_profile::read_wallet(&mut connection, 8302)
+        .await
+        .unwrap();
+    assert!(wallet.financial_projection_available);
+    assert_eq!(wallet.wallet_unit, "core_credit");
+    assert_eq!(wallet.quota, 500_000);
+    assert_eq!(wallet.wallet_money_basis, "unknown");
+    assert!(!wallet.wallet_money_available);
+    drop(connection);
     let input = create("create_hourly_plan_01");
     let plan = f
         .store
@@ -147,6 +158,14 @@ async fn wallet_purchase_renewal_cancellation_and_unused_refund_are_atomic(pool:
     assert_eq!(f.store.confirm(&f.other, &q.id).await, Err(Error::NotFound));
     let first = f.store.confirm(&f.user, &q.id).await.unwrap();
     assert_eq!(first.status, "posted");
+    let mut connection = runtime.pool.acquire().await.unwrap();
+    let wallet = lmm_core::financial_profile::read_wallet(&mut connection, 8302)
+        .await
+        .unwrap();
+    assert_eq!(wallet.quota, 400_000);
+    assert_eq!(wallet.wallet_money_basis, "unknown");
+    assert!(!wallet.wallet_money_available);
+    drop(connection);
     assert_eq!(f.store.confirm(&f.user, &q.id).await.unwrap(), first);
     assert_eq!(
         f.ledger.balance(f.account).await.unwrap().available_units,

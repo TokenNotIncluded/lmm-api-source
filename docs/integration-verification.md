@@ -1,8 +1,35 @@
 # Current integration verification
 
-## Channel observations and audio Chat streams
+## Native credit wallet workspaces
 
-The current change extends source 2842ce19de058338f5b87628001753dd2c65cdb1.
+This change extends source 9d776409331130b263ebda6a42431ef578e52d44.
+A readable native-credit balance can load the existing subscription and reward
+workspaces when historical fiat valuation is unknown. The Core APIs still own
+session, account, plan, campaign, balance and budget authorization. Native usage
+stays in credits under USD or CNY display preferences. Quoted external recharge
+keeps its explicit confirmation; affiliate transfers remain a separate gap.
+Core production logic, public APIs, SQL and the component46 catalog are unchanged.
+
+The actual Wallet component suite passed 72 cases, including purchase preview
+before confirmation, redemption/check-in/envelope entry points, exact credits,
+USD/CNY preferences and unavailable catalogs. Those HTTP contracts are synthetic.
+All six subscription and promotion PostgreSQL tests passed using actual restricted
+runtime roles, including unknown fiat valuation before and after real credit
+spending or budgeted rewards. Typecheck, scoped lint/format and the production
+Web build passed; initial gzip is 558677 bytes against the 786432-byte budget.
+
+The frozen Web has 2748 input hashes and 545 output assets in
+~/.cache/lmm-module-migration/evidence/wallet46-web-frozen. Its binding file SHA is
+064cb16b2ccc10f5444d1a5eb2a9d6da8c42cbe584d40a35e04fee5fe3b7f898.
+The two actually executed Core test binaries and 576 combined compiler input
+hashes are preserved in wallet46-core-frozen. Independent real Core/browser
+wallet acceptance is still in progress; these self-tests do not prove process
+recovery, all financial workflows, Go payments or deployment. Original failures
+and unfinished payment, referral, import and production requirements remain.
+
+## Earlier channel observations and audio Chat streams
+
+That delivery extended source 2842ce19de058338f5b87628001753dd2c65cdb1.
 Component 46 stores model-directory observations separately from money and
 routing publication. Native channel statistics compare exact consumption,
 explicit balance units and scoped probe times before pagination. Unknowns stay
