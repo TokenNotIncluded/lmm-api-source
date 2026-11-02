@@ -173,6 +173,12 @@ async function renderPricing(defaultValues: PricingDefaults, probe = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  // This component test models the legacy options response without capabilities.
+  queryClient.setQueryData(['system-options'], {
+    success: true,
+    message: '',
+    data: [],
+  })
   const rootRoute = createRootRoute({
     component: () => (
       <QueryClientProvider client={queryClient}>

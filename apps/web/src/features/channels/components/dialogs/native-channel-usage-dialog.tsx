@@ -1,18 +1,24 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { isAxiosError } from 'axios'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ZodError } from 'zod'
 
 import { Dialog } from '@/components/dialog'
 import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatExactQuotaInCurrency } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
 
 import {
+  getNativeBalanceConfiguration,
+  saveNativeLegacyBalance,
+  type NativeBalanceConfiguration,
   getNativeChannelUsage,
   getNativeChannelCounters,
   type NativeChannelCounters,
@@ -225,6 +231,24 @@ export function NativeChannelUsageDialog({
             <>
               <dl className='space-y-2 text-sm'>
                 {[
+                  ...(counters.data.lifetime
+                    ? [
+                        [
+                          t('channelCounters.lifetime'),
+                          counters.data.lifetime.complete
+                            ? `${counters.data.lifetime.total_usd} USD`
+                            : t('Unknown'),
+                        ],
+                      ]
+                    : []),
+                  ...(counters.data.lifetime?.legacy_opening
+                    ? [
+                        [
+                          t('channelCounters.legacy'),
+                          `${counters.data.lifetime.legacy_opening.recorded_usd} USD`,
+                        ],
+                      ]
+                    : []),
                   [
                     t('channelCounters.native'),
                     amount(
@@ -260,7 +284,26 @@ export function NativeChannelUsageDialog({
                   </div>
                 ))}
               </dl>
-              {!counters.data.complete && (
+              {counters.data.lifetime?.legacy_opening && (
+                <div className='text-muted-foreground space-y-1 text-xs'>
+                  <p>{t('channelCounters.legacyNote')}</p>
+                  <p>
+                    {t('channelCounters.legacySource', {
+                      id: counters.data.lifetime.legacy_opening
+                        .source_channel_id,
+                      raw: count(
+                        counters.data.lifetime.legacy_opening.raw_used_quota
+                      ),
+                      basis: count(
+                        counters.data.lifetime.legacy_opening.credits_per_usd
+                      ),
+                    })}
+                  </p>
+                </div>
+              )}
+              {!(
+                counters.data.lifetime?.complete ?? counters.data.complete
+              ) && (
                 <p className='text-muted-foreground text-sm'>
                   {t('channelCounters.incomplete')}
                 </p>
@@ -269,6 +312,232 @@ export function NativeChannelUsageDialog({
           )}
         </section>
       )}
+      {countersEnabled && scope.role >= 10 && (
+        <NativeLegacyBalanceSettings
+          key={`${userId}:${sessionId}:${role}:${channelId}`}
+          scope={scope}
+          channelId={channelId}
+        />
+      )}
     </Dialog>
+  )
+}
+
+const legacyProviders = [
+  [1, 'OpenAI'],
+  [8, 'Custom'],
+  [10, 'AIProxy'],
+  [12, 'API2GPT'],
+  [13, 'AIGC2D'],
+  [20, 'OpenRouter'],
+  [25, 'Moonshot'],
+  [40, 'SiliconFlow'],
+  [43, 'DeepSeek'],
+] as const
+
+export function NativeLegacyBalanceSettings({
+  scope,
+  channelId,
+}: {
+  scope: NativeRoutingScope
+  channelId: number
+}) {
+  const { t } = useTranslation()
+  const formId = useId()
+  const [opened, setOpened] = useState(false)
+  const [snapshot, setSnapshot] = useState<NativeBalanceConfiguration | null>(
+    null
+  )
+  const [kind, setKind] = useState('')
+  const [rate, setRate] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [needsReload, setNeedsReload] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const pending = useRef(false)
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
+  const accept = (saved: NativeBalanceConfiguration) => {
+    setSnapshot(saved)
+    setKind(saved.legacy ? String(saved.legacy.channel_type) : '')
+    setRate(saved.legacy?.cny_per_usd ?? '')
+    setNeedsReload(false)
+  }
+  const report = (cause: unknown, writing: boolean) => {
+    const status = isAxiosError(cause) ? cause.response?.status : undefined
+    setError(
+      t(
+        cause instanceof ZodError && writing
+          ? 'Exchange rate must be greater than 0'
+          : status === 403
+            ? 'channelBalance.denied'
+            : status === 409
+              ? 'channelBalance.conflict'
+              : 'channelBalance.saveError'
+      )
+    )
+    if (writing && !(cause instanceof ZodError)) setNeedsReload(true)
+  }
+  async function load() {
+    if (pending.current) return
+    pending.current = true
+    setOpened(true)
+    setBusy(true)
+    setError(null)
+    try {
+      const saved = await getNativeBalanceConfiguration(scope, channelId)
+      if (active.current) accept(saved)
+    } catch (cause) {
+      if (active.current) {
+        report(cause, false)
+        setNeedsReload(true)
+      }
+    } finally {
+      pending.current = false
+      if (active.current) setBusy(false)
+    }
+  }
+  async function save(disable = false) {
+    if (pending.current || !snapshot || needsReload) return
+    pending.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const saved = await saveNativeLegacyBalance(
+        scope,
+        channelId,
+        snapshot.version,
+        disable
+          ? null
+          : {
+              channel_type: Number(kind),
+              ...(rate !== '' && ['25', '43'].includes(kind)
+                ? { cny_per_usd: rate }
+                : {}),
+            }
+      )
+      if (active.current) accept(saved)
+    } catch (cause) {
+      if (active.current) report(cause, true)
+    } finally {
+      pending.current = false
+      if (active.current) setBusy(false)
+    }
+  }
+  const unit =
+    ['1', '8', '20', '43'].includes(kind) || (kind === '25' && rate !== '')
+      ? 'USD'
+      : kind === '25'
+        ? 'CNY'
+        : kind === '10'
+          ? 'points'
+          : t('channelBalance.unitUnknown')
+  return (
+    <section
+      className='mt-6 space-y-3 border-t pt-4'
+      aria-label={`${t('channelBalance.configure')} · ${t('Automatic')}`}
+    >
+      {!opened ? (
+        <Button variant='outline' onClick={() => void load()}>
+          {t('channelBalance.configure')} · {t('Automatic')}
+        </Button>
+      ) : (
+        <form
+          className='space-y-3'
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (kind) void save()
+          }}
+        >
+          <h3 className='text-sm font-medium'>
+            {t('channelBalance.configure')} · {t('Automatic')}
+          </h3>
+          <p className='text-muted-foreground text-sm'>
+            {t('channelBalance.note')}
+          </p>
+          {snapshot?.probe && (
+            <p className='text-sm' role='status'>
+              {t('Manual')}: <code>{snapshot.probe.path}</code> →{' '}
+              {t('Automatic')}
+            </p>
+          )}
+          <Label htmlFor={`${formId}-provider`}>{t('Provider')}</Label>
+          <select
+            id={`${formId}-provider`}
+            value={kind}
+            disabled={busy || !snapshot || needsReload}
+            className='border-input bg-background h-11 w-full rounded-md border px-3 text-sm'
+            onChange={(event) => {
+              setKind(event.target.value)
+              setRate('')
+            }}
+          >
+            <option value=''>{t('None')}</option>
+            {legacyProviders.map(([id, name]) => (
+              <option key={id} value={id}>
+                {id} · {name === 'Custom' ? t('Custom') : name}
+              </option>
+            ))}
+            {kind && !legacyProviders.some(([id]) => String(id) === kind) && (
+              <option value={kind}>
+                {kind} · {t('Unknown')}
+              </option>
+            )}
+          </select>
+          {['25', '43'].includes(kind) && (
+            <div className='space-y-2'>
+              <Label htmlFor={`${formId}-rate`}>CNY / USD</Label>
+              <Input
+                id={`${formId}-rate`}
+                value={rate}
+                onChange={(event) => setRate(event.target.value)}
+                autoComplete='off'
+                inputMode='decimal'
+                disabled={busy || needsReload}
+              />
+            </div>
+          )}
+          {kind && (
+            <p className='text-muted-foreground text-sm'>
+              {t('channelBalance.unit')}: {unit}
+            </p>
+          )}
+          {error && (
+            <Alert variant='destructive' role='alert'>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {busy && <LoadingState inline message={t('Loading...')} />}
+          <div className='flex flex-wrap gap-2'>
+            <Button
+              type='submit'
+              disabled={busy || !snapshot || !kind || needsReload}
+            >
+              {t('Save')} · {t('Automatic')}
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              disabled={busy || !snapshot || needsReload}
+              onClick={() => void save(true)}
+            >
+              {t('Disable')}
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              disabled={busy}
+              onClick={() => void load()}
+            >
+              {t('Refresh')}
+            </Button>
+          </div>
+        </form>
+      )}
+    </section>
   )
 }

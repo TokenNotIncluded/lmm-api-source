@@ -5,6 +5,7 @@
 //! and image receipts are durable; unknown supplier usage retains its hold.
 pub(crate) mod assistant_execution;
 pub(crate) mod assistant_gift;
+pub mod audio;
 mod billing;
 mod catalog;
 pub(crate) mod channel_operations;
@@ -111,6 +112,7 @@ pub struct ModelGateway {
     catalog_surface: Arc<CatalogSurface>,
     oauth2: Option<crate::identity::grants::LmmIssuer>,
     images: Option<image_execution::ImageService>,
+    audio_rules: Arc<Vec<audio::AudioRule>>,
     systemone: systemone::Host,
     native_http: native_http::Host,
     channel_secret_key: Option<Arc<zeroize::Zeroizing<Vec<u8>>>>,
@@ -213,10 +215,17 @@ impl ModelGateway {
             catalog_surface,
             oauth2: None,
             images: None,
+            audio_rules: Arc::new(Vec::new()),
             channel_secret_key: None,
             #[cfg(test)]
             balance_probe_loopback: None,
         })
+    }
+
+    pub fn with_audio_rules(mut self, rules: Vec<audio::AudioRule>) -> Result<Self, RelayError> {
+        audio::http::validate_rules(&rules)?;
+        self.audio_rules = Arc::new(rules);
+        Ok(self)
     }
 
     pub(crate) fn with_image_service(mut self, images: image_execution::ImageService) -> Self {
@@ -469,6 +478,11 @@ impl ModelGateway {
                 .await
                 .map_err(|_| RelayError::BillingUnavailable)?;
         }
+        self.bridge
+            .charging
+            .reconcile_audio_receipts(limit)
+            .await
+            .map_err(billing::error)?;
         Ok(recovered.len())
     }
 
@@ -760,6 +774,9 @@ async fn chat(
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
     body: Bytes,
 ) -> Response {
+    if audio::http::handles(&gateway, &body) {
+        return audio::http::handle(gateway, headers, body, peer.ok().map(|p| p.0.ip())).await;
+    }
     dispatch(
         gateway,
         headers,
@@ -776,6 +793,11 @@ async fn responses(
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
     body: Bytes,
 ) -> Response {
+    if audio::http::handles(&gateway, &body) {
+        return public_error(RelayError::Unsupported(
+            "audio Responses contract is not configured",
+        ));
+    }
     dispatch(
         gateway,
         headers,
@@ -847,6 +869,12 @@ async fn dispatch(
         Ok(v) => v,
         Err(e) => return native::error_response(client, e),
     };
+    if audio::http::handles(&gateway, &body) {
+        return native::error_response(
+            client,
+            RelayError::Unsupported("audio requires its reviewed non-streaming Chat entry"),
+        );
+    }
     let parsed = if let Some(operation) = &native_operation {
         relay::native_gemini::parse(&operation.model, operation.stream, &body, &gateway.limits).map(
             |mut request| {
@@ -874,6 +902,17 @@ async fn dispatch(
         Ok(plans) => plans,
         Err(_) => return native::error_response(client, RelayError::RouteUnavailable),
     };
+    if plans.iter().any(|plan| {
+        gateway
+            .audio_rules
+            .iter()
+            .any(|rule| rule.price.model == plan.canonical_model())
+    }) {
+        return native::error_response(
+            client,
+            RelayError::Unsupported("audio model cannot use text billing"),
+        );
+    }
     let cross_group = if principal.key_id().is_some() {
         match gateway.identity.api_key_cross_group_retry(&secret).await {
             Ok(allowed) => allowed,

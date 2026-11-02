@@ -377,7 +377,21 @@ mod tests {
     }
     #[test]
     fn exact_predecessor_manifest_preserves_all_twenty_six_components() {
-        let predecessor = predecessor_components().unwrap();
+        let frozen = super::super::historical_fixture::preserved(26);
+        let predecessor = frozen.component_map();
+        assert_eq!(frozen.sha256(), PRE_MANIFEST);
+        assert!(matches!(
+            predecessor_components(),
+            Err(UpgradeError::Rejected(
+                "UPGRADE_DB_COMPILED_PREDECESSOR_DRIFT"
+            ))
+        ));
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected(
+                "UPGRADE_DB_COMPILED_PREDECESSOR_DRIFT"
+            ))
+        ));
         assert_eq!(predecessor.len(), 26);
         assert_eq!(
             predecessor["ledger"],

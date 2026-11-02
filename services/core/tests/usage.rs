@@ -115,6 +115,7 @@ fn spec(id: &str) -> ChargeRequest {
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

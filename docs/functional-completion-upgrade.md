@@ -1,7 +1,7 @@
 # 功能补齐批次的离线数据库升级
 
 本页对应 `core-functional-completion-v1`，将固定的 32 组件数据库升级为
-43 组件数据库。该程序只接受 PostgreSQL 18 和下列准确结构；不是通用 SQL
+44 组件数据库。该程序只接受 PostgreSQL 18 和下列准确结构；不是通用 SQL
 迁移器，也不会在服务启动时自动执行。真实历史数据导入、第三方支付验收和
 生产切换仍须按各自的验收流程执行。
 
@@ -11,11 +11,11 @@
 | --- | --- |
 | 原 32 组件 manifest | `9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829338331a4cd15` |
 | 原 PostgreSQL 18 catalog | `abe3979b376da869d4a05b32dda8c3ad33197497db7af16970d8c9b1153bc6ce` |
-| 新 43 组件 manifest | `见 completion_target.json 的 manifest_sha256` |
+| 新 44 组件 manifest | `见 completion_target.json 的 manifest_sha256` |
 | 新 PostgreSQL 18 catalog | `待本次隔离 PG18 实测后写入 completion_target.json` |
 
-本次 43 组件 catalog 必须从隔离 PostgreSQL 18 的真实 `init-db` 安装测量。
-测量前 target 中的未测标记会拒绝升级执行，不能沿用旧 41/42 组件指纹。
+本次 44 组件 catalog 必须从隔离 PostgreSQL 18 的真实 `init-db` 安装测量。
+测量前 target 中的未测标记会拒绝升级执行，不能沿用旧 41/42/43 组件指纹。
 编译进程序的目标位于 `services/core/src/core_schema/upgrade/completion_target.json`。
 `schema-manifest` 的完整原始 JSON（包括末尾换行）用于计算 manifest 哈希；
 catalog 则按 manifest 中的查询和长度前缀算法计算，不能对 SQL 文本或格式化后的
@@ -27,7 +27,7 @@ JSON 另算一个哈希来替代。
 不会生成、恢复或向客户端返回该密钥。
 
 原 32 组件前驱指纹及 `core-functional-completion-v1` 协议保持固定；请求必须
-显式绑定当前 43 组件 successor，旧目标请求不会被解释为批准新目标。
+显式绑定当前 44 组件 successor，旧目标请求不会被解释为批准新目标。
 
 ## 执行前的具体材料
 
@@ -62,7 +62,7 @@ PostgreSQL system identifier、server version 和四个角色名，生成一份�
   },
   "predecessor_manifest_sha256": "9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829338331a4cd15",
   "predecessor_catalog_sha256": "abe3979b376da869d4a05b32dda8c3ad33197497db7af16970d8c9b1153bc6ce",
-  "successor_manifest_sha256": "replace_with_current_43_component_manifest_sha256"
+  "successor_manifest_sha256": "replace_with_current_44_component_manifest_sha256"
 }
 ```
 

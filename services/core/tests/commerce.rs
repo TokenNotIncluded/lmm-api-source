@@ -542,6 +542,7 @@ async fn model_and_commerce_on_distinct_wallets_cannot_exceed_shared_user_cap(po
         price: ModelPrice {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
             user_trust: None,
             image: None,

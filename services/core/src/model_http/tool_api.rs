@@ -273,6 +273,7 @@ async fn execute(
         ))?;
     let price = charging::Price {
         text_request: None,
+        audio: None,
         grounding: None,
 
         tool: Some(tariff),

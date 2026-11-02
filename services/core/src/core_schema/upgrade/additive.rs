@@ -149,9 +149,18 @@ pub(super) fn validate(r: &UpgradeRequest) -> Result<(), UpgradeError> {
 
 pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     compiled_predecessor()?;
-    if COMPONENTS.iter().any(|(name, ddl)| {
-        *name == "ledger" && hex(&Sha256::digest(ddl)) != super::ledger::PRE_LEDGER
-    }) {
+    let ledger = COMPONENTS
+        .iter()
+        .find(|(name, _)| *name == "ledger")
+        .ok_or(UpgradeError::Storage)?
+        .1;
+    authorize_ledger_target(ledger)
+}
+
+// Keep this boundary independently testable when newer component sets already
+// fail the earlier preserved-installer gate. No authorization order changes.
+fn authorize_ledger_target(ddl: &str) -> Result<(), UpgradeError> {
+    if hex(&Sha256::digest(ddl)) != super::ledger::PRE_LEDGER {
         return Err(reject("UPGRADE_DB_USE_PRESERVED_26_INSTALLER"));
     }
     Ok(())

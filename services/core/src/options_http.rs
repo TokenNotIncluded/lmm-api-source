@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
+pub mod trust_policy;
 mod writes;
 
 /// Public, effective configuration; never pass raw TOML or secret references.
@@ -35,25 +36,38 @@ pub struct OptionsHttp {
     pool: PgPool,
     identity: IdentityStore,
     runtime: RuntimeOptions,
+    trust_policy_editor: Option<trust_policy::Service>,
 }
 
 impl OptionsHttp {
+    /// Call only after component/key/ACL checks have succeeded.
+    pub fn with_trust_policy_editor(mut self, editor: trust_policy::Service) -> Self {
+        self.trust_policy_editor = Some(editor);
+        self
+    }
+
     pub fn new(pool: PgPool, identity: IdentityStore, runtime: RuntimeOptions) -> Self {
         Self {
             pool,
             identity,
             runtime,
+            trust_policy_editor: None,
         }
     }
 }
 
 pub fn router(state: OptionsHttp) -> Router {
-    Router::new()
+    let editor = state.trust_policy_editor.clone();
+    let routes = Router::new()
         .route("/api/option/", get(read).put(writes::write))
         .route("/api/option", get(read).put(writes::write))
         .route("/api/option/bulk", post(writes::bulk))
         .route("/api/option/validate", post(writes::validate))
-        .with_state(state)
+        .with_state(state);
+    match editor {
+        Some(editor) => routes.merge(trust_policy::http::router(editor)),
+        None => routes,
+    }
 }
 
 #[derive(Serialize)]
@@ -169,7 +183,7 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
                 "partial":true,
                 "writable_keys":["Notice","Announcements","console_setting.announcements"],
                 "model_price_locks":false,
-                "trust_level_benefits":false
+                "trust_level_benefits":state.trust_policy_editor.is_some()
             }
         }),
     )

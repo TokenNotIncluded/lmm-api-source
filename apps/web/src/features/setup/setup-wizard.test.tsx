@@ -5,6 +5,11 @@ import { after, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 const dom = new Window({ url: 'http://localhost/setup' })
+// happy-dom rejects animation.finished on cancellation; use motion's JS fallback.
+Object.defineProperty(dom.HTMLElement.prototype, 'animate', {
+  configurable: true,
+  value: undefined,
+})
 dom.document.write('<!doctype html><html><head></head><body></body></html>')
 for (const key of [
   'window',

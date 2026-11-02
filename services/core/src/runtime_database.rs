@@ -8,6 +8,8 @@ mod account_security;
 mod assistant_agent;
 #[path = "runtime_channel_accounting.rs"]
 mod channel_accounting;
+#[path = "runtime_channel_projection.rs"]
+mod channel_projection;
 #[path = "runtime_operations.rs"]
 mod operations;
 #[path = "runtime_product_features.rs"]
@@ -16,6 +18,8 @@ mod product_features;
 mod telegram;
 #[path = "runtime_tool_market_credit.rs"]
 mod tool_market_credit;
+#[path = "runtime_trust_policy.rs"]
+mod trust_policy;
 
 #[derive(Clone, Copy, Default)]
 pub struct RequiredCapabilities {
@@ -34,6 +38,7 @@ pub struct RequiredCapabilities {
     pub market_oauth: bool,
     pub wallet: bool,
     pub bounties: bool,
+    pub trust_policy_editor: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,11 +237,7 @@ pub(crate) async fn check_connection(
         return Err(RuntimeDatabaseError::UnsafePrivileges);
     }
 
-    let trust_function_grant:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='core_trust_pricing' AND has_function_privilege(p.oid,'EXECUTE'))")
-        .fetch_one(&mut *connection).await?;
-    if trust_function_grant {
-        return Err(RuntimeDatabaseError::UnsafePrivileges);
-    }
+    trust_policy::check(connection, required.trust_policy_editor).await?;
     if required.models || required.images || required.assistant || required.assistant_agent {
         let trust_visible:bool=sqlx::query_scalar("SELECT COALESCE((SELECT has_schema_privilege(n.oid,'USAGE') FROM pg_namespace n WHERE n.nspname='core_trust_pricing'),false)")
             .fetch_one(&mut *connection).await?;
@@ -256,6 +257,7 @@ pub(crate) async fn check_connection(
     product_features::check(connection, required.console).await?;
     account_security::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;
+    channel_projection::check(connection, required.models).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
 
     // Identity is always mounted when the runtime has a database. Normal identity

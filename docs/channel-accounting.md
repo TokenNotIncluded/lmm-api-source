@@ -39,9 +39,27 @@ opening import, provider-cost accounting or complete legacy statistics parity.
 
 `PUT /core/v1/admin/routing/channels/{id}/balance-config` takes
 `{expected_version,probe}` under the existing sensitive-write permission.
-`probe` is null or `{path,json_pointer,unit_label}`: a same-origin relative GET
-path, an RFC 6901 JSON pointer and an optional unit label. This explicit plan is
-not automatic provider-specific balance discovery.
+`probe` is null or `{path,json_pointer,unit_label,subtract_json_pointer?,require?,require_all?,auth?,cny_per_usd?,deepseek_currency_array?,openai_subscription?}`: a
+same-origin relative GET path, an RFC 6901 JSON pointer, an optional unit label,
+and optionally a second RFC 6901 pointer. When the second pointer is present,
+the observed finite number is the first selected numeric value minus the second;
+missing, invalid, non-finite or credential-reflecting values fail without changing
+the stored observation. Optional `require` is `{json_pointer,equals}`; the
+pointer must select exactly the supplied non-null JSON boolean, number or bounded
+string before any balance is accepted. Missing or unequal status fails without
+changing the observation. Optional `require_all` is a nonempty array of at most eight such requirements; every predicate must match, in addition to `require` when supplied. Each pointer and scalar has the same validation and credential-confidentiality rules. This allows a Moonshot-shaped response to require both `/status == true` and `/code == 0`. An optional explicit positive finite decimal-string `cny_per_usd` divides the selected CNY value by that operator-supplied rate and rounds to 16 decimal places as the legacy provider conversion did; it requires `unit_label` to be `USD` and cannot be combined with subtraction. The rate is publication configuration, not an inferred historical rate or financial ledger conversion. Optional `deepseek_currency_array: true` requires `json_pointer: /balance_infos`, USD output and no subtraction. It selects the first USD entry (ignoring surrounding currency whitespace/case); otherwise the first CNY entry requires an explicitly supplied positive `cny_per_usd` and is converted as above. Selected amounts must be finite nonnegative strings; an invalid first USD entry is not skipped in favour of CNY. Optional `openai_subscription: true` selects an explicit legacy OpenAI-style two-GET plan: first `/v1/dashboard/billing/subscription`, then same-origin `/v1/dashboard/billing/usage` with generated `start_date` and `end_date` in the host local calendar. Start is the first of the current month when `has_payment_method` is true, otherwise 100 calendar days earlier; end is today. It computes `hard_limit_usd - total_usage / 100`, requires explicit USD output, Bearer auth, those fixed fields and paths, and rejects malformed or non-finite responses without altering the previous observation. No user-controlled query, redirect, credentials or arbitrary second URL is allowed. It cannot be combined with other selectors or transformations. No automatic adapter discovery is implied. No credential may appear in this configuration. For
+example, a manually configured SiliconFlow-shaped probe may require `/code` to
+be the number `20000` and read `/data/totalBalance`; this is not automatic
+provider discovery. Optional `auth` may be `api_key` to send the stored credential
+as `Api-Key` instead of protocol-default authentication; arbitrary header names,
+credential values and query secrets are not accepted. An AIProxy-shaped response
+can be configured with `auth:api_key`, `/success == true` and
+`/data/totalPoints`, without making any external call during configuration.
+Existing probes omit these optional fields and retain their meaning. This explicit plan can express OpenRouter's credits minus usage on a
+configured same-origin endpoint, but is not automatic provider-specific balance
+discovery or complete legacy adapter parity. A publication containing these new
+fields requires a Core version that understands them; older Core versions must not
+be used to recover that publication.
 
 `GET /core/v1/admin/routing/channels/{id}/balance` requires ChannelOperate and
 uses the channel's existing server-side credential. The request uses the normal

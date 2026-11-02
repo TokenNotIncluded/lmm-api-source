@@ -94,6 +94,10 @@
 \else
 \set enable_trust_pricing false
 \endif
+\if :{?enable_trust_policy_editor}
+\else
+\set enable_trust_policy_editor false
+\endif
 -- Native production model/image/assistant entrypoints require Core-owned trust.
 \if :enable_models
 \set enable_trust_pricing true
@@ -306,6 +310,12 @@ GRANT UPDATE(retired_at) ON core_channels.identities TO :"runtime_role";
 GRANT UPDATE(balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at)
     ON core_channels.balance_observations TO :"runtime_role";
 -- END channel-accounting runtime grants
+-- BEGIN channel-projection runtime grants
+GRANT SELECT,INSERT,UPDATE,DELETE ON core_channels.usage_contributions,core_channels.usage_rollups TO :"runtime_role";
+GRANT SELECT,DELETE ON core_channels.projection_dirty TO :"runtime_role";
+GRANT SELECT ON core_channels.projection_state,core_channels.opening_sources,core_channels.opening_baselines TO :"runtime_role";
+GRANT INSERT ON core_channels.opening_baselines TO :"runtime_role";
+-- END channel-projection runtime grants
 GRANT EXECUTE ON FUNCTION public.routing_control_read(),
     public.routing_control_publish(jsonb,jsonb,bigint,bigint),
     public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),
@@ -558,5 +568,22 @@ GRANT USAGE ON SCHEMA core_trust_pricing,core_payments,core_charging TO :"runtim
 GRANT SELECT ON core_payments.intents,core_charging.requests,core_charging.usage_events TO :"runtime_role";
 GRANT SELECT ON core_trust_pricing.policies, core_trust_pricing.user_bases,
     core_trust_pricing.legacy_paid_orders TO :"runtime_role";
+\endif
+\if :enable_trust_policy_editor
+-- Independent editor keys, enrollments, challenges, previews and audit rows stay owner-only.
+GRANT USAGE ON SCHEMA core_trust_pricing TO :"runtime_role";
+GRANT SELECT ON core_trust_pricing.policies TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION
+    core_trust_pricing.read_policy_edit_description(bigint),
+    core_trust_pricing.read_policy_editors(bigint),
+    core_trust_pricing.policy_editor_ready(bytea),
+    core_trust_pricing.policy_edit_binding(text,jsonb),
+    core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea),
+    core_trust_pricing.authorized_policy_resolve(bytea,bigint,bigint,bytea),
+    core_trust_pricing.policy_editor_context(text,bigint),
+    core_trust_pricing.authorized_policy_challenge(jsonb,bytea),
+    core_trust_pricing.policy_challenge_context(bytea,bytea,bigint,bigint),
+    core_trust_pricing.authorized_policy_confirm(jsonb,bytea)
+TO :"runtime_role";
 \endif
 COMMIT;

@@ -44,11 +44,16 @@ describe('public model API details', () => {
       'buildChatSample',
       'buildAnthropicSample',
       'buildGeminiSample',
-      'buildEmbeddingSample',
       'buildImageSample',
     ]) {
       assert.equal(apiSource.includes(`function ${sampleBuilder}`), true)
     }
+    // Embeddings share the native-operation sample builder after extraction.
+    assert.match(
+      apiSource,
+      /\['embeddings', 'jina-rerank', 'deepseek-search', 'deepseek-fetch'\]/
+    )
+    assert.match(apiSource, /return buildNativeApiSample\(lang, ctx\)/)
     assert.equal(apiSource.includes('props.endpointMap[type]'), true)
     assert.equal(apiSource.includes('replaceModelInPath'), true)
     assert.equal(apiSource.includes('<CodeSamplesSection'), true)

@@ -429,9 +429,41 @@ test('copied display counters keep nullable observations and unknown history wit
   assert.equal(read.balance.recorded_at, null)
   assert.equal(read.native.net_used_credits, '9007199254740992')
   assert.equal(read.combined.net_used_credits, '9007199254740996')
+  const lifetime = {
+    basis: 'legacy_recorded_plus_native',
+    complete: false,
+    total_usd: null,
+    exact_usd_numerator: null,
+    exact_usd_denominator: null,
+    legacy_opening: {
+      kind: 'imported',
+      source_channel_id: '9',
+      raw_used_quota: '-9223372036854775808',
+      credits_per_usd: '3',
+      recorded_usd: '-3074457345618258602.666666666666666667',
+      observed_at: null,
+      archive_sha256: 'a'.repeat(64),
+    },
+  }
+  payload = { ...counters, lifetime }
+  assert.deepEqual(
+    (await getNativeChannelCounters(scope, 1)).lifetime,
+    lifetime
+  )
   for (const invalid of [
     { ...counters, used_quota: '0' },
     { ...counters, complete: true },
+    { ...counters, lifetime: { ...lifetime, total_usd: '0' } },
+    {
+      ...counters,
+      lifetime: {
+        ...lifetime,
+        complete: true,
+        total_usd: '0',
+        exact_usd_numerator: '0',
+        exact_usd_denominator: '1',
+      },
+    },
     { ...counters, combined: { ...counters.combined, net_used_credits: '0' } },
     {
       ...counters,
@@ -441,4 +473,142 @@ test('copied display counters keep nullable observations and unknown history wit
     payload = invalid
     await assert.rejects(getNativeChannelCounters(scope, 1))
   }
+})
+
+test('legacy balance configuration reads exact metadata and explicitly replaces or disables probes', async () => {
+  const { getNativeBalanceConfiguration, saveNativeLegacyBalance } =
+    await import('./native-api')
+  const scope = login()
+  let version = { routing: 4, pricing: 3 }
+  const legacy = { channel_type: 25, cny_per_usd: '7.2500' }
+  const manual = {
+    path: '/balance',
+    json_pointer: '/data/amount',
+    unit_label: 'USD',
+    require: { json_pointer: '/success', equals: true },
+  }
+  let requestedLegacy: typeof legacy | null = legacy
+  let calls = 0
+  api.defaults.adapter = async (config) => {
+    calls++
+    let data: unknown
+    if (config.method === 'get') {
+      assert.equal(config.url, '/core/v1/admin/routing/configuration')
+      data = {
+        version,
+        routing: {
+          version: 4,
+          upstreams: [
+            {
+              id: 1,
+              endpoint: 'https://provider.example',
+              protocol: 'openai_chat',
+              credential: { id: 1, revision: 1 },
+              enabled: true,
+            },
+          ],
+          routes: [],
+          groups: [],
+          aliases: [],
+        },
+        prices: { version: 3, rules: [] },
+        secret_storage_enabled: true,
+        bindings: {
+          names: {},
+          contexts: [],
+          vendors: {},
+          models: {},
+          discoveries: {},
+          price_drafts: {},
+          legacy_balance: { '1': legacy },
+          balance_probes: { '1': manual },
+        },
+      }
+    } else {
+      assert.equal(
+        config.url,
+        '/core/v1/admin/routing/channels/1/balance-config'
+      )
+      assert.deepEqual(JSON.parse(String(config.data)), {
+        expected_version: version,
+        probe: null,
+        legacy: requestedLegacy,
+      })
+      data = {
+        version: { routing: version.routing + 1, pricing: version.pricing },
+        probe: null,
+        legacy: requestedLegacy,
+      }
+    }
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: { success: true, data },
+    }
+  }
+  assert.deepEqual(await getNativeBalanceConfiguration(scope, 1), {
+    version,
+    probe: manual,
+    legacy,
+  })
+  const saved = await saveNativeLegacyBalance(scope, 1, version, legacy)
+  assert.deepEqual(saved.legacy, legacy)
+  version = saved.version
+  requestedLegacy = null
+  assert.equal(
+    (await saveNativeLegacyBalance(scope, 1, version, null)).legacy,
+    null
+  )
+  const before = calls
+  for (const rate of ['0', '-1', 'NaN', ' 7', '7 ', '1e999', '0x10']) {
+    await assert.rejects(
+      saveNativeLegacyBalance(scope, 1, version, {
+        channel_type: 25,
+        cny_per_usd: rate,
+      })
+    )
+  }
+  await assert.rejects(
+    saveNativeLegacyBalance(scope, 1, version, {
+      channel_type: 20,
+      cny_per_usd: '7',
+    })
+  )
+  await assert.rejects(
+    saveNativeLegacyBalance(
+      { ...scope, sessionId: 'stale' },
+      1,
+      version,
+      legacy
+    )
+  )
+  assert.equal(calls, before)
+})
+
+test('legacy balance writes reject incomplete receipts without replaying', async () => {
+  const { saveNativeLegacyBalance } = await import('./native-api')
+  const scope = login()
+  let calls = 0
+  api.defaults.adapter = async (config) => {
+    calls++
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: { success: true, data: { version: { routing: 2, pricing: 1 } } },
+    }
+  }
+  await assert.rejects(
+    saveNativeLegacyBalance(
+      scope,
+      1,
+      { routing: 1, pricing: 1 },
+      { channel_type: 43 }
+    ),
+    /unknown/
+  )
+  assert.equal(calls, 1)
 })

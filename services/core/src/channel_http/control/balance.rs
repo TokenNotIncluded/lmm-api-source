@@ -2,31 +2,116 @@
 use super::*;
 use sqlx::{PgConnection, Row};
 
+pub(super) mod legacy;
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BalanceProbe {
     pub path: String,
     pub json_pointer: String,
     pub unit_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtract_json_pointer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require: Option<BalanceRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_all: Option<Vec<BalanceRequirement>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cny_per_usd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepseek_currency_array: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openai_subscription: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<BalanceAuth>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BalanceAuth {
+    ApiKey,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BalanceRequirement {
+    pub json_pointer: String,
+    pub equals: Value,
 }
 impl BalanceProbe {
     /// Validate configuration at the publication boundary, including RFC 6901 escapes.
     pub(crate) fn validate(&self) -> Result<(), ManagementError> {
-        let mut chars = self.json_pointer.chars();
+        fn valid_pointer(pointer: &str) -> bool {
+            let mut chars = pointer.chars();
+            if chars.next() != Some('/') {
+                return false;
+            }
+            while let Some(c) = chars.next() {
+                if c == '~' && !matches!(chars.next(), Some('0' | '1')) {
+                    return false;
+                }
+            }
+            true
+        }
+        if self
+            .require_all
+            .as_ref()
+            .is_some_and(|requirements| requirements.is_empty() || requirements.len() > 8)
+            || (self.openai_subscription == Some(true)
+                && (self.path != "/v1/dashboard/billing/subscription"
+                    || self.json_pointer != "/hard_limit_usd"
+                    || self.unit_label.as_deref() != Some("USD")
+                    || self.subtract_json_pointer.is_some()
+                    || self.require.is_some()
+                    || self.require_all.is_some()
+                    || self.cny_per_usd.is_some()
+                    || self.deepseek_currency_array == Some(true)
+                    || self.auth.is_some()))
+            || (self.deepseek_currency_array == Some(true)
+                && (self.json_pointer != "/balance_infos"
+                    || self.unit_label.as_deref() != Some("USD")
+                    || self.subtract_json_pointer.is_some()))
+            || self.cny_per_usd.as_ref().is_some_and(|rate| {
+                rate.len() > 32
+                    || rate.trim() != rate
+                    || !rate.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0)
+                    || self.unit_label.as_deref() != Some("USD")
+                    || self.subtract_json_pointer.is_some()
+            })
+        {
+            return Err(ManagementError::Invalid);
+        }
         if !crate::model_http::channel_operations::valid_balance_path(&self.path)
-            || chars.next() != Some('/')
+            || !valid_pointer(&self.json_pointer)
+            || self
+                .subtract_json_pointer
+                .as_deref()
+                .is_some_and(|p| !valid_pointer(p))
+            || self.requirements().into_iter().any(|(pointer, value)| {
+                !valid_pointer(pointer)
+                    || !match value {
+                        Value::Bool(_) | Value::Number(_) => true,
+                        Value::String(value) => {
+                            value.len() <= 256 && !value.chars().any(char::is_control)
+                        }
+                        _ => false,
+                    }
+            })
             || self.unit_label.as_ref().is_some_and(|label| {
                 label.chars().count() > 32 || label.chars().any(char::is_control)
             })
         {
             return Err(ManagementError::Invalid);
         }
-        while let Some(c) = chars.next() {
-            if c == '~' && !matches!(chars.next(), Some('0' | '1')) {
-                return Err(ManagementError::Invalid);
-            }
-        }
         Ok(())
+    }
+
+    fn requirements(&self) -> Vec<(&str, &Value)> {
+        self.require
+            .iter()
+            .chain(self.require_all.iter().flatten())
+            .map(|r| (r.json_pointer.as_str(), &r.equals))
+            .collect()
     }
 }
 
@@ -82,7 +167,18 @@ pub(super) async fn read_observation(
 #[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct BalanceConfigInput {
     expected_version: Version,
+    #[serde(deserialize_with = "required_probe")]
     probe: Option<BalanceProbe>,
+    #[serde(default)]
+    legacy: Option<legacy::LegacyBalance>,
+}
+
+// Omission is not an instruction to clear configuration. Old clients already
+// submit an explicit probe object or null.
+fn required_probe<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BalanceProbe>, D::Error> {
+    Option::<BalanceProbe>::deserialize(deserializer)
 }
 
 pub(in crate::channel_http) async fn configure(
@@ -109,7 +205,13 @@ pub(in crate::channel_http) async fn configure(
         .find(|upstream| upstream.id == id)
         .ok_or(Failure::NotFound)?;
     let mut bindings = management.current_bindings()?;
-    if let Some(probe) = &input.probe {
+    if let Some(legacy) = &input.legacy {
+        legacy.validate()?;
+    }
+    let automatic = legacy::resolve(None, input.legacy.as_ref(), upstream.protocol)?;
+    // Validate both newly supplied plans, including an inactive automatic plan
+    // hidden by a manual override, before persisting or returning configuration.
+    for probe in input.probe.iter().chain(automatic.iter()) {
         probe.validate()?;
         // Reject secret-bearing configuration before it enters a publication or response.
         management
@@ -120,13 +222,28 @@ pub(in crate::channel_http) async fn configure(
                 upstream,
                 &probe.path,
                 &probe.json_pointer,
+                probe.subtract_json_pointer.as_deref(),
+                &probe.requirements(),
+                probe.cny_per_usd.as_deref(),
+                probe.deepseek_currency_array == Some(true),
+                probe.openai_subscription == Some(true),
                 probe.unit_label.as_deref(),
+                matches!(probe.auth, Some(BalanceAuth::ApiKey)),
             )
             .map_err(|_| ManagementError::Invalid)?;
+    }
+    if let Some(probe) = &input.probe {
         bindings.balance_probes.insert(id, probe.clone());
     } else {
         bindings.balance_probes.remove(&id);
+        // An explicit clear disables both manual and automatic probing.
+        bindings.legacy_balance.remove(&id);
     }
+    if let Some(legacy) = &input.legacy {
+        bindings.legacy_balance.insert(id, legacy.clone());
+    }
+    let saved_probe = bindings.balance_probes.get(&id).cloned();
+    let saved_legacy = bindings.legacy_balance.get(&id).cloned();
     super::accounting::ensure_identities(management, &mut tx).await?;
     let version = management
         .publish_bindings(
@@ -143,7 +260,7 @@ pub(in crate::channel_http) async fn configure(
         )
         .await?;
     Ok(Json(
-        json!({"success":true,"data":{"version":version,"probe":input.probe}}),
+        json!({"success":true,"data":{"version":version,"probe":saved_probe,"legacy":saved_legacy}}),
     ))
 }
 
@@ -240,18 +357,25 @@ async fn observe(
         .find(|upstream| upstream.id == id)
         .ok_or(Failure::NotFound)?
         .clone();
-    let probe = bindings
-        .balance_probes
-        .get(&id)
-        .ok_or(ObserveError::MissingProbe)?
-        .clone();
+    let probe = legacy::resolve(
+        bindings.balance_probes.get(&id),
+        bindings.legacy_balance.get(&id),
+        upstream.protocol,
+    )?
+    .ok_or(ObserveError::MissingProbe)?;
     probe.validate()?;
     let request = gateway
         .prepare_balance_probe(
             &upstream,
             &probe.path,
             &probe.json_pointer,
+            probe.subtract_json_pointer.as_deref(),
+            &probe.requirements(),
+            probe.cny_per_usd.as_deref(),
+            probe.deepseek_currency_array == Some(true),
+            probe.openai_subscription == Some(true),
             probe.unit_label.as_deref(),
+            matches!(probe.auth, Some(BalanceAuth::ApiKey)),
         )
         .map_err(|_| ObserveError::Provider)?;
     tx.commit()
@@ -277,7 +401,11 @@ async fn observe(
     let (current, bindings) = durable_snapshot(&mut tx).await?;
     if Version::of(&current) != Version::of(&document)
         || current.routing.upstreams.iter().find(|item| item.id == id) != Some(&upstream)
-        || bindings.balance_probes.get(&id) != Some(&probe)
+        || legacy::resolve(
+            bindings.balance_probes.get(&id),
+            bindings.legacy_balance.get(&id),
+            upstream.protocol,
+        )? != Some(probe.clone())
     {
         return Err(ManagementError::Conflict.into());
     }

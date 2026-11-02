@@ -220,6 +220,7 @@ export interface ChannelOpsResponse {
     native_secrets?: boolean
     native_channel_usage?: boolean
     native_channel_counters?: boolean
+    native_channel_lifetime?: boolean
     native_balance_probe?: boolean
     copy_preserve_counters?: boolean
     status?: boolean

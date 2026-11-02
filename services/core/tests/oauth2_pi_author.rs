@@ -183,6 +183,148 @@ async fn family_cap_serializes_pending_and_committed_spending_across_refresh(poo
     .await;
 }
 #[sqlx::test(migrations = false)]
+async fn oauth_usage_streams_over_1000_without_cross_family_leak(pool: PgPool) {
+    with_fixture(pool, true, |f| async move {
+        let token = f.token(100).await;
+        let seed = f.reserve(&token.access_token, &f.spec("pi-usage-seed", 1), &[11; 32]).await.unwrap();
+        let other = f.token(100).await;
+        let other_seed = f.reserve(&other.access_token, &f.spec("pi-usage-other", 1), &[12; 32]).await.unwrap();
+        let mut tx = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        // Synthetic reservation rows exercise the read model only; they are not
+        // 1000 real reserves or evidence of any financial transactions.
+        let clone_sql = r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved,oauth_source)
+            SELECT 'pi-many-'||lpad(g::text,6,'0'),actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,'reserved',reserved,oauth_source
+            FROM core_charging.requests CROSS JOIN generate_series($2::bigint,$3::bigint) g WHERE id=$1"#;
+        assert_eq!(sqlx::query(clone_sql).bind(&seed.id).bind(1_i64).bind(999_i64).execute(&mut *tx).await.unwrap().rows_affected(), 999);
+        tx.commit().await.unwrap();
+        let at_limit = f.issuer.usage(&token.access_token).await.unwrap();
+        assert_eq!(at_limit["items"].as_array().unwrap().len(), 1000);
+        let mut tx = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        assert_eq!(sqlx::query(clone_sql).bind(&seed.id).bind(1000_i64).bind(1000_i64).execute(&mut *tx).await.unwrap().rows_affected(), 1);
+        tx.commit().await.unwrap();
+        let usage = f.issuer.usage(&token.access_token).await.unwrap();
+        assert_eq!(usage["usage_scope"], "oauth_family");
+        assert_eq!(usage["items"].as_array().unwrap().len(), 1001);
+        assert_eq!(usage["summary"]["incomplete_count"], 1001);
+        assert!(!usage["items"].as_array().unwrap().iter().any(|item| item["request_id"] == other_seed.id));
+        let other_usage = f.issuer.usage(&other.access_token).await.unwrap();
+        assert_eq!(other_usage["items"].as_array().unwrap().len(), 1);
+        let mut tx = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        let inserted = sqlx::query("INSERT INTO core_charging.ledger_commands(operation_id,request_id,command) VALUES(repeat('f',64),'pi-many-000001','{}'::jsonb)").execute(&mut *tx).await.unwrap();
+        assert_eq!(inserted.rows_affected(), 1);
+        tx.commit().await.unwrap();
+        assert!(f.issuer.usage(&token.access_token).await.is_err());
+        assert!(f.issuer.usage(&other.access_token).await.is_ok());
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
+    }).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn oauth_usage_validates_receipts_beyond_2048(pool: PgPool) {
+    with_fixture(pool, true, |f| async move {
+        let token = f.token(100).await;
+        let seed = f.reserve(&token.access_token, &f.spec("pi-many-receipts", 1), &[15; 32]).await.unwrap();
+        // Owner-only synthetic audit receipts; no additional money is posted.
+        let mut tx = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        let inserted = sqlx::query(r#"INSERT INTO core_charging.ledger_commands(operation_id,request_id,command)
+            SELECT op,$1,jsonb_set(source.command,'{operation_id}',to_jsonb(op))
+            FROM (SELECT command FROM core_charging.ledger_commands WHERE request_id=$1 LIMIT 1) source
+            CROSS JOIN (SELECT md5('oauth-extra-'||g::text)||md5('oauth-extra-2-'||g::text) AS op FROM generate_series(1,2049) g) extra"#)
+            .bind(&seed.id).execute(&mut *tx).await.unwrap().rows_affected();
+        assert_eq!(inserted, 2049);
+        tx.commit().await.unwrap();
+        let usage = f.issuer.usage(&token.access_token).await.unwrap();
+        assert_eq!(usage["items"].as_array().unwrap().len(), 1);
+        let mut tx = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        let updated = sqlx::query("UPDATE core_charging.ledger_commands SET command=jsonb_set(command,'{actor_user_id}','999999') WHERE request_id=$1 AND operation_id=(SELECT operation_id FROM core_charging.ledger_commands WHERE request_id=$1 ORDER BY operation_id COLLATE \"C\" DESC LIMIT 1)")
+            .bind(&seed.id).execute(&mut *tx).await.unwrap().rows_affected();
+        assert_eq!(updated, 1);
+        tx.commit().await.unwrap();
+        assert!(f.issuer.usage(&token.access_token).await.is_err());
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
+    }).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn oauth_usage_batches_share_authority_snapshot(pool: PgPool) {
+    with_fixture(pool, true, |f| async move {
+        let token = f.token(100).await;
+        let seed = f.reserve(&token.access_token, &f.spec("pi-snapshot-seed", 1), &[14; 32]).await.unwrap();
+        let mut initial = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *initial).await.unwrap();
+        sqlx::query(r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved,oauth_source)
+            SELECT 'pi-snapshot-initial-'||g::text,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,'reserved',reserved,oauth_source
+            FROM core_charging.requests CROSS JOIN generate_series(1,16) g WHERE id=$1"#).bind(&seed.id).execute(&mut *initial).await.unwrap();
+        initial.commit().await.unwrap();
+        let mut lock = f.owner.begin().await.unwrap();
+        sqlx::query("LOCK TABLE core_charging.ledger_commands IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *lock).await.unwrap();
+        let issuer = f.issuer.clone();
+        let access = token.access_token.clone();
+        let read = tokio::spawn(async move { issuer.usage(&access).await });
+        // Wait for the actual family query to be blocked after authentication
+        // established the snapshot, rather than guessing based on a sleep.
+        tokio::time::timeout(std::time::Duration::from_millis(700), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FROM core_charging.ledger_commands WHERE request_id=ANY%')")
+                    .fetch_one(&f.owner).await.unwrap();
+                if waiting { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        }).await.expect("OAuth read did not reach the locked receipt query");
+        let mut writer = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *writer).await.unwrap();
+        sqlx::query(r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved,oauth_source)
+            SELECT 'pi-snapshot-later',actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,'reserved',reserved,oauth_source
+            FROM core_charging.requests WHERE id=$1"#).bind(&seed.id).execute(&mut *writer).await.unwrap();
+        writer.commit().await.unwrap();
+        lock.commit().await.unwrap();
+        let first = read.await.unwrap().unwrap();
+        assert_eq!(first["items"].as_array().unwrap().len(), 17);
+        let next = f.issuer.usage(&token.access_token).await.unwrap();
+        assert_eq!(next["items"].as_array().unwrap().len(), 18);
+    }).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn oauth_usage_overdense_read_fails_without_partial_data(pool: PgPool) {
+    with_fixture(pool, true, |f| async move {
+        let token = f.token(100).await;
+        let seed = f.reserve(&token.access_token, &f.spec("pi-overflow-seed", 1), &[13; 32]).await.unwrap();
+        let initial = f.issuer.usage(&token.access_token).await.unwrap();
+        let item = &initial["items"].as_array().unwrap()[0];
+        // IDs in the bulk data are no more than ten bytes shorter than this seed.
+        // The normal 1500ms SQL statement timeout may reject this dense query
+        // before it reaches the byte guard; either way no partial result escapes.
+        let minimum = serde_json::to_vec(item).unwrap().len().checked_sub(10).unwrap();
+        let clones = (16 * 1024 * 1024 / minimum + 2) as i64;
+        assert!(clones < 30000);
+        let mut tx = f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        let inserted = sqlx::query(r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved,oauth_source)
+            SELECT 'pi-over-'||lpad(g::text,6,'0'),actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,'reserved',reserved,oauth_source
+            FROM core_charging.requests CROSS JOIN generate_series(1,$2::bigint) g WHERE id=$1"#)
+            .bind(&seed.id).bind(clones).execute(&mut *tx).await.unwrap().rows_affected();
+        assert_eq!(inserted, clones as u64);
+        tx.commit().await.unwrap();
+        assert!(matches!(f.issuer.usage(&token.access_token).await, Err(ReadError::Unavailable)));
+        let response = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60)).build().unwrap()
+            .get(format!("{}/api/oauth2/usage", f.base))
+            .bearer_auth(&token.access_token).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body, json!({"error":"temporarily_unavailable"}));
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
+    }).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn revoke_blocks_new_start_increase_but_preserves_old_hold_settle_refund(pool: PgPool) {
     with_fixture(pool, true, |f| async move {
         let token = f.token(200).await;

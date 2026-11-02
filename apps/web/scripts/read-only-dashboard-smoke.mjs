@@ -58,10 +58,12 @@ const viewport = viewportMatch
 const outputSuffix = process.env.DASHBOARD_SMOKE_OUTPUT_SUFFIX
   ? `-${process.env.DASHBOARD_SMOKE_OUTPUT_SUFFIX}`
   : ''
-const outputDirectory = path.resolve(
-  scriptDirectory,
-  `../test-results/read-only-dashboard-smoke${outputSuffix}`
-)
+const outputDirectory = process.env.DASHBOARD_SMOKE_OUTPUT_DIR
+  ? path.resolve(process.env.DASHBOARD_SMOKE_OUTPUT_DIR)
+  : path.resolve(
+      scriptDirectory,
+      `../test-results/read-only-dashboard-smoke${outputSuffix}`
+    )
 const now = Math.floor(Date.now() / 1000)
 const baseUrl = process.env.DASHBOARD_SMOKE_URL ?? 'http://127.0.0.1:4174'
 const baseOrigin = new URL(baseUrl).origin
@@ -252,6 +254,38 @@ function jsonFixture(pathname) {
   if (pathname === '/api/release-notes/latest') {
     return { success: true, data: null, message: 'smoke fixture' }
   }
+  if (pathname === '/api/extensions/plugins') {
+    return { success: true, data: [], message: 'smoke fixture' }
+  }
+  if (pathname === '/api/channel/ops') {
+    return { success: true, data: { retry_times: 0 }, message: 'smoke fixture' }
+  }
+  if (pathname === '/api/assistant/workspace/greeting') {
+    return {
+      success: true,
+      data: { templates: {}, revision: 0, updated_at: 0 },
+      message: 'smoke fixture',
+    }
+  }
+  if (pathname === '/api/finance/site-statistics') {
+    return {
+      success: true,
+      data: {
+        as_of: now,
+        credits_per_usd: 500000,
+        total_used_credits: '0',
+        total_balance_credits: '0',
+        recharge: {
+          currencies: [],
+          virtual_units: [],
+          confirmed_orders: 0,
+          unconfirmed_orders: 0,
+          invalid_orders: 0,
+        },
+      },
+      message: 'smoke fixture',
+    }
+  }
   if (pathname.startsWith('/api/token')) {
     return tokenPagePayload()
   }
@@ -434,7 +468,12 @@ await mkdir(outputDirectory, { recursive: true })
 let browser
 let context
 try {
-  browser = await chromium.launch({ headless: true })
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.DASHBOARD_SMOKE_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.DASHBOARD_SMOKE_CHROMIUM_EXECUTABLE }
+      : {}),
+  })
   context = await browser.newContext({
     viewport,
     recordHar: {
@@ -443,6 +482,19 @@ try {
     },
   })
   const page = await context.newPage()
+  // Synthetic smoke tests must not contact analytics, CDNs, or other external
+  // hosts. Keep the existing request observer active so external writes still
+  // fail the check even though they never leave the browser.
+  const blockedExternalOrigins = new Set()
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.origin !== baseOrigin) {
+      blockedExternalOrigins.add(url.origin)
+      await route.fulfill({ status: 204, body: '' })
+      return
+    }
+    await route.fallback()
+  })
   const metrics = {
     failedRequests: [],
     pageErrors: [],
@@ -462,6 +514,9 @@ try {
 
   console.log(
     `dashboard smoke: PASS (${uniquePaths.length} routes) ${uniquePaths.join(', ')}`
+  )
+  console.log(
+    `external origins blocked: ${[...blockedExternalOrigins].join(', ') || 'none'}`
   )
 } finally {
   try {

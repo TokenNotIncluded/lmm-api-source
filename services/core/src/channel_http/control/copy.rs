@@ -132,6 +132,9 @@ async fn duplicate(
     if let Some(probe) = bindings.balance_probes.get(&id).cloned() {
         bindings.balance_probes.insert(copied_id, probe);
     }
+    if let Some(legacy) = bindings.legacy_balance.get(&id).cloned() {
+        bindings.legacy_balance.insert(copied_id, legacy);
+    }
     let contexts: Vec<_> = bindings
         .contexts
         .iter()

@@ -352,6 +352,13 @@ test('single and batch About saves refresh an already mounted page', async () =>
     return { data: { success: true, message: '' } }
   }) as typeof api.post
   assert.match(host.textContent ?? '', /Before save/)
+  // Legacy options responses lack the newer capabilities field.
+  const seedLegacyOptions = () => client?.setQueryData(['system-options'], {
+    success: true,
+    message: '',
+    data: [],
+  })
+  seedLegacyOptions()
   const activeSingle = singleSave
   assert.ok(activeSingle)
   await act(async () => {
@@ -362,6 +369,8 @@ test('single and batch About saves refresh an already mounted page', async () =>
   assert.match(host.textContent ?? '', /Single save/)
   const activeBatch = batchSave
   assert.ok(activeBatch)
+  // The first mutation invalidates options; simulate its successful refresh.
+  seedLegacyOptions()
   await act(async () => {
     await activeBatch.mutateAsync({ About: '# Batch save' })
     await flush()

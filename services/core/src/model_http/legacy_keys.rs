@@ -924,15 +924,19 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(ungranted.status(), StatusCode::OK);
+        assert_eq!(
+            ungranted.status(),
+            StatusCode::FORBIDDEN,
+            "a legacy alias must not manufacture a missing routing grant"
+        );
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(ungranted.into_body(), 65_536).await.unwrap())
                 .unwrap();
-        assert_eq!(
-            body["data"],
-            json!([]),
-            "a legacy alias must not manufacture a missing routing grant"
+        assert!(
+            body.get("data").is_none(),
+            "denied callers receive no catalog"
         );
+        assert!(body["error"].is_object());
         sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES(71,TRUE,'synthetic-legacy-wire-pg') ON CONFLICT(user_id) DO UPDATE SET granted=EXCLUDED.granted,source_reference=EXCLUDED.source_reference")
             .execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(71,'allowed',TRUE,'synthetic-legacy-wire-pg')")

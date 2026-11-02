@@ -370,14 +370,14 @@ fn current_routing_delta_extends_exact_independent_pre_policy_bytes() {
     reviewed_routing_predecessor();
 }
 
-async fn assert_current_installation_extends_reviewed_catalog(pool: &PgPool, installed: &[String]) {
+async fn assert_historical_installation_extends_reviewed_catalog(
+    pool: &PgPool,
+    installed: &[String],
+    ledger: &str,
+    catalog_query: &str,
+) {
     // a7e1105d3 only appends pending-liability objects to 0b4f40996's ledger.
     // Pin both original Git inputs instead of approving a newly observed hash.
-    let ledger = COMPONENTS
-        .iter()
-        .find(|(name, _)| *name == "ledger")
-        .unwrap()
-        .1;
     let marker = "\n-- Historical provider orders that were still unresolved at the source\n";
     assert_eq!(ledger.matches(marker).count(), 1);
     let (baseline, addition) = ledger.split_once(marker).unwrap();
@@ -415,41 +415,12 @@ async fn assert_current_installation_extends_reviewed_catalog(pool: &PgPool, ins
     .execute(&mut *tx)
     .await
     .unwrap();
-    // Restore only the independently sourced pre-policy column constraint/type
-    // and publication function. This is a test projection, never upgrade SQL.
-    let original_routing = reviewed_routing_predecessor();
-    let old_column = original_routing
-        .lines()
-        .find(|line| {
-            line.trim_start()
-                .starts_with("payload text NOT NULL CHECK (")
-        })
-        .unwrap()
-        .trim()
-        .strip_prefix("payload text NOT NULL ")
-        .unwrap()
-        .strip_suffix(',')
+    // Routing is already the exact historical text-policy source. No current
+    // schema or current catalog-query bytes participate in this historical pin.
+    let baseline_definitions: Vec<String> = sqlx::query_scalar(catalog_query)
+        .fetch_all(&mut *tx)
+        .await
         .unwrap();
-    let prefix = "CREATE FUNCTION routing_publish_config(";
-    assert_eq!(original_routing.matches(prefix).count(), 1);
-    let function = original_routing
-        .split_once(prefix)
-        .unwrap()
-        .1
-        .split_once("$$;")
-        .unwrap()
-        .0;
-    sqlx::raw_sql(&format!(
-        "SET LOCAL search_path=public,pg_catalog;
-         ALTER TABLE public.routing_targets DROP CONSTRAINT routing_targets_payload_check;
-         ALTER TABLE public.routing_targets ALTER COLUMN payload TYPE text USING (payload #>> '{{}}');
-         ALTER TABLE public.routing_targets ADD CONSTRAINT routing_targets_payload_check {old_column};
-         CREATE OR REPLACE FUNCTION public.routing_publish_config({function}$$;"
-    ))
-    .execute(&mut *tx)
-    .await
-    .unwrap();
-    let baseline_definitions = definitions(&mut tx).await.unwrap();
     assert_eq!(
         fingerprint(&baseline_definitions)
             .iter()
@@ -464,7 +435,7 @@ async fn assert_current_installation_extends_reviewed_catalog(pool: &PgPool, ins
             .await
             .unwrap(),
         installed,
-        "the projection must leave the complete current catalog unchanged"
+        "the projection must leave the complete historical catalog unchanged"
     );
     assert_eq!(receipts(pool).await, before_receipts);
     assert_eq!(
@@ -473,6 +444,161 @@ async fn assert_current_installation_extends_reviewed_catalog(pool: &PgPool, ins
             .unwrap(),
         before_permissions
     );
+}
+
+// Independently frozen Git inputs; see tests/core_schema/index26_a7e1105d3.md.
+// Never derive these historical bytes from the current COMPONENTS list.
+fn reviewed_index26_fixture() -> serde_json::Value {
+    let bytes = include_str!("../../tests/core_schema/index26_a7e1105d3.json");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(bytes)),
+        "f34169d7265b0187fbd49d061267a30b302c4494b6b225d4df961ba7da904399"
+    );
+    let fixture: serde_json::Value = serde_json::from_str(bytes).unwrap();
+    let manifest = &fixture["manifest"];
+    let components = fixture["components"].as_array().unwrap();
+    assert_eq!(components.len(), 26);
+    assert_eq!(manifest["components"].as_array().unwrap().len(), 26);
+    let predecessor: serde_json::Value =
+        serde_json::from_str(include_str!("predecessor26.json")).unwrap();
+    for (i, component) in components.iter().enumerate() {
+        let hash = format!("{:x}", Sha256::digest(component["sql"].as_str().unwrap()));
+        assert_eq!(component["raw_schema_sha256"], hash);
+        assert_eq!(manifest["components"][i]["raw_schema_sha256"], hash);
+        assert_eq!(manifest["components"][i]["name"], component["name"]);
+        assert_eq!(
+            predecessor["manifest"]["components"][i]["name"],
+            component["name"]
+        );
+        if component["name"] != "ledger" {
+            assert_eq!(
+                predecessor["manifest"]["components"][i]["raw_schema_sha256"],
+                hash
+            );
+        }
+    }
+    assert_eq!(manifest["identity"]["version"], 5);
+    assert_eq!(
+        manifest["identity"]["fingerprint_sha256"],
+        components[1]["raw_schema_sha256"]
+    );
+    let mut metadata_hash = Sha256::new();
+    for metadata in fixture["installer_metadata"].as_array().unwrap() {
+        let sql = metadata["sql"].as_str().unwrap();
+        assert_eq!(metadata["sha256"], format!("{:x}", Sha256::digest(sql)));
+        metadata_hash.update(sql);
+    }
+    assert_eq!(
+        manifest["installer_contract_sql_sha256"],
+        format!("{:x}", metadata_hash.finalize())
+    );
+    assert_eq!(
+        manifest["catalog"]["query_sha256"],
+        format!(
+            "{:x}",
+            Sha256::digest(manifest["catalog"]["query_utf8"].as_str().unwrap())
+        )
+    );
+    assert_eq!(
+        fixture["oauth_catalog_sha256"],
+        format!(
+            "{:x}",
+            Sha256::digest(fixture["oauth_catalog_sql"].as_str().unwrap())
+        )
+    );
+    // This is also the independent source used by the current routing delta test.
+    assert_eq!(
+        components[5]["sql"],
+        include_str!("../../tests/core_schema/routing_before_payload_policy.sql")
+    );
+    fixture
+}
+
+#[test]
+fn historical_index26_sources_match_the_frozen_component_manifest() {
+    reviewed_index26_fixture();
+}
+
+#[sqlx::test(migrations = false)]
+async fn historical_twenty_six_component_append_preserves_reviewed_catalog(pool: PgPool) {
+    let fixture = reviewed_index26_fixture();
+    let components = fixture["components"].as_array().unwrap();
+    let source = |name: &str| {
+        components.iter().find(|c| c["name"] == name).unwrap()["sql"]
+            .as_str()
+            .unwrap()
+    };
+    let catalog_query = fixture["manifest"]["catalog"]["query_utf8"]
+        .as_str()
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    for component in components {
+        sqlx::raw_sql(component["sql"].as_str().unwrap())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    for metadata in fixture["installer_metadata"].as_array().unwrap() {
+        sqlx::raw_sql(metadata["sql"].as_str().unwrap())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    // Reproduce the historical v5 / OAuth v1 receipts, never today's identity API.
+    sqlx::query("INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES (5,$1)")
+        .bind(Sha256::digest(source("identity")).to_vec())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let oauth_definitions: Vec<String> =
+        sqlx::query_scalar(fixture["oauth_catalog_sql"].as_str().unwrap())
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO core_oauth.contract(version,ddl_fingerprint,catalog_fingerprint) VALUES (1,$1,$2)")
+        .bind(Sha256::digest(source("oauth-grants")).to_vec())
+        .bind(fingerprint(&oauth_definitions))
+        .execute(&mut *tx).await.unwrap();
+    for component in components {
+        sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES ($1,$2)")
+            .bind(component["name"].as_str().unwrap())
+            .bind(Sha256::digest(component["sql"].as_str().unwrap()).to_vec())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    let historical_definitions: Vec<String> = sqlx::query_scalar(catalog_query)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO core_meta.runtime_contract(catalog_fingerprint) VALUES ($1)")
+        .bind(fingerprint(&historical_definitions))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let installed = definitions(&mut pool.acquire().await.unwrap())
+        .await
+        .unwrap();
+    let installed_receipts = receipts(&pool).await;
+    assert_eq!(
+        installed_receipts["r:core_meta.component_contract"].len(),
+        26
+    );
+    for table in [
+        "r:core_meta.schema_upgrades",
+        "r:core_meta.component_upgrades",
+        "r:core_meta.ledger_revisions",
+    ] {
+        assert!(installed_receipts.contains_key(table), "missing {table}");
+    }
+    assert_historical_installation_extends_reviewed_catalog(
+        &pool,
+        &installed,
+        source("ledger"),
+        catalog_query,
+    )
+    .await;
 }
 
 #[sqlx::test(migrations = false)]
@@ -627,7 +753,7 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
     let installed_receipts = receipts(&pool).await;
     assert_eq!(
         installed_receipts["r:core_meta.component_contract"].len(),
-        26
+        COMPONENTS.len()
     );
     for table in [
         "r:core_meta.schema_upgrades",
@@ -636,7 +762,6 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
     ] {
         assert!(installed_receipts.contains_key(table), "missing {table}");
     }
-    assert_current_installation_extends_reviewed_catalog(&pool, &installed).await;
     let approved = remove_usage_index(&pool).await;
     let prior_hex = approved
         .iter()

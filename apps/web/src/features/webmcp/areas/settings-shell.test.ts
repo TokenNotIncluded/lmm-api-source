@@ -126,26 +126,31 @@ test('settings synonyms find the specific section', async () => {
 test('system results exclude arbitrary diagnostic payloads and credential-shaped fields', async () => {
   signIn(ROLE.SUPER_ADMIN)
   api.get = (async (url) => ({
-    data: {
-      success: true,
-      data: url.includes('instances')
-        ? [
+    data: url.includes('instances')
+      ? {
+          items: [
             {
-              status: 'online',
-              instance_slot: 'a',
-              last_seen_at: 100,
+              boot_id: 'a'.repeat(32),
+              instance_name: 'synthetic',
+              version: 'v1',
+              phase: 'ready',
+              in_flight: 0,
+              models_ready: true,
+              rpc_ready: true,
               started_at: 1,
-              info: {
-                runtime: { version: 'v1', password: 'SECRET' },
-                env: { TOKEN: 'SECRET' },
-                resources: {
-                  cpu: { usage_percent: 15 },
-                  memory: { usage_percent: Number.NaN },
-                },
-              },
+              heartbeat_at: 100,
+              online: true,
+              env: { TOKEN: 'SECRET' },
+              info: { password: 'SECRET' },
             },
-          ]
-        : [
+          ],
+          truncated: false,
+          stale_after_seconds: 30,
+          retention_days: 7,
+        }
+      : {
+          success: true,
+          data: [
             {
               id: 4,
               type: 'log_cleanup',
@@ -158,7 +163,7 @@ test('system results exclude arbitrary diagnostic payloads and credential-shaped
               updated_at: 2,
             },
           ],
-    },
+        },
   })) as typeof api.get
   const instances = await tool('lmm_system_instances').execute(
     {},
@@ -190,7 +195,14 @@ test('cancellation prevents navigation and root access is rechecked after a fetc
   assert.equal(calls.length, 0)
   api.get = (async () => {
     signIn(ROLE.USER)
-    return { data: { success: true, data: [] } }
+    return {
+      data: {
+        items: [],
+        truncated: false,
+        stale_after_seconds: 30,
+        retention_days: 7,
+      },
+    }
   }) as typeof api.get
   await assert.rejects(
     tool('lmm_system_instances').execute({}, { signal: signal() }),

@@ -174,6 +174,8 @@ fn required() -> Result<RequiredCapabilities, Rejection> {
         market_oauth: config::market_oauth_configured(),
         wallet: config::wallet_configured(),
         bounties: config::bounties_configured(),
+        trust_policy_editor: config::trust_policy_editor_enabled()
+            .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
     })
 }
 fn checked(error: DatabaseCheckError) -> Rejection {

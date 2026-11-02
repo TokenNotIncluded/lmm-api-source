@@ -18,21 +18,25 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | plan-admin-activation | apply-admin-activation | schema-manifest | check-db]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | schema-manifest | check-db | trust-policy-editor]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
   check-db        Read-only schema/runtime authority JSON; requires explicit --config.\n\
+  trust-policy-editor Owner-only offline editor registration, review, approval, revocation and key provisioning; explicit --config and bounded stdin JSON.\n\
   init-db         Initialize a new, empty core database.\n\
   upgrade-offline Explicit native v3 schema upgrade/recovery with independent history and persistent fencing.\n\
   upgrade-history Install/query an independent history database; requires explicit authority --config and stdin JSON.\n\
   upgrade-db      Explicit offline exact-target schema upgrade; requires installer --config and bound stdin JSON.\n\
                   core-payment-gateways-v1 requires its preserved 29-component installer for the fixed 28-to-29 transition.\n\
                   core-request-operations-v1 upgrades the fixed 29-component predecessor to 31 components.\n\
-                  core-functional-completion-v1 upgrades the fixed 32-component PostgreSQL 18 predecessor to 43 components.\n\
-                  core-account-appeals-v1 upgrades the fixed 41-component PostgreSQL 18 predecessor to 43 components.\n\
-                  core-channel-accounting-v1 upgrades the fixed 42-component PostgreSQL 18 predecessor to 43 components.\n\
+                  core-functional-completion-v1 upgrades the fixed 32-component PostgreSQL 18 predecessor to 44 components.\n\
+                  core-account-appeals-v1 upgrades the fixed 41-component PostgreSQL 18 predecessor to 44 components.\n\
+                  core-channel-accounting-v1 upgrades the fixed 42-component PostgreSQL 18 predecessor to 44 components.\n\
                   Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
+                  core-channel-projection-v1 upgrades the fixed 43-component PostgreSQL 18 predecessor to 44 components.\n\
+                  core-trust-policy-edit-v1 upgrades the fixed 44-component PostgreSQL 18 predecessor to 45 components.\n\
+  rebuild-channel-usage  Rebuild derived channel statistics offline as owner; requires explicit --config and preserves money receipts.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
   install-tool-market-builtins  Install the compiled tool catalog offline as installation owner.\n\n\
@@ -64,10 +68,12 @@ enum Command {
     CompleteSetup,
     InstallToolMarketBuiltins,
     InstallUsageReceiptIndex,
+    RebuildChannelUsage,
     PlanAdminActivation,
     ApplyAdminActivation,
     SchemaManifest,
     CheckDb,
+    TrustPolicyEditor,
     Help,
     Version,
 }
@@ -109,10 +115,12 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "complete-setup"
                 | "install-tool-market-builtins"
                 | "install-usage-receipt-index"
+                | "rebuild-channel-usage"
                 | "plan-admin-activation"
                 | "apply-admin-activation"
                 | "schema-manifest"
-                | "check-db",
+                | "check-db"
+                | "trust-policy-editor",
             ) if operation.is_none() && !version => {
                 operation = Some(match arg.to_str() {
                     Some("init-db") => Command::InitDb,
@@ -124,10 +132,12 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     Some("complete-setup") => Command::CompleteSetup,
                     Some("install-tool-market-builtins") => Command::InstallToolMarketBuiltins,
                     Some("install-usage-receipt-index") => Command::InstallUsageReceiptIndex,
+                    Some("rebuild-channel-usage") => Command::RebuildChannelUsage,
                     Some("plan-admin-activation") => Command::PlanAdminActivation,
                     Some("apply-admin-activation") => Command::ApplyAdminActivation,
                     Some("schema-manifest") => Command::SchemaManifest,
                     Some("check-db") => Command::CheckDb,
+                    Some("trust-policy-editor") => Command::TrustPolicyEditor,
                     _ => Command::Serve,
                 });
             }
@@ -197,6 +207,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             arguments.legacy_env,
         )),
         Command::Serve => None,
+        Command::TrustPolicyEditor => {
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "trust-policy-editor requires explicit offline owner --config",
+                )
+                .into());
+            }
+            Some(admin::Operation::trust_policy_editor(io::stdin().lock())?)
+        }
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::UpgradeDb => {
             if arguments.config.is_none() || arguments.legacy_env {
@@ -260,6 +280,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .into());
             }
             Some(operation)
+        }
+        Command::RebuildChannelUsage => {
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "rebuild-channel-usage requires explicit owner --config",
+                )
+                .into());
+            }
+            Some(admin::Operation::RebuildChannelUsage)
         }
         Command::PlanAdminActivation => {
             if arguments.config.is_none() || arguments.legacy_env {
@@ -335,12 +365,15 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 market_oauth: config::market_oauth_configured(),
                 wallet: config::wallet_configured(),
                 bounties: config::bounties_configured(),
+                trust_policy_editor: config::trust_policy_editor_enabled()?,
             },
         )
         .await?;
         // Installation belongs solely to the explicit init-db command. Even a
         // valid identity-only installation cannot stand in for the whole core.
         lmm_core::core_schema::check(&pool).await?;
+        // Validate enabled editor authority even when legacy-env omitted console/Web.
+        let trust_policy_editor = config::trust_policy_editor(pool.clone()).await?;
         let (abuse, configured_models) = config::models_and_abuse(pool.clone())?;
         let mut store = config::identity_auth(IdentityStore::from_pool(pool.clone()))?
             .with_password_slots(config::password_slots()?)?
@@ -462,21 +495,23 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 telegram_bot_name: store.telegram_bot_name().map(str::to_owned),
             };
             if console_enabled {
-                routes = routes.merge(lmm_core::options_http::router(
-                    lmm_core::options_http::OptionsHttp::new(
-                        pool.clone(),
-                        store.clone(),
-                        lmm_core::options_http::RuntimeOptions {
-                            server_address: config::setting("LMM_CORE_WEB_ORIGIN")?,
-                            registration_enabled: store.registration_enabled(),
-                            password_register_enabled: store.password_register_enabled(),
-                            oauth_register_enabled: store.oauth_register_enabled(),
-                            registration_disabled_methods: store
-                                .oauth_registration_disabled_methods()
-                                .to_vec(),
-                        },
-                    ),
-                ));
+                let mut options = lmm_core::options_http::OptionsHttp::new(
+                    pool.clone(),
+                    store.clone(),
+                    lmm_core::options_http::RuntimeOptions {
+                        server_address: config::setting("LMM_CORE_WEB_ORIGIN")?,
+                        registration_enabled: store.registration_enabled(),
+                        password_register_enabled: store.password_register_enabled(),
+                        oauth_register_enabled: store.oauth_register_enabled(),
+                        registration_disabled_methods: store
+                            .oauth_registration_disabled_methods()
+                            .to_vec(),
+                    },
+                );
+                if let Some(editor) = trust_policy_editor {
+                    options = options.with_trust_policy_editor(editor);
+                }
+                routes = routes.merge(lmm_core::options_http::router(options));
             }
             routes = routes.merge(lmm_core::topup_info_http::unconfigured_router(
                 store.clone(),
@@ -542,6 +577,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || legacy_config.is_some()
         || config::identity_database_required()?
         || console_enabled
+        || config::trust_policy_editor_enabled()?
         || config::payments_configured()
         || config::commerce_configured()
         || config::setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_some()

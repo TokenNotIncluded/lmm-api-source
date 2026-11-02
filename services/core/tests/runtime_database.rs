@@ -321,6 +321,7 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             market_oauth: false,
             wallet: false,
             bounties: false,
+            trust_policy_editor: false,
         },
     )
     .await

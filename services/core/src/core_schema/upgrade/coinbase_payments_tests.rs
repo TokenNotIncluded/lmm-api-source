@@ -25,9 +25,27 @@ fn request() -> UpgradeRequest {
 
 #[test]
 fn coinbase_upgrade_binds_exact_predecessor_and_successor() {
-    authorize_target().unwrap();
+    let predecessor = super::super::historical_fixture::preserved(31);
+    let successor = super::super::historical_fixture::preserved(32);
+    assert_eq!(predecessor.sha256(), PRE_MANIFEST);
+    assert_eq!(successor.sha256(), TARGET_MANIFEST);
+    assert_eq!(
+        &successor.components[..31],
+        predecessor.components.as_slice()
+    );
+    assert_eq!(successor.components[31].name, "coinbase-payments");
+    assert_ne!(TARGET_CATALOG, PRE_CATALOG);
+    assert!(matches!(
+        authorize_target(),
+        Err(UpgradeError::Rejected("COINBASE_COMPILED_TARGET_CHANGED"))
+    ));
     let valid = request();
-    UpgradeRequest::read(serde_json::to_vec(&valid).unwrap().as_slice()).unwrap();
+    let encoded = serde_json::to_vec(&valid).unwrap();
+    UpgradeRequest::read_fields(encoded.as_slice()).unwrap();
+    assert!(matches!(
+        UpgradeRequest::read(encoded.as_slice()),
+        Err(UpgradeError::Rejected("COINBASE_COMPILED_TARGET_CHANGED"))
+    ));
     for case in 0..7 {
         let mut wrong = valid.clone();
         match case {

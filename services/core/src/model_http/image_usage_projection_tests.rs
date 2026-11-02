@@ -88,6 +88,7 @@ async fn image_usage_mixed_drawing_native_images_and_text_preserve_real_receipts
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

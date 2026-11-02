@@ -149,6 +149,8 @@ impl CacheCreationUsage {
 #[serde(deny_unknown_fields)]
 pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<crate::model_http::audio::AudioMeteredUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_request: Option<crate::model_http::text_request_price::TextRequestUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<crate::model_http::tool_price::ToolUsage>,
@@ -167,6 +169,18 @@ pub struct Usage {
 }
 impl Usage {
     pub fn valid(self) -> bool {
+        if let Some(audio) = self.audio {
+            return audio.valid()
+                && self.input == 0
+                && self.output == 0
+                && self.cached == 0
+                && self.text_request.is_none()
+                && self.tool.is_none()
+                && self.grounding.is_none()
+                && self.image.is_none()
+                && self.upstream_cost_atto_usd.is_none()
+                && self.cache_creation.is_none();
+        }
         if self.text_request.is_some_and(|receipt| {
             !receipt.valid()
                 || self.tool.is_some()
@@ -221,6 +235,11 @@ impl Usage {
     }
     pub fn follows(self, previous: Self) -> bool {
         self.valid()
+            && match (self.audio, previous.audio) {
+                (Some(now), Some(old)) => now == old,
+                (None, Some(_)) => false,
+                _ => true,
+            }
             && match (self.text_request, previous.text_request) {
                 (Some(now), Some(old)) => now == old,
                 (None, Some(_)) => false,
@@ -262,6 +281,8 @@ impl Usage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Price {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<crate::model_http::audio::AudioPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_request: Option<crate::model_http::text_request_price::TextRequestPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -318,6 +339,24 @@ impl Price {
         Ok(())
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(audio) = &self.audio {
+            audio.validate().map_err(|_| Error::Invalid)?;
+            if self.text_request.is_some()
+                || self.tool.is_some()
+                || self.grounding.is_some()
+                || self.image.is_some()
+                || self.tiered.is_some()
+                || self.upstream_cost_group_ppm.is_some()
+                || self.input_per_million != 0
+                || self.output_per_million != 0
+                || self.cached_per_million != 0
+                || audio.model != self.model
+                || audio.group != self.group
+                || audio.price_revision != self.version
+            {
+                return Err(Error::Invalid);
+            }
+        }
         if self.text_request.as_ref().is_some_and(|price| {
             !price.valid()
                 || self.tool.is_some()
@@ -401,6 +440,19 @@ impl Price {
     pub fn cost(&self, usage: Usage) -> Result<i64> {
         self.validate()?;
         if !usage.valid() {
+            return Err(Error::Invalid);
+        }
+        if let Some(price) = &self.audio {
+            return match usage.audio {
+                Some(receipt) => price
+                    .cost(receipt.counts, self.discount())
+                    .map(i64::from)
+                    .map_err(|_| Error::Invalid),
+                None if usage == Usage::default() => Ok(0), // Initial/unstarted state only; finish requires evidence.
+                None => Err(Error::Invalid),
+            };
+        }
+        if usage.audio.is_some() {
             return Err(Error::Invalid);
         }
         if let Some(price) = &self.text_request {
@@ -505,7 +557,19 @@ impl Price {
     /// The same frozen exact factor applies before the reservation's sole ceil.
     pub(crate) fn reservation_ceiling(&self, basis: ReservationBasis) -> Result<i64> {
         self.validate()?;
+        if self.audio.is_some() && !matches!(basis, ReservationBasis::Audio) {
+            return Err(Error::Invalid);
+        }
         let amount = match basis {
+            ReservationBasis::Audio => {
+                return self
+                    .audio
+                    .as_ref()
+                    .ok_or(Error::Invalid)?
+                    .reservation(self.discount())
+                    .map(i64::from)
+                    .map_err(|_| Error::Invalid);
+            }
             ReservationBasis::Tool => {
                 return self
                     .tool
@@ -610,6 +674,7 @@ impl Price {
 /// This remains separate from legacy Request's serialized idempotency contract.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) enum ReservationBasis {
+    Audio,
     Tokens { input: u64, output: u64 },
     UpstreamCost { atto_usd: u128 },
     Image,
@@ -625,6 +690,7 @@ mod trust_price_tests {
         Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -929,6 +995,7 @@ mod generic_remainder_tests {
         Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -1197,6 +1264,7 @@ mod delegated_source_tests {
         let mut price = Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -1236,6 +1304,7 @@ mod delegated_source_tests {
         let mut price = Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

@@ -138,6 +138,12 @@ async function renderSettings(
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   })
+  // Exercise the legacy server response, which predates write capabilities.
+  queryClient.setQueryData(['system-options'], {
+    success: true,
+    message: '',
+    data: [],
+  })
 
   const render = (next: Partial<AssistantSettingsFormValues> = {}) => {
     root.render(

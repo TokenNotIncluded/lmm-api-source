@@ -24,11 +24,16 @@ pub(super) fn error(error: charging::Error) -> RelayError {
 /// Known absence of accepted work is separate from a missing supplier receipt.
 /// Only the final typed delivery branch and its durable recovery call this.
 pub(super) fn no_acceptance_usage(price: &charging::Price) -> Result<Usage, RelayError> {
-    if price.text_request.is_some() || price.tool.is_some() || price.image.is_some() {
+    if price.audio.is_some()
+        || price.text_request.is_some()
+        || price.tool.is_some()
+        || price.image.is_some()
+    {
         return Err(RelayError::SettlementPending);
     }
     let usage = Usage {
         upstream_cost_atto_usd: price.upstream_cost_group_ppm.map(|_| 0),
+        audio: None,
         grounding: price
             .grounding
             .as_ref()
@@ -409,6 +414,7 @@ impl Billing for Bridge {
                         .cost(Usage {
                             tool: None,
                             text_request: None,
+                            audio: None,
                             grounding: None,
 
                             cache_creation: None,
@@ -1219,6 +1225,7 @@ pub(super) fn complete_usage(
     };
     Ok(Usage {
         text_request: None,
+        audio: None,
         grounding: None,
 
         tool: observed.tool,
@@ -1404,6 +1411,7 @@ mod openai_cache_billing_tests {
             let ledger = charging::Price {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 version: "synthetic-cache-12h".into(),
@@ -1588,6 +1596,7 @@ fn complete_generic_cache_usage(
     let usage = Usage {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         image: None,
@@ -1679,6 +1688,7 @@ fn complete_strict_cache_usage(
     let usage = Usage {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         image: None,
@@ -2088,6 +2098,7 @@ mod a07_billing_tests {
             price: charging::Price {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 user_trust: None,
@@ -2110,6 +2121,7 @@ mod a07_billing_tests {
             usage: Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -2191,6 +2203,7 @@ mod a07_billing_tests {
             Ok(Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -2244,6 +2257,7 @@ mod a07_billing_tests {
             Ok(Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -2278,6 +2292,7 @@ mod a07_billing_tests {
             Ok(Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,

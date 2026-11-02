@@ -4,11 +4,14 @@ const PROCEDURE: &str = "core-channel-accounting-v1";
 const PRE_MANIFEST: &str = "cbc4b9567d9754250afb1646324e61fc13c9368d69e72c5506fa692ad169cd8f";
 const PRE_CATALOG: &str = "e1c5e00088abac46cdec398830bd275945f9e269d2aef33bbe6fd1982c227076";
 const RECEIPT: &str = "core_meta.channel_accounting_upgrades";
+#[path = "common/canonical_native_history.rs"]
+mod canonical;
 #[path = "common/channel_accounting_history.rs"]
 mod history;
 #[path = "common/accounting_predecessor.rs"]
 mod predecessor;
-use history::{check_history, seed_history};
+use canonical::seed_history;
+use history::check_history;
 #[path = "common/suffix_upgrade.rs"]
 mod harness;
 

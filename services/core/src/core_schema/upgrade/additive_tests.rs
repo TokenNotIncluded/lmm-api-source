@@ -145,41 +145,31 @@ fn compiled_25_predecessor_and_only_26_delta_match_frozen_bytes() {
     assert_eq!(frozen["catalog_definition_count"], 5968);
     assert_eq!(frozen["schema_manifest_stdout_sha256"], PRE_MANIFEST);
     assert_eq!(frozen["catalog_sha256"], PRE_CATALOG);
-    let expected = compiled_predecessor().unwrap();
+    let producer = super::super::historical_fixture::preserved(25);
+    let expected = producer.component_map();
+    assert!(matches!(
+        compiled_predecessor(),
+        Err(UpgradeError::Rejected("UPGRADE_DB_ADDITIVE_DELTA_DRIFT"))
+    ));
     assert_eq!(expected.len(), 25);
     let components = frozen["manifest"]["components"].as_array().unwrap();
     assert_eq!(components.len(), 25);
     for (entry, (name, ddl)) in components.iter().zip(COMPONENTS.iter().take(25)) {
-        let original = if *name == "ledger" {
-            include_str!("../../../tests/core_schema/ledger_before_escrow_submit.sql")
-        } else if *name == "routing" {
-            include_str!("../../../tests/core_schema/routing_before_payload_policy.sql")
-        } else {
-            ddl
-        };
+        let original = super::super::historical_fixture::old_ddl(name, ddl);
         let digest = hex(&Sha256::digest(original));
         assert_eq!(entry["name"], *name);
         assert_eq!(entry["raw_schema_sha256"], digest);
         assert_eq!(expected[*name], digest);
     }
-    let mut producer = schema_manifest();
-    producer.components.truncate(25);
-    for component in &mut producer.components {
-        if component.name == "ledger" {
-            component.raw_schema_sha256 = super::super::ledger::PRE_LEDGER.into();
-        } else if component.name == "routing" {
-            component.raw_schema_sha256 = PRE_ROUTING.into();
-        }
-    }
-    let mut installer = Sha256::new();
-    installer.update(crate::core_schema::CONTRACT);
-    installer.update(crate::core_schema::UPGRADE_METADATA);
-    producer.installer_contract_sql_sha256 = hex(&installer.finalize());
     assert_eq!(serde_json::to_value(&producer).unwrap(), frozen["manifest"]);
-    let mut stdout = serde_json::to_vec(&producer).unwrap();
-    stdout.push(b'\n');
+    let stdout = producer.stdout();
     assert_eq!(hex(&Sha256::digest(stdout)), PRE_MANIFEST);
-    assert_eq!(COMPONENTS.len(), 27);
+    let successor = super::super::historical_fixture::preserved(26);
+    assert_eq!(successor.components.len(), TARGET_COMPONENTS);
+    assert_eq!(
+        &successor.components[..PRE_COMPONENTS],
+        producer.components.as_slice()
+    );
     assert_eq!(COMPONENTS[25].0, "telegram-auth");
     assert_eq!(COMPONENTS[26].0, "assistant-agent");
     assert_eq!(hex(&Sha256::digest(COMPONENTS[25].1)), TELEGRAM_DDL);
@@ -201,9 +191,17 @@ fn compiled_25_predecessor_and_only_26_delta_match_frozen_bytes() {
 fn additive_request_is_strict_and_binds_every_target_field() {
     let good = request();
     validate(&good).unwrap();
-    // The older ledger boundary remains independently enforced.
+    // Current component drift and the preserved-ledger gate are separate boundaries.
     assert!(matches!(
         authorize_target(),
+        Err(UpgradeError::Rejected("UPGRADE_DB_ADDITIVE_DELTA_DRIFT"))
+    ));
+    authorize_ledger_target(include_str!(
+        "../../../tests/core_schema/ledger_before_escrow_submit.sql"
+    ))
+    .unwrap();
+    assert!(matches!(
+        authorize_ledger_target(COMPONENTS[2].1),
         Err(UpgradeError::Rejected(
             "UPGRADE_DB_USE_PRESERVED_26_INSTALLER"
         ))

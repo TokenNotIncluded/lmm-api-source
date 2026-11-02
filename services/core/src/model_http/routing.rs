@@ -104,6 +104,7 @@ pub(super) fn credit_price(
         let price = Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -133,6 +134,7 @@ pub(super) fn credit_price(
         let price = Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -153,6 +155,7 @@ pub(super) fn credit_price(
         let price = Price {
             text_request: Some(tariff),
             tool: None,
+            audio: None,
             grounding: None,
             user_trust: None,
             image: None,
@@ -190,6 +193,7 @@ pub(super) fn credit_price(
     let price = Price {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         user_trust: None,
@@ -563,6 +567,7 @@ mod tests {
                             .cost(crate::billing::charging::Usage {
                                 tool: None,
                                 text_request: None,
+                                audio: None,
                                 grounding: None,
 
                                 cache_creation: None,

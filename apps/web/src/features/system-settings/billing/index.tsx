@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { BillingSettings } from '../types'
 import { RouterPricingSection } from './router-pricing-section'
+import { TrustLevelBenefitsSection } from './trust-level-benefits-section'
 import {
   BILLING_DEFAULT_SECTION,
   getBillingSectionContent,
@@ -134,6 +135,14 @@ export function BillingSettings() {
   const { section } = useParams({
     from: '/_authenticated/system-settings/billing/$section',
   })
+  // Dedicated financial editor; the generic capability view excludes it.
+  if (section === 'levels-benefits') {
+    return (
+      <SettingsPageFrame title={t('Levels & Benefits')}>
+        <TrustLevelBenefitsSection />
+      </SettingsPageFrame>
+    )
+  }
   if (section === 'router-pricing') {
     return (
       <SettingsPageFrame title={t('Router pricing')}>

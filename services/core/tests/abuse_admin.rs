@@ -797,6 +797,7 @@ async fn marking_blocks_new_real_reservations_but_preserves_existing_real_settle
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

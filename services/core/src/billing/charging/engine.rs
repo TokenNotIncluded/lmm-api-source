@@ -1,5 +1,7 @@
 #[path = "assistant.rs"]
 mod assistant;
+#[path = "../../model_http/audio/charging.rs"]
+mod audio;
 #[path = "cache_evidence.rs"]
 mod cache_evidence;
 #[path = "image.rs"]
@@ -89,6 +91,17 @@ fn trust_error(error: crate::billing::trust_pricing::Error) -> Error {
         Trust::Invalid | Trust::Unavailable | Trust::Storage => Error::Storage,
     }
 }
+
+// Metadata only, inside the caller's existing successful funding transaction.
+// Preserve PostgreSQL whole-transaction retry semantics without replaying money.
+async fn record_channel_charge(c: &mut PgConnection, charge: &Charge) -> Result<()> {
+    use crate::usage::channel_projection::{ProjectionError, record_charge};
+    record_charge(c, charge).await.map_err(|error| match error {
+        ProjectionError::Database(error) => Error::from(error),
+        ProjectionError::Charging(error) => error,
+        ProjectionError::InvalidReceipt => Error::Storage,
+    })
+}
 #[cfg(test)]
 mod trust_admission_tests {
     use super::*;
@@ -99,6 +112,7 @@ mod trust_admission_tests {
             price: Price {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 user_trust: None,
@@ -167,6 +181,12 @@ fn counted_api_activity(usage: Usage) -> bool {
             || usage.cached > 0
             || usage.output > 0
             || usage.cache_creation.is_some_and(|v| v.total > 0)
+            || usage.audio.is_some_and(|v| {
+                v.counts.text_input > 0
+                    || v.counts.text_output > 0
+                    || v.counts.audio_input > 0
+                    || v.counts.audio_output > 0
+            })
             || usage.image.is_some_and(|v| v.output_images > 0)
             || usage.tool.is_some_and(|v| v.successful_requests > 0)
             || usage
@@ -272,10 +292,11 @@ fn decode(row: PgRow) -> Result<Stored> {
             hard_deadline: row.try_get("hard_deadline")?,
             state: row.try_get("state")?,
             reserved: row.try_get("reserved")?,
-            usage: cache_evidence::restore(
+            usage: audio::restore_usage(
                 Usage {
                     tool: None,
                     text_request: None,
+                    audio: None,
                     grounding: None,
 
                     image: row
@@ -300,6 +321,7 @@ fn decode(row: PgRow) -> Result<Stored> {
             outcome: row.try_get("outcome")?,
         },
     };
+    audio::validate_loaded(&stored.charge, &row)?;
     stored
         .charge
         .price
@@ -400,6 +422,8 @@ async fn select_stored(c: &mut PgConnection, id: &str, for_update: bool) -> Resu
          (SELECT jsonb_agg(jsonb_build_object('event_id',e.event_id,'usage',e.detail->'usage')) \
           FROM core_charging.usage_events e WHERE e.request_id=r.id \
           AND (e.event_id='final' OR e.event_id LIKE 'usage:%')) AS usage_evidence \
+         , (SELECT e.detail FROM core_charging.usage_events e WHERE e.request_id=r.id AND e.event_id='audio-terminal:v1') AS audio_terminal \
+         , (SELECT e.detail FROM core_charging.usage_events e WHERE e.request_id=r.id AND e.event_id='route-dispatch:1') AS audio_dispatch \
          FROM core_charging.requests r WHERE r.id=$1",
     );
     if for_update {
@@ -619,6 +643,9 @@ impl Charging {
         prepared: Option<&PreparedReservation>,
     ) -> Result<Charge> {
         request.validate()?;
+        if request.price.audio.is_some() && prepared.is_none() {
+            return Err(Error::Invalid);
+        }
         // A deserialized persisted snapshot is not fresh admission authority.
         if request.price.user_trust.is_some() {
             return Err(Error::Invalid);
@@ -776,7 +803,7 @@ impl Charging {
                 )?,
             )
             .await?;
-        Ok(())
+        record_channel_charge(c, charge).await
     }
     /// Returns true ONLY for the first durable reserved -> streaming transition.
     /// On false or CommitUnknown, do not dispatch upstream again. A provider
@@ -1006,6 +1033,7 @@ impl Charging {
         if let Some(proof) = contract::load(&mut tx, &stored.charge).await? {
             proof.check_usage(&stored.charge, usage)?;
         }
+        audio::verify_usage(&mut tx, &stored.charge, usage).await?;
         Self::check_usage(&stored.charge, usage)?;
         if let Some(image) = usage.image {
             sqlx::query("UPDATE core_charging.requests SET input_tokens=$2,cached_tokens=$3,output_tokens=$4,image_usage=$5,revision=revision+1 WHERE id=$1")
@@ -1098,7 +1126,8 @@ impl Charging {
         outcome: Outcome,
         evidence: Option<&str>,
     ) -> Result<Charge> {
-        if charge.price.tool.is_some() != usage.tool.is_some()
+        if charge.price.audio.is_some() != usage.audio.is_some()
+            || charge.price.tool.is_some() != usage.tool.is_some()
             || charge.price.grounding.is_some() != usage.grounding.is_some()
         {
             return Err(Error::Invalid);
@@ -1106,6 +1135,7 @@ impl Charging {
         if let Some(proof) = contract::load(c, &charge).await? {
             proof.check_usage(&charge, usage)?;
         }
+        audio::verify_usage(c, &charge, usage).await?;
         let amount = Self::check_usage(&charge, usage)?;
         self.ledger
             .apply(c, command(&charge, "settle", Change::Settle { amount })?)
@@ -1127,7 +1157,9 @@ impl Charging {
                 "counted_api_activity":counted_api_activity(usage)}),
         )
         .await?;
-        Ok(load(c, &charge.id).await?.charge)
+        let charge = load(c, &charge.id).await?.charge;
+        record_channel_charge(c, &charge).await?;
+        Ok(charge)
     }
     /// Safe only before start(). After upstream dispatch, use settle/reconcile.
     pub async fn release(&self, id: &str, worker: &[u8; 32]) -> Result<Charge> {
@@ -1163,7 +1195,10 @@ impl Charging {
             "release",
             json!({"kind":"release_before_dispatch"}),
         )
-        .await
+        .await?;
+        let mut released = charge.clone();
+        released.state = "released".into();
+        record_channel_charge(c, &released).await
     }
     /// Trusted Rust recovery service only; do not expose as a Go/client action.
     /// Evidence must identify an authoritative provider result, not an estimate.
@@ -1369,6 +1404,7 @@ impl Charging {
         sqlx::query("UPDATE core_charging.requests SET refunded=refunded+$2,revision=revision+1 WHERE id=$1")
             .bind(id).bind(amount).execute(&mut *tx).await?;
         let charge = load(&mut tx, id).await?.charge;
+        record_channel_charge(&mut tx, &charge).await?;
         commit(tx).await?;
         Ok(charge)
     }

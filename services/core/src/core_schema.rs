@@ -4,7 +4,9 @@ use crate::identity::{IdentityError, IdentityStore};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
 
+mod channel_projection;
 mod check_db;
+pub use channel_projection::rebuild_channel_usage;
 mod manifest;
 mod upgrade;
 pub use check_db::{DatabaseCheckError, DatabaseCheckReport, check_database};
@@ -92,6 +94,26 @@ const COMPONENTS: &[(&str, &str)] = &[
     ),
     ("account-appeals", crate::identity::ACCOUNT_APPEALS_SCHEMA),
     ("channel-accounting", crate::channel_http::ACCOUNTING_SCHEMA),
+    (
+        "channel-projection",
+        concat!(
+            include_str!("../schema/channel_projection.sql"),
+            "\n",
+            include_str!("../schema/channel_openings.sql")
+        ),
+    ),
+    (
+        "trust-policy-edit",
+        concat!(
+            include_str!("../schema/trust_policy_edit.sql"),
+            "\n",
+            include_str!("../schema/trust_policy_edit_proof.sql"),
+            "\n",
+            include_str!("../schema/trust_policy_edit_editor.sql"),
+            "\n",
+            include_str!("../schema/trust_policy_upgrade.sql")
+        ),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -251,13 +273,21 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
 }
 
 async fn check_components(connection: &mut PgConnection, prior: bool) -> Result<(), IdentityError> {
+    check_component_set(connection, COMPONENTS, prior).await
+}
+
+async fn check_component_set(
+    connection: &mut PgConnection,
+    components: &[(&str, &str)],
+    prior: bool,
+) -> Result<(), IdentityError> {
     let rows = sqlx::query("SELECT name,fingerprint FROM core_meta.component_contract")
         .fetch_all(&mut *connection)
         .await?;
-    if rows.len() != COMPONENTS.len() {
+    if rows.len() != components.len() {
         return Err(IdentityError::Storage);
     }
-    for (name, schema) in COMPONENTS {
+    for (name, schema) in components {
         let expected = if prior && *name == "charging-ledger" {
             PRIOR_CHARGING_LEDGER.to_vec()
         } else {

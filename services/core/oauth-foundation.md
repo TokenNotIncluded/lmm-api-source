@@ -26,8 +26,9 @@ Cookie name is only selection, never identity/consent. Refresh cookie Path remai
 
 ## Persistence and resources
 
-Formal fresh Core has 13 components including abuse and oauth-grants. Startup
-checks exact DDL/catalog and narrow runtime rights, never initializes/upgrades.
+The current formal fresh Core has 44 components, including the earlier abuse
+and oauth-grants components. Startup checks exact DDL/catalog and narrow runtime
+rights, never initializes/upgrades.
 Runtime may SELECT/INSERT issuer records and UPDATE only family scopes/revoked_at
 or one-use consumed_at. No policy/immutable snapshot edits or token deletion.
 Code is one-use with exact issuer/client/resource/redirect/PKCE. Refresh rotates,
@@ -78,10 +79,15 @@ a pending hold. Protocol source alone is not actual client compatibility proof.
 
 The same gateway handles real OAuth Chat/Responses JSON/SSE and stable grant-based
 idempotency. X-LMM-Group strictly decodes canonical base64url and must be in the
-verified consent/current policy. /api/oauth2/usage validates exact ledger receipts
-for the same family/user/personal payer, bounded complete 31-day history (1000 max;
-dense history is unavailable). OAuth usage has token_id=null with explicit source,
-not synthetic key 0. External model metadata/protocol coverage remains explicit.
+verified consent/current policy. /api/oauth2/usage validates ledger receipts
+for the same family/user/personal payer in a single repeatable-read snapshot for
+its 31-day window. Requests are read in bounded keyset batches rather than capped
+at 1000; an item payload over 16 MiB is unavailable, not partially returned. The
+individual request commands and refunds are streamed and fully validated without
+a fixed 2048-receipt cap. A statement timeout, resource exhaustion or other
+validation failure can still make dense history unavailable. OAuth usage has
+`token_id=null` with explicit source, not synthetic key 0. External model
+metadata/protocol coverage remains explicit.
 
 Honey-only purpose is schema preparation ONLY. Actual marked-L0 issuance, OAuth
 honey lease union and silent transport are not connected in this increment.

@@ -73,6 +73,7 @@ export type NativeConfiguration = {
   prices: NativePrices
   bindings: {
     balance_probes?: Record<string, NativeBalanceProbe>
+    legacy_balance?: Record<string, NativeLegacyBalance>
     names: Record<string, string>
     contexts: NativeContext[]
     vendors: Record<string, NativeVendor>
@@ -210,27 +211,111 @@ export async function nativeRequest<T>(
   return response.data.data
 }
 export const NATIVE_ROOT = '/core/v1/admin/routing'
-export const nativeBalanceProbeSchema = z.object({
-  path: z
-    .string()
-    .refine(
-      (path) =>
-        path.startsWith('/') &&
-        !path.startsWith('//') &&
-        !/[?#\\\s]/.test(path) &&
-        !/\p{Cc}/u.test(path)
-    ),
-  json_pointer: z
-    .string()
-    .refine(
-      (pointer) => pointer.startsWith('/') && !/~(?:[^01]|$)/.test(pointer)
-    ),
-  unit_label: z
-    .string()
-    .refine((label) => [...label].length <= 32 && !/\p{Cc}/u.test(label))
-    .nullable(),
-})
+export const nativeBalanceProbeSchema = z
+  .object({
+    path: z
+      .string()
+      .refine(
+        (path) =>
+          path.startsWith('/') &&
+          !path.startsWith('//') &&
+          !/[?#\\\s]/.test(path) &&
+          !/\p{Cc}/u.test(path)
+      ),
+    json_pointer: z
+      .string()
+      .refine(
+        (pointer) => pointer.startsWith('/') && !/~(?:[^01]|$)/.test(pointer)
+      ),
+    unit_label: z
+      .string()
+      .refine((label) => [...label].length <= 32 && !/\p{Cc}/u.test(label))
+      .nullable(),
+  })
+  .passthrough()
 export type NativeBalanceProbe = z.infer<typeof nativeBalanceProbeSchema>
+
+export const nativeLegacyBalanceSchema = z
+  .object({
+    channel_type: z.number().int().min(0).max(4_294_967_295),
+    cny_per_usd: z
+      .string()
+      .max(32)
+      .refine(
+        (rate) =>
+          /^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(rate) &&
+          Number.isFinite(Number(rate)) &&
+          Number(rate) > 0
+      )
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (legacy) =>
+      legacy.cny_per_usd === undefined || [25, 43].includes(legacy.channel_type)
+  )
+export type NativeLegacyBalance = z.infer<typeof nativeLegacyBalanceSchema>
+export type NativeBalanceConfiguration = {
+  version: NativeVersion
+  probe: NativeBalanceProbe | null
+  legacy: NativeLegacyBalance | null
+}
+
+export async function getNativeBalanceConfiguration(
+  scope: NativeRoutingScope,
+  id: number
+): Promise<NativeBalanceConfiguration> {
+  z.number().int().positive().safe().parse(id)
+  const config = await getNativeConfiguration(scope)
+  if (!config.routing.upstreams.some((upstream) => upstream.id === id)) {
+    throw new Error('Channel no longer exists')
+  }
+  return {
+    version: config.version,
+    probe: config.bindings.balance_probes?.[id] ?? null,
+    legacy: config.bindings.legacy_balance?.[id] ?? null,
+  }
+}
+
+export async function saveNativeLegacyBalance(
+  scope: NativeRoutingScope,
+  id: number,
+  expectedVersion: NativeVersion,
+  legacy: NativeLegacyBalance | null
+): Promise<NativeBalanceConfiguration> {
+  z.number().int().positive().safe().parse(id)
+  const parsed =
+    legacy === null ? null : nativeLegacyBalanceSchema.parse(legacy)
+  const receipt = z
+    .object({
+      version: versionSchema,
+      probe: z.null(),
+      legacy: nativeLegacyBalanceSchema.nullable(),
+    })
+    .safeParse(
+      await nativeRequest<unknown>(
+        scope,
+        'PUT',
+        `${NATIVE_ROOT}/channels/${id}/balance-config`,
+        {
+          expected_version: expectedVersion,
+          probe: null,
+          legacy: parsed,
+        }
+      )
+    )
+  if (!receipt.success) {
+    throw new Error('The save result is unknown. Reload before continuing.')
+  }
+  const saved = receipt.data
+  if (
+    saved.legacy?.channel_type !== parsed?.channel_type ||
+    saved.legacy?.cny_per_usd !== parsed?.cny_per_usd
+  ) {
+    throw new Error('The save result is unknown. Reload before continuing.')
+  }
+  return saved
+}
 
 const configurationSchema = z.object({
   version: versionSchema,
@@ -282,6 +367,7 @@ const configurationSchema = z.object({
   }),
   bindings: z.object({
     balance_probes: z.record(z.string(), nativeBalanceProbeSchema).default({}),
+    legacy_balance: z.record(z.string(), nativeLegacyBalanceSchema).default({}),
     names: z.record(z.string(), z.string()),
     contexts: z.array(
       z
@@ -514,8 +600,45 @@ const nativeChannelTotalsSchema = z
     scope: z.literal('native_channel_totals'),
   })
   .refine((usage) => usage.end_timestamp >= usage.start_timestamp)
+const signedInteger = z.string().regex(/^(0|-?[1-9]\d{0,127})$/)
+const recordedUsd = z.string().regex(/^-?(0|[1-9]\d{0,63})(\.\d{1,18})?$/)
+const legacyOpeningSchema = z.object({
+  kind: z.enum(['imported', 'copied']),
+  source_channel_id: usageCounter,
+  raw_used_quota: signedInteger,
+  credits_per_usd: z.string().regex(/^[1-9]\d{0,15}$/),
+  recorded_usd: recordedUsd,
+  observed_at: z.number().int().positive().safe().nullable(),
+  archive_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+})
+const channelLifetimeSchema = z
+  .intersection(
+    z.object({
+      basis: z.enum(['native', 'legacy_recorded_plus_native']),
+      legacy_opening: legacyOpeningSchema.nullable(),
+    }),
+    z.discriminatedUnion('complete', [
+      z.object({
+        complete: z.literal(true),
+        total_usd: recordedUsd,
+        exact_usd_numerator: signedInteger,
+        exact_usd_denominator: z.string().regex(/^[1-9]\d{0,127}$/),
+      }),
+      z.object({
+        complete: z.literal(false),
+        total_usd: z.null(),
+        exact_usd_numerator: z.null(),
+        exact_usd_denominator: z.null(),
+      }),
+    ])
+  )
+  .refine(
+    (lifetime) =>
+      (lifetime.basis === 'native') === (lifetime.legacy_opening === null)
+  )
 const nativeChannelCountersSchema = z
   .object({
+    lifetime: channelLifetimeSchema.optional(),
     balance: balanceObservationSchema,
     native: nativeChannelTotalsSchema,
     inherited: channelAmountsSchema.nullable(),
@@ -541,6 +664,8 @@ const nativeChannelCountersSchema = z
       BigInt(counters.native.refunded_credits) +
         BigInt(inherited?.refunded_credits ?? '0') ===
         BigInt(counters.combined.refunded_credits) &&
+      (!counters.lifetime?.complete ||
+        counters.native.unknown_provenance_requests === '0') &&
       (counters.complete
         ? counters.historical_coverage &&
           counters.native.unknown_provenance_requests === '0' &&

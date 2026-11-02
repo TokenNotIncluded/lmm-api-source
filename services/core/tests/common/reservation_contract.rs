@@ -121,6 +121,7 @@ pub async fn install_synthetic_recovery_contract(pool: &PgPool, id: &str, input:
             .cost(Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 input: i64::try_from(input).unwrap(),

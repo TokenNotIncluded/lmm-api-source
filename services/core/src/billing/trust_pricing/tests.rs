@@ -56,6 +56,37 @@ fn exact_ratios_reject_invalid_and_normalize() {
     );
 }
 #[test]
+fn legacy_safe_integer_threshold_boundaries_keep_exact_level_decisions() {
+    let mut p = policy();
+    p.tiers[1].min_paid_credits = 2_147_483_647;
+    p.tiers[2].min_paid_credits = 2_147_483_648;
+    p.tiers[3].min_paid_credits = 9_007_199_254_740_990;
+    p.tiers[4].min_paid_credits = 9_007_199_254_740_991;
+    assert!(p.validate().is_ok());
+    let mut f = facts();
+    f.positive_orders = 1;
+    f.last_paid_at = f.created_at;
+    for (credits, expected_level) in [
+        (2_147_483_646, 0),
+        (2_147_483_647, 1),
+        (2_147_483_648, 2),
+        (9_007_199_254_740_990, 3),
+        (9_007_199_254_740_991, 4),
+    ] {
+        f.net_paid_credits = credits;
+        assert_eq!(
+            evaluate(&p, 1, &f, f.created_at)
+                .unwrap()
+                .evidence()
+                .level(),
+            expected_level
+        );
+    }
+    p.tiers[4].min_paid_credits = 9_007_199_254_740_992;
+    assert_eq!(p.validate(), Err(Error::Invalid));
+}
+
+#[test]
 fn threshold_and_activation_are_net_credits_not_balance_or_usd() {
     let mut f = facts();
     let at = f.created_at;
@@ -253,6 +284,58 @@ async fn native_origin_fence_and_owner_only_basis(pool: sqlx::PgPool) {
     .unwrap();
     assert!(!public);
 }
+#[sqlx::test]
+async fn imported_safe_integer_thresholds_survive_postgres_and_quote(pool: sqlx::PgPool) {
+    crate::core_schema::init(&pool).await.unwrap();
+    let identity = crate::identity::IdentityStore::from_pool(pool.clone());
+    identity.bootstrap_user(9, 0).await.unwrap();
+    let mut p = policy();
+    p.tiers[1].min_paid_credits = 2_147_483_647;
+    p.tiers[2].min_paid_credits = 2_147_483_648;
+    p.tiers[3].min_paid_credits = 9_007_199_254_740_990;
+    p.tiers[4].min_paid_credits = 9_007_199_254_740_991;
+    sqlx::query("UPDATE core_trust_pricing.policies SET spec=$1, revision=revision+1")
+        .bind(serde_json::to_value(&p).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO core_trust_pricing.user_bases VALUES(9,$1,0,0,NULL,TRUE,1,1,$2)")
+        .bind(now - 86400)
+        .bind(vec![1_u8; 32])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO core_trust_pricing.legacy_paid_orders VALUES(1,9,0,$1,1,$2)")
+        .bind(now)
+        .bind(vec![2_u8; 32])
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (credits, level) in [
+        (2_147_483_646_i64, 0),
+        (2_147_483_647, 1),
+        (2_147_483_648, 2),
+        (9_007_199_254_740_990, 3),
+        (9_007_199_254_740_991, 4),
+    ] {
+        sqlx::query("UPDATE core_trust_pricing.legacy_paid_orders SET net_credits=$1,revision=revision+1 WHERE source_order_id=1")
+            .bind(credits).execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let quote = quote_in_transaction(&mut tx, 9).await.unwrap();
+        assert_eq!(quote.evidence().level(), level, "credits={credits}");
+        tx.rollback().await.unwrap();
+    }
+}
+
 #[sqlx::test]
 async fn imported_net_orders_and_full_refund_change_anchor(pool: sqlx::PgPool) {
     crate::core_schema::init(&pool).await.unwrap();

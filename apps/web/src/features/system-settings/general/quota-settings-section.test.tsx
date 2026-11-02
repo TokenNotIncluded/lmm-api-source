@@ -107,6 +107,12 @@ async function renderQuota(defaultValues: QuotaDefaults) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  // Exercise the legacy server response, which predates write capabilities.
+  queryClient.setQueryData(['system-options'], {
+    success: true,
+    message: '',
+    data: [],
+  })
   const rootRoute = createRootRoute({
     component: () => (
       <QueryClientProvider client={queryClient}>

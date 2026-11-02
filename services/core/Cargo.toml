@@ -21,7 +21,7 @@ aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "a
 argon2 = "=0.5.3"
 base64 = "=0.22.1"
 bcrypt = "=0.17.1"
-chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock"] }
 hkdf = "=0.12.4"
 hmac = "=0.12.1"
 # Legacy EPay signing and provider RSA verification reuse locked primitives.

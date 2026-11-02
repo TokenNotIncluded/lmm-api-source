@@ -37,6 +37,7 @@ struct Fixture {
     gateway: ModelGateway,
     charging: Charging,
     key: String,
+    session: String,
     key_id: i64,
     admin: String,
     account: i64,
@@ -45,7 +46,8 @@ struct Fixture {
 
 impl Fixture {
     async fn new(owner: PgPool, endpoint: &str, funds: i64, zero_price: bool) -> Self {
-        let (identity, _, _, key, key_id, account) = model_fixture::fixture(&owner, funds).await;
+        let (identity, _, session, key, key_id, account) =
+            model_fixture::fixture(&owner, funds).await;
         let admin = identity.bootstrap_user(8, 5).await.unwrap().secret;
         sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,source_reference) VALUES(7,'allowed','channel-usage-test')")
             .execute(&owner).await.unwrap();
@@ -121,6 +123,7 @@ impl Fixture {
             gateway,
             charging,
             key,
+            session,
             key_id,
             admin,
             account,
@@ -284,6 +287,9 @@ async fn lifetime_uses_all_stored_facts_while_window_excludes_inheritance(pool: 
     sqlx::query("INSERT INTO core_channels.counter_baselines(channel_id,gross_credits,refunded_credits,historical_coverage,source_channel_id,source_routing_version) VALUES(1,1000,50,TRUE,2,1)")
         .execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
+    lmm_core::core_schema::rebuild_channel_usage(&f.owner)
+        .await
+        .unwrap();
     let window = f.usage(1).await;
     assert_eq!(window["gross_settled_credits"], "0");
     assert_eq!(window["settled_requests"], "0");
@@ -400,6 +406,7 @@ fn spec(id: &str, input: i64) -> ChargeRequest {
         price: Price {
             text_request: None,
             tool: None,
+            audio: None,
             grounding: None,
             user_trust: None,
             image: None,
@@ -577,24 +584,87 @@ async fn real_zero_and_sums_above_javascript_safe_integer_are_exact_strings(pool
 }
 
 #[sqlx::test(migrations = false)]
-async fn excess_receipts_are_an_explicit_limit_not_partial_success(pool: PgPool) {
+async fn shared_usage_validates_over_2048_real_refund_receipts(pool: PgPool) {
     let supplier = model_fixture::Provider::start(true).await;
     let f = Fixture::new(pool, &supplier.endpoint, 1_000_000, false).await;
-    let (status, id) = f.call("receipt-density", false).await;
-    assert_eq!(status, StatusCode::OK);
+    let id = "usage-many-refunds";
+    synthetic_settled(&f, id, 5000, true).await;
+    for i in 0..2049 {
+        f.charging
+            .refund(
+                id,
+                &format!("refund-{i:04}"),
+                1,
+                "synthetic local correction",
+            )
+            .await
+            .unwrap();
+    }
+    let app = lmm_core::usage::router(lmm_core::usage::UsageStore::new(f.role.pool.clone()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/log/self?page_size=10")
+                .header("authorization", format!("Bearer {}", f.session))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 1 << 20).await.unwrap()).unwrap();
+    assert_eq!(body["data"]["total"], 1);
+    assert_eq!(body["data"]["items"][0]["gross_settled_credits"], 5001);
+    assert_eq!(body["data"]["items"][0]["refunded_credits"], 2049);
+    assert_eq!(body["data"]["items"][0]["net_consumption_credits"], 2952);
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn dirty_receipts_require_owner_rebuild_without_an_internal_page_cap(pool: PgPool) {
+    use lmm_core::billing::charging::{Change, LedgerCommand};
+    use sha2::{Digest, Sha256};
+    let supplier = model_fixture::Provider::start(true).await;
+    let f = Fixture::new(pool, &supplier.endpoint, 1_000_000, false).await;
+    let id = "receipt-density";
+    synthetic_settled(&f, id, 5000, true).await;
     // Owner-only density fixture: add audit rows without posting more money.
-    // The extra receipt must reject the entire read before any truncation.
+    // Raw receipt changes invalidate the cache. Owner rebuild streams the
+    // full canonical source rather than applying a 2048-receipt cap.
     let mut tx = f.owner.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO core_charging.ledger_commands(operation_id,request_id,command) SELECT md5('density-a:'||n)||md5('density-b:'||n),$1,jsonb_set(c.command,'{operation_id}',to_jsonb(md5('density-a:'||n)||md5('density-b:'||n))) FROM generate_series(1,2048) n CROSS JOIN LATERAL (SELECT command FROM core_charging.ledger_commands WHERE request_id=$1 ORDER BY operation_id LIMIT 1) c")
-        .bind(&id).execute(&mut *tx).await.unwrap();
+    let source: Value=sqlx::query_scalar("SELECT command FROM core_charging.ledger_commands WHERE request_id=$1 AND command->'change'->>'operation'='reserve'")
+        .bind(id).fetch_one(&mut *tx).await.unwrap();
+    let source: LedgerCommand = serde_json::from_value(source).unwrap();
+    let mut extra = Vec::new();
+    for total in 1..=2048 {
+        let mut command = source.clone();
+        let tag = format!("reserve:{total}");
+        command.operation_id = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap())
+        );
+        command.change = Change::Reserve { total };
+        extra.push(json!({"operation_id":command.operation_id,"command":command}));
+    }
+    sqlx::query("INSERT INTO core_charging.ledger_commands(operation_id,request_id,command) SELECT r.operation_id,$1,r.command FROM jsonb_to_recordset($2) AS r(operation_id text,command jsonb)")
+        .bind(id).bind(Value::Array(extra)).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     let (status, body) = f.read(2).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert!(body.get("data").is_none());
+    let before = admission_snapshot(&f.owner).await;
+    lmm_core::core_schema::rebuild_channel_usage(&f.owner)
+        .await
+        .unwrap();
+    let usage = f.usage(1).await;
+    assert_eq!(usage["settled_requests"], "1");
+    assert_eq!(usage["gross_settled_credits"], "5001");
+    assert_eq!(admission_snapshot(&f.owner).await, before);
     f.role.cleanup().await;
 }
 
@@ -622,6 +692,11 @@ async fn malformed_frozen_binding_is_unknown_but_malformed_money_receipt_is_an_e
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    let (status, body) = f.read(2).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    lmm_core::core_schema::rebuild_channel_usage(&f.owner)
+        .await
+        .unwrap();
     let usage = f.usage(2).await;
     assert_eq!(usage["unknown_provenance_requests"], "1");
     assert_eq!(usage["gross_settled_credits"], "0");
@@ -635,6 +710,11 @@ async fn malformed_frozen_binding_is_unknown_but_malformed_money_receipt_is_an_e
     sqlx::query("UPDATE core_charging.ledger_commands SET command=jsonb_set(command,'{change,amount}','999') WHERE request_id=$1 AND command->'change'->>'operation'='settle'")
         .bind(&id).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
+    assert!(
+        lmm_core::core_schema::rebuild_channel_usage(&f.owner)
+            .await
+            .is_err()
+    );
     let (status, body) = f.read(2).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert!(body.get("data").is_none());
@@ -656,6 +736,11 @@ async fn malformed_frozen_binding_is_unknown_but_malformed_money_receipt_is_an_e
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    assert!(
+        lmm_core::core_schema::rebuild_channel_usage(&f.owner)
+            .await
+            .is_err()
+    );
     let (status, body) = f.read(2).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert!(body.get("data").is_none());

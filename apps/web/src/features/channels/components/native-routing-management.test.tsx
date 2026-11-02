@@ -954,6 +954,75 @@ test('display subtotals keep copied inheritance separate from native consumption
   assert.match(section.textContent ?? '', /not new consumption/)
 })
 
+test('reviewed legacy lifetime keeps the original unit and an exact repeating amount alongside native credits', async () => {
+  const counters = {
+    ...countersFixture,
+    native: { ...countersFixture.native, unknown_provenance_requests: '0' },
+    lifetime: {
+      basis: 'legacy_recorded_plus_native',
+      complete: true,
+      total_usd: '0.333377333333333333',
+      exact_usd_numerator: '500066',
+      exact_usd_denominator: '1500000',
+      legacy_opening: {
+        kind: 'imported',
+        source_channel_id: '9',
+        raw_used_quota: '1',
+        credits_per_usd: '3',
+        recorded_usd: '0.333333333333333333',
+        observed_at: null,
+        archive_sha256: 'a'.repeat(64),
+      },
+    },
+  }
+  Object.defineProperty(api, 'request', {
+    configurable: true,
+    writable: true,
+    value: async (options: { url: string }) => ({
+      data: {
+        success: true,
+        data: options.url.endsWith('/counters')
+          ? counters
+          : options.url.endsWith('/usage')
+            ? usageFixture
+            : fixture(),
+      },
+    }),
+  })
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'Consumption').click())
+  await until(
+    () =>
+      document.querySelectorAll('[aria-label="Display usage"] dd').length === 5
+  )
+  const section = required(
+    document.querySelector('[aria-label="Display usage"]')
+  )
+  assert.deepEqual(
+    [...section.querySelectorAll('dd')].map((value) => value.textContent),
+    [
+      '0.333377333333333333 USD',
+      '0.333333333333333333 USD',
+      '18 Credits',
+      '4 Credits',
+      '22 Credits',
+    ]
+  )
+  assert.match(
+    section.textContent ?? '',
+    /Source channel 9 · 1 units \/ 3 per USD/
+  )
+  assert.match(
+    section.textContent ?? '',
+    /do not provide a gross\/refund breakdown/
+  )
+  assert.equal(
+    section.textContent?.includes('not a complete cumulative total'),
+    false
+  )
+})
+
 test('an absent inherited display baseline remains unknown rather than displaying zero', async () => {
   const absent = {
     ...countersFixture,

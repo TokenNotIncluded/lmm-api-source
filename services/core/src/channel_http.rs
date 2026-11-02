@@ -595,6 +595,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
             "catalog_probe": state.management.is_some(),
             "native_channel_usage": state.management.is_some(),
             "native_channel_counters": state.management.is_some(),
+            "native_channel_lifetime": state.management.is_some(),
             "native_balance_probe": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "copy_preserve_counters": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "source": "active_routing_snapshot",

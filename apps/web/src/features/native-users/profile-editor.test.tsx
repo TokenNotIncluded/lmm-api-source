@@ -403,7 +403,7 @@ for (const status of [401, 403]) {
       button('Save changes').click()
       await pause()
     })
-    assert.equal(document.querySelector('[role="dialog"]'), null)
+    await waitFor(() => document.querySelector('[role="dialog"]') === null)
     assert.doesNotMatch(
       document.body.textContent ?? '',
       /private draft|fresh server name/
@@ -435,7 +435,7 @@ test('a same-user SID change drops late private profile data and cannot open or 
   assert.equal(state.updated(), 0)
 })
 
-test('the live native page offers only the narrow ordinary-user editor and retains all 21 disabled generic actions', async () => {
+test('the live native page scopes management to ordinary users and retains unavailable generic actions', async () => {
   login()
   const wallet = nativeUserFixture().wallet
   assert.ok(wallet.status === 'available')
@@ -504,9 +504,36 @@ test('the live native page offers only the narrow ordinary-user editor and retai
     ).length,
     1
   )
-  assert.equal(
-    container.querySelectorAll('details button[disabled]').length,
-    21
+  const disabledActions = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('details button[disabled]'),
+    (element) => element.textContent
   )
+  assert.deepEqual(disabledActions, [
+    'Create user',
+    'Edit user',
+    'Delete user',
+    'Promote user',
+    'Demote user',
+    'Set trust level',
+    'Reset onboarding',
+    'Abuse ban',
+    'Restore referral',
+    'Penalize inviter',
+    'Revoke rewards',
+    'Unbind identity',
+    'Reset passkey',
+    'Assistant policy',
+    'Reset assistant violations',
+    'Modify subscriptions',
+    'Account action requests',
+  ])
+  const userCards = container.querySelectorAll('[data-native-user-id]')
+  for (const [index, card] of Array.from(userCards).entries()) {
+    const actions = Array.from(card.querySelectorAll('button'), (element) =>
+      element.textContent?.trim()
+    )
+    assert.equal(actions.includes('Security'), index === 0)
+    assert.equal(actions.includes('Adjust funds'), index === 0)
+  }
   assert.deepEqual(reads, ['/api/status', '/core/v1/admin/users'])
 })

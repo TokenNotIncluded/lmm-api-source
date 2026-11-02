@@ -124,6 +124,12 @@ test('saves scope and private identifier changes together without enabling revie
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  // Exercise the legacy server response, which predates write capabilities.
+  queryClient.setQueryData(['system-options'], {
+    success: true,
+    message: '',
+    data: [],
+  })
   const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
   try {
     await act(async () => {

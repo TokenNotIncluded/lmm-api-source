@@ -74,15 +74,9 @@ describe('assistant responsive presentation', () => {
       /\.assistant-prompt-input:has\(\[data-slot='input-group-control'\]:focus-visible\)/
     )
     assert.ok(
-      consoleEditorialStyles.includes(
-        'outline: 2px solid var(--console-clay, var(--forge-clay-light));'
-      )
+      consoleEditorialStyles.includes('outline: 2px solid var(--ring);')
     )
-    assert.ok(
-      consoleEditorialStyles.includes(
-        'outline-color: var(--console-clay, var(--forge-clay-dark));'
-      )
-    )
+    assert.ok(consoleEditorialStyles.includes('outline-color: var(--ring);'))
     assert.ok(
       consoleEditorialStyles.includes(
         ".assistant-prompt-input [data-slot='input-group-control']:focus-visible {\n  outline: none;"

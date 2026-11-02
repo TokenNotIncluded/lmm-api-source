@@ -7,8 +7,11 @@ const PRE_CATALOG: &str = "05d1aa6913236fc12cc099640ead1ac2d88a1bde073923ce83539
 mod predecessor;
 
 const RECEIPT: &str = "core_meta.account_appeal_upgrades";
+#[path = "common/canonical_native_history.rs"]
+mod canonical;
 #[path = "common/channel_accounting_history.rs"]
 mod history;
-use history::{check_history, seed_history};
+use canonical::seed_history;
+use history::check_history;
 #[path = "common/suffix_upgrade.rs"]
 mod harness;

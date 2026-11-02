@@ -1,4 +1,4 @@
-//! Shared exact-predecessor suffix engine for frozen 32/41/42 -> 43 upgrades.
+//! Shared exact-predecessor engine with an individually frozen successor per procedure.
 //! Original rows, sequence states, ownership and ACLs must survive unchanged.
 use super::{
     finance::{data_hash, object_ids, permissions},
@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 pub(super) struct Suffix {
     pub procedure: &'static str,
     pub predecessor_count: usize,
+    pub target_count: usize,
     pub predecessor_manifest: &'static str,
     pub predecessor_catalog: &'static str,
     pub target_json: &'static str,
@@ -27,16 +28,30 @@ macro_rules! reject_suffix {
         reject(match $spec.procedure {
             "core-functional-completion-v1" => concat!("COMPLETION_", $code),
             "core-account-appeals-v1" => concat!("ACCOUNT_APPEALS_", $code),
-            _ => concat!("CHANNEL_ACCOUNTING_", $code),
+            "core-channel-accounting-v1" => concat!("CHANNEL_ACCOUNTING_", $code),
+            "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
+            _ => concat!("CHANNEL_PROJECTION_", $code),
         })
     };
 }
 
 impl Suffix {
+    pub(super) fn target_manifest(&self) -> Result<String, UpgradeError> {
+        if self.target_count > COMPONENTS.len() || self.target_count < 44 {
+            return Err(reject_suffix!(self, "COMPILED_COMPONENTS_CHANGED"));
+        }
+        let mut manifest = schema_manifest();
+        manifest.components.truncate(self.target_count);
+        let mut bytes = serde_json::to_vec(&manifest).map_err(|_| UpgradeError::Storage)?;
+        bytes.push(b'\n');
+        Ok(hex(&Sha256::digest(bytes)))
+    }
+
     fn target(&self) -> Result<Target, UpgradeError> {
         let target: Target =
             serde_json::from_str(self.target_json).map_err(|_| UpgradeError::Storage)?;
-        if target.manifest_sha256 != manifest_sha256()? || !digest_hex(&target.catalog_sha256) {
+        if target.manifest_sha256 != self.target_manifest()? || !digest_hex(&target.catalog_sha256)
+        {
             return Err(reject_suffix!(self, "COMPILED_TARGET_CHANGED"));
         }
         Ok(target)
@@ -77,17 +92,19 @@ impl Suffix {
                 .any(|(i, role)| roles[..i].contains(role))
             || r.predecessor_manifest_sha256 != self.predecessor_manifest
             || r.predecessor_catalog_sha256 != self.predecessor_catalog
-            || r.successor_manifest_sha256 != manifest_sha256()?
+            || r.successor_manifest_sha256 != self.target_manifest()?
         {
             return Err(reject_suffix!(self, "UPGRADE_CONTRACT_INVALID"));
         }
         Ok(())
     }
     pub(super) fn authorize_target(&self) -> Result<(), UpgradeError> {
-        if COMPONENTS.len() != 43
+        if COMPONENTS.len() < self.target_count
+            || self.target_count < 44
             || COMPONENTS[40].0 != "completion-upgrade"
             || COMPONENTS[41].0 != "account-appeals"
             || COMPONENTS[42].0 != "channel-accounting"
+            || COMPONENTS[43].0 != "channel-projection"
         {
             return Err(reject_suffix!(self, "COMPILED_COMPONENTS_CHANGED"));
         }
@@ -99,6 +116,21 @@ impl Suffix {
             return Err(reject_suffix!(self, "COMPILED_PREDECESSOR_CHANGED"));
         }
         self.target()?;
+        Ok(())
+    }
+
+    async fn check_target(&self, c: &mut PgConnection) -> Result<(), UpgradeError> {
+        IdentityStore::check_schema_connection(c).await?;
+        super::super::check_component_set(c, &COMPONENTS[..self.target_count], false).await?;
+        super::super::check_usage_index(c).await?;
+        let saved: Vec<u8> = sqlx::query_scalar(
+            "SELECT catalog_fingerprint FROM core_meta.runtime_contract WHERE singleton",
+        )
+        .fetch_one(&mut *c)
+        .await?;
+        if saved != super::super::catalog(c).await? {
+            return Err(reject_suffix!(self, "RUNTIME_RECEIPT_CONFLICT"));
+        }
         Ok(())
     }
 
@@ -139,7 +171,10 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             {
                 return Err(reject_suffix!(self, "RECEIPT_OR_CATALOG_CONFLICT"));
             }
-            super::super::check_connection(&mut tx).await?;
+            self.check_target(&mut tx).await?;
+            if self.predecessor_count < 44 {
+                super::channel_projection::check_ready(&mut tx).await?;
+            }
             self.receipt_privileges(&mut tx).await?;
             tx.rollback().await?;
             return self.report(r, "already_committed", target.catalog_sha256);
@@ -180,13 +215,18 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         }
         let sequences:Vec<String>=sqlx::query_scalar("SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_' AND c.relkind='S' ORDER BY n.nspname COLLATE \"C\",c.relname COLLATE \"C\"").fetch_all(&mut *tx).await?;
         let old_data = data(&mut tx, &tables, &sequences).await?;
-        for (name, ddl) in &COMPONENTS[self.predecessor_count..] {
+        for (name, ddl) in &COMPONENTS[self.predecessor_count..self.target_count] {
             sqlx::raw_sql(ddl).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES($1,$2)")
                 .bind(name)
                 .bind(Sha256::digest(ddl.as_bytes()).to_vec())
                 .execute(&mut *tx)
                 .await?;
+        }
+        // One explicit owner-only backfill, inside the existing migration fence
+        // and transaction. Failure rolls back the new DDL as well as projection.
+        if self.predecessor_count < 44 {
+            super::channel_projection::backfill(&mut tx).await?;
         }
         let catalog = fingerprint(&definitions(&mut tx).await?);
         if hex(&catalog) != target.catalog_sha256
@@ -203,7 +243,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         sqlx::query(&format!("INSERT INTO {receipt}(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256) VALUES($1,$2,$3,$4,$5,$6)", receipt=self.receipt))
         .bind(&r.upgrade_id).bind(r.digest()?).bind(sqlx::types::Json(serde_json::to_value(r).map_err(|_|UpgradeError::Storage)?))
         .bind(data_hash(&old_data)).bind(Sha256::digest(serde_json::to_vec(&old_permissions).map_err(|_|UpgradeError::Storage)?).to_vec()).bind(catalog).execute(&mut *tx).await?;
-        super::super::check_connection(&mut tx).await?;
+        self.check_target(&mut tx).await?;
         preflight(&mut tx, r).await?;
         commit_offline_upgrade(tx, r, backend_pid).await?;
         self.report(r, "committed", target.catalog_sha256)
@@ -222,7 +262,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             request_sha256: hex(&r.digest()?),
             predecessor_catalog_sha256: self.predecessor_catalog,
             successor_catalog_sha256: catalog,
-            components: COMPONENTS.len(),
+            components: self.target_count,
         })
     }
 }

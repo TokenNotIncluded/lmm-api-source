@@ -67,17 +67,9 @@ impl Ledger for RecordingLedger {
     }
 }
 async fn fixture(pool: &PgPool) -> (Charging, Arc<RecordingLedger>) {
-    sqlx::raw_sql(include_str!("../../../schema/identity.sql"))
-        .execute(pool)
-        .await
-        .unwrap();
-
-    // New normal-reserve admission always reads the installed abuse authority.
-    sqlx::raw_sql(crate::abuse::SCHEMA)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::raw_sql(SCHEMA).execute(pool).await.unwrap();
+    // Explicit test-owner installation includes the projection metadata used by
+    // live charging hooks. RecordingLedger remains the financial test adapter.
+    crate::core_schema::init(pool).await.unwrap();
     sqlx::raw_sql(
         "CREATE TABLE test_ledger_commands(id TEXT PRIMARY KEY,detail JSONB NOT NULL); \
          INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES \
@@ -113,6 +105,38 @@ async fn fixture(pool: &PgPool) -> (Charging, Arc<RecordingLedger>) {
     let ledger = Arc::new(RecordingLedger::default());
     (Charging::new(pool.clone(), ledger.clone()), ledger)
 }
+
+// Owner seeds and constraint probes obey the installed write-isolation contract;
+// pool defaults remain unchanged for isolation negative tests.
+async fn owner_seed(pool: &PgPool) -> sqlx::Transaction<'_, sqlx::Postgres> {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx
+}
+
+async fn owner_seed_sql(
+    pool: &PgPool,
+    sql: &str,
+) -> std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    let mut tx = owner_seed(pool).await;
+    let result = sqlx::raw_sql(sql).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
+async fn owner_seed_query(
+    pool: &PgPool,
+    query: sqlx::query::Query<'_, sqlx::Postgres, sqlx::postgres::PgArguments>,
+) -> std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    let mut tx = owner_seed(pool).await;
+    let result = query.execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
 fn request(id: &str, reserve: i64) -> Request {
     Request {
         id: id.into(),
@@ -123,6 +147,7 @@ fn request(id: &str, reserve: i64) -> Request {
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -172,14 +197,19 @@ async fn count(pool: &PgPool, operation: &str) -> i64 {
     .unwrap()
 }
 async fn subscription(pool: &PgPool, account: i64, quota: i64) -> i64 {
-    sqlx::query_scalar(
+    let mut tx = owner_seed(pool).await;
+    let id=sqlx::query_scalar(
         "INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,anchor,seconds,ends_at,limit_credits,models,groups) \
          VALUES ($1,'test-grant-'||$1,'custom',0,86400,253402300799,$2,ARRAY['test-model'],ARRAY['default']) RETURNING id",
-    ).bind(account).bind(quota).fetch_one(pool).await.unwrap()
+    ).bind(account).bind(quota).fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    id
 }
 async fn expire(pool: &PgPool, id: &str) {
+    let mut tx = owner_seed(pool).await;
     sqlx::query("UPDATE core_charging.requests SET lease_until=floor(extract(epoch FROM clock_timestamp()))::bigint-1,revision=revision+1 WHERE id=$1")
-        .bind(id).execute(pool).await.unwrap();
+        .bind(id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
 }
 
 #[sqlx::test(migrations = false)]
@@ -223,6 +253,7 @@ fn exact_cumulative_prices_cache_and_overflow() {
         price.cost(Usage {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             cache_creation: None,
@@ -238,6 +269,7 @@ fn exact_cumulative_prices_cache_and_overflow() {
         price.cost(Usage {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             cache_creation: None,
@@ -380,11 +412,12 @@ async fn caps_added_late_changed_or_new_keys_do_not_reset_spend(pool: PgPool) {
         .await
         .unwrap();
     assert!(
-        sqlx::query("DELETE FROM core_charging.budgets WHERE id=$1")
-            .bind(first)
-            .execute(&pool)
-            .await
-            .is_err()
+        owner_seed_query(
+            &pool,
+            sqlx::query("DELETE FROM core_charging.budgets WHERE id=$1").bind(first)
+        )
+        .await
+        .is_err()
     );
 }
 
@@ -612,11 +645,15 @@ async fn request_price_usage_settlement_and_refund_are_idempotent(pool: PgPool) 
     );
     assert_eq!(count(&pool, "refund").await, 1);
     assert!(
-        sqlx::query("UPDATE core_charging.requests SET price='{}',revision=revision+1 WHERE id=$1")
+        owner_seed_query(
+            &pool,
+            sqlx::query(
+                "UPDATE core_charging.requests SET price='{}',revision=revision+1 WHERE id=$1"
+            )
             .bind(&spec.id)
-            .execute(&pool)
-            .await
-            .is_err()
+        )
+        .await
+        .is_err()
     );
 }
 
@@ -931,7 +968,7 @@ async fn status_resolution_waits_for_inflight_commit_and_replay_is_safe(pool: Pg
     let (engine, _) = fixture(&pool).await;
     let spec = request("unknown-ack", 10);
     engine.reserve(PERSONAL, &spec, &WORKER).await.unwrap();
-    let mut tx = pool.begin().await.unwrap();
+    let mut tx = owner_seed(&pool).await;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('core_charging:unknown-ack',0))")
         .execute(&mut *tx)
         .await
@@ -953,6 +990,7 @@ async fn status_resolution_waits_for_inflight_commit_and_replay_is_safe(pool: Pg
 
 // Fixture-only historical rows: these test attribution, not real ledger money.
 async fn historical(pool: &PgPool, source_id: &str, old_id: &str, subscription_cycle: bool) {
+    let mut tx = owner_seed(pool).await;
     let sql = if subscription_cycle {
         "INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id, \
          fingerprint,worker_digest,spec_digest,price,source_subscription_id,source_start,source_end, \
@@ -971,9 +1009,10 @@ async fn historical(pool: &PgPool, source_id: &str, old_id: &str, subscription_c
     sqlx::query(sql)
         .bind(source_id)
         .bind(old_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .unwrap();
+    tx.commit().await.unwrap();
 }
 
 #[sqlx::test(migrations = false)]
@@ -1048,9 +1087,9 @@ async fn subscription_rollover_refunds_stay_in_original_cycle(pool: PgPool) {
 #[sqlx::test(migrations = false)]
 async fn running_stream_cannot_top_up_from_new_subscription_cycle(pool: PgPool) {
     let (engine, _) = fixture(&pool).await;
-    sqlx::raw_sql("INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,anchor,seconds,ends_at,limit_credits,models,groups) \
+    owner_seed_sql(&pool, "INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,anchor,seconds,ends_at,limit_credits,models,groups) \
         VALUES (102,'short-cycle','custom',0,1,253402300799,100,ARRAY['test-model'],ARRAY['default']); \
-        UPDATE core_billing.account_policies SET preference='subscription_only' WHERE account_id=102").execute(&pool).await.unwrap();
+        UPDATE core_billing.account_policies SET preference='subscription_only' WHERE account_id=102").await.unwrap();
     let original = engine
         .reserve(PERSONAL, &request("cycle-crossing", 10), &WORKER)
         .await
@@ -1073,9 +1112,10 @@ async fn running_stream_cannot_top_up_from_new_subscription_cycle(pool: PgPool) 
 }
 
 async fn lifetime_cap(pool: &PgPool, key: i64, limit: i64, unlimited: bool, used: i64) {
+    let mut tx = owner_seed(pool).await;
     sqlx::query("INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,limit_credits,unlimited,display_limit_credits) \
         VALUES ('key',$1,2,'lifetime',$2,$3,$4)")
-        .bind(key).bind(limit).bind(unlimited).bind(unlimited.then_some(used)).execute(pool).await.unwrap();
+        .bind(key).bind(limit).bind(unlimited).bind(unlimited.then_some(used)).execute(&mut *tx).await.unwrap();
     sqlx::query(
         "INSERT INTO core_charging.budget_opening_consumption \
         (scope,key_id,period,start_at,end_at,consumed_credits,import_reference) \
@@ -1083,9 +1123,10 @@ async fn lifetime_cap(pool: &PgPool, key: i64, limit: i64, unlimited: bool, used
     )
     .bind(key)
     .bind(used)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .unwrap();
+    tx.commit().await.unwrap();
 }
 
 #[sqlx::test(migrations = false)]
@@ -1131,7 +1172,7 @@ async fn lifetime_key_opening_consumption_is_not_a_request_and_survives_cap_revi
         "TRUNCATE core_charging.budget_opening_consumption",
     ] {
         assert!(
-            sqlx::raw_sql(statement).execute(&mut *c).await.is_err(),
+            owner_seed_sql(&pool, statement).await.is_err(),
             "{statement}"
         );
     }
@@ -1180,13 +1221,14 @@ async fn switching_lifetime_key_between_finite_and_unlimited_never_resets_consum
     let (engine, _) = fixture(&pool).await;
     lifetime_cap(&pool, 11, 10, false, 7).await;
     assert!(
-        sqlx::query("UPDATE core_charging.budgets SET unlimited=true WHERE key_id=11")
-            .execute(&pool)
-            .await
-            .is_err()
+        owner_seed_sql(
+            &pool,
+            "UPDATE core_charging.budgets SET unlimited=true WHERE key_id=11"
+        )
+        .await
+        .is_err()
     );
-    sqlx::query("UPDATE core_charging.budgets SET unlimited=true,limit_credits=0,display_limit_credits=10,revision=revision+1 WHERE key_id=11")
-        .execute(&pool).await.unwrap();
+    owner_seed_sql(&pool, "UPDATE core_charging.budgets SET unlimited=true,limit_credits=0,display_limit_credits=10,revision=revision+1 WHERE key_id=11").await.unwrap();
     engine
         .reserve(PERSONAL, &request("temporarily-unlimited", 100), &WORKER)
         .await
@@ -1197,8 +1239,7 @@ async fn switching_lifetime_key_between_finite_and_unlimited_never_resets_consum
         (107, -97, true)
     );
     drop(c);
-    sqlx::query("UPDATE core_charging.budgets SET unlimited=false,limit_credits=10,revision=revision+1 WHERE key_id=11")
-        .execute(&pool).await.unwrap();
+    owner_seed_sql(&pool, "UPDATE core_charging.budgets SET unlimited=false,limit_credits=10,revision=revision+1 WHERE key_id=11").await.unwrap();
     let mut c = pool.acquire().await.unwrap();
     assert_eq!(
         key_quota_snapshot(&mut c, 11).await.unwrap(),
@@ -1228,11 +1269,10 @@ async fn switching_lifetime_key_between_finite_and_unlimited_never_resets_consum
 #[sqlx::test(migrations = false)]
 async fn opening_member_consumption_survives_rejoin_new_key_and_new_issuer(pool: PgPool) {
     let (engine, _) = fixture(&pool).await;
-    sqlx::raw_sql("INSERT INTO core_charging.budget_opening_consumption \
+    owner_seed_sql(&pool, "INSERT INTO core_charging.budget_opening_consumption \
         (scope,account_id,user_id,period,start_at,end_at,consumed_credits,import_reference) \
         SELECT 'member',501,2,'month',start_at,end_at,60,'legacy-member:501:2' \
-        FROM core_charging.period_window('month',0,0,floor(extract(epoch FROM clock_timestamp()))::bigint)")
-        .execute(&pool).await.unwrap();
+        FROM core_charging.period_window('month',0,0,floor(extract(epoch FROM clock_timestamp()))::bigint)").await.unwrap();
     let rule = cap("member", Some(501), Some(2), None, 100);
     engine.set_budget(OWNER_SESSION, &rule).await.unwrap();
     engine.set_budget(ADMIN_SESSION, &rule).await.unwrap();
@@ -1272,7 +1312,7 @@ async fn calendar_opening_consumption_applies_only_to_its_original_window(pool: 
         .set_budget(MEMBER_SESSION, &cap("self", None, Some(2), None, 100))
         .await
         .unwrap();
-    sqlx::raw_sql("INSERT INTO core_charging.budget_opening_consumption \
+    owner_seed_sql(&pool, "INSERT INTO core_charging.budget_opening_consumption \
         (scope,user_id,period,start_at,end_at,consumed_credits,import_reference) \
         SELECT 'self',2,'month',start_at,end_at,60,'current-month' \
         FROM core_charging.period_window('month',0,0,floor(extract(epoch FROM clock_timestamp()))::bigint); \
@@ -1280,8 +1320,7 @@ async fn calendar_opening_consumption_applies_only_to_its_original_window(pool: 
         (scope,user_id,period,start_at,end_at,consumed_credits,import_reference) \
         SELECT 'self',2,'month',w.start_at,w.end_at,99,'previous-month' \
         FROM core_charging.period_window('month',0,0,floor(extract(epoch FROM clock_timestamp()))::bigint) n \
-        CROSS JOIN LATERAL core_charging.period_window('month',0,0,n.start_at-1) w")
-        .execute(&pool).await.unwrap();
+        CROSS JOIN LATERAL core_charging.period_window('month',0,0,n.start_at-1) w").await.unwrap();
     engine
         .reserve(PERSONAL, &request("current-month-exact", 40), &WORKER)
         .await
@@ -1302,9 +1341,10 @@ async fn imported_subscription(
     unlimited: bool,
     used: i64,
 ) -> (i64, i64, i64) {
+    let mut tx = owner_seed(pool).await;
     let now: i64 =
         sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await
             .unwrap();
     let start = now - 60;
@@ -1314,12 +1354,13 @@ async fn imported_subscription(
          reset_basis,reset_limit_credits,reset_unlimited) \
         VALUES (102,$1,'custom',$2,86400,$3,$4,$5,ARRAY['test-model'],ARRAY['default'],'explicit',200,false) RETURNING id")
         .bind(reference).bind(now-90000).bind(now+900000).bind(limit).bind(unlimited)
-        .fetch_one(pool).await.unwrap();
+        .fetch_one(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
         (subscription_id,start_at,end_at,consumed_credits,import_reference) VALUES ($1,$2,$3,$4,$5)")
-        .bind(id).bind(start).bind(end).bind(used).bind(reference).execute(pool).await.unwrap();
+        .bind(id).bind(start).bind(end).bind(used).bind(reference).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE core_billing.account_policies SET preference='subscription_only' WHERE account_id=102")
-        .execute(pool).await.unwrap();
+        .execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
     (id, start, end)
 }
 
@@ -1361,7 +1402,7 @@ async fn imported_subscription_keeps_exact_next_reset_and_explicit_later_reset_b
         "TRUNCATE core_charging.subscription_opening_consumption",
     ] {
         assert!(
-            sqlx::raw_sql(statement).execute(&pool).await.is_err(),
+            owner_seed_sql(&pool, statement).await.is_err(),
             "{statement}"
         );
     }
@@ -1380,11 +1421,12 @@ async fn subscription_historical_overspend_is_preserved_and_unlimited_zero_is_ex
             .unwrap_err(),
         Error::NoFunds
     );
-    sqlx::query("UPDATE core_charging.subscriptions SET active=false WHERE id=$1")
-        .bind(first)
-        .execute(&pool)
-        .await
-        .unwrap();
+    owner_seed_query(
+        &pool,
+        sqlx::query("UPDATE core_charging.subscriptions SET active=false WHERE id=$1").bind(first),
+    )
+    .await
+    .unwrap();
     let (second, _, _) = imported_subscription(&pool, "finite-zero-sub", 0, false, 0).await;
     assert_eq!(
         engine
@@ -1393,11 +1435,12 @@ async fn subscription_historical_overspend_is_preserved_and_unlimited_zero_is_ex
             .unwrap_err(),
         Error::NoFunds
     );
-    sqlx::query("UPDATE core_charging.subscriptions SET active=false WHERE id=$1")
-        .bind(second)
-        .execute(&pool)
-        .await
-        .unwrap();
+    owner_seed_query(
+        &pool,
+        sqlx::query("UPDATE core_charging.subscriptions SET active=false WHERE id=$1").bind(second),
+    )
+    .await
+    .unwrap();
     imported_subscription(&pool, "unlimited-zero-sub", 0, true, 123).await;
     engine
         .reserve(PERSONAL, &request("unlimited-sub-admitted", 1000), &WORKER)
@@ -1415,16 +1458,18 @@ async fn non_resetting_subscription_keeps_one_whole_grant_window_and_opening_con
     // A 100-year never-reset grant is not a repeating ten-year custom period.
     let anchor: i64 = 946684800;
     let end: i64 = 4102444800;
+    let mut tx = owner_seed(&pool).await;
     let id: i64 = sqlx::query_scalar("INSERT INTO core_charging.subscriptions \
         (account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups) \
         VALUES (102,'never-reset','grant',$1,$2,50,ARRAY['test-model'],ARRAY['default']) RETURNING id")
-        .bind(anchor).bind(end).fetch_one(&pool).await.unwrap();
-    assert!(sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
+        .bind(anchor).bind(end).fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    assert!(owner_seed_query(&pool, sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
         (subscription_id,start_at,end_at,consumed_credits,import_reference) VALUES ($1,$2,$3,40,'partial-never-reset')")
-        .bind(id).bind(anchor+86400).bind(end).execute(&pool).await.is_err());
-    sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
+        .bind(id).bind(anchor+86400).bind(end)).await.is_err());
+    owner_seed_query(&pool, sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
         (subscription_id,start_at,end_at,consumed_credits,import_reference) VALUES ($1,$2,$3,40,'legacy-never-reset')")
-        .bind(id).bind(anchor).bind(end).execute(&pool).await.unwrap();
+        .bind(id).bind(anchor).bind(end)).await.unwrap();
     sqlx::query("UPDATE core_billing.account_policies SET preference='subscription_only' WHERE account_id=102")
         .execute(&pool).await.unwrap();
     let charge = engine
@@ -1482,17 +1527,16 @@ async fn non_resetting_subscription_keeps_one_whole_grant_window_and_opening_con
         .unwrap();
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT consumed_credits FROM core_charging.subscription_opening_consumption WHERE subscription_id=$1")
         .bind(id).fetch_one(&pool).await.unwrap(), 40);
-    assert!(sqlx::raw_sql("INSERT INTO core_charging.subscriptions \
+    assert!(owner_seed_sql(&pool, "INSERT INTO core_charging.subscriptions \
         (account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups,reset_basis,reset_limit_credits) \
-        VALUES (102,'invalid-never-reset','grant',0,4102444800,50,ARRAY['*'],ARRAY['*'],'explicit',50)")
-        .execute(&pool).await.is_err());
+        VALUES (102,'invalid-never-reset','grant',0,4102444800,50,ARRAY['*'],ARRAY['*'],'explicit',50)").await.is_err());
     assert!(
-        sqlx::raw_sql(
+        owner_seed_sql(
+            &pool,
             "INSERT INTO core_charging.subscriptions \
         (account_id,grant_reference,period,anchor,seconds,ends_at,limit_credits,models,groups) \
         VALUES (102,'invalid-never-seconds','grant',0,1,4102444800,50,ARRAY['*'],ARRAY['*'])"
         )
-        .execute(&pool)
         .await
         .is_err()
     );
@@ -1502,24 +1546,26 @@ async fn non_resetting_subscription_keeps_one_whole_grant_window_and_opening_con
 async fn subscriptions_accept_utc_calendar_windows_and_reject_non_utc_or_wrong_reset(pool: PgPool) {
     fixture(&pool).await;
     for period in ["day", "week", "month"] {
+        let mut tx = owner_seed(&pool).await;
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO core_charging.subscriptions \
             (account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups) \
             VALUES (102,$1,$1,0,253402300799,10,ARRAY['*'],ARRAY['*']) RETURNING id",
         )
         .bind(period)
-        .fetch_one(&pool)
+        .fetch_one(&mut *tx)
         .await
         .unwrap();
+        tx.commit().await.unwrap();
         let window: (i64, i64) =
             sqlx::query_as("SELECT * FROM core_charging.period_window($1,0,0,1709164800)")
                 .bind(period)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
+        owner_seed_query(&pool, sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
             (subscription_id,start_at,end_at,consumed_credits,import_reference) VALUES ($1,$2,$3,7,$4)")
-            .bind(id).bind(window.0).bind(window.1).bind(period).execute(&pool).await.unwrap();
+            .bind(id).bind(window.0).bind(window.1).bind(period)).await.unwrap();
         let result: (i64, i64, i64, bool) =
             sqlx::query_as("SELECT * FROM core_charging.subscription_window($1,1709164800)")
                 .bind(id)
@@ -1528,39 +1574,41 @@ async fn subscriptions_accept_utc_calendar_windows_and_reject_non_utc_or_wrong_r
                 .unwrap();
         assert_eq!(result, (window.0, window.1, 10, false));
     }
-    assert!(sqlx::raw_sql("INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,timezone,limit_credits) \
-        VALUES ('key',11,2,'day','Asia/Taipei',10)").execute(&pool).await.is_err());
+    assert!(owner_seed_sql(&pool, "INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,timezone,limit_credits) \
+        VALUES ('key',11,2,'day','Asia/Taipei',10)").await.is_err());
     assert!(
-        sqlx::raw_sql(
+        owner_seed_sql(
+            &pool,
             "INSERT INTO core_charging.subscriptions \
         (account_id,grant_reference,period,timezone,anchor,ends_at,limit_credits,models,groups) \
         VALUES (102,'non-utc','month','Asia/Taipei',0,253402300799,10,ARRAY['*'],ARRAY['*'])"
         )
-        .execute(&pool)
         .await
         .is_err()
     );
     assert!(
-        sqlx::raw_sql(
+        owner_seed_sql(
+            &pool,
             "INSERT INTO core_charging.budget_opening_consumption \
         (scope,key_id,period,timezone,start_at,end_at,consumed_credits,import_reference) \
         VALUES ('key',11,'day','Asia/Taipei',1709164800,1709251200,1,'non-utc-seed')"
         )
-        .execute(&pool)
         .await
         .is_err()
     );
+    let mut tx = owner_seed(&pool).await;
     let bad: i64 = sqlx::query_scalar(
         "INSERT INTO core_charging.subscriptions \
         (account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups) \
         VALUES (102,'bad-reset','month',0,253402300799,10,ARRAY['*'],ARRAY['*']) RETURNING id",
     )
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await
     .unwrap();
-    assert!(sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
+    tx.commit().await.unwrap();
+    assert!(owner_seed_query(&pool, sqlx::query("INSERT INTO core_charging.subscription_opening_consumption \
         (subscription_id,start_at,end_at,consumed_credits,import_reference) VALUES ($1,1706745600,1709251201,1,'bad-reset')")
-        .bind(bad).execute(&pool).await.is_err());
+        .bind(bad)).await.is_err());
 }
 
 async fn external(pool: &PgPool, id: &str, amount: i64) -> Result<()> {
@@ -1611,10 +1659,10 @@ async fn commerce_and_model_spending_share_opening_caps_and_refunds_restore_only
             .unwrap(),
         1
     );
-    sqlx::query(
+    owner_seed_sql(
+        &pool,
         "UPDATE core_charging.external_consumption SET refunded=10 WHERE id='commerce-spend'",
     )
-    .execute(&pool)
     .await
     .unwrap();
     engine
@@ -1639,13 +1687,24 @@ async fn commerce_and_model_spending_share_opening_caps_and_refunds_restore_only
 async fn external_consumption_identity_and_serializable_contract_are_enforced(pool: PgPool) {
     fixture(&pool).await;
     external(&pool, "commerce-immutable", 10).await.unwrap();
-    let mut c = pool.acquire().await.unwrap();
+    let mut c = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *c)
+        .await
+        .unwrap();
     assert_eq!(
         external_budgets(&mut c, "commerce-immutable")
             .await
             .unwrap_err(),
         Error::Invalid
     );
+    let error = sqlx::query("UPDATE core_charging.external_consumption SET refunded=refunded WHERE id='commerce-immutable'")
+        .execute(&mut *c).await.unwrap_err();
+    assert_eq!(
+        error.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("25001")
+    );
+    c.rollback().await.unwrap();
     for statement in [
         "UPDATE core_charging.external_consumption SET key_id=12",
         "UPDATE core_charging.external_consumption SET payer_account_id=501",
@@ -1656,19 +1715,23 @@ async fn external_consumption_identity_and_serializable_contract_are_enforced(po
         "TRUNCATE core_charging.external_consumption",
     ] {
         assert!(
-            sqlx::raw_sql(statement).execute(&mut *c).await.is_err(),
+            owner_seed_sql(&pool, statement).await.is_err(),
             "{statement}"
         );
     }
-    sqlx::query("UPDATE core_charging.external_consumption SET refunded=5")
-        .execute(&mut *c)
-        .await
-        .unwrap();
+    owner_seed_sql(
+        &pool,
+        "UPDATE core_charging.external_consumption SET refunded=5",
+    )
+    .await
+    .unwrap();
     assert!(
-        sqlx::query("UPDATE core_charging.external_consumption SET refunded=4")
-            .execute(&mut *c)
-            .await
-            .is_err()
+        owner_seed_sql(
+            &pool,
+            "UPDATE core_charging.external_consumption SET refunded=4"
+        )
+        .await
+        .is_err()
     );
 }
 
@@ -1676,10 +1739,9 @@ async fn external_consumption_identity_and_serializable_contract_are_enforced(po
 async fn opening_and_external_aggregates_do_not_overflow_bigint_admission(pool: PgPool) {
     let (engine, _) = fixture(&pool).await;
     lifetime_cap(&pool, 11, i64::MAX, false, i64::MAX).await;
-    sqlx::query("INSERT INTO core_charging.external_consumption \
+    owner_seed_sql(&pool, "INSERT INTO core_charging.external_consumption \
         (id,domain,actor_user_id,key_id,payer_account_id,authorized_at,amount_credits) \
-        VALUES ('prior-spend','commerce',2,11,102,floor(extract(epoch FROM clock_timestamp()))::bigint,1)")
-        .execute(&pool).await.unwrap();
+        VALUES ('prior-spend','commerce',2,11,102,floor(extract(epoch FROM clock_timestamp()))::bigint,1)").await.unwrap();
     assert_eq!(
         engine
             .reserve(PERSONAL, &request("numeric-over-cap", 1), &WORKER)
@@ -1701,8 +1763,7 @@ async fn unlimited_keys_preserve_signed_display_remaining_and_negative_finite_ca
 ) {
     let (engine, _) = fixture(&pool).await;
     lifetime_cap(&pool, 11, 0, true, 7).await;
-    sqlx::query("UPDATE core_charging.budgets SET display_limit_credits=-5,revision=revision+1 WHERE key_id=11")
-        .execute(&pool).await.unwrap();
+    owner_seed_sql(&pool, "UPDATE core_charging.budgets SET display_limit_credits=-5,revision=revision+1 WHERE key_id=11").await.unwrap();
     let mut c = pool.acquire().await.unwrap();
     assert_eq!(
         key_quota_snapshot(&mut c, 11).await.unwrap(),
@@ -1743,11 +1804,11 @@ async fn unlimited_keys_preserve_signed_display_remaining_and_negative_finite_ca
     negative.period = "month".into();
     assert_eq!(negative.validate().unwrap_err(), Error::Invalid);
     assert!(
-        sqlx::query(
+        owner_seed_sql(
+            &pool,
             "INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,limit_credits) \
         VALUES ('key',12,2,'month',-1)"
         )
-        .execute(&pool)
         .await
         .is_err()
     );
@@ -1757,11 +1818,11 @@ async fn unlimited_keys_preserve_signed_display_remaining_and_negative_finite_ca
 async fn lifetime_key_editor_uses_own_issuer_policy_and_counts_opening_only_once(pool: PgPool) {
     let (engine, _) = fixture(&pool).await;
     lifetime_cap(&pool, 11, 100, false, 7).await;
-    sqlx::query(
+    owner_seed_sql(
+        &pool,
         "INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,limit_credits) \
         VALUES ('key',11,1,'lifetime',10)",
     )
-    .execute(&pool)
     .await
     .unwrap();
     let mut c = pool.acquire().await.unwrap();
@@ -1779,8 +1840,8 @@ async fn lifetime_key_editor_uses_own_issuer_policy_and_counts_opening_only_once
         (7, 0, true)
     );
     drop(c);
-    sqlx::query("UPDATE core_charging.budgets SET unlimited=true,limit_credits=0,display_limit_credits=12,revision=revision+1 \
-        WHERE key_id=11 AND issuer_user_id=2").execute(&pool).await.unwrap();
+    owner_seed_sql(&pool, "UPDATE core_charging.budgets SET unlimited=true,limit_credits=0,display_limit_credits=12,revision=revision+1 \
+        WHERE key_id=11 AND issuer_user_id=2").await.unwrap();
     let mut c = pool.acquire().await.unwrap();
     assert_eq!(
         key_quota_snapshot_for_issuer(&mut c, 11, 2).await.unwrap(),
@@ -1802,8 +1863,8 @@ async fn lifetime_key_editor_uses_own_issuer_policy_and_counts_opening_only_once
 async fn signed_key_display_underflow_fails_closed_without_panicking(pool: PgPool) {
     fixture(&pool).await;
     lifetime_cap(&pool, 11, 0, true, 1).await;
-    sqlx::query("UPDATE core_charging.budgets SET display_limit_credits=$1,revision=revision+1 WHERE key_id=11")
-        .bind(i64::MIN).execute(&pool).await.unwrap();
+    owner_seed_query(&pool, sqlx::query("UPDATE core_charging.budgets SET display_limit_credits=$1,revision=revision+1 WHERE key_id=11")
+        .bind(i64::MIN)).await.unwrap();
     let mut c = pool.acquire().await.unwrap();
     assert_eq!(
         key_quota_snapshot(&mut c, 11).await.unwrap_err(),
@@ -1851,4 +1912,70 @@ fn upstream_cost_price_requires_receipt_and_preserves_exact_group_quote() {
     price.input_per_million = 0;
     price.model = "arbitrary-model".into();
     assert_eq!(price.validate(), Err(Error::Invalid));
+}
+
+#[test]
+fn audio_charging_variant_keeps_legacy_json_and_rejects_text_pricing() {
+    use crate::model_http::audio::{AudioMeteredUsage, AudioPrice, AudioUsage};
+    let mut price = request("audio-json", 0).price;
+    let legacy_price = serde_json::to_value(&price).unwrap();
+    let legacy_usage = serde_json::to_value(Usage::default()).unwrap();
+    assert!(legacy_price.get("audio").is_none());
+    assert!(legacy_usage.get("audio").is_none());
+    assert_eq!(
+        serde_json::from_value::<Price>(legacy_price.clone()).unwrap(),
+        price
+    );
+    assert_eq!(
+        serde_json::to_value(serde_json::from_value::<Price>(legacy_price.clone()).unwrap())
+            .unwrap(),
+        legacy_price
+    );
+    assert_eq!(
+        serde_json::from_value::<Usage>(legacy_usage).unwrap(),
+        Usage::default()
+    );
+    let counts = AudioUsage {
+        text_input: 1,
+        text_output: 2,
+        audio_input: 3,
+        audio_output: 4,
+    };
+    let usage = Usage {
+        audio: Some(AudioMeteredUsage {
+            counts,
+            raw_usage_sha256: [1; 32],
+            response_sha256: [2; 32],
+        }),
+        ..Usage::default()
+    };
+    assert_eq!(price.cost(usage), Err(Error::Invalid));
+    let audio: AudioPrice = serde_json::from_value(serde_json::json!({
+        "version":1,"price_revision":"v1","source_sha256":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        "model":"test-model","group":"default","provider_contract_revision":"synthetic-v1",
+        "tariff":{"kind":"fixed","usd_per_request":{"numerator":1,"denominator":500000}},
+        "group_multiplier":{"numerator":1,"denominator":1},"rounding":"ceiling","usage_format":"open_ai_chat_v1",
+        "bounds":{"text_input":10,"text_output":10,"audio_input":10,"audio_output":10},"max_input_tokens":20,"max_output_tokens":20,"max_budget":100
+    })).unwrap();
+    price.audio = Some(audio);
+    price.input_per_million = 0;
+    price.output_per_million = 0;
+    price.cached_per_million = 0;
+    assert_eq!(price.cost(usage), Ok(1));
+    assert_eq!(
+        price.cost(Usage {
+            input: 1,
+            ..Usage::default()
+        }),
+        Err(Error::Invalid)
+    );
+    assert!(!Usage { input: 1, ..usage }.valid());
+    assert_eq!(
+        price.reservation_ceiling(ReservationBasis::Tokens {
+            input: 20,
+            output: 20
+        }),
+        Err(Error::Invalid)
+    );
+    assert_eq!(price.reservation_ceiling(ReservationBasis::Audio), Ok(1));
 }

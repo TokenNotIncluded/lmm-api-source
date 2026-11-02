@@ -153,6 +153,7 @@ export async function getChannelOps(
     .object({
       native_channel_usage: z.boolean().default(false),
       native_channel_counters: z.boolean().default(false),
+      native_channel_lifetime: z.boolean().default(false),
       native_balance_probe: z.boolean().default(false),
       copy_preserve_counters: z.boolean().default(false),
     })

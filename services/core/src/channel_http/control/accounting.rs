@@ -85,6 +85,7 @@ impl Amounts {
 }
 #[derive(Serialize)]
 struct CounterView {
+    lifetime: super::opening::Lifetime,
     balance: super::balance::Observation,
     native: crate::usage::ChannelUsage,
     inherited: Option<Amounts>,
@@ -102,8 +103,11 @@ async fn view(c: &mut PgConnection, id: u64) -> Result<CounterView, Failure> {
     let native = crate::usage::channel_totals(c, id)
         .await
         .map_err(usage_error)?;
-    let baseline=sqlx::query("SELECT gross_credits::text,refunded_credits::text,historical_coverage FROM core_channels.counter_baselines WHERE channel_id=$1")
+    let baseline=sqlx::query("SELECT gross_credits::text,refunded_credits::text,historical_coverage,source_channel_id FROM core_channels.counter_baselines WHERE channel_id=$1")
         .bind(id as i64).fetch_optional(&mut *c).await.map_err(ManagementError::from)?;
+    let legacy_gap_only = baseline
+        .as_ref()
+        .is_none_or(|row| row.get::<Option<i64>, _>("source_channel_id").is_none());
     let (inherited, historical_coverage) = if let Some(row) = baseline {
         (
             Some(Amounts::new(
@@ -137,8 +141,18 @@ async fn view(c: &mut PgConnection, id: u64) -> Result<CounterView, Failure> {
     let combined = Amounts::new(gross, refunded)?;
     let complete = historical_coverage && native.unknown_provenance_requests == "0";
     let used_quota = complete.then(|| combined.net_used_credits.clone());
+    let lifetime = super::opening::read(
+        c,
+        id,
+        &combined.net_used_credits,
+        complete,
+        native.unknown_provenance_requests != "0",
+        legacy_gap_only,
+    )
+    .await?;
     let balance = super::balance::read_observation(c, id).await?;
     Ok(CounterView {
+        lifetime,
         balance,
         native,
         inherited,
@@ -180,6 +194,7 @@ pub(super) async fn publish(
                     ("0".into(), "0".into(), true)
                 } else {
                     let source = view(c, *source_id).await?;
+                    super::opening::copy(c, *source_id, *id, source.lifetime.complete).await?;
                     (
                         source.combined.gross_settled_credits,
                         source.combined.refunded_credits,
@@ -258,8 +273,6 @@ pub(in crate::channel_http) async fn usage(
 fn usage_error(error: crate::usage::ChannelUsageError) -> Failure {
     match error {
         crate::usage::ChannelUsageError::HistoryAmbiguous => Failure::AccountingIdentityAmbiguous,
-        crate::usage::ChannelUsageError::TooManyRequests
-        | crate::usage::ChannelUsageError::TooManyReceipts => Failure::AccountingLimit,
         _ => Failure::AccountingUnavailable,
     }
 }

@@ -298,6 +298,41 @@ impl PreparedReservation {
         )
     }
 
+    pub(crate) fn audio_chat(
+        request_fingerprint: String,
+        binding: ReservationBinding,
+        wire_sha256: String,
+        bounds: crate::model_http::audio::AudioUsage,
+    ) -> Result<Self, Error> {
+        let input = bounds
+            .text_input
+            .checked_add(bounds.audio_input)
+            .ok_or(Error::Invalid)?;
+        let output = bounds
+            .text_output
+            .checked_add(bounds.audio_output)
+            .ok_or(Error::Invalid)?;
+        Self::new(
+            "audio_chat_v1",
+            request_fingerprint,
+            binding,
+            wire_sha256,
+            None,
+            ReservationBounds {
+                model_input_max: input,
+                input,
+                requested_output: output,
+                output,
+            },
+            ReservationSemantics {
+                input: "inclusive".into(),
+                output: "audio_modalities".into(),
+                missing_cached_tokens_is_zero: false,
+                missing_cache_creation_tokens_is_zero: false,
+            },
+        )
+    }
+
     pub(crate) fn native_tool(
         request_fingerprint: String,
         binding: ReservationBinding,
@@ -357,6 +392,7 @@ impl PreparedReservation {
         let native = f.mode == "systemone_native_v1";
         let input_only = f.mode == "input_only_native_v1";
         let tool = f.mode == "native_tool_v1";
+        let audio = f.mode == "audio_chat_v1";
         if f.fallbacks.len() > 7 || (!f.fallbacks.is_empty() && f.mode != "context_max") {
             return Err(Error::Invalid);
         }
@@ -380,6 +416,9 @@ impl PreparedReservation {
             )?;
         }
         let valid_mode = match (f.mode.as_str(), &f.counter) {
+            ("audio_chat_v1", None) => {
+                binding.protocol == "audio_chat" && bounds.input == bounds.model_input_max
+            }
             ("context_max", None) => {
                 bounds.input == bounds.model_input_max
                     && matches!(
@@ -444,6 +483,7 @@ impl PreparedReservation {
                     | "rerank"
                     | "deepseek_search"
                     | "deepseek_fetch"
+                    | "audio_chat"
             )
             || binding.model_snapshot.is_empty()
             || binding.generation_url.is_empty()
@@ -452,12 +492,14 @@ impl PreparedReservation {
             || (!tool && bounds.model_input_max == 0)
             || bounds.model_input_max > u32::MAX as u64
             || bounds.input > bounds.model_input_max
-            || (!input_only && !tool && bounds.output == 0)
+            || (!input_only && !tool && !audio && bounds.output == 0)
             || bounds.output > u32::MAX as u64
             || (!native && bounds.output != bounds.requested_output)
             || !matches!(f.semantics.input.as_str(), "inclusive" | "exclusive")
             || f.semantics.output
-                != if native {
+                != if audio {
+                    "audio_modalities"
+                } else if native {
                     "unpriced_systemone_metadata"
                 } else if input_only || tool {
                     "no_output_tokens"
@@ -479,15 +521,25 @@ impl PreparedReservation {
             self.fields.bounds.output
         };
         match basis {
+            ReservationBasis::Audio if self.fields.mode == "audio_chat_v1" => Ok(()),
             ReservationBasis::Tool if self.fields.mode == "native_tool_v1" => Ok(()),
             ReservationBasis::Tokens { input, output }
-                if self.fields.mode != "native_tool_v1"
-                    && input == self.fields.bounds.input
+                if !matches!(
+                    self.fields.mode.as_str(),
+                    "native_tool_v1" | "audio_chat_v1"
+                ) && input == self.fields.bounds.input
                     && output == priced_output =>
             {
                 Ok(())
             }
-            ReservationBasis::UpstreamCost { .. } if self.fields.mode != "native_tool_v1" => Ok(()),
+            ReservationBasis::UpstreamCost { .. }
+                if !matches!(
+                    self.fields.mode.as_str(),
+                    "native_tool_v1" | "audio_chat_v1"
+                ) =>
+            {
+                Ok(())
+            }
             _ => Err(Error::Conflict),
         }
     }
@@ -531,6 +583,31 @@ impl PreparedReservation {
     }
 
     fn validate_native_price(&self, price: &super::Price) -> Result<(), Error> {
+        if let Some(audio) = &price.audio {
+            price.validate()?;
+            if self.fields.mode != "audio_chat_v1"
+                || self.fields.binding.provider_contract_revision
+                    != audio.provider_contract_revision
+                || self.fields.bounds.input
+                    != audio
+                        .bounds
+                        .text_input
+                        .checked_add(audio.bounds.audio_input)
+                        .ok_or(Error::Invalid)?
+                || self.fields.bounds.output
+                    != audio
+                        .bounds
+                        .text_output
+                        .checked_add(audio.bounds.audio_output)
+                        .ok_or(Error::Invalid)?
+            {
+                return Err(Error::Invalid);
+            }
+            return Ok(());
+        }
+        if self.fields.mode == "audio_chat_v1" {
+            return Err(Error::Invalid);
+        }
         if price.text_request.is_some()
             && (!matches!(
                 self.fields.mode.as_str(),
@@ -617,6 +694,7 @@ impl ReservationContract {
         self.validate(charge)?;
         let bounds = &self.fields.bounds;
         if !usage.valid()
+            || (charge.price.audio.is_some() != usage.audio.is_some())
             || (charge.price.tool.is_some() != usage.tool.is_some())
             || (charge.price.grounding.is_some() != usage.grounding.is_some())
             || (charge.price.text_request.is_some() != usage.text_request.is_some())
@@ -695,13 +773,9 @@ pub(crate) fn read_attribution(
 }
 
 impl ReservationContract {
-    pub(crate) fn potential_channel(&self, channel_id: u64) -> bool {
-        self.fields.binding.upstream_id == channel_id
-            || self
-                .fields
-                .fallbacks
-                .iter()
-                .any(|f| f.binding.upstream_id == channel_id)
+    pub(crate) fn channel_ids(&self) -> impl Iterator<Item = u64> + '_ {
+        std::iter::once(self.fields.binding.upstream_id)
+            .chain(self.fields.fallbacks.iter().map(|f| f.binding.upstream_id))
     }
 
     /// Both the route and dispatched wire body must match the frozen candidate.
@@ -942,6 +1016,7 @@ mod tests {
             price: super::super::Price {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 user_trust: None,

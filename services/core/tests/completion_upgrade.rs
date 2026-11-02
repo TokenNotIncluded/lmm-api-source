@@ -9,6 +9,8 @@ use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 const PROCEDURE: &str = "core-functional-completion-v1";
 const PRE_MANIFEST: &str = "9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829338331a4cd15";
 const PRE_CATALOG: &str = "abe3979b376da869d4a05b32dda8c3ad33197497db7af16970d8c9b1153bc6ce";
+#[path = "common/canonical_native_history.rs"]
+mod canonical;
 #[path = "common/channel_accounting_history.rs"]
 mod history;
 #[path = "common/completion_predecessor.rs"]
@@ -18,7 +20,9 @@ fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 fn manifest_sha256() -> String {
-    let mut bytes = serde_json::to_vec(&schema_manifest()).unwrap();
+    let mut manifest = schema_manifest();
+    manifest.components.truncate(44);
+    let mut bytes = serde_json::to_vec(&manifest).unwrap();
     bytes.push(b'\n');
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -153,7 +157,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
         )
         .await
         .unwrap();
-    history::seed_history(&installer).await;
+    canonical::seed_history(&installer).await;
     let before_users: Vec<String> =
         sqlx::query_scalar("SELECT to_jsonb(u)::text FROM core_identity.users u ORDER BY id")
             .fetch_all(&installer)
@@ -202,7 +206,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     pool.close().await;
     let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(result.status, "committed");
-    assert_eq!(result.components, lmm_core::core_schema::component_count());
+    assert_eq!(result.components, 44);
     let replay = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(replay.status, "already_committed");
     assert_eq!(
@@ -260,7 +264,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
             .fetch_one(&mut inspect)
             .await
             .unwrap(),
-        lmm_core::core_schema::component_count() as i64
+        44
     );
     // The successful public replay above already verified the receipt privileges.
     sqlx::query(&format!(

@@ -1,4 +1,4 @@
-//! Exact frozen 32-component predecessor to the explicit 43-component successor.
+//! Exact frozen 32-component predecessor to the explicit 44-component successor.
 use super::*;
 pub(super) const PROCEDURE: &str = "core-functional-completion-v1";
 const PRE_MANIFEST: &str = "9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829338331a4cd15";
@@ -7,6 +7,7 @@ const TARGET: &str = include_str!("completion_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
     procedure: PROCEDURE,
     predecessor_count: 32,
+    target_count: 44,
     predecessor_manifest: PRE_MANIFEST,
     predecessor_catalog: PRE_CATALOG,
     target_json: TARGET,

@@ -43,7 +43,16 @@ export function testLevelConfig(): TrustLevelBenefitsConfig {
 
 test('keeps the server thresholds, independent discounts and an explicitly disabled decay period', () => {
   const config = testLevelConfig()
-  config.tiers[4].min_paid_credits = Number.MAX_SAFE_INTEGER
+  const thresholds = [
+    0,
+    2_147_483_647,
+    2_147_483_648,
+    Number.MAX_SAFE_INTEGER - 1,
+    Number.MAX_SAFE_INTEGER,
+  ]
+  config.tiers.forEach((tier, index) => {
+    tier.min_paid_credits = thresholds[index]
+  })
   assert.deepEqual(
     parseTrustLevelBenefits(serializeTrustLevelBenefits(config)),
     config

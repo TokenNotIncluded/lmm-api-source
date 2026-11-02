@@ -14,6 +14,10 @@ REVOKE CREATE, TEMPORARY ON DATABASE :"core_database" FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT CONNECT, CREATE ON DATABASE :"core_database" TO lmm_core_owner;
 GRANT USAGE, CREATE ON SCHEMA public TO lmm_core_owner;
+-- Private owner-only signing-key provisioning must suppress parameter/error detail
+-- in its own transaction. This grants no logging authority to the runtime role.
+GRANT SET ON PARAMETER log_parameter_max_length, log_parameter_max_length_on_error,
+    log_error_verbosity TO lmm_core_owner;
 GRANT CONNECT ON DATABASE :"core_database" TO lmm_core_runtime;
 COMMIT;
 -- The runtime role has no password yet. Set it separately with psql \password,

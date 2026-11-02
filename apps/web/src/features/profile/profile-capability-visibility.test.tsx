@@ -44,6 +44,8 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { useAuthStore } = await import('@/stores/auth-store')
+const previousAuth = useAuthStore.getState().auth
 const { ProfilePasskeyCapability } = await import('./index')
 const { ReferralOverviewCard } =
   await import('./components/referral-overview-card')
@@ -65,14 +67,35 @@ async function flushEffects() {
 }
 
 afterEach(() => {
+  useAuthStore.setState({ auth: previousAuth })
   api.get = originalGet
   document.body.replaceChildren()
 })
 
 after(() => domWindow.close())
 
+function authenticate() {
+  useAuthStore.getState().auth.setBundle({
+    access_token: 'synthetic-profile-access',
+    token_type: 'Bearer',
+    access_expires_at: 2000000000,
+    user: { id: 501, username: 'synthetic-profile-user', role: 1 },
+    session: {
+      sid: 'synthetic-profile-session',
+      current: true,
+      login_method: 'passkey',
+      ip: '127.0.0.1',
+      user_agent: 'synthetic',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2000000000,
+    },
+  })
+}
+
 describe('profile passkey capability visibility', () => {
   test('mounts Passkey only after live status explicitly enables it', async () => {
+    authenticate()
     const gets: string[] = []
     api.get = (async (url) => {
       gets.push(url)
@@ -81,8 +104,8 @@ describe('profile passkey capability visibility', () => {
           success: true,
           data: {
             enabled: false,
-            backup_eligible: false,
-            backup_state: false,
+            management: 'core_recent_session',
+            credentials: [],
             last_used_at: null,
           },
         },
@@ -136,6 +159,7 @@ describe('profile passkey capability visibility', () => {
   })
 
   test('lists each Passkey and offers another registration', async () => {
+    authenticate()
     api.get = (async (url) => {
       if (url !== '/api/user/passkey') {
         throw new Error(`Unexpected request: ${url}`)
@@ -145,23 +169,20 @@ describe('profile passkey capability visibility', () => {
           success: true,
           data: {
             enabled: true,
+            management: 'core_recent_session',
             last_used_at: null,
             credentials: [
               {
-                id: 11,
+                id: '11',
                 name: 'Laptop',
                 created_at: '2026-09-22T10:00:00Z',
                 last_used_at: null,
-                backup_eligible: false,
-                backup_state: false,
               },
               {
-                id: 12,
+                id: '12',
                 name: 'Phone',
                 created_at: '2026-09-23T10:00:00Z',
                 last_used_at: null,
-                backup_eligible: true,
-                backup_state: true,
               },
             ],
           },
@@ -196,7 +217,7 @@ describe('profile passkey capability visibility', () => {
     await act(async () => removePhone.click())
     assert.match(
       document.body.textContent ?? '',
-      /Phone: This Passkey will stop working for sign-in/
+      /Phone: Removing this Passkey signs out your other sessions\. At least one other sign-in method must remain available/
     )
 
     await act(async () => root.unmount())

@@ -61,6 +61,7 @@ async fn requests(f: &Fixture, prefix: &str, count: i64, at: i64) {
     let price = serde_json::to_value(Price {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         user_trust: None,
@@ -167,6 +168,10 @@ async fn exact_projection_uses_request_index_at_20k_and_40k_unrelated_history(po
             .await
             .unwrap();
         assert_eq!(plan[0]["Plan"]["Actual Rows"].as_f64(), Some(1000.0));
+        let ids: Vec<String> = (1..=64).map(|n| format!("selected-{n:06}")).collect();
+        let plan: Value = sqlx::query_scalar("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT request_id,operation_id,command FROM core_charging.ledger_commands WHERE request_id=ANY($1) ORDER BY request_id COLLATE \"C\",operation_id COLLATE \"C\"")
+            .bind(&ids).fetch_one(&pool).await.unwrap();
+        assert_eq!(plan[0]["Plan"]["Actual Rows"].as_f64(), Some(64.0));
         let mut nodes = Vec::new();
         command_nodes(&plan[0]["Plan"], &mut nodes);
         assert!(!nodes.is_empty());
@@ -175,10 +180,10 @@ async fn exact_projection_uses_request_index_at_20k_and_40k_unrelated_history(po
             nodes
                 .iter()
                 .any(|n| n["Index Name"] == "ledger_commands_request_operation"
-                    && n["Actual Loops"].as_f64() == Some(1000.0)
+                    && n["Actual Loops"].as_f64() == Some(1.0)
                     && n["Index Cond"]
                         .as_str()
-                        .is_some_and(|s| s.contains("request_id = r.id"))),
+                        .is_some_and(|s| s.contains("request_id = ANY"))),
             "{plan}"
         );
         println!(
@@ -253,7 +258,7 @@ async fn unmatched_command_outside_page_one_still_fails_all_projections(pool: Pg
 }
 
 #[sqlx::test(migrations = false)]
-async fn receipt_limit_distinguishes_2048_from_2049_without_silent_truncation(pool: PgPool) {
+async fn receipt_stream_validates_past_2048_without_silent_truncation(pool: PgPool) {
     let f = fixture(&pool).await;
     requests(&f, "selected-", 1, f.now).await;
     commands(&f, "selected-", 2048, true).await;
@@ -268,26 +273,141 @@ async fn receipt_limit_distinguishes_2048_from_2049_without_silent_truncation(po
     tx.commit().await.unwrap();
     for path in ["/api/log/self", "/api/log/self/stat", "/api/data/self"] {
         let (status, body) = endpoint(&f, path, "page_size=1").await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-        assert_eq!(body["code"], "USAGE_WINDOW_TOO_DENSE");
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core_charging.ledger_commands SET command=jsonb_set(command,'{change}','{\"operation\":\"settle\",\"amount\":1}') WHERE operation_id=repeat('f',64)").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    for path in ["/api/log/self", "/api/log/self/stat", "/api/data/self"] {
+        let (status, body) = endpoint(&f, path, "page_size=1").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
         assert!(body.get("data").is_none());
     }
 }
 
 #[sqlx::test(migrations = false)]
-async fn request_limit_distinguishes_100000_from_100001_without_silent_truncation(pool: PgPool) {
+async fn shared_usage_streams_past_100000_without_silent_truncation(pool: PgPool) {
     let f = fixture(&pool).await;
     requests(&f, "selected-", 100000, f.now).await;
     let (status, body) = endpoint(&f, "/api/log/self", "page_size=1").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["data"]["total"], 100000);
     requests(&f, "extra-", 1, f.now).await;
-    for path in ["/api/log/self", "/api/log/self/stat", "/api/data/self"] {
-        let (status, body) = endpoint(&f, path, "page_size=1").await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-        assert_eq!(body["code"], "USAGE_WINDOW_TOO_DENSE");
-        assert!(body.get("data").is_none());
-    }
+    let (status, body) = endpoint(&f, "/api/log/self", "page_size=1").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["total"], 100001);
+    let (status, body) = endpoint(&f, "/api/log/self/stat", "page_size=1").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["incomplete_count"], 100001);
+    assert_eq!(body["data"]["reserved_credits"], 100001);
+    let (status, body) = endpoint(&f, "/api/data/self", "page_size=1").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"], json!([]));
+
+    let self_secret = f.secret.clone();
+    let admin = IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(900, 5)
+        .await
+        .unwrap();
+    let admin_fixture = Fixture {
+        secret: admin.secret,
+        ..f
+    };
+    let (status, body) = endpoint(&admin_fixture, "/core/v1/usage/admin/logs", "page_size=1").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["total"], 100001);
+    let response = router(UsageStore::new(pool.clone()))
+        .oneshot(
+            HttpRequest::builder()
+                .uri(format!(
+                    "/core/v1/usage/admin/export.csv?start_timestamp={}&end_timestamp={}",
+                    admin_fixture.now - 60,
+                    admin_fixture.now
+                ))
+                .header("authorization", format!("Bearer {}", admin_fixture.secret))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let csv = to_bytes(response.into_body(), 32 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(csv.iter().filter(|&&byte| byte == b'\n').count(), 100002);
+
+    let mut tx = pool.begin().await.unwrap();
+    let self_context = crate::assistant_tools_core::context::from_session(&mut tx, &self_secret)
+        .await
+        .unwrap();
+    let self_summary = assistant_summary_in_transaction(
+        &mut tx,
+        &self_context,
+        &crate::assistant_tools_core::account::UsageSummaryArgs::default(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(self_summary["scope"], "self");
+    assert_eq!(
+        self_summary["coverage"]["native_requests_validated"],
+        100001
+    );
+    assert_eq!(self_summary["incomplete_native_requests"], 100001);
+    let admin_context =
+        crate::assistant_tools_core::context::from_session(&mut tx, &admin_fixture.secret)
+            .await
+            .unwrap();
+    let admin_summary = assistant_summary_in_transaction(
+        &mut tx,
+        &admin_context,
+        &crate::assistant_tools_core::account::UsageSummaryArgs {
+            user_id: Some(7),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(admin_summary["scope"], "administrator_target");
+    assert_eq!(
+        admin_summary["coverage"]["native_requests_validated"],
+        100001
+    );
+    assert_eq!(admin_summary["incomplete_native_requests"], 100001);
+    tx.commit().await.unwrap();
+
+    // Corruption in the 100001st, non-page request must still fail closed.
+    commands(&admin_fixture, "extra-", 1, true).await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core_charging.ledger_commands SET command=jsonb_set(command,'{actor_user_id}','8') WHERE request_id='extra-000001'").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let (status, body) = endpoint(&admin_fixture, "/core/v1/usage/admin/logs", "page_size=1").await;
+    assert_ne!(status, StatusCode::OK, "{body}");
+    assert!(body.get("data").is_none());
+    let mut tx = pool.begin().await.unwrap();
+    let context = crate::assistant_tools_core::context::from_session(&mut tx, &self_secret)
+        .await
+        .unwrap();
+    assert!(
+        assistant_summary_in_transaction(
+            &mut tx,
+            &context,
+            &crate::assistant_tools_core::account::UsageSummaryArgs::default(),
+            false
+        )
+        .await
+        .is_err()
+    );
+    tx.rollback().await.unwrap();
 }
 
 #[sqlx::test(migrations = false)]

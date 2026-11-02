@@ -85,6 +85,10 @@ const SEEDED: &[(&str, &str)] = &[
     ("core_abuse", "settings"),
     ("core_humangrant", "human_grant_gate"),
     ("core_events", "capacity"),
+    ("core_request_limits", "policy"),
+    ("core_request_limits", "auto_policy"),
+    ("core_promotions", "secrets"),
+    ("core_channels", "projection_state"),
     ("core_gift", "risk_key"),
     ("core_gift", "policy"),
     ("core_tool_market", "credit_policy"),
@@ -168,6 +172,22 @@ async fn lock_fresh_database(connection: &mut PgConnection) -> io::Result<()> {
         (SELECT count(*)=1 AND bool_and(singleton AND revision=0 AND document='{"version":1,"policies":[]}'::jsonb) FROM core_abuse.settings)
         AND (SELECT count(*)=1 AND bool_and(id=1 AND revision=1) FROM core_humangrant.human_grant_gate)
         AND (SELECT count(*)=1 AND bool_and(singleton AND max_events=100000 AND max_bytes=268435456 AND pending_events=0 AND pending_bytes=0) FROM core_events.capacity)
+        AND (SELECT count(*)=1 AND bool_and(singleton AND revision=1 AND NOT enabled
+            AND window_seconds=60 AND user_limit IS NULL AND group_limits='{}'::jsonb
+            AND updated_at>to_timestamp(0)
+            AND updated_at<=(SELECT installed_at FROM core_meta.schema_contract WHERE singleton)) FROM core_request_limits.policy)
+        AND (SELECT count(*)=1 AND bool_and(singleton AND revision=1 AND groups='{}'::text[]
+            AND updated_at>to_timestamp(0)
+            AND updated_at<=(SELECT installed_at FROM core_meta.schema_contract WHERE singleton)) FROM core_request_limits.auto_policy)
+        -- promotions.sql concatenates two gen_random_uuid() UUIDv4 values.
+        -- Their random bytes have no fixed expected value; validate the exact
+        -- seeded representation, not a claim that the key was never replaced.
+        AND (SELECT count(*)=1 AND bool_and(singleton AND octet_length(code_key)=32
+            AND (get_byte(code_key,6) & 240)=64 AND (get_byte(code_key,8) & 192)=128
+            AND (get_byte(code_key,22) & 240)=64 AND (get_byte(code_key,24) & 192)=128) FROM core_promotions.secrets)
+        -- Fresh init has no charging requests; all projection data/dirty rows
+        -- remain subject to the non-seeded empty-table guard above.
+        AND (SELECT count(*)=1 AND bool_and(singleton AND ready) FROM core_channels.projection_state)
         AND (SELECT count(*)=1 AND bool_and(singleton AND octet_length(secret)=32) FROM core_gift.risk_key)
         AND (SELECT count(*)=1 AND bool_and(singleton AND NOT enabled AND exclusive_cap=0) FROM core_gift.policy)
         AND (SELECT count(*)=1 AND bool_and(singleton AND version=1 AND platform_account_id IS NULL AND platform_user_id IS NULL AND NOT enabled AND updated_by IS NULL AND updated_at=0 AND fee_bps=0) FROM core_tool_market.credit_policy)
@@ -301,5 +321,179 @@ mod tests {
         .await
         .unwrap();
         assert!(empty);
+    }
+
+    async fn assert_no_owner_or_money(pool: &PgPool) {
+        let untouched: bool=sqlx::query_scalar(
+            "SELECT NOT EXISTS(SELECT FROM core_identity.users)
+              AND NOT EXISTS(SELECT FROM core_identity.accounts)
+              AND NOT EXISTS(SELECT FROM core_identity.credentials)
+              AND NOT EXISTS(SELECT FROM core_identity.password_logins)
+              AND NOT EXISTS(SELECT FROM core_identity.user_profiles)
+              AND NOT EXISTS(SELECT FROM core_identity.audit)
+              AND NOT EXISTS(SELECT FROM core_billing.account_policies)
+              AND NOT EXISTS(SELECT FROM core_console.initialization)
+              AND NOT EXISTS(SELECT FROM core_billing.ledger_journals)
+              AND NOT EXISTS(SELECT FROM core_billing.ledger_entries)
+              AND (SELECT count(*)=2 AND bool_and(balance_units=0 AND revision=0) FROM core_billing.balance_state)"
+        ).fetch_one(pool).await.unwrap();
+        assert!(untouched);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn current_fresh_seeds_allow_exactly_one_owner_without_session_or_funds(pool: PgPool) {
+        core_schema::init(&pool).await.unwrap();
+        let receipt = run(&pool, read(VALID.as_bytes()).unwrap()).await.unwrap();
+        assert_eq!(receipt.platform_role, "superadmin");
+        assert!(receipt.setup_completed);
+        let correct: bool=sqlx::query_scalar(
+            "SELECT (SELECT count(*)=1 AND bool_and(platform_role='superadmin') FROM core_identity.users)
+              AND (SELECT count(*)=1 FROM core_identity.password_logins)
+              AND (SELECT count(*)=1 FROM core_identity.accounts)
+              AND (SELECT count(*)=1 FROM core_console.initialization)
+              AND NOT EXISTS(SELECT FROM core_identity.credentials)
+              AND NOT EXISTS(SELECT FROM core_billing.ledger_journals)
+              AND NOT EXISTS(SELECT FROM core_billing.ledger_entries)
+              AND (SELECT count(*)=2 AND bool_and(balance_units=0 AND revision=0) FROM core_billing.balance_state)
+              AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_edit_signing_key)
+              AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_editors)
+              AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_edit_audit)
+              AND NOT EXISTS(SELECT FROM core_meta.trust_policy_upgrades)"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(correct);
+        let error = run(&pool, read(VALID.as_bytes()).unwrap())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "first-owner requires an untouched fresh database"
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.users")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn changed_or_missing_component44_seeds_are_not_fresh(pool: PgPool) {
+        core_schema::init(&pool).await.unwrap();
+        // Each mutation is committed before the guard opens its own transaction.
+        // Matching the refusal text prevents a transaction setup failure from
+        // masquerading as a successful seed rejection.
+        for (table, changes) in [
+            (
+                "core_request_limits.policy",
+                vec![
+                    "revision=2",
+                    "enabled=true",
+                    "window_seconds=61",
+                    "user_limit=1",
+                    "group_limits='{\"test\":1}'::jsonb",
+                    "updated_at='infinity'::timestamptz",
+                    "updated_at=to_timestamp(0)",
+                    "updated_at=(SELECT installed_at + interval '1 microsecond' FROM core_meta.schema_contract WHERE singleton)",
+                ],
+            ),
+            (
+                "core_request_limits.auto_policy",
+                vec![
+                    "revision=2",
+                    "groups=ARRAY['test']",
+                    "updated_at='infinity'::timestamptz",
+                    "updated_at=to_timestamp(0)",
+                    "updated_at=(SELECT installed_at + interval '1 microsecond' FROM core_meta.schema_contract WHERE singleton)",
+                ],
+            ),
+            (
+                "core_promotions.secrets",
+                vec![
+                    "code_key=decode(repeat('00',32),'hex')",
+                    "code_key=set_byte(code_key,6,0)",
+                    "code_key=set_byte(code_key,8,0)",
+                    "code_key=set_byte(code_key,22,0)",
+                    "code_key=set_byte(code_key,24,0)",
+                ],
+            ),
+            ("core_channels.projection_state", vec!["ready=false"]),
+        ] {
+            let original: serde_json::Value =
+                sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {table} t"))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            for change in changes.into_iter().map(Some).chain(std::iter::once(None)) {
+                let mutation = match change {
+                    Some(change) => format!("UPDATE {table} SET {change}"),
+                    None => format!("DELETE FROM {table}"),
+                };
+                sqlx::query(&mutation).execute(&pool).await.unwrap();
+                let mut tx = pool.begin().await.unwrap();
+                let error = lock_fresh_database(&mut tx)
+                    .await
+                    .err()
+                    .expect("polluted seed accepted");
+                assert_eq!(
+                    error.to_string(),
+                    "first-owner requires an untouched fresh database",
+                    "{mutation}"
+                );
+                tx.rollback().await.unwrap();
+                assert_no_owner_or_money(&pool).await;
+                let mut restore = pool.begin().await.unwrap();
+                sqlx::query(&format!("DELETE FROM {table}"))
+                    .execute(&mut *restore)
+                    .await
+                    .unwrap();
+                sqlx::query(&format!(
+                    "INSERT INTO {table} SELECT * FROM jsonb_populate_record(NULL::{table},$1)"
+                ))
+                .bind(sqlx::types::Json(&original))
+                .execute(&mut *restore)
+                .await
+                .unwrap();
+                restore.commit().await.unwrap();
+            }
+        }
+        // All four original seed rows restored: the same guard must now pass.
+        let mut tx = pool.begin().await.unwrap();
+        lock_fresh_database(&mut tx).await.unwrap();
+        tx.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn preprovisioned_trust_key_or_editor_blocks_first_owner(pool: PgPool) {
+        core_schema::init(&pool).await.unwrap();
+        for (table, insert) in [
+            (
+                "core_trust_pricing.policy_edit_signing_key",
+                "INSERT INTO core_trust_pricing.policy_edit_signing_key(secret) VALUES(decode(repeat('0b',32),'hex'))",
+            ),
+            (
+                "core_trust_pricing.policy_editors",
+                "INSERT INTO core_trust_pricing.policy_editors(editor_id,actor_user_id,version,credential_id,passkey,rp_id,origin) VALUES('preprovisioned',1,1,decode('01','hex'),'{\"cred\":{}}'::jsonb,'localhost','https://localhost')",
+            ),
+        ] {
+            sqlx::query(insert).execute(&pool).await.unwrap();
+            let error = run(&pool, read(VALID.as_bytes()).unwrap())
+                .await
+                .err()
+                .expect("preprovisioned trust authority accepted");
+            assert_eq!(
+                error.to_string(),
+                "first-owner requires an untouched fresh database"
+            );
+            assert_no_owner_or_money(&pool).await;
+            let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 1, "refusal must preserve preprovisioned authority");
+            sqlx::query(&format!("DELETE FROM {table}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
     }
 }

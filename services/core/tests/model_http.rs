@@ -722,6 +722,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
         price: ChargingPrice {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
             user_trust: None,
             image: None,
@@ -763,6 +764,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
             ChargingUsage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
                 cache_creation: None,
                 image: None,

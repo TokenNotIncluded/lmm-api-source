@@ -33,6 +33,7 @@ fn test_price() -> Price {
     Price {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         user_trust: None,
@@ -874,6 +875,7 @@ async fn offline_writer_plan_and_charging_engine_admission() {
             Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,

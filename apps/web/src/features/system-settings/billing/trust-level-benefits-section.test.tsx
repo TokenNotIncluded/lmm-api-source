@@ -113,7 +113,10 @@ async function renderSection(raw = JSON.stringify(config), supported = true) {
     success: true,
     message: '',
     data: [{ key: 'TrustLevelBenefits', value: raw }],
-    capabilities: { trust_level_benefits: supported },
+    capabilities: {
+      trust_level_benefits: supported,
+      writable_keys: ['TrustLevelBenefits'],
+    },
   })
   const rootRoute = createRootRoute({
     component: () => (
@@ -226,7 +229,10 @@ test('saves the complete versioned config in one option write and preserves inde
       success: true,
       message: '',
       data: [{ key: 'TrustLevelBenefits', value: JSON.stringify(config) }],
-      capabilities: { trust_level_benefits: true },
+      capabilities: {
+        trust_level_benefits: true,
+        writable_keys: ['TrustLevelBenefits'],
+      },
     },
   })) as typeof api.get
   const updates: UpdateOptionRequest[] = []
@@ -282,7 +288,10 @@ test('invalid cumulative thresholds never write, and a rejected save retains the
       success: true,
       message: '',
       data: [{ key: 'TrustLevelBenefits', value: JSON.stringify(config) }],
-      capabilities: { trust_level_benefits: true },
+      capabilities: {
+        trust_level_benefits: true,
+        writable_keys: ['TrustLevelBenefits'],
+      },
     },
   })) as typeof api.get
   const updates: UpdateOptionRequest[] = []
@@ -384,5 +393,49 @@ test('an older server is not editable and a rolled-back capability is checked ag
     api.get = originalGet
     api.put = originalPut
     await rendered.cleanup()
+  }
+})
+
+// The original baseline had 3 pass / 2 fail (updates.length: 0 !== 1 at
+// original lines 249 and 312). Those assertions remain; positive fixtures now
+// explicitly declare the dedicated legacy PUT key. Native never declares it.
+test('legacy PUT denies an undeclared key, read-only server, or native partial view', async () => {
+  const originalGet = api.get
+  const originalPut = api.put
+  let writes = 0
+  api.put = (async () => {
+    writes++
+    return { data: { success: true } }
+  }) as typeof api.put
+  try {
+    for (const capabilities of [
+      { trust_level_benefits: true },
+      { trust_level_benefits: true, writable_keys: [] },
+      {
+        trust_level_benefits: true,
+        writable_keys: ['TrustLevelBenefits'],
+        read_only: true,
+      },
+      {
+        trust_level_benefits: true,
+        writable_keys: ['TrustLevelBenefits'],
+        partial: true,
+      },
+    ]) {
+      api.get = (async () => ({
+        data: { success: true, data: [], capabilities },
+      })) as typeof api.get
+      const rendered = await renderSection()
+      try {
+        await edit(rendered.container, 'tiers.4.min_paid_credits', '500')
+        await submit(rendered.container)
+        assert.equal(writes, 0)
+      } finally {
+        await rendered.cleanup()
+      }
+    }
+  } finally {
+    api.get = originalGet
+    api.put = originalPut
   }
 })

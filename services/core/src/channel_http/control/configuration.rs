@@ -27,6 +27,9 @@ pub(in crate::channel_http) struct Bindings {
     pub price_drafts: BTreeMap<u64, super::price_drafts::PriceDraft>,
     #[serde(default)]
     pub balance_probes: BTreeMap<u64, super::balance::BalanceProbe>,
+    /// Explicit imported/operator-supplied old type; never inferred from a URL.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub legacy_balance: BTreeMap<u64, super::balance::legacy::LegacyBalance>,
 }
 impl Bindings {
     pub(in crate::channel_http) fn validate(
@@ -66,6 +69,17 @@ impl Bindings {
                 return Err(ManagementError::Invalid);
             }
             probe.validate()?;
+        }
+        for (id, legacy) in &self.legacy_balance {
+            if !_document
+                .routing
+                .upstreams
+                .iter()
+                .any(|upstream| upstream.id == *id)
+            {
+                return Err(ManagementError::Invalid);
+            }
+            legacy.validate()?;
         }
         super::catalog::validate_metadata(self, _document)?;
         Ok(())

@@ -1,4 +1,4 @@
-//! Exact frozen 42-component predecessor to the explicit 43-component successor.
+//! Exact frozen 42-component predecessor to the explicit 44-component successor.
 use super::*;
 pub(super) const PROCEDURE: &str = "core-channel-accounting-v1";
 const PRE_MANIFEST: &str = "cbc4b9567d9754250afb1646324e61fc13c9368d69e72c5506fa692ad169cd8f";
@@ -7,6 +7,7 @@ const TARGET: &str = include_str!("channel_accounting_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
     procedure: PROCEDURE,
     predecessor_count: 42,
+    target_count: 44,
     predecessor_manifest: PRE_MANIFEST,
     predecessor_catalog: PRE_CATALOG,
     target_json: TARGET,
@@ -47,15 +48,17 @@ mod tests {
             },
             predecessor_manifest_sha256: PRE_MANIFEST.into(),
             predecessor_catalog_sha256: PRE_CATALOG.into(),
-            successor_manifest_sha256: manifest_sha256().unwrap(),
+            successor_manifest_sha256: ENGINE.target_manifest().unwrap(),
         }
     }
     #[test]
-    fn frozen42_is_exact_and_all_paths_have_the_same_explicit43_target() {
+    fn frozen42_is_exact_and_all_paths_have_the_same_explicit44_target() {
         let frozen = include_str!("accounting_predecessor_manifest.json");
         assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
         let mut compiled = schema_manifest();
-        assert_eq!(compiled.components.len(), 43);
+        assert_eq!(ENGINE.target_count, 44);
+        let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
+        assert_eq!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
         compiled.components.truncate(42);
         let mut bytes = serde_json::to_vec(&compiled).unwrap();
         bytes.push(b'\n');
@@ -85,6 +88,10 @@ mod tests {
             }
             assert!(validate(&wrong).is_err(), "case {case}");
         }
+        let mut old_successor = valid.clone();
+        old_successor.successor_manifest_sha256 =
+            "f12d5e81ca219acdc59ac07be931d52e46f0b64974f1e2b3154ad102b5cc0c1c".into();
+        assert!(validate(&old_successor).is_err());
         let mut old = valid;
         old.procedure = "core-account-appeals-v1".into();
         old.predecessor_manifest_sha256 =

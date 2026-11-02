@@ -50,6 +50,7 @@ test('channel capabilities reject failed reads and preserve read-only unknown me
       ...payload.data,
       native_channel_usage: false,
       native_channel_counters: false,
+      native_channel_lifetime: false,
       native_balance_probe: false,
       copy_preserve_counters: false,
     },
@@ -126,6 +127,7 @@ test('channel accounting capabilities accept only explicit booleans', async () =
   const capabilities = {
     native_channel_usage: true,
     native_channel_counters: false,
+    native_channel_lifetime: true,
     native_balance_probe: true,
     copy_preserve_counters: false,
   }

@@ -1,5 +1,11 @@
 //! Only synthetic version documents and audit facts in a private SQLx database.
+// Retained original fixed43 continuity setup; not a canonical money fixture.
+#[allow(dead_code)]
 pub async fn seed_history(pool: &sqlx::PgPool) {
+    seed_published_history(pool).await;
+    seed_native_history(pool).await;
+}
+pub(super) async fn seed_published_history(pool: &sqlx::PgPool) {
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
@@ -24,19 +30,53 @@ INSERT INTO core_identity.audit(actor_user_id,action,target) VALUES
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    seed_native_history(pool).await;
 }
+#[allow(dead_code)]
 pub async fn seed_native_history(pool: &sqlx::PgPool) {
+    // Original receipt-free continuity records intentionally retain price {} and
+    // the historical synthetic image version. Never use these for a44 backfill.
+    seed_native_history_prices(
+        pool,
+        &serde_json::json!({}),
+        &serde_json::from_str(HISTORICAL_IMAGE_PRICE).unwrap(),
+    )
+    .await;
+}
+pub(super) async fn seed_native_history_prices(
+    pool: &sqlx::PgPool,
+    text: &serde_json::Value,
+    image: &serde_json::Value,
+) {
+    let text = serde_json::to_string(text).unwrap().replace('\'', "''");
+    let image = serde_json::to_string(image).unwrap().replace('\'', "''");
+    let sql = NATIVE_HISTORY_SQL
+        .replace("__NATIVE_TEXT_PRICE__", &format!("'{text}'"))
+        .replace("__NATIVE_IMAGE_PRICE__", &format!("'{image}'"));
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::raw_sql(r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,
+    sqlx::raw_sql(&sql).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+}
+const HISTORICAL_IMAGE_PRICE: &str = r#"{"version":"synthetic-image-v1","model":"synthetic-image","group":"default",
+   "input_per_million":0,"cached_per_million":0,"output_per_million":0,
+   "image":{"revision":1,"reservation_credits":0,
+     "request":{"upstream_id":203,"vendor":"openai","billing_group":"default",
+       "upstream_model":"synthetic-image","semantic_model":"synthetic-image",
+       "endpoint":"generations","size":"1024x1024","quality":"standard","n":1},
+     "rule":{"upstream_id":203,"vendor":"openai","billing_group":"default",
+       "upstream_model":"synthetic-image","semantic_model":"synthetic-image",
+       "endpoint":"generations","size":"1024x1024","quality":"standard",
+       "usd_micros_per_image":{"numerator":0,"denominator":1},
+       "group_multiplier":{"numerator":1,"denominator":1},"max_n":1,
+       "count_basis":"requested","max_budget":0,"source_revision":"synthetic-frozen42"}}}"#;
+const NATIVE_HISTORY_SQL: &str = r#"INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id,
  fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved)
 SELECT 'synthetic-bootstrap-text',7001,c.id,u.personal_account_id,u.personal_account_id,
  decode(repeat('01',32),'hex'),decode(repeat('02',32),'hex'),decode(repeat('03',32),'hex'),
- '{}',1,2,3,'reserved',0 FROM core_identity.users u JOIN core_identity.credentials c ON c.user_id=u.id
+ __NATIVE_TEXT_PRICE__,1,2,3,'reserved',0 FROM core_identity.users u JOIN core_identity.credentials c ON c.user_id=u.id
  WHERE u.id=7001 ORDER BY c.id LIMIT 1;
 INSERT INTO core_charging.usage_events(request_id,event_id,detail) VALUES
  ('synthetic-bootstrap-text','reservation-contract:v1',
@@ -49,18 +89,7 @@ INSERT INTO core_image.operations(id,source_kind,key_id,actor_user_id,owner_acco
  input,fingerprint,price,state,created_at,expires_at,confirmed_at)
 SELECT 'image:'||repeat('a',64),'api_key',c.id,c.user_id,c.owner_account_id,c.user_version,
  '{}',decode(repeat('04',32),'hex'),
- '{"version":"synthetic-image-v1","model":"synthetic-image","group":"default",
-   "input_per_million":0,"cached_per_million":0,"output_per_million":0,
-   "image":{"revision":1,"reservation_credits":0,
-     "request":{"upstream_id":203,"vendor":"openai","billing_group":"default",
-       "upstream_model":"synthetic-image","semantic_model":"synthetic-image",
-       "endpoint":"generations","size":"1024x1024","quality":"standard","n":1},
-     "rule":{"upstream_id":203,"vendor":"openai","billing_group":"default",
-       "upstream_model":"synthetic-image","semantic_model":"synthetic-image",
-       "endpoint":"generations","size":"1024x1024","quality":"standard",
-       "usd_micros_per_image":{"numerator":0,"denominator":1},
-       "group_multiplier":{"numerator":1,"denominator":1},"max_n":1,
-       "count_basis":"requested","max_budget":0,"source_revision":"synthetic-frozen42"}}}',
+ __NATIVE_IMAGE_PRICE__,
  'confirmed',1,253402300799,1
  FROM core_identity.credentials c WHERE c.digest=decode(repeat('07',32),'hex');
 INSERT INTO core_charging.requests(id,actor_user_id,key_id,image_operation_id,owner_account_id,payer_account_id,
@@ -69,9 +98,7 @@ SELECT id,actor_user_id,key_id,id,owner_account_id,owner_account_id,
  fingerprint,decode(repeat('05',32),'hex'),decode(repeat('06',32),'hex'),
  price,1,2,3,'reserved',(price#>>'{image,reservation_credits}')::bigint
  FROM core_image.operations WHERE id='image:'||repeat('a',64);
-"#).execute(&mut *tx).await.unwrap();
-    tx.commit().await.unwrap();
-}
+"#;
 pub async fn check_history(c: &mut sqlx::PgConnection) {
     let ids: Vec<(i64,String,bool,bool)> = sqlx::query_as(
         "SELECT id,origin,history_ambiguous,retired_at IS NOT NULL FROM core_channels.identities ORDER BY id")

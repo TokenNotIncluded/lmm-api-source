@@ -38,6 +38,7 @@ fn request(id: &str, reserve: i64) -> ChargeRequest {
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -57,6 +58,7 @@ fn usage() -> Usage {
     Usage {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         cache_creation: None,

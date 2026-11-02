@@ -13,6 +13,11 @@ import type {
 } from './model-pricing-sheet'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
+// Use motion's JS fallback: happy-dom rejects canceled animation promises.
+Object.defineProperty(domWindow.HTMLElement.prototype, 'animate', {
+  configurable: true,
+  value: undefined,
+})
 for (const key of [
   'window',
   'document',

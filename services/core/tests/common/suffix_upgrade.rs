@@ -14,8 +14,17 @@ use super::{
 fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
+fn target_count() -> usize {
+    if PROCEDURE == "core-trust-policy-edit-v1" {
+        45
+    } else {
+        44
+    }
+}
 fn manifest_sha256() -> String {
-    let mut bytes = serde_json::to_vec(&schema_manifest()).unwrap();
+    let mut manifest = schema_manifest();
+    manifest.components.truncate(target_count());
+    let mut bytes = serde_json::to_vec(&manifest).unwrap();
     bytes.push(b'\n');
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -55,6 +64,39 @@ SELECT jsonb_build_object(
         .fetch_one(c)
         .await
         .unwrap()
+}
+
+// SQLx close sends Terminate but does not await PostgreSQL backend exit.
+// Observe only this fixture's closed PID from the maintenance database before
+// asking the offline API for exclusivity; never retry or relax that API's guard.
+async fn close_inspection(connection: PgConnection) {
+    let mut connection = connection;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
+    connection.close().await.unwrap();
+    let mut monitor = PgConnection::connect(&std::env::var("DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let present: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1)")
+                .bind(pid)
+                .fetch_one(&mut monitor)
+                .await
+                .unwrap();
+        if !present {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "closed fixture backend {pid} did not exit"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    monitor.close().await.unwrap();
 }
 
 fn request() -> UpgradeRequest {
@@ -205,7 +247,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     pool.close().await;
     let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(result.status, "committed");
-    assert_eq!(result.components, lmm_core::core_schema::component_count());
+    assert_eq!(result.components, target_count());
     let replay = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(replay.status, "already_committed");
     assert_eq!(
@@ -246,7 +288,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     let after_native_history: Vec<String> = sqlx::query_scalar("SELECT json_build_array('request',to_jsonb(r))::text FROM core_charging.requests r UNION ALL SELECT json_build_array('event',to_jsonb(e))::text FROM core_charging.usage_events e ORDER BY 1")
         .fetch_all(&mut inspect).await.unwrap();
     assert_eq!(after_native_history, before_native_history);
-    assert_eq!(result.components, 43);
+    assert_eq!(result.components, target_count());
     assert_eq!(
         sqlx::query_scalar::<_, String>(
             "SELECT to_jsonb(u)::text FROM core_identity.users u ORDER BY id"
@@ -275,7 +317,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
             .fetch_one(&mut inspect)
             .await
             .unwrap(),
-        lmm_core::core_schema::component_count() as i64
+        target_count() as i64
     );
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_meta.completion_upgrades WHERE upgrade_id='frozen-previous-completion'")
         .fetch_one(&mut inspect).await.unwrap(), 1);
@@ -290,7 +332,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .unwrap();
     // The offline API requires an exclusive connection. Validate the same
     // original receipt through that API, not by exporting private privilege helpers.
-    inspect.close().await.unwrap();
+    close_inspection(inspect).await;
     assert!(matches!(
         upgrade_database(url.as_str(), r.clone()).await,
         Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_RECEIPT_PRIVILEGES_INVALID")
@@ -308,7 +350,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .execute(&mut inspect)
     .await
     .unwrap();
-    inspect.close().await.unwrap();
+    close_inspection(inspect).await;
     let restored = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(restored.status, "already_committed");
     assert_eq!(

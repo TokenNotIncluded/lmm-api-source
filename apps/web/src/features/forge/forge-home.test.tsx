@@ -50,6 +50,7 @@ for (const key of [
   'FocusEvent',
   'CustomEvent',
   'MutationObserver',
+  'IntersectionObserver',
   'ResizeObserver',
   'requestAnimationFrame',
   'cancelAnimationFrame',

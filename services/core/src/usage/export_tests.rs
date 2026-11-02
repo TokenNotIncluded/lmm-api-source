@@ -20,6 +20,7 @@ fn request(state: &str) -> ValidatedRequest {
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

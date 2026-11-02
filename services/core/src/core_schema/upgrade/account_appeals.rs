@@ -1,4 +1,4 @@
-//! Exact frozen 41-component predecessor to the explicit 43-component successor.
+//! Exact frozen 41-component predecessor to the explicit 44-component successor.
 use super::*;
 pub(super) const PROCEDURE: &str = "core-account-appeals-v1";
 const PRE_MANIFEST: &str = "12c971ce84ca71eb5605a7fe284535216a5777858d5aaf766c3876655bf8aee6";
@@ -7,6 +7,7 @@ const TARGET: &str = include_str!("account_appeals_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
     procedure: PROCEDURE,
     predecessor_count: 41,
+    target_count: 44,
     predecessor_manifest: PRE_MANIFEST,
     predecessor_catalog: PRE_CATALOG,
     target_json: TARGET,
@@ -47,7 +48,7 @@ mod tests {
             },
             predecessor_manifest_sha256: PRE_MANIFEST.into(),
             predecessor_catalog_sha256: PRE_CATALOG.into(),
-            successor_manifest_sha256: manifest_sha256().unwrap(),
+            successor_manifest_sha256: ENGINE.target_manifest().unwrap(),
         }
     }
 
@@ -56,7 +57,9 @@ mod tests {
         let frozen = include_str!("appeals_predecessor_manifest.json");
         assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
         let mut compiled = schema_manifest();
-        assert_eq!(compiled.components.len(), 43);
+        assert_eq!(ENGINE.target_count, 44);
+        let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
+        assert_eq!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
         assert_eq!(compiled.components[41].name, "account-appeals");
         compiled.components.truncate(41);
         let mut bytes = serde_json::to_vec(&compiled).unwrap();

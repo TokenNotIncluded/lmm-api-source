@@ -5,6 +5,7 @@ pub(super) mod balance;
 pub(super) mod catalog;
 pub(super) mod configuration;
 pub(super) mod copy;
+mod opening;
 pub(super) mod price_drafts;
 mod vault;
 use super::{ChannelState, auth_error, authorize_action, error_response};
@@ -354,9 +355,15 @@ impl ManagedChannels {
             .execute(&mut *tx)
             .await
             .map_err(ManagementError::from)?;
-        let principal = identity::authorize_in_transaction(&mut tx, secret)
-            .await
-            .map_err(HistoryError::from)?;
+        let principal = if matches!(action, Action::ChannelRead) {
+            // Read views use their transaction snapshot, without authority row
+            // locks that PostgreSQL rejects in a read-only transaction. Copy
+            // and every other write retain the locked authorization path.
+            identity::authenticate_readonly_in_transaction(&mut tx, secret).await
+        } else {
+            identity::authorize_in_transaction(&mut tx, secret).await
+        }
+        .map_err(HistoryError::from)?;
         authorize_action(&mut tx, &principal, action).await?;
         Ok((tx, principal))
     }
@@ -457,7 +464,6 @@ pub(super) enum Failure {
     RetiredIdentity,
     InvalidUsageWindow,
     AccountingIdentityAmbiguous,
-    AccountingLimit,
 }
 impl From<HistoryError> for Failure {
     fn from(v: HistoryError) -> Self {
@@ -492,11 +498,6 @@ impl IntoResponse for Failure {
                 StatusCode::CONFLICT,
                 "CHANNEL_USAGE_IDENTITY_AMBIGUOUS",
                 "This channel ID was reused; its historical accounting requires review",
-            ),
-            Self::AccountingLimit => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "CHANNEL_ACCOUNTING_LIMIT",
-                "This accounting snapshot exceeds the supported request or receipt limit",
             ),
             Self::Disabled => (
                 StatusCode::NOT_IMPLEMENTED,
@@ -684,6 +685,7 @@ pub(super) async fn remove(
         .retain(|context| context.upstream_id != id);
     bindings.discoveries.remove(&id);
     bindings.balance_probes.remove(&id);
+    bindings.legacy_balance.remove(&id);
     let version = management
         .publish_bindings(
             tx,

@@ -24,6 +24,11 @@ import { Window } from 'happy-dom'
 import type { BountyProject } from './types'
 
 const domWindow = new Window()
+// Use motion's JS fallback: happy-dom rejects canceled animation promises.
+Object.defineProperty(domWindow.HTMLElement.prototype, 'animate', {
+  configurable: true,
+  value: undefined,
+})
 domWindow.document.write(
   '<!doctype html><html><head></head><body></body></html>'
 )

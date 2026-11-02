@@ -122,4 +122,27 @@ REVOKE UPDATE(channel_id,balance,unit_label,observed_at,kind,credential_id,crede
 REVOKE REFERENCES(channel_id,balance,unit_label,observed_at,kind,credential_id,credential_revision,source_channel_id,recorded_at) ON core_channels.balance_observations FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON core_meta.channel_accounting_upgrades FROM :"runtime_role";
 
+-- Projection capabilities: reset table and explicit column grants.
+REVOKE SELECT(request_id,channel_id,authorized_at,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests),
+ INSERT(request_id,channel_id,authorized_at,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests),
+ UPDATE(request_id,channel_id,authorized_at,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests),
+ REFERENCES(request_id,channel_id,authorized_at,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests)
+ ON core_channels.usage_contributions FROM :"runtime_role";
+REVOKE SELECT(channel_id,day,bucket,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests),
+ INSERT(channel_id,day,bucket,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests),
+ UPDATE(channel_id,day,bucket,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests),
+ REFERENCES(channel_id,day,bucket,gross_credits,refunded_credits,settled_requests,pending_requests,unknown_requests)
+ ON core_channels.usage_rollups FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON core_channels.usage_contributions,core_channels.usage_rollups,
+    core_channels.projection_dirty,core_channels.projection_state,
+    core_meta.channel_projection_upgrades,core_channels.opening_sources,core_channels.opening_baselines FROM :"runtime_role";
+REVOKE SELECT(singleton,ready),INSERT(singleton,ready),UPDATE(singleton,ready),REFERENCES(singleton,ready)
+    ON core_channels.projection_state FROM :"runtime_role";
+REVOKE SELECT(request_id,authorized_at),INSERT(request_id,authorized_at),UPDATE(request_id,authorized_at),REFERENCES(request_id,authorized_at)
+    ON core_channels.projection_dirty FROM :"runtime_role";
+
+REVOKE SELECT(source_key,archive_sha256,export_sha256,mapping_sha256,unit_evidence_sha256,source_revision,observed_at,native_overlap,native_request_ids,native_seal_sha256,rows_sha256,plan_sha256,captured_at),INSERT(source_key,archive_sha256,export_sha256,mapping_sha256,unit_evidence_sha256,source_revision,observed_at,native_overlap,native_request_ids,native_seal_sha256,rows_sha256,plan_sha256,captured_at),UPDATE(source_key,archive_sha256,export_sha256,mapping_sha256,unit_evidence_sha256,source_revision,observed_at,native_overlap,native_request_ids,native_seal_sha256,rows_sha256,plan_sha256,captured_at),REFERENCES(source_key,archive_sha256,export_sha256,mapping_sha256,unit_evidence_sha256,source_revision,observed_at,native_overlap,native_request_ids,native_seal_sha256,rows_sha256,plan_sha256,captured_at) ON core_channels.opening_sources FROM :"runtime_role";
+
+REVOKE SELECT(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at),INSERT(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at),UPDATE(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at),REFERENCES(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind,parent_channel_id,captured_at) ON core_channels.opening_baselines FROM :"runtime_role";
+
 COMMIT;

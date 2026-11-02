@@ -5,6 +5,7 @@
 //! Administrator data includes all actors/accounts and marks historical imports
 //! as uncovered; neither opening counters nor archived quota become native usage.
 mod channel;
+pub(crate) mod channel_projection;
 mod export;
 pub(crate) use channel::{ChannelUsage, ChannelUsageError, channel_totals, channel_usage};
 pub mod task_log;
@@ -151,20 +152,12 @@ impl UsageQuery {
     }
 }
 
-// Read at most 100,001 requests and 2,049 commands/refunds per request. The
-// extra entry detects density rather than silently truncating successful data.
-const MAX_REQUESTS: usize = 100_000;
-const MAX_RECEIPTS: usize = 2048;
+// Usage readers validate bounded request batches and stream all their receipts;
+// bounded output representations still fail closed.
 const JS_SAFE: i64 = 9_007_199_254_740_991;
 const SELECT_REQUESTS: &str = r#"
  SELECT r.*, a.kind AS payer_kind, coalesce(k.name,r.oauth_source->>'client_id','') AS token_name,
-   e.detail AS final_event,
-   (SELECT coalesce(jsonb_agg(to_jsonb(c)), '[]'::jsonb) FROM
-      (SELECT operation_id,command FROM core_charging.ledger_commands
-       WHERE request_id=r.id ORDER BY operation_id LIMIT 2049) c) AS commands,
-   (SELECT coalesce(jsonb_agg(to_jsonb(f)), '[]'::jsonb) FROM
-      (SELECT refund_id,amount FROM core_charging.refunds
-       WHERE request_id=r.id ORDER BY refund_id LIMIT 2049) f) AS refunds
+   e.detail AS final_event
  FROM core_charging.requests r
  JOIN core_identity.accounts a ON a.id=r.payer_account_id
  LEFT JOIN core_identity.api_key_settings k ON k.credential_id=r.key_id
@@ -173,7 +166,7 @@ const SELECT_REQUESTS: &str = r#"
    AND ($5=0 OR CASE WHEN r.state='settled' AND r.outcome='completed' THEN 2 ELSE 5 END=$5)
    AND ($6='' OR r.price->>'model'=$6) AND ($7='' OR coalesce(k.name,r.oauth_source->>'client_id','')=$7)
    AND ($8='' OR r.price->>'group'=$8) AND ($9='' OR r.id=$9)
- ORDER BY r.authorized_at DESC,r.id DESC LIMIT 100001
+ ORDER BY r.authorized_at DESC,r.id DESC
 "#;
 
 fn safe(value: i64) -> Result<i64, Error> {
@@ -269,8 +262,18 @@ struct ValidatedRequest {
     usage: Usage,
     amounts: Amounts,
 }
-impl ValidatedRequest {
-    fn from_row(row: PgRow) -> Result<Self, Error> {
+// One receipt validator for both per-request-bounded external reads and internal streams.
+struct ReceiptValidation {
+    request: ValidatedRequest,
+    owner: i64,
+    payer: i64,
+    final_event: Option<Value>,
+    receipts: HashMap<String, Change>,
+    refund_total: i64,
+    refund_count: usize,
+}
+impl ReceiptValidation {
+    fn new(row: PgRow) -> Result<Self, Error> {
         let id: String = row.try_get("id")?;
         let price: Price = decode(row.try_get("price")?)?;
         price.validate().map_err(|_| Error::Storage)?;
@@ -347,7 +350,7 @@ impl ValidatedRequest {
             gross: safe(row.try_get("settled")?)?,
             refunded: safe(row.try_get("refunded")?)?,
         };
-        let mut usage = Usage {
+        let usage = Usage {
             image: row
                 .try_get::<Option<Value>, _>("image_usage")?
                 .map(decode)
@@ -371,38 +374,91 @@ impl ValidatedRequest {
         {
             return Err(Error::Storage);
         }
-        let commands: Vec<StoredCommand> = decode(row.try_get("commands")?)?;
-        let refunds: Vec<Refund> = decode(row.try_get("refunds")?)?;
-        if commands.len() > MAX_RECEIPTS || refunds.len() > MAX_RECEIPTS {
-            return Err(Error::TooManyBuckets);
+        let final_event = row.try_get("final_event")?;
+        Ok(Self {
+            request: ValidatedRequest {
+                id,
+                user,
+                key,
+                oauth_source,
+                credential_source,
+                payer_is_owner: payer == owner,
+                sponsored: assistant_sponsor.is_some(),
+                at: safe(row.try_get("authorized_at")?)?,
+                price,
+                token_name: row.try_get("token_name")?,
+                state,
+                outcome,
+                payer_kind: row.try_get("payer_kind")?,
+                source,
+                reserved,
+                usage,
+                amounts,
+            },
+            owner,
+            payer,
+            final_event,
+            receipts: HashMap::new(),
+            refund_total: 0,
+            refund_count: 0,
+        })
+    }
+
+    fn command(&mut self, stored: StoredCommand) -> Result<(), Error> {
+        let r = &self.request;
+        let command: LedgerCommand = decode(stored.command.clone())?;
+        // Preserve the original canonical, complete receipt identity checks.
+        if serde_json::to_value(&command).map_err(|_| Error::Storage)? != stored.command
+            || stored.operation_id != command.operation_id
+            || command.request_id != r.id
+            || command.actor_user_id != r.user
+            || command.key_id != r.key
+            || command.oauth_source != r.oauth_source
+            || command.owner_account_id != self.owner
+            || command.payer_account_id != self.payer
+            || command.price_version != r.price.version
+            || command.source != r.source
+            || self
+                .receipts
+                .insert(stored.operation_id, command.change)
+                .is_some()
+        {
+            return Err(Error::Storage);
         }
-        let mut receipts = HashMap::new();
-        for stored in commands {
-            let command: LedgerCommand = decode(stored.command.clone())?;
-            // LedgerCommand/Source deserialization alone ignores unknown fields.
-            // Require the complete canonical receipt, including source shape.
-            if serde_json::to_value(&command).map_err(|_| Error::Storage)? != stored.command
-                || stored.operation_id != command.operation_id
-                || command.request_id != id
-                || command.actor_user_id != user
-                || command.key_id != key
-                || command.oauth_source != oauth_source
-                || command.owner_account_id != owner
-                || command.payer_account_id != payer
-                || command.price_version != price.version
-                || command.source != source
-                || receipts
-                    .insert(stored.operation_id, command.change)
-                    .is_some()
-            {
-                return Err(Error::Storage);
-            }
+        Ok(())
+    }
+    fn refund(&mut self, refund: Refund) -> Result<(), Error> {
+        self.refund_count += 1;
+        if !self.request.settled()
+            || refund.amount <= 0
+            || self.receipts.remove(&operation_id(
+                &self.request.id,
+                &format!("refund:{}", refund.refund_id),
+            )?) != Some(Change::Refund {
+                amount: refund.amount,
+            })
+        {
+            return Err(Error::Storage);
         }
+        add(&mut self.refund_total, refund.amount)
+    }
+    fn finish(self) -> Result<ValidatedRequest, Error> {
+        let Self {
+            mut request,
+            mut receipts,
+            refund_total,
+            refund_count,
+            final_event,
+            ..
+        } = self;
+        let id = request.id.as_str();
+        let state = request.state.as_str();
+        let outcome = &request.outcome;
+        let price = &request.price;
+        let amounts = request.amounts;
+        let mut usage = request.usage;
         if state == "settled" {
-            let event: FinalEvent = decode(
-                row.try_get::<Option<Value>, _>("final_event")?
-                    .ok_or(Error::Storage)?,
-            )?;
+            let event: FinalEvent = decode(final_event.ok_or(Error::Storage)?)?;
             let final_outcome = match event.outcome {
                 Outcome::Completed => "completed",
                 Outcome::Cancelled => "cancelled",
@@ -426,36 +482,21 @@ impl ValidatedRequest {
                 return Err(Error::Storage);
             }
             usage = event.usage;
-            if receipts.remove(&operation_id(&id, "settle")?)
+            if receipts.remove(&operation_id(id, "settle")?)
                 != Some(Change::Settle {
                     amount: amounts.gross,
                 })
             {
                 return Err(Error::Storage);
             }
-            let mut refund_total = 0;
-            for refund in refunds {
-                if refund.amount <= 0
-                    || receipts.remove(&operation_id(&id, &format!("refund:{}", refund.refund_id))?)
-                        != Some(Change::Refund {
-                            amount: refund.amount,
-                        })
-                {
-                    return Err(Error::Storage);
-                }
-                add(&mut refund_total, refund.amount)?;
-            }
             if refund_total != amounts.refunded {
                 return Err(Error::Storage);
             }
         } else if amounts.gross != 0
             || amounts.refunded != 0
-            || !refunds.is_empty()
+            || refund_count != 0
             || outcome.is_some()
-            || !matches!(
-                state.as_str(),
-                "reserved" | "streaming" | "reconcile" | "released"
-            )
+            || !matches!(state, "reserved" | "streaming" | "reconcile" | "released")
         {
             return Err(Error::Storage);
         }
@@ -467,26 +508,69 @@ impl ValidatedRequest {
         {
             return Err(Error::Storage);
         }
-        Ok(Self {
-            id,
-            user,
-            key,
-            oauth_source,
-            credential_source,
-            payer_is_owner: payer == owner,
-            sponsored: assistant_sponsor.is_some(),
-            at: safe(row.try_get("authorized_at")?)?,
-            price,
-            token_name: row.try_get("token_name")?,
-            state,
-            outcome,
-            payer_kind: row.try_get("payer_kind")?,
-            source,
-            reserved,
-            usage,
-            amounts,
-        })
+        request.usage = usage;
+        Ok(request)
     }
+}
+
+// Validate a bounded request batch in the caller's existing snapshot. Receipt
+// streams have no per-request row cap and share the exact owner-backfill validator.
+async fn validate_usage_batch(
+    c: &mut sqlx::PgConnection,
+    rows: Vec<PgRow>,
+) -> Result<Vec<ValidatedRequest>, Error> {
+    let mut order = Vec::with_capacity(rows.len());
+    let mut validators = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let id: String = row.try_get("id")?;
+        if validators
+            .insert(id.clone(), ReceiptValidation::new(row)?)
+            .is_some()
+        {
+            return Err(Error::Storage);
+        }
+        order.push(id);
+    }
+    if order.is_empty() {
+        return Ok(Vec::new());
+    }
+    {
+        let mut commands = sqlx::query("SELECT request_id,operation_id,command FROM core_charging.ledger_commands WHERE request_id=ANY($1) ORDER BY request_id COLLATE \"C\",operation_id COLLATE \"C\"")
+            .bind(&order).fetch(&mut *c);
+        while let Some(row) = commands.next().await {
+            let row = row?;
+            let id: String = row.try_get("request_id")?;
+            validators
+                .get_mut(&id)
+                .ok_or(Error::Storage)?
+                .command(StoredCommand {
+                    operation_id: row.try_get("operation_id")?,
+                    command: row.try_get("command")?,
+                })?;
+        }
+    }
+    {
+        let mut refunds = sqlx::query("SELECT request_id,refund_id,amount FROM core_charging.refunds WHERE request_id=ANY($1) ORDER BY request_id COLLATE \"C\",refund_id COLLATE \"C\"")
+            .bind(&order).fetch(&mut *c);
+        while let Some(row) = refunds.next().await {
+            let row = row?;
+            let id: String = row.try_get("request_id")?;
+            validators
+                .get_mut(&id)
+                .ok_or(Error::Storage)?
+                .refund(Refund {
+                    refund_id: row.try_get("refund_id")?,
+                    amount: row.try_get("amount")?,
+                })?;
+        }
+    }
+    order
+        .into_iter()
+        .map(|id| validators.remove(&id).ok_or(Error::Storage)?.finish())
+        .collect()
+}
+
+impl ValidatedRequest {
     fn settled(&self) -> bool {
         self.state == "settled"
     }
@@ -841,87 +925,98 @@ impl UsageStore {
             } else {
                 SELECT_REQUESTS.to_owned()
             };
-            let mut rows = sqlx::query(&selection)
+            let selection = format!("DECLARE lmm_usage_reader NO SCROLL CURSOR FOR {selection}");
+            sqlx::query(&selection)
                 .bind(selected_user)
                 .bind((!administrator).then_some(owner))
                 .bind(f.start)
                 .bind(f.end)
                 .bind(q.r#type.unwrap_or(0))
-                .bind(q.model_name.unwrap_or_default())
-                .bind(q.token_name.unwrap_or_default())
-                .bind(q.group.unwrap_or_default())
-                .bind(q.request_id.unwrap_or_default())
-                .fetch(&mut *tx);
-            while let Some(row) = rows.next().await {
-                add(&mut total, 1)?;
-                if total as usize > MAX_REQUESTS {
-                    return Err(Error::TooManyBuckets);
-                }
-                // All endpoints validate every selected request BEFORE exposing
-                // a page or aggregate, including explicit zero-cost receipts.
-                let r = ValidatedRequest::from_row(row?)?;
-                summary.include(&r, now)?;
-                if let Some(csv) = &mut csv {
-                    csv.include(&r)?;
-                }
-                match projection {
-                    Projection::Logs | Projection::AdministratorLogs
-                        if total > f.offset && total <= f.offset + f.size =>
-                    {
-                        let item = r.log();
-                        if !ids.insert(presentation_id(&r.id)) {
-                            return Err(Error::Collision);
-                        }
-                        items.push(item);
+                .bind(q.model_name.as_deref().unwrap_or_default())
+                .bind(q.token_name.as_deref().unwrap_or_default())
+                .bind(q.group.as_deref().unwrap_or_default())
+                .bind(q.request_id.as_deref().unwrap_or_default())
+                .execute(&mut *tx)
+                .await?;
+            loop {
+                let rows = sqlx::query("FETCH FORWARD 64 FROM lmm_usage_reader")
+                    .fetch_all(&mut *tx)
+                    .await?;
+                let count = rows.len();
+                for r in validate_usage_batch(&mut tx, rows).await? {
+                    add(&mut total, 1)?;
+                    // Validate every selected request, including the other pages.
+                    summary.include(&r, now)?;
+                    if let Some(csv) = &mut csv {
+                        csv.include(&r)?;
                     }
-                    Projection::Data | Projection::AdministratorData if r.settled() => {
-                        let key = (
-                            r.user,
-                            r.at / 3600 * 3600,
-                            r.price.model.clone(),
-                            r.payer_kind.clone(),
-                            r.subscription(),
-                            r.sponsored,
-                        );
-                        let bucket = buckets.entry(key).or_default();
-                        bucket.amounts.accumulate(r.amounts)?;
-                        bucket.has_images |= r.price.image.is_some();
-                        bucket.has_tools |= r.price.tool.is_some();
-                        bucket.has_request_price |= r.price.text_request.is_some();
-                        bucket.has_grounding |= r.price.grounding.is_some();
-                        bucket.has_text |= r.measured_text();
-                        bucket.has_session_sources |=
-                            matches!(r.credential_source, "drawing_session" | "assistant_session");
-                        if let Some(image) = r.usage.image {
-                            add(&mut bucket.image_count, i64::from(image.output_images))?;
+                    match projection {
+                        Projection::Logs | Projection::AdministratorLogs
+                            if total > f.offset && total <= f.offset + f.size =>
+                        {
+                            let item = r.log();
+                            if !ids.insert(presentation_id(&r.id)) {
+                                return Err(Error::Collision);
+                            }
+                            items.push(item);
                         }
-                        if let Some(tool) = r.usage.tool {
-                            add(
-                                &mut bucket.tool_requests,
-                                i64::from(tool.successful_requests),
-                            )?;
+                        Projection::Data | Projection::AdministratorData if r.settled() => {
+                            let key = (
+                                r.user,
+                                r.at / 3600 * 3600,
+                                r.price.model.clone(),
+                                r.payer_kind.clone(),
+                                r.subscription(),
+                                r.sponsored,
+                            );
+                            let bucket = buckets.entry(key).or_default();
+                            bucket.amounts.accumulate(r.amounts)?;
+                            bucket.has_images |= r.price.image.is_some();
+                            bucket.has_tools |= r.price.tool.is_some();
+                            bucket.has_request_price |= r.price.text_request.is_some();
+                            bucket.has_grounding |= r.price.grounding.is_some();
+                            bucket.has_text |= r.measured_text();
+                            bucket.has_session_sources |= matches!(
+                                r.credential_source,
+                                "drawing_session" | "assistant_session"
+                            );
+                            if let Some(image) = r.usage.image {
+                                add(&mut bucket.image_count, i64::from(image.output_images))?;
+                            }
+                            if let Some(tool) = r.usage.tool {
+                                add(
+                                    &mut bucket.tool_requests,
+                                    i64::from(tool.successful_requests),
+                                )?;
+                            }
+                            if let Some(text) = r.usage.text_request {
+                                add(
+                                    &mut bucket.completed_requests,
+                                    i64::from(text.completed_requests()),
+                                )?;
+                            }
+                            if let Some(grounding) = r.usage.grounding {
+                                add(
+                                    &mut bucket.grounded_requests,
+                                    i64::from(grounding.grounded_requests),
+                                )?;
+                            }
+                            add(&mut bucket.tokens, r.usage.input + r.usage.output)?;
+                            add(&mut bucket.count, 1)?;
+                            if buckets.len() > MAX_BUCKETS {
+                                return Err(Error::TooManyBuckets);
+                            }
                         }
-                        if let Some(text) = r.usage.text_request {
-                            add(
-                                &mut bucket.completed_requests,
-                                i64::from(text.completed_requests()),
-                            )?;
-                        }
-                        if let Some(grounding) = r.usage.grounding {
-                            add(
-                                &mut bucket.grounded_requests,
-                                i64::from(grounding.grounded_requests),
-                            )?;
-                        }
-                        add(&mut bucket.tokens, r.usage.input + r.usage.output)?;
-                        add(&mut bucket.count, 1)?;
-                        if buckets.len() > MAX_BUCKETS {
-                            return Err(Error::TooManyBuckets);
-                        }
+                        _ => (),
                     }
-                    _ => (),
+                }
+                if count < 64 {
+                    break;
                 }
             }
+            sqlx::query("CLOSE lmm_usage_reader")
+                .execute(&mut *tx)
+                .await?;
         }
         if let Some(csv) = csv {
             tx.commit().await?;
@@ -1142,9 +1237,19 @@ async fn self_export(
     respond(s, h, q, Projection::Export).await
 }
 
+const MAX_OAUTH_ITEMS_BYTES: usize = 16 * 1024 * 1024;
+
+fn oauth_item_bytes(current: usize, item: &Value) -> Result<usize, ()> {
+    let next = current
+        .checked_add(serde_json::to_vec(item).map_err(|_| ())?.len())
+        .and_then(|n| n.checked_add(1))
+        .ok_or(())?;
+    (next <= MAX_OAUTH_ITEMS_BYTES).then_some(next).ok_or(())
+}
+
 /// Scoped OAuth-family activity from real immutable, source-checked ledger
-/// receipts. Bounded complete recent window; excessive density is unavailable,
-/// never partial success or a fabricated zero. No other family/user or channel.
+/// receipts. The complete recent window is read in bounded batches; an oversized
+/// response is unavailable, never partial success or a fabricated zero. No other family/user.
 pub(crate) async fn read_oauth_usage(
     c: &mut sqlx::PgConnection,
     user: i64,
@@ -1157,42 +1262,59 @@ pub(crate) async fn read_oauth_usage(
             .await
             .map_err(|_| ())?;
     let start = (now - WINDOW).max(0);
-    let query = SELECT_REQUESTS
-        .replace(
+    // This endpoint returns every item, rather than a page. Bound its serialized
+    // item payload without silently truncating or retaining an unlimited result.
+    let query = format!(
+        "{} LIMIT 16",
+        SELECT_REQUESTS.replace(
             "WHERE r.actor_user_id=$1",
-            "WHERE r.oauth_family_id=$10 AND r.actor_user_id=$1",
+            "WHERE r.oauth_family_id=$10 AND (r.authorized_at,r.id)<($11,$12) AND r.actor_user_id=$1",
         )
-        .replace("LIMIT 100001", "LIMIT 1001");
-    let rows = sqlx::query(&query)
-        .bind(user)
-        .bind(account)
-        .bind(start)
-        .bind(now)
-        .bind(0i16)
-        .bind("")
-        .bind("")
-        .bind("")
-        .bind("")
-        .bind(grant)
-        .fetch_all(c)
-        .await
-        .map_err(|_| ())?;
-    if rows.len() > 1000 {
-        return Err(());
-    }
+    );
     let mut summary = Summary::default();
-    let mut items = Vec::with_capacity(rows.len());
-    for row in rows {
-        let request = ValidatedRequest::from_row(row).map_err(|_| ())?;
-        if request.oauth_source.as_ref().is_none_or(|source| {
-            source.grant_id() != grant
-                || source.user_id() != user
-                || source.personal_account_id() != account
-        }) {
-            return Err(());
+    let mut items = Vec::new();
+    let mut encoded_bytes = 0usize;
+    let mut after_at = i64::MAX;
+    let mut after_id = String::new();
+    loop {
+        // One bounded SQL statement at a time: server-side statement timeout
+        // does not include CPU time validating or serializing earlier batches.
+        // The caller holds one REPEATABLE READ transaction for every batch.
+        let rows = sqlx::query(&query)
+            .bind(user)
+            .bind(account)
+            .bind(start)
+            .bind(now)
+            .bind(0i16)
+            .bind("")
+            .bind("")
+            .bind("")
+            .bind("")
+            .bind(grant)
+            .bind(after_at)
+            .bind(&after_id)
+            .fetch_all(&mut *c)
+            .await
+            .map_err(|_| ())?;
+        let count = rows.len();
+        for request in validate_usage_batch(c, rows).await.map_err(|_| ())? {
+            after_at = request.at;
+            after_id.clone_from(&request.id);
+            if request.oauth_source.as_ref().is_none_or(|source| {
+                source.grant_id() != grant
+                    || source.user_id() != user
+                    || source.personal_account_id() != account
+            }) {
+                return Err(());
+            }
+            summary.include(&request, now).map_err(|_| ())?;
+            let item = request.log();
+            encoded_bytes = oauth_item_bytes(encoded_bytes, &item)?;
+            items.push(item);
         }
-        summary.include(&request, now).map_err(|_| ())?;
-        items.push(request.log());
+        if count < 16 {
+            break;
+        }
     }
     Ok(
         json!({"schema_version":1,"usage_scope":"oauth_family","start_timestamp":start,"end_timestamp":now,"items":items,"summary":summary.project()}),
@@ -1264,15 +1386,18 @@ pub(crate) async fn assistant_summary_in_transaction(
     let mut total = Aggregate::default();
     let mut models: BTreeMap<String, Aggregate> = BTreeMap::new();
     let mut groups: BTreeMap<String, Aggregate> = BTreeMap::new();
-    let mut seen = HashSet::new();
+    let mut previous_id: Option<String> = None;
     let mut count = 0usize;
     let mut pending = 0_i64;
-    let sql = SELECT_REQUESTS.replace(
-        "WHERE r.actor_user_id=$1",
-        "WHERE r.assistant_grant_id IS NULL AND r.actor_user_id=$1",
+    let sql = format!(
+        "DECLARE lmm_assistant_usage_reader NO SCROLL CURSOR FOR {}",
+        SELECT_REQUESTS.replace(
+            "WHERE r.actor_user_id=$1",
+            "WHERE r.assistant_grant_id IS NULL AND r.actor_user_id=$1",
+        )
     );
     {
-        let mut rows = sqlx::query(&sql)
+        sqlx::query(&sql)
             .bind(target)
             .bind(owner)
             .bind(start)
@@ -1282,29 +1407,45 @@ pub(crate) async fn assistant_summary_in_transaction(
             .bind("")
             .bind("")
             .bind("")
-            .fetch(&mut *c);
-        while let Some(row) = rows.next().await {
-            count += 1;
-            if count > MAX_REQUESTS {
-                return Err(E::Unavailable);
+            .execute(&mut *c)
+            .await?;
+        loop {
+            let rows = sqlx::query("FETCH FORWARD 64 FROM lmm_assistant_usage_reader")
+                .fetch_all(&mut *c)
+                .await?;
+            let batch_count = rows.len();
+            for r in validate_usage_batch(c, rows)
+                .await
+                .map_err(|_| E::Unavailable)?
+            {
+                count = count.checked_add(1).ok_or(E::Unavailable)?;
+                // Rows are ordered by immutable (authorized_at, id), and request id
+                // is unique. Any duplicate caused by a join is therefore adjacent;
+                // detect it without retaining every ID in a large result.
+                if previous_id.as_deref() == Some(r.id.as_str()) {
+                    return Err(E::Unavailable);
+                }
+                previous_id = Some(r.id.clone());
+                if r.held() {
+                    add(&mut pending, 1).map_err(|_| E::Unavailable)?;
+                }
+                if !r.settled() || r.outcome.as_deref() != Some("completed") {
+                    continue;
+                }
+                include(&mut total, &r)?;
+                include(models.entry(r.price.model.clone()).or_default(), &r)?;
+                include(groups.entry(r.price.group.clone()).or_default(), &r)?;
+                if models.len() > MAX_BUCKETS || groups.len() > MAX_BUCKETS {
+                    return Err(E::Unavailable);
+                }
             }
-            let r = ValidatedRequest::from_row(row?).map_err(|_| E::Unavailable)?;
-            if !seen.insert(r.id.clone()) {
-                return Err(E::Unavailable);
-            }
-            if r.held() {
-                add(&mut pending, 1).map_err(|_| E::Unavailable)?;
-            }
-            if !r.settled() || r.outcome.as_deref() != Some("completed") {
-                continue;
-            }
-            include(&mut total, &r)?;
-            include(models.entry(r.price.model.clone()).or_default(), &r)?;
-            include(groups.entry(r.price.group.clone()).or_default(), &r)?;
-            if models.len() > MAX_BUCKETS || groups.len() > MAX_BUCKETS {
-                return Err(E::Unavailable);
+            if batch_count < 64 {
+                break;
             }
         }
+        sqlx::query("CLOSE lmm_assistant_usage_reader")
+            .execute(&mut *c)
+            .await?;
     }
     fn breakdown(map: &BTreeMap<String, Aggregate>) -> Vec<Value> {
         let mut rows: Vec<_> = map.iter().collect();
@@ -1347,6 +1488,17 @@ mod tests {
         assert!(add(&mut total, 1).is_err());
         let mut total = i64::MAX;
         assert!(add(&mut total, 1).is_err());
+    }
+    #[test]
+    fn oauth_item_payload_limit_includes_json_and_separator() {
+        let item = json!({"value":"synthetic"});
+        let bytes = serde_json::to_vec(&item).unwrap().len() + 1;
+        assert_eq!(
+            oauth_item_bytes(MAX_OAUTH_ITEMS_BYTES - bytes, &item),
+            Ok(MAX_OAUTH_ITEMS_BYTES)
+        );
+        assert!(oauth_item_bytes(MAX_OAUTH_ITEMS_BYTES - bytes + 1, &item).is_err());
+        assert!(oauth_item_bytes(usize::MAX, &item).is_err());
     }
     #[test]
     fn exact_usd_and_presentation_only_ids() {

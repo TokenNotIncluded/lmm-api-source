@@ -210,6 +210,7 @@ async fn seed_nonempty_hold(f: &Fixture, pool: &PgPool) {
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

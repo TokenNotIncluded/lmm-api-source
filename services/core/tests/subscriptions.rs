@@ -307,7 +307,9 @@ async fn stale_quotes_and_insufficient_funds_never_create_entitlements(pool: PgP
 async fn real_charging_reservations_and_usage_block_refund_and_revoked_actors_cannot_replay(
     pool: PgPool,
 ) {
-    let f = fixture(&pool, false).await;
+    // Real charging depends on the complete current Core schema, not just the
+    // subscription and ledger tables used by the other narrow fixture.
+    let f = fixture(&pool, true).await;
     let plan = f
         .store
         .save_plan(&f.admin, None, create("create_usage_plan_01"))
@@ -316,6 +318,12 @@ async fn real_charging_reservations_and_usage_block_refund_and_revoked_actors_ca
     let q = f
         .store
         .quote(&f.user, quote(plan.id, "usage_purchase_quote", None))
+        .await
+        .unwrap();
+    // Target the latter half of a DB second, when a bigint cast used to round
+    // the new anchor into the future relative to charging's floor timestamp.
+    sqlx::query("SELECT pg_sleep(mod(1.65 - mod(extract(epoch FROM clock_timestamp()), 1), 1)::double precision)")
+        .execute(&pool)
         .await
         .unwrap();
     let receipt = f.store.confirm(&f.user, &q.id).await.unwrap();
@@ -349,6 +357,7 @@ async fn real_charging_reservations_and_usage_block_refund_and_revoked_actors_ca
         price: Price {
             text_request: None,
             tool: None,
+            audio: None,
             grounding: None,
             user_trust: None,
             image: None,

@@ -81,6 +81,10 @@ impl LmmIssuer {
     }
     pub async fn usage(&self, access: &str) -> std::result::Result<serde_json::Value, ReadError> {
         let mut tx = transaction(&self.identity.pool).await?;
+        // Keyset batches must observe the same authority and receipt snapshot.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await?;
         let actor = self.authorize_read(&mut tx, access, "usage:read").await?;
         if actor.client_id != "lmm-pi" {
             return Err(IdentityError::Forbidden.into());

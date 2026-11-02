@@ -195,6 +195,7 @@ async fn seed_terminal(
         Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -212,6 +213,7 @@ async fn seed_terminal(
         Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,
@@ -300,6 +302,7 @@ async fn test_a07_token_based_with_cache_creation_and_reported_cost_refuses_reco
     let token_price = Price {
         tool: None,
         text_request: None,
+        audio: None,
         grounding: None,
 
         user_trust: None,
@@ -356,6 +359,7 @@ async fn test_a07_paged_recovery_advances_past_holds_without_starvation(pool: Pg
             price: Price {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 user_trust: None,

@@ -288,6 +288,7 @@ impl Fixture {
             price: Price {
                 text_request: None,
                 tool: None,
+                audio: None,
                 grounding: None,
                 user_trust: None,
                 image: None,
@@ -341,6 +342,102 @@ impl Fixture {
         drop(self.charging);
         self.role.cleanup().await;
     }
+    async fn seed_legacy_opening(&self, raw: &str, basis: &str) {
+        // Synthetic reviewed source facts. The owner importer is tested separately;
+        // this fixture checks HTTP read/copy precision and never mints credits.
+        let hash = "a".repeat(64);
+        sqlx::query("INSERT INTO core_channels.opening_sources(source_key,archive_sha256,export_sha256,mapping_sha256,unit_evidence_sha256,source_revision,native_overlap,native_request_ids,native_seal_sha256,rows_sha256,plan_sha256) VALUES($1,$1,$1,$1,$1,'synthetic-counter-v1','disjoint',ARRAY[]::text[],$1,$1,$1)")
+            .bind(&hash).execute(&self.owner).await.unwrap();
+        sqlx::query("INSERT INTO core_channels.opening_baselines(channel_id,source_key,source_channel_id,raw_used_quota,credits_per_usd,offset_numerator,offset_denominator,historical_coverage,kind) VALUES(1,$1,9,$2::text::bigint,$3::text::bigint,$2::text::numeric,$3::text::numeric,TRUE,'imported')")
+            .bind(hash).bind(raw).bind(basis).execute(&self.owner).await.unwrap();
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn rational_legacy_opening_survives_copy_chains_without_rounding_or_money(pool: PgPool) {
+    let f = Fixture::new(pool).await;
+    f.settle_source().await;
+    f.seed_legacy_opening("1", "3").await;
+    let money = snapshot(&f.owner, false).await;
+    let original = f.counters(1).await;
+    assert_eq!(original["lifetime"]["total_usd"], "0.335305333333333333");
+    assert_eq!(original["lifetime"]["exact_usd_numerator"], "502958");
+    assert_eq!(original["lifetime"]["exact_usd_denominator"], "1500000");
+    assert_eq!(
+        original["lifetime"]["legacy_opening"]["raw_used_quota"],
+        "1"
+    );
+    assert_eq!(
+        original["lifetime"]["legacy_opening"]["observed_at"],
+        Value::Null
+    );
+    assert_eq!(original["combined"]["net_used_credits"], "986");
+    let parent = f.copy(false, false).await;
+    let child = f.ok("POST",&format!("/core/v1/admin/routing/channels/{parent}/copy"),json!({"expected_version":f.version().await,"suffix":"_rational","reset_balance":false})).await["id"].as_u64().unwrap();
+    for id in [parent, child] {
+        let copied = f.counters(id).await;
+        assert_eq!(
+            copied["lifetime"]["total_usd"],
+            original["lifetime"]["total_usd"]
+        );
+        assert_eq!(copied["lifetime"]["legacy_opening"]["kind"], "copied");
+        assert_eq!(copied["native"]["settled_requests"], "0");
+    }
+    let reset = f.copy(false, true).await;
+    let reset = f.counters(reset).await;
+    assert_eq!(reset["lifetime"]["total_usd"], "0");
+    assert_eq!(reset["lifetime"]["legacy_opening"], Value::Null);
+    assert_eq!(
+        snapshot(&f.owner, false).await,
+        money,
+        "display inheritance wrote money"
+    );
+    f.charging
+        .refund(
+            "copy-source-charge",
+            "after-rational-copy",
+            10,
+            "synthetic later refund",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        f.counters(1).await["lifetime"]["total_usd"],
+        "0.335285333333333333"
+    );
+    for id in [parent, child] {
+        assert_eq!(
+            f.counters(id).await["lifetime"]["total_usd"],
+            "0.335305333333333333"
+        );
+    }
+    assert_eq!(f.stats().await["net_consumption_credits"], 26);
+    f.finish().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn negative_legacy_counter_keeps_int64_precision_and_recorded_meaning(pool: PgPool) {
+    let f = Fixture::new(pool).await;
+    f.settle_source().await;
+    f.seed_legacy_opening("-9223372036854775808", "3").await;
+    let before = snapshot(&f.owner, false).await;
+    let counters = f.counters(1).await;
+    assert_eq!(counters["lifetime"]["basis"], "legacy_recorded_plus_native");
+    assert_eq!(
+        counters["lifetime"]["total_usd"],
+        "-3074457345618258602.664694666666666667"
+    );
+    assert_eq!(
+        counters["lifetime"]["legacy_opening"]["raw_used_quota"],
+        "-9223372036854775808"
+    );
+    assert_eq!(
+        counters["lifetime"]["legacy_opening"]["recorded_usd"],
+        "-3074457345618258602.666666666666666667"
+    );
+    assert_eq!(counters["combined"]["net_used_credits"], "986");
+    assert_eq!(snapshot(&f.owner, false).await, before);
+    f.finish().await;
 }
 
 // Exact row snapshots detect accidental UPDATEs as well as new journal/charge rows.

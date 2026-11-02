@@ -905,6 +905,7 @@ mod a07_recovery_tests {
             vec![charging::Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,
@@ -969,6 +970,7 @@ mod a07_recovery_tests {
             Some(charging::Usage {
                 tool: None,
                 text_request: None,
+                audio: None,
                 grounding: None,
 
                 cache_creation: None,

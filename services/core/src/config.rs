@@ -4,7 +4,13 @@ pub use email_config::{EmailRuntime, email_runtime};
 #[path = "config_market_oauth.rs"]
 mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
+#[path = "config_trust_policy.rs"]
+mod trust_policy_config;
 use serde::Deserialize;
+pub use trust_policy_config::{
+    trust_policy_editor, trust_policy_editor_config, trust_policy_editor_enabled,
+    trust_policy_signing_key,
+};
 #[cfg(test)]
 #[path = "config_reservation_tests.rs"]
 mod reservation_tests;
@@ -332,6 +338,7 @@ struct CoreFile {
     ingress: Option<IngressFile>,
     remote_control: Option<RemoteControlFile>,
     edge_access: Option<crate::edge_access::TypedConfig>,
+    trust_policy_editor: Option<trust_policy_config::EditorFile>,
 }
 
 fn parse_document<T: serde::de::DeserializeOwned>(document: &[u8]) -> io::Result<T> {
@@ -377,6 +384,12 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     if file.version != 1 {
         return Err(invalid_config("unsupported core configuration version"));
     }
+    trust_policy_config::validate(
+        file.trust_policy_editor.as_ref(),
+        file.console.enabled,
+        file.identity.web.as_ref().map(|web| web.origin.as_str()),
+        file.database.is_some(),
+    )?;
     validate_registration_policy(
         file.identity.registration_enabled,
         file.identity.password_register_enabled,
@@ -504,6 +517,9 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     put("LMM_CORE_CONSOLE_ENABLED", file.console.enabled.to_string());
     let mut paths = Vec::new();
+    if let Some(editor) = file.trust_policy_editor {
+        trust_policy_config::export(editor, &mut put, &mut paths);
+    }
     if let Some(path) = file.identity.email_config_file {
         paths.push(("LMM_CORE_EMAIL_CONFIG_FILE", path));
     }
@@ -2609,6 +2625,8 @@ struct ModelConfig {
     // Each host contract carries its strict reservation profile; omission is context_max.
     external_models: Vec<crate::model_http::ExternalModelContext>,
     #[serde(default)]
+    audio_rules: Vec<crate::model_http::audio::AudioRule>,
+    #[serde(default)]
     image_prices: Option<crate::model_http::image_price::ImagePriceConfig>,
     #[serde(default)]
     image_providers: Vec<ImageProviderConfig>,
@@ -2849,6 +2867,9 @@ fn model_gateway_with_origins(
         provider_policy,
     )
     .map_err(|_| invalid_config("unsafe or incomplete model gateway configuration"))?;
+    let gateway = gateway
+        .with_audio_rules(config.audio_rules)
+        .map_err(|_| invalid_config("invalid reviewed audio rules"))?;
     let gateway = if let Some(path) = config.channel_secret_key_file {
         let key = private_file(&path, 32)?;
         if key.len() != 32 {

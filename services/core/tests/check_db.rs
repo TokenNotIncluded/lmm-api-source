@@ -221,6 +221,7 @@ async fn funded_fixture(pool: &PgPool, role: &runtime::RuntimeRole) {
         price: Price {
             tool: None,
             text_request: None,
+            audio: None,
             grounding: None,
 
             user_trust: None,

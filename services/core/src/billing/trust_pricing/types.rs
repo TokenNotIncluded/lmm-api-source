@@ -2,6 +2,8 @@ use super::{Error, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 const MAX_AT: i64 = 253_402_300_799;
+// The legacy console and JavaScript share this exact safe-credit bound.
+const MAX_POLICY_CREDITS: i64 = 9_007_199_254_740_991;
 const MAX_DENOMINATOR: u64 = 1_000_000_000_000_000_000;
 
 /// Exact bounded ratio. Construction rejects zero, increases and rounding.
@@ -81,7 +83,7 @@ impl TrustPolicy {
         for (level, tier) in self.tiers.iter().enumerate() {
             if usize::from(tier.level) != level
                 || tier.min_paid_credits < 0
-                || tier.min_paid_credits > i64::from(i32::MAX)
+                || tier.min_paid_credits > MAX_POLICY_CREDITS
                 || (level == 0 && tier.min_paid_credits != 0)
                 || (level > 0 && tier.min_paid_credits <= self.tiers[level - 1].min_paid_credits)
             {

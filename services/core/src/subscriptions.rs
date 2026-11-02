@@ -1,6 +1,8 @@
 //! Core subscription sales. A wallet charge and its immutable consumption grant
 //! commit together; renewals create new grants and never extend old streams.
 mod http;
+#[cfg(test)]
+mod tests;
 mod types;
 pub use http::router;
 pub use types::*;
@@ -96,7 +98,7 @@ async fn lock(c: &mut PgConnection, actor: i64) -> Result<()> {
 }
 async fn now(c: &mut PgConnection) -> Result<i64> {
     Ok(
-        sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
             .fetch_one(c)
             .await?,
     )
@@ -176,7 +178,7 @@ fn purchase_row(r: &sqlx::postgres::PgRow) -> Result<Purchase> {
     })
 }
 const PURCHASE_SELECT:&str="SELECT p.id,p.subscription_id,p.canceled_at,p.refund_journal_id,q.plan_id,q.plan_revision AS revision,false AS archived,r.terms,q.starts_at,q.ends_at,
-    (s.active AND s.anchor<=extract(epoch FROM clock_timestamp())::bigint AND s.ends_at>extract(epoch FROM clock_timestamp())::bigint) AS entitlement_active,
+    (s.active AND s.anchor<=floor(extract(epoch FROM clock_timestamp()))::bigint AND s.ends_at>floor(extract(epoch FROM clock_timestamp()))::bigint) AS entitlement_active,
     coalesce((SELECT sum(t.settled-t.refunded)::text FROM core_charging.requests t WHERE t.source_subscription_id=s.id AND t.state='settled'),'0') AS used,
     coalesce((SELECT sum(t.reserved)::text FROM core_charging.requests t WHERE t.source_subscription_id=s.id AND t.state IN ('reserved','streaming','reconcile')),'0') AS reserved
     FROM core_subscriptions.purchases p JOIN core_subscriptions.quotes q ON q.id=p.quote_id

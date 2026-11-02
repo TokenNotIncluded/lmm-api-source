@@ -5,6 +5,10 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
+#[cfg(test)]
+#[path = "channel_balance_decimal_oracle_tests.rs"]
+mod channel_balance_decimal_oracle_tests;
+
 #[derive(Serialize)]
 pub(crate) struct ChannelProbe {
     pub models: Vec<String>,
@@ -346,6 +350,96 @@ mod tests {
         assert!(endpoint("https://127.0.0.2/path?key=secret", Protocol::OpenAiChat).is_err());
         assert!(endpoint("https://api.example/v1", Protocol::DeepSeekFetch).is_err());
     }
+
+    #[test]
+    fn balance_requirement_rejects_credentials_hidden_by_json_escaping() {
+        for secret in ["quote\"key", "slash\\key", "line\nkey"] {
+            let value = Value::String(format!("prefix {secret} suffix"));
+            assert!(!value.to_string().contains(secret));
+            assert!(balance_value_contains_secret(&value, secret));
+        }
+        assert!(balance_value_contains_secret(
+            &serde_json::json!(12345),
+            "234"
+        ));
+        assert!(!balance_value_contains_secret(
+            &serde_json::json!(true),
+            "secret"
+        ));
+    }
+
+    #[test]
+    fn cny_conversion_uses_explicit_rate_and_legacy_decimal_rounding() {
+        assert_eq!(cny_to_usd(42.0, 7.0), Some(6.0));
+        assert_eq!(cny_to_usd(1.0, 3.0), Some(0.3333333333333333));
+        assert_eq!(cny_to_usd(-1.0, 3.0), Some(-0.3333333333333333));
+        assert_eq!(cny_to_usd(5e-17, 1.0), Some(1e-16));
+        assert_eq!(cny_to_usd(-5e-17, 1.0), Some(-1e-16));
+        assert_eq!(cny_to_usd(100.0, 7.2), Some(13.88888888888889));
+        assert_eq!(
+            cny_to_usd(1.2345678901234567, 9.876543210987654),
+            Some(0.1249999988609375)
+        );
+        assert_eq!(cny_to_usd(1.0, 0.0), None);
+        assert_eq!(cny_to_usd(1.0, f64::NAN), None);
+        assert_eq!(cny_to_usd(f64::MAX, f64::MIN_POSITIVE), None);
+    }
+
+    #[test]
+    fn deepseek_selects_first_usd_before_cny_without_guessing_rate() {
+        let select = |value: Value, rate| deepseek_balance(&value, rate, "secret-value");
+        assert_eq!(
+            select(
+                serde_json::json!({"balance_infos":[{"currency":"CNY","total_balance":"70"},{"currency":" usd ","total_balance":"2.5"}]}),
+                None
+            ),
+            Some(2.5)
+        );
+        assert_eq!(
+            select(
+                serde_json::json!({"balance_infos":[null,{"currency":"cny","total_balance":"70"}]}),
+                Some(7.0)
+            ),
+            Some(10.0)
+        );
+        assert_eq!(
+            select(
+                serde_json::json!({"balance_infos":[{"currency":"CNY","total_balance":"70"}]}),
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            select(
+                serde_json::json!({"balance_infos":[{"currency":"USD","total_balance":"bad"},{"currency":"USD","total_balance":"2"},{"currency":"CNY","total_balance":"70"}]}),
+                Some(7.0)
+            ),
+            None
+        );
+        for bad in ["-1", "NaN", "Inf", "secret-value"] {
+            assert_eq!(
+                select(
+                    serde_json::json!({"balance_infos":[{"currency":"USD","total_balance":bad}]}),
+                    Some(7.0)
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            select(
+                serde_json::json!({"balance_infos":[{"currency":"EUR","total_balance":"7"}]}),
+                Some(7.0)
+            ),
+            None
+        );
+        assert_eq!(
+            select(
+                serde_json::json!({"balance_infos":[{"currency":"USD","total_balance":7}]}),
+                Some(7.0)
+            ),
+            None
+        );
+    }
 }
 
 /// Synthetic transport mapping compiled only into private unit tests.
@@ -387,6 +481,12 @@ pub(crate) struct BalanceRequest {
     protocol: crate::routing::Protocol,
     credential: String,
     pointer: String,
+    subtract_pointer: Option<String>,
+    requirements: Vec<(String, Value)>,
+    cny_per_usd: Option<f64>,
+    deepseek_currency_array: bool,
+    openai_subscription: bool,
+    api_key_auth: bool,
 }
 
 pub(crate) fn valid_balance_path(path: &str) -> bool {
@@ -399,21 +499,149 @@ pub(crate) fn valid_balance_path(path: &str) -> bool {
             .is_ok_and(|uri| uri.scheme().is_none() && uri.authority().is_none())
 }
 
-fn parse_balance(bytes: &[u8], pointer: &str, secret: &str) -> Result<f64, RelayError> {
+fn balance_value_contains_secret(value: &Value, secret: &str) -> bool {
+    match value {
+        Value::String(value) => value.contains(secret),
+        _ => value.to_string().contains(secret),
+    }
+}
+
+// Match the legacy decimal library's 16-place division on the shortest
+// decimal representations of the already-parsed f64 values. Display only;
+// this does not supply an exchange rate or perform ledger conversion.
+fn cny_to_usd(amount: f64, rate: f64) -> Option<f64> {
+    use num_bigint::BigInt;
+    fn parts(value: f64) -> Option<(BigInt, u32)> {
+        let text = value.to_string();
+        let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+            Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
+            None => (text.as_str(), 0),
+        };
+        let fractional = mantissa
+            .split_once('.')
+            .map_or(0, |(_, digits)| digits.len());
+        let digits = mantissa.replace('.', "");
+        let mut integer = BigInt::parse_bytes(digits.as_bytes(), 10)?;
+        let scale = i32::try_from(fractional).ok()?.checked_sub(exponent)?;
+        if scale < 0 {
+            integer *= BigInt::from(10_u8).pow(scale.unsigned_abs());
+            Some((integer, 0))
+        } else {
+            Some((integer, u32::try_from(scale).ok()?))
+        }
+    }
+    if !amount.is_finite() || !rate.is_finite() || rate <= 0.0 {
+        return None;
+    }
+    let (amount, amount_scale) = parts(amount)?;
+    let (rate, rate_scale) = parts(rate)?;
+    let numerator = amount * BigInt::from(10_u8).pow(rate_scale.checked_add(16)?);
+    let denominator = rate * BigInt::from(10_u8).pow(amount_scale);
+    let mut rounded = &numerator / &denominator;
+    let remainder = &numerator % &denominator;
+    let magnitude = if remainder < BigInt::from(0) {
+        -remainder
+    } else {
+        remainder
+    };
+    if magnitude * BigInt::from(2) >= denominator {
+        rounded += if numerator < BigInt::from(0) { -1 } else { 1 };
+    }
+    let result = format!("{rounded}e-16").parse::<f64>().ok()?;
+    result.is_finite().then_some(result)
+}
+
+fn deepseek_balance(value: &Value, rate: Option<f64>, secret: &str) -> Option<f64> {
+    #[derive(serde::Deserialize)]
+    struct Response {
+        #[serde(default, rename = "is_available")]
+        _is_available: Option<bool>,
+        #[serde(default)]
+        balance_infos: Option<Vec<Option<Item>>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Item {
+        #[serde(default)]
+        currency: Option<String>,
+        #[serde(default)]
+        total_balance: Option<String>,
+        #[serde(default, rename = "granted_balance")]
+        _granted_balance: Option<String>,
+        #[serde(default, rename = "topped_up_balance")]
+        _topped_up_balance: Option<String>,
+    }
+    let response: Response = serde_json::from_value(value.clone()).ok()?;
+    let items = response.balance_infos?;
+    let find = |currency: &str| {
+        items.iter().flatten().find(|item| {
+            item.currency
+                .as_deref()
+                .is_some_and(|value| value.trim().to_uppercase() == currency)
+        })
+    };
+    let usd = find("USD");
+    let item = usd.or_else(|| find("CNY"))?;
+    let text = item.total_balance.as_deref()?;
+    if text.contains(secret) {
+        return None;
+    }
+    let amount = text.trim().parse::<f64>().ok()?;
+    if !amount.is_finite() || amount < 0.0 {
+        return None;
+    }
+    let result = if usd.is_some() {
+        amount
+    } else {
+        cny_to_usd(amount, rate?)?
+    };
+    (result.is_finite() && result >= 0.0 && !result.to_string().contains(secret)).then_some(result)
+}
+
+fn parse_balance(
+    bytes: &[u8],
+    pointer: &str,
+    subtract_pointer: Option<&str>,
+    requirements: &[(String, Value)],
+    cny_per_usd: Option<f64>,
+    deepseek_currency_array: bool,
+    secret: &str,
+) -> Result<f64, RelayError> {
     // Do not return even a numeric-looking credential reflected by a provider.
     if !secret.is_empty() && String::from_utf8_lossy(bytes).contains(secret) {
         return Err(RelayError::RouteUnavailable);
     }
     let value: Value = serde_json::from_slice(bytes).map_err(|_| RelayError::RouteUnavailable)?;
-    let value = value.pointer(pointer).ok_or(RelayError::RouteUnavailable)?;
-    let number = match value {
-        Value::Number(number) => number.as_f64(),
-        Value::String(number) if !number.contains(secret) => number.parse::<f64>().ok(),
-        _ => None,
+    if requirements
+        .iter()
+        .any(|(pointer, expected)| value.pointer(pointer) != Some(expected))
+    {
+        return Err(RelayError::RouteUnavailable);
+    }
+    if deepseek_currency_array {
+        return deepseek_balance(&value, cny_per_usd, secret).ok_or(RelayError::RouteUnavailable);
+    }
+    let number = |pointer: &str| -> Result<f64, RelayError> {
+        let selected = value.pointer(pointer).ok_or(RelayError::RouteUnavailable)?;
+        let number = match selected {
+            Value::Number(number) => number.as_f64(),
+            Value::String(number) if !number.contains(secret) => number.parse::<f64>().ok(),
+            _ => None,
+        };
+        number
+            .filter(|number| number.is_finite())
+            .ok_or(RelayError::RouteUnavailable)
     };
-    number
-        .filter(|number| number.is_finite() && !number.to_string().contains(secret))
-        .ok_or(RelayError::RouteUnavailable)
+    let mut balance = number(pointer)?;
+    if let Some(pointer) = subtract_pointer {
+        balance -= number(pointer)?;
+    }
+    if let Some(rate) = cny_per_usd {
+        balance = cny_to_usd(balance, rate).ok_or(RelayError::RouteUnavailable)?;
+    }
+    if !balance.is_finite() || balance.to_string().contains(secret) {
+        return Err(RelayError::RouteUnavailable);
+    }
+    Ok(balance)
 }
 
 impl ModelGateway {
@@ -422,7 +650,13 @@ impl ModelGateway {
         upstream: &crate::routing::UpstreamConfig,
         path: &str,
         pointer: &str,
+        subtract_pointer: Option<&str>,
+        requirements: &[(&str, &Value)],
+        cny_per_usd: Option<&str>,
+        deepseek_currency_array: bool,
+        openai_subscription: bool,
         unit_label: Option<&str>,
+        api_key_auth: bool,
     ) -> Result<BalanceRequest, RelayError> {
         if !valid_balance_path(path) {
             return Err(RelayError::Invalid("invalid balance path"));
@@ -431,10 +665,20 @@ impl ModelGateway {
             .channel_credential(upstream.credential)
             .ok_or(RelayError::RouteUnavailable)?;
         if credential.is_empty()
-            || [Some(path), Some(pointer), unit_label]
-                .into_iter()
-                .flatten()
-                .any(|value| value.contains(&credential))
+            || [
+                Some(path),
+                Some(pointer),
+                subtract_pointer,
+                cny_per_usd,
+                unit_label,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|value| value.contains(&credential))
+            || requirements.iter().any(|(pointer, expected)| {
+                pointer.contains(&credential)
+                    || balance_value_contains_secret(expected, &credential)
+            })
         {
             return Err(RelayError::RouteUnavailable);
         }
@@ -449,6 +693,18 @@ impl ModelGateway {
             protocol: upstream.protocol,
             credential,
             pointer: pointer.to_owned(),
+            subtract_pointer: subtract_pointer.map(str::to_owned),
+            requirements: requirements
+                .iter()
+                .map(|(pointer, value)| ((*pointer).to_owned(), (*value).clone()))
+                .collect(),
+            cny_per_usd: cny_per_usd
+                .map(str::parse::<f64>)
+                .transpose()
+                .map_err(|_| RelayError::RouteUnavailable)?,
+            deepseek_currency_array,
+            openai_subscription,
+            api_key_auth,
         })
     }
 
@@ -473,31 +729,113 @@ impl ModelGateway {
             .try_acquire_owned()
             .map_err(|_| RelayError::RouteUnavailable)?;
         tokio::time::timeout(self.limits.total_timeout, async {
-            let connection = self
-                .native_http
-                .transport
-                .prepare(&request.url, &self.limits)
-                .await?;
-            let get = connection
-                .client()
-                .get(request.url)
-                .header(header::ACCEPT, "application/json");
-            let get = match request.protocol {
-                crate::routing::Protocol::AnthropicMessages => get
-                    .header("x-api-key", &request.credential)
-                    .header("anthropic-version", "2023-06-01"),
-                crate::routing::Protocol::Gemini => {
-                    get.header("x-goog-api-key", &request.credential)
+            let get_body = |url: reqwest::Url| async {
+                if url.as_str().contains(&request.credential) {
+                    return Err(RelayError::RouteUnavailable);
                 }
-                _ => get.bearer_auth(&request.credential),
+                // ProviderTransport rejects arbitrary queries. Only this private,
+                // fixed-path plan constructs the usage query itself; connect and
+                // pin the query-free same-origin URL, then send that generated URL.
+                let mut connection_url = url.clone();
+                if connection_url.query().is_some() {
+                    if !request.openai_subscription
+                        || connection_url.path() != "/v1/dashboard/billing/usage"
+                    {
+                        return Err(RelayError::RouteUnavailable);
+                    }
+                    connection_url.set_query(None);
+                }
+                let connection = self
+                    .native_http
+                    .transport
+                    .prepare(&connection_url, &self.limits)
+                    .await?;
+                let get = connection
+                    .client()
+                    .get(url)
+                    .header(header::ACCEPT, "application/json");
+                let get = match (
+                    request.openai_subscription,
+                    request.api_key_auth,
+                    request.protocol,
+                ) {
+                    (true, _, _) => get.bearer_auth(&request.credential),
+                    (false, true, _) => get.header("api-key", &request.credential),
+                    (false, false, crate::routing::Protocol::AnthropicMessages) => get
+                        .header("x-api-key", &request.credential)
+                        .header("anthropic-version", "2023-06-01"),
+                    (false, false, crate::routing::Protocol::Gemini) => {
+                        get.header("x-goog-api-key", &request.credential)
+                    }
+                    (false, false, _) => get.bearer_auth(&request.credential),
+                };
+                let response = get.send().await.map_err(|_| RelayError::RouteUnavailable)?;
+                if !response.status().is_success() {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                native_http::read_response_bytes(&connection, response, &self.limits).await
             };
-            let response = get.send().await.map_err(|_| RelayError::RouteUnavailable)?;
-            if !response.status().is_success() {
-                return Err(RelayError::RouteUnavailable);
+            let bytes = get_body(request.url.clone()).await?;
+            if request.openai_subscription {
+                use chrono::Datelike;
+                if String::from_utf8_lossy(&bytes).contains(&request.credential) {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                let subscription: Value =
+                    serde_json::from_slice(&bytes).map_err(|_| RelayError::RouteUnavailable)?;
+                let paid = subscription
+                    .get("has_payment_method")
+                    .and_then(Value::as_bool)
+                    .ok_or(RelayError::RouteUnavailable)?;
+                let limit = subscription
+                    .get("hard_limit_usd")
+                    .and_then(Value::as_f64)
+                    .filter(|n| n.is_finite())
+                    .ok_or(RelayError::RouteUnavailable)?;
+                let today = chrono::Local::now().date_naive();
+                let start = if paid {
+                    today.with_day(1)
+                } else {
+                    today.checked_sub_days(chrono::Days::new(100))
+                }
+                .ok_or(RelayError::RouteUnavailable)?;
+                let mut usage_url = request
+                    .url
+                    .join("/v1/dashboard/billing/usage")
+                    .map_err(|_| RelayError::RouteUnavailable)?;
+                if usage_url.origin() != request.url.origin() {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                usage_url
+                    .query_pairs_mut()
+                    .append_pair("start_date", &start.to_string())
+                    .append_pair("end_date", &today.to_string());
+                let usage = get_body(usage_url).await?;
+                if String::from_utf8_lossy(&usage).contains(&request.credential) {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                let usage: Value =
+                    serde_json::from_slice(&usage).map_err(|_| RelayError::RouteUnavailable)?;
+                let used = usage
+                    .get("total_usage")
+                    .and_then(Value::as_f64)
+                    .filter(|n| n.is_finite())
+                    .ok_or(RelayError::RouteUnavailable)?;
+                let balance = limit - used / 100.0;
+                if !balance.is_finite() || balance.to_string().contains(&request.credential) {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                return Ok(balance);
             }
-            let bytes =
-                native_http::read_response_bytes(&connection, response, &self.limits).await?;
-            parse_balance(&bytes, &request.pointer, &request.credential)
+            parse_balance(
+                &bytes,
+                &request.pointer,
+                request.subtract_pointer.as_deref(),
+                &request.requirements,
+                request.cny_per_usd,
+                request.deepseek_currency_array,
+                &request.credential,
+            )
         })
         .await
         .map_err(|_| RelayError::RouteUnavailable)?

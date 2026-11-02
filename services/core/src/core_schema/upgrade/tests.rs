@@ -25,7 +25,7 @@ fn request() -> UpgradeRequest {
     }
 }
 #[test]
-fn legacy_predecessor_bytes_are_preserved_but_26_binary_rejects_24_to_25() {
+fn legacy_predecessor_bytes_require_the_matching_preserved_installer() {
     let frozen: serde_json::Value = serde_json::from_str(PREDECESSOR).unwrap();
     let old_components = frozen["manifest"]["components"].as_array().unwrap();
     assert_eq!(old_components.len(), 24);
@@ -33,36 +33,21 @@ fn legacy_predecessor_bytes_are_preserved_but_26_binary_rejects_24_to_25() {
     assert_eq!(frozen["sequences"], 21);
     assert_eq!(frozen["schema_manifest_stdout_sha256"], PRE_MANIFEST);
     assert_eq!(frozen["catalog_sha256"], PRE_CATALOG);
-    for (old, (name, ddl)) in old_components.iter().zip(COMPONENTS.iter().take(24)) {
-        assert_eq!(old["name"], *name);
-        let original = if *name == "ledger" {
-            include_str!("../../../tests/core_schema/ledger_before_escrow_submit.sql")
-        } else if *name == "routing" {
-            include_str!("../../../tests/core_schema/routing_before_payload_policy.sql")
-        } else {
-            ddl
-        };
-        assert_eq!(old["raw_schema_sha256"], hex(&Sha256::digest(original)));
-    }
+    let producer = super::historical_fixture::preserved(24);
     assert_eq!(
         old_components[1]["raw_schema_sha256"],
         "c637586f484386a8357e1b9e9dd39023d0d53316f17d0de403c864a3b49ebec9"
     );
-    let mut producer = schema_manifest();
-    producer.components.truncate(24);
-    for component in &mut producer.components {
-        if component.name == "ledger" {
-            component.raw_schema_sha256 = ledger::PRE_LEDGER.into();
-        } else if component.name == "routing" {
-            component.raw_schema_sha256 = PRE_ROUTING.into();
-        }
-    }
-    producer.installer_contract_sql_sha256 = hex(&Sha256::digest(super::super::CONTRACT));
     assert_eq!(serde_json::to_value(&producer).unwrap(), frozen["manifest"]);
-    let mut stdout = serde_json::to_vec(&producer).unwrap();
-    stdout.push(b'\n');
+    let stdout = producer.stdout();
     assert_eq!(hex(&Sha256::digest(stdout)), PRE_MANIFEST);
-    assert_eq!(COMPONENTS.len(), 42);
+    assert_ne!(manifest_sha256().unwrap(), producer.sha256());
+    assert_ne!(
+        schema_manifest().catalog.query_sha256,
+        frozen["manifest"]["catalog"]["query_sha256"]
+            .as_str()
+            .unwrap()
+    );
     assert_eq!(COMPONENTS[24].0, "trust-pricing");
     assert_eq!(hex(&Sha256::digest(COMPONENTS[24].1)), COMPONENT_25_DDL);
     assert_eq!(COMPONENTS[25].0, "telegram-auth");

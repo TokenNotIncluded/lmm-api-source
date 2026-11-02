@@ -21,6 +21,7 @@ WITH ns AS (
  FROM pg_catalog.pg_class c JOIN ns ON ns.oid=c.relnamespace
  LEFT JOIN expected e ON e.name=c.relname AND c.relkind='r'
  WHERE c.relkind IN ('r','p','v','m','f')
+   AND c.relname NOT IN ('usage_contributions','usage_rollups','projection_state','projection_dirty','opening_sources','opening_baselines')
  UNION ALL
  SELECT c.oid,c.relname,NULL::text FROM pg_catalog.pg_class c
  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace

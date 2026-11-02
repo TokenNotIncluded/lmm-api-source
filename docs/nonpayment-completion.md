@@ -186,7 +186,7 @@ Search 的 `query` 最长 128 字符，`count` 为 1–50；另支持 `ori_quest
 
 这些入口使用 Web 会话身份，管理员入口额外核验管理权限。个人范围按请求操作者及个人密钥所属账户限定；团队出资的个人密钥记录仍在个人范围，团队所属密钥不因此暴露。列表、统计和 CSV 都从同一只读快照校验实际结算、退款与用量证据；普通用户不能通过 `username` 扩大范围。
 
-共同筛选包括 `start_timestamp/end_timestamp`（Unix 秒）、`model_name`、`token_name`、`group`、`request_id`；管理员可加 `username`。最大时间窗 31 天，缺省为最近 31 天。列表支持 `p` 和 `page_size`，每页最多 100；**CSV 不接受分页参数**，导出所选窗口内的完整匹配结果。非零 `channel`、非空 `upstream_request_id` 被拒绝。单次最多 100000 条请求，每条最多 2048 条命令或退款证据，CSV 最大 32 MiB；超出边界报错，不静默截断成功文件。
+共同筛选包括 `start_timestamp/end_timestamp`（Unix 秒）、`model_name`、`token_name`、`group`、`request_id`；管理员可加 `username`。最大时间窗 31 天，缺省为最近 31 天。列表支持 `p` 和 `page_size`，每页最多 100；**CSV 不接受分页参数**，导出所选窗口内的完整匹配结果。非零 `channel`、非空 `upstream_request_id` 被拒绝。请求和每条请求的命令、退款证据不再按 100000/2048 条固定数量截断；在同一授权快照内分批读取并完整验证，CSV 最大 32 MiB。超出输出限制、数据库超时或证据损坏时明确报错，不静默截断成功文件；这不代表资源无限。
 
 ```sh
 # WEB_ACCESS_TOKEN 是已有登录会话的访问令牌；REQUEST_ID 来自模型响应。

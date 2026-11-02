@@ -163,6 +163,16 @@ describe('useSecureVerification', () => {
           data: { email: 'owner@example.com' },
         })
       }
+      if (config.url === '/api/user/passkey') {
+        return response(config, {
+          success: true,
+          data: {
+            enabled: false,
+            management: 'core_recent_session',
+            credentials: [],
+          },
+        })
+      }
       return response(config, {
         success: true,
         data: { enabled: false },

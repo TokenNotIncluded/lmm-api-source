@@ -9,13 +9,17 @@ use std::{collections::BTreeMap, fmt, io::Read};
 mod account_appeals;
 mod additive;
 mod channel_accounting;
+mod channel_projection;
 mod coinbase_payments;
 mod completion;
 mod finance;
+#[cfg(test)]
+mod historical_fixture;
 mod ledger;
 mod payment_gateways;
 mod request_operations;
 mod suffix;
+mod trust_policy;
 
 const PROCEDURE: &str = "core-24-to-25-trust-pricing-v1";
 const PREDECESSOR: &str = include_str!("predecessor24.json");
@@ -226,6 +230,12 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == channel_projection::PROCEDURE {
+            return channel_projection::validate(self);
+        }
+        if self.procedure == trust_policy::PROCEDURE {
+            return trust_policy::validate(self);
+        }
         if self.procedure == channel_accounting::PROCEDURE {
             return channel_accounting::validate(self);
         }
@@ -302,6 +312,12 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == channel_projection::PROCEDURE {
+            return channel_projection::authorize_target();
+        }
+        if self.procedure == trust_policy::PROCEDURE {
+            return trust_policy::authorize_target();
+        }
         if self.procedure == channel_accounting::PROCEDURE {
             return channel_accounting::authorize_target();
         }
@@ -394,7 +410,11 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == channel_accounting::PROCEDURE {
+    let result = if request.procedure == trust_policy::PROCEDURE {
+        trust_policy::connected(&mut connection, &request).await
+    } else if request.procedure == channel_projection::PROCEDURE {
+        channel_projection::connected(&mut connection, &request).await
+    } else if request.procedure == channel_accounting::PROCEDURE {
         channel_accounting::connected(&mut connection, &request).await
     } else if request.procedure == account_appeals::PROCEDURE {
         account_appeals::connected(&mut connection, &request).await
@@ -463,7 +483,19 @@ async fn begin_offline_upgrade<'a>(
     )
     .fetch_all(&mut *tx)
     .await?;
+    // Share the explicit rebuild's source order; keep the original stronger
+    // migration locks and return the original catalog-sorted preservation list.
+    for &source in super::channel_projection::SOURCE_LOCK_ORDER {
+        if tables.iter().any(|table| table == source) {
+            sqlx::query(&format!("LOCK TABLE {source} IN ACCESS EXCLUSIVE MODE"))
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
     for table in &tables {
+        if super::channel_projection::SOURCE_LOCK_ORDER.contains(&table.as_str()) {
+            continue;
+        }
         sqlx::query(&format!("LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
             .execute(&mut *tx)
             .await?;
