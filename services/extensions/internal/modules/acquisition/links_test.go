@@ -26,6 +26,9 @@ type testUserRead struct{ role string }
 func (v testUserRead) Users(ctx context.Context, ids []int64) (map[int64]community.CoreUserInfo, error) {
 	return map[int64]community.CoreUserInfo{77: {UserID: 77, Active: true, PlatformRole: v.role}}, nil
 }
+func (v testUserRead) UserPage(ctx context.Context, after int64, limit int) (community.RegistrationPage, error) {
+	return community.RegistrationPage{Users: []community.RegistrationUser{{UserID: 77, PlatformRole: v.role, Active: true}}, NextID: 77}, nil
+}
 func TestLinksPostgresHTTP(t *testing.T) {
 	dsn := os.Getenv("ACQUISITION_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -248,6 +251,19 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	if err = json.Unmarshal(unknown.Body.Bytes(), &info); err != nil || unknown.Code != 200 || info.Data.RegisteredAt != nil || info.Data.Historical != nil {
 		t.Fatalf("unknown registration: %d %s", unknown.Code, unknown.Body.String())
 	}
+	unknownList := httptest.NewRecorder()
+	rootMux.ServeHTTP(unknownList, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/users?from=%d&to=%d", now-200, now), nil))
+	var coverage struct {
+		Data struct {
+			Unknown  int  `json:"unknown_registration_count"`
+			Complete bool `json:"coverage_complete"`
+			Total    int
+		}
+	}
+	if err = json.Unmarshal(unknownList.Body.Bytes(), &coverage); err != nil || unknownList.Code != 200 || coverage.Data.Unknown != 1 || coverage.Data.Complete || coverage.Data.Total != 0 {
+		t.Fatalf("unknown list coverage: %s", unknownList.Body.String())
+	}
+
 	if _, err = db.Exec(`INSERT INTO lmm_acquisition.cohort(user_id,registered_at,origin) VALUES(77,$1,'legacy_import')`, now-100); err != nil {
 		t.Fatal(err)
 	}
@@ -263,6 +279,33 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	}
 	if strings.Contains(known.Body.String(), "visitor_id") || strings.Contains(known.Body.String(), "nonce") {
 		t.Fatal("detail exposed browser tracking identifiers")
+	}
+
+	list := httptest.NewRecorder()
+	rootMux.ServeHTTP(list, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/users?from=%d&to=%d", now-200, now), nil))
+	var listing struct {
+		Data struct {
+			Items []struct {
+				UserID int64 `json:"user_id"`
+				Source string
+			}
+			Total    int
+			Complete bool `json:"coverage_complete"`
+		}
+	}
+	if err = json.Unmarshal(list.Body.Bytes(), &listing); err != nil || list.Code != 200 || listing.Data.Total != 1 || len(listing.Data.Items) != 1 || listing.Data.Items[0].UserID != 77 || listing.Data.Items[0].Source != "historical_unrecorded" || !listing.Data.Complete {
+		t.Fatalf("user listing %d: %s", list.Code, list.Body.String())
+	}
+
+	for _, query := range []string{"&source=not-observed", "&page=2"} {
+		w := httptest.NewRecorder()
+		rootMux.ServeHTTP(w, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/users?from=%d&to=%d%s", now-200, now, query), nil))
+		var p struct {
+			Data struct{ Items []json.RawMessage }
+		}
+		if err = json.Unmarshal(w.Body.Bytes(), &p); err != nil || w.Code != 200 || len(p.Data.Items) != 0 {
+			t.Fatalf("filtered user list %q: %d %s", query, w.Code, w.Body.String())
+		}
 	}
 
 	history := httptest.NewRecorder()

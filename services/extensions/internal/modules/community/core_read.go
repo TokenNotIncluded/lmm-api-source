@@ -210,3 +210,22 @@ func (c *CoreRead) Key(ctx context.Context, userID, credentialID int64) (*CoreKe
 	err := c.call(ctx, "keys", map[string]int64{"user_id": userID, "credential_id": credentialID}, &out)
 	return out, err
 }
+
+// UserPage enumerates current identity without granting Go database access.
+type RegistrationUser struct {
+	UserID       int64  `json:"user_id"`
+	RegisteredAt *int64 `json:"registered_at"`
+	PlatformRole string `json:"platform_role"`
+	Active       bool   `json:"active"`
+}
+type RegistrationPage struct {
+	Users   []RegistrationUser `json:"users"`
+	HasMore bool               `json:"has_more"`
+	NextID  int64              `json:"next_id"`
+}
+
+func (c *CoreRead) UserPage(ctx context.Context, after int64, limit int) (RegistrationPage, error) {
+	var out RegistrationPage
+	err := c.call(ctx, "users/page", map[string]int64{"after_id": after, "limit": int64(limit)}, &out)
+	return out, err
+}

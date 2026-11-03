@@ -82,11 +82,12 @@ endpoint!(models, Window, model_buckets);
 endpoint!(user_rankings, UsersRequest, user_rankings);
 endpoint!(user_usage, UserUsageRequest, user_usage);
 endpoint!(users, UsersInfoRequest, users);
+endpoint!(user_page, UserPageRequest, user_page);
 endpoint!(key, KeyRequest, key);
 
 async fn capabilities(State(s): State<Service>, headers: HeaderMap) -> Response {
     reply(s.check(&headers).map(|_| {
-        serde_json::json!({"protocol_major":1,"features":["community.usage.v1","community.users.v1","community.users.roles.v1","community.users.registration.v1","community.keys.v1"],"history_source":s.read.history_source})
+        serde_json::json!({"protocol_major":1,"features":["community.usage.v1","community.users.v1","community.users.roles.v1","community.users.registration.v1","community.users.page.v1","community.keys.v1"],"history_source":s.read.history_source})
     }))
 }
 
@@ -100,6 +101,7 @@ pub fn router(read: CommunityRead, token: &[u8]) -> Result<Router> {
         .route("/internal/community/v1/usage/users", post(user_rankings))
         .route("/internal/community/v1/usage/user", post(user_usage))
         .route("/internal/community/v1/users", post(users))
+        .route("/internal/community/v1/users/page", post(user_page))
         .route("/internal/community/v1/keys", post(key))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .with_state(Service {

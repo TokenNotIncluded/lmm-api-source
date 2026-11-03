@@ -169,6 +169,26 @@ pub struct UserInfo {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct UserPageRequest {
+    pub after_id: i64,
+    pub limit: i64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegistrationUser {
+    pub user_id: i64,
+    pub registered_at: Option<i64>,
+    pub platform_role: String,
+    pub active: bool,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegistrationPage {
+    pub users: Vec<RegistrationUser>,
+    pub has_more: bool,
+    pub next_id: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KeyRequest {
     pub user_id: i64,
     pub credential_id: i64,
@@ -460,6 +480,35 @@ impl CommunityRead {
     }
 
     /// Public names and onboarding facts for a bounded set of users.
+    pub async fn user_page(&self, r: &UserPageRequest) -> Result<RegistrationPage> {
+        if r.after_id < 0 || !(1..=100).contains(&r.limit) {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.snapshot().await?;
+        let rows=sqlx::query("SELECT u.id,u.platform_role,u.active,CASE WHEN a.created_at>to_timestamp(0) AND NOT EXISTS(SELECT 1 FROM core_migration.import_runs i WHERE NOT(coalesce(i.manifest->'summary','{}'::jsonb) ? 'registration_time_known_count')) THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id>$1 ORDER BY u.id LIMIT $2")
+          .bind(r.after_id).bind(r.limit+1).fetch_all(&mut *tx).await?;
+        tx.commit().await?;
+        let has_more = rows.len() > r.limit as usize;
+        let users: Vec<RegistrationUser> = rows
+            .into_iter()
+            .take(r.limit as usize)
+            .map(|row| {
+                Ok(RegistrationUser {
+                    user_id: row.try_get("id")?,
+                    registered_at: row.try_get("registered_at")?,
+                    platform_role: row.try_get("platform_role")?,
+                    active: row.try_get("active")?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        let next_id = users.last().map_or(r.after_id, |u| u.user_id);
+        Ok(RegistrationPage {
+            users,
+            has_more,
+            next_id,
+        })
+    }
+
     pub async fn users(&self, r: &UsersInfoRequest) -> Result<Vec<UserInfo>> {
         if r.user_ids.is_empty() || r.user_ids.len() > 100 || r.user_ids.iter().any(|id| *id <= 0) {
             return Err(Error::Invalid);
