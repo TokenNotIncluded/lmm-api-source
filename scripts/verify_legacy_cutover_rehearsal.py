@@ -32,6 +32,44 @@ def normalized_quota(raw, divisor):
     return (2*amount.numerator+amount.denominator)//(2*amount.denominator)
 
 
+def hero_sms_consistency(orders, ledgers):
+    """Check each original order, so opposite errors cannot cancel globally."""
+    by_id={o['id']:o for o in orders}
+    F.require(len(by_id)==len(orders),'duplicate_sms_order_identifiers')
+    totals={oid:{'reserve':0,'refund':0} for oid in by_id}
+    errors={'orphan_ledger_rows':0,'wrong_ledger_owners':0,
+        'invalid_ledger_entries':0,'reserve_mismatches':0,'refund_mismatches':0,
+        'net_debit_mismatches':0,'completed_charge_mismatches':0,
+        'cancelled_or_failed_debits':0}
+    for row in ledgers:
+        order=by_id.get(row['order_id'])
+        if order is None:
+            errors['orphan_ledger_rows']+=1
+            continue
+        errors['wrong_ledger_owners']+=row['user_id']!=order['user_id']
+        kind,amount=row['entry_type'],row['amount_quota']
+        if kind not in ('reserve','refund') or (kind=='reserve' and amount>0) or (kind=='refund' and amount<0):
+            errors['invalid_ledger_entries']+=1
+            continue
+        totals[order['id']][kind]+=amount
+    for oid,order in by_id.items():
+        ledger=totals[oid]
+        net=order['reserved_quota']-order['refunded_quota']
+        errors['reserve_mismatches']+=-ledger['reserve']!=order['reserved_quota']
+        errors['refund_mismatches']+=ledger['refund']!=order['refunded_quota']
+        errors['net_debit_mismatches']+=-sum(ledger.values())!=net
+        errors['completed_charge_mismatches']+=order['status']=='completed' and net!=order['charge_quota']
+        errors['cancelled_or_failed_debits']+=order['status'] in ('cancelled','failed') and net!=0
+    return {**errors,'source_orders':len(orders),'source_ledger_rows':len(ledgers),
+        'passed':not any(errors.values())}
+
+
+def reconciliation_status(checks, gaps):
+    if not all(check['passed'] for check in checks.values()):
+        return 'FAILED'
+    return 'SCOPED_PASS_WITH_GAPS' if any(gaps.values()) else 'SCOPED_PASS'
+
+
 def read_rows(args, sql, source=False):
     args.query_number+=1
     env={k:v for k,v in os.environ.items() if not k.startswith('PG')}
@@ -124,11 +162,16 @@ def reconcile(args):
     compare('mapped_quota_counts_raw_and_normalized_units',s,t)
     ledger=query("SELECT (SELECT coalesce(sum(balance_units),0) FROM core_billing.balance_state) AS global_balance_sum,(SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) x) AS unbalanced_journals,(SELECT count(*) FROM core_billing.balance_state s WHERE s.balance_units<>coalesce((SELECT sum(e.delta_units) FROM core_billing.ledger_entries e WHERE e.ledger_account_id=s.ledger_account_id),0)) AS balances_disagree_with_entries,(SELECT count(*) FROM core_billing.balance_state s WHERE s.revision<>coalesce((SELECT max(e.balance_revision) FROM core_billing.ledger_entries e WHERE e.ledger_account_id=s.ledger_account_id),0)) AS revisions_disagree_with_entries,(SELECT count(*) FROM core_billing.ledger_journals j WHERE j.kind<>'opening' AND (coalesce((SELECT sum(e.delta_units) FROM core_billing.ledger_entries e WHERE e.journal_id=j.id AND e.ledger_account_id=j.payer_id),0)<>-j.amount_units OR coalesce((SELECT sum(e.delta_units) FROM core_billing.ledger_entries e WHERE e.journal_id=j.id AND e.ledger_account_id=j.payee_id),0)<>j.amount_units)) AS nonopening_payer_payee_mismatches")[0]
     checks['ledger_invariants']={**ledger,'passed':all(v==0 for v in ledger.values())}
+    orders=query(f'SELECT id,user_id,status,reserved_quota,refunded_quota,charge_quota FROM {schema}.hero_sms_sms_orders',True)
+    sms_ledgers=query(f'SELECT order_id,user_id,entry_type,amount_quota FROM {schema}.hero_sms_sms_quota_ledgers',True)
+    checks['source_hero_sms_order_ledger_consistency']=hero_sms_consistency(orders,sms_ledgers)
     gaps=query(f"SELECT (SELECT count(*) FROM {schema}.logs l WHERE NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=l.user_id)) AS orphan_log_rows,(SELECT count(*) FROM {schema}.quota_data q WHERE NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=q.user_id)) AS orphan_quota_rows,(SELECT count(*) FROM {schema}.checkins) AS source_checkin_rows_not_covered_by_this_verifier",True)[0]
     channel_ids={r['id'] for r in query(f'SELECT id FROM {schema}.channels',True)}
     gaps['channel_identities_not_imported']=len(channel_ids-{r['id'] for r in query('SELECT id FROM core_channels.identities')})
-    passed=all(check['passed'] for check in checks.values())
-    status='FAILED' if not passed else ('SCOPED_PASS_WITH_GAPS' if gaps['orphan_log_rows'] or gaps['orphan_quota_rows'] or gaps['channel_identities_not_imported'] else 'SCOPED_PASS')
+    gaps.update(query(f"SELECT (SELECT count(*) FROM {schema}.discount_codes) AS source_discount_codes_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.discount_code_reservations) AS source_discount_reservations_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.referral_rewards) AS source_referral_rewards_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.referral_rewards WHERE status='earned' AND stage='awaiting_first_top_up') AS referral_rewards_awaiting_first_top_up_not_imported,(SELECT count(*) FROM {schema}.public_relay_contributions) AS public_relay_contributions_not_imported,(SELECT count(*) FROM {schema}.hero_sms_email_orders) AS hero_sms_email_orders_not_imported",True)[0])
+    gaps['hero_sms_orders_not_imported']=len(orders)
+    # A source ledger check proves old-book consistency, never target migration.
+    status=reconciliation_status(checks,gaps)
     return {'scope':'read-only-available-core-phase-reconciliation','status':status,
         'checks':checks,'source_gaps':gaps,'http_authentication_tested':False,
         'inputs':{'source_archive_sha256':args.archive_sha256,'observed_at':args.observed_at,

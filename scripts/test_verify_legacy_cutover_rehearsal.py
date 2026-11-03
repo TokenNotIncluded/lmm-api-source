@@ -31,5 +31,52 @@ class ComparisonTests(unittest.TestCase):
                 audit.normalized_quota(raw,divisor)
 
 
+class SmsReconciliationTests(unittest.TestCase):
+    def setUp(self):
+        self.orders=[{'id':'one','user_id':1,'status':'completed','reserved_quota':100,
+                      'refunded_quota':40,'charge_quota':60},
+                     {'id':'two','user_id':2,'status':'cancelled','reserved_quota':100,
+                      'refunded_quota':100,'charge_quota':100}]
+        self.ledgers=[{'order_id':o['id'],'user_id':o['user_id'],'entry_type':kind,
+                       'amount_quota':amount} for o in self.orders
+                      for kind,amount in [('reserve',-100),('refund',o['refunded_quota'])]]
+
+    def test_partial_completed_refund_and_full_cancellation(self):
+        self.assertTrue(audit.hero_sms_consistency(self.orders,self.ledgers)['passed'])
+
+    def test_opposite_order_errors_cannot_cancel_at_aggregate_level(self):
+        self.ledgers[1]['amount_quota']+=1
+        self.ledgers[3]['amount_quota']-=1
+        self.assertEqual(sum(r['amount_quota'] for r in self.ledgers),-60)
+        result=audit.hero_sms_consistency(self.orders,self.ledgers)
+        self.assertEqual(result['refund_mismatches'],2)
+        self.assertEqual(result['net_debit_mismatches'],2)
+        self.assertFalse(result['passed'])
+
+    def test_owner_orphan_and_invalid_entry_are_not_ignored(self):
+        self.ledgers[0]['user_id']=9
+        self.ledgers.append({'order_id':'absent','user_id':1,'entry_type':'refund','amount_quota':10})
+        self.ledgers.append({'order_id':'one','user_id':1,'entry_type':'refund','amount_quota':-10})
+        result=audit.hero_sms_consistency(self.orders,self.ledgers)
+        self.assertEqual([result[k] for k in ('wrong_ledger_owners','orphan_ledger_rows','invalid_ledger_entries')],[1,1,1])
+        self.assertFalse(result['passed'])
+
+    def test_charge_and_cancellation_fields_must_match_settlement(self):
+        self.orders[0]['charge_quota']=61
+        self.orders[1]['refunded_quota']=99
+        self.ledgers[3]['amount_quota']=99
+        result=audit.hero_sms_consistency(self.orders,self.ledgers)
+        self.assertEqual(result['completed_charge_mismatches'],1)
+        self.assertEqual(result['cancelled_or_failed_debits'],1)
+        self.assertFalse(result['passed'])
+
+    def test_uncovered_financial_features_remain_a_gate(self):
+        checks={'source_sms':{'passed':True}}
+        self.assertEqual(audit.reconciliation_status(checks,{}),'SCOPED_PASS')
+        for key in ('checkins','discount_codes','referrals','hero_sms_orders'):
+            self.assertEqual(audit.reconciliation_status(checks,{key:1}),'SCOPED_PASS_WITH_GAPS')
+        self.assertEqual(audit.reconciliation_status({'bad':{'passed':False}},{'checkins':1}),'FAILED')
+
+
 if __name__=='__main__':
     unittest.main()
