@@ -53,11 +53,15 @@ export function posterPalette(background: Vec3) {
   }
 }
 
+// Depth tones: far points recede into the ground, near points stay solid.
+const TONES = 6
 type Paint = {
-  solid: Uint32Array
-  edge: Uint32Array
-  corner: Uint32Array
+  tones: Uint32Array
   trail: Uint32Array
+}
+const hexColor = (value: string, fallback: number) => {
+  const hex = /^#([a-f\d]{6})$/i.exec(value.trim())
+  return hex ? Number.parseInt(hex[1], 16) : fallback
 }
 
 export function createHomePoster(
@@ -79,11 +83,11 @@ export function createHomePoster(
   const position: Vec3 = [0, 0, 0]
   let bitmap: ImageData | undefined,
     pixels: Uint32Array | undefined,
-    depths: Float32Array | undefined
+    depths: Float32Array | undefined,
+    ground: Uint32Array | undefined
   let width = 0,
     height = 0,
-    ratio = 1,
-    lastFringe = -1
+    ratio = 1
   let colors = new WeakMap<Point[], Paint>()
   let palette = posterPalette([7, 7, 7])
   let themeKey: string | undefined
@@ -91,33 +95,72 @@ export function createHomePoster(
     const key = document.documentElement.className
     if (key === themeKey) return
     themeKey = key
-    const value = getComputedStyle(canvas)
-      .getPropertyValue('--poster-ground')
-      .trim()
-    const hex = /^#([a-f\d]{6})$/i.exec(value)
-    const color = hex ? Number.parseInt(hex[1], 16) : 0x070707
+    const style = getComputedStyle(canvas)
+    const color = hexColor(style.getPropertyValue('--poster-ground'), 0x070707)
     palette = posterPalette([
       (color >>> 16) & 255,
       (color >>> 8) & 255,
       color & 255,
     ])
     colors = new WeakMap()
+    paintGround(hexColor(style.getPropertyValue('--poster-glow'), 0xd97757))
   }
-  const paintFor = (points: Point[], fringe: number) => {
+  /** A soft halo and a faint print grid, settling to the exact ground at the edges. */
+  const paintGround = (glow: number) => {
+    if (!ground) return
+    const tint = palette.coverage(
+      pack((glow >>> 16) & 255, (glow >>> 8) & 255, glow & 255),
+      1
+    )
+    const strength = palette.light ? 0.09 : 0.16
+    const cx = canvas.width / 2,
+      cy = canvas.height * 0.43,
+      reach = Math.min(canvas.width, canvas.height) * 0.72
+    const cell = Math.round(26 * ratio),
+      grid = width >= 320
+    const levels = Array.from({ length: 129 }, (_, i) =>
+      palette.coverage(tint, strength * (i / 128) ** 3)
+    )
+    const dot = palette.coverage(
+      palette.ink(palette.light ? [0, 0, 0] : [255, 255, 255]),
+      palette.light ? 0.07 : 0.06
+    )
+    for (let row = 0; row < canvas.height; row++) {
+      for (let col = 0; col < canvas.width; col++) {
+        const d = Math.hypot(col - cx, row - cy) / reach
+        const slot = row * canvas.width + col
+        ground[slot] =
+          grid && col % cell === cell >> 1 && row % cell === cell >> 1
+            ? dot
+            : levels[d < 1 ? Math.round((1 - d) * 128) : 0]
+      }
+    }
+  }
+  const depthAlpha = (tone: number) =>
+    (palette.light ? 0.52 : 0.6) +
+    ((palette.light ? 0.48 : 0.4) * tone) / (TONES - 1)
+  const paintFor = (points: Point[]) => {
     let paint = colors.get(points)
     if (!paint) {
       paint = {
-        solid: new Uint32Array(points.length),
-        edge: new Uint32Array(points.length),
-        corner: new Uint32Array(points.length),
+        tones: new Uint32Array(points.length * TONES),
         trail: new Uint32Array(points.length),
       }
       for (let i = 0; i < points.length; i++) {
         const pixel = palette.ink(points[i].color)
-        paint.solid[i] = pixel
-        paint.edge[i] = palette.coverage(pixel, fringe)
-        paint.corner[i] = palette.coverage(pixel, fringe * fringe)
-        paint.trail[i] = palette.coverage(pixel, 0.12)
+        for (let tone = 0; tone < TONES - 1; tone++)
+          {paint.tones[i * TONES + tone] = palette.coverage(
+            pixel,
+            depthAlpha(tone)
+          )}
+        // The nearest points catch a little light, like a print highlight.
+        const lift = palette.light ? 0 : 0.22
+        paint.tones[i * TONES + TONES - 1] = pack(
+          lerp(pixel & 255, 255, lift),
+          lerp((pixel >>> 8) & 255, 240, lift),
+          lerp((pixel >>> 16) & 255, 225, lift)
+        )
+        paint.trail[i] = palette.coverage(pixel, 0.14)
       }
       colors.set(points, paint)
     }
@@ -139,6 +182,7 @@ export function createHomePoster(
         bitmap = context.createImageData(canvas.width, canvas.height)
         pixels = new Uint32Array(bitmap.data.buffer)
         depths = new Float32Array(canvas.width * canvas.height)
+        ground = new Uint32Array(canvas.width * canvas.height)
         themeKey = undefined
       }
       refreshTheme()
@@ -159,15 +203,10 @@ export function createHomePoster(
       const left = sequenceAt(from, ages[from]),
         right = sequenceAt(to, ages[to])
       canvas.dataset.sculpture = pageMix < 0.5 ? left.from : right.from
-      const grid = w < 680 ? 1.7 : 2.7,
-        diameter = grid * (palette.light ? 0.96 : 0.83) * ratio
-      const fullSize = Math.floor(diameter)
-      const fringe = diameter - fullSize > 0.1 ? diameter - fullSize : 0
-      const size = Math.max(1, fullSize + (fringe ? 1 : 0))
-      if (fringe !== lastFringe) {
-        colors = new WeakMap()
-        lastFringe = fringe
-      }
+      // Free-floating stipple: no lattice, so no brick rows or moiré bands.
+      const size = Math.max(1, Math.round((w < 680 ? 1.5 : 2.2) * ratio)),
+        round = size >= 3,
+        trailStart = size + 1
       const inputs = [
         {
           id: left.from,
@@ -187,7 +226,7 @@ export function createHomePoster(
             ...layer,
             model,
             pose: model.animate(layer.age),
-            paint: paintFor(model.points, fringe),
+            paint: paintFor(model.points),
             cy: Math.cos(yaw),
             sy: Math.sin(yaw),
             cp: Math.cos(pitch),
@@ -201,8 +240,8 @@ export function createHomePoster(
         count,
         Math.max(...layers.map((l) => l.model.points.length))
       )
-      if (!n || !bitmap || !pixels || !depths) return
-      pixels.fill(palette.background)
+      if (!n || !bitmap || !pixels || !depths || !ground) return
+      pixels.set(ground)
       depths.fill(-Infinity)
       // Leave room for dispersal in every direction, then return to the resting frame.
       const scale = Math.min(w * 0.34, h * 0.35) * (1 - spread * 0.3),
@@ -223,9 +262,8 @@ export function createHomePoster(
           red = 0,
           green = 0,
           blue = 0
-        let pixel = 0,
-          edgePixel = 0,
-          cornerPixel = 0,
+        let tone = 0,
+          pixel = 0,
           trail = 0
         for (const layer of layers) {
           const sample = Math.floor((i / n) * layer.model.points.length),
@@ -239,10 +277,9 @@ export function createHomePoster(
           x += rx * layer.weight
           y += (position[1] * layer.cp + rz * layer.sp) * layer.weight
           z += (rz * layer.cp - position[1] * layer.sp) * layer.weight
-          pixel = layer.paint.solid[sample]
+          tone = sample * TONES + TONES - 1
+          pixel = layer.paint.tones[tone]
           if (layers.length === 1) {
-            edgePixel = layer.paint.edge[sample]
-            cornerPixel = layer.paint.corner[sample]
             trail = layer.paint.trail[sample]
           } else {
             red += (pixel & 255) * layer.weight
@@ -250,18 +287,23 @@ export function createHomePoster(
             blue += ((pixel >>> 16) & 255) * layer.weight
           }
         }
-        if (layers.length > 1) {
-          pixel = pack(red, green, blue)
-          edgePixel = palette.coverage(pixel, fringe)
-          cornerPixel = palette.coverage(pixel, fringe * fringe)
-          trail = palette.coverage(pixel, 0.12)
-        }
         x += scatter[i * 2] * spread * 1.8
         y += (scatter[i * 2 + 1] * 1.25 + 0.16) * spread
         z += scatter[i * 2] * spread * 0.45
+        const depth = Math.min(
+          TONES - 1,
+          Math.max(0, Math.round((z + 0.9) * 0.55 * (TONES - 1)))
+        )
+        if (layers.length > 1) {
+          const solid = pack(red, green, blue)
+          pixel = palette.coverage(solid, depthAlpha(depth))
+          trail = palette.coverage(solid, 0.14)
+        } else {
+          pixel = layers[0].paint.tones[tone - (TONES - 1) + depth]
+        }
         const perspective = 3.9 / (3.9 - z * 0.42)
-        const px = Math.round((centerX + x * scale * perspective) / grid) * grid
-        const py = Math.round((centerY - y * scale * perspective) / grid) * grid
+        const px = centerX + x * scale * perspective
+        const py = centerY - y * scale * perspective
         const index = i * 4
         let fx = 0,
           fy = 0
@@ -314,28 +356,26 @@ export function createHomePoster(
           row < Math.min(rows, dy + size);
           row++
         ) {
+          const edgeRow = row === dy || row === dy + size - 1
           for (
             let col = Math.max(0, dx);
             col < Math.min(stride, dx + size);
             col++
           ) {
+            // Rounded dots: drop the four corners of larger brushes.
+            if (round && edgeRow && (col === dx || col === dx + size - 1))
+              {continue}
             const slot = row * stride + col
             if (z < depths[slot]) continue
             depths[slot] = z
-            pixels[slot] = fringe
-              ? row - dy === fullSize && col - dx === fullSize
-                ? cornerPixel
-                : row - dy === fullSize || col - dx === fullSize
-                  ? edgePixel
-                  : pixel
-              : pixel
+            pixels[slot] = pixel
           }
         }
         if (Math.abs(ox) > 2) {
           const ty = Math.round((py + oy * 0.75) * ratio),
             tx = Math.round((px + ox * 0.62) * ratio)
           const length = Math.round(
-            (Math.min(55, Math.abs(ox) * 0.36) + grid) * ratio
+            Math.min(55, Math.abs(ox) * 0.36) * ratio + trailStart
           )
           if (ty >= 0 && ty < rows) {
             for (
@@ -344,7 +384,7 @@ export function createHomePoster(
               col++
             ) {
               const slot = ty * stride + col
-              if (pixels[slot] === palette.background) pixels[slot] = trail
+              if (depths[slot] === -Infinity) pixels[slot] = trail
             }
           }
         }
@@ -368,6 +408,7 @@ export function createHomePoster(
       bitmap = undefined
       pixels = undefined
       depths = undefined
+      ground = undefined
       colors = new WeakMap()
     },
   }
