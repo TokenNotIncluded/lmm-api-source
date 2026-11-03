@@ -440,34 +440,31 @@ func (h *handlers) rankings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) userRankings(w http.ResponseWriter, r *http.Request) {
+	// Names and opt-in visibility belong to Core and can change between requests.
+	// Do not retain public identities in the model-statistics cache or downstream caches.
+	w.Header().Set("Cache-Control", "no-store")
 	cfg, ok := h.rankingPeriod(w, r)
 	if !ok {
 		return
 	}
 	now := h.s.now()
-	v, err := h.s.rankingCache.get("users:"+cfg.id, now, func() (any, error) {
-		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-		defer cancel()
-		core, err := h.s.core.UserRankings(ctx, now.Add(-cfg.duration).Unix(), now.Unix(), rankingLeaderboardLimit)
-		if err != nil {
-			return nil, err
-		}
-		out := &UserUsageRankingsResponse{Period: cfg.id, UpdatedAt: now.Unix(), TotalTokens: core.TotalTokens, TotalRequests: core.TotalRequests, ParticipantCount: core.ParticipantCount, AnonymousParticipantCount: core.AnonymousParticipantCount, Users: []RankedUserUsage{}}
-		for i, u := range core.Users {
-			row := RankedUserUsage{Rank: i + 1, Anonymous: u.Anonymous, TotalTokens: u.Tokens, Requests: u.Requests, Share: 0}
-			if !u.Anonymous {
-				row.Name = u.Name
-			}
-			if core.TotalTokens > 0 {
-				row.Share = float64(u.Tokens) / float64(core.TotalTokens)
-			}
-			out.Users = append(out.Users, row)
-		}
-		return out, nil
-	})
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	core, err := h.s.core.UserRankings(ctx, now.Add(-cfg.duration).Unix(), now.Unix(), rankingLeaderboardLimit)
 	if err != nil {
 		respond(w, nil, errRankingsUnavailable)
 		return
 	}
-	respond(w, v, nil)
+	out := &UserUsageRankingsResponse{Period: cfg.id, UpdatedAt: now.Unix(), TotalTokens: core.TotalTokens, TotalRequests: core.TotalRequests, ParticipantCount: core.ParticipantCount, AnonymousParticipantCount: core.AnonymousParticipantCount, Users: []RankedUserUsage{}}
+	for i, u := range core.Users {
+		row := RankedUserUsage{Rank: i + 1, Anonymous: u.Anonymous, TotalTokens: u.Tokens, Requests: u.Requests}
+		if !u.Anonymous {
+			row.Name = u.Name
+		}
+		if core.TotalTokens > 0 {
+			row.Share = float64(u.Tokens) / float64(core.TotalTokens)
+		}
+		out.Users = append(out.Users, row)
+	}
+	respond(w, out, nil)
 }
