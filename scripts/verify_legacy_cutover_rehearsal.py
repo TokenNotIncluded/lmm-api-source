@@ -130,6 +130,14 @@ def reconcile(args):
         query("SELECT e.key AS id,e.value FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_each_text(i.manifest->'settings') e WHERE i.manifest->>'scope'='checkin-history.v1'"))
     receipts=query("SELECT source_archive_sha256,manifest->>'source_namespace' AS namespace,(manifest->>'observed_at')::bigint AS observed_at,manifest->>'balance_effect' AS balance_effect FROM core_migration.import_runs WHERE manifest->>'scope'='checkin-history.v1'")
     checks['checkin_history_source_binding']={'passed':receipts==[{'source_archive_sha256':args.archive_sha256,'namespace':'lmm_api.lmm_prod_20260802.checkins','observed_at':args.observed_at,'balance_effect':'none'}]}
+    # Original SMS price strings, encrypted payloads and monetary ledger fields
+    # must all survive. Compare PG canonical JSON hashes, not planner summaries.
+    for table,cast in [('hero_sms_sms_orders',''),('hero_sms_sms_quota_ledgers','::bigint')]:
+        compare(table+'_original_all_fields',
+            query(f"SELECT id,encode(sha256(convert_to(to_jsonb(o)::text,'UTF8')),'hex') AS projection FROM {schema}.{table} o",True),
+            query(f"SELECT (r->>'id'){cast} AS id,encode(sha256(convert_to(r::text,'UTF8')),'hex') AS projection FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_array_elements(i.manifest->'tables'->'{table}') r WHERE i.manifest->>'scope'='hero-sms-history.v1'"))
+    sms_receipts=query("SELECT source_archive_sha256,manifest->>'source_namespace' AS namespace,(manifest->>'observed_at')::bigint AS observed_at,manifest->>'balance_effect' AS balance_effect FROM core_migration.import_runs WHERE manifest->>'scope'='hero-sms-history.v1'")
+    checks['hero_sms_history_source_binding']={'passed':sms_receipts==[{'source_archive_sha256':args.archive_sha256,'namespace':'lmm_api.lmm_prod_20260802.hero_sms_sms','observed_at':args.observed_at,'balance_effect':'none'}]}
     # Terminal transfers retain real original history; never invent Core settlements.
     s=query(f"SELECT id,sender_id AS owner_user,CASE WHEN status='claimed' THEN recipient_id END AS recipient_user,quota AS amount,status AS state,created_at,CASE WHEN status='claimed' THEN claimed_at ELSE cancelled_at END AS finished_at FROM {schema}.wallet_transfers WHERE status IN('claimed','cancelled')",True)
     t=query('SELECT id,owner_user,recipient_user,amount,state,created_at,finished_at FROM core_wallet.legacy_transfer_history')
@@ -180,7 +188,8 @@ def reconcile(args):
     channel_ids={r['id'] for r in query(f'SELECT id FROM {schema}.channels',True)}
     gaps['channel_identities_not_imported']=len(channel_ids-{r['id'] for r in query('SELECT id FROM core_channels.identities')})
     gaps.update(query(f"SELECT (SELECT count(*) FROM {schema}.discount_codes) AS source_discount_codes_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.discount_code_reservations) AS source_discount_reservations_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.referral_rewards) AS source_referral_rewards_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.referral_rewards WHERE status='earned' AND stage='awaiting_first_top_up') AS referral_rewards_awaiting_first_top_up_not_imported,(SELECT count(*) FROM {schema}.public_relay_contributions) AS public_relay_contributions_not_imported,(SELECT count(*) FROM {schema}.hero_sms_email_orders) AS hero_sms_email_orders_not_imported",True)[0])
-    gaps['hero_sms_orders_not_imported']=len(orders)
+    gaps['hero_sms_native_operations_not_verified']=1
+    gaps['hero_sms_encrypted_payload_read_not_verified']=1
     # A source ledger check proves old-book consistency, never target migration.
     status=reconciliation_status(checks,gaps)
     return {'scope':'read-only-available-core-phase-reconciliation','status':status,

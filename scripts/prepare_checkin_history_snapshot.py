@@ -14,7 +14,8 @@ import os
 from pathlib import Path
 import re
 
-from prepare_wallet_history_snapshot import canonical, digest, literal, require
+from prepare_wallet_history_snapshot import canonical, digest, require
+from owner_history_receipt import owner_history_import_sql
 
 SCOPE = 'checkin-history.v1'
 NAMESPACE = 'lmm_api.lmm_prod_20260802.checkins'
@@ -67,41 +68,7 @@ def prepare(export, *, expected_rows, archive_sha256):
 
 
 def import_sql(manifest):
-    return f"""BEGIN ISOLATION LEVEL SERIALIZABLE;
-SET LOCAL standard_conforming_strings=on;
-SET LOCAL lock_timeout='5s';
-SET LOCAL statement_timeout='60s';
-SELECT pg_advisory_xact_lock(741803121);
-DO $checkin_history$
-DECLARE m jsonb := {literal(manifest)}::jsonb; previous core_migration.import_runs%ROWTYPE;
-BEGIN
- IF NOT EXISTS(SELECT FROM pg_class WHERE oid='core_migration.import_runs'::regclass
-   AND pg_get_userbyid(relowner)=current_user)
- THEN RAISE EXCEPTION 'checkin_history_installation_owner_required'; END IF;
- IF NOT EXISTS(SELECT FROM core_billing.opening_import_runs
-   WHERE source_archive_sha256=m->>'source_archive_sha256'
-   AND observed_at=(m->>'observed_at')::bigint)
- THEN RAISE EXCEPTION 'checkin_history_opening_source_mismatch'; END IF;
- IF EXISTS(SELECT FROM jsonb_array_elements_text(m->'source_user_ids') AS x(id)
-   LEFT JOIN core_identity.users u ON u.id=x.id::bigint
-   WHERE u.id IS NULL OR u.personal_account_id<>u.id)
- THEN RAISE EXCEPTION 'checkin_history_identity_mapping_mismatch'; END IF;
- IF EXISTS(SELECT FROM core_migration.import_runs
-   WHERE manifest->>'scope'={literal(SCOPE)} AND migration_id<>m->>'migration_id')
- THEN RAISE EXCEPTION 'checkin_history_other_source_installed'; END IF;
- SELECT * INTO previous FROM core_migration.import_runs WHERE migration_id=m->>'migration_id';
- IF FOUND THEN
-  IF previous.manifest IS DISTINCT FROM m
-   OR previous.source_archive_sha256 IS DISTINCT FROM m->>'source_archive_sha256'
-   OR previous.mapping_sha256 IS DISTINCT FROM m->>'mapping_sha256'
-  THEN RAISE EXCEPTION 'checkin_history_import_conflict'; END IF;
- ELSE
-  INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest)
-  VALUES(m->>'migration_id',m->>'source_archive_sha256',m->>'mapping_sha256',m);
- END IF;
-END $checkin_history$;
-COMMIT;
-"""
+    return owner_history_import_sql(manifest, scope=SCOPE, error_prefix='checkin_history')
 
 
 def main():
