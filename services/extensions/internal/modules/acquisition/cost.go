@@ -137,6 +137,7 @@ func (h *handlers) cost(w http.ResponseWriter, r *http.Request, a actor) {
 	}
 	result := costReport{Scope: scope, Registrations: len(ids), CompleteAfter: to + int64(days)*daySeconds, ObservedUntil: now}
 	result.Observing = now < result.CompleteAfter
+	observations := make([]funnelObservation, 0, len(ids))
 	for start := 0; start < len(ids); start += 100 {
 		reader, ok := h.s.UserRead.(firstCashReader)
 		if !ok {
@@ -160,22 +161,20 @@ func (h *handlers) cost(w http.ResponseWriter, r *http.Request, a actor) {
 			}
 			delete(requested, fact.UserID)
 			result.Unclassified += fact.UnclassifiedOrders
-			if !fact.HistoryComplete {
-				continue
+			observation := funnelObservation{RegisteredAt: registered[fact.UserID], Complete: fact.HistoryComplete}
+			if fact.HistoryComplete {
+				observation.At = fact.FirstPaidAt
+				observation.FirstIsExact = true
 			}
-			if fact.FirstPaidAt != nil {
-				paid := *fact.FirstPaidAt
-				at := registered[fact.UserID]
-				if paid < at {
-					respond(w, nil, errUnavailable)
-					return
-				}
-				if paid < now && paid < at+int64(days)*daySeconds {
-					result.FirstPayingAccounts++
-				}
-			}
+			observations = append(observations, observation)
 		}
 	}
+	stage, err := summarizeFunnelStage("first_payment", now, days, observations)
+	if err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	result.FirstPayingAccounts = stage.Observed
 	if err = tx.Commit(); err != nil {
 		respond(w, nil, errUnavailable)
 		return
