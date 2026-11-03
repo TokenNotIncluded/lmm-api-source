@@ -174,7 +174,7 @@ impl Request {
 async fn grant_delta(c: &mut PgConnection, r: &Request) -> Result<()> {
     let role = engine::quote(&r.bridge.runtime);
     if r.runtime.console {
-        sqlx::raw_sql(&format!("GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text) TO {role}"))
+        sqlx::raw_sql(&format!("GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text),core_console.write_navigation_option(text,text) TO {role}"))
             .execute(&mut *c).await?;
     }
     let canonical = include_str!("../../../deployment/postgres/grant-core-runtime.sql");

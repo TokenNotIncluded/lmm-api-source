@@ -4,9 +4,9 @@ use crate::identity::{IdentityError, IdentityStore};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
 
-mod channel_observations;
 mod channel_projection;
 mod check_db;
+mod navigation_options;
 pub use channel_projection::rebuild_channel_usage;
 mod manifest;
 mod upgrade;
@@ -122,6 +122,10 @@ const COMPONENTS: &[(&str, &str)] = &[
             "\n",
             include_str!("../schema/channel_observations_upgrade.sql")
         ),
+    ),
+    (
+        "navigation-options",
+        include_str!("../schema/navigation_options.sql"),
     ),
 ];
 
@@ -273,7 +277,7 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
             .await?;
     }
     let fingerprint = catalog(&mut tx).await?;
-    channel_observations::check_install_target(&fingerprint)?;
+    navigation_options::check_install_target(&fingerprint)?;
     sqlx::query("INSERT INTO core_meta.runtime_contract(catalog_fingerprint) VALUES ($1)")
         .bind(fingerprint)
         .execute(&mut *tx)
@@ -323,7 +327,7 @@ async fn check_connection(connection: &mut PgConnection) -> Result<(), IdentityE
     )
     .fetch_one(&mut *connection)
     .await?;
-    channel_observations::check_target(&saved)?;
+    navigation_options::check_target(&saved)?;
     if saved != catalog(connection).await? {
         return Err(IdentityError::Storage);
     }

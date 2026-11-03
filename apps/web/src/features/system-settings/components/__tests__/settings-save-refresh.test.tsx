@@ -42,8 +42,9 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
 
 type ShellProps = { children?: ReactNode }
 const Shell = ({ children }: ShellProps) => <div>{children}</div>
+let activeTestSection = 'assistant'
 moduleMock.module('@tanstack/react-router', () => ({
-  useParams: () => ({ section: 'assistant' }),
+  useParams: () => ({ section: activeTestSection }),
 }))
 moduleMock.module('@/components/layout', () => ({
   SectionPageLayout: Object.assign(Shell, {
@@ -247,6 +248,7 @@ function postRequests() {
 }
 
 beforeEach(() => {
+  activeTestSection = 'assistant'
   errors.length = 0
   warnings.length = 0
   successes.length = 0
@@ -601,3 +603,50 @@ for (const failure of ['HTTP 503', 'business failure'] as const) {
     assert.equal(requests.filter(({ method }) => method === 'get').length, 0)
   })
 }
+
+test('native navigation capability mounts the real editor and saves retained extension fields', async () => {
+  activeTestSection = 'header-navigation'
+  let navigation = JSON.stringify({ home: true, extension: { custom: 42 } })
+  read = async (config) =>
+    response(config, 200, {
+      success: true,
+      capabilities: {
+        read_only: false,
+        partial: true,
+        writable_keys: ['HeaderNavModules'],
+      },
+      data: [{ key: 'HeaderNavModules', value: navigation }],
+    })
+  write = async (config) => {
+    const body = JSON.parse(String(config.data))
+    assert.equal(body.key, 'HeaderNavModules')
+    const value = JSON.parse(body.value)
+    assert.equal(value.home, false)
+    assert.deepEqual(value.extension, { custom: 42 })
+    navigation = body.value
+    return response(config, 200, { success: true, saved: true })
+  }
+  await renderPage(false)
+  await until(
+    () => container.querySelector('[role="switch"]') !== null,
+    'native navigation editor renders'
+  )
+  const home = container.querySelector<HTMLButtonElement>('[role="switch"]')
+  assert.ok(home)
+  await act(async () => home.click())
+  const saveNavigation = [...container.querySelectorAll('button')].find(
+    (button) => button.textContent?.includes('Save navigation')
+  )
+  assert.ok(saveNavigation)
+  await act(async () => saveNavigation.click())
+  await until(
+    () => requests.some((request) => request.method === 'put'),
+    'navigation write completes'
+  )
+  await until(
+    () => JSON.parse(navigation).home === false,
+    'saved navigation is read back'
+  )
+  assert.equal(requests.filter((request) => request.method === 'put').length, 1)
+  assert.equal(errors.length, 0)
+})

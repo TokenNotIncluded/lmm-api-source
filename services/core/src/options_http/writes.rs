@@ -69,6 +69,7 @@ impl From<sqlx::Error> for Error {
 fn canonical(key: &str) -> Result<&str, Error> {
     match key {
         "Notice" => Ok("Notice"),
+        "HeaderNavModules" => Ok("HeaderNavModules"),
         "Announcements" | "console_setting.announcements" => Ok("console_setting.announcements"),
         _ => Err(Error::Unsupported),
     }
@@ -96,6 +97,9 @@ fn validate_values(values: &BTreeMap<String, String>) -> Result<(), Error> {
     for (key, value) in values {
         if value.len() > 256 * 1024 {
             return Err(Error::Invalid("Option content exceeds 256 KiB"));
+        }
+        if key == "HeaderNavModules" {
+            navigation::validate(value).map_err(Error::Invalid)?;
         }
         if key != "console_setting.announcements" {
             continue;
@@ -170,7 +174,7 @@ async fn handle(state: OptionsHttp, headers: HeaderMap, body: Bytes, op: Operati
                 Error::Unsupported => (
                     StatusCode::CONFLICT,
                     "SYSTEM_OPTION_NOT_WRITABLE",
-                    "Only Notice and announcement content are writable; host configuration, secrets and unsupported options were not saved",
+                    "Only navigation, Notice and announcement content are writable; host configuration, secrets and unsupported options were not saved",
                 ),
                 Error::Conflict => (
                     StatusCode::CONFLICT,
@@ -239,7 +243,7 @@ async fn apply(
         .await?;
     let stored: BTreeMap<String, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT key,value,revision FROM core_console.options
-             WHERE key IN ('Notice','Announcements','console_setting.announcements')",
+             WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules')",
     )
     .fetch_all(&mut *tx)
     .await?
@@ -253,7 +257,11 @@ async fn apply(
                     .then(|| stored.get("Announcements"))
                     .flatten()
             });
-            let default = if key == "Notice" { "" } else { "[]" };
+            let default = match key.as_str() {
+                "Notice" => "",
+                "HeaderNavModules" => "{}",
+                _ => "[]",
+            };
             if current.map_or(default, |(value, _)| value.as_str()) != value {
                 return Err(Error::Conflict);
             }
@@ -265,21 +273,24 @@ async fn apply(
     }
     let mut changes = Vec::new();
     for (key, value) in values {
-        let keys: &[&str] = if key == "Notice" {
-            &["Notice"]
-        } else {
+        let keys: &[&str] = if key == "console_setting.announcements" {
             &["Announcements", "console_setting.announcements"]
+        } else {
+            &[key.as_str()]
         };
         for key in keys {
             if stored.get(*key).is_some_and(|(old, _)| old == &value) {
                 continue;
             }
-            let revision: i64 =
-                sqlx::query_scalar("SELECT core_console.write_public_option($1,$2)")
-                    .bind(key)
-                    .bind(&value)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let revision: i64 = sqlx::query_scalar(if *key == "HeaderNavModules" {
+                "SELECT core_console.write_navigation_option($1,$2)"
+            } else {
+                "SELECT core_console.write_public_option($1,$2)"
+            })
+            .bind(key)
+            .bind(&value)
+            .fetch_one(&mut *tx)
+            .await?;
             changes.push(json!({
                 "key":key,"before":stored.get(*key),"after":[value,revision]
             }));

@@ -17,6 +17,7 @@ mod finance;
 #[cfg(test)]
 mod historical_fixture;
 mod ledger;
+mod navigation_options;
 mod payment_gateways;
 mod request_operations;
 mod suffix;
@@ -234,6 +235,9 @@ impl UpgradeRequest {
         if self.procedure == channel_projection::PROCEDURE {
             return channel_projection::validate(self);
         }
+        if self.procedure == navigation_options::PROCEDURE {
+            return navigation_options::validate(self);
+        }
         if self.procedure == channel_observations::PROCEDURE {
             return channel_observations::validate(self);
         }
@@ -318,6 +322,9 @@ impl UpgradeRequest {
         self.validate()?;
         if self.procedure == channel_projection::PROCEDURE {
             return channel_projection::authorize_target();
+        }
+        if self.procedure == navigation_options::PROCEDURE {
+            return navigation_options::authorize_target();
         }
         if self.procedure == channel_observations::PROCEDURE {
             return channel_observations::authorize_target();
@@ -417,7 +424,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == channel_observations::PROCEDURE {
+    let result = if request.procedure == navigation_options::PROCEDURE {
+        navigation_options::connected(&mut connection, &request).await
+    } else if request.procedure == channel_observations::PROCEDURE {
         channel_observations::connected(&mut connection, &request).await
     } else if request.procedure == trust_policy::PROCEDURE {
         trust_policy::connected(&mut connection, &request).await

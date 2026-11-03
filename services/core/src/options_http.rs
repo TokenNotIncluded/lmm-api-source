@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
+mod navigation;
 pub mod trust_policy;
 mod writes;
 
@@ -135,7 +136,7 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     // @context-fold begin runtime-settings-projection
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT key,value FROM core_console.options
-         WHERE key IN ('Notice','Announcements','console_setting.announcements')
+         WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules')
          ORDER BY key",
     )
     .fetch_all(&state.pool)
@@ -158,6 +159,13 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         .or_else(|| stored.get("Announcements"))
         .cloned()
         .unwrap_or_else(|| "[]".into());
+    data.push(SystemOption {
+        key: "HeaderNavModules".into(),
+        value: stored
+            .get("HeaderNavModules")
+            .cloned()
+            .unwrap_or_else(|| "{}".into()),
+    });
     data.extend([
         SystemOption {
             key: "Notice".into(),
@@ -176,12 +184,12 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         StatusCode::OK,
         json!({
             "success":true,
-            "message":"Only public notice and announcement content can be changed here.",
+            "message":"Only public navigation, notice and announcement content can be changed here.",
             "data":data,
             "capabilities":{
                 "read_only":false,
                 "partial":true,
-                "writable_keys":["Notice","Announcements","console_setting.announcements"],
+                "writable_keys":["Notice","Announcements","console_setting.announcements","HeaderNavModules"],
                 "model_price_locks":false,
                 "trust_level_benefits":state.trust_policy_editor.is_some()
             }
@@ -299,7 +307,12 @@ mod tests {
         assert_eq!(body["capabilities"]["read_only"], false);
         assert_eq!(
             body["capabilities"]["writable_keys"],
-            json!(["Notice", "Announcements", "console_setting.announcements"])
+            json!([
+                "Notice",
+                "Announcements",
+                "console_setting.announcements",
+                "HeaderNavModules"
+            ])
         );
         let (status, _) = call(&app, "PUT", "/api/option/", Some(&root.secret)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);

@@ -11,11 +11,7 @@ import {
 const capabilities: SystemOptionsCapabilities = {
   read_only: false,
   partial: false,
-  writable_keys: [
-    'Notice',
-    'Announcements',
-    'console_setting.announcements',
-  ],
+  writable_keys: ['Notice', 'Announcements', 'console_setting.announcements'],
 }
 
 test('writable keys restrict writes even when the whole settings response is not read-only', () => {
@@ -46,5 +42,18 @@ test('announcement aliases use the key approved by the server', () => {
       'console_setting.announcements'
     ),
     'Announcements'
+  )
+})
+
+test('navigation is writable only when the server advertises it', () => {
+  assert.equal(writableOptionKey(capabilities, 'HeaderNavModules'), undefined)
+  const navigation = { ...capabilities, writable_keys: ['HeaderNavModules'] }
+  assert.equal(
+    writableOptionKey(navigation, 'HeaderNavModules'),
+    'HeaderNavModules'
+  )
+  assert.equal(
+    writableOptionKey({ ...navigation, read_only: true }, 'HeaderNavModules'),
+    undefined
   )
 })

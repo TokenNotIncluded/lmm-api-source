@@ -46,9 +46,9 @@ import { SectionPageLayout } from '@/components/layout'
 import { PageFooterPortal } from '@/components/layout/components/page-footer'
 import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 
 import './settings-workspace.css'
-import { Button } from '@/components/ui/button'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 
 import {
@@ -56,6 +56,10 @@ import {
   writableOptionKey,
 } from '../hooks/option-writability'
 import { useSystemOptions, getOptionValue } from '../hooks/use-system-options'
+import {
+  parseHeaderNavModules,
+  serializeHeaderNavModules,
+} from '../maintenance/config'
 import type { SystemOption, SystemOptionsCapabilities } from '../types'
 import { lazyNamedSection } from '../utils/lazy-section'
 import { getSettingsErrorMessage } from '../utils/settings-error-message'
@@ -148,6 +152,10 @@ export function SettingsPageFrame(props: SettingsPageFrameProps) {
 }
 
 /** Show only returned values, without mounting editors or filling missing defaults. */
+const LimitedNavigationSection = lazyNamedSection(
+  () => import('../maintenance/header-navigation-section'),
+  'HeaderNavigationSection'
+)
 const LimitedNoticeSection = lazyNamedSection(
   () => import('../maintenance/notice-section'),
   'NoticeSection'
@@ -172,6 +180,14 @@ function LimitedSettings({
 }) {
   // @context-fold begin limited-settings-view
   const { t } = useTranslation()
+  const navigationOption = options.find(
+    (option) => option.key === 'HeaderNavModules'
+  )
+  const writableNavigation =
+    !readOnly &&
+    activeSection === 'header-navigation' &&
+    navigationOption !== undefined &&
+    writableOptionKey(capabilities, 'HeaderNavModules') === 'HeaderNavModules'
   const writableNotice =
     !readOnly &&
     activeSection === 'notice' &&
@@ -188,6 +204,7 @@ function LimitedSettings({
     announcementOption !== undefined &&
     writableOptionKey(capabilities, announcementOption.key) !== undefined
   const visibleOptions = options.filter((option) => {
+    if (writableNavigation && option.key === 'HeaderNavModules') return false
     if (writableNotice && option.key === 'Notice') return false
     if (
       writableAnnouncements &&
@@ -243,6 +260,14 @@ function LimitedSettings({
           {t('No data available')}
         </p>
       )}
+      {writableNavigation && navigationOption ? (
+        <LimitedNavigationSection
+          config={parseHeaderNavModules(navigationOption.value)}
+          initialSerialized={serializeHeaderNavModules(
+            parseHeaderNavModules(navigationOption.value)
+          )}
+        />
+      ) : null}
       {writableNotice ? (
         <LimitedNoticeSection
           defaultValue={

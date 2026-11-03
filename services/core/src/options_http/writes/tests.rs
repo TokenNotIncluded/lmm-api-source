@@ -277,3 +277,104 @@ async fn audit_failure_rolls_back_all_changes(pool: PgPool) {
     assert_eq!(count, 0);
     assert_eq!(audits(&pool).await, 0);
 }
+
+#[sqlx::test(migrations = false)]
+async fn navigation_persists_projects_and_rejects_invalid_or_stale_writes(pool: PgPool) {
+    let (app, identity, secret) = setup(&pool).await;
+    let nav = json!({"home":false,"directory":false,"pricing":{"enabled":true,"requireAuth":true},"extension":{"custom":42}}).to_string();
+    let payload =
+        json!({"values":{"HeaderNavModules":nav},"expected_values":{"HeaderNavModules":"{}"}});
+    let user = identity.bootstrap_user(2, 0).await.unwrap();
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            "/api/option/bulk",
+            &user.secret,
+            payload.clone()
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            "/api/option/validate",
+            &secret,
+            payload.clone()
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(audits(&pool).await, 0);
+    assert_eq!(
+        request(&app, "POST", "/api/option/bulk", &secret, payload.clone())
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&app, "POST", "/api/option/bulk", &secret, payload)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    // A reconstructed router reads the database, not a process-local cached setting.
+    let reloaded = router(OptionsHttp::new(
+        pool.clone(),
+        identity,
+        RuntimeOptions {
+            server_address: "https://public.test/prefix".into(),
+            registration_enabled: false,
+            password_register_enabled: false,
+            oauth_register_enabled: false,
+            registration_disabled_methods: vec![],
+        },
+    ));
+    let (_, body) = request(&reloaded, "GET", "/api/option/", &secret, json!(null)).await;
+    assert!(
+        body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["key"] == "HeaderNavModules" && item["value"] == nav)
+    );
+    let public = crate::http::configured_router_with_rpc(
+        pool.clone(),
+        crate::http::Capabilities {
+            console: true,
+            ..Default::default()
+        },
+        None,
+        crate::http::PublicStatus {
+            server_address: Some("https://public.test/prefix".into()),
+            ..Default::default()
+        },
+    );
+    let (status, body) = request(&public, "GET", "/api/status", "", json!(null)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["HeaderNavModules"], nav);
+    assert_eq!(body["data"]["server_address"], "https://public.test/prefix");
+    for invalid in [
+        "[]".to_owned(),
+        "not-json".into(),
+        json!({"home":null}).to_string(),
+        json!({"pricing":{"requireAuth":"invalid"}}).to_string(),
+        json!({"extra":"x".repeat(65536)}).to_string(),
+    ] {
+        let (status, _) = request(
+            &app,
+            "POST",
+            "/api/option/bulk",
+            &secret,
+            json!({"values":{"HeaderNavModules":invalid,"Notice":"Must roll back"}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(notice(&pool).await, None);
+    assert_eq!(audits(&pool).await, 1);
+}

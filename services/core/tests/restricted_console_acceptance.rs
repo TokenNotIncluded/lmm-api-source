@@ -202,6 +202,18 @@ async fn restricted_console_over_tcp() {
         "22023",
     )
     .await;
+    denied_sql(
+        &runtime,
+        "SELECT core_console.write_navigation_option('OAuthSecret','denied')",
+        "22023",
+    )
+    .await;
+    denied_sql(
+        &runtime,
+        "SELECT core_console.write_public_option('HeaderNavModules','{}')",
+        "22023",
+    )
+    .await;
     assert_eq!(snapshot(&owner).await, before);
 
     let app = options_http::router(OptionsHttp::new(
@@ -422,6 +434,70 @@ async fn restricted_console_over_tcp() {
             .any(|r| r.0 == "Notice" && (r.1 == "race-a" || r.1 == "race-b") && r.2 == 2)
     );
 
+    let nav_a = json!({"home":false,"pricing":{"enabled":true,"requireAuth":true},"extra":{"x":1}})
+        .to_string();
+    let nav_b = json!({"home":true}).to_string();
+    let a = request(
+        &client,
+        &base,
+        reqwest::Method::POST,
+        "/api/option/bulk",
+        Some(&root.secret),
+        json!({"values":{"HeaderNavModules":nav_a},"expected_values":{"HeaderNavModules":"{}"}}),
+    );
+    let b = request(
+        &client,
+        &base,
+        reqwest::Method::POST,
+        "/api/option/bulk",
+        Some(&root.secret),
+        json!({"values":{"HeaderNavModules":nav_b},"expected_values":{"HeaderNavModules":"{}"}}),
+    );
+    let (a, b) = tokio::join!(a, b);
+    let mut statuses = [a.0, b.0];
+    statuses.sort();
+    assert_eq!(statuses, [200, 409]);
+    let after_nav = snapshot(&owner).await;
+    assert_eq!(after_nav.1.len(), after_race.1.len() + 1);
+    let saved_nav = after_nav
+        .0
+        .iter()
+        .find(|row| row.0 == "HeaderNavModules")
+        .unwrap();
+    assert_eq!(saved_nav.2, 1);
+    assert!(saved_nav.1 == nav_a || saved_nav.1 == nav_b);
+    let (_, body) = request(
+        &client,
+        &base,
+        reqwest::Method::GET,
+        "/api/option",
+        Some(&root.secret),
+        json!(null),
+    )
+    .await;
+    assert!(
+        body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["key"] == "HeaderNavModules" && v["value"] == saved_nav.1)
+    );
+    for token in [&admin_user.secret, &api_key.secret] {
+        assert_eq!(
+            request(
+                &client,
+                &base,
+                reqwest::Method::PUT,
+                "/api/option",
+                Some(token),
+                json!({"key":"HeaderNavModules","value":"{}"})
+            )
+            .await
+            .0,
+            403
+        );
+    }
+
     // Inject failure at the audit boundary after option writes. Revoke is fixture-only.
     sqlx::query("REVOKE INSERT ON core_identity.audit FROM lmm_core_runtime")
         .execute(&owner)
@@ -433,14 +509,14 @@ async fn restricted_console_over_tcp() {
         reqwest::Method::POST,
         "/api/option/bulk",
         Some(&root.secret),
-        json!({"values":{"Notice":"rollback", "Announcements":"[]"}}),
+        json!({"values":{"Notice":"rollback", "Announcements":"[]", "HeaderNavModules":"{}"}}),
     )
     .await
     .0;
     assert_eq!(status, 503);
     assert_eq!(
         snapshot(&owner).await,
-        after_race,
+        after_nav,
         "failed audit must roll back all option rows"
     );
     sqlx::query("GRANT INSERT ON core_identity.audit TO lmm_core_runtime")

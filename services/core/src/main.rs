@@ -463,6 +463,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 config.auth = config.auth.with_oauth2_issuer(issuer)?;
             }
             public_status = lmm_core::http::PublicStatus {
+                server_address: Some(config::setting("LMM_CORE_WEB_ORIGIN")?),
                 password_login_enabled: true,
                 email_verification_enabled: store.registration_email_verification_required(),
                 two_factor_enabled: store.mfa_enabled(),

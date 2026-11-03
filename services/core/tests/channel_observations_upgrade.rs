@@ -42,13 +42,13 @@ async fn check_history(c: &mut sqlx::PgConnection) {
 }
 
 #[sqlx::test(migrations = false)]
-async fn fresh46_is_bound_to_captured_target_and_seeds_no_authority(pool: sqlx::PgPool) {
+async fn fresh_current_is_bound_to_captured_target_and_seeds_no_authority(pool: sqlx::PgPool) {
     lmm_core::core_schema::init(&pool).await.unwrap();
-    assert_eq!(lmm_core::core_schema::component_count(), 46);
+    assert_eq!(lmm_core::core_schema::component_count(), 47);
     // Deliberately fails until central captures and approves target46. Never skip.
     lmm_core::core_schema::check(&pool)
         .await
-        .expect("capture and review target46 catalog first");
+        .expect("capture and review current target catalog first");
     let empty:bool=sqlx::query_scalar("SELECT NOT EXISTS(SELECT FROM core_channels.catalog_observations) AND NOT EXISTS(SELECT FROM core_meta.channel_observations_upgrades) AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_edit_signing_key) AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_editors) AND NOT EXISTS(SELECT FROM core_identity.users) AND NOT EXISTS(SELECT FROM core_billing.ledger_journals) AND NOT EXISTS(SELECT FROM core_billing.ledger_entries)")
         .fetch_one(&pool).await.unwrap();
     assert!(empty);
@@ -60,7 +60,7 @@ async fn changing_catalog_and_saved_receipt_cannot_redefine_current_target(pool:
     lmm_core::core_schema::init(&pool).await.unwrap();
     lmm_core::core_schema::check(&pool)
         .await
-        .expect("capture target46 first");
+        .expect("capture current target first");
     sqlx::raw_sql("CREATE TABLE core_channels.unreviewed_display_column(id bigint)")
         .execute(&pool)
         .await

@@ -108,6 +108,8 @@ pub struct Capabilities {
 
 #[derive(Clone, Default)]
 pub struct PublicStatus {
+    /// Effective host-owned public address; never loaded from stored options.
+    pub server_address: Option<String>,
     pub email_verification_enabled: bool,
     pub password_login_enabled: bool,
     pub two_factor_enabled: bool,
@@ -221,6 +223,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     let google_enabled = !google_client_id.is_empty();
     let mut data = json!({
             "system_name":"LMM API","version":env!("CARGO_PKG_VERSION"),
+            "server_address":status.server_address,
             "password_login_enabled":status.password_login_enabled,
             "register_enabled":status.registration_enabled,
             "password_register_enabled":status.password_register_enabled,
@@ -266,6 +269,24 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     data.as_object_mut()
         .expect("status data is a JSON object")
         .extend(extra);
+    if state.capabilities.console {
+        let navigation: Result<Option<String>, _> = sqlx::query_scalar(
+            "SELECT value FROM core_console.options WHERE key='HeaderNavModules'",
+        )
+        .fetch_optional(&state.pool)
+        .await;
+        match navigation {
+            Ok(value) => data["HeaderNavModules"] = json!(value.unwrap_or_else(|| "{}".into())),
+            Err(_) => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+                    Json(json!({"success":false,"code":"PUBLIC_CONFIGURATION_UNAVAILABLE"})),
+                )
+                    .into_response();
+            }
+        }
+    }
     let mut response = Json(json!({"success":true,"message":"","data":data})).into_response();
     response
         .headers_mut()

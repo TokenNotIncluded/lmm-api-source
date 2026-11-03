@@ -45,6 +45,7 @@ export type SystemOptionsResponse = {
 
 export const WRITABLE_SYSTEM_OPTION_KEYS = [
   'Notice',
+  'HeaderNavModules',
   'Announcements',
   'console_setting.announcements',
 ] as const
