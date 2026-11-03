@@ -40,6 +40,9 @@ pub struct PlanTerms {
     pub title: String,
     pub price_units: String,
     pub duration_seconds: i64,
+    /// Calendar months use legacy Go AddDate overflow semantics in UTC.
+    #[serde(default)]
+    pub duration_months: i64,
     /// grant, day, week, month, anniversary_month, or custom; all use UTC.
     pub reset_period: String,
     pub reset_seconds: i64,
@@ -50,13 +53,48 @@ pub struct PlanTerms {
     pub enabled: bool,
 }
 impl PlanTerms {
+    pub(crate) fn ends_at(&self, start: i64) -> Result<i64> {
+        use chrono::{Datelike, NaiveDate, TimeDelta};
+        self.validate()?;
+        let end = if self.duration_months == 0 {
+            start
+                .checked_add(self.duration_seconds)
+                .ok_or(Error::Invalid)?
+        } else {
+            let date = chrono::DateTime::from_timestamp(start, 0).ok_or(Error::Invalid)?;
+            let month =
+                i64::from(date.year()) * 12 + i64::from(date.month0()) + self.duration_months;
+            // Go time.AddDate normalizes Jan 31 + one month into March,
+            // rather than clamping to the last day of February.
+            let first = NaiveDate::from_ymd_opt(
+                month
+                    .div_euclid(12)
+                    .try_into()
+                    .map_err(|_| Error::Invalid)?,
+                (month.rem_euclid(12) + 1) as u32,
+                1,
+            )
+            .ok_or(Error::Invalid)?;
+            first
+                .and_time(date.time())
+                .checked_add_signed(TimeDelta::days(i64::from(date.day0())))
+                .ok_or(Error::Invalid)?
+                .and_utc()
+                .timestamp()
+        };
+        if end > 253_402_300_799 {
+            return Err(Error::Invalid);
+        }
+        Ok(end)
+    }
     pub(crate) fn validate(&self) -> Result<()> {
         units(&self.price_units)?;
         units(&self.limit_units)?;
         if self.title.trim().is_empty()
             || self.title.len() > 160
             || self.title.chars().any(char::is_control)
-            || !(60..=315_576_000).contains(&self.duration_seconds)
+            || !((self.duration_months == 0 && (60..=315_576_000).contains(&self.duration_seconds))
+                || ((1..=120).contains(&self.duration_months) && self.duration_seconds == 0))
             || !(0..=10_000).contains(&self.max_purchases_per_user)
             || !matches!(
                 self.reset_period.as_str(),

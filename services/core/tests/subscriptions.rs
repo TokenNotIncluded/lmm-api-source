@@ -76,6 +76,7 @@ async fn fixture(pool: &PgPool, full: bool) -> Fixture {
 }
 fn terms() -> PlanTerms {
     PlanTerms {
+        duration_months: 0,
         title: "Synthetic hourly plan".into(),
         price_units: "100000".into(),
         duration_seconds: 3600,
@@ -442,5 +443,46 @@ async fn real_charging_reservations_and_usage_block_refund_and_revoked_actors_ca
         f.store.refund(&f.user, &preview.id).await,
         Err(Error::Unauthorized | Error::Forbidden)
     ));
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn calendar_plan_purchase_and_renewal_keep_calendar_terms(pool: PgPool) {
+    use chrono::{Datelike, NaiveDate, TimeDelta};
+    let f = fixture(&pool, true).await;
+    let mut input = create("calendar_plan_create");
+    input.terms.duration_seconds = 0;
+    input.terms.duration_months = 1;
+    let plan = f.store.save_plan(&f.admin, None, input).await.unwrap();
+    let first = f
+        .store
+        .quote(&f.user, quote(plan.id, "calendar_first_quote", None))
+        .await
+        .unwrap();
+    let expected = |start| {
+        let d = chrono::DateTime::from_timestamp(start, 0).unwrap();
+        let (y, m) = if d.month() == 12 {
+            (d.year() + 1, 1)
+        } else {
+            (d.year(), d.month() + 1)
+        };
+        (NaiveDate::from_ymd_opt(y, m, 1).unwrap().and_time(d.time())
+            + TimeDelta::days(i64::from(d.day0())))
+        .and_utc()
+        .timestamp()
+    };
+    assert_eq!(first.ends_at, expected(first.starts_at));
+    let receipt = f.store.confirm(&f.user, &first.id).await.unwrap();
+    let renewal = f
+        .store
+        .quote(
+            &f.user,
+            quote(plan.id, "calendar_renew_quote", receipt.purchase_id),
+        )
+        .await
+        .unwrap();
+    assert_eq!(renewal.starts_at, first.ends_at);
+    assert_eq!(renewal.ends_at, expected(first.ends_at));
+    f.store.confirm(&f.user, &renewal.id).await.unwrap();
     balanced(&pool).await;
 }

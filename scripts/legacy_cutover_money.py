@@ -55,9 +55,8 @@ CREDITS_PER_USD = 500000
 MAX_TIME = 253402300799
 MAX_UNITS = 1_000_000_000_000
 DAY = 86400
-MONTH_SECONDS = 30 * DAY  # Core plans have fixed durations; see report "month_as_30_days".
 PERIODS = {"never": "grant", "daily": "day", "weekly": "week", "monthly": "month", "custom": "custom"}
-DURATION = {"hour": 3600, "day": DAY, "week": 7 * DAY, "month": MONTH_SECONDS, "year": 365 * DAY}
+DURATION = {"hour": 3600, "day": DAY, "week": 7 * DAY}
 
 
 def jlit(value) -> str:
@@ -139,13 +138,11 @@ def pending_liability(data, table, row, *, archive_sha, migration_id, observed_a
 # ---------------------------------------------------------------- subscriptions
 def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
     unit = p["duration_unit"]
-    if unit in ("month", "year"):
-        # Legacy calcPlanEndTime uses Go AddDate, not a fixed day count.
-        # Refuse to silently shorten/extend paid rights until Core can retain
-        # the calendar duration for future purchases and renewals.
-        fail("plan_calendar_duration_unrepresentable")
+    months = p["duration_value"] * (12 if unit == "year" else 1) if unit in ("month", "year") else 0
     if unit == "custom":
         duration = p["custom_seconds"]
+    elif months:
+        duration = 0
     elif unit in DURATION:
         duration = DURATION[unit] * p["duration_value"]
     else:
@@ -156,6 +153,7 @@ def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
         "title": title,
         "price_units": str(usd_units(Decimal(p["price_amount"]), p["currency"], options)),
         "duration_seconds": duration,
+        "duration_months": months,
         "reset_period": period,
         "reset_seconds": p["quota_reset_custom_seconds"] if period == "custom" else 0,
         "limit_units": str(p["total_amount"]),
@@ -164,7 +162,9 @@ def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
         "enabled": bool(p["enabled"]) and not p["archived_at"],
     }
     if not (1 <= int(terms["price_units"]) <= MAX_UNITS and 1 <= p["total_amount"] <= MAX_UNITS
-            and 60 <= duration <= 315_576_000 and 0 <= terms["max_purchases_per_user"] <= 10_000
+            and ((months == 0 and 60 <= duration <= 315_576_000)
+                 or (1 <= months <= 120 and duration == 0))
+            and 0 <= terms["max_purchases_per_user"] <= 10_000
             and (period != "custom" or 1 <= terms["reset_seconds"] <= 315_576_000)):
         fail("plan_terms_invalid")
     return terms, bool(p["archived_at"])
@@ -214,7 +214,7 @@ def plan_subscriptions(data, archive_sha, migration_id, observed_at):
                    f"VALUES({p['id']},1,{jlit(terms)},{actor},{p['updated_at'] or p['created_at']});")
         stats["plans"] += 1
         stats["plans_purchasable"] += terms["enabled"] and not archived
-        stats["plans_month_as_30_days"] += p["duration_unit"] == "month"
+        stats["plans_calendar_duration"] += p["duration_unit"] in ("month", "year")
     if plans:
         sql.append(f"SELECT setval(pg_get_serial_sequence('core_subscriptions.plans','id'),{max(plans)});")
     users = {u["id"] for u in data["users"]}

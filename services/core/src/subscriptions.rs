@@ -373,10 +373,7 @@ impl SubscriptionStore {
             }
             start = start.max(old.ends_at);
         }
-        let end = start
-            .checked_add(plan.terms.duration_seconds)
-            .filter(|v| *v <= 253_402_300_799)
-            .ok_or(Error::Invalid)?;
+        let end = plan.terms.ends_at(start)?;
         let result = Quote {
             id: random_id(),
             plan,

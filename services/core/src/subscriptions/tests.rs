@@ -37,3 +37,26 @@ async fn subscription_clock_floors_the_same_db_second_as_charging(pool: PgPool) 
     }
     panic!("could not observe the latter half of a stable database second");
 }
+
+#[test]
+fn calendar_terms_follow_legacy_add_date_overflow() {
+    use chrono::DateTime;
+    let mut terms: super::PlanTerms = serde_json::from_value(serde_json::json!({
+        "title":"Calendar", "price_units":"1", "duration_seconds":0,"duration_months":1,
+        "reset_period":"grant","reset_seconds":0,"limit_units":"1", "models":["*"],
+        "groups":["*"],"max_purchases_per_user":0,"enabled":true
+    }))
+    .unwrap();
+    let ts = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().timestamp();
+    assert_eq!(
+        terms.ends_at(ts("2025-01-31T12:34:56Z")).unwrap(),
+        ts("2025-03-03T12:34:56Z")
+    );
+    terms.duration_months = 12;
+    assert_eq!(
+        terms.ends_at(ts("2024-02-29T12:34:56Z")).unwrap(),
+        ts("2025-03-01T12:34:56Z")
+    );
+    terms.duration_seconds = 60;
+    assert!(terms.validate().is_err());
+}
