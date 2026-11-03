@@ -6,37 +6,7 @@ pub(super) const NATIVE_CASH_EVENTS_SQL: &str = r#"SELECT i.created_by_user_id A
  JOIN core_payments.receipts r ON r.intent_id=i.id AND r.method='credit' AND EXISTS(SELECT 1 FROM core_payments.provider_events e JOIN core_payments.accepted_proofs p ON p.channel_id=e.channel_id AND p.event_id=e.event_id AND p.intent_id=e.intent_id JOIN core_billing.ledger_journals j ON j.id=i.credit_journal_id AND j.kind='credit' WHERE e.intent_id=i.id AND e.receipt_id=r.id)
  WHERE u.id=ANY($1) GROUP BY i.created_by_user_id,i.id"#;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FirstCashPayment {
-    pub user_id: i64,
-    pub first_paid_at: Option<i64>,
-    pub second_paid_at: Option<i64>,
-    pub history_complete: bool,
-    pub unclassified_orders: i64,
-}
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FirstCashPayments {
-    pub users: Vec<FirstCashPayment>,
-}
-
-impl CommunityRead {
-    /// Personal-wallet first two cash orders across native and imported history.
-    /// Incomplete/unclassified history never supplies purported first/second dates.
-    pub async fn first_cash_payments(
-        &self,
-        request: &UsersInfoRequest,
-    ) -> Result<FirstCashPayments> {
-        if request.user_ids.is_empty()
-            || request.user_ids.len() > 100
-            || request.user_ids.iter().any(|id| *id <= 0)
-        {
-            return Err(Error::Invalid);
-        }
-        let mut tx = self.snapshot().await?;
-        let sql = format!(
-            r#"WITH native_events AS MATERIALIZED ({NATIVE_CASH_EVENTS_SQL}), native AS (
- SELECT u.id AS user_id,ARRAY(SELECT e.paid_at FROM native_events e WHERE e.user_id=u.id AND NOT EXISTS(SELECT 1 FROM core_history.finance_sources s WHERE s.complete AND e.order_id<=s.native_intent_floor) ORDER BY e.paid_at,e.order_id LIMIT 2) AS paid_times FROM core_identity.users u WHERE u.id=ANY($1)
-), manifests AS MATERIALIZED (
+pub(super) const HISTORICAL_CASH_CTES: &str = r#"manifests AS MATERIALIZED (
  SELECT i.source_archive_sha256,i.manifest FROM core_migration.import_runs i
  WHERE i.manifest->>'scope'='wallet-topup-history.v1'
  AND i.manifest->>'complete'='true'
@@ -75,11 +45,52 @@ impl CommunityRead {
   WHERE r.source_key=m.source_key AND r.user_id=u.id AND r.account_id=u.personal_account_id)
 ), orders AS (
  SELECT m.user_id,r.paid_at,
- CASE WHEN r.record_user_id=m.user_id THEN t.classification END AS classification
+ CASE WHEN r.record_user_id=m.user_id THEN t.classification END AS classification,
+ t.currency,t.gross_amount_micros,t.refunded_amount_micros
  FROM mapped m JOIN raw_orders r ON r.source_key=m.source_key AND r.user_id=m.user_id AND r.account_id=m.account_id
  LEFT JOIN core_history.finance_topups t ON t.source_key=m.source_key AND t.source_order_id=r.order_id
  WHERE r.status='success'
-), historical AS (
+)"#;
+
+pub(super) const CASH_HISTORY_COVERED_SQL: &str = r#"(EXISTS(SELECT 1 FROM mapped m WHERE m.user_id=u.id) OR (
+  NOT EXISTS(SELECT 1 FROM core_history.finance_users f WHERE f.user_id=u.id)
+  AND NOT EXISTS(SELECT 1 FROM core_billing.opening_imports o WHERE o.account_id=u.personal_account_id)
+  AND NOT EXISTS(SELECT 1 FROM core_migration.import_runs i WHERE
+    coalesce(i.manifest->>'scope','identity-only')='identity-only'
+    OR (i.manifest->>'scope'='legacy-cutover-identity.v1' AND i.manifest->'registration_times' ? u.personal_account_id::text))
+ ))"#;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FirstCashPayment {
+    pub user_id: i64,
+    pub first_paid_at: Option<i64>,
+    pub second_paid_at: Option<i64>,
+    pub history_complete: bool,
+    pub unclassified_orders: i64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FirstCashPayments {
+    pub users: Vec<FirstCashPayment>,
+}
+
+impl CommunityRead {
+    /// Personal-wallet first two cash orders across native and imported history.
+    /// Incomplete/unclassified history never supplies purported first/second dates.
+    pub async fn first_cash_payments(
+        &self,
+        request: &UsersInfoRequest,
+    ) -> Result<FirstCashPayments> {
+        if request.user_ids.is_empty()
+            || request.user_ids.len() > 100
+            || request.user_ids.iter().any(|id| *id <= 0)
+        {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.snapshot().await?;
+        let sql = format!(
+            r#"WITH native_events AS MATERIALIZED ({NATIVE_CASH_EVENTS_SQL}), native AS (
+ SELECT u.id AS user_id,ARRAY(SELECT e.paid_at FROM native_events e WHERE e.user_id=u.id AND NOT EXISTS(SELECT 1 FROM core_history.finance_sources s WHERE s.complete AND e.order_id<=s.native_intent_floor) ORDER BY e.paid_at,e.order_id LIMIT 2) AS paid_times FROM core_identity.users u WHERE u.id=ANY($1)
+), {HISTORICAL_CASH_CTES}, historical AS (
  SELECT user_id,(array_agg(paid_at ORDER BY paid_at) FILTER(WHERE classification='cash' AND paid_at>0))[1:2] AS paid_times,
  count(*) FILTER(WHERE classification IS NULL OR classification IN ('invalid','unconfirmed')
    OR (classification='cash' AND coalesce(paid_at,0)<=0))::bigint AS unclassified
@@ -87,13 +98,8 @@ impl CommunityRead {
 )
 SELECT n.user_id,ARRAY(SELECT at FROM unnest(n.paid_times || coalesce(h.paid_times,'{{}}'::bigint[])) at ORDER BY at LIMIT 2) AS paid_times,
  coalesce(h.unclassified,0) AS unclassified,
- (EXISTS(SELECT 1 FROM mapped m WHERE m.user_id=n.user_id) OR (
-  NOT EXISTS(SELECT 1 FROM core_history.finance_users f WHERE f.user_id=n.user_id)
-  AND NOT EXISTS(SELECT 1 FROM core_billing.opening_imports o WHERE o.account_id=u.personal_account_id)
-  AND NOT EXISTS(SELECT 1 FROM core_migration.import_runs i WHERE
-    coalesce(i.manifest->>'scope','identity-only')='identity-only'
-    OR (i.manifest->>'scope'='legacy-cutover-identity.v1' AND i.manifest->'registration_times' ? u.personal_account_id::text))
- )) AS covered
+ EXISTS(SELECT 1 FROM core_payments.intents i JOIN core_history.finance_sources s ON i.id<=s.native_intent_floor WHERE s.complete AND i.created_by_user_id=n.user_id AND i.account_id=u.personal_account_id AND i.credit_journal_id IS NOT NULL) AS invalid_native_seal,
+ {CASH_HISTORY_COVERED_SQL} AS covered
 FROM native n JOIN core_identity.users u ON u.id=n.user_id
 LEFT JOIN historical h ON h.user_id=n.user_id ORDER BY n.user_id"#
         );
@@ -107,8 +113,9 @@ LEFT JOIN historical h ON h.user_id=n.user_id ORDER BY n.user_id"#
             .map(|row| {
                 let times: Vec<i64> = row.try_get("paid_times")?;
                 let unclassified_orders: i64 = row.try_get("unclassified")?;
-                let history_complete =
-                    row.try_get::<bool, _>("covered")? && unclassified_orders == 0;
+                let history_complete = row.try_get::<bool, _>("covered")?
+                    && unclassified_orders == 0
+                    && !row.try_get::<bool, _>("invalid_native_seal")?;
                 Ok(FirstCashPayment {
                     user_id: row.try_get("user_id")?,
                     history_complete,

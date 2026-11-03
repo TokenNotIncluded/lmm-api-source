@@ -304,3 +304,34 @@ func (c *CoreRead) FirstCashPayments(ctx context.Context, ids []int64) (FirstCas
 	}{ids}, &out)
 	return out, err
 }
+
+// CashPaymentTotals returns currency amounts for credited orders in [from,to).
+// Refunds are cumulative applied refunds of those same orders, not refund-date flows.
+type CashCurrency struct {
+	Currency     string `json:"currency"`
+	PaidMicros   int64  `json:"paid_micros"`
+	RefundMicros int64  `json:"refund_micros"`
+	NetMicros    int64  `json:"net_micros"`
+	Orders       int64  `json:"orders"`
+}
+type CashPaymentUser struct {
+	UserID             int64          `json:"user_id"`
+	UnclassifiedOrders int64          `json:"unclassified_orders"`
+	Currencies         []CashCurrency `json:"currencies"`
+}
+type CashPaymentTotals struct {
+	Users []CashPaymentUser `json:"users"`
+}
+
+func (c *CoreRead) ReadyCashPaymentTotals(ctx context.Context) error {
+	return c.ready(ctx, "community.payments.totals.v1")
+}
+func (c *CoreRead) CashPaymentTotals(ctx context.Context, ids []int64, from, to int64) (CashPaymentTotals, error) {
+	var out CashPaymentTotals
+	err := c.call(ctx, "payments/totals", struct {
+		UserIDs []int64 `json:"user_ids"`
+		Start   int64   `json:"start"`
+		End     int64   `json:"end"`
+	}{ids, from, to}, &out)
+	return out, err
+}

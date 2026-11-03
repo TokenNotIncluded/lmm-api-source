@@ -57,6 +57,7 @@ func TestRestoredFunnelLive(t *testing.T) {
 	service.ClientRead = c
 	now := time.Now().Unix()
 	expected := 0
+	eligibleIDs := []int64{}
 	earliest := now
 	cursor := int64(0)
 	for {
@@ -71,6 +72,7 @@ func TestRestoredFunnelLive(t *testing.T) {
 				}
 				if *u.RegisteredAt >= 1 && *u.RegisteredAt < now {
 					expected++
+					eligibleIDs = append(eligibleIDs, u.UserID)
 					earliest = min(earliest, *u.RegisteredAt)
 				}
 			}
@@ -104,6 +106,66 @@ func TestRestoredFunnelLive(t *testing.T) {
 				}
 			}
 		}
+		rw := httptest.NewRecorder()
+		mux.ServeHTTP(rw, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/report?from=%d&to=%d", from, to), nil))
+		var report struct {
+			Success bool
+			Data    acquisitionReport
+		}
+		if json.Unmarshal(rw.Body.Bytes(), &report) != nil || !report.Success || rw.Code != 200 {
+			t.Fatalf("restored report failed: HTTP %d", rw.Code)
+		}
+		registered := 0
+		for _, c := range report.Data.Channels {
+			registered += c.Registrations
+		}
+		scopeTotal := 0
+		for _, c := range v.Data.Channels {
+			scopeTotal += c.Registrations
+		}
+		if registered != scopeTotal {
+			t.Fatal("report/funnel cohort counts disagree")
+		}
+
+		amounts := map[string]community.CashCurrency{}
+		var unclassified int64
+		for start := 0; start < len(eligibleIDs); start += 100 {
+			facts, e := client.CashPaymentTotals(context.Background(), eligibleIDs[start:min(start+100, len(eligibleIDs))], from, to)
+			if e != nil {
+				t.Fatal(e)
+			}
+			for _, u := range facts.Users {
+				unclassified += u.UnclassifiedOrders
+				for _, c := range u.Currencies {
+					v := amounts[c.Currency]
+					v.Currency = c.Currency
+					v.PaidMicros += c.PaidMicros
+					v.RefundMicros += c.RefundMicros
+					v.NetMicros += c.NetMicros
+					v.Orders++
+					amounts[c.Currency] = v
+				}
+			}
+		}
+		actual := map[string]community.CashCurrency{}
+		for _, p := range report.Data.Payments {
+			if p.Net != p.Paid-p.Refund || p.Payers <= 0 {
+				t.Fatal("invalid report money totals")
+			}
+			v := actual[p.Currency]
+			v.Currency = p.Currency
+			v.PaidMicros += p.Paid
+			v.RefundMicros += p.Refund
+			v.NetMicros += p.Net
+			v.Orders += int64(p.Payers)
+			actual[p.Currency] = v
+		}
+		wantJSON, _ := json.Marshal(amounts)
+		gotJSON, _ := json.Marshal(actual)
+		if string(wantJSON) != string(gotJSON) || unclassified != report.Data.Unclassified {
+			t.Fatal("report amounts/refunds/payers/unknowns disagree with real nonstaff Core facts")
+		}
+
 		reports = append(reports, append(json.RawMessage(nil), w.Body.Bytes()...))
 		from = to
 	}

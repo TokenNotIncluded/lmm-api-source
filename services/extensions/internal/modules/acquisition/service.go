@@ -103,8 +103,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("PUT /api/acquisition/self-report", h.selfReport)
 	mux.HandleFunc("DELETE /api/acquisition/self-report", h.selfReport)
 
-	// Unfinished reporting endpoints fail explicitly after authorization.
-	// Completed handlers retain the same Core identity and permission boundary.
+	// Administrative handlers retain the Core identity and permission boundary.
 	mux.HandleFunc("GET /api/admin/acquisition/links/{id}/preview", h.admin(permRead, h.previewLink))
 	mux.HandleFunc("GET /api/admin/acquisition/cost", h.admin(permRead, h.cost))
 	mux.HandleFunc("PUT /api/admin/acquisition/cost", h.admin(permWrite, h.saveCost))
@@ -120,11 +119,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("PUT /api/admin/acquisition/lookback", h.admin(permWrite, h.lookback))
 	mux.HandleFunc("GET /api/admin/acquisition/visitors", h.admin(permRead, h.visitors))
 	mux.HandleFunc("GET /api/admin/acquisition/funnel", h.admin(permRead, h.funnel))
-	mux.HandleFunc("GET /api/admin/acquisition/report", h.admin(permRead, unavailableAdmin))
-}
-
-func unavailableAdmin(w http.ResponseWriter, r *http.Request, a actor) {
-	respond(w, nil, &apiError{http.StatusNotImplemented, "ACQUISITION_NOT_IMPLEMENTED", "Acquisition administration is not implemented"})
+	mux.HandleFunc("GET /api/admin/acquisition/report", h.admin(permRead, h.report))
 }
 
 type handlers struct {

@@ -79,5 +79,6 @@ func TestCoreCostLive(t *testing.T) {
 		t.Fatalf("Core-backed metrics: %#v", result.Data)
 	}
 	t.Run("funnel", func(t *testing.T) { testCoreFunnelLive(t, db, service, client, mux) })
+	t.Run("report", func(t *testing.T) { testCoreReportLive(t, db, service, client, mux) })
 
 }

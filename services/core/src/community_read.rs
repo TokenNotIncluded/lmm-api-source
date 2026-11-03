@@ -2,7 +2,9 @@
 //! rankings, opted-in profile cards, onboarding facts and public display names.
 //! No spending authority, no writes, no per-request records leave Core.
 pub mod http;
+mod payment_totals;
 mod payments;
+pub use payment_totals::{CashCurrency, CashPaymentTotals, CashPaymentUser, CashPeriodRequest};
 pub use payments::{FirstCashPayment, FirstCashPayments};
 
 use serde::{Deserialize, Serialize};

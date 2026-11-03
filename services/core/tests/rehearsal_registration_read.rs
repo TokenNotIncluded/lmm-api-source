@@ -212,3 +212,50 @@ async fn restored_funnel_uses_real_core_and_extension_databases() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[tokio::test]
+#[ignore = "requires private source amount expectations and an explicitly restored Core database"]
+async fn restored_cash_amounts_match_original_orders() {
+    #[derive(serde::Deserialize)]
+    struct Expected {
+        start: i64,
+        end: i64,
+        users: Vec<lmm_core::community_read::CashPaymentUser>,
+    }
+    let path = PathBuf::from(
+        std::env::var_os("LMM_CORE_REHEARSAL_CASH_TOTALS_EXPECTED")
+            .expect("expected cash amounts required"),
+    )
+    .canonicalize()
+    .unwrap();
+    let backups = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Backups")
+        .canonicalize()
+        .unwrap();
+    assert!(path.starts_with(backups));
+    let expected: Vec<Expected> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert!(!expected.is_empty());
+    let pool = rehearsal_pool().await;
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    let mut compared = 0;
+    for period in expected {
+        for users in period.users.chunks(100) {
+            let actual = read
+                .cash_payment_totals(&lmm_core::community_read::CashPeriodRequest {
+                    user_ids: users.iter().map(|u| u.user_id).collect(),
+                    start: period.start,
+                    end: period.end,
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(&actual.users).unwrap(),
+                serde_json::to_value(users).unwrap(),
+                "source cash amounts, refunds, order counts and unknowns must match per account and currency"
+            );
+            compared += users.len();
+        }
+    }
+    assert!(compared > 0);
+    pool.close().await;
+}

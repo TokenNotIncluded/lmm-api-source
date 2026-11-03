@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 )
 
 // Rust owns the actual payment authority, signed synthetic events and UDS router.
@@ -45,4 +46,16 @@ func TestCoreCashPaymentsLive(t *testing.T) {
 	if combined.Users[0].SecondPaidAt == nil || *combined.Users[0].SecondPaidAt < *combined.Users[0].FirstPaidAt || combined.Users[1].SecondPaidAt != nil {
 		t.Fatalf("repeat cash payment response: %#v", combined)
 	}
+	if err = client.ReadyCashPaymentTotals(ctx); err != nil {
+		t.Fatal(err)
+	}
+	totals, err := client.CashPaymentTotals(ctx, []int64{101, 102, 999}, time.Now().Unix()-3600, time.Now().Unix()+2)
+	if err != nil || len(totals.Users) != 2 || len(totals.Users[0].Currencies) != 1 || len(totals.Users[1].Currencies) != 0 {
+		t.Fatalf("cash totals: %#v %v", totals, err)
+	}
+	usd := totals.Users[0].Currencies[0]
+	if usd.Currency != "USD" || usd.PaidMicros != 2740000 || usd.RefundMicros != 170000 || usd.NetMicros != 2570000 || usd.Orders != 2 {
+		t.Fatalf("cash amount/refund/replay mismatch: %#v", usd)
+	}
+
 }

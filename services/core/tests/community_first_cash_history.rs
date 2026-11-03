@@ -1,6 +1,6 @@
 //! First-payment history must be source-bound and must preserve unknown facts.
 use lmm_core::{
-    community_read::{CommunityRead, UsersInfoRequest},
+    community_read::{CashPeriodRequest, CommunityRead, UsersInfoRequest},
     core_schema,
     identity::IdentityStore,
 };
@@ -115,4 +115,24 @@ async fn cash_history_uses_classification_mapping_and_complete_coverage(pool: Pg
     // Distinct orders at the same timestamp still constitute two payments.
     assert_eq!(result.users[2].first_paid_at, Some(1700000000));
     assert_eq!(result.users[2].second_paid_at, Some(1700000000));
+    let totals = read
+        .cash_payment_totals(&CashPeriodRequest {
+            user_ids: vec![71, 72, 73],
+            start: 1699999999,
+            end: 1700000001,
+        })
+        .await
+        .unwrap();
+    assert_eq!(totals.users[0].currencies[0].paid_micros, 1000000);
+    assert_eq!(totals.users[2].currencies[0].paid_micros, 2000000);
+    let unknown = read
+        .cash_payment_totals(&CashPeriodRequest {
+            user_ids: vec![72],
+            start: 1499999999,
+            end: 1500000001,
+        })
+        .await
+        .unwrap();
+    assert_eq!(unknown.users[0].unclassified_orders, 1);
+    assert!(unknown.users[0].currencies.is_empty());
 }
