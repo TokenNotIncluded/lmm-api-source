@@ -25,6 +25,7 @@ import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
+import { CheckinHistoryCard } from './components/checkin-history-card'
 import { GiftCard } from './components/gift-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { LoginSessionsCard } from './components/login-sessions-card'
@@ -136,6 +137,7 @@ export function Profile() {
           >
             <GiftCard />
             <ReferralOverviewCard />
+            <CheckinHistoryCard />
             {checkinEnabled && (
               <CheckinCalendarCard
                 checkinEnabled={checkinEnabled}
