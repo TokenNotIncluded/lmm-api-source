@@ -185,6 +185,45 @@ func TestLinksPostgresHTTP(t *testing.T) {
 		t.Fatalf("external target accepted: %d", w.Code)
 	}
 
+	if _, err = db.Exec(`UPDATE lmm_acquisition.config SET started_at=$1;`, now-20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.visitors(id,user_id,created_at) VALUES(repeat('d',64),0,$1),(repeat('e',64),77,$1),(repeat('f',64),88,$1);`, now-10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.visits(visitor_id,nonce,source,created_at) VALUES(repeat('d',64),'a','alpha',$1),(repeat('d',64),'b','beta',$1),(repeat('e',64),'a','alpha',$1),(repeat('f',64),'a','alpha',$1),(repeat('e',64),'end','excluded',$2)`, now-10, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		role   string
+		count  int
+		status int
+	}{{"user", 2, 200}, {"admin", 1, 200}, {"", 0, 503}} {
+		s.UserRead = testUserRead{tc.role}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/visitors?from=%d&to=%d", now-30, now), nil))
+		if w.Code != tc.status {
+			t.Fatalf("visitor status role=%q: %d %s", tc.role, w.Code, w.Body.String())
+		}
+		if tc.status != 200 {
+			continue
+		}
+		var summary struct {
+			Data struct {
+				Count     int   `json:"observed_visitors"`
+				Available int64 `json:"available_from"`
+				Complete  bool  `json:"coverage_complete"`
+				Channels  []struct {
+					Source   string
+					Visitors int
+				}
+			}
+		}
+		if err = json.Unmarshal(w.Body.Bytes(), &summary); err != nil || summary.Data.Count != tc.count || summary.Data.Available != now-20 || summary.Data.Complete || len(summary.Data.Channels) != 2 || summary.Data.Channels[0].Source != "alpha" || summary.Data.Channels[0].Visitors != tc.count {
+			t.Fatalf("visitor summary %v: %s", err, w.Body.String())
+		}
+	}
+
 	rootMux := http.NewServeMux()
 	s.Register(rootMux, listVerifier{6})
 	s.UserRead = testUserRead{"user"}
