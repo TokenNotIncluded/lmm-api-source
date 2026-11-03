@@ -1,7 +1,7 @@
 """Money cutover must preserve paid contract terms before emitting SQL."""
 import unittest
 
-from legacy_cutover_money import plan_terms, subscription_order_links, plan_promotions
+from legacy_cutover_money import plan_terms, subscription_order_links, plan_promotions, discount_available
 
 
 class SubscriptionTermsTest(unittest.TestCase):
@@ -36,6 +36,14 @@ class SubscriptionTermsTest(unittest.TestCase):
         self.assertEqual(sql, [])
         self.assertTrue(stats["unrepresented_checkin_enabled"])
         self.assertEqual(stats["legacy_checkins_history_not_imported"], 10)
+
+    def test_discount_reservations_and_start_time_preserve_capacity(self):
+        code = {"status": 1, "deleted_at": None, "starts_time": 0,
+                "expired_time": 0, "max_uses": 1, "used_count": 0}
+        self.assertTrue(discount_available(code, 0, 100))
+        self.assertFalse(discount_available(code, 1, 100))
+        self.assertFalse(discount_available({**code, "starts_time": 101}, 0, 100))
+        self.assertTrue(discount_available({**code, "expired_time": 100}, 0, 100))
 
     def test_fixed_duration_terms_preserve_exact_units(self):
         terms, archived = plan_terms({

@@ -85,8 +85,8 @@ def load_source(src, schema: str) -> dict:
         "bounty_disputes": q("SELECT * FROM open_source_bounty_disputes ORDER BY id"),
         "wallet_transfers": q("SELECT * FROM wallet_transfers ORDER BY id"),
         "top_ups_pending": q("SELECT * FROM top_ups WHERE status='pending' ORDER BY id"),
-        "discount_codes": q("SELECT id,status,used_count,max_uses,expired_time,deleted_at FROM discount_codes"),
-        "discount_code_reservations": q("SELECT id,status FROM discount_code_reservations"),
+        "discount_codes": q("SELECT id,status,used_count,max_uses,starts_time,expired_time,deleted_at,owner_user_id FROM discount_codes"),
+        "discount_code_reservations": q("SELECT id,status,discount_code_id,expires_time FROM discount_code_reservations"),
         "red_packets": q("SELECT id,enabled,end_at,deleted_at FROM red_packets"),
         "red_packet_items": q("SELECT id,packet_id,item_type,claimed_by FROM red_packet_items"),
         "red_packet_claims": q("SELECT count(*) AS n FROM red_packet_claims"),
@@ -272,6 +272,14 @@ def plan_subscriptions(data, archive_sha, migration_id, observed_at):
 
 
 # ------------------------------------------------------------------ promotions
+def discount_available(code, reserved_slots, observed_at):
+    """Old reservations retain capacity even past TTL while payment can settle."""
+    return (code["status"] == 1 and code["deleted_at"] is None
+            and (not code["starts_time"] or code["starts_time"] <= observed_at)
+            and (not code["expired_time"] or code["expired_time"] >= observed_at)
+            and (not code["max_uses"] or code["used_count"] + reserved_slots < code["max_uses"]))
+
+
 def plan_promotions(data, archive_sha, migration_id, observed_at):
     sql, stats = [], Counter()
     admin = superadmin(data)
@@ -335,10 +343,12 @@ def plan_promotions(data, archive_sha, migration_id, observed_at):
     stats["unrepresented_checkin_enabled"] = data["options"].get("checkin_setting.enabled") == "true"
     stats["legacy_checkins_history_not_imported"] = data["checkin_total"][0]["n"]
     live = lambda expires: not expires or expires > observed_at  # noqa: E731
+    reserved = Counter(r["discount_code_id"] for r in data["discount_code_reservations"]
+                       if r["status"] == "reserved")
     stats["unrepresented_discount_codes_usable"] = sum(
-        d["status"] == 1 and d["deleted_at"] is None and live(d["expired_time"])
-        and (not d["max_uses"] or d["used_count"] < d["max_uses"]) for d in data["discount_codes"])
+        discount_available(d, reserved[d["id"]], observed_at) for d in data["discount_codes"])
     stats["unrepresented_discount_code_reservations"] = len(data["discount_code_reservations"])
+    stats["unrepresented_discount_slots_reserved"] = sum(reserved.values())
     active = {p["id"] for p in data["red_packets"] if p["enabled"] and p["deleted_at"] is None and live(p["end_at"])}
     stats["unrepresented_red_packets_active"] = len(active)
     for i in data["red_packet_items"]:
