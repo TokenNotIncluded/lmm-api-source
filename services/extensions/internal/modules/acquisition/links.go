@@ -114,3 +114,24 @@ func (h *handlers) deleteLink(w http.ResponseWriter, r *http.Request, a actor) {
 	}
 	respond(w, map[string]any{"id": saved, "deleted": true}, nil)
 }
+
+// previewLink describes attribution without creating consent, visits or cookies.
+func (h *handlers) previewLink(w http.ResponseWriter, r *http.Request, a actor) {
+	id := r.PathValue("id")
+	if !hexID(id, 32) {
+		respond(w, nil, ErrInvalid)
+		return
+	}
+	var target string
+	var payload []byte
+	err := h.s.db.QueryRowContext(r.Context(), `SELECT target,json_build_object('link_id',id,'target',target,'source',source,'medium',medium,'campaign',campaign,'content',content,'evidence','promotion_link','referrer_host','','excluded',true,'archived',archived) FROM lmm_acquisition.links WHERE id=$1 AND deleted_at=0`, id).Scan(&target, &payload)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	if Target(target) == "" {
+		respond(w, nil, ErrInvalid)
+		return
+	}
+	respond(w, json.RawMessage(payload), nil)
+}

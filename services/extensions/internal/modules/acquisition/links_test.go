@@ -117,10 +117,36 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	if err = json.Unmarshal(changed.Body.Bytes(), &saved); err != nil || changed.Code != 200 || saved.Data.Source != "original" || saved.Data.Name != "Renamed" {
 		t.Fatalf("edit: %d %s", changed.Code, changed.Body.String())
 	}
+	preview := request("GET", "/api/admin/acquisition/links/"+id+"/preview", "")
+	var view struct {
+		Data struct {
+			LinkID   string `json:"link_id"`
+			Source   string
+			Target   string
+			Evidence string
+			Excluded bool
+			Archived bool
+		}
+	}
+	if err = json.Unmarshal(preview.Body.Bytes(), &view); err != nil || preview.Code != 200 || view.Data.LinkID != id || view.Data.Source != "original" || view.Data.Target != "/pricing" || view.Data.Evidence != "promotion_link" || !view.Data.Excluded || !view.Data.Archived {
+		t.Fatalf("preview: %d %s", preview.Code, preview.Body.String())
+	}
+	if len(preview.Result().Cookies()) != 0 {
+		t.Fatal("preview created tracking cookie")
+	}
+	var observations int
+	if err = db.QueryRow(`SELECT (SELECT count(*) FROM lmm_acquisition.visits)+(SELECT count(*) FROM lmm_acquisition.visitors)+(SELECT count(*) FROM lmm_acquisition.consents)`).Scan(&observations); err != nil || observations != 0 {
+		t.Fatalf("preview tracked visit: %v %d", err, observations)
+	}
+
 	removed := request("DELETE", "/api/admin/acquisition/links/"+id, "")
 	if removed.Code != 200 {
 		t.Fatalf("delete: %d %s", removed.Code, removed.Body.String())
 	}
+	if w := request("GET", "/api/admin/acquisition/links/"+id+"/preview", ""); w.Code != 404 {
+		t.Fatalf("deleted preview visible: %d", w.Code)
+	}
+
 	var deletedAt int64
 	if err = db.QueryRow(`SELECT deleted_at FROM lmm_acquisition.links WHERE id=$1`, id).Scan(&deletedAt); err != nil || deletedAt <= 0 {
 		t.Fatalf("history removed: %v %d", err, deletedAt)

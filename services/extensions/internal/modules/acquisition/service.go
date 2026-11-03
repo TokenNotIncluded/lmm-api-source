@@ -95,7 +95,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	// Administrative acquisition handlers were not completed before handoff.
 	// Keep their authorization boundaries and return an explicit failure until B11
 	// supplies the real implementations; never serve fabricated analytics.
-	mux.HandleFunc("GET /api/admin/acquisition/links/{id}/preview", h.admin(permRead, unavailableAdmin))
+	mux.HandleFunc("GET /api/admin/acquisition/links/{id}/preview", h.admin(permRead, h.previewLink))
 	mux.HandleFunc("GET /api/admin/acquisition/cost", h.admin(permRead, unavailableAdmin))
 	mux.HandleFunc("PUT /api/admin/acquisition/cost", h.admin(permWrite, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/links", h.admin(permRead, h.links))
