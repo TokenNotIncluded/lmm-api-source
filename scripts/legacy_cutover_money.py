@@ -2,8 +2,10 @@
 
 Registered by legacy_cutover_import.py. Each phase reads the legacy snapshot
 read-only and emits one SERIALIZABLE owner transaction. Legacy balances were
-already moved by the opening phase, so nothing here credits or debits a wallet:
+already moved by the opening phase; they must not be charged a second time:
 historical rights are imported as receipts, frozen holds or redeemable codes.
+Pending wallet transfers restore the already-debited liability and reserve it
+atomically, leaving the imported available balance unchanged.
 
 Run order: subscriptions, promotions, bounties, wallet. Bounty escrow requires
 the payer to have no non-opening journal, so it must precede any phase that
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter, defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -390,36 +393,66 @@ def plan_bounties(data, archive_sha, migration_id, observed_at):
 
 # ---------------------------------------------------------------------- wallet
 def plan_wallet(data, archive_sha, migration_id, observed_at):
-    """A legacy pending transfer already debited the sender's quota at creation,
-    so the opening wallet excludes it. Represent the hold exactly once: the
-    reserve journal funds the sender's reserved bucket from opening clearing
-    (not from the wallet). Core claim/cancel then settle it normally."""
+    """Restore each old pending liability, then reserve through the normal ledger.
+
+    The two postings are atomic and net to zero in the sender wallet. Their
+    payer/payee metadata exactly matches their entries; no synthetic reserve
+    receipt may pretend clearing funds came from the wallet.
+    """
     sql, stats = [], Counter()
     users = {u["id"] for u in data["users"]}
+    mapping = opening_mapping(data)
     top = 0
     for t in data["wallet_transfers"]:
+        if t["status"] not in ("pending", "claimed", "cancelled"):
+            fail("wallet_transfer_status_unsupported")
         stats["transfers_" + t["status"]] += 1
         if t["status"] != "pending":
             continue
         tid, sender, amount = t["id"], t["sender_id"], t["quota"]
-        if sender not in users or amount <= 0 or len(t["token"]) != 64 or not 16 <= len(t["request_key"]) <= 64:
+        if (type(tid) is not int or tid <= 0 or sender not in users
+                or type(amount) is not int or not 0 < amount <= MAX_UNITS
+                or re.fullmatch(r"[0-9a-fA-F]{64}", t["token"]) is None
+                or re.fullmatch(r"[A-Za-z0-9_-]{16,64}", t["request_key"]) is None
+                or not 0 < t["created_at"] <= observed_at
+                or t.get("recipient_id", 0) or t.get("claimed_at", 0) or t.get("cancelled_at", 0)):
             fail("wallet_transfer_invalid")
         request = {"importer": "legacy_cutover_money", "migration_id": migration_id,
-                   "source_table": "wallet_transfers", "source_id": tid, "source_row_sha256": digest(t),
-                   "funding": "opening-clearing; sender debited by legacy at creation"}
-        sql.append(f"""DO $wt$DECLARE w BIGINT; r BIGINT; c BIGINT; j BIGINT; BEGIN
+                   "source_archive_sha256": archive_sha, "mapping_sha256": mapping,
+                   "observed_at": observed_at, "source_table": "wallet_transfers",
+                   "source_id": tid, "source_row_sha256": digest(t),
+                   "funding": "legacy already-debited pending liability"}
+        hold = {"scope": "core-wallet-transfer", "operation_key": f"hold-{tid}",
+                "actor_user_id": sender, "reason": "Imported pending personal wallet transfer",
+                "action": {"kind": "reserve", "account_id": sender, "amount_units": amount}}
+        sql.append(f"""DO $wt$DECLARE w BIGINT; c BIGINT; j BIGINT; h JSONB; before_units BIGINT; BEGIN
+ IF current_user<>pg_get_userbyid((SELECT nspowner FROM pg_namespace WHERE nspname='core_billing'))
+   OR current_setting('transaction_isolation')<>'serializable' OR current_setting('synchronous_commit')<>'on' THEN
+  RAISE EXCEPTION 'wallet import requires durable offline owner transaction';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM core_billing.opening_import_runs r JOIN core_billing.opening_imports i USING(migration_id)
+   WHERE r.migration_id={lit(migration_id)} AND r.source_archive_sha256={lit(archive_sha)}
+   AND r.mapping_sha256={lit(mapping)} AND r.observed_at={observed_at} AND i.account_id={sender}) THEN
+  RAISE EXCEPTION 'wallet import opening provenance mismatch';
+ END IF;
  INSERT INTO core_wallet.transfers(id,owner_user,payer_account,request_key,amount,token_digest,created_at) OVERRIDING SYSTEM VALUE
   VALUES({tid},{sender},{sender},{lit(t['request_key'])},{amount},sha256(convert_to({lit(t['token'])},'UTF8')),{t['created_at']});
  SELECT id INTO STRICT w FROM core_billing.ledger_accounts WHERE owner_account_id={sender} AND bucket='wallet';
- SELECT id INTO STRICT r FROM core_billing.ledger_accounts WHERE owner_account_id={sender} AND bucket='reserved';
  SELECT id INTO STRICT c FROM core_billing.ledger_accounts WHERE bucket='clearing';
+ PERFORM ledger_account_id FROM core_billing.balance_state WHERE ledger_account_id IN(w,c) ORDER BY ledger_account_id FOR NO KEY UPDATE;
+ SELECT balance_units INTO STRICT before_units FROM core_billing.balance_state WHERE ledger_account_id=w;
  INSERT INTO core_billing.ledger_journals(scope,operation_key,kind,payer_id,payee_id,amount_units,actor_user_id,reason)
-  VALUES('core-wallet-transfer','hold-{tid}','reserve',w,r,{amount},{sender},'Legacy pending transfer hold; sender was debited by legacy at creation') RETURNING id INTO j;
+  VALUES('legacy-wallet-transfer-opening','transfer-{tid}','opening',c,w,{amount},{sender},'Legacy already-debited pending transfer liability') RETURNING id INTO j;
  INSERT INTO core_billing.ledger_entries(journal_id,ledger_account_id,delta_units)
-  SELECT j,id,units FROM (VALUES(c,{-amount}::BIGINT),(r,{amount}::BIGINT)) v(id,units) ORDER BY id;
+  SELECT j,id,units FROM (VALUES(c,{-amount}::BIGINT),(w,{amount}::BIGINT)) v(id,units) ORDER BY id;
  INSERT INTO core_billing.ledger_operations(scope,operation_key,request,result)
-  VALUES('core-wallet-transfer','hold-{tid}',{jlit(request)},jsonb_build_object('status','posted','journal_id',j));
- UPDATE core_wallet.transfers SET state='pending',hold_journal=j,confirmed_at={t['created_at']} WHERE id={tid};
+  VALUES('legacy-wallet-transfer-opening','transfer-{tid}',{jlit(request)},jsonb_build_object('status','posted','journal_id',j));
+ h := core_billing.post_ledger({jlit(hold)});
+ IF h->>'status' IS DISTINCT FROM 'posted' THEN RAISE EXCEPTION 'imported transfer reserve failed'; END IF;
+ IF (SELECT balance_units FROM core_billing.balance_state WHERE ledger_account_id=w)<>before_units THEN
+  RAISE EXCEPTION 'imported transfer changed available balance';
+ END IF;
+ UPDATE core_wallet.transfers SET state='pending',hold_journal=(h->>'journal_id')::BIGINT,confirmed_at={t['created_at']} WHERE id={tid};
 END$wt$;""")
         top = max(top, tid)
         stats["pending_transfers"] += 1
