@@ -22,6 +22,9 @@ max_in_flight = 16
 # [core]
 # socket = "/run/lmm/core/core.sock"
 # identity_token_file = "/etc/lmm.conf.d/secrets/extensions/core-rpc-token"
+# The community read-purpose token enables rankings and acquisition analytics.
+# Select "community", "acquisition", or both; it is not the identity RPC token.
+# user_read_token_file = "/etc/lmm.conf.d/secrets/extensions/community-read-token"
 # commerce_token_file = "/etc/lmm.conf.d/secrets/extensions/commerce-rpc-token"
 # payment_token_file = "/etc/lmm.conf.d/secrets/extensions/payment-rpc-token"
 # To enable wallet checkout, explicitly select "payments" in host.modules,
@@ -39,3 +42,11 @@ max_in_flight = 16
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/support-database-url"
 # [legal]
 # config_file = "/etc/lmm.conf.d/legal.toml"
+
+# Community and acquisition HTTP routes also require host.web_compat = true.
+# [community]
+# database_name = "lmm_community"
+# database_url_file = "/etc/lmm.conf.d/secrets/extensions/community-database-url"
+# [acquisition]
+# database_name = "lmm_acquisition"
+# database_url_file = "/etc/lmm.conf.d/secrets/extensions/acquisition-database-url"

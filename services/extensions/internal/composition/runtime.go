@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -174,6 +175,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	}
 	if err := validatePaymentSelection(cfg); err != nil {
 		return nil, err
+	}
+	if cfg.UserReadTokenFile != "" && !slices.Contains(cfg.Selected, "community") && !slices.Contains(cfg.Selected, "acquisition") {
+		return nil, errors.New("Core read configuration requires community or acquisition")
 	}
 	r := &Runtime{}
 	defer func() {
@@ -352,13 +356,35 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
 		return nil, errors.New("operations configuration requires explicit module selection")
 	}
+	var reader *community.CoreRead
+	if cfg.UserReadTokenFile != "" {
+		token, e := coreclient.ReadTokenFile(cfg.UserReadTokenFile)
+		if e != nil {
+			return nil, e
+		}
+		reader, e = community.NewCoreRead(cfg.Socket, token)
+		if e != nil {
+			return nil, e
+		}
+		r.close = append(r.close, func() error { reader.Close(); return nil })
+		if selected["community"] {
+			if e = reader.ReadyUsage(ctx); e != nil {
+				return nil, e
+			}
+		}
+		if selected["acquisition"] {
+			if e = reader.ReadyUsers(ctx); e != nil {
+				return nil, e
+			}
+		}
+	}
 	if selected["community"] {
 		db, err := openStorage(ctx, cfg.Community)
 		if err != nil {
 			return nil, err
 		}
 		r.close = append(r.close, db.Close)
-		if r.Community, err = community.New(ctx, db, cfg.HostPublicOrigin); err != nil {
+		if r.Community, err = community.New(ctx, db, cfg.HostPublicOrigin, community.Options{Core: reader}); err != nil {
 			return nil, err
 		}
 	} else if cfg.Community.URLFile != "" || cfg.Community.Database != "" {
@@ -377,22 +403,10 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		if r.Community != nil {
 			r.Acquisition.ClientRead = r.Community
 		}
-		if cfg.UserReadTokenFile != "" {
-			token, err := coreclient.ReadTokenFile(cfg.UserReadTokenFile)
-			if err != nil {
-				return nil, err
-			}
-			reader, err := community.NewCoreRead(cfg.Socket, token)
-			if err != nil {
-				return nil, err
-			}
-			r.close = append(r.close, func() error { reader.Close(); return nil })
-			if err = reader.ReadyUsers(ctx); err != nil {
-				return nil, err
-			}
+		if reader != nil {
 			r.Acquisition.UserRead = reader
 		}
-	} else if cfg.Acquisition.URLFile != "" || cfg.Acquisition.Database != "" || cfg.UserReadTokenFile != "" {
+	} else if cfg.Acquisition.URLFile != "" || cfg.Acquisition.Database != "" {
 		return nil, errors.New("acquisition configuration requires explicit module selection")
 	}
 	for _, name := range cfg.Selected {

@@ -259,3 +259,50 @@ async fn restored_cash_amounts_match_original_orders() {
     assert!(compared > 0);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires formally installed isolated Go runtime databases and restored Core"]
+async fn restored_rankings_use_the_composed_runtime() {
+    use std::os::unix::fs::DirBuilderExt;
+    let pool = rehearsal_pool().await;
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    let dir = std::env::temp_dir().join(format!("lmm-rank-runtime-{}", std::process::id()));
+    std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let router =
+        lmm_core::community_read::http::router(read, b"synthetic-community-purpose-token-20261104")
+            .unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("go")
+            .args([
+                "test",
+                "./internal/composition",
+                "-run",
+                "^TestCoreCommunityRuntimeLive$",
+                "-count=1",
+                "-v",
+            ])
+            .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../extensions"))
+            .env("LMM_TEST_CORE_RANK_SOCKET", socket)
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    server.abort();
+    let _ = server.await;
+    std::fs::remove_dir_all(dir).unwrap();
+    pool.close().await;
+    assert!(
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout)
+                .contains("--- PASS: TestCoreCommunityRuntimeLive"),
+        "composed rankings: {} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

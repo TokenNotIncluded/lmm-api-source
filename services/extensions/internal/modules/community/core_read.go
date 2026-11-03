@@ -78,6 +78,9 @@ func (c *CoreRead) call(ctx context.Context, path string, in, out any) error {
 // Ready verifies the purpose token and protocol at startup.
 func (c *CoreRead) Ready(ctx context.Context) error { return c.ready(ctx, "") }
 
+// ReadyUsage requires the aggregates used by community rankings and profiles.
+func (c *CoreRead) ReadyUsage(ctx context.Context) error { return c.ready(ctx, "community.usage.v1") }
+
 // ReadyUsers requires live platform-role fields used by acquisition permissions.
 func (c *CoreRead) ReadyUsers(ctx context.Context) error {
 	return c.ready(ctx, "community.users.roles.v1")
