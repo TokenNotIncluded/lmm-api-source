@@ -2,9 +2,13 @@
 package acquisition
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 func (h *handlers) correctionTarget(r *http.Request) (int64, error) {
@@ -52,4 +56,59 @@ func (h *handlers) corrections(w http.ResponseWriter, r *http.Request, a actor) 
 		return
 	}
 	respond(w, json.RawMessage(payload), nil)
+}
+
+func (h *handlers) saveCorrection(w http.ResponseWriter, r *http.Request, a actor) {
+	id, err := h.correctionTarget(r)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	var input struct {
+		ExpectedRevision *int64 `json:"expected_revision"`
+		Source           string `json:"source"`
+		Reason           string `json:"reason"`
+	}
+	if decode(w, r, &input, false) != nil {
+		respond(w, nil, ErrInvalid)
+		return
+	}
+	input.Reason = strings.TrimSpace(input.Reason)
+	if input.ExpectedRevision == nil || *input.ExpectedRevision < 0 || input.Source == "" || Label(input.Source) != input.Source || utf8.RuneCountInString(input.Reason) < 3 || utf8.RuneCountInString(input.Reason) > 300 || strings.ContainsAny(input.Reason, "\r\n\x00@") || selfReportSecret.MatchString(input.Reason) {
+		respond(w, nil, ErrInvalid)
+		return
+	}
+	var result json.RawMessage
+	err = h.s.tx(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
+		head, err := lockCorrection(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		var refused bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM lmm_acquisition.consents WHERE user_id=$1 AND NOT allowed)`, id).Scan(&refused); err != nil {
+			return err
+		}
+		if refused {
+			return ErrInvalid
+		}
+		if head.Revision != *input.ExpectedRevision {
+			return errConflict
+		}
+		previous := head.Source
+		now := h.s.now().Unix()
+		if head.Revision == 0 {
+			if err = tx.QueryRowContext(ctx, `SELECT coalesce((SELECT registration_source FROM lmm_acquisition.accounts WHERE user_id=$1 AND created_at >= $2),(SELECT 'historical_unrecorded' FROM lmm_acquisition.cohort c,lmm_acquisition.config f WHERE c.user_id=$1 AND c.registered_at<f.started_at),'unknown')`, id, now-AccountDays*daySeconds).Scan(&previous); err != nil {
+				return err
+			}
+		}
+		var revision int64
+		if err = tx.QueryRowContext(ctx, `INSERT INTO lmm_acquisition.corrections(user_id,previous_revision,previous_source,source,reason,actor_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, id, head.Revision, previous, input.Source, input.Reason, a.id, now).Scan(&revision); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE lmm_acquisition.correction_heads SET revision=$2,source=$3,updated_at=$4 WHERE user_id=$1`, id, revision, input.Source, now); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(ctx, `SELECT row_to_json(c) FROM lmm_acquisition.corrections c WHERE id=$1`, revision).Scan(&result)
+	})
+	respond(w, result, err)
 }

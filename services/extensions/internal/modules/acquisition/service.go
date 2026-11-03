@@ -110,7 +110,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("POST /api/admin/acquisition/activity/rebuild", h.admin(permWrite, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/users/export", h.admin(permExport, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/users/{id}/corrections", h.admin(permDetails, h.corrections))
-	mux.HandleFunc("POST /api/admin/acquisition/users/{id}/corrections", h.admin(permDetailsWrite, unavailableAdmin))
+	mux.HandleFunc("POST /api/admin/acquisition/users/{id}/corrections", h.admin(permDetailsWrite, h.saveCorrection))
 	mux.HandleFunc("GET /api/admin/acquisition/users", h.admin(permDetails, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/users/{id}", h.admin(permDetails, unavailableAdmin))
 	mux.HandleFunc("PUT /api/admin/acquisition/lookback", h.admin(permWrite, h.lookback))

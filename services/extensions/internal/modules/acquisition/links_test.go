@@ -202,6 +202,29 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	if err = json.Unmarshal(history.Body.Bytes(), &changes); err != nil || history.Code != 200 || len(changes.Data.Items) != 100 || !changes.Data.HasMore {
 		t.Fatalf("correction history: %d %s", history.Code, history.Body.String())
 	}
+	save := func(body string) int {
+		w := httptest.NewRecorder()
+		rootMux.ServeHTTP(w, httptest.NewRequest("POST", "/api/admin/acquisition/users/77/corrections", strings.NewReader(body)))
+		return w.Code
+	}
+	if status := save(`{"expected_revision":0,"source":"manual","reason":"operator correction"}`); status != 200 {
+		t.Fatalf("save correction: %d", status)
+	}
+	if status := save(`{"expected_revision":0,"source":"stale","reason":"operator correction"}`); status != 409 {
+		t.Fatalf("stale revision: %d", status)
+	}
+	var revision int64
+	var source string
+	if err = db.QueryRow(`SELECT revision,source FROM lmm_acquisition.correction_heads WHERE user_id=77`).Scan(&revision, &source); err != nil || source != "manual" {
+		t.Fatalf("head %d %q %v", revision, source, err)
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.consents(user_id,allowed,version,updated_at) VALUES(77,false,1,$1)`, s.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if status := save(fmt.Sprintf(`{"expected_revision":%d,"source":"denied","reason":"operator correction"}`, revision)); status != 400 {
+		t.Fatalf("withdrawn consent: %d", status)
+	}
+
 	for _, tc := range []struct {
 		role   string
 		status int
