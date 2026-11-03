@@ -93,7 +93,8 @@ test('wallet purchase requires preview and confirmation, preserves unknown commi
     terms: {
       title: 'Synthetic Plan',
       price_units: '100000',
-      duration_seconds: 3600,
+      duration_seconds: 0,
+      duration_months: 1,
       reset_period: 'grant',
       reset_seconds: 0,
       limit_units: '1000',
@@ -168,6 +169,7 @@ test('wallet purchase requires preview and confirmation, preserves unknown commi
   }
   try {
     await render()
+    assert.match(document.body.textContent ?? '', /1 months/)
     assert.equal(writes.length, 0)
     await click('Preview purchase')
     assert.equal(writes.length, 1)

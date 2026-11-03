@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { z } from 'zod'
+import { z } from "zod";
 
 import {
   CommerceFailure,
@@ -10,20 +10,21 @@ import {
   operationKey,
   positiveUnits,
   type CommerceScope,
-} from '@/features/commerce/native-client'
+} from "@/features/commerce/native-client";
 
 export const planTermsSchema = z
   .object({
     title: z.string().trim().min(1).max(160),
     price_units: positiveUnits,
-    duration_seconds: z.number().int().min(60).max(315576000),
+    duration_seconds: z.number().int().min(0).max(315576000),
+    duration_months: z.number().int().min(0).max(120).optional(),
     reset_period: z.enum([
-      'grant',
-      'day',
-      'week',
-      'month',
-      'anniversary_month',
-      'custom',
+      "grant",
+      "day",
+      "week",
+      "month",
+      "anniversary_month",
+      "custom",
     ]),
     reset_seconds: z.number().int().nonnegative(),
     limit_units: positiveUnits,
@@ -33,6 +34,11 @@ export const planTermsSchema = z
     enabled: z.boolean(),
   })
   .strict()
+  .refine((terms) =>
+    (terms.duration_months ?? 0) > 0
+      ? terms.duration_seconds === 0
+      : terms.duration_seconds >= 60,
+  );
 export const planSchema = z
   .object({
     id: nativeId,
@@ -40,24 +46,24 @@ export const planSchema = z
     archived: z.boolean(),
     terms: planTermsSchema,
   })
-  .strict()
-export type NativePlan = z.infer<typeof planSchema>
-export type NativePlanTerms = z.infer<typeof planTermsSchema>
+  .strict();
+export type NativePlan = z.infer<typeof planSchema>;
+export type NativePlanTerms = z.infer<typeof planTermsSchema>;
 export const savePlanSchema = z
   .object({
     operation_key: operationKey,
     expected_revision: nativeId.nullable(),
     terms: planTermsSchema,
   })
-  .strict()
-export type NativeSavePlan = z.infer<typeof savePlanSchema>
+  .strict();
+export type NativeSavePlan = z.infer<typeof savePlanSchema>;
 export const quoteRequestSchema = z
   .object({
     operation_key: operationKey,
     plan_id: nativeId,
     renew_from: nativeId.nullable(),
   })
-  .strict()
+  .strict();
 export const quoteSchema = z
   .object({
     id: nativeToken,
@@ -67,12 +73,12 @@ export const quoteSchema = z
     expires_at: z.number().int(),
     renew_from: nativeId.nullable(),
   })
-  .strict()
-export type NativeQuote = z.infer<typeof quoteSchema>
+  .strict();
+export type NativeQuote = z.infer<typeof quoteSchema>;
 export const receiptSchema = z
   .object({
     quote_id: nativeToken,
-    status: z.enum(['posted', 'rejected', 'refunded']),
+    status: z.enum(["posted", "rejected", "refunded"]),
     purchase_id: nativeId.nullable(),
     subscription_id: nativeId.nullable(),
     journal_id: nativeId.nullable(),
@@ -81,7 +87,7 @@ export const receiptSchema = z
   })
   .strict()
   .refine((value) =>
-    value.status === 'rejected'
+    value.status === "rejected"
       ? value.purchase_id === null &&
         value.subscription_id === null &&
         value.journal_id === null &&
@@ -89,9 +95,9 @@ export const receiptSchema = z
       : value.purchase_id !== null &&
         value.subscription_id !== null &&
         value.journal_id !== null &&
-        value.rejection === null
-  )
-export type NativeReceipt = z.infer<typeof receiptSchema>
+        value.rejection === null,
+  );
+export type NativeReceipt = z.infer<typeof receiptSchema>;
 export const purchaseSchema = z
   .object({
     id: nativeId,
@@ -106,8 +112,8 @@ export const purchaseSchema = z
     canceled_at: z.number().int().nullable(),
     refund_journal_id: nativeId.nullable(),
   })
-  .strict()
-export type NativePurchase = z.infer<typeof purchaseSchema>
+  .strict();
+export type NativePurchase = z.infer<typeof purchaseSchema>;
 export const refundQuoteSchema = z
   .object({
     id: nativeToken,
@@ -115,11 +121,11 @@ export const refundQuoteSchema = z
     amount_units: positiveUnits,
     expires_at: z.number().int(),
   })
-  .strict()
-export const purchasePendingSchema = z.discriminatedUnion('kind', [
+  .strict();
+export const purchasePendingSchema = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.literal('purchase'),
+      kind: z.literal("purchase"),
       request: quoteRequestSchema,
       quote: quoteSchema.optional(),
       confirmed: z.boolean(),
@@ -127,159 +133,159 @@ export const purchasePendingSchema = z.discriminatedUnion('kind', [
     .strict(),
   z
     .object({
-      kind: z.literal('refund'),
+      kind: z.literal("refund"),
       purchase_id: nativeId,
       quote: refundQuoteSchema,
       confirmed: z.boolean(),
     })
     .strict(),
-])
-export type SubscriptionPending = z.infer<typeof purchasePendingSchema>
-const base = '/core/v1/subscriptions'
+]);
+export type SubscriptionPending = z.infer<typeof purchasePendingSchema>;
+const base = "/core/v1/subscriptions";
 export async function listNativePlans(scope: CommerceScope, admin = false) {
   const response = await commerceRequest(
     scope,
-    'get',
-    `${base}/${admin ? 'admin/' : ''}plans`,
+    "get",
+    `${base}/${admin ? "admin/" : ""}plans`,
     z.object({
-      contract: z.literal('core.subscriptions.v1'),
+      contract: z.literal("core.subscriptions.v1"),
       plans: z.array(planSchema),
       payment_methods: z.array(z.string()).optional(),
       automatic_renewal: z.boolean().optional(),
-    })
-  )
-  return response.plans
+    }),
+  );
+  return response.plans;
 }
 export async function listNativePurchases(scope: CommerceScope) {
   return (
     await commerceRequest(
       scope,
-      'get',
+      "get",
       `${base}/purchases`,
       z.object({
-        contract: z.literal('core.subscriptions.v1'),
+        contract: z.literal("core.subscriptions.v1"),
         purchases: z.array(purchaseSchema),
-      })
+      }),
     )
-  ).purchases
+  ).purchases;
 }
 export async function quoteNativeSubscription(
   scope: CommerceScope,
-  request: z.infer<typeof quoteRequestSchema>
+  request: z.infer<typeof quoteRequestSchema>,
 ) {
-  quoteRequestSchema.parse(request)
+  quoteRequestSchema.parse(request);
   const result = await commerceRequest(
     scope,
-    'post',
+    "post",
     `${base}/quotes`,
     quoteSchema,
-    request
-  )
+    request,
+  );
   if (
     result.plan.id !== request.plan_id ||
     result.renew_from !== request.renew_from ||
     result.ends_at <= result.starts_at
   ) {
-    throw new CommerceFailure('INVALID_RESPONSE')
+    throw new CommerceFailure("INVALID_RESPONSE");
   }
-  return result
+  return result;
 }
 export async function confirmNativeSubscription(
   scope: CommerceScope,
-  quote: NativeQuote
+  quote: NativeQuote,
 ) {
   const result = await commerceRequest(
     scope,
-    'post',
+    "post",
     `${base}/quotes/${quote.id}/confirm`,
-    receiptSchema
-  )
+    receiptSchema,
+  );
   if (
     result.quote_id !== quote.id ||
     result.amount_units !== quote.plan.terms.price_units ||
-    result.status === 'refunded'
+    result.status === "refunded"
   ) {
-    throw new CommerceFailure('INVALID_RESPONSE')
+    throw new CommerceFailure("INVALID_RESPONSE");
   }
-  return result
+  return result;
 }
 export async function previewNativeRefund(
   scope: CommerceScope,
-  purchase: NativePurchase
+  purchase: NativePurchase,
 ) {
   const result = await commerceRequest(
     scope,
-    'post',
+    "post",
     `${base}/purchases/${purchase.id}/refund-preview`,
-    refundQuoteSchema
-  )
+    refundQuoteSchema,
+  );
   if (
     result.purchase_id !== purchase.id ||
     result.amount_units !== purchase.plan.terms.price_units
   ) {
-    throw new CommerceFailure('INVALID_RESPONSE')
+    throw new CommerceFailure("INVALID_RESPONSE");
   }
-  return result
+  return result;
 }
 export async function confirmNativeRefund(
   scope: CommerceScope,
-  quote: z.infer<typeof refundQuoteSchema>
+  quote: z.infer<typeof refundQuoteSchema>,
 ) {
   const result = await commerceRequest(
     scope,
-    'post',
+    "post",
     `${base}/refund-quotes/${quote.id}/confirm`,
-    receiptSchema
-  )
+    receiptSchema,
+  );
   if (
     result.quote_id !== quote.id ||
     result.purchase_id !== quote.purchase_id ||
     result.amount_units !== quote.amount_units ||
-    result.status !== 'refunded'
+    result.status !== "refunded"
   ) {
-    throw new CommerceFailure('INVALID_RESPONSE')
+    throw new CommerceFailure("INVALID_RESPONSE");
   }
-  return result
+  return result;
 }
 export async function cancelNativeRenewal(
   scope: CommerceScope,
-  purchase: NativePurchase
+  purchase: NativePurchase,
 ) {
   const result = await commerceRequest(
     scope,
-    'post',
+    "post",
     `${base}/purchases/${purchase.id}/cancel-renewal`,
-    purchaseSchema
-  )
+    purchaseSchema,
+  );
   if (result.id !== purchase.id || !result.renewal_canceled) {
-    throw new CommerceFailure('INVALID_RESPONSE')
+    throw new CommerceFailure("INVALID_RESPONSE");
   }
-  return result
+  return result;
 }
 export function saveNativePlan(
   scope: CommerceScope,
   id: number | null,
-  request: NativeSavePlan
+  request: NativeSavePlan,
 ) {
-  savePlanSchema.parse(request)
+  savePlanSchema.parse(request);
   return commerceRequest(
     scope,
-    id ? 'put' : 'post',
-    `${base}/admin/plans${id ? `/${id}` : ''}`,
+    id ? "put" : "post",
+    `${base}/admin/plans${id ? `/${id}` : ""}`,
     planSchema,
-    request
-  )
+    request,
+  );
 }
 export function archiveNativePlan(
   scope: CommerceScope,
   plan: NativePlan,
-  operation_key: string
+  operation_key: string,
 ) {
   return commerceRequest(
     scope,
-    'post',
+    "post",
     `${base}/admin/plans/${plan.id}/archive`,
     planSchema,
-    { operation_key, expected_revision: plan.revision }
-  )
+    { operation_key, expected_revision: plan.revision },
+  );
 }
