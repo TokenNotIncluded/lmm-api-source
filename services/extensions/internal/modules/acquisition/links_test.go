@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	_ "github.com/lib/pq"
 	"net/http"
@@ -113,6 +114,22 @@ func TestLinksPostgresHTTP(t *testing.T) {
 		t.Fatalf("create: %d %s", created.Code, created.Body.String())
 	}
 	id := saved.Data.ID
+	now := s.now().Unix()
+	for _, amount := range []int{1234567, 7654321} {
+		body := fmt.Sprintf(`{"link_id":%q,"from":%d,"to":%d,"observation_days":7,"currency":"USD","amount_micros":%d}`, id, now-100, now-1, amount)
+		if w := request("PUT", "/api/admin/acquisition/cost", body); w.Code != 200 {
+			t.Fatalf("cost write: %d %s", w.Code, w.Body.String())
+		}
+	}
+	var costCount int
+	var amount int64
+	if err = db.QueryRow(`SELECT count(*),max(amount_micros) FROM lmm_acquisition.costs`).Scan(&costCount, &amount); err != nil || costCount != 1 || amount != 7654321 {
+		t.Fatalf("cost upsert: %v %d %d", err, costCount, amount)
+	}
+	if w := request("PUT", "/api/admin/acquisition/cost", `{"amount_micros":-1}`); w.Code != 400 {
+		t.Fatalf("invalid cost accepted %d", w.Code)
+	}
+
 	changed := request("POST", "/api/admin/acquisition/links", `{"id":"`+id+`","name":"Renamed","source":"tampered","target":"/sign-in","archived":true}`)
 	if err = json.Unmarshal(changed.Body.Bytes(), &saved); err != nil || changed.Code != 200 || saved.Data.Source != "original" || saved.Data.Name != "Renamed" {
 		t.Fatalf("edit: %d %s", changed.Code, changed.Body.String())

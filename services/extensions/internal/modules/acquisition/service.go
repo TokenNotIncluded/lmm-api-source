@@ -97,7 +97,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	// supplies the real implementations; never serve fabricated analytics.
 	mux.HandleFunc("GET /api/admin/acquisition/links/{id}/preview", h.admin(permRead, h.previewLink))
 	mux.HandleFunc("GET /api/admin/acquisition/cost", h.admin(permRead, unavailableAdmin))
-	mux.HandleFunc("PUT /api/admin/acquisition/cost", h.admin(permWrite, unavailableAdmin))
+	mux.HandleFunc("PUT /api/admin/acquisition/cost", h.admin(permWrite, h.saveCost))
 	mux.HandleFunc("GET /api/admin/acquisition/links", h.admin(permRead, h.links))
 	mux.HandleFunc("POST /api/admin/acquisition/links", h.admin(permWrite, h.saveLink))
 	mux.HandleFunc("DELETE /api/admin/acquisition/links/{id}", h.admin(permWrite, h.deleteLink))
