@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,34 +13,38 @@ import (
 )
 
 func (h *handlers) correctionTarget(r *http.Request) (int64, error) {
+	user, err := h.detailTarget(r)
+	return user.UserID, err
+}
+func (h *handlers) detailTarget(r *http.Request) (community.CoreUserInfo, error) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		return 0, ErrInvalid
+		return community.CoreUserInfo{}, ErrInvalid
 	}
 	if h.s.UserRead == nil {
-		return 0, errUnavailable
+		return community.CoreUserInfo{}, errUnavailable
 	}
 	users, err := h.s.UserRead.Users(r.Context(), []int64{id})
 	if err != nil {
-		return 0, errUnavailable
+		return community.CoreUserInfo{}, errUnavailable
 	}
 	user, ok := users[id]
 	if !ok {
-		return 0, errNotFound
+		return community.CoreUserInfo{}, errNotFound
 	}
 	if user.UserID != id {
-		return 0, errUnavailable
+		return community.CoreUserInfo{}, errUnavailable
 	}
 	if !user.Active {
-		return 0, errNotFound
+		return community.CoreUserInfo{}, errNotFound
 	}
 	switch user.PlatformRole {
 	case "user":
-		return id, nil
+		return user, nil
 	case "admin", "superadmin":
-		return 0, errForbidden
+		return community.CoreUserInfo{}, errForbidden
 	default:
-		return 0, errUnavailable
+		return community.CoreUserInfo{}, errUnavailable
 	}
 }
 func (h *handlers) corrections(w http.ResponseWriter, r *http.Request, a actor) {

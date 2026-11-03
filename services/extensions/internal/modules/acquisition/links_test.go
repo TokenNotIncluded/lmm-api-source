@@ -230,6 +230,41 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	if _, err = db.Exec(`INSERT INTO lmm_acquisition.corrections(user_id,previous_revision,previous_source,source,reason,actor_id,created_at) SELECT 77,n,'old','corrected','synthetic',1,$1 FROM generate_series(1,101) n`, s.now().Unix()); err != nil {
 		t.Fatal(err)
 	}
+	detail := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		rootMux.ServeHTTP(w, httptest.NewRequest("GET", "/api/admin/acquisition/users/77", nil))
+		return w
+	}
+	unknown := detail()
+	var info struct {
+		Data struct {
+			RegisteredAt *int64 `json:"registered_at"`
+			Historical   *bool  `json:"historical"`
+			Recent       []json.RawMessage
+			RecentLimit  int   `json:"recent_limit"`
+			FirstSuccess int64 `json:"first_success_at"`
+		}
+	}
+	if err = json.Unmarshal(unknown.Body.Bytes(), &info); err != nil || unknown.Code != 200 || info.Data.RegisteredAt != nil || info.Data.Historical != nil {
+		t.Fatalf("unknown registration: %d %s", unknown.Code, unknown.Body.String())
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.cohort(user_id,registered_at,origin) VALUES(77,$1,'legacy_import')`, now-100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.activities(user_id,day,first_at,last_at) VALUES(77,0,$1,$1)`, now-50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.visits(visitor_id,nonce,source,created_at) SELECT repeat('e',64),'detail-'||n,'alpha',$1-n FROM generate_series(0,24) n`, now); err != nil {
+		t.Fatal(err)
+	}
+	known := detail()
+	if err = json.Unmarshal(known.Body.Bytes(), &info); err != nil || known.Code != 200 || info.Data.RegisteredAt == nil || *info.Data.RegisteredAt != now-100 || info.Data.Historical == nil || !*info.Data.Historical || len(info.Data.Recent) != 20 || info.Data.RecentLimit != 20 || info.Data.FirstSuccess != now-50 {
+		t.Fatalf("known detail: %d %s", known.Code, known.Body.String())
+	}
+	if strings.Contains(known.Body.String(), "visitor_id") || strings.Contains(known.Body.String(), "nonce") {
+		t.Fatal("detail exposed browser tracking identifiers")
+	}
+
 	history := httptest.NewRecorder()
 	rootMux.ServeHTTP(history, httptest.NewRequest("GET", "/api/admin/acquisition/users/77/corrections", nil))
 	var changes struct {
