@@ -374,6 +374,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			return nil, err
 		}
 
+		if r.Community != nil {
+			r.Acquisition.ClientRead = r.Community
+		}
 		if cfg.UserReadTokenFile != "" {
 			token, err := coreclient.ReadTokenFile(cfg.UserReadTokenFile)
 			if err != nil {

@@ -78,4 +78,6 @@ func TestCoreCostLive(t *testing.T) {
 	if result.Data.Registrations != 2 || result.Data.FirstPayingAccounts != 1 || result.Data.PerRegistration == nil || *result.Data.PerRegistration != 500001 || !result.Data.Observing || result.Data.PerPayer != nil || result.Data.Unclassified != 0 {
 		t.Fatalf("Core-backed metrics: %#v", result.Data)
 	}
+	t.Run("funnel", func(t *testing.T) { testCoreFunnelLive(t, db, service, client, mux) })
+
 }

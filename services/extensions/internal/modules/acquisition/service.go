@@ -49,7 +49,12 @@ type UserReader interface {
 	Users(context.Context, []int64) (map[int64]community.CoreUserInfo, error)
 }
 
+type ClientReader interface {
+	ConfiguredClients(context.Context, []int64) (map[int64]int64, error)
+}
+
 type Service struct {
+	ClientRead   ClientReader
 	UserRead     UserReader
 	db           *sql.DB
 	secureCookie bool
@@ -114,7 +119,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("GET /api/admin/acquisition/users/{id}", h.admin(permDetails, h.userDetail))
 	mux.HandleFunc("PUT /api/admin/acquisition/lookback", h.admin(permWrite, h.lookback))
 	mux.HandleFunc("GET /api/admin/acquisition/visitors", h.admin(permRead, h.visitors))
-	mux.HandleFunc("GET /api/admin/acquisition/funnel", h.admin(permRead, unavailableAdmin))
+	mux.HandleFunc("GET /api/admin/acquisition/funnel", h.admin(permRead, h.funnel))
 	mux.HandleFunc("GET /api/admin/acquisition/report", h.admin(permRead, unavailableAdmin))
 }
 

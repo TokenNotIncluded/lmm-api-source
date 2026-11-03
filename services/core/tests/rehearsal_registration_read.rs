@@ -166,3 +166,49 @@ async fn restored_cash_history_matches_original_classifications() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires explicitly restored Core, acquisition and community databases"]
+async fn restored_funnel_uses_real_core_and_extension_databases() {
+    use std::os::unix::fs::DirBuilderExt;
+    let pool = rehearsal_pool().await;
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    let dir = std::env::temp_dir().join(format!("lmm-restored-funnel-{}", std::process::id()));
+    std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let router =
+        lmm_core::community_read::http::router(read, b"synthetic-community-purpose-token-20261104")
+            .unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("go")
+            .args([
+                "test",
+                "./internal/modules/acquisition",
+                "-run",
+                "^TestRestoredFunnelLive$",
+                "-count=1",
+                "-v",
+            ])
+            .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../extensions"))
+            .env("LMM_TEST_CORE_FUNNEL_SOCKET", socket)
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    server.abort();
+    let _ = server.await;
+    std::fs::remove_dir_all(dir).unwrap();
+    pool.close().await;
+    assert!(
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("--- PASS: TestRestoredFunnelLive"),
+        "restored Core/Go funnel: {} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

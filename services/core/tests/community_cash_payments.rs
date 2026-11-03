@@ -209,6 +209,14 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
             "Core-backed cost integration must execute: {}",
             String::from_utf8_lossy(&output.stdout)
         );
+        if std::env::var_os("ACQUISITION_FUNNEL_COMMUNITY_DATABASE_URL").is_some() {
+            assert!(
+                String::from_utf8_lossy(&output.stdout)
+                    .contains("--- PASS: TestCoreCostLive/funnel"),
+                "Core-backed funnel integration must execute: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+        }
     }
 }
 
