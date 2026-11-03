@@ -18,6 +18,7 @@ async fn batch_users_preserve_live_platform_role_and_active_state(pool: PgPool) 
     };
     let rows = read.users(&request).await.unwrap();
     assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|u| u.registered_at.is_some_and(|t| t > 0)));
     assert_eq!(
         rows.iter()
             .map(|u| u.platform_role.as_str())
@@ -35,6 +36,13 @@ async fn batch_users_preserve_live_platform_role_and_active_state(pool: PgPool) 
         serde_json::to_value(&rows[1]).unwrap()["platform_role"],
         "admin"
     );
+    sqlx::query("UPDATE core_identity.accounts SET created_at=to_timestamp(0) WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=2)").execute(&pool).await.unwrap();
+    let rows = read.users(&request).await.unwrap();
+    assert!(rows[0].registered_at.is_some());
+    assert!(rows[1].registered_at.is_none());
+    sqlx::query("INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest) VALUES('old-time-fixture',repeat('a',64),repeat('b',64),'{}')").execute(&pool).await.unwrap();
+    let rows = read.users(&request).await.unwrap();
+    assert!(rows.iter().all(|u| u.registered_at.is_none()));
 }
 
 #[sqlx::test(migrations = false)]

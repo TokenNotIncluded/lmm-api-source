@@ -29,7 +29,7 @@ func TestCoreUserRolesLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(users) != 3 || users[1].PlatformRole != "user" || users[1].Active || users[2].PlatformRole != "admin" || users[3].PlatformRole != "superadmin" {
+	if len(users) != 3 || users[1].RegisteredAt == nil || *users[1].RegisteredAt <= 0 || users[1].PlatformRole != "user" || users[1].Active || users[2].PlatformRole != "admin" || users[3].PlatformRole != "superadmin" {
 		t.Fatalf("live identity mismatch: %#v", users)
 	}
 	wrong, err := NewCoreRead(socket, []byte(strings.Repeat("x", 40)))

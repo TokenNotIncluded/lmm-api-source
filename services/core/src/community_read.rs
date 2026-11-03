@@ -156,6 +156,8 @@ pub struct UsersInfoRequest {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserInfo {
+    /// Unknown for legacy imports made before registration-time preservation.
+    pub registered_at: Option<i64>,
     pub user_id: i64,
     pub active: bool,
     pub platform_role: String,
@@ -469,13 +471,15 @@ impl CommunityRead {
         };
         let mut tx = self.snapshot().await?;
         let rows = sqlx::query(&format!(
-            "SELECT u.id, u.active, u.platform_role, coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
+            "SELECT u.id, u.active, u.platform_role,
+              CASE WHEN a.created_at>to_timestamp(0) AND NOT EXISTS(SELECT 1 FROM core_migration.import_runs i WHERE NOT(coalesce(i.manifest->'summary','{{}}'::jsonb) ? 'registration_time_known_count')) THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at,
+              coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
               (u.platform_role IN ('admin','superadmin') OR coalesce(d.granted,false)) AS developer,
               EXISTS(SELECT FROM core_identity.credentials c JOIN core_identity.api_key_settings k ON k.credential_id=c.id
                 WHERE c.user_id=u.id AND c.kind='api_key' AND k.enabled AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp()) AS has_key,
               greatest(coalesce((SELECT max(r.authorized_at) FROM core_charging.requests r WHERE r.actor_user_id=u.id AND r.state='settled' AND r.outcome='completed'),0),
                        coalesce({history},0))::bigint AS last_api
-             FROM core_identity.users u LEFT JOIN core_identity.user_profiles p ON p.user_id=u.id
+             FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_identity.user_profiles p ON p.user_id=u.id
              LEFT JOIN core_identity.developer_access d ON d.user_id=u.id
              WHERE u.id=ANY($1) ORDER BY u.id"
         ))
@@ -486,6 +490,7 @@ impl CommunityRead {
         rows.into_iter()
             .map(|row| {
                 Ok(UserInfo {
+                    registered_at: row.try_get("registered_at")?,
                     user_id: row.try_get("id")?,
                     active: row.try_get("active")?,
                     platform_role: row.try_get("platform_role")?,
