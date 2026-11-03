@@ -61,6 +61,7 @@ impl ExportParams {
 
 pub fn router(store: HistoryStore) -> Router {
     Router::new()
+        .route("/core/v1/checkins/history", get(checkin_history))
         .route("/api/log", get(logs))
         .route("/api/log/", get(logs))
         .route("/api/log/stat", get(stats))
@@ -512,5 +513,30 @@ mod export_query_tests {
                 "{query}"
             );
         }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckinQuery {
+    month: String,
+}
+
+async fn checkin_history(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<CheckinQuery>, QueryRejection>,
+) -> Response {
+    let secret = match extract_bearer(&headers) {
+        Ok(secret) => secret,
+        Err(error) => return error_response(error),
+    };
+    let month = match query {
+        Ok(Query(query)) => query.month,
+        Err(_) => return error_response(HistoryError::Invalid),
+    };
+    match store.checkin_history(secret, &month).await {
+        Ok(data) => Json(json!({"success": true, "data": data})).into_response(),
+        Err(error) => error_response(error),
     }
 }
