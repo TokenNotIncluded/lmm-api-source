@@ -1,7 +1,7 @@
 """Money cutover must preserve paid contract terms before emitting SQL."""
 import unittest
 
-from legacy_cutover_money import plan_terms
+from legacy_cutover_money import plan_terms, subscription_order_links
 
 
 class SubscriptionTermsTest(unittest.TestCase):
@@ -15,6 +15,16 @@ class SubscriptionTermsTest(unittest.TestCase):
             }, {})
             self.assertEqual(terms["duration_months"], months)
             self.assertEqual(terms["duration_seconds"], 0)
+
+    def test_timestamp_candidate_does_not_repair_missing_source_link(self):
+        result = subscription_order_links({
+            "user_subscriptions": [{"id": 9, "user_id": 2, "plan_id": 3, "start_time": 100}],
+            "subscription_orders": [{"id": 1, "user_id": 2, "plan_id": 3,
+                "complete_time": 100, "user_subscription_id": 0, "status": "success"}],
+        })
+        self.assertEqual(result[0]["state"], "missing_source_link")
+        self.assertEqual(result[0]["source_subscription_id"], 0)
+        self.assertEqual(result[0]["timestamp_candidate_ids"], [9])
 
     def test_fixed_duration_terms_preserve_exact_units(self):
         terms, archived = plan_terms({

@@ -202,6 +202,27 @@ def subscription_record(s: dict, plan: dict, observed_at: int, migration_id: str
             "grant_reference": f"legacy-sub:{migration_id}:{s['id']}"}
 
 
+def subscription_order_links(data):
+    """Preserve explicit source links; timestamp matches are evidence, not authority."""
+    grants = {s["id"]: s for s in data["user_subscriptions"]}
+    results = []
+    for order in data["subscription_orders"]:
+        if order["status"] != "success":
+            continue
+        source_id = order.get("user_subscription_id") or 0
+        grant = grants.get(source_id)
+        if grant is not None:
+            state = "matched" if (grant["user_id"], grant["plan_id"]) == (order["user_id"], order["plan_id"]) else "ownership_mismatch"
+        else:
+            state = "missing_source_link" if source_id == 0 else "missing_source_grant"
+        candidates = [s["id"] for s in grants.values()
+                      if (s["user_id"], s["plan_id"], s["start_time"]) ==
+                      (order["user_id"], order["plan_id"], order["complete_time"])]
+        results.append({"source_order_id": order["id"], "source_subscription_id": source_id,
+                        "state": state, "timestamp_candidate_ids": candidates})
+    return results
+
+
 def plan_subscriptions(data, archive_sha, migration_id, observed_at):
     sql, stats = [], Counter()
     actor = superadmin(data)
@@ -235,6 +256,8 @@ def plan_subscriptions(data, archive_sha, migration_id, observed_at):
         stats["user_subscriptions_active"] += r["active"]
         if r["active"] and r["remaining"] is not None:
             stats["active_remaining_units"] += max(r["remaining"], 0)
+    for link in subscription_order_links(data):
+        stats["successful_order_link_" + link["state"]] += 1
     for o in data["subscription_orders"]:
         stats["orders_" + str(o["status"])] += 1
         if o["status"] != "pending":
