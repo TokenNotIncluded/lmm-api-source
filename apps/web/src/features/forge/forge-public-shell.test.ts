@@ -20,6 +20,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 
+import { cloneHeaderNavDefaults } from '../../lib/header-nav-config'
+import { buildTopNavLinks } from '../../lib/top-nav-policy'
+
 const source = readFileSync(
   new URL('./forge-public-shell.tsx', import.meta.url),
   'utf8'
@@ -27,11 +30,26 @@ const source = readFileSync(
 
 describe('Forge public navigation', () => {
   test('keeps the header focused on core discovery routes', () => {
-    assert.match(source, /title: 'Home'/)
-    assert.match(source, /title: 'Models and pricing'/)
-    assert.match(source, /title: 'Guide'/)
-    assert.match(source, /href: '\/guide'/)
-    assert.match(source, /title: 'Challenges'/)
-    assert.match(source, /securityLink/)
+    assert.match(source, /useTopNavLinks\('public'\)/)
+    assert.match(source, /navLinks=\{navLinks\}/)
+    const links = buildTopNavLinks({
+      modules: cloneHeaderNavDefaults(),
+      surface: 'public',
+      isAuthed: false,
+      workspaceHref: '',
+      hasDocsAccess: false,
+      translate: (key) => key,
+    })
+    for (const [title, href] of [
+      ['Home', '/'],
+      ['Models and pricing', '/pricing'],
+      ['Guide', '/guide'],
+      ['Challenges', '/challenges'],
+      ['Security', '/security'],
+    ]) {
+      assert.ok(
+        links.some((link) => link.title === title && link.href === href)
+      )
+    }
   })
 })
