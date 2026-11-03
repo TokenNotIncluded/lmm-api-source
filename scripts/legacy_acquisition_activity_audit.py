@@ -100,7 +100,7 @@ def main():
         with os.fdopen(os.open(args.projection.resolve(), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as stream:
             stream.write(payload + b'\n')
         report['projection_sha256'] = digest
-    output = json.dumps(report, sort_keys=True) + '\n' 
+    output = json.dumps(report, sort_keys=True) + '\n'
     if args.report:
         path = args.report.resolve()
         if not path.is_relative_to(backup):
