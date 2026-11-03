@@ -138,8 +138,14 @@ def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
             emails.setdefault(email, []).append(uid)
         stats["active" if active else "inactive"] += 1
         stats["role_" + role] += 1
-        sql.append("INSERT INTO core_identity.accounts(id,kind,service_level,active) OVERRIDING SYSTEM VALUE "
-                   f"VALUES({uid},'personal',0,{lit(active)});")
+        registered_at = u.get("created_at")
+        if registered_at is not None and (type(registered_at) is not int or not 0 <= registered_at <= 253402300799):
+            fail("registration_time_invalid")
+        stats["registration_time_known_count" if registered_at else "registration_time_unknown_count"] += 1
+        # Preserve source registration time. Epoch zero marks an unknown time;
+        # using the account default would silently substitute the import time.
+        sql.append("INSERT INTO core_identity.accounts(id,kind,service_level,active,created_at) OVERRIDING SYSTEM VALUE "
+                   f"VALUES({uid},'personal',0,{lit(active)},to_timestamp({registered_at or 0}));")
         sql.append("INSERT INTO core_identity.users(id,personal_account_id,platform_role,active,auth_version) "
                    f"VALUES({uid},{uid},{lit(role)},{lit(active)},{max(1, u['auth_version'] or 1)});")
         # Legacy accepted username or email with the password; keep email login

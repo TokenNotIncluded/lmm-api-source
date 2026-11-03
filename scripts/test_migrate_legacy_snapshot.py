@@ -517,9 +517,9 @@ class DeveloperAccessTests(unittest.TestCase):
 
 
 class IdentityContractTests(unittest.TestCase):
-    def test_core26_assembly_uses_exact_concat_lf_and_telegram_alias(self):
+    def test_core49_assembly_uses_exact_concat_lf_and_telegram_alias(self):
         schemas = MODULE.component_schemas()
-        self.assertEqual(len(schemas), 26)
+        self.assertEqual(len(schemas), 49)
         root = MODULE.ROOT / "services/core/schema"
         self.assertEqual(schemas["trust-pricing"], (root / "trust_pricing.sql").read_bytes()
                          + b"\n" + (root / "image_trust_extension.sql").read_bytes())
@@ -631,7 +631,7 @@ class IdentityContractTests(unittest.TestCase):
 
     def test_current_source_raw_bytes_and_rust_version_match_pinned_review(self):
         contract = MODULE.identity_contract()
-        self.assertEqual(contract, {"identity_version": 5,
+        self.assertEqual(contract, {"identity_version": 6,
             "identity_fingerprint_sha256": hashlib.sha256(MODULE.IDENTITY_SCHEMA.read_bytes()).hexdigest()})
         self.assertEqual(contract["identity_fingerprint_sha256"], MODULE.IDENTITY_FINGERPRINT)
 
@@ -644,7 +644,7 @@ class IdentityContractTests(unittest.TestCase):
                     MODULE.identity_contract()
 
     def test_old_future_missing_or_duplicate_source_versions_are_rejected(self):
-        for contents in ("const VERSION: i32 = 2;", "const VERSION: i32 = 4;", "const VERSION: i32 = 6;", "",
+        for contents in ("const VERSION: i32 = 2;", "const VERSION: i32 = 4;", "const VERSION: i32 = 5;", "const VERSION: i32 = 7;", "",
                          "const VERSION: i32 = 5;\nconst VERSION: i32 = 5;"):
             with self.subTest(contents=contents), tempfile.TemporaryDirectory() as temporary:
                 rust = Path(temporary) / "schema.rs"
@@ -678,7 +678,7 @@ class ImportSqlTests(unittest.TestCase):
             self.assertIn(privilege, sql)
         self.assertIn("pg_has_role(session_user,current_user,'MEMBER')", sql)
 
-    def test_fresh26_trust_seed_all_fields_and_dynamic_snapshot_are_bound(self):
+    def test_fresh49_trust_seed_all_fields_and_dynamic_snapshot_are_bound(self):
         contract = target_contract(allow_initialized_core_seed=True, initialized_core_seed_contract=MODULE.CORE_SEED_CONTRACT)
         for field, value in (("singleton", False), ("revision", 2), ("source_digest", "f" * 64),
                              ("source_cutoff", False), ("native_user_floor", 2), ("native_since", "2026-10-12")):
@@ -873,10 +873,10 @@ class ImportSqlTests(unittest.TestCase):
     def test_core_seed_exception_requires_literal_boolean_opt_in(self):
         base = target_contract()
         for value in (False, None, 0, 1, "true"):
-            with self.subTest(value=value), self.assertRaisesRegex(MODULE.MappingError, "target_fresh26_seed_contract_required"):
+            with self.subTest(value=value), self.assertRaisesRegex(MODULE.MappingError, "target_fresh49_seed_contract_required"):
                 self.sql(target_contract={**base, "allow_initialized_core_seed": value})
         del base["allow_initialized_core_seed"]
-        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh26_seed_contract_required"):
+        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh49_seed_contract_required"):
             self.sql(target_contract=base)
 
     def test_core_seed_opt_in_requires_the_explicit_reviewed_seed_contract(self):
@@ -885,9 +885,9 @@ class ImportSqlTests(unittest.TestCase):
                 self.sql(target_contract=target_contract(allow_initialized_core_seed=True,
                     initialized_core_seed_contract=seed))
 
-    def test_version_five_and_exact_fingerprint_are_bound_to_sql(self):
+    def test_version_six_and_exact_fingerprint_are_bound_to_sql(self):
         sql, _ = self.sql()
-        self.assertIn("singleton AND version=5 AND encode(fingerprint,'hex')='" + MODULE.IDENTITY_FINGERPRINT + "'", sql)
+        self.assertIn("singleton AND version=6 AND encode(fingerprint,'hex')='" + MODULE.IDENTITY_FINGERPRINT + "'", sql)
         self.assertNotIn("version=2", sql)
 
     def test_developer_rows_are_atomic_counted_and_exactly_read_back(self):
@@ -942,7 +942,7 @@ class ImportSqlTests(unittest.TestCase):
 
     def test_ledger_only_seed_permission_does_not_allow_event_or_routing_seed(self):
         contract = target_contract(allow_initialized_zero_ledger_seed=True)
-        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh26_seed_contract_required"):
+        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh49_seed_contract_required"):
             self.sql(target_contract=contract)
 
     def test_target_emptiness_scope_includes_public_and_other_application_schemas(self):
@@ -1489,7 +1489,7 @@ class RealIdentityTransactionTests(unittest.TestCase):
 
     The private receipt must attest status=initialized-empty-identity-fixture,
     synthetic_only=true, registry_provisioned=true, and no app/worker started.
-    It supplies connection, instance_identity, and the reviewed schema-5 Core26 contract
+    It supplies connection, instance_identity, and the reviewed schema-6 Core49 contract
     with allow_initialized_core_seed=true and initialized_core_seed_contract.
     Never use an application database here.
     Every database response and error stays in a new private Backups directory.

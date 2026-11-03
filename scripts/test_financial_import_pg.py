@@ -1,7 +1,7 @@
 """Real PostgreSQL opening/replay/rollback tests; no images or tools downloaded.
 
 LMM_FINANCIAL_PG_TEST=1 uses a network-isolated Docker PostgreSQL18 and reviewed
-Core26 DDL (synthetic SQL fixture, NOT compiled init-db acceptance).
+Core49 DDL (synthetic SQL fixture, NOT compiled init-db acceptance).
 LMM_FINANCIAL_PG_FIXTURE_RECEIPT selects a resource-owner Unix-only PG18 receipt
 with an already init-db-created empty Core template and matching verified binary
 and schema-manifest. That mode clones only into its random owned test databases.
@@ -129,11 +129,11 @@ def synthetic_upgrade_receipt_sql(table):
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_reviewed_ddl_includes_current26_metadata_and_oauth_contract(self):
+    def test_reviewed_ddl_includes_current49_metadata_and_oauth_contract(self):
         contract = F.IDENTITY.current_contract()
         ddl = reviewed_fixture_ddl(contract)
-        self.assertEqual(len(contract["component_fingerprints"]), 26)
-        self.assertIn("VALUES(5,decode(", ddl)
+        self.assertEqual(len(contract["component_fingerprints"]), 49)
+        self.assertIn("VALUES(6,decode(", ddl)
         self.assertIn("CREATE TABLE core_meta.schema_upgrades", ddl)
         self.assertIn("CREATE TABLE core_meta.component_upgrades", ddl)
         self.assertIn("INSERT INTO core_oauth.contract(version,ddl_fingerprint,catalog_fingerprint)", ddl)

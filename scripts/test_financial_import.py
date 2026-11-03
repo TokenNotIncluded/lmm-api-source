@@ -367,11 +367,11 @@ class MaterialTests(unittest.TestCase):
         with self.assertRaisesRegex(F.Error, "source_contract_changed"):
             F.build_apply_sql(material)
 
-    def test_every_fresh26_empty_table_is_bound(self):
+    def test_every_fresh49_empty_table_is_bound(self):
         for name in F.FRESH_EMPTY_TABLES:
             material = copy.deepcopy(self.material)
             material["before_state"]["tables"][name] = {"rows": 1, "sha256": "0" * 64}
-            with self.subTest(table=name), self.assertRaisesRegex(F.Error, "fresh26_business_or_upgrade_records_not_empty"):
+            with self.subTest(table=name), self.assertRaisesRegex(F.Error, "fresh49_business_or_upgrade_records_not_empty"):
                 F.build_apply_sql(material)
 
     def test_trust_seed_requires_owner_capture_and_exact_default_fields(self):

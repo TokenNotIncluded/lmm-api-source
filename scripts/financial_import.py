@@ -34,7 +34,7 @@ SCOPE = "financial-opening-only-v1"
 ESCROW_SCOPE = "financial-opening-with-legacy-escrow-v1"
 ESCROW_POLICY = "restore-clearing-to-reserved-without-wallet-debit"
 INFLIGHT_POLICY = "independently-reviewed-zero-nonescrow-inflight"
-SEED = "identity-bound-fresh26-zero-ledger-v2"
+SEED = "identity-bound-fresh49-zero-ledger-v3"
 FENCE = 741803121  # Shared with the offline identity importer.
 TABLE_FILTER = "n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'"
 CHANGED_TABLES = (
@@ -53,7 +53,7 @@ ESCROW_SOURCE_FILES = frozenset({"escrow_candidate", "escrow_unit_evidence", "so
 SOURCE_FILES = frozenset({"archive", "source_receipt", "financial_plan", "source_export",
     "source_export_proof", "identity_map", "identity_manifest", "source_review", "reservations"})
 FRESH_EMPTY_TABLES = (
-    "core_meta.schema_upgrades", "core_meta.component_upgrades", "core_meta.ledger_revisions",
+    *IDENTITY.UPGRADE_RECEIPT_TABLES,
     "core_trust_pricing.user_bases", "core_trust_pricing.legacy_paid_orders",
     "core_telegram_auth.bindings", "core_telegram_auth.flows", "core_telegram_auth.assertions",
 )
@@ -501,7 +501,7 @@ def validate_material(material: dict) -> None:
         PLANNER.integer(value.get("rows"), "snapshot_count_invalid", minimum=0)
         checked_hash(value.get("sha256"))
     require(all(state["tables"][name] == {"rows": 0, "sha256": sha(b"")} for name in FRESH_EMPTY_TABLES),
-            "fresh26_business_or_upgrade_records_not_empty")
+            "fresh49_business_or_upgrade_records_not_empty")
     if composed:
         require(set(ESCROW_TABLES) | {"core_billing.legacy_escrow_operations"} <= set(state["tables"]),
                 "escrow_target_inventory_incomplete")

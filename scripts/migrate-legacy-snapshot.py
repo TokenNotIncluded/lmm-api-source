@@ -53,20 +53,21 @@ ARGON2 = re.compile(r"\$argon2id\$v=19\$m=19456,t=2,p=1\$([A-Za-z0-9+/]+)\$([A-Z
 TABLES = ("accounts", "users", "user_profiles", "password_logins", "developer_access")
 ACCOUNT_IMPORT_SQL = """  INSERT INTO core_identity.accounts(id,kind,service_level,active,created_at) OVERRIDING SYSTEM VALUE
    SELECT (r->>'account_id')::bigint,'personal',0,(r->>'active')::boolean,to_timestamp(coalesce((r->>'registered_at')::bigint,0)) FROM jsonb_array_elements(payload) r;"""
-IDENTITY_VERSION = 5
+IDENTITY_VERSION = 6
 # Bind this importer to the reviewed DDL, rather than trusting a caller's hash.
-IDENTITY_FINGERPRINT = "c637586f484386a8357e1b9e9dd39023d0d53316f17d0de403c864a3b49ebec9"
+IDENTITY_FINGERPRINT = '28e38032e210565121fff19e095d36214ed2fc8f40016e3535c83929c0c60992'
 IDENTITY_SCHEMA = Path(__file__).resolve().parents[1] / "services/core/schema/identity.sql"
 IDENTITY_SCHEMA_RUST = Path(__file__).resolve().parents[1] / "services/core/src/identity/schema.rs"
 ROOT = Path(__file__).resolve().parents[1]
-CORE_SEED_CONTRACT = "fresh26-identity5-trust-policy-telegram-empty-v1"
-# Reviewed against 3e02d13435447181675f2d4c23fd7f6496339593. Byte changes require
+CORE_SEED_CONTRACT = "fresh49-identity6-complete-seeds-v1"
+# Reviewed fresh-49 assembly at 6416c4c, including alias/concat DDL and seeds.
+# Cross-checked against the compiled schema-manifest. Byte changes require
 # a new review, never a caller-provided replacement fingerprint. Order is DDL order.
 # Routing additionally binds the reviewed fresh-install JSONB payload policy and
 # JSON-preserving projection; this grants no existing-site upgrade authority.
 REVIEWED_COMPONENTS = {
     'humangrant': ('include_str!("../schema/humangrant.sql")', '7d9437a2ee485bc7491c76e755ca481a7a722c4ea9ae7322fe32ac5f8f0090bc'),
-    'identity': ('include_str!("../schema/identity.sql")', 'c637586f484386a8357e1b9e9dd39023d0d53316f17d0de403c864a3b49ebec9'),
+    'identity': ('include_str!("../schema/identity.sql")', '28e38032e210565121fff19e095d36214ed2fc8f40016e3535c83929c0c60992'),
     'ledger': ('include_str!("../schema/ledger.sql")', 'ce973f6fee25904d4fcdc87895ec49e6c53e10c9fb3508df4d7d72ace16df77f'),
     'payments': ('include_str!("../schema/payments.sql")', '9579afddbe5aeb4deb67984e731bcdc6ca405dc619ceede8d92505ecc43f7d39'),
     'charging': ('include_str!("../schema/charging.sql")', '08f0a99e3cc7729627f782ec0341c31353008926b8ec8584c555a6c10dcb53de'),
@@ -74,7 +75,7 @@ REVIEWED_COMPONENTS = {
     'events': ('include_str!("../schema/events.sql")', '99b3f6e9daa36c97fd18d515c8654310945612c0d992297b816a0405c17d5f22'),
     'charging-ledger': ('include_str!("../schema/charging_ledger.sql")', 'a06370899332ece92cf54fe0fa24df70ea532480b09a19abf99a52a30a7d24de'),
     'migration': ('include_str!("../schema/migration.sql")', '4f6264d3edff1bd7a1f80289595a9e4dea596e325be7c6f4db568d03e738c78c'),
-    'console': ('include_str!("../schema/console.sql")', 'cacb96580221513624075ed28a6afa45268197b6f8e2b83740cffb9f1cff7f56'),
+    'console': ('include_str!("../schema/console.sql")', '3857fec4b617c4b13e2a18f2a0a62386bdcf95ac1d4ce5d77e48215073e2c32e'),
     'model-gateway': ('include_str!("../schema/model_gateway.sql")', '3550655d1318c7b33e1877d6eb5b98eb47f045a9c4cfb801d23331fcccb00be4'),
     'commerce': ('include_str!("../schema/commerce.sql")', 'b7f9d07c4112623b34679b3043a1d315a4155ebe32688c2f878071a16f59b4c9'),
     'tool-market': ('include_str!("../schema/tool_market.sql")', '404a5a6f6a459bca2eeeaf19be312324933e81999ef160b4befa796668c4d11c'),
@@ -86,25 +87,69 @@ REVIEWED_COMPONENTS = {
     'image': ('include_str!("../schema/image.sql")', '5ec9f1e4ea14093285de9bd34fecef5660b10e73ac2828de41f3c2c26f013d11'),
     'market-oauth': ('include_str!("../schema/market_oauth.sql")', '29819097b5470b4ecc8b1a7d7581d5abdc6b120df239edd6f4d373330086797e'),
     'tool-market-credit': ('include_str!("../schema/tool_market_credit.sql")', '59b861b2a316b79bf0842ab13c07d0570b07bf3b84945f4edf8957ace4cc733f'),
-    'wallet': ('include_str!("../schema/wallet.sql")', '0b75972ef1aaa6b8b09b2d5e84636ba90aa8affcb4c1c30fbb7de18a9a9b95ad'),
+    'wallet': ('include_str!("../schema/wallet.sql")', 'd11528d84bd29c848daaf11fd58d92608955667b1ecfa1d42de92fba73de310e'),
     'bounties': ('include_str!("../schema/bounties.sql")', '965aa476d684fcfb0c72b6d58b7bb801d37135414f3c73f2a08c688e88143e06'),
     'assistant-tools': ('include_str!("../schema/assistant_tools.sql")', '9839e06cc0854c9efa60f30fef9c84a922dc18003b6317898df38a16c366aab4'),
     'trust-pricing': ('crate::billing::trust_pricing::SCHEMA', '93e0e16b04c312d9e1f27a0ae8dc25f16da4e7c044571cc14310b81de8cf1915'),
     'telegram-auth': ('crate::identity::TELEGRAM_AUTH_SCHEMA', 'd4734912cf68cdc8083356dc4301670cec27ec522e2c5ecaf2653a6a7d292510'),
+    'assistant-agent': ('include_str!("../schema/assistant_agent.sql")', '2d4f29262bf9dec6fb10a82b2e8829a50b76030e40f5ebeed2a75eb0ea0ce1cf'),
+    'site-finance': ('include_str!("../schema/site_statistics.sql")', '9bca87cc0cdc5ba96efb5c8bc7ef737684d74fcde257adba713a5951ebf63eb1'),
+    'payment-gateways': ('include_str!("../schema/payment_gateways.sql")', '58c46cacccd631a14712915bb402c4c8bbdfc47b53b2c5fafa27a1aa32e91d97'),
+    'request-limits': ('include_str!("../schema/request_limits.sql")', 'd8404a5a93dcfba21f64c9c2f1d9b2efee0ad3c381c6f6057d138a7a45825972'),
+    'operations': ('include_str!("../schema/operations.sql")', '68bbf2e77a8751a3527ae6d14a4336fd394d12f780cc1b0a6aae8cf74709c5f2'),
+    'coinbase-payments': ('include_str!("../schema/coinbase_payments.sql")', '222ea05eb4e7c5f24c5522b946edccde3cbee0d300a1da421dd5e62bafd1b3ee'),
+    'channel-control': ('crate::channel_http::SCHEMA', '8f3caa43abf34475632047eaa2d59cc160e15ec90619379419d801b1b7b3726a'),
+    'channel-vault': ('crate::channel_http::VAULT_SCHEMA', 'd5fe4fca492a12d6a853e635c0e8bc2d0479584744c5c350e6bded1f1ae4b6cd'),
+    'passkeys': ('crate::identity::PASSKEY_SCHEMA', '26f610ad18bd62389e8b5304869d5e35bc84257605e8ecd54346a83824717ab6'),
+    'account-lifecycle': ('crate::identity::ACCOUNT_LIFECYCLE_SCHEMA', '5ee797e0d99b7019622ac30b33efa0d124ad7dd44822e1d8088fdf2d160b6617'),
+    'subscriptions': ('crate::subscriptions::SCHEMA', '9e1a631e70ed0fbdfafbc18229381f741fde18941a6708877768841945ee617d'),
+    'promotions': ('crate::promotions::SCHEMA', '7f0caaf95f01242fd629006fc3089be43e66219b42992e5f0917ea6651ddab9b'),
+    'notifications': ('include_str!("../schema/notifications.sql")', 'ab622593b37f4ed9bd053d6ffd8d3b75fdc9bb6296cb8f0031607f2f35acda21'),
+    'account-links': ('crate::identity::ACCOUNT_LINKS_SCHEMA', '8feb800e3c71e634c1dd5d62d8cb6e2ed731790648028d55898946117307b179'),
+    'completion-upgrade': ('include_str!("../schema/completion_upgrade.sql")', 'cbf657dbaff8ea48980f1cd8a7e2aa3d356fa11bda0c0b6a5c5e8e780833ef0a'),
+    'account-appeals': ('crate::identity::ACCOUNT_APPEALS_SCHEMA', 'e9e14bc084de332bbef4fa858235bbb369f4a5df7e9b229a6a21bc0610252fb1'),
+    'channel-accounting': ('crate::channel_http::ACCOUNTING_SCHEMA', '79e0d26947ceb515614f28f76c6de2cdb444943b9bad380b7d3e4915412c7040'),
+    'channel-projection': ('concat!(include_str!("../schema/channel_projection.sql"),"\\n",include_str!("../schema/channel_openings.sql"))', '395f3a02d672e6b22eb854525f81b280155e32ad43c7175ec86a9c50a7611d4a'),
+    'trust-policy-edit': ('concat!(include_str!("../schema/trust_policy_edit.sql"),"\\n",include_str!("../schema/trust_policy_edit_proof.sql"),"\\n",include_str!("../schema/trust_policy_edit_editor.sql"),"\\n",include_str!("../schema/trust_policy_upgrade.sql"))', '0d6588cb01bc829239b5186b4f20804c31d2c90d668f73506ca6b7485e20bc65'),
+    'channel-observations': ('concat!(include_str!("../schema/channel_observations.sql"),"\\n",include_str!("../schema/channel_observations_upgrade.sql"))', '5d2784ba236898048958aa47558963671e234083db990e8ebd5f2b809c788dcb'),
+    'navigation-options': ('include_str!("../schema/navigation_options.sql")', '4ef34139527fff615e8be1e34dd931b8d22ed61ec8497bcf15a7e150ea7c130c'),
+    'red-packets': ('crate::promotions::red_packets::SCHEMA', '8df4f60aae98fc6555f07967d722d7c840c98353f4a5937e12e637a958171dde'),
+    'legacy-history-compat': ('include_str!("../schema/legacy_history_compat.sql")', '02e778e7ee2d07a598844bf7d427e8408c22b256597841219113ea4b496507df'),
+}
+REVIEWED_SCHEMA_ALIASES = {
+    'crate::billing::trust_pricing::SCHEMA': ('services/core/src/billing/trust_pricing.rs', 'SCHEMA', 'concat!(include_str!("../../schema/trust_pricing.sql"),"\\n",include_str!("../../schema/image_trust_extension.sql"))'),
+    'crate::identity::TELEGRAM_AUTH_SCHEMA': ('services/core/src/identity/telegram.rs', 'SCHEMA', 'include_str!("../../schema/telegram_auth.sql")'),
+    'crate::channel_http::SCHEMA': ('services/core/src/channel_http.rs', 'SCHEMA', 'include_str!("../schema/channel_control.sql")'),
+    'crate::channel_http::VAULT_SCHEMA': ('services/core/src/channel_http.rs', 'VAULT_SCHEMA', 'include_str!("../schema/channel_vault.sql")'),
+    'crate::channel_http::ACCOUNTING_SCHEMA': ('services/core/src/channel_http.rs', 'ACCOUNTING_SCHEMA', 'include_str!("../schema/channel_accounting.sql")'),
+    'crate::identity::PASSKEY_SCHEMA': ('services/core/src/identity/browser/passkeys.rs', 'PASSKEY_SCHEMA', 'include_str!("../../../schema/passkeys.sql")'),
+    'crate::identity::ACCOUNT_LIFECYCLE_SCHEMA': ('services/core/src/identity/browser/account_lifecycle.rs', 'ACCOUNT_LIFECYCLE_SCHEMA', 'include_str!("../../../schema/account_lifecycle.sql")'),
+    'crate::identity::ACCOUNT_LINKS_SCHEMA': ('services/core/src/identity/browser/account_links.rs', 'ACCOUNT_LINKS_SCHEMA', 'include_str!("../../../schema/account_links.sql")'),
+    'crate::identity::ACCOUNT_APPEALS_SCHEMA': ('services/core/src/identity/browser/account_appeals.rs', 'ACCOUNT_APPEALS_SCHEMA', 'include_str!("../../../schema/account_appeals.sql")'),
+    'crate::subscriptions::SCHEMA': ('services/core/src/subscriptions.rs', 'SCHEMA', 'include_str!("../schema/subscriptions.sql")'),
+    'crate::promotions::SCHEMA': ('services/core/src/promotions.rs', 'SCHEMA', 'include_str!("../schema/promotions.sql")'),
+    'crate::promotions::red_packets::SCHEMA': ('services/core/src/promotions/red_packets.rs', 'SCHEMA', 'include_str!("../../schema/red_packets.sql")'),
 }
 CORE_COMPONENTS = frozenset(REVIEWED_COMPONENTS)
-CATALOG_QUERY_SHA256 = "7537b9a1dfd8e813d2aa5103467b8a7e3a444e134dd02617ef622117f0d647a3"
+CATALOG_QUERY_SHA256 = 'b5a7bbfc27ebce87bd4e2ef7ba7f48d0bf21c56d572edebb6a84dcee61eca328'
 OAUTH_CATALOG_QUERY_SHA256 = "39f6af7c6f19226a9daf794a5b897c630ca87670be3c1059f406fd8b4884cbca"
-INSTALLER_CONTRACT_SHA256 = "748237a4f6641d1495bb22684142b566dad9e48e1642d339ea05d0c2db0996dc"
+INSTALLER_CONTRACT_SHA256 = '8885db5795e5225baa8b0defee9f48c4c3a63029ed289107159b78336c759874'
 REVIEWED_RUST_FILES = {
-    'services/core/src/core_schema.rs': '514686a060b8080f404b330ca59cc6c3a57230e4d61357be0b06aff48a630f1b',
-    'services/core/src/identity/schema.rs': '37a1f70d63bba63bea18d18729772e4678499f2874cce74efd510917c3823343',
+    'services/core/src/core_schema.rs': '222f4e27023c6c1bbb23cb6a437a74d389ae4e843032f5e04c23a7a031c5633a',
+    'services/core/src/identity/schema.rs': 'eca66200583c53679c93633c78be9d8c4803977d7645b06612fa24bec1226612',
     'services/core/src/identity/grants.rs': 'f54840add7d997dc90e6a4f6f817f61b1fc1ff0acb6c8f5a29d6ae1f19f8b060',
-    # Reviewed 10cb3e87f + 7f83986c9: five registration-policy fields/defaults;
-    # identity DDL and offline mapping/credential whitelist remain unchanged.
-    'services/core/src/identity.rs': 'd3fcbbc9ceed9ee0e98b4037f707a60d6b31fed5414320cc49f54384073aa236',
+    'services/core/src/identity.rs': 'b89b6b909ae4c513641f6ad9fad2e6dae62b32870188d9f84500ad6956111118',
     'services/core/src/identity/telegram.rs': '2dd9950fa5052230155ebc512dd12038adbeeab90bd7963bb8cbf3ca145bb5eb',
     'services/core/src/billing/trust_pricing.rs': 'c4c5f47d372fde4e5f7afd854a7a4691ef1b31ff74c1695d4242f0ab5133312f',
+    'services/core/src/identity/browser.rs': '2a9943040778fcc95035e28ddac1fdbae9401ab107371528c3ef553e29611895',
+    'services/core/src/channel_http.rs': 'b85ef9b4e9eb5cc80a8fa3ba32a8c0d097d0469ee57d52c42c3dde1530170155',
+    'services/core/src/identity/browser/passkeys.rs': 'f4640a9bd6335a87df3d96702dec1a58d32350d204e361d3e74980722633710e',
+    'services/core/src/identity/browser/account_lifecycle.rs': '30c479b52309df5adb6de229ee54eade90a55e7f3508bd9969ce7fff5db0172a',
+    'services/core/src/identity/browser/account_links.rs': 'aea1a80c16ca9372d271c1fc5027be8a441a4dc85598844371e0a0b03e6e1a14',
+    'services/core/src/identity/browser/account_appeals.rs': '1b5e24fcaa18cae2518989cd1ab9d10b896be18aed711d7125fbf859454de39d',
+    'services/core/src/subscriptions.rs': '7eda58a0b9f82209ed517fe9ecb8f0e88280e6422845b86aaa5141e0a7e7034b',
+    'services/core/src/promotions.rs': '677f2e5b195c6662905885fedf8ce60df4deb7b11a8f3dcae166dc00f4a172f6',
+    'services/core/src/promotions/red_packets.rs': '4e7cdbe2c3a9f701f173631285e18c92d29350ebf7221beaff227f72446fd3bf',
 }
 DEVELOPER_POLICY = "legacy-explicit-override-before-manual-v1-paid-unproven"
 # Identity import is deliberately narrower than a complete account cutover.
@@ -178,19 +223,35 @@ def _reviewed_rust(root: Path, relative: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def component_schemas(root: Path | None = None) -> dict[str, bytes]:
-    """Resolve only the reviewed includes, trust concat and Telegram alias.
+def _component_schema_paths(root: Path, expression: str, source_path: Path) -> list[Path]:
+    paths = []
+    for relative in re.findall(r'include_str!\("([^"\\]+)"\)', expression):
+        path = (source_path.parent / relative).resolve()
+        require(path.parent == (root / "services/core/schema").resolve(), "component_contract_invalid")
+        paths.append(path)
+    require(bool(paths), "component_expression_not_reviewed")
+    return paths
 
-    This is intentionally not a Rust evaluator. Unknown expressions, duplicate
-    declarations, changed order, changed raw SQL and unresolved aliases fail.
-    The same function supplies test fixtures with the exact assembled bytes.
-    """
+
+def _component_bytes(root: Path, expression: str, source_path: Path) -> bytes:
+    paths = iter(_component_schema_paths(root, expression, source_path))
+    # Only pinned include expressions and explicit LF separators are accepted.
+    chunks = []
+    for match in re.finditer(r'include_str!\("[^"\\]+"\)|"\\n"', expression):
+        chunks.append(next(paths).read_bytes() if match[0].startswith('include_str!') else b"\n")
+    return b"".join(chunks)
+
+
+def component_schemas(root: Path | None = None) -> dict[str, bytes]:
+    """Resolve the complete pinned fresh assembly, never arbitrary Rust code."""
     root = ROOT if root is None else Path(root)
     path = root / "services/core/src/core_schema.rs"
     source = _reviewed_rust(root, "services/core/src/core_schema.rs")
     blocks = re.findall(r"const COMPONENTS:\s*&\[\(&str,\s*&str\)\]\s*=\s*&\[(.*?)\];", source, re.S)
     require(len(blocks) == 1, "component_contract_syntax_unknown")
-    entries = re.compile(r'\(\s*"([a-z][a-z-]*)"\s*,\s*(include_str!\("\.\./schema/[a-z_]+\.sql"\)|[a-zA-Z_][a-zA-Z_0-9:]*)\s*,?\s*\)')
+    include = r'include_str!\("[^"\\]+"\)'
+    concat = r'concat!\(\s*(?:(?:' + include + r'|"\\n")\s*,?\s*)+\)'
+    entries = re.compile(r'\(\s*"([a-z][a-z-]*)"\s*,\s*(' + include + '|' + concat + r'|[a-zA-Z_][a-zA-Z_0-9:]*)\s*,?\s*\)')
     require(re.fullmatch(r"[\s,]*", entries.sub("", blocks[0])) is not None, "component_contract_syntax_unknown")
     parsed = entries.findall(blocks[0])
     names = [name for name, _ in parsed]
@@ -199,23 +260,20 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
     components = {}
     for name, expression in parsed:
         expected_expression, expected_digest = REVIEWED_COMPONENTS[name]
+        expression = re.sub(r"\s+", "", expression)
         require(expression == expected_expression, "component_expression_not_reviewed")
-        if name == "trust-pricing":
-            trust = _reviewed_rust(root, "services/core/src/billing/trust_pricing.rs")
-            _reviewed_constant(trust, "SCHEMA", 'concat!(include_str!("../../schema/trust_pricing.sql"),"\\n",include_str!("../../schema/image_trust_extension.sql"))')
-            data = (root / "services/core/schema/trust_pricing.sql").read_bytes() + b"\n" + (root / "services/core/schema/image_trust_extension.sql").read_bytes()
-        elif name == "telegram-auth":
-            identity = _reviewed_rust(root, "services/core/src/identity.rs")
-            aliases = re.findall(r"pub(?:\(crate\))?\s+use\s+([^;]*?)\s+as\s+TELEGRAM_AUTH_SCHEMA\s*;", identity)
-            require(aliases == ["telegram::SCHEMA"], "component_alias_not_reviewed")
-            telegram = _reviewed_rust(root, "services/core/src/identity/telegram.rs")
-            _reviewed_constant(telegram, "SCHEMA", 'include_str!("../../schema/telegram_auth.sql")')
-            data = (root / "services/core/schema/telegram_auth.sql").read_bytes()
-        else:
-            relative = re.fullmatch(r'include_str!\("([^"\\]+)"\)', expression)[1]
-            schema = (path.parent / relative).resolve()
-            require(schema.parent == (root / "services/core/schema").resolve(), "component_contract_invalid")
-            data = schema.read_bytes()
+        source_path = path
+        if expression in REVIEWED_SCHEMA_ALIASES:
+            relative, constant, expression = REVIEWED_SCHEMA_ALIASES[expression]
+            alias_source = _reviewed_rust(root, relative)
+            _reviewed_constant(alias_source, constant, expression)
+            source_path = root / relative
+            # Identity re-exports are pinned across both modules, not guessed.
+            if name == "telegram-auth":
+                identity = _reviewed_rust(root, "services/core/src/identity.rs")
+                aliases = re.findall(r"pub(?:\(crate\))?\s+use\s+([^;]*?)\s+as\s+TELEGRAM_AUTH_SCHEMA\s*;", identity)
+                require(aliases == ["telegram::SCHEMA"], "component_alias_not_reviewed")
+        data = _component_bytes(root, expression, source_path)
         require(hashlib.sha256(data).hexdigest() == expected_digest, "component_source_fingerprint_mismatch")
         components[name] = data
     return components
@@ -230,7 +288,12 @@ def installer_metadata(root: Path | None = None) -> bytes:
     _reviewed_constant(source, "UPGRADE_METADATA", 'include_str!("../schema/core_upgrade.sql")')
     _reviewed_constant(source, "ADDITIVE_UPGRADE_METADATA", 'include_str!("../schema/component_upgrade.sql")')
     _reviewed_constant(source, "LEDGER_REVISION_METADATA", 'include_str!("../schema/ledger_revision.sql")')
-    data = contracts[0].encode("utf-8") + (root / "services/core/schema/core_upgrade.sql").read_bytes() + (root / "services/core/schema/component_upgrade.sql").read_bytes() + (root / "services/core/schema/ledger_revision.sql").read_bytes()
+    _reviewed_constant(source, "CONSOLE_REVISION_METADATA", 'include_str!("core_schema/upgrade/console_receipt.sql")')
+    _reviewed_constant(source, "OFFLINE_REVISION_METADATA", 'include_str!("../schema/offline_upgrade.sql")')
+    data = contracts[0].encode("utf-8") + b"".join((root / relative).read_bytes() for relative in (
+        "services/core/schema/core_upgrade.sql", "services/core/schema/component_upgrade.sql",
+        "services/core/schema/ledger_revision.sql", "services/core/src/core_schema/upgrade/console_receipt.sql",
+        "services/core/schema/offline_upgrade.sql"))
     require(hashlib.sha256(data).hexdigest() == INSTALLER_CONTRACT_SHA256, "installer_source_fingerprint_mismatch")
     return data
 
@@ -246,16 +309,16 @@ def current_contract(root: Path | None = None) -> dict:
     catalogs = re.findall(r'const CATALOG:\s*&str\s*=\s*r#"(.*?)"#;', source, re.S)
     require(len(catalogs) == 1, "catalog_contract_syntax_unknown")
     require(hashlib.sha256(catalogs[0].encode()).hexdigest() == CATALOG_QUERY_SHA256, "catalog_source_fingerprint_mismatch")
-    paths = {"services/core/src/core_schema.rs", "services/core/src/identity/schema.rs",
-             "services/core/src/identity/grants.rs", "services/core/src/identity.rs",
-             "services/core/src/identity/telegram.rs", "services/core/src/billing/trust_pricing.rs",
-             "services/core/schema/core_upgrade.sql", "services/core/schema/component_upgrade.sql",
-             "services/core/schema/trust_pricing.sql", "services/core/schema/image_trust_extension.sql",
-             "services/core/schema/telegram_auth.sql", "services/core/schema/ledger_revision.sql"}
+    paths = set(REVIEWED_RUST_FILES) | {
+        "services/core/schema/core_upgrade.sql", "services/core/schema/component_upgrade.sql",
+        "services/core/schema/ledger_revision.sql", "services/core/schema/offline_upgrade.sql",
+        "services/core/src/core_schema/upgrade/console_receipt.sql"}
     for expression, _ in REVIEWED_COMPONENTS.values():
-        include = re.fullmatch(r'include_str!\("\.\./schema/([a-z_]+\.sql)"\)', expression)
-        if include:
-            paths.add("services/core/schema/" + include[1])
+        source_path = root / "services/core/src/core_schema.rs"
+        if expression in REVIEWED_SCHEMA_ALIASES:
+            relative, _, expression = REVIEWED_SCHEMA_ALIASES[expression]
+            source_path = root / relative
+        paths.update(str(path.relative_to(root.resolve())) for path in _component_schema_paths(root, expression, source_path))
     return {**expected, "component_fingerprints": components,
             "catalog_query_sha256": CATALOG_QUERY_SHA256, "catalog_query": catalogs[0],
             "installer_contract_sha256": hashlib.sha256(installer_metadata(root)).hexdigest(),
@@ -319,7 +382,7 @@ def utc_timestamp_text_sql(column: str) -> str:
 
 
 def trust_policy_seed_query() -> str:
-    """Owner captures the exact UTC readback before approving a fresh26 import."""
+    """Owner captures the exact UTC readback before approving a fresh49 import."""
     return ("SELECT to_jsonb(p)||jsonb_build_object('source_digest',encode(source_digest,'hex'),"
             "'native_since'," + utc_timestamp_text_sql("p.native_since") + ") "
             "FROM core_trust_pricing.policies p")
@@ -352,10 +415,19 @@ def trust_policy_seed_guard_sql(contract: dict) -> str:
             trust_policy_seed_query() + ") IS DISTINCT FROM " + sql_literal(canonical(seed)) + "::jsonb")
 
 
+UPGRADE_RECEIPT_TABLES = (
+    "core_meta.schema_upgrades", "core_meta.component_upgrades", "core_meta.ledger_revisions",
+    "core_meta.console_revisions", "core_meta.offline_upgrades", "core_meta.site_finance_upgrades",
+    "core_meta.payment_gateway_upgrades", "core_meta.coinbase_payment_upgrades",
+    "core_meta.completion_upgrades", "core_meta.account_appeal_upgrades",
+    "core_meta.channel_accounting_upgrades", "core_meta.channel_projection_upgrades",
+    "core_meta.trust_policy_upgrades", "core_meta.channel_observations_upgrades",
+    "core_meta.navigation_options_upgrades",
+)
+
+
 def upgrade_receipts_guard_sql() -> str:
-    return ("EXISTS(SELECT 1 FROM core_meta.schema_upgrades) "
-            "OR EXISTS(SELECT 1 FROM core_meta.component_upgrades) "
-            "OR EXISTS(SELECT 1 FROM core_meta.ledger_revisions)")
+    return " OR ".join("EXISTS(SELECT 1 FROM " + table + ")" for table in UPGRADE_RECEIPT_TABLES)
 
 
 def fresh_seed_hash_query() -> str:
@@ -373,6 +445,10 @@ def fresh_seed_hash_query() -> str:
         "gift_policy": ("core_gift.policy", "singleton"),
         "credit_policy": ("core_tool_market.credit_policy", "singleton"),
         "trust_policy": ("core_trust_pricing.policies", "singleton"),
+        "request_policy": ("core_request_limits.policy", "singleton"),
+        "request_auto_policy": ("core_request_limits.auto_policy", "singleton"),
+        "promotion_secret": ("core_promotions.secrets", "singleton"),
+        "channel_projection_state": ("core_channels.projection_state", "singleton"),
     }
     fields = []
     for key, (relation, order) in relations.items():
@@ -380,9 +456,10 @@ def fresh_seed_hash_query() -> str:
         # Keep the same physical fields that the old whole-row intent covered.
         row_json = ("jsonb_build_object('last_value',t.last_value,'log_cnt',t.log_cnt,'is_called',t.is_called)"
                     if key == "ledger_sequence" else "to_jsonb(t)")
-        # These are the only TIMESTAMPTZ columns in the pinned fresh26 seeds.
+        # These are the only TIMESTAMPTZ columns in the pinned fresh49 seeds.
         # Keep every other column and the original UTC JSON representation.
-        timestamp = {"ledger_accounts": "created_at", "trust_policy": "native_since"}.get(key)
+        timestamp = {"ledger_accounts": "created_at", "trust_policy": "native_since",
+                     "request_policy": "updated_at", "request_auto_policy": "updated_at"}.get(key)
         if timestamp:
             row_json += "||jsonb_build_object(" + sql_literal(timestamp) + "," + utc_timestamp_text_sql("t." + timestamp) + ")"
         fields.append(sql_literal(key) + ",COALESCE((SELECT jsonb_agg(" + row_json + " ORDER BY " +
@@ -904,11 +981,11 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         sql_body_digest_placeholder += "X"
     privileged_count = sum(1 for row in plan["records"] if row["platform_role"] in ("admin", "superadmin"))
     allow_core_seed = target_contract.get("allow_initialized_core_seed") is True
-    # There is only one supported target here: the complete fresh Core26
+    # There is only one supported target here: the complete fresh Core49
     # installer. Deleting its seeds cannot opt into an older empty/ledger-only
     # contract, even if its catalog definition hash still matches.
     require(allow_core_seed and "allow_initialized_zero_ledger_seed" not in target_contract,
-            "target_fresh26_seed_contract_required")
+            "target_fresh49_seed_contract_required")
     if allow_core_seed:
         require(target_contract.get("initialized_core_seed_contract") == CORE_SEED_CONTRACT, "target_seed_contract_invalid")
         require(isinstance(target_contract.get("initialized_core_seed_sha256"), str)
@@ -920,6 +997,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         seed_exclusion += " AND NOT (n.nspname='core_events' AND c.relname='capacity') AND NOT (n.nspname='public' AND c.relname='routing_active_release') AND NOT (n.nspname='core_abuse' AND c.relname='settings') AND NOT (n.nspname='core_oauth' AND c.relname='contract')"
         seed_exclusion += " AND NOT (n.nspname='core_humangrant' AND c.relname='human_grant_gate') AND NOT (n.nspname='core_gift' AND c.relname IN ('risk_key','policy')) AND NOT (n.nspname='core_tool_market' AND c.relname='credit_policy')"
         seed_exclusion += " AND NOT (n.nspname='core_trust_pricing' AND c.relname='policies')"
+        seed_exclusion += " AND NOT (n.nspname='core_request_limits' AND c.relname IN ('policy','auto_policy')) AND NOT (n.nspname='core_promotions' AND c.relname='secrets') AND NOT (n.nspname='core_channels' AND c.relname='projection_state')"
     seed_guard = """
  IF (SELECT count(*) FROM core_billing.ledger_accounts)<>2
  OR (SELECT count(*) FROM core_billing.balance_state)<>2
@@ -964,6 +1042,19 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
   'gift_risk_key',(SELECT to_jsonb(c) FROM core_gift.risk_key c),
   'gift_policy',(SELECT to_jsonb(c) FROM core_gift.policy c),
   'credit_policy',(SELECT to_jsonb(c) FROM core_tool_market.credit_policy c));
+"""
+        seed_guard += """
+ IF (SELECT count(*) FROM core_request_limits.policy)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_request_limits.policy WHERE singleton AND revision=1 AND NOT enabled
+  AND window_seconds=60 AND user_limit IS NULL AND group_limits='{}'::jsonb)
+ OR (SELECT count(*) FROM core_request_limits.auto_policy)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_request_limits.auto_policy WHERE singleton AND revision=1 AND cardinality(groups)=0)
+ OR (SELECT count(*) FROM core_promotions.secrets)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_promotions.secrets WHERE singleton AND octet_length(code_key)=32)
+ OR (SELECT count(*) FROM core_channels.projection_state)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_channels.projection_state WHERE singleton AND ready) THEN
+  RAISE EXCEPTION 'non-canonical initialized completion seed';
+ END IF;
 """
         seed_guard += " IF " + oauth_seed_guard_sql(contract) + " THEN RAISE EXCEPTION 'non-canonical initialized OAuth seed'; END IF;\n"
         seed_guard += " IF " + trust_policy_seed_guard_sql(target_contract) + " THEN RAISE EXCEPTION 'non-canonical initialized trust seed'; END IF;\n"
@@ -1031,7 +1122,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid()) THEN
   RAISE EXCEPTION 'target has other database clients';
  END IF;
- LOCK TABLE core_meta.schema_contract,core_meta.component_contract,core_meta.runtime_contract,core_meta.schema_upgrades,core_meta.component_upgrades,core_meta.ledger_revisions,core_migration.import_runs IN ACCESS EXCLUSIVE MODE;
+ LOCK TABLE core_meta.schema_contract,core_meta.component_contract,core_meta.runtime_contract,{','.join(UPGRADE_RECEIPT_TABLES)},core_migration.import_runs IN ACCESS EXCLUSIVE MODE;
  IF (SELECT count(*) FROM core_meta.schema_contract)<>1 OR NOT EXISTS (SELECT 1 FROM core_meta.schema_contract WHERE singleton AND version={IDENTITY_VERSION} AND encode(fingerprint,'hex')={sql_literal(fingerprint)}) THEN
   RAISE EXCEPTION 'identity contract mismatch';
  END IF;
@@ -1069,7 +1160,10 @@ BEGIN
   ORDER BY n.nspname,c.relname
  LOOP
   IF sequence_row.seqtypid<>'bigint'::regtype OR sequence_row.seqstart<>1 OR sequence_row.seqincrement<>1
-   OR sequence_row.seqmin<>1 OR sequence_row.seqmax<>9223372036854775807 OR sequence_row.seqcache<>1 OR sequence_row.seqcycle THEN
+   OR sequence_row.seqmin<>1 OR sequence_row.seqmax<>(CASE
+    WHEN sequence_row.nspname='core_account_appeals' AND sequence_row.relname='requests_id_seq'
+    THEN 9007199254740991 ELSE 9223372036854775807 END)
+   OR sequence_row.seqcache<>1 OR sequence_row.seqcycle THEN
    RAISE EXCEPTION 'non-canonical sequence definition';
   END IF;
   EXECUTE format('SELECT jsonb_build_object(''last_value'',s.last_value,''log_cnt'',s.log_cnt,''is_called'',s.is_called) FROM %I.%I s',sequence_row.nspname,sequence_row.relname) INTO sequence_value;
@@ -1246,7 +1340,7 @@ COMMIT;
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source-receipt", type=Path, required=True)
-    parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned fresh26 receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
+    parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned fresh49 receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
     parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/Backups; must not already exist")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true", help="Explicitly execute the private SQL plan against the matching empty initialized target")
