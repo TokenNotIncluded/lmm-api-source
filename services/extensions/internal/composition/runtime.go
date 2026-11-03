@@ -384,7 +384,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 			r.close = append(r.close, func() error { reader.Close(); return nil })
-			if err = reader.Ready(ctx); err != nil {
+			if err = reader.ReadyUsers(ctx); err != nil {
 				return nil, err
 			}
 			r.Acquisition.UserRead = reader

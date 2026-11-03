@@ -76,12 +76,27 @@ func (c *CoreRead) call(ctx context.Context, path string, in, out any) error {
 }
 
 // Ready verifies the purpose token and protocol at startup.
-func (c *CoreRead) Ready(ctx context.Context) error {
+func (c *CoreRead) Ready(ctx context.Context) error { return c.ready(ctx, "") }
+
+// ReadyUsers requires live platform-role fields used by acquisition permissions.
+func (c *CoreRead) ReadyUsers(ctx context.Context) error {
+	return c.ready(ctx, "community.users.roles.v1")
+}
+
+func (c *CoreRead) ready(ctx context.Context, required string) error {
 	var caps struct {
 		Protocol int      `json:"protocol_major"`
 		Features []string `json:"features"`
 	}
 	if err := c.call(ctx, "capabilities", struct{}{}, &caps); err != nil || caps.Protocol != 1 {
+		return errCoreRead
+	}
+	if required != "" {
+		for _, feature := range caps.Features {
+			if feature == required {
+				return nil
+			}
+		}
 		return errCoreRead
 	}
 	return nil

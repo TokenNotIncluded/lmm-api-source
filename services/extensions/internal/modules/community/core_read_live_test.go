@@ -1,0 +1,43 @@
+// Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
+package community
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+)
+
+// The Rust integration test starts the actual Core router and isolated identity
+// database, then invokes this consumer against its private Unix listener.
+func TestCoreUserRolesLive(t *testing.T) {
+	socket := os.Getenv("LMM_TEST_CORE_USER_SOCKET")
+	if socket == "" {
+		t.Skip("requires Rust-owned live Core fixture")
+	}
+	token := []byte("synthetic-community-purpose-token-20261104")
+	client, err := NewCoreRead(socket, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx := context.Background()
+	if err = client.ReadyUsers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	users, err := client.Users(ctx, []int64{1, 2, 3, 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 3 || users[1].PlatformRole != "user" || users[1].Active || users[2].PlatformRole != "admin" || users[3].PlatformRole != "superadmin" {
+		t.Fatalf("live identity mismatch: %#v", users)
+	}
+	wrong, err := NewCoreRead(socket, []byte(strings.Repeat("x", 40)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wrong.Close()
+	if err = wrong.ReadyUsers(ctx); err == nil {
+		t.Fatal("Core accepted another purpose token")
+	}
+}
