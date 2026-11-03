@@ -55,7 +55,7 @@ class Fresh49IdentityTests(unittest.TestCase):
     def test_cutover_runner_preserves_source_time_and_unknown_epoch(self):
         users = [identity_cases.user(71, created_at=1700000001), identity_cases.user(72)]
         statements, stats = cutover.plan_identity({'users':users, 'two_fas':[], 'options':{}, 'oauth_bindings':[]}, identity_cases.SOURCE_SHA256)
-        self.client.sql('BEGIN; SET LOCAL timezone=\'UTC\';' + '\n'.join(statements) + '\nCOMMIT;')
+        self.client.sql('BEGIN ISOLATION LEVEL SERIALIZABLE; SET LOCAL timezone=\'UTC\';' + '\n'.join(statements) + '\nCOMMIT;')
         self.assertEqual(self.client.query("SELECT jsonb_agg(jsonb_build_array(id,extract(epoch FROM created_at)::bigint) ORDER BY id) FROM core_identity.accounts"), [[71,1700000001],[72,0]])
         self.assertEqual((stats['registration_time_known_count'], stats['registration_time_unknown_count']), (1,1))
 

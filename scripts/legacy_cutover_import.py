@@ -106,6 +106,58 @@ def developer_decision(user: dict) -> tuple[bool, str]:
     return False, "not_activated"
 
 
+def registration_time_receipt_sql(users: list[dict], archive_sha: str) -> str:
+    """Seal source registration times only after exact owner-side readback.
+
+    This can backfill an already imported, stopped rehearsal cohort. It never
+    changes accounts, credentials or balances, and refuses a partial cohort.
+    """
+    if not isinstance(archive_sha, str) or re.fullmatch(r"[0-9a-f]{64}", archive_sha) is None:
+        fail("archive_sha256_invalid")
+    times = {}
+    for user in users:
+        uid, at = user["id"], user.get("created_at")
+        if type(uid) is not int or not 0 < uid <= 9223372036854775807 or str(uid) in times:
+            fail("registration_user_id_invalid")
+        if at is not None and (type(at) is not int or not 0 <= at <= 253402300799):
+            fail("registration_time_invalid")
+        times[str(uid)] = at or 0
+    if not times:
+        fail("registration_cohort_empty")
+    manifest = {"scope": "legacy-cutover-identity.v1", "source_archive_sha256": archive_sha,
+                "registration_times": times,
+                "summary": {"registration_time_known_count": sum(bool(v) for v in times.values()),
+                            "registration_time_unknown_count": sum(not v for v in times.values())}}
+    run_id = "legacy-identity-registration-" + archive_sha[:32]
+    return f"""DO $registration_times$
+DECLARE expected JSONB := {jlit(times)};
+BEGIN
+ IF current_user<>pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='core_identity.accounts'::regclass))
+ OR current_user<>pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='core_migration.import_runs'::regclass))
+ OR current_setting('transaction_isolation')<>'serializable' THEN
+  RAISE EXCEPTION 'registration receipt requires serializable identity owner';
+ END IF;
+ LOCK TABLE core_identity.accounts,core_identity.users IN SHARE MODE;
+ LOCK TABLE core_migration.import_runs IN SHARE ROW EXCLUSIVE MODE;
+ IF (SELECT count(*) FROM core_identity.accounts)<>{len(times)}
+ OR (SELECT count(*) FROM core_identity.users)<>{len(times)}
+ OR EXISTS(SELECT 1 FROM jsonb_each(expected) e
+  LEFT JOIN core_identity.accounts a ON a.id=e.key::bigint
+  LEFT JOIN core_identity.users u ON u.id=a.id
+  WHERE a.id IS NULL OR u.personal_account_id IS DISTINCT FROM a.id
+  OR to_jsonb(floor(extract(epoch FROM a.created_at))::bigint) IS DISTINCT FROM e.value) THEN
+  RAISE EXCEPTION 'registration source cohort or timestamps mismatch';
+ END IF;
+ INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest)
+ VALUES({lit(run_id)},{lit(archive_sha)},{lit(digest(times))},{jlit(manifest)}) ON CONFLICT DO NOTHING;
+ IF NOT EXISTS(SELECT 1 FROM core_migration.import_runs WHERE migration_id={lit(run_id)}
+  AND source_archive_sha256={lit(archive_sha)} AND mapping_sha256={lit(digest(times))}
+  AND manifest={jlit(manifest)}) THEN
+  RAISE EXCEPTION 'registration receipt conflicts with prior import';
+ END IF;
+END $registration_times$;"""
+
+
 def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
     users = data["users"]
     mfa = {r["user_id"] for r in data["two_fas"] if r["is_enabled"] and not r["deleted_at"]}
@@ -194,6 +246,7 @@ def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
         sql.append("INSERT INTO core_identity.oauth_identities(issuer,subject,user_id) "
                    f"VALUES({lit(issuer)},{lit(b['provider_user_id'][:255])},{b['user_id']}) ON CONFLICT DO NOTHING;")
         stats["oauth_" + b["slug"]] += 1
+    sql.append(registration_time_receipt_sql(users, archive_sha))
     top = max(u["id"] for u in users)
     sql.append(f"SELECT setval(pg_get_serial_sequence('core_identity.users','id'),{top});")
     sql.append(f"SELECT setval(pg_get_serial_sequence('core_identity.accounts','id'),{top});")

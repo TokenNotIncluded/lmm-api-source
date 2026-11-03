@@ -24,6 +24,27 @@ const JS_SAFE: i64 = 9_007_199_254_740_991;
 const MAX_WINDOW: i64 = 400 * 86_400;
 const MAX_ROWS: usize = 20_000;
 
+// Financial/history receipts do not establish or invalidate identity dates.
+// An imported opening needs identity evidence; native accounts keep their date.
+// Exact account/time seals also resolve older ambiguous identity receipts.
+const REGISTRATION_TIME_PROVEN: &str = r#"
+ a.created_at>to_timestamp(0) AND (
+  EXISTS(SELECT 1 FROM core_migration.import_runs i
+    WHERE i.manifest->>'scope'='legacy-cutover-identity.v1'
+    AND i.manifest->'registration_times'->(a.id::text)
+        =to_jsonb(floor(extract(epoch FROM a.created_at))::bigint))
+  OR (
+   NOT EXISTS(SELECT 1 FROM core_migration.import_runs i
+    WHERE coalesce(i.manifest->>'scope','identity-only')='identity-only'
+    AND NOT(coalesce(i.manifest->'summary','{}'::jsonb) ? 'registration_time_known_count'))
+   AND (NOT EXISTS(SELECT 1 FROM core_billing.opening_imports o WHERE o.account_id=a.id)
+    OR EXISTS(SELECT 1 FROM core_migration.import_runs i
+      WHERE i.manifest->>'scope'='identity-only'
+      AND coalesce(i.manifest->'summary','{}'::jsonb) ? 'registration_time_known_count'))
+  )
+ )
+"#;
+
 /// Settled native requests (actor is the user; tokens are input+output; credits
 /// are net settled) plus the imported legacy source. When the legacy hourly
 /// aggregates are installed they supersede per-log history, which they already
@@ -542,7 +563,7 @@ impl CommunityRead {
             return Err(Error::Invalid);
         }
         let mut tx = self.snapshot().await?;
-        let rows=sqlx::query("SELECT u.id,u.platform_role,u.active,CASE WHEN a.created_at>to_timestamp(0) AND NOT EXISTS(SELECT 1 FROM core_migration.import_runs i WHERE NOT(coalesce(i.manifest->'summary','{}'::jsonb) ? 'registration_time_known_count')) THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id>$1 ORDER BY u.id LIMIT $2")
+        let rows=sqlx::query(&format!("SELECT u.id,u.platform_role,u.active,CASE WHEN {REGISTRATION_TIME_PROVEN} THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id>$1 ORDER BY u.id LIMIT $2"))
           .bind(r.after_id).bind(r.limit+1).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         let has_more = rows.len() > r.limit as usize;
@@ -578,7 +599,7 @@ impl CommunityRead {
         let mut tx = self.snapshot().await?;
         let rows = sqlx::query(&format!(
             "SELECT u.id, u.active, u.platform_role,
-              CASE WHEN a.created_at>to_timestamp(0) AND NOT EXISTS(SELECT 1 FROM core_migration.import_runs i WHERE NOT(coalesce(i.manifest->'summary','{{}}'::jsonb) ? 'registration_time_known_count')) THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at,
+              CASE WHEN {REGISTRATION_TIME_PROVEN} THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at,
               coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
               (u.platform_role IN ('admin','superadmin') OR coalesce(d.granted,false)) AS developer,
               EXISTS(SELECT FROM core_identity.credentials c JOIN core_identity.api_key_settings k ON k.credential_id=c.id
