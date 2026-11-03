@@ -3,6 +3,7 @@ package acquisition
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
@@ -264,6 +265,12 @@ func TestLinksPostgresHTTP(t *testing.T) {
 		t.Fatalf("unknown list coverage: %s", unknownList.Body.String())
 	}
 
+	incompleteExport := httptest.NewRecorder()
+	rootMux.ServeHTTP(incompleteExport, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/users/export?from=%d&to=%d", now-200, now), nil))
+	if incompleteExport.Code != 503 {
+		t.Fatalf("incomplete cohort export: %d", incompleteExport.Code)
+	}
+
 	if _, err = db.Exec(`INSERT INTO lmm_acquisition.cohort(user_id,registered_at,origin) VALUES(77,$1,'legacy_import')`, now-100); err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +359,22 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	}
 	if err = db.QueryRow(`SELECT revision,source FROM lmm_acquisition.correction_heads WHERE user_id=77`).Scan(&revision, &source); err != nil || source != "parallel" {
 		t.Fatalf("concurrent head %d %q: %v", revision, source, err)
+	}
+
+	formula := " \u200b=1+1,中文"
+	if _, err = db.Exec(`UPDATE lmm_acquisition.correction_heads SET source=$1 WHERE user_id=77`, formula); err != nil {
+		t.Fatal(err)
+	}
+	export := httptest.NewRecorder()
+	rootMux.ServeHTTP(export, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/users/export?from=%d&to=%d", now-200, now), nil))
+	records, csvErr := csv.NewReader(strings.NewReader(export.Body.String())).ReadAll()
+	if export.Code != 200 || csvErr != nil || len(records) != 2 || len(records[1]) != 10 || records[1][0] != "77" || records[1][4] != "'"+formula || export.Header().Get("Content-Type") != "text/csv; charset=utf-8" || !strings.Contains(export.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("CSV export: %d %v %s", export.Code, csvErr, export.Body.String())
+	}
+	deniedExport := httptest.NewRecorder()
+	mux.ServeHTTP(deniedExport, httptest.NewRequest("GET", fmt.Sprintf("/api/admin/acquisition/users/export?from=%d&to=%d", now-200, now), nil))
+	if deniedExport.Code != 403 {
+		t.Fatalf("admin CSV permission: %d", deniedExport.Code)
 	}
 
 	if _, err = db.Exec(`INSERT INTO lmm_acquisition.consents(user_id,allowed,version,updated_at) VALUES(77,false,1,$1)`, s.now().Unix()); err != nil {

@@ -31,60 +31,65 @@ func (h *handlers) users(w http.ResponseWriter, r *http.Request, a actor) {
 		respond(w, nil, ErrInvalid)
 		return
 	}
-	reader, ok := h.s.UserRead.(registrationReader)
-	if !ok {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	raw, err := h.registrationSnapshot(ctx)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+
+	var result json.RawMessage
+	err = h.s.db.QueryRowContext(ctx, registrationQuery+`, page AS (SELECT * FROM filtered ORDER BY registered_at DESC,user_id DESC LIMIT 50 OFFSET $6) SELECT json_build_object('items',coalesce((SELECT json_agg(page) FROM page),'[]'::json),'total',(SELECT count(*) FROM filtered),'page',$7::integer,'unknown_registration_count',(SELECT count(*) FROM cohort WHERE registered_at IS NULL),'coverage_complete',NOT EXISTS(SELECT 1 FROM cohort WHERE registered_at IS NULL))`, string(raw), from, to, source, h.s.now().Unix()-AccountDays*daySeconds, (page-1)*50, page).Scan(&result)
+	if err != nil {
 		respond(w, nil, errUnavailable)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
+	respond(w, result, nil)
+}
+
+const registrationQuery = `WITH identity AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS u(user_id bigint,registered_at bigint)), cohort AS (SELECT u.user_id,coalesce(u.registered_at,c.registered_at) AS registered_at FROM identity u LEFT JOIN lmm_acquisition.cohort c USING(user_id)), attributed AS (SELECT u.user_id,u.registered_at,coalesce(a.registration_source,CASE WHEN u.registered_at < f.started_at THEN 'historical_unrecorded' ELSE 'unknown' END) AS source,coalesce(a.registration_evidence,'unavailable') AS evidence,(SELECT coalesce(min(first_at),0) FROM lmm_acquisition.activities WHERE user_id=u.user_id) AS first_success_at FROM cohort u CROSS JOIN lmm_acquisition.config f LEFT JOIN lmm_acquisition.accounts a ON a.user_id=u.user_id AND a.created_at >= $5 WHERE u.registered_at >= $2 AND u.registered_at < $3), filtered AS (SELECT * FROM attributed WHERE $4='' OR source=$4)`
+
+func (h *handlers) registrationSnapshot(ctx context.Context) ([]byte, error) {
+	reader, ok := h.s.UserRead.(registrationReader)
+	if !ok {
+		return nil, errUnavailable
+	}
 	users := []community.RegistrationUser{}
 	cursor := int64(0)
 	scanned := 0
 	for {
 		batch, err := reader.UserPage(ctx, cursor, 100)
 		if err != nil || len(batch.Users) > 100 {
-			respond(w, nil, errUnavailable)
-			return
+			return nil, errUnavailable
 		}
 		for _, user := range batch.Users {
 			if user.UserID <= cursor {
-				respond(w, nil, errUnavailable)
-				return
+				return nil, errUnavailable
 			}
 			cursor = user.UserID
 			scanned++
 			if scanned > 10000 {
-				respond(w, nil, errLimit)
-				return
+				return nil, errLimit
 			}
 			switch user.PlatformRole {
 			case "user":
 				users = append(users, user)
 			case "admin", "superadmin":
 			default:
-				respond(w, nil, errUnavailable)
-				return
+				return nil, errUnavailable
 			}
 		}
 		if !batch.HasMore {
 			break
 		}
 		if len(batch.Users) == 0 || batch.NextID != cursor {
-			respond(w, nil, errUnavailable)
-			return
+			return nil, errUnavailable
 		}
 	}
 	raw, err := json.Marshal(users)
 	if err != nil {
-		respond(w, nil, errUnavailable)
-		return
+		return nil, errUnavailable
 	}
-	var result json.RawMessage
-	err = h.s.db.QueryRowContext(ctx, `WITH identity AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS u(user_id bigint,registered_at bigint)), cohort AS (SELECT u.user_id,coalesce(u.registered_at,c.registered_at) AS registered_at FROM identity u LEFT JOIN lmm_acquisition.cohort c USING(user_id)), attributed AS (SELECT u.user_id,u.registered_at,coalesce(a.registration_source,CASE WHEN u.registered_at < f.started_at THEN 'historical_unrecorded' ELSE 'unknown' END) AS source,coalesce(a.registration_evidence,'unavailable') AS evidence,(SELECT coalesce(min(first_at),0) FROM lmm_acquisition.activities WHERE user_id=u.user_id) AS first_success_at FROM cohort u CROSS JOIN lmm_acquisition.config f LEFT JOIN lmm_acquisition.accounts a ON a.user_id=u.user_id AND a.created_at >= $5 WHERE u.registered_at >= $2 AND u.registered_at < $3), filtered AS (SELECT * FROM attributed WHERE $4='' OR source=$4), page AS (SELECT * FROM filtered ORDER BY registered_at DESC,user_id DESC LIMIT 50 OFFSET $6) SELECT json_build_object('items',coalesce((SELECT json_agg(page) FROM page),'[]'::json),'total',(SELECT count(*) FROM filtered),'page',$7::integer,'unknown_registration_count',(SELECT count(*) FROM cohort WHERE registered_at IS NULL),'coverage_complete',NOT EXISTS(SELECT 1 FROM cohort WHERE registered_at IS NULL))`, string(raw), from, to, source, h.s.now().Unix()-AccountDays*daySeconds, (page-1)*50, page).Scan(&result)
-	if err != nil {
-		respond(w, nil, errUnavailable)
-		return
-	}
-	respond(w, result, nil)
+	return raw, nil
 }
