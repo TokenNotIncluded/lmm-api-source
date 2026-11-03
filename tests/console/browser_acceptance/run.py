@@ -365,6 +365,14 @@ def main():
                     elif action == 'restore-grants':
                         fixture.grants()
                         data = {'ok': True}
+                    elif action == 'restart-core':
+                        old_pid = fixture.main.proc.pid
+                        fixture.main.stop()
+                        fixture.start_core('navigation_restart')
+                        data = {'old_pid': old_pid, 'new_pid': fixture.main.proc.pid,
+                                'core_sha256': sha(f'/proc/{fixture.main.proc.pid}/exe')}
+                        require(data['new_pid'] != old_pid and data['core_sha256'] == args.core_sha256, 'restart_binding')
+                        save(root / 'navigation-restart.json', data)
                     elif action == 'arm-commit-loss':
                         fixture.proxy.arm()
                         data = {'ok': True}
@@ -461,7 +469,7 @@ def main():
                 elif item.exists():
                     item.unlink()
         save(root / 'results.json', {'overall': ('INDEPENDENT_CASE_PASS' if args.ordinary_only else 'DIAGNOSTIC_ONLY' if args.diagnose_selector else 'PASS') if ok else 'INCOMPLETE', 'phases': results,
-             'temporary_inputs_removed': cleanup_ok, 'development_checks': development, 'scope': 'Notice/announcements actual browser only; no project-wide signoff'})
+             'temporary_inputs_removed': cleanup_ok, 'development_checks': development, 'scope': 'Notice/announcements and navigation actual browser; no project-wide signoff'})
         save(root / 'resource-final.json', {n: (cgroup / n).read_text().strip() for n in
              ['memory.peak', 'memory.events', 'cpu.stat', 'pids.peak', 'pids.events'] if (cgroup / n).exists()})
         if lock:

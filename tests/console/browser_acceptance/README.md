@@ -111,3 +111,31 @@ UNKNOWN必须有真实PG提交回执丢失证据，并实际读取和刷新对�
 `schema-manifest` 一致，结果保存为 `installed-schema-comparison.json`。
 这项核对不代替业务、浏览器或资源验收。校验器自测：
 `python3 -B tests/console/independent_process/test_schema_binding.py`。
+
+## 待执行的导航验收扩展
+
+本次只扩展 runner，尚未运行浏览器、构建、安装或真实进程，因此以下均为待验收，
+不是 PASS。必须使用当前审核通过的 Web 输入及与 Core 二进制对应的构建来源证据；
+`cb1103p3` 已清理私有数据库和凭据，不能作为可克隆数据库的 `--reuse-root`。
+新夹具使用现有正式 `init-db`、`create-first-owner`、runtime grants 和 `[console] enabled=true`，
+正式授权脚本包含导航函数授权；Core `/api/option` 的 `writable_keys` 决定是否显示编辑器。
+如果实际响应不符合合同，应保留失败证据，不能伪造 capability 或替换 API。
+
+- 保留原八组 Notice/公告、只读、故障和普通用户检查；原窄屏组现在分别在
+  390×844 和 320×844 操作并刷新。历史 390 的 PASS 不代表新的 320 已通过。
+- `navigation-save-refresh` 在 1440×1000、390×844、320×844 的
+  `/system-settings/site/header-navigation` 操作 `role=switch`、名称 `AI directory`，
+  点击 `Save navigation`，断言真实 PUT 的 key、值、HTTP 200、success、saved，
+  读取 `/api/option` 并刷新核对。每个视口在独立匿名浏览器上下文读取真实
+  `/api/status`，打开移动端 `Toggle navigation menu`，核对目录链接和首页重复入口
+  随开关变化，并检查仍启用的 `/developers` 链接。
+- `navigation-restart-public` 通过带随机密钥的本地夹具控制端停止同一 Core，
+  用相同二进制、配置、数据库和 runtime 账号重新启动，核对 PID、可执行文件摘要、
+  设置值、刷新后的开关及三个视口下的匿名公开导航。它不重启 PostgreSQL。
+- `navigation-ordinary-denial` 使用真实普通用户登录，检查深链没有保存入口，
+  以该会话向真实 `/api/option/` 发起不同值的 PUT，要求 403、
+  `SYSTEM_OPTIONS_FORBIDDEN`，并比较前后的公开配置。
+
+新运行仍须使用新的私有输出目录及资源限制，按现有流程冻结输入并由独立执行者
+检查截图、DOM、API 和重启证据。历史 `--notice-overlay` 不再继承旧的窄屏组；
+新增完整矩阵的执行结果不能由旧八组推断。既有 `--ordinary-only` 保持其单组范围。

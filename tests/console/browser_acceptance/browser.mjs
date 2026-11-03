@@ -11,6 +11,7 @@ const cases = Object.fromEntries([
   'admin-login', 'notice-save-refresh', 'announcement-add-alias-refresh',
   'other-settings-readonly', 'narrow-screen', 'storage-error-no-retry',
   'commit-unknown-no-retry', 'ordinary-no-write',
+  'navigation-save-refresh', 'navigation-restart-public', 'navigation-ordinary-denial',
 ].map(k => [k, 'NOT_RUN']))
 const events = [], errors = [], external = [], writeAttempts = []
 let browser, page, current = 'admin-login'
@@ -150,7 +151,7 @@ try {
   browser = await chromium.launch({ executablePath: cfg.chromium, headless: true, timeout: 30000,
     args: ['--disable-gpu', '--disable-dev-shm-usage', '--renderer-process-limit=2',
       '--disable-background-networking', '--disable-component-update', '--no-first-run'] })
-  await save('browser-version.json', { version: browser.version(), headless: true, desktop: '1440x1000', narrow: '390x844' })
+  await save('browser-version.json', { version: browser.version(), headless: true, desktop: '1440x1000', narrow: ['390x844', '320x844'] })
   page = await context()
   if (cfg.ordinaryOnly) {
     if (!cfg.noticeRetest) await ordinaryNoWrite()
@@ -249,33 +250,112 @@ try {
     assert.ok(await saves.count())
     for (const button of await saves.all()) assert.equal(await button.isDisabled(), true)
   })
+  } else {
+    assert.equal(cfg.priorReadonlyCases['other-settings-readonly'], 'PASS')
+    cases['other-settings-readonly'] = 'REUSED_PASS'
+    assert.equal(cfg.priorOrdinaryCases['ordinary-no-write'], 'PASS')
+    cases['ordinary-no-write'] = 'REUSED_PASS'
+  }
   await run('narrow-screen', async () => {
-    await page.setViewportSize({ width: 390, height: 844 })
+    for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
     await noticePage()
-    await saveNotice(notice + ' Narrow.', 200)
+    await saveNotice(notice + ' Narrow ' + width + '.', 200)
     await page.reload()
     await ready(page.getByLabel('Announcement content', { exact: true }))
-    assert.equal(await page.getByLabel('Announcement content', { exact: true }).inputValue(), notice + ' Narrow.')
+    assert.equal(await page.getByLabel('Announcement content', { exact: true }).inputValue(), notice + ' Narrow ' + width + '.')
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page overflows narrow viewport')
-    await capture('notice-narrow')
+    await capture('notice-narrow-' + width)
     await page.goto(cfg.origin + '/system-settings/content/announcements')
     await ready(page.getByRole('cell', { name: announcement, exact: true }))
     await page.getByRole('button', { name: 'Add Announcement', exact: true }).click()
     await ready(page.getByRole('dialog'))
-    await capture('announcement-dialog-narrow')
+    await capture('announcement-dialog-narrow-' + width)
     await page.getByRole('dialog').getByLabel('Content', { exact: true }).fill('Narrow local draft')
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    }
     await page.setViewportSize({ width: 1440, height: 1000 })
   })
-  } else {
-    for (const name of ['other-settings-readonly', 'narrow-screen']) {
-      assert.equal(cfg.priorReadonlyCases[name], 'PASS')
-      cases[name] = 'REUSED_PASS'
+  await run('navigation-save-refresh', async () => {
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await page.goto(cfg.origin + '/system-settings/site/header-navigation')
+      const directory = page.getByRole('switch', { name: 'AI directory', exact: true })
+      await ready(directory)
+      const enabled = !(await directory.isChecked())
+      await directory.click()
+      const pending = page.waitForResponse(r => new URL(r.url()).pathname.replace(/\/$/, '') === '/api/option' && r.request().method() === 'PUT')
+      await page.getByRole('button', { name: 'Save navigation', exact: true }).click()
+      const response = await pending, body = await response.json()
+      assert.equal(response.status(), 200)
+      assert.equal(body.success, true)
+      assert.equal(body.saved, true)
+      const request = response.request().postDataJSON()
+      assert.equal(request.key, 'HeaderNavModules')
+      assert.equal(JSON.parse(request.value).directory, enabled)
+      assert.equal(JSON.parse((await optionRead()).HeaderNavModules).directory, enabled)
+      await page.reload()
+      await ready(directory)
+      assert.equal(await directory.isChecked(), enabled)
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'navigation settings overflow at ' + width)
+      await capture('navigation-editor-' + width)
+      const adminPage = page
+      page = await context()
+      try {
+        await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+        const status = page.waitForResponse(r => new URL(r.url()).pathname === '/api/status' && r.request().method() === 'GET')
+        await page.goto(cfg.origin + '/')
+        const publicResponse = await status, publicBody = await publicResponse.json()
+        assert.equal(publicResponse.status(), 200)
+        assert.equal(publicBody.success, true)
+        assert.equal(JSON.parse(publicBody.data.HeaderNavModules).directory, enabled)
+        if (width !== 1440) await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+        const nav = width === 1440 ? page.locator('header nav') : page.getByRole('dialog', { name: 'Header navigation' })
+        await ready(nav.locator('a[href="/developers"]').filter({ visible: true }).first())
+        await poll(async () => await nav.locator('a[href="/ai-directory"]:visible').count() === (enabled ? 1 : 0) && await page.locator('.home-directory-link').count() === (enabled ? 1 : 0), 'public navigation did not reflect save at ' + width)
+        await capture('navigation-public-save-' + width)
+      } finally {
+        await page.context().close()
+        page = adminPage
+      }
     }
-    assert.equal(cfg.priorOrdinaryCases['ordinary-no-write'], 'PASS')
-    cases['ordinary-no-write'] = 'REUSED_PASS'
-    await save('inherited-cases.json', { changeBoundary: 'Only Notice submit handler changed; Core and other source inputs unchanged', evidenceRoots: ['cb1030a6', 'cb1030a8', 'cb1030a9'], cases: Object.fromEntries(Object.entries(cases).filter(([,v]) => v === 'REUSED_PASS')) })
-  }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+  })
+  await run('navigation-restart-public', async () => {
+    const before = (await optionRead()).HeaderNavModules
+    const savedDirectory = JSON.parse(before).directory
+    const restarted = await control('restart-core')
+    assert.notEqual(restarted.old_pid, restarted.new_pid)
+    assert.equal((await optionRead()).HeaderNavModules, before)
+    await page.reload()
+    const directory = page.getByRole('switch', { name: 'AI directory', exact: true })
+    await ready(directory)
+    assert.equal(await directory.isChecked(), savedDirectory)
+    const adminPage = page
+    page = await context()
+    try {
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+        const status = page.waitForResponse(r => new URL(r.url()).pathname === '/api/status' && r.request().method() === 'GET')
+        await page.goto(cfg.origin + '/')
+        const response = await status, body = await response.json()
+        assert.equal(response.status(), 200)
+        assert.equal(body.success, true)
+        assert.equal(JSON.parse(body.data.HeaderNavModules).directory, savedDirectory)
+        if (width !== 1440) {
+          await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+        }
+        const nav = width === 1440 ? page.locator('header nav') : page.getByRole('dialog', { name: 'Header navigation' })
+        await ready(nav.locator('a[href="/developers"]').filter({ visible: true }).first())
+        await poll(async () => await nav.locator('a[href="/ai-directory"]:visible').count() === (savedDirectory ? 1 : 0) && await page.locator('.home-directory-link').count() === (savedDirectory ? 1 : 0), 'public navigation did not reflect saved directory at ' + width)
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'public page overflow at ' + width)
+        await capture('navigation-public-' + width)
+      }
+    } finally {
+      await page.context().close()
+      page = adminPage
+    }
+  })
   await run('storage-error-no-retry', async () => {
     await noticePage()
     await page.locator('[data-sonner-toast][data-type="success"]').waitFor({ state: 'hidden', timeout: 10000 })
@@ -312,7 +392,36 @@ try {
     assert.equal(await page.getByLabel('Announcement content', { exact: true }).inputValue(), 'Committed but reply lost — reconcile by reading.')
     await capture('commit-unknown-resolved-by-refresh')
   })
-  if (!cfg.noticeRetest) await ordinaryNoWrite()
+  if (cfg.noticeRetest) {
+    await page.context().close()
+    page = await context()
+    const identity = await login('consoleordinary', cfg.ordinaryPassword, '/system-settings/site/header-navigation')
+    assert.ok(identity.platform_level < 6)
+  } else await ordinaryNoWrite()
+    await run('navigation-ordinary-denial', async () => {
+      await page.goto(cfg.origin + '/system-settings/site/header-navigation')
+      await page.waitForLoadState('networkidle')
+      assert.equal(await page.getByRole('button', { name: 'Save navigation', exact: true }).count(), 0)
+      const before = await page.context().request.get(cfg.origin + '/api/status')
+      assert.equal(before.status(), 200)
+      const beforeBody = await before.json()
+      assert.equal(beforeBody.success, true)
+      const original = beforeBody.data.HeaderNavModules
+      const response = await page.context().request.put(cfg.origin + '/api/option/', {
+        headers: { Authorization: 'Bearer ' + token },
+        data: { key: 'HeaderNavModules', value: JSON.stringify({ directory: !JSON.parse(original).directory }) },
+      })
+      assert.equal(response.status(), 403)
+      const body = await response.json()
+      assert.equal(body.success, false)
+      assert.equal(body.code, 'SYSTEM_OPTIONS_FORBIDDEN')
+      const status = await page.context().request.get(cfg.origin + '/api/status')
+      assert.equal(status.status(), 200)
+      const publicBody = await status.json()
+      assert.equal(publicBody.success, true)
+      assert.equal(publicBody.data.HeaderNavModules, original)
+      await capture('navigation-ordinary-denied')
+    })
   }
   }
 } catch (error) {
