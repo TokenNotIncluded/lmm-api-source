@@ -3,6 +3,7 @@
 //! Nothing here creates wallets, imports facts, replays requests or values raw
 //! opening counters. Source installation and HTTP mounting are explicit gates.
 pub(crate) mod performance;
+pub mod quota_aggregates;
 pub mod projection;
 pub mod site_statistics;
 use crate::identity::{self, CredentialKind, IdentityError};

@@ -98,6 +98,10 @@
 \else
 \set enable_trust_policy_editor false
 \endif
+\if :{?enable_community}
+\else
+\set enable_community false
+\endif
 -- Native production model/image/assistant entrypoints require Core-owned trust.
 \if :enable_models
 \set enable_trust_pricing true
@@ -143,6 +147,11 @@ GRANT SELECT ON core_history.sources, core_history.log_records,
     core_history.scope_receipts,core_history.finance_sources,
     core_history.finance_users,core_history.finance_topups,
     core_history.finance_native_payments TO :"runtime_role";
+-- BEGIN history-quota-aggregates runtime grants
+-- Imported legacy hourly usage aggregates and passkey handles are read-only.
+GRANT SELECT ON core_history.quota_aggregates, core_history.legacy_passkey_handles
+    TO :"runtime_role";
+-- END history-quota-aggregates runtime grants
 -- Operational jobs delete only their frozen historical-log scope through one
 -- bounded function. Native financial evidence remains append-only.
 GRANT USAGE ON SCHEMA core_operations TO :"runtime_role";
@@ -297,6 +306,13 @@ GRANT SELECT, INSERT ON core_promotions.campaigns,core_promotions.commands,
 GRANT UPDATE(revision,title,budget_units,spent_units,reserved_units,max_claims,claims,
     reserved_claims,max_claims_per_user,starts_at,ends_at,enabled) ON core_promotions.campaigns TO :"runtime_role";
 GRANT UPDATE(revoked) ON core_promotions.codes TO :"runtime_role";
+GRANT SELECT, INSERT ON core_promotions.red_packets,core_promotions.red_packet_items,
+    core_promotions.red_packet_claims TO :"runtime_role";
+GRANT UPDATE(title,description,cover_image,cover_prompt,draw_mode,per_user_limit,start_at,end_at,
+    enabled,updated_at,deleted_at) ON core_promotions.red_packets TO :"runtime_role";
+GRANT UPDATE(released_at) ON core_promotions.red_packet_items TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_promotions.red_packets_id_seq,core_promotions.red_packet_items_id_seq,
+    core_promotions.red_packet_claims_id_seq TO :"runtime_role";
 -- END promotions runtime grants
 \endif
 
@@ -364,6 +380,11 @@ GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint)
 \endif
 
 \if :enable_web_identity
+-- BEGIN wallet-topup-history runtime grants
+-- Self top-up history reads only the owner-imported immutable receipt columns.
+GRANT USAGE ON SCHEMA core_migration TO :"runtime_role";
+GRANT SELECT(migration_id, manifest) ON core_migration.import_runs TO :"runtime_role";
+-- END wallet-topup-history runtime grants
 -- BEGIN account-security runtime grants
 GRANT USAGE ON SCHEMA core_passkeys,core_account_lifecycle TO :"runtime_role";
 GRANT SELECT,INSERT(user_id) ON core_passkeys.user_handles TO :"runtime_role";
@@ -591,5 +612,11 @@ GRANT EXECUTE ON FUNCTION
     core_trust_pricing.policy_challenge_context(bytea,bytea,bigint,bigint),
     core_trust_pricing.authorized_policy_confirm(jsonb,bytea)
 TO :"runtime_role";
+\endif
+\if :enable_community
+-- Community read service: aggregate reads of settled requests; history and
+-- identity profile reads are granted above. No writes.
+GRANT USAGE ON SCHEMA core_charging TO :"runtime_role";
+GRANT SELECT ON core_charging.requests TO :"runtime_role";
 \endif
 COMMIT;

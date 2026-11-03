@@ -204,6 +204,11 @@ func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op op
 					if err := release(tx, &out); err != nil {
 						return err
 					}
+				} else if len(out.StockItems) > 0 {
+					// Delivered units are retired, never returned to sale.
+					if err := moveStock(tx, out, stockDelivered, stockRefunded); err != nil {
+						return err
+					}
 				}
 				out.State = Refunded
 				out.RefundState = "completed"

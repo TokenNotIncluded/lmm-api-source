@@ -335,6 +335,7 @@ struct CoreFile {
     wallet: Option<SupportProjectionFile>,
     bounties: Option<SupportProjectionFile>,
     images: Option<SupportProjectionFile>,
+    community: Option<SupportProjectionFile>,
     ingress: Option<IngressFile>,
     remote_control: Option<RemoteControlFile>,
     edge_access: Option<crate::edge_access::TypedConfig>,
@@ -435,6 +436,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.wallet.is_some()
             || file.bounties.is_some()
             || file.images.is_some()
+            || file.community.is_some()
             || file.remote_control.is_some()
             || file.edge_access.is_some())
     {
@@ -755,13 +757,22 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             ("LMM_CORE_TOOL_MARKET_TOKEN_FILE", tool.token_file),
         ]);
     }
-    for (service, prefix) in [(file.images, "images"), (file.bounties, "bounties")] {
+    for (service, prefix) in [
+        (file.images, "images"),
+        (file.bounties, "bounties"),
+        (file.community, "community"),
+    ] {
         if let Some(service) = service {
             let (token_name, socket_name, group_name) = match prefix {
                 "images" => (
                     "LMM_CORE_IMAGES_TOKEN_FILE",
                     "LMM_CORE_IMAGES_SOCKET",
                     "LMM_CORE_IMAGES_SHARED_GROUP_ID",
+                ),
+                "community" => (
+                    "LMM_CORE_COMMUNITY_TOKEN_FILE",
+                    "LMM_CORE_COMMUNITY_SOCKET",
+                    "LMM_CORE_COMMUNITY_SHARED_GROUP_ID",
                 ),
                 _ => (
                     "LMM_CORE_BOUNTIES_TOKEN_FILE",
@@ -1322,6 +1333,11 @@ pub fn image_host_configured() -> bool {
         || setting_os("LMM_CORE_IMAGES_SOCKET").is_some()
         || setting_os("LMM_CORE_IMAGES_SHARED_GROUP_ID").is_some()
 }
+pub fn community_configured() -> bool {
+    setting_os("LMM_CORE_COMMUNITY_TOKEN_FILE").is_some()
+        || setting_os("LMM_CORE_COMMUNITY_SOCKET").is_some()
+        || setting_os("LMM_CORE_COMMUNITY_SHARED_GROUP_ID").is_some()
+}
 pub fn bounties_browser_router(store: crate::bounties::BountyStore) -> io::Result<axum::Router> {
     let origin = setting("LMM_CORE_WEB_ORIGIN")
         .map_err(|_| invalid_config("bounty confirmation requires Web browser authentication"))?;
@@ -1386,6 +1402,7 @@ pub async fn tool_market_server(
         && !wallet_configured()
         && !bounties_configured()
         && !image_host_configured()
+        && !community_configured()
     {
         return Ok(None);
     }
@@ -1427,6 +1444,12 @@ pub async fn tool_market_server(
     if image_host_configured() && images.is_none() {
         return Err(invalid_config("images requires independent token file"));
     }
+    let community = setting_os("LMM_CORE_COMMUNITY_TOKEN_FILE")
+        .map(|p| service_token(Path::new(&p)))
+        .transpose()?;
+    if community_configured() && community.is_none() {
+        return Err(invalid_config("community requires independent token file"));
+    }
     let witness = setting_os("LMM_CORE_TOOL_MARKET_FIXED_WITNESS_TOKEN_FILE")
         .map(|p| service_token(Path::new(&p)))
         .transpose()?;
@@ -1442,6 +1465,7 @@ pub async fn tool_market_server(
         setting_os("LMM_CORE_WALLET_SOCKET"),
         setting_os("LMM_CORE_BOUNTIES_SOCKET"),
         setting_os("LMM_CORE_IMAGES_SOCKET"),
+        setting_os("LMM_CORE_COMMUNITY_SOCKET"),
     ]
     .into_iter()
     .flatten()
@@ -1466,7 +1490,10 @@ pub async fn tool_market_server(
     if let Some(token) = &wallet {
         credentials.push(token.as_slice());
     }
-    for token in [&bounties, &images, &witness].into_iter().flatten() {
+    for token in [&bounties, &images, &community, &witness]
+        .into_iter()
+        .flatten()
+    {
         credentials.push(token.as_slice());
     }
     if credentials
@@ -1520,6 +1547,7 @@ pub async fn tool_market_server(
         group_setting("LMM_CORE_WALLET_SHARED_GROUP_ID")?,
         group_setting("LMM_CORE_BOUNTIES_SHARED_GROUP_ID")?,
         group_setting("LMM_CORE_IMAGES_SHARED_GROUP_ID")?,
+        group_setting("LMM_CORE_COMMUNITY_SHARED_GROUP_ID")?,
     ]
     .into_iter()
     .flatten()
@@ -1663,6 +1691,15 @@ pub async fn tool_market_server(
                 .map_err(|_| invalid_config("invalid private image service"))?,
         );
     }
+    if let Some(token) = &community {
+        let read = crate::community_read::CommunityRead::new(pool.clone())
+            .await
+            .map_err(|_| invalid_config("community read authority unavailable"))?;
+        app = app.merge(
+            crate::community_read::http::router(read, token)
+                .map_err(|_| invalid_config("invalid private community service"))?,
+        );
+    }
     let binding_token = tool
         .as_ref()
         .map(|v| v.1.as_slice())
@@ -1670,6 +1707,7 @@ pub async fn tool_market_server(
         .or(wallet.as_deref())
         .or(bounties.as_deref())
         .or(images.as_deref())
+        .or(community.as_deref())
         .ok_or_else(|| invalid_config("missing private binding credential"))?;
     crate::tool_market::server::ToolMarketServer::bind_with_router(
         Path::new(&socket),
@@ -3615,6 +3653,7 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
         for (section, token) in [
             ("images", "LMM_CORE_IMAGES_TOKEN_FILE"),
             ("bounties", "LMM_CORE_BOUNTIES_TOKEN_FILE"),
+            ("community", "LMM_CORE_COMMUNITY_TOKEN_FILE"),
         ] {
             let block = format!(
                 "[{section}]\ntoken_file='/missing-token'\nsocket='/missing-private.sock'\n"

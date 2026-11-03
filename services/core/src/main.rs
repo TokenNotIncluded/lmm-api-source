@@ -366,6 +366,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 market_oauth: config::market_oauth_configured(),
                 wallet: config::wallet_configured(),
                 bounties: config::bounties_configured(),
+                community: config::community_configured(),
                 trust_policy_editor: config::trust_policy_editor_enabled()?,
             },
         )
@@ -433,7 +434,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             routes = routes
                 .merge(lmm_core::console_compat::router(console.clone()))
                 .merge(lmm_core::subscriptions::router(pool.clone()))
-                .merge(lmm_core::promotions::router(pool.clone()));
+                .merge(lmm_core::promotions::router(pool.clone()))
+                .merge(lmm_core::promotions::red_packets::router(pool.clone()));
             notification_runtime = Some(console);
             capabilities.console = true;
         }
@@ -518,6 +520,14 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             routes = routes.merge(lmm_core::topup_info_http::unconfigured_router(
                 store.clone(),
             ));
+            let mut wallet_history =
+                lmm_core::wallet_history_read_http::WalletHistoryReadHttp::new(store.clone());
+            if let Some(history) =
+                lmm_core::wallet_topup_snapshot::WalletTopupHistory::installed(pool.clone()).await?
+            {
+                wallet_history = wallet_history.with_history(history);
+            }
+            routes = routes.merge(lmm_core::wallet_history_read_http::router(wallet_history));
             routes = routes.merge(match &email_runtime {
                 Some(mail) => {
                     lmm_core::legacy_auth::router_with_email(store, config.auth, mail.http.clone())
@@ -575,6 +585,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::wallet_configured()
         || config::bounties_configured()
         || config::image_host_configured()
+        || config::community_configured()
         || config::remote_control_configured()
         || legacy_config.is_some()
         || config::identity_database_required()?
@@ -668,6 +679,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::wallet_configured()
         || config::bounties_configured()
         || config::image_host_configured()
+        || config::community_configured()
     {
         return Err("internal RPC requires a Unix socket on this release".into());
     }
@@ -678,7 +690,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             || config::support_projection_configured()
             || config::wallet_configured()
             || config::bounties_configured()
-            || config::image_host_configured() =>
+            || config::image_host_configured()
+            || config::community_configured() =>
         {
             return Err("tool market requires the Core database".into());
         }

@@ -33,7 +33,7 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 		if out.ID != orderID {
 			return ErrConflict
 		}
-		if out.Legacy == nil || out.Legacy.DeliveryTemplate != "fixed-content" || out.Total.Amount <= 0 {
+		if !deliverable(out) || out.Total.Amount <= 0 {
 			return ErrInvalid
 		}
 		if out.State == Settled {
@@ -58,7 +58,12 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 			var private struct {
 				Content string `json:"content"`
 			}
-			if err := tx.Get("commands", ID("legacy-order-delivery-v1", out.ID), &private); err != nil {
+			if stockOrder(out) {
+				if err := moveStock(tx, out, stockReserved, stockDelivered); err != nil {
+					return err
+				}
+				private.Content = stockDeliverySummary(out.StockItems)
+			} else if err := tx.Get("commands", ID("legacy-order-delivery-v1", out.ID), &private); err != nil {
 				return err
 			}
 			if !Text(private.Content, 16000) {
@@ -121,6 +126,12 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 	// Delivery was committed before capture. A rejected capture restores
 	// Fulfilled, without retracting delivery or returning consumed inventory.
 	return s.finishMoney(ctx, shopID, orderID, op, receipt)
+}
+
+// Fixed content and allocated per-unit stock are delivered by
+// the store itself before the Core capture of the accepted payment.
+func deliverable(o Order) bool {
+	return o.Legacy != nil && (o.Legacy.DeliveryTemplate == "fixed-content" || stockOrder(o))
 }
 
 type deliveryIndex interface {

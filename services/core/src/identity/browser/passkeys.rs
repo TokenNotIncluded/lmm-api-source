@@ -395,7 +395,7 @@ impl BrowserAuth {
             .bind(digest(flow)?).bind(binding_digest(binding)?).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
         let Json(state): Json<State> = row.try_get("state")?;
         let credential_id: &[u8] = reg.raw_id.as_ref();
-        let credential=sqlx::query("SELECT k.id,k.user_id,k.passkey,k.revision,h.user_handle::text,u.auth_version FROM core_passkeys.credentials k JOIN core_passkeys.user_handles h ON h.user_id=k.user_id JOIN core_identity.users u ON u.id=k.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE k.credential_id=$1 AND k.revoked_at IS NULL AND a.active FOR UPDATE OF k NOWAIT FOR SHARE OF u,a NOWAIT")
+        let credential=sqlx::query("SELECT k.id,k.user_id,k.passkey,k.revision,h.user_handle::text,l.user_handle AS legacy_user_handle,u.auth_version FROM core_passkeys.credentials k JOIN core_passkeys.user_handles h ON h.user_id=k.user_id JOIN core_identity.users u ON u.id=k.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_history.legacy_passkey_handles l ON l.credential_id=k.credential_id AND l.user_id=k.user_id WHERE k.credential_id=$1 AND k.revoked_at IS NULL AND a.active FOR UPDATE OF k NOWAIT FOR SHARE OF u,a NOWAIT")
             .bind(credential_id).fetch_optional(&mut *tx).await?;
         let Some(credential) = credential else {
             tx.commit().await?;
@@ -423,14 +423,13 @@ impl BrowserAuth {
                     .finish_passkey_authentication(&reg, &challenge)
             }
             State::Discoverable { challenge } => {
-                let Ok((handle, reported_id)) =
-                    config.webauthn.identify_discoverable_authentication(&reg)
-                else {
-                    tx.commit().await?;
-                    return Err(IdentityError::Unauthorized.into());
-                };
-                if handle.to_string() != credential.try_get::<String, _>("user_handle")?
-                    || reported_id != credential_id
+                let handle = credential.try_get::<String, _>("user_handle")?;
+                let legacy: Option<Vec<u8>> = credential.try_get("legacy_user_handle")?;
+                if !discoverable_handle_matches(
+                    reg.get_user_unique_id(),
+                    &handle,
+                    legacy.as_deref(),
+                ) || reg.get_credential_id() != credential_id
                 {
                     tx.commit().await?;
                     return Err(IdentityError::Unauthorized.into());
@@ -473,8 +472,38 @@ impl BrowserAuth {
     }
 }
 
+/// Native credentials carry the UUID handle. Only a credential imported with
+/// its exact legacy handle (the old decimal user ID) may present that handle.
+fn discoverable_handle_matches(reported: Option<&[u8]>, handle: &str, legacy: Option<&[u8]>) -> bool {
+    let Some(reported) = reported.filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    Uuid::from_slice(reported).is_ok_and(|uuid| uuid.to_string() == handle)
+        || legacy.is_some_and(|legacy| legacy == reported)
+}
+
 async fn cleanup(c: &mut PgConnection) -> Result<()> {
     sqlx::query("DELETE FROM core_passkeys.flows WHERE digest IN (SELECT digest FROM core_passkeys.flows WHERE expires_at<=clock_timestamp() ORDER BY expires_at LIMIT 100)")
         .execute(c).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod legacy_handle_tests {
+    use super::{Uuid, discoverable_handle_matches};
+
+    #[test]
+    fn legacy_decimal_handle_only_matches_its_imported_credential() {
+        let uuid = Uuid::from_u128(0x1234);
+        let handle = uuid.to_string();
+        assert!(discoverable_handle_matches(Some(uuid.as_bytes()), &handle, None));
+        assert!(discoverable_handle_matches(Some(uuid.as_bytes()), &handle, Some(b"54")));
+        assert!(discoverable_handle_matches(Some(b"54"), &handle, Some(b"54")));
+        assert!(!discoverable_handle_matches(Some(b"54"), &handle, None));
+        assert!(!discoverable_handle_matches(Some(b"55"), &handle, Some(b"54")));
+        assert!(!discoverable_handle_matches(Some(b""), &handle, Some(b"")));
+        assert!(!discoverable_handle_matches(None, &handle, Some(b"54")));
+        let other = Uuid::from_u128(0x5678);
+        assert!(!discoverable_handle_matches(Some(other.as_bytes()), &handle, None));
+    }
 }

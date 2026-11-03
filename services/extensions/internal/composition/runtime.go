@@ -12,6 +12,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/identity"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
@@ -58,6 +59,7 @@ type Config struct {
 	AssistantServicesPolicies     assistant_services.PolicyReader
 	AssistantPublicSnapshot       assistant_services.PublicSnapshotReader
 	Operations                    StorageConfig
+	Community                     StorageConfig
 	Scripts                       *operations.ScriptConfig
 }
 
@@ -81,6 +83,7 @@ type Runtime struct {
 	AssistantChat               assistant.ChatPort
 	AssistantServices           *assistant_services.Service
 	Operations                  *operations.Service
+	Community                   *community.Service
 	close                       []func() error
 	workerCancel                context.CancelFunc
 	workerDone                  chan struct{}
@@ -345,6 +348,18 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
 		return nil, errors.New("operations configuration requires explicit module selection")
 	}
+	if selected["community"] {
+		db, err := openStorage(ctx, cfg.Community)
+		if err != nil {
+			return nil, err
+		}
+		r.close = append(r.close, db.Close)
+		if r.Community, err = community.New(ctx, db, cfg.HostPublicOrigin); err != nil {
+			return nil, err
+		}
+	} else if cfg.Community.URLFile != "" || cfg.Community.Database != "" {
+		return nil, errors.New("community configuration requires explicit module selection")
+	}
 	for _, name := range cfg.Selected {
 		switch name {
 		case "identity":
@@ -365,7 +380,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			r.Modules = append(r.Modules, r.ToolMarket)
 		case "assistant":
 			r.Modules = append(r.Modules, r.Assistant)
-		case "operations":
+		case "operations", "community":
 			// The process entry mounts its authenticated adapter with the
 			// separately loaded host credential before constructing the host.
 		default:

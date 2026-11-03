@@ -195,19 +195,23 @@ function RewardCard({
           <div className='text-muted-foreground mt-1 text-xs'>
             {isDiscount
               ? t('This discount code is bound to your account after claiming.')
-              : t('Redeem this code in Wallet when you are ready.')}
+              : reward.credited
+                ? t('Added to your wallet balance.')
+                : t('Redeem this code in Wallet when you are ready.')}
           </div>
-          <div className='mt-3 flex items-stretch gap-2'>
-            <code className='bg-muted min-w-0 flex-1 truncate rounded-md px-3 py-2 text-xs leading-6'>
-              {reward.code}
-            </code>
-            <CopyButton
-              value={reward.code}
-              variant='outline'
-              aria-label={t('Copy')}
-              className='h-auto min-h-11 px-3'
-            />
-          </div>
+          {!reward.credited && (
+            <div className='mt-3 flex items-stretch gap-2'>
+              <code className='bg-muted min-w-0 flex-1 truncate rounded-md px-3 py-2 text-xs leading-6'>
+                {reward.code}
+              </code>
+              <CopyButton
+                value={reward.code}
+                variant='outline'
+                aria-label={t('Copy')}
+                className='h-auto min-h-11 px-3'
+              />
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -247,19 +251,23 @@ function UnwrappedReward({ reward }: { reward: RedPacketReward }) {
       <p className='text-muted-foreground mt-2 text-sm'>
         {isDiscount
           ? t('This discount code is bound to your account after claiming.')
-          : t('Redeem this code in Wallet when you are ready.')}
+          : reward.credited
+            ? t('Added to your wallet balance.')
+            : t('Redeem this code in Wallet when you are ready.')}
       </p>
-      <div className='mt-4 flex items-stretch gap-2'>
-        <code className='bg-background/70 min-w-0 flex-1 truncate rounded-md border px-3 py-2 text-sm leading-6'>
-          {reward.code}
-        </code>
-        <CopyButton
-          value={reward.code}
-          variant='outline'
-          aria-label={t('Copy')}
-          className='h-auto min-h-11 px-3'
-        />
-      </div>
+      {!reward.credited && (
+        <div className='mt-4 flex items-stretch gap-2'>
+          <code className='bg-background/70 min-w-0 flex-1 truncate rounded-md border px-3 py-2 text-sm leading-6'>
+            {reward.code}
+          </code>
+          <CopyButton
+            value={reward.code}
+            variant='outline'
+            aria-label={t('Copy')}
+            className='h-auto min-h-11 px-3'
+          />
+        </div>
+      )}
     </motion.section>
   )
 }

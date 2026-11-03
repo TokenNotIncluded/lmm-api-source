@@ -65,6 +65,10 @@ pub fn router(store: HistoryStore) -> Router {
         .route("/api/log/", get(logs))
         .route("/api/log/stat", get(stats))
         .route("/api/log/token", get(token_logs))
+        // Imported legacy logs of the authenticated personal session only;
+        // native receipts stay on usage.rs `/api/log/self`.
+        .route("/api/log/self/history", get(self_logs))
+        .route("/api/log/self/history/stat", get(self_stats))
         .route("/api/finance/export", get(export_usage))
         .route("/api/finance/site-statistics", get(site_statistics))
         .route("/api/perf-metrics/summary", get(performance_summary))
@@ -261,6 +265,23 @@ async fn logs(
     headers: HeaderMap,
     query: Result<Query<HistoryQuery>, QueryRejection>,
 ) -> Response {
+    read_logs(store, headers, query, ReadRoute::Administrator).await
+}
+
+async fn self_logs(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<HistoryQuery>, QueryRejection>,
+) -> Response {
+    read_logs(store, headers, query, ReadRoute::SelfSession).await
+}
+
+async fn read_logs(
+    store: HistoryStore,
+    headers: HeaderMap,
+    query: Result<Query<HistoryQuery>, QueryRejection>,
+    route: ReadRoute,
+) -> Response {
     let secret = match extract_bearer(&headers) {
         Ok(s) => s,
         Err(e) => return error_response(e),
@@ -269,7 +290,7 @@ async fn logs(
         Ok(q) => q,
         Err(_) => return error_response(HistoryError::Invalid),
     };
-    match store.read(secret, ReadRoute::Administrator, &q).await {
+    match store.read(secret, route, &q).await {
         Ok(snapshot) => (
             StatusCode::OK,
             Json(json!({
@@ -288,6 +309,23 @@ async fn stats(
     headers: HeaderMap,
     query: Result<Query<HistoryQuery>, QueryRejection>,
 ) -> Response {
+    read_stats(store, headers, query, ReadRoute::Administrator).await
+}
+
+async fn self_stats(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<HistoryQuery>, QueryRejection>,
+) -> Response {
+    read_stats(store, headers, query, ReadRoute::SelfSession).await
+}
+
+async fn read_stats(
+    store: HistoryStore,
+    headers: HeaderMap,
+    query: Result<Query<HistoryQuery>, QueryRejection>,
+    route: ReadRoute,
+) -> Response {
     let secret = match extract_bearer(&headers) {
         Ok(s) => s,
         Err(e) => return error_response(e),
@@ -298,7 +336,7 @@ async fn stats(
     };
     q.p = Some(1);
     q.page_size = Some(1);
-    match store.read(secret, ReadRoute::Administrator, &q).await {
+    match store.read(secret, route, &q).await {
         Ok(snapshot) => {
             // Raw string is authoritative and never lossy.
             let raw_str = &snapshot.summary.raw_consumption_quota;

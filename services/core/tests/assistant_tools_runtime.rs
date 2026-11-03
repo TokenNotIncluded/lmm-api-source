@@ -23,6 +23,37 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         Err(Error::MissingPrivileges)
     );
     role.optional("core_assistant_tools").await;
+    // Startup also reads the durable agent journal; check-db must not pass
+    // until that exact read authority exists.
+    assert_eq!(
+        runtime_database::check(&role.pool, required).await,
+        Err(Error::MissingPrivileges)
+    );
+    let agent_reads = format!(
+        "GRANT USAGE ON SCHEMA core_assistant TO {0}; GRANT SELECT ON core_assistant.agent_turns,core_assistant.agent_rounds,core_assistant.agent_tool_operations TO {0}",
+        role.name
+    );
+    sqlx::raw_sql(&agent_reads).execute(&pool).await.unwrap();
+    runtime_database::check(&role.pool, required).await.unwrap();
+    sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
+        .execute(&role.pool)
+        .await
+        .unwrap();
+    for table in ["agent_turns", "agent_rounds", "agent_tool_operations"] {
+        sqlx::query(&format!(
+            "REVOKE SELECT ON core_assistant.{table} FROM {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges),
+            "{table}"
+        );
+        sqlx::raw_sql(&agent_reads).execute(&pool).await.unwrap();
+    }
     runtime_database::check(&role.pool, required).await.unwrap();
     sqlx::query("SELECT * FROM core_assistant_tools.confirmations")
         .fetch_all(&role.pool)

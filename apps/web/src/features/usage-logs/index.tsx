@@ -137,9 +137,10 @@ function UsageLogsContent() {
         <SectionPageLayout.Title>
           {t(pageMeta.titleKey)}
         </SectionPageLayout.Title>
-        {canManageScope && (
+        {(canManageScope || activeCategory === 'common') && (
           <SectionPageLayout.Actions>
-            {activeCategory === 'common' && viewScope === 'all' && (
+            {activeCategory === 'common' &&
+              (!canManageScope || viewScope === 'all') && (
               <Tabs
                 value={usageSource}
                 onValueChange={(value) => {
@@ -165,12 +166,14 @@ function UsageLogsContent() {
                 </TabsList>
               </Tabs>
             )}
-            <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
-              <TabsList>
-                <TabsTrigger value='all'>{t('All')}</TabsTrigger>
-                <TabsTrigger value='self'>{t('Only Mine')}</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            {canManageScope && (
+              <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
+                <TabsList>
+                  <TabsTrigger value='all'>{t('All')}</TabsTrigger>
+                  <TabsTrigger value='self'>{t('Only Mine')}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
           </SectionPageLayout.Actions>
         )}
         <SectionPageLayout.Content>

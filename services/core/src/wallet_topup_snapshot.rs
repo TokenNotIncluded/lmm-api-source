@@ -96,6 +96,21 @@ impl WalletTopupHistory {
         Self { pool, migration_id }
     }
 
+    /// The owner-imported receipt is the only accepted source; the importer
+    /// refuses a second snapshot, so an ambiguous installation reads nothing.
+    pub async fn installed(pool: PgPool) -> Result<Option<Self>, sqlx::Error> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT migration_id FROM core_migration.import_runs WHERE manifest->>'scope'=$1 LIMIT 2",
+        )
+        .bind(SCOPE)
+        .fetch_all(&pool)
+        .await?;
+        Ok(match ids.as_slice() {
+            [id] => Some(Self::new(pool, id.clone())),
+            _ => None,
+        })
+    }
+
     pub async fn read(
         &self,
         user: i64,

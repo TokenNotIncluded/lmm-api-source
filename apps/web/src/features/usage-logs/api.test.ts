@@ -483,6 +483,20 @@ test('historical administrator logs retain their explicit legacy endpoint', asyn
   })
 })
 
+test('historical personal logs use the session-scoped imported history endpoint', async () => {
+  login()
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/api/log/self/history?p=1&page_size=20')
+    return response(config, emptyPage())
+  }
+  await readLogsPage({
+    category: 'common',
+    params: {},
+    isAdmin: false,
+    historical: true,
+  })
+})
+
 test('historical CSV export keeps every applied filter and preserves raw server values', async () => {
   login({ role: 10 })
   const controller = new AbortController()

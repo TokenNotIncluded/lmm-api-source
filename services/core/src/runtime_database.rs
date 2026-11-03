@@ -40,6 +40,7 @@ pub struct RequiredCapabilities {
     pub market_oauth: bool,
     pub wallet: bool,
     pub bounties: bool,
+    pub community: bool,
     pub trust_policy_editor: bool,
 }
 
@@ -91,6 +92,13 @@ pub(crate) async fn check_connection(
     connection: &mut PgConnection,
     required: RequiredCapabilities,
 ) -> Result<(), RuntimeDatabaseError> {
+    if required.community {
+        let complete: bool = sqlx::query_scalar("SELECT has_schema_privilege('core_charging','USAGE') AND has_table_privilege('core_charging.requests','SELECT')")
+            .fetch_one(&mut *connection).await?;
+        if !complete {
+            return Err(RuntimeDatabaseError::MissingPrivileges);
+        }
+    }
     let unsafe_role: bool = sqlx::query_scalar(r#"
         SELECT current_user<>session_user
         OR has_parameter_privilege(current_user,'session_replication_role','SET')
@@ -294,6 +302,8 @@ pub(crate) async fn check_connection(
           AND has_table_privilege('core_history.finance_users','SELECT')
           AND has_table_privilege('core_history.finance_topups','SELECT')
           AND has_table_privilege('core_history.finance_native_payments','SELECT')
+          AND has_table_privilege('core_history.quota_aggregates','SELECT')
+          AND has_table_privilege('core_history.legacy_passkey_handles','SELECT')
           AND has_schema_privilege('core_gift','USAGE')
           AND NOT EXISTS(SELECT FROM (VALUES ('risk_key'),('policy'),('qualifications')) t(name)
             WHERE NOT has_table_privilege('core_gift.'||t.name,'SELECT'))
@@ -391,6 +401,10 @@ pub(crate) async fn check_connection(
             AND has_sequence_privilege('core_charging.budgets_id_seq','USAGE')
             AND has_sequence_privilege('core_charging.policy_events_id_seq','USAGE')
             AND has_function_privilege('core_charging.committed_credits(text,bigint,bigint,bigint)','EXECUTE')
+            -- Self top-up history reads only the immutable import receipt columns.
+            AND has_schema_privilege('core_migration','USAGE')
+            AND has_column_privilege('core_migration.import_runs','migration_id','SELECT')
+            AND has_column_privilege('core_migration.import_runs','manifest','SELECT')
         "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
@@ -620,6 +634,16 @@ pub(crate) async fn check_connection(
             AND has_schema_privilege('core_payments','USAGE')
             AND NOT EXISTS(SELECT FROM (VALUES ('intents'),('accepted_proofs'),('refund_holds'),('blocked_refunds')) t(name)
               WHERE NOT has_table_privilege('core_payments.'||t.name,'SELECT'))
+            -- Startup reads the durable agent journal before enabling tools;
+            -- mirror its exact columns so check-db cannot pass a failing start.
+            AND has_schema_privilege('core_assistant','USAGE')
+            AND NOT EXISTS(SELECT FROM (VALUES
+                ('agent_tool_operations','id'),('agent_tool_operations','arguments_json'),
+                ('agent_tool_operations','resource_schema_sha256'),('agent_tool_operations','resource_price_sha256'),
+                ('agent_tool_operations','turn_id'),('agent_tool_operations','round_id'),
+                ('agent_turns','id'),('agent_turns','session_id'),('agent_turns','host_policy'),
+                ('agent_turns','source_web_session_sid'),('agent_rounds','id'),('agent_rounds','model_request_id')) t(name,col)
+              WHERE NOT has_column_privilege('core_assistant.'||t.name,t.col,'SELECT'))
         "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);

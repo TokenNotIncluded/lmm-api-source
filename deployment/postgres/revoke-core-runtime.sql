@@ -90,6 +90,21 @@ REVOKE ALL PRIVILEGES ON core_gift.decisions, core_gift.registration_profiles,
 REVOKE ALL PRIVILEGES ON SEQUENCE core_gift.fingerprints_id_seq
     FROM :"runtime_role";
 
+-- Web identity self top-up history: only the receipt columns are optional.
+-- Red packets are an optional console capability. Table-level revocation does
+-- not remove column UPDATE grants, so reset both before re-provisioning.
+REVOKE ALL PRIVILEGES ON core_promotions.red_packets,core_promotions.red_packet_items,
+    core_promotions.red_packet_claims FROM :"runtime_role";
+REVOKE UPDATE(title,description,cover_image,cover_prompt,draw_mode,per_user_limit,start_at,end_at,
+    enabled,updated_at,deleted_at) ON core_promotions.red_packets FROM :"runtime_role";
+REVOKE UPDATE(released_at) ON core_promotions.red_packet_items FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON SEQUENCE core_promotions.red_packets_id_seq,
+    core_promotions.red_packet_items_id_seq,core_promotions.red_packet_claims_id_seq FROM :"runtime_role";
+
+REVOKE SELECT(migration_id, manifest) ON core_migration.import_runs FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON core_migration.import_runs FROM :"runtime_role";
+REVOKE USAGE ON SCHEMA core_migration FROM :"runtime_role";
+
 -- Account appeal capability: also revoke column grants before re-provisioning.
 REVOKE ALL PRIVILEGES ON SCHEMA core_account_appeals FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_account_appeals FROM :"runtime_role";

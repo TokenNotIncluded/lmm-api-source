@@ -22,6 +22,7 @@ type CatalogueQuery struct {
 }
 type LegacyRequest struct {
 	Action, ID, ChildID string
+	StockID, Days       string
 	Body                json.RawMessage
 	Offset, Limit       int
 	Role                string

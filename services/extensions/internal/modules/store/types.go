@@ -95,6 +95,9 @@ type Product struct {
 	LegacyPublic        json.RawMessage        `json:"legacy_public,omitempty"`
 	LegacyPublicVersion int                    `json:"legacy_public_version,omitempty"`
 	Legacy              *LegacyProductMetadata `json:"legacy,omitempty"`
+	// PromotionExpiresAt is the paid placement (ranking boost) expiry in Unix
+	// seconds. It is a placement fact, not a discount code or a price.
+	PromotionExpiresAt int64 `json:"promotion_expires_at,omitempty"`
 }
 type Variant struct {
 	ID         string                 `json:"id"`
@@ -107,6 +110,8 @@ type Variant struct {
 	Quota      int64                  `json:"quota"`
 	Claimed    int64                  `json:"claimed"`
 	Legacy     *LegacyVariantMetadata `json:"legacy,omitempty"`
+	// StockSequence is the last per-unit stock item position issued.
+	StockSequence int64 `json:"stock_sequence,omitempty"`
 }
 
 // Stock includes reserved physical units. Quota is an absolute sales ceiling;
@@ -156,6 +161,16 @@ type Order struct {
 	RefundRef     string               `json:"refund_ref,omitempty"`
 	Legacy        *LegacyOrderMetadata `json:"legacy,omitempty"`
 	LegacyRefund  *legacyRefundRecord  `json:"legacy_refund,omitempty"`
+	// StockItems lists the per-unit stock items allocated to this order.
+	StockItems []string `json:"stock_items,omitempty"`
+	// Imported marks an order copied from the retired monolith. Its money facts
+	// are historical: there is no Core receipt, and none may be synthesized.
+	Imported *ImportMarker `json:"imported,omitempty"`
+}
+
+type ImportMarker struct {
+	Source   string `json:"source"`
+	Snapshot string `json:"snapshot"`
 }
 
 const (
@@ -194,6 +209,7 @@ func Key(s string) bool   { return Text(s, 128) }
 func Page(limit int) bool { return limit > 0 && limit <= 100 }
 
 type Service struct {
+	stock              *stockCipher
 	repo               Repository
 	auth               Authority
 	funds              Funds

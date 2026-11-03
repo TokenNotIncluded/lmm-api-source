@@ -50,6 +50,7 @@ defaults to `lmm_core_runtime`. Feature switches default to false:
 | `enable_models=true` | Charging and controlled model checkpoint/recovery functions |
 | `enable_web_identity=true` | Budget management and read-only consumption for legacy Web identity |
 | `enable_commerce=true` | Commerce, charging and events |
+| `enable_community=true` | Read-only community aggregates (rankings, profile cards, onboarding facts) |
 | `enable_payments=true` | Payment intents/refund holds and append-only receipts/proofs |
 | `enable_assistant=true` | Personal assistant and charging, including read dependencies of agent charge guards |
 | `enable_assistant_tools=true` | Business-facts reads and browser confirmation state |

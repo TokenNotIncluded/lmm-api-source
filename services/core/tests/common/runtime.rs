@@ -171,6 +171,14 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 .await
                 .unwrap();
         if history_installed {
+            let compatibility_installed: bool = sqlx::query_scalar(
+                "SELECT to_regclass('core_history.quota_aggregates') IS NOT NULL AND to_regclass('core_history.legacy_passkey_handles') IS NOT NULL",
+            ).fetch_one(owner).await.unwrap();
+            if compatibility_installed {
+                sqlx::raw_sql(&format!(
+                    "GRANT SELECT ON core_history.quota_aggregates,core_history.legacy_passkey_handles TO {name}"
+                )).execute(owner).await.unwrap();
+            }
             sqlx::raw_sql(&format!(
                 "GRANT USAGE ON SCHEMA core_history TO {0}; GRANT SELECT ON core_history.sources,core_history.log_records,core_history.scope_receipts TO {0}",
                 name
@@ -272,12 +280,13 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             "core_promotions" => &["promotions"],
             "core_console" => &["notifications", "subscriptions", "promotions"],
             // account-security includes the narrow account-appeals grants.
-            "web_identity" => &["account-security"],
+            "web_identity" => &["account-security", "wallet-topup-history"],
             _ => &[],
         };
         for fragment in fragments {
             let namespace = match *fragment {
                 "account-security" => "core_passkeys".to_owned(),
+                "wallet-topup-history" => "core_migration".to_owned(),
                 other => format!("core_{other}"),
             };
             let installed: bool = sqlx::query_scalar("SELECT to_regnamespace($1) IS NOT NULL")

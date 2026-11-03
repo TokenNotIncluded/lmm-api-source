@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var databaseName = regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations|toolmarket)(_[a-z0-9]+)*$`)
+var databaseName = regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations|toolmarket|community)(_[a-z0-9]+)*$`)
 
 // StorageConfig names an independently provisioned extension database. Schema
 // installation is explicit; startup never creates or migrates tables.
@@ -27,7 +27,7 @@ type StorageConfig struct {
 }
 
 func (c StorageConfig) validate() error {
-	if (c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations" && c.Component != "toolmarket") || c.URLFile == "" ||
+	if (c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations" && c.Component != "toolmarket" && c.Component != "community") || c.URLFile == "" ||
 		!databaseName.MatchString(c.Database) || !strings.HasPrefix(c.Database, "lmm_"+c.Component) {
 		return errors.New("invalid dedicated extension storage configuration")
 	}
@@ -246,8 +246,12 @@ func storageTables(component string) []storageTable {
 	case "toolmarket":
 		add("lmm_toolmarket.snapshot", "SELECT", "UPDATE")
 	case "store":
-		for _, name := range []string{"shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations"} {
+		for _, name := range []string{"shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations", "stock_items", "product_likes", "placements"} {
 			add("lmm_store."+name, "SELECT", "INSERT", "UPDATE")
+		}
+		// Traffic retention removes expired day rows and dedupe receipts.
+		for _, name := range []string{"traffic_days", "traffic_receipts"} {
+			add("lmm_store."+name, "SELECT", "INSERT", "UPDATE", "DELETE")
 		}
 	case "support":
 		for _, name := range []string{"customers", "conversations", "messages", "commands"} {
@@ -264,6 +268,14 @@ func storageTables(component string) []storageTable {
 		add("lmm_operations.contract", "SELECT")
 		add("lmm_operations.publications", "SELECT", "INSERT")
 		add("lmm_operations.reads", "SELECT", "INSERT")
+	case "community":
+		add("lmm_community.contract", "SELECT")
+		for _, name := range []string{"directory_settings", "directory_ads", "onboarding_todos", "signal_records"} {
+			add("lmm_community."+name, "SELECT", "INSERT", "UPDATE")
+		}
+		for _, name := range []string{"profile_shares", "signal_attempts"} {
+			add("lmm_community."+name, "SELECT", "INSERT", "UPDATE", "DELETE")
+		}
 	case "payments":
 		add("public.payment_storage_guard", "SELECT")
 		add("public.payment_orders", "SELECT", "INSERT", "UPDATE")

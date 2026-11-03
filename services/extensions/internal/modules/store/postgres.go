@@ -59,7 +59,8 @@ type postgresTx struct {
 
 func storeTable(name string) (string, error) {
 	switch name {
-	case "shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations":
+	case "shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations",
+		"stock_items", "product_likes", "traffic_days", "traffic_receipts", "placements":
 		return "lmm_store." + name, nil
 	}
 	return "", ErrInvalid
@@ -116,4 +117,61 @@ func (t *postgresTx) List(kind, after string, limit int) ([]json.RawMessage, err
 		out = append(out, json.RawMessage(append([]byte(nil), data...)))
 	}
 	return out, rows.Err()
+}
+
+// StockItems is the indexed per-unit stock lookup used under the shop lock.
+func (t *postgresTx) StockItems(variantID, state string, offset, limit int, random bool) ([]StockItem, error) {
+	if !Text(variantID, 128) || offset < 0 || limit <= 0 || limit > maxStockImport {
+		return nil, ErrInvalid
+	}
+	order := `(body->>'position')::bigint,id`
+	if random {
+		order = `random()`
+	}
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT body FROM lmm_store.stock_items WHERE shop_id=$1 AND body->>'variant_id'=$2 AND body->>'state'<>'removed' AND ($3='' OR body->>'state'=$3) ORDER BY `+order+` OFFSET $4 LIMIT $5`, t.shop, variantID, state, offset, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StockItem{}
+	for rows.Next() {
+		var data []byte
+		var item StockItem
+		if err = rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		if json.Unmarshal(data, &item) != nil {
+			return nil, ErrUnavailable
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// PutAll inserts new rows in one statement; existing IDs are a conflict.
+func (t *postgresTx) PutAll(kind string, ids []string, values []any) error {
+	table, err := storeTable(kind)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 || len(ids) != len(values) || len(ids) > maxStockImport {
+		return ErrInvalid
+	}
+	type row struct {
+		ID   string `json:"id"`
+		Body any    `json:"body"`
+	}
+	batch := make([]row, len(ids))
+	for i, id := range ids {
+		if !Text(id, 128) {
+			return ErrInvalid
+		}
+		batch[i] = row{id, values[i]}
+	}
+	data, err := json.Marshal(batch)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, "INSERT INTO "+table+" (shop_id,id,body) SELECT $1,e->>'id',e->'body' FROM jsonb_array_elements($2::jsonb) e", t.shop, string(data))
+	return err
 }

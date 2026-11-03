@@ -82,7 +82,9 @@ async fn administrator_data_aggregates_real_users_accounts_and_refunds(pool: PgP
     assert_eq!(response["success"], true);
     assert_eq!(response["availability"], "partial");
     assert_eq!(response["coverage"]["native_requests"], true);
-    assert_eq!(response["coverage"]["historical_imports"], false);
+    // The data projection can now include separately imported quota buckets;
+    // raw history log rows above still must never become priced usage.
+    assert_eq!(response["coverage"]["historical_imports"], true);
     assert_eq!(response["coverage"]["complete"], false);
     let rows = response["data"].as_array().unwrap();
     assert_eq!(rows.len(), 3);
@@ -243,4 +245,56 @@ async fn administrator_data_refuses_incomplete_receipts_instead_of_reporting_zer
     .await;
     assert_eq!(status, StatusCode::OK, "{response}");
     assert_eq!(response["data"], json!([]));
+}
+
+#[sqlx::test(migrations = false)]
+async fn imported_quota_buckets_preserve_scope_filters_and_safe_numbers(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let admin = f.identity.bootstrap_user(9, 5).await.unwrap();
+    let other = f.identity.bootstrap_user(8, 0).await.unwrap();
+    let source: i64 = sqlx::query_scalar("INSERT INTO core_history.sources(contract_version,source_archive_sha256,mapping_sha256,source_namespace,observed_at,complete) VALUES('core.history-source.v1',repeat('d',64),repeat('e',64),'quota-test',1,true) RETURNING source_id").fetch_one(&pool).await.unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())/3600)::bigint*3600")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let insert = "INSERT INTO core_history.quota_aggregates(source_id,source_row_id,source_row_sha256,user_id,owner_account_id,created_at,request_count,token_used,raw_quota,quota_credits,credits_basis,model_name,group_name) VALUES($1,$2,repeat('f',64),7,$3,$4,2,30,$5,$5,'current_units','test-model','default')";
+    sqlx::query(insert)
+        .bind(source)
+        .bind(1_i64)
+        .bind(f.account)
+        .bind(now)
+        .bind(50_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let own = ok(&f, "/api/data/self").await;
+    assert_eq!(own.as_array().unwrap().len(), 1);
+    assert_eq!(own[0]["quota"], 50);
+    assert_eq!(own[0]["quota_source"], "legacy_quota_data");
+    let (status, response) = get(&f.app, "/api/data", Some(&admin.secret)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response["data"][0]["quota"], 50);
+    let (status, response) = get(&f.app, "/api/data/self", Some(&other.secret)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response["data"], json!([]));
+    for path in [
+        "/api/data/self?token_name=Test%20key",
+        "/api/data/self?model_name=other",
+        "/api/data/self?request_id=missing",
+    ] {
+        assert_eq!(ok(&f, path).await, json!([]));
+    }
+    sqlx::query(insert)
+        .bind(source)
+        .bind(2_i64)
+        .bind(f.account)
+        .bind(now)
+        .bind(9_007_199_254_740_991_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (status, response) = get(&f.app, "/api/data/self", Some(&f.session.secret)).await;
+    assert_ne!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["success"], false);
 }

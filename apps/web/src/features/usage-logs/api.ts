@@ -87,9 +87,13 @@ export async function readLogsPage({
         ? '/api/mj'
         : '/api/task'
   const path =
-    category === 'common' && isAdmin && !historical
-      ? '/core/v1/usage/admin/logs'
-      : buildApiPath(endpoint, isAdmin)
+    category === 'common' && historical
+      ? isAdmin
+        ? '/api/log'
+        : '/api/log/self/history'
+      : category === 'common' && isAdmin
+        ? '/core/v1/usage/admin/logs'
+        : buildApiPath(endpoint, isAdmin)
   const query = buildQueryParams({ p: 1, page_size: 20, ...params })
   let payload: unknown
   try {

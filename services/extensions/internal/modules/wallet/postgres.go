@@ -11,7 +11,7 @@ import (
 const Schema = `CREATE SCHEMA IF NOT EXISTS extension_wallet;
 CREATE TABLE extension_wallet.transfer_links (
  owner_user bigint NOT NULL,
- request_key text NOT NULL CHECK(length(request_key) BETWEEN 16 AND 64),
+ request_key text NOT NULL CHECK(octet_length(request_key) BETWEEN 16 AND 64),
  amount_credits bigint NOT NULL CHECK(amount_credits>0),
  token text NOT NULL UNIQUE CHECK(length(token)=64),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),

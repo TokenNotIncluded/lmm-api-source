@@ -308,10 +308,12 @@ fn identifier(id: &str) -> bool {
 }
 fn credential(request: &Request) -> Option<String> {
     // Reject forged internal headers, rather than ambiguously merging them.
+    // The Web client's public denomination acknowledgement is not internal and
+    // is never forwarded: the relay builds its upstream headers explicitly.
     if request
         .headers()
         .keys()
-        .any(|h| h.as_str().starts_with("x-lmm-"))
+        .any(|h| h.as_str().starts_with("x-lmm-") && h.as_str() != "x-lmm-credit-unit")
     {
         return None;
     }
@@ -625,6 +627,26 @@ impl HttpBody for CancelBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_credit_unit_header_is_public_but_internal_headers_stay_forged() {
+        let bearer = format!("Bearer lmms_{}", "a".repeat(40));
+        let build = |extra: Option<(&str, &str)>| {
+            let mut builder = Request::builder()
+                .uri(format!("{PREFIX}sessions"))
+                .header(header::AUTHORIZATION, bearer.as_str());
+            if let Some((name, value)) = extra {
+                builder = builder.header(name, value);
+            }
+            builder.body(Body::empty()).unwrap()
+        };
+        assert!(credential(&build(None)).is_some());
+        // Every Web API request carries this acknowledgement (apps/web http-client).
+        assert!(credential(&build(Some(("X-LMM-Credit-Unit", "500000")))).is_some());
+        for forged in ["X-LMM-User-Credential", "X-LMM-Edge-Proof", "X-LMM-Credit-Unit-Override"] {
+            assert!(credential(&build(Some((forged, "x")))).is_none(), "{forged}");
+        }
+    }
 
     #[tokio::test]
     async fn missing_credential_rejects_before_database_and_capacity_at_both_boundaries() {

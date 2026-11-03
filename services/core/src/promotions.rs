@@ -1,6 +1,7 @@
 //! Bounded Core promotional grants. No request selects an amount or recipient;
 //! budget reservation, claim uniqueness and canonical Gift commit together.
 mod http;
+pub mod red_packets;
 mod types;
 use crate::{
     accounts::AccountKind,
@@ -108,13 +109,19 @@ fn random_id() -> String {
     OsRng.fill_bytes(&mut b);
     hex(&b)
 }
+/// Native codes are `lmmr_` + 43 URL-safe characters. Imported legacy codes
+/// keep their original 32 lowercase hex characters; both store only SHA-256.
 fn code_digest(value: &str) -> Result<Vec<u8>> {
-    if value.len() != 48
-        || !value.starts_with("lmmr_")
-        || !value[5..]
+    let native = value.len() == 48
+        && value.starts_with("lmmr_")
+        && value[5..]
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-    {
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b));
+    let legacy = value.len() == 32
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    if !native && !legacy {
         return Err(Error::Invalid);
     }
     Ok(Sha256::digest(value.as_bytes()).to_vec())
@@ -225,6 +232,104 @@ fn receipt(r: &sqlx::postgres::PgRow) -> Result<Receipt> {
         claimed_at: r.try_get("created_at")?,
     })
 }
+/// Posts one budgeted promotional grant inside the caller's transaction. The
+/// caller has already locked the campaign and resolved the uniqueness subject.
+pub(crate) async fn post_grant(
+    c: &mut PgConnection,
+    a: &Principal,
+    camp: &Campaign,
+    kind: &str,
+    subject: String,
+    digest: Option<Vec<u8>>,
+    time: i64,
+) -> Result<Receipt> {
+    let campaign_id = camp.id.as_str();
+    if !camp.spec.enabled || time < camp.spec.starts_at || time >= camp.spec.ends_at {
+        return Err(Error::Conflict);
+    }
+    if crate::abuse::is_marked_in_transaction(&mut *c, a.user_id)
+        .await
+        .map_err(|_| Error::Unavailable)?
+    {
+        return Err(Error::Forbidden);
+    }
+    if let Some(digest) = &digest {
+        let revoked: bool = sqlx::query_scalar(
+            "SELECT revoked FROM core_promotions.codes WHERE digest=$1 FOR UPDATE",
+        )
+        .bind(digest)
+        .fetch_one(&mut *c)
+        .await?;
+        if revoked {
+            return Err(Error::Conflict);
+        }
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_promotions.claims WHERE campaign_id=$1 AND actor_user_id=$2",
+    )
+    .bind(campaign_id)
+    .bind(a.user_id)
+    .fetch_one(&mut *c)
+    .await?;
+    if count >= camp.spec.max_claims_per_user {
+        return Err(Error::Exhausted);
+    }
+    let amount = units(&camp.spec.award_units)?;
+    if digest.is_none() {
+        let spent = camp
+            .spent_units
+            .parse::<i64>()
+            .map_err(|_| Error::Unavailable)?;
+        let reserved = camp
+            .reserved_units
+            .parse::<i64>()
+            .map_err(|_| Error::Unavailable)?;
+        if spent + reserved + amount > units(&camp.spec.budget_units)?
+            || camp.claims + camp.reserved_claims >= camp.spec.max_claims
+        {
+            return Err(Error::Exhausted);
+        }
+    }
+    crate::financial_profile::read_wallet(&mut *c, a.user_id)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    sqlx::query("SELECT core_billing.open_ledger_wallet($1)")
+        .bind(a.owner_account_id)
+        .execute(&mut *c)
+        .await?;
+    let claim_id = random_id();
+    let ledger = LedgerRequest {
+        scope: "core-promotion-rewards".into(),
+        operation_key: format!("grant:{claim_id}"),
+        actor_user_id: Some(a.user_id),
+        reason: format!("Promotional {kind} campaign {campaign_id}"),
+        action: Action::Gift {
+            account_id: a.owner_account_id,
+            amount_units: Credits::try_from(amount).map_err(|_| Error::Invalid)?,
+        },
+    };
+    ledger.validate().map_err(|_| Error::Invalid)?;
+    let Json(outcome): Json<Outcome> =
+        sqlx::query_scalar("SELECT core_billing.post_ledger($1)")
+            .bind(Json(ledger))
+            .fetch_one(&mut *c)
+            .await?;
+    let Outcome::Posted { journal_id, .. } = outcome else {
+        return Err(Error::Conflict);
+    };
+    sqlx::query("INSERT INTO core_promotions.claims(id,campaign_id,subject_key,actor_user_id,account_id,amount_units,code_digest,journal_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        .bind(&claim_id).bind(campaign_id).bind(subject).bind(a.user_id).bind(a.owner_account_id).bind(amount).bind(&digest).bind(journal_id).bind(time).execute(&mut *c).await?;
+    sqlx::query("UPDATE core_promotions.campaigns SET spent_units=spent_units+$2,claims=claims+1,reserved_units=reserved_units-CASE WHEN $3 THEN $2 ELSE 0 END,reserved_claims=reserved_claims-CASE WHEN $3 THEN 1 ELSE 0 END WHERE id=$1")
+        .bind(campaign_id).bind(amount).bind(digest.is_some()).execute(&mut *c).await?;
+    Ok(Receipt {
+        id: claim_id,
+        campaign_id: campaign_id.to_owned(),
+        amount_units: amount.to_string(),
+        journal_id,
+        claimed_at: time,
+    })
+}
+
 impl PromotionStore {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -532,90 +637,7 @@ impl PromotionStore {
             tx.commit().await?;
             return Ok(result);
         }
-        if !c.spec.enabled || time < c.spec.starts_at || time >= c.spec.ends_at {
-            return Err(Error::Conflict);
-        }
-        if crate::abuse::is_marked_in_transaction(&mut tx, a.user_id)
-            .await
-            .map_err(|_| Error::Unavailable)?
-        {
-            return Err(Error::Forbidden);
-        }
-        if let Some(digest) = &digest {
-            let revoked: bool = sqlx::query_scalar(
-                "SELECT revoked FROM core_promotions.codes WHERE digest=$1 FOR UPDATE",
-            )
-            .bind(digest)
-            .fetch_one(&mut *tx)
-            .await?;
-            if revoked {
-                return Err(Error::Conflict);
-            }
-        }
-        let count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM core_promotions.claims WHERE campaign_id=$1 AND actor_user_id=$2",
-        )
-        .bind(&campaign_id)
-        .bind(a.user_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if count >= c.spec.max_claims_per_user {
-            return Err(Error::Exhausted);
-        }
-        let amount = units(&c.spec.award_units)?;
-        if digest.is_none() {
-            let spent = c
-                .spent_units
-                .parse::<i64>()
-                .map_err(|_| Error::Unavailable)?;
-            let reserved = c
-                .reserved_units
-                .parse::<i64>()
-                .map_err(|_| Error::Unavailable)?;
-            if spent + reserved + amount > units(&c.spec.budget_units)?
-                || c.claims + c.reserved_claims >= c.spec.max_claims
-            {
-                return Err(Error::Exhausted);
-            }
-        }
-        crate::financial_profile::read_wallet(&mut tx, a.user_id)
-            .await
-            .map_err(|_| Error::Unavailable)?;
-        sqlx::query("SELECT core_billing.open_ledger_wallet($1)")
-            .bind(a.owner_account_id)
-            .execute(&mut *tx)
-            .await?;
-        let claim_id = random_id();
-        let ledger = LedgerRequest {
-            scope: "core-promotion-rewards".into(),
-            operation_key: format!("grant:{claim_id}"),
-            actor_user_id: Some(a.user_id),
-            reason: format!("Promotional {kind} campaign {campaign_id}"),
-            action: Action::Gift {
-                account_id: a.owner_account_id,
-                amount_units: Credits::try_from(amount).map_err(|_| Error::Invalid)?,
-            },
-        };
-        ledger.validate().map_err(|_| Error::Invalid)?;
-        let Json(outcome): Json<Outcome> =
-            sqlx::query_scalar("SELECT core_billing.post_ledger($1)")
-                .bind(Json(ledger))
-                .fetch_one(&mut *tx)
-                .await?;
-        let Outcome::Posted { journal_id, .. } = outcome else {
-            return Err(Error::Conflict);
-        };
-        sqlx::query("INSERT INTO core_promotions.claims(id,campaign_id,subject_key,actor_user_id,account_id,amount_units,code_digest,journal_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-            .bind(&claim_id).bind(&campaign_id).bind(subject).bind(a.user_id).bind(a.owner_account_id).bind(amount).bind(&digest).bind(journal_id).bind(time).execute(&mut *tx).await?;
-        sqlx::query("UPDATE core_promotions.campaigns SET spent_units=spent_units+$2,claims=claims+1,reserved_units=reserved_units-CASE WHEN $3 THEN $2 ELSE 0 END,reserved_claims=reserved_claims-CASE WHEN $3 THEN 1 ELSE 0 END WHERE id=$1")
-            .bind(&campaign_id).bind(amount).bind(digest.is_some()).execute(&mut *tx).await?;
-        let result = Receipt {
-            id: claim_id,
-            campaign_id,
-            amount_units: amount.to_string(),
-            journal_id,
-            claimed_at: time,
-        };
+        let result = post_grant(&mut tx, &a, &c, kind, subject, digest, time).await?;
         remember(&mut tx, a.user_id, operation, &request, json!(&result)).await?;
         identity::audit(&mut tx, &a, "promotion.claim", json!(&result)).await?;
         tx.commit().await?;
@@ -628,5 +650,19 @@ impl PromotionStore {
         let result = rows.iter().map(receipt).collect::<Result<Vec<_>>>()?;
         tx.commit().await?;
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod code_format_tests {
+    use super::code_digest;
+
+    #[test]
+    fn accepts_native_and_imported_legacy_codes_only() {
+        assert!(code_digest(&format!("lmmr_{}", "A".repeat(43))).is_ok());
+        assert!(code_digest("0123456789abcdef0123456789abcdef").is_ok());
+        assert!(code_digest("0123456789ABCDEF0123456789ABCDEF").is_err());
+        assert!(code_digest("0123456789abcdef0123456789abcde").is_err());
+        assert!(code_digest(&"g".repeat(32)).is_err());
     }
 }

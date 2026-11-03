@@ -76,6 +76,8 @@ export interface RedPacketReward {
   discount_percent?: number
   min_amount?: number
   expires_at?: number
+  /** Core posted the reward directly to the wallet; there is no code. */
+  credited?: boolean
 }
 
 export interface RedPacketMutation {

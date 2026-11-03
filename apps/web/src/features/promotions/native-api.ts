@@ -158,7 +158,8 @@ export async function redeemCode(
   code: string
 ) {
   operationKey.parse(operation_key)
-  if (!/^lmmr_[A-Za-z0-9_-]{43}$/.test(code)) {
+  // Imported legacy codes keep their original 32 lowercase hex characters.
+  if (!/^(lmmr_[A-Za-z0-9_-]{43}|[0-9a-f]{32})$/.test(code)) {
     throw new CommerceFailure('PROMOTION_INVALID', false)
   }
   return commerceRequest(scope, 'post', `${base}/redemptions`, rewardSchema, {

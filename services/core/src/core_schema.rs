@@ -127,6 +127,11 @@ const COMPONENTS: &[(&str, &str)] = &[
         "navigation-options",
         include_str!("../schema/navigation_options.sql"),
     ),
+    ("red-packets", crate::promotions::red_packets::SCHEMA),
+    (
+        "legacy-history-compat",
+        include_str!("../schema/legacy_history_compat.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

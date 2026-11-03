@@ -17,13 +17,48 @@ use tower::ServiceExt;
 mod runtime;
 
 #[sqlx::test(migrations = false)]
+async fn community_reads_require_the_charging_read_grant(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    let required = RequiredCapabilities {
+        community: true,
+        ..RequiredCapabilities::default()
+    };
+    sqlx::raw_sql(&format!(
+        "GRANT USAGE ON SCHEMA core_charging TO {0}; GRANT SELECT ON core_charging.requests TO {0}",
+        role.name
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    runtime_database::check(&role.pool, required).await.unwrap();
+    sqlx::query(&format!(
+        "REVOKE SELECT ON core_charging.requests FROM {}",
+        role.name
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runtime_database::check(&role.pool, required).await,
+        Err(Error::MissingPrivileges)
+    );
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn historical_reads_need_exact_readonly_runtime_authority(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
     runtime_database::check(&role.pool, RequiredCapabilities::default())
         .await
         .unwrap();
-    for table in ["sources", "log_records"] {
+    for table in [
+        "sources",
+        "log_records",
+        "quota_aggregates",
+        "legacy_passkey_handles",
+    ] {
         let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core_history.{table}"))
             .fetch_one(&role.pool)
             .await
@@ -322,6 +357,7 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             wallet: false,
             bounties: false,
             trust_policy_editor: false,
+            community: false,
         },
     )
     .await

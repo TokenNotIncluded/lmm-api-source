@@ -163,7 +163,17 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if err := v.reserve(p.Quantity); err != nil {
 			return err
 		}
-		out = Order{ID: id, Buyer: p.Buyer, Seller: shop.Owner, CreatedBy: actor, VariantID: v.ID, Title: v.Title, ProductTitle: product.Title, Quantity: p.Quantity, UnitPrice: unitPrice, Total: total, State: AwaitingPayment, RequestHash: hash}
+		var stockIDs []string
+		if product.Legacy != nil && stockTemplate(v.Legacy.Template) {
+			if !v.TrackStock {
+				return ErrConflict
+			}
+			stockIDs, err = allocateStock(tx, v, id, p.Quantity, product.Legacy.DeliveryStrategy == "random")
+			if err != nil {
+				return err
+			}
+		}
+		out = Order{ID: id, Buyer: p.Buyer, Seller: shop.Owner, CreatedBy: actor, VariantID: v.ID, Title: v.Title, ProductTitle: product.Title, Quantity: p.Quantity, UnitPrice: unitPrice, Total: total, State: AwaitingPayment, RequestHash: hash, StockItems: stockIDs}
 		if product.Legacy != nil {
 			out.Legacy = &LegacyOrderMetadata{ProductID: product.ID, PaymentMethod: "balance", CreatedAt: time.Now().Unix(), DeliveryTemplate: v.Legacy.Template}
 			out.Legacy.SellerTermsVersion = frozenTerms.Version
@@ -193,7 +203,13 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if total.Amount == 0 {
 			out.State = Paid
 			if out.Legacy != nil {
-				if v.Legacy.Template != "fixed-content" || !Text(v.Legacy.FixedContent, 16000) {
+				delivery := v.Legacy.FixedContent
+				if stockOrder(out) {
+					if err := moveStock(tx, out, stockReserved, stockDelivered); err != nil {
+						return err
+					}
+					delivery = stockDeliverySummary(out.StockItems)
+				} else if v.Legacy.Template != "fixed-content" || !Text(v.Legacy.FixedContent, 16000) {
 					return ErrUnavailable
 				}
 				// A seller's free coupon is a zero-value purchase. Consume the
@@ -205,7 +221,7 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 				}
 				out.Legacy.PaymentMethod = "free"
 				out.Legacy.PaidAt = time.Now().Unix()
-				out.Delivered, out.Delivery, out.State = true, v.Legacy.FixedContent, Settled
+				out.Delivered, out.Delivery, out.State = true, delivery, Settled
 			}
 		}
 		if err := tx.Put("variants", v.ID, v); err != nil {
@@ -323,6 +339,12 @@ func release(tx Tx, o *Order) error {
 	}
 	if err := v.release(o.Quantity); err != nil {
 		return err
+	}
+	// Undelivered per-unit items return to sale with the reservation.
+	if len(o.StockItems) > 0 {
+		if err := moveStock(tx, *o, stockReserved, stockAvailable); err != nil {
+			return err
+		}
 	}
 	return tx.Put("variants", v.ID, v)
 }

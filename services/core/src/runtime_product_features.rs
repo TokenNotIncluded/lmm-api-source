@@ -30,6 +30,9 @@ WITH expected_schemas(name) AS (
       ('core_promotions','issues',true),
       ('core_promotions','codes',true),
       ('core_promotions','claims',true),
+      ('core_promotions','red_packets',true),
+      ('core_promotions','red_packet_items',true),
+      ('core_promotions','red_packet_claims',true),
       ('core_notifications','preferences',true),
       ('core_notifications','inbox',true),
       ('core_notifications','price_events',false)
@@ -55,6 +58,18 @@ WITH expected_schemas(name) AS (
       ('core_promotions','campaigns','ends_at'),
       ('core_promotions','campaigns','enabled'),
       ('core_promotions','codes','revoked'),
+      ('core_promotions','red_packets','title'),
+      ('core_promotions','red_packets','description'),
+      ('core_promotions','red_packets','cover_image'),
+      ('core_promotions','red_packets','cover_prompt'),
+      ('core_promotions','red_packets','draw_mode'),
+      ('core_promotions','red_packets','per_user_limit'),
+      ('core_promotions','red_packets','start_at'),
+      ('core_promotions','red_packets','end_at'),
+      ('core_promotions','red_packets','enabled'),
+      ('core_promotions','red_packets','updated_at'),
+      ('core_promotions','red_packets','deleted_at'),
+      ('core_promotions','red_packet_items','released_at'),
       ('core_notifications','preferences','enabled'),
       ('core_notifications','preferences','low_balance_units'),
       ('core_notifications','preferences','below_threshold'),
@@ -64,6 +79,9 @@ WITH expected_schemas(name) AS (
 ), expected_sequences(schema_name,name) AS (
     VALUES ('core_subscriptions','plans_id_seq'),
            ('core_subscriptions','purchases_id_seq'),
+           ('core_promotions','red_packets_id_seq'),
+           ('core_promotions','red_packet_items_id_seq'),
+           ('core_promotions','red_packet_claims_id_seq'),
            ('core_notifications','inbox_id_seq')
 ), relations AS (
     SELECT c.oid,n.nspname,c.relname,e.name AS expected_name,e.can_insert

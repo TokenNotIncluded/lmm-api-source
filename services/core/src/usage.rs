@@ -1051,6 +1051,32 @@ impl UsageStore {
                     bucket.amounts.project(&mut item);
                     data.push(item);
                 }
+                // Imported legacy hourly aggregates have no token, request or
+                // type facts; those filters select native receipts only.
+                if q.token_name.as_deref().unwrap_or_default().is_empty()
+                    && q.request_id.as_deref().unwrap_or_default().is_empty()
+                    && matches!(q.r#type.unwrap_or(0), 0 | 2)
+                {
+                    let legacy = crate::history_read::quota_aggregates::buckets(
+                        &mut tx,
+                        &crate::history_read::quota_aggregates::Selection {
+                            start: f.start,
+                            end: f.end,
+                            user: selected_user,
+                            owner_account: (!administrator).then_some(owner),
+                            model_name: q.model_name.as_deref().unwrap_or_default(),
+                            group: q.group.as_deref().unwrap_or_default(),
+                            usage_scope: if administrator {
+                                "administrator_all_accounts"
+                            } else {
+                                "actor_personal_usage"
+                            },
+                        },
+                    )
+                    .await?
+                    .ok_or(Error::TooManyBuckets)?;
+                    data.extend(legacy);
+                }
                 json!(data)
                 // @context-fold end native-usage-data-buckets
             }
@@ -1132,7 +1158,7 @@ async fn respond(
                     "scope": "administrator_all_accounts",
                     "time_basis": "authorized_at",
                     "native_requests": true,
-                    "historical_imports": false,
+                    "historical_imports": matches!(projection, Projection::AdministratorData),
                     "complete": false
                 });
             }

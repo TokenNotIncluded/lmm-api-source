@@ -17,6 +17,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/bounties"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/toolmarket"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/wallet"
@@ -76,6 +77,13 @@ func compiled(component string) (plan, error) {
 			p.grants = append(p.grants, "GRANT SELECT,INSERT ON extension_wallet.transfer_links TO ", "GRANT SELECT ON lmm_bounties.contract TO ", "GRANT SELECT,INSERT,UPDATE ON lmm_bounties.records TO ")
 		}
 		return p, nil
+	case "community":
+		return plan{prefix: "lmm_community", schema: community.Schema, namespaces: []string{"lmm_community"}, grants: []string{
+			"GRANT SELECT ON lmm_community.contract TO ",
+			"GRANT SELECT,INSERT,UPDATE ON lmm_community.directory_settings,lmm_community.directory_ads,lmm_community.onboarding_todos,lmm_community.signal_records TO ",
+			"GRANT SELECT,INSERT,UPDATE,DELETE ON lmm_community.profile_shares,lmm_community.signal_attempts TO ",
+			"GRANT USAGE ON ALL SEQUENCES IN SCHEMA lmm_community TO ",
+		}}, nil
 	case "payments":
 		return plan{prefix: "lmm_payments", schema: payments.Schema, namespaces: []string{"public"}, grants: []string{"GRANT SELECT ON public.payment_storage_guard TO ", "GRANT SELECT,INSERT,UPDATE ON public.payment_orders,public.payment_events TO "}}, nil
 	}

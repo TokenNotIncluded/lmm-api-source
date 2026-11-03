@@ -177,7 +177,9 @@ export async function readUsageStatistics(
     ? historical
       ? '/api/log/stat'
       : '/core/v1/usage/admin/stats'
-    : '/api/log/self/stat'
+    : historical
+      ? '/api/log/self/history/stat'
+      : '/api/log/self/stat'
   const query = buildQueryParams({ ...params })
   const response = await api.get<unknown>(`${endpoint}?${query}`, {
     authScope: { userId: scope.userId, sessionId: scope.sessionId },

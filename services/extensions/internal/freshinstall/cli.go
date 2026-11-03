@@ -17,7 +17,7 @@ func RunCLI(ctx context.Context, args []string, out io.Writer) error {
 	f.StringVar(&c.ExpectedDatabase, "database", "", "exact fresh dedicated database")
 	f.StringVar(&c.OwnerRole, "owner-role", "", "actual database owner; SET ROLE supported")
 	f.StringVar(&c.RuntimeRole, "runtime-role", "", "preprovisioned unprivileged runtime login")
-	f.StringVar(&c.Component, "component", "", "assistant, toolmarket, toolmarket-builtins or payments")
+	f.StringVar(&c.Component, "component", "", "assistant, toolmarket, toolmarket-builtins, payments or community")
 	f.StringVar(&c.EncryptionKeyFile, "encryption-key-file", "", "private raw 32-byte market snapshot key")
 	if f.Parse(args) != nil || f.NArg() != 0 {
 		return ErrRejected

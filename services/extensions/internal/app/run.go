@@ -52,7 +52,7 @@ func Run() error {
 	if socket != "" {
 		defaults = []string{"identity"}
 	}
-	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant", "operations", "remote-control", "payments", "toolmarket"})
+	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant", "operations", "remote-control", "payments", "toolmarket", "community"})
 	if err != nil {
 		return err
 	}
@@ -87,13 +87,14 @@ func Run() error {
 		Support:                   composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts,
+		Community: composition.StorageConfig{Component: "community", URLFile: cfg.Community.DatabaseURLFile, Database: cfg.Community.DatabaseName},
 	})
 	if err != nil {
 		return err
 	}
 	defer runtime.Close()
 	var auth *webcompat.Authenticator
-	if cfg.Host.WebCompat || runtime.Operations != nil {
+	if cfg.Host.WebCompat || runtime.Operations != nil || runtime.Community != nil {
 		auth, err = webcompat.NewAuthenticator(runtime.Client, credential)
 		if err != nil {
 			return err
@@ -101,6 +102,9 @@ func Run() error {
 	}
 	if runtime.Operations != nil {
 		runtime.Modules = append(runtime.Modules, webcompat.NewOperationsModule(auth, runtime.Operations))
+	}
+	if runtime.Community != nil {
+		runtime.Modules = append(runtime.Modules, webcompat.NewCommunityModule(auth, runtime.Community))
 	}
 	host, err := modules.NewHostWithLimit(runtime.Modules, credential, cfg.Host.MaxInFlight)
 	if err != nil {
@@ -119,10 +123,10 @@ func Run() error {
 		}
 	}
 	if cfg.Host.WebCompat {
-		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil {
+		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, Plugins: pluginManager})
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, Plugins: pluginManager, Community: runtime.Community})
 	}
 	handler := listenerHandler(policies, api)
 	if cfg.Payments.CallbacksEnabled {

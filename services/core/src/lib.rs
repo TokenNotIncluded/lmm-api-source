@@ -13,6 +13,7 @@ pub mod channel_http;
 #[cfg(unix)]
 pub mod commerce;
 pub mod config;
+pub mod community_read;
 pub mod console_compat;
 pub mod core_schema;
 pub mod edge_access;
@@ -62,6 +63,8 @@ pub mod upgrade_offline;
 pub mod upstream_cost;
 pub mod usage;
 pub mod wallet;
+pub mod wallet_history_read_http;
+pub mod wallet_topup_snapshot;
 
 pub mod humangrant;
 
