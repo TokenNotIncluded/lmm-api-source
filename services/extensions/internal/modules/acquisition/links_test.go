@@ -218,6 +218,25 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	if err = db.QueryRow(`SELECT revision,source FROM lmm_acquisition.correction_heads WHERE user_id=77`).Scan(&revision, &source); err != nil || source != "manual" {
 		t.Fatalf("head %d %q %v", revision, source, err)
 	}
+	start := make(chan struct{})
+	results := make(chan int, 2)
+	body := fmt.Sprintf(`{"expected_revision":%d,"source":"parallel","reason":"concurrent operator correction"}`, revision)
+	for n := 0; n < 2; n++ {
+		go func() { <-start; results <- save(body) }()
+	}
+	close(start)
+	first, second := <-results, <-results
+	if !((first == 200 && second == 409) || (first == 409 && second == 200)) {
+		t.Fatalf("concurrent correction: %d %d", first, second)
+	}
+	var appended int
+	if err = db.QueryRow(`SELECT count(*) FROM lmm_acquisition.corrections WHERE user_id=77 AND previous_revision=$1`, revision).Scan(&appended); err != nil || appended != 1 {
+		t.Fatalf("concurrent audit count %d: %v", appended, err)
+	}
+	if err = db.QueryRow(`SELECT revision,source FROM lmm_acquisition.correction_heads WHERE user_id=77`).Scan(&revision, &source); err != nil || source != "parallel" {
+		t.Fatalf("concurrent head %d %q: %v", revision, source, err)
+	}
+
 	if _, err = db.Exec(`INSERT INTO lmm_acquisition.consents(user_id,allowed,version,updated_at) VALUES(77,false,1,$1)`, s.now().Unix()); err != nil {
 		t.Fatal(err)
 	}
