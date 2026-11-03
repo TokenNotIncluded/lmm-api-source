@@ -95,3 +95,23 @@ CREATE TRIGGER wallet_transfer_receipts BEFORE INSERT OR UPDATE OR DELETE ON cor
  FOR EACH ROW EXECUTE FUNCTION core_wallet.guard_transfer();
 CREATE TRIGGER wallet_transfers_no_truncate BEFORE TRUNCATE ON core_wallet.transfers
  FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+
+-- Historical terminal transfers have no fabricated Core settlement receipts.
+-- Imported by the offline owner only; never a source of spendable funds.
+CREATE TABLE core_wallet.legacy_transfer_history (
+ id bigint PRIMARY KEY CHECK(id>0),
+ owner_user bigint NOT NULL REFERENCES core_identity.users(id),
+ recipient_user bigint REFERENCES core_identity.users(id),
+ amount bigint NOT NULL CHECK(amount>0),
+ state text NOT NULL CHECK(state IN ('claimed','cancelled')),
+ created_at bigint NOT NULL,
+ finished_at bigint NOT NULL CHECK(finished_at>=created_at),
+ migration_id text NOT NULL REFERENCES core_billing.opening_import_runs(migration_id),
+ source_row_sha256 text NOT NULL CHECK(source_row_sha256 ~ '^[0-9a-f]{64}$'),
+ CHECK((state='claimed')=(recipient_user IS NOT NULL))
+);
+CREATE TRIGGER legacy_transfer_history_immutable BEFORE UPDATE OR DELETE ON core_wallet.legacy_transfer_history
+ FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_transfer_history_no_truncate BEFORE TRUNCATE ON core_wallet.legacy_transfer_history
+ FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+REVOKE ALL ON core_wallet.legacy_transfer_history FROM PUBLIC;

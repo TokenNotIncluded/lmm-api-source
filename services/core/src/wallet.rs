@@ -172,7 +172,7 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, session).await?;
-        let rows=sqlx::query_as::<_,Transfer>(&format!("SELECT {VIEW} FROM core_wallet.transfers WHERE owner_user=$1 AND ($2=0 OR id<$2) ORDER BY id DESC LIMIT 50")).bind(a.user_id).bind(before).fetch_all(&mut *tx).await?;
+        let rows=sqlx::query_as::<_,Transfer>(&format!("SELECT * FROM (SELECT {VIEW} FROM core_wallet.transfers WHERE owner_user=$1 UNION ALL SELECT id,'legacy-history-'||id::text AS request_key,amount AS amount_credits,state,created_at,created_at AS confirmed_at,finished_at FROM core_wallet.legacy_transfer_history WHERE owner_user=$1) history WHERE ($2=0 OR id<$2) ORDER BY id DESC LIMIT 50")).bind(a.user_id).bind(before).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(rows)
     }

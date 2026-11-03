@@ -49,6 +49,7 @@ async fn balance(pool: &PgPool, account: i64, bucket: &str) -> i64 {
 #[sqlx::test(migrations = false)]
 async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
+    core_schema::check(&pool).await.unwrap();
     let identity = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     let browser = BrowserAuth::new(identity.clone(), &[43; 32]).unwrap();
     browser
@@ -78,7 +79,14 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
     assert_eq!(recipient.user_id, recipient.owner_account_id);
     let users: Vec<Value> = [(sender.user_id,1000), (recipient.user_id,0)].into_iter().map(|(id,quota)| json!({"id":id,"quota":quota,"used_quota":0,"request_count":0,"aff_quota":0,"aff_history":0})).collect();
     let transfers: Vec<Value> = [(1,300,"a"),(2,200,"b"),(3,100,"c")].into_iter().map(|(id,quota,token)| json!({"id":id,"sender_id":sender.user_id,"quota":quota,"status":"pending","token":token.repeat(64),"request_key":format!("legacy-transfer-{id:04}"),"created_at":1900000000,"recipient_id":0,"claimed_at":0,"cancelled_at":0})).collect();
-    let data = json!({"users":users,"wallet_transfers":transfers,"top_ups_pending":[]});
+    let mut data = json!({"users":users,"wallet_transfers":transfers,"top_ups_pending":[]});
+    data["wallet_transfers"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id":4,"sender_id":sender.user_id,"quota":50,"status":"cancelled",
+            "created_at":1800000000,"cancelled_at":1800000010,"recipient_id":0,"claimed_at":0
+        }));
     let archive = "a".repeat(64);
     apply(&pool, &render(&data, "opening", &archive))
         .await
@@ -128,6 +136,29 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
     let valid: bool = sqlx::query_scalar("SELECT bool_and((SELECT delta_units FROM core_billing.ledger_entries WHERE journal_id=j.id AND ledger_account_id=j.payer_id) IS NOT DISTINCT FROM -j.amount_units AND (SELECT delta_units FROM core_billing.ledger_entries WHERE journal_id=j.id AND ledger_account_id=j.payee_id) IS NOT DISTINCT FROM j.amount_units) FROM core_billing.ledger_journals j WHERE j.scope='core-wallet-transfer' AND j.kind='reserve'").fetch_one(&pool).await.unwrap();
     assert!(valid);
     let store = Store::new(pool.clone());
+    assert!(
+        sqlx::query("UPDATE core_wallet.legacy_transfer_history SET amount=999 WHERE id=4")
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    let history = store
+        .list(bundle.data["access_token"].as_str().unwrap(), 0)
+        .await
+        .unwrap();
+    assert!(
+        history
+            .iter()
+            .any(|t| t.id == 4 && t.state == "cancelled" && t.amount_credits == 50)
+    );
+    assert!(
+        store
+            .list(&recipient_session.secret, 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
     assert!(
         store
             .claim(

@@ -566,6 +566,7 @@ GRANT EXECUTE ON FUNCTION core_market_oauth.scope_set(text[]) TO :"runtime_role"
 \if :enable_wallet
 -- Immutable payer, original amount/key and receipt lineage stay installer-owned.
 GRANT USAGE ON SCHEMA core_wallet TO :"runtime_role";
+GRANT SELECT ON core_wallet.legacy_transfer_history TO :"runtime_role";
 GRANT SELECT,INSERT ON core_wallet.transfers TO :"runtime_role";
 GRANT UPDATE(state,hold_journal,final_journal,recipient_user,confirmed_at,finished_at,
     confirmation_digest,confirmation_sid,confirmation_kind,confirmation_expires)

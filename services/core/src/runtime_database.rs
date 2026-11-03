@@ -515,6 +515,8 @@ pub(crate) async fn check_connection(
         let complete:bool=sqlx::query_scalar(r#"
           SELECT has_schema_privilege('core_wallet','USAGE')
             AND has_table_privilege('core_wallet.transfers','SELECT')
+            AND has_table_privilege('core_wallet.legacy_transfer_history','SELECT')
+            AND NOT has_table_privilege('core_wallet.legacy_transfer_history','INSERT,UPDATE,DELETE,TRUNCATE')
             AND has_table_privilege('core_wallet.transfers','INSERT')
             AND has_sequence_privilege('core_wallet.transfers_id_seq','USAGE')
             AND has_sequence_privilege('core_wallet.transfers_id_seq','SELECT')

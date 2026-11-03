@@ -49,6 +49,7 @@ GUARDS = {
     "bounties": "SELECT (SELECT count(*) FROM core_billing.legacy_escrow_batch_runs)"
                 "+(SELECT count(*) FROM core_bounties.policy)",
     "wallet": "SELECT (SELECT count(*) FROM core_wallet.transfers)"
+              "+(SELECT count(*) FROM core_wallet.legacy_transfer_history)"
               "+(SELECT count(*) FROM core_billing.legacy_pending_liabilities WHERE source_table='top_ups')",
 }
 CREDITS_PER_USD = 500000
@@ -440,6 +441,14 @@ def plan_wallet(data, archive_sha, migration_id, observed_at):
             fail("wallet_transfer_status_unsupported")
         stats["transfers_" + t["status"]] += 1
         if t["status"] != "pending":
+            finished = t["claimed_at"] if t["status"] == "claimed" else t["cancelled_at"]
+            recipient = t["recipient_id"] if t["status"] == "claimed" else None
+            if t["sender_id"] not in users or (recipient is not None and recipient not in users):
+                fail("wallet_transfer_history_orphan")
+            sql.append("INSERT INTO core_wallet.legacy_transfer_history(id,owner_user,recipient_user,amount,state,created_at,finished_at,migration_id,source_row_sha256) "
+                       f"VALUES({t['id']},{t['sender_id']},{lit(recipient)},{t['quota']},{lit(t['status'])},{t['created_at']},{finished},{lit(migration_id)},{lit(digest(t))});")
+            top = max(top, t["id"])
+            stats["terminal_transfer_history"] += 1
             continue
         tid, sender, amount = t["id"], t["sender_id"], t["quota"]
         if (type(tid) is not int or tid <= 0 or sender not in users
