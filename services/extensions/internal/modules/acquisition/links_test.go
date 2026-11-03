@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -74,10 +75,60 @@ func TestLinksPostgresHTTP(t *testing.T) {
 			t.Fatalf("invalid query accepted: %s %d", q, w.Code)
 		}
 	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return w
+	}
+	created := request("POST", "/api/admin/acquisition/links", `{"name":"Campaign","source":"original","target":"/pricing"}`)
+	var saved struct {
+		Data struct {
+			ID     string
+			Source string
+			Name   string
+		}
+	}
+	if err = json.Unmarshal(created.Body.Bytes(), &saved); err != nil || created.Code != 200 || saved.Data.ID == "" {
+		t.Fatalf("create: %d %s", created.Code, created.Body.String())
+	}
+	id := saved.Data.ID
+	changed := request("POST", "/api/admin/acquisition/links", `{"id":"`+id+`","name":"Renamed","source":"tampered","target":"/sign-in","archived":true}`)
+	if err = json.Unmarshal(changed.Body.Bytes(), &saved); err != nil || changed.Code != 200 || saved.Data.Source != "original" || saved.Data.Name != "Renamed" {
+		t.Fatalf("edit: %d %s", changed.Code, changed.Body.String())
+	}
+	removed := request("DELETE", "/api/admin/acquisition/links/"+id, "")
+	if removed.Code != 200 {
+		t.Fatalf("delete: %d %s", removed.Code, removed.Body.String())
+	}
+	var deletedAt int64
+	if err = db.QueryRow(`SELECT deleted_at FROM lmm_acquisition.links WHERE id=$1`, id).Scan(&deletedAt); err != nil || deletedAt <= 0 {
+		t.Fatalf("history removed: %v %d", err, deletedAt)
+	}
+	if w := request("POST", "/api/admin/acquisition/links", `{"id":"`+id+`","name":"Revive"}`); w.Code != 404 {
+		t.Fatalf("deleted link updated: %d", w.Code)
+	}
+	if w := request("DELETE", "/api/admin/acquisition/links/"+id, ""); w.Code != 404 {
+		t.Fatalf("deleted link deleted twice: %d", w.Code)
+	}
+	if w := request("POST", "/api/admin/acquisition/links", `{"name":"Bad","source":"source","target":"https://external.example"}`); w.Code != 400 {
+		t.Fatalf("external target accepted: %d", w.Code)
+	}
+
 	denied := http.NewServeMux()
 	s.Register(denied, listVerifier{0})
 	w := httptest.NewRecorder()
 	denied.ServeHTTP(w, httptest.NewRequest("GET", "/api/admin/acquisition/links", nil))
+	for _, method := range []string{"POST", "DELETE"} {
+		rejected := httptest.NewRecorder()
+		path := "/api/admin/acquisition/links"
+		if method == "DELETE" {
+			path += "/" + id
+		}
+		denied.ServeHTTP(rejected, httptest.NewRequest(method, path, strings.NewReader(`{"name":"Forbidden"}`)))
+		if rejected.Code != 403 {
+			t.Fatalf("unprivileged write %s: %d", method, rejected.Code)
+		}
+	}
 	if w.Code != 403 {
 		t.Fatalf("unprivileged status %d", w.Code)
 	}
