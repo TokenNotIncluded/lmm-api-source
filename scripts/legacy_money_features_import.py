@@ -182,8 +182,10 @@ def plan(data: dict, target: Db, observed_at: int) -> tuple[list[str], dict]:
             reason = "discount_no_core_authority"
         else:
             row = redemptions.get(i["source_id"])
-            if row is None or row["deleted"]:
+            if row is None:
                 reason = "redemption_missing"
+            elif row["deleted"]:
+                reason = "redemption_deleted"
             elif (row["reward_type"] or "quota") != "quota":
                 reason = "reset_voucher_no_core_authority"
             else:
