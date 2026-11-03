@@ -566,22 +566,57 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         change("fulfill"),
     )
     .await;
-    success(
-        &client,
-        &endpoint,
-        host,
-        &seller,
-        "/orders/change",
-        change("settle"),
+    let (one, two) = tokio::join!(
+        post(
+            &client,
+            &endpoint,
+            host,
+            Some(&seller),
+            "/orders/change",
+            change("settle")
+        ),
+        post(
+            &client,
+            &endpoint,
+            host,
+            Some(&seller),
+            "/orders/change",
+            change("settle")
+        )
+    );
+    assert_eq!(one.0, StatusCode::OK, "{}", one.1);
+    assert_eq!(two.0, StatusCode::OK, "{}", two.1);
+    assert_eq!(one.1, two.1);
+    assert_eq!(one.1["data"]["state"], "settled");
+    let (journal, count, matches): (i64, i64, i64) = sqlx::query_as(
+        "SELECT o.settlement_journal_id, count(j.id), count(j.id) FILTER (WHERE j.id=o.settlement_journal_id) FROM core_commerce.orders o \
+         JOIN core_billing.ledger_journals j ON j.parent_journal_id=o.reserve_journal_id \
+         AND j.kind='commerce_capture' WHERE o.shop_id=$1 AND o.order_id=$2 \
+         GROUP BY o.settlement_journal_id",
     )
-    .await;
+    .bind(shop_id)
+    .bind(order_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(matches, 1);
     assert_eq!(
-        ledger
-            .balance(seller_account)
-            .await
-            .unwrap()
-            .available_units,
-        5_000
+        one.1["data"]["settlement_ref"],
+        format!("commerce:journal:{journal}")
+    );
+    let buyer_balance = ledger.balance(buyer_account).await.unwrap();
+    let seller_balance = ledger.balance(seller_account).await.unwrap();
+    assert_eq!(
+        (buyer_balance.available_units, buyer_balance.reserved_units),
+        (495_000, 0)
+    );
+    assert_eq!(
+        (
+            seller_balance.available_units,
+            seller_balance.reserved_units
+        ),
+        (5_000, 0)
     );
     success(
         &client,

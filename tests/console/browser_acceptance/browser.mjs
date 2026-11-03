@@ -12,8 +12,9 @@ const cases = Object.fromEntries([
   'other-settings-readonly', 'narrow-screen', 'storage-error-no-retry',
   'commit-unknown-no-retry', 'ordinary-no-write',
   'navigation-save-refresh', 'navigation-restart-public', 'navigation-ordinary-denial',
+  'finance-create-readback', 'finance-restart-readback', 'finance-ordinary-denial',
 ].map(k => [k, 'NOT_RUN']))
-const events = [], errors = [], external = [], writeAttempts = []
+const events = [], errors = [], external = [], writeAttempts = [], financeRequests = []
 let browser, page, current = 'admin-login'
 let token
 const save = (name, value) => fs.writeFile(path.join(cfg.root, name), JSON.stringify(value, null, 2) + '\n')
@@ -53,7 +54,11 @@ async function context() {
   // Full page navigation rotates the real Web session. Supplemental reads must
   // use the credential actually sent by the current page, never the old login token.
   p.on('request', req => {
-    if (!req.url().startsWith(cfg.origin + '/api/')) return
+    if (!req.url().startsWith(cfg.origin + '/')) return
+    const requestPath = new URL(req.url()).pathname
+    if (/^\/(?:core\/v1\/(?:subscriptions|promotions)|api\/(?:subscription|redemption))/.test(requestPath))
+      financeRequests.push({ case: current, method: req.method(), path: requestPath })
+    if (!requestPath.startsWith('/api/') && !requestPath.startsWith('/core/')) return
     if (new URL(req.url()).pathname.startsWith('/api/option') && ['PUT', 'POST'].includes(req.method())) {
       writeAttempts.push({ case: current, method: req.method(), path: new URL(req.url()).pathname, request: req.postDataJSON(), at: Date.now() })
     }
@@ -392,12 +397,117 @@ try {
     assert.equal(await page.getByLabel('Announcement content', { exact: true }).inputValue(), 'Committed but reply lost — reconcile by reading.')
     await capture('commit-unknown-resolved-by-refresh')
   })
+  const finance = [
+    { route: '/subscriptions', endpoint: '/core/v1/subscriptions/admin/plans', contract: 'core.subscriptions.v1', list: 'plans', create: 'Create Plan', field: 'Plan Name', close: 'Cancel', title: 'Browser synthetic plan', terms: 'terms' },
+    { route: '/redemption-codes', endpoint: '/core/v1/promotions/admin/campaigns', contract: 'core.promotions.v1', list: 'campaigns', create: 'Create campaign', field: 'Name', close: 'Close', title: 'Browser synthetic campaign', terms: 'spec' },
+  ]
+  const created = []
+  async function financeList(item) {
+    const response = await page.context().request.get(cfg.origin + item.endpoint, { headers: { Authorization: 'Bearer ' + token } })
+    assert.equal(response.status(), 200)
+    const body = await response.json()
+    assert.equal(body.contract, item.contract)
+    return body[item.list]
+  }
+  async function financePage(item) {
+    const observed = page.waitForResponse(r => new URL(r.url()).pathname === item.endpoint && r.request().method() === 'GET')
+    await page.goto(cfg.origin + item.route)
+    const response = await observed
+    assert.equal(response.status(), 200)
+    assert.equal((await response.json()).contract, item.contract)
+    await ready(page.getByRole('button', { name: item.create, exact: true }))
+  }
+  await run('finance-create-readback', async () => {
+    const self = await page.context().request.get(cfg.origin + '/api/user/self', { headers: { Authorization: 'Bearer ' + token } })
+    assert.equal(self.status(), 200)
+    const selfBody = await self.json()
+    assert.equal(selfBody.success, true)
+    assert.equal(selfBody.data.wallet_unit, 'core_credit')
+    for (const item of finance) {
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+        await financePage(item)
+        const before = await financeList(item)
+        const requestsBefore = financeRequests.length
+        await page.getByRole('button', { name: item.create, exact: true }).click()
+        const dialog = page.getByRole('dialog', { name: item.create })
+        await ready(dialog)
+        await dialog.getByLabel(item.field, { exact: true }).fill(item.title + ' canceled')
+        assert.equal(await dialog.getByRole('switch', { name: 'Enabled' }).isChecked(), false)
+        assert.ok(await dialog.getByRole('button', { name: 'Confirm', exact: true }).isEnabled())
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page overflow ' + width)
+        const bounds = await dialog.boundingBox()
+        assert.ok(bounds && bounds.x >= -1 && bounds.x + bounds.width <= width + 1, 'dialog overflow ' + width)
+        await dialog.getByRole('button', { name: 'Confirm', exact: true }).scrollIntoViewIfNeeded()
+        assert.ok(await dialog.getByRole('button', { name: 'Confirm', exact: true }).isVisible())
+        await capture('finance-dialog-' + item.list + '-' + width)
+        await dialog.getByRole('button', { name: item.close, exact: true }).click()
+        await dialog.waitFor({ state: 'hidden' })
+        assert.equal(financeRequests.slice(requestsBefore).filter(x => x.method !== 'GET').length, 0, 'cancel sent finance write')
+        assert.deepEqual(await financeList(item), before, 'cancel changed native list')
+      }
+      await page.setViewportSize({ width: 1440, height: 1000 })
+      await financePage(item)
+      const before = await financeList(item)
+      assert.equal(before.filter(x => x[item.terms].title === item.title).length, 0)
+      const start = financeRequests.length
+      await page.getByRole('button', { name: item.create, exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: item.create })
+      await ready(dialog)
+      await dialog.getByLabel(item.field, { exact: true }).fill(item.title)
+      assert.equal(await dialog.getByRole('switch', { name: 'Enabled' }).isChecked(), false)
+      assert.equal(financeRequests.slice(start).filter(x => x.method !== 'GET').length, 0, 'write before confirmation')
+      const pending = page.waitForResponse(r => new URL(r.url()).pathname === item.endpoint && r.request().method() === 'POST')
+      await dialog.getByRole('button', { name: 'Confirm', exact: true }).click()
+      const response = await pending
+      assert.equal(response.status(), 200)
+      const body = await response.json(), request = response.request().postDataJSON()
+      assert.ok(body.id)
+      assert.equal(request.expected_revision, null)
+      assert.ok(request.operation_key)
+      assert.equal(request[item.terms].title, item.title)
+      assert.equal(request[item.terms].enabled, false)
+      assert.equal(body[item.terms].title, item.title)
+      assert.equal(body[item.terms].enabled, false)
+      await dialog.waitFor({ state: 'hidden' })
+      assert.equal(financeRequests.slice(start).filter(x => x.method !== 'GET').length, 1)
+      const listed = await financeList(item)
+      assert.deepEqual(listed.filter(x => x.id === body.id), [body])
+      await page.reload()
+      await ready(page.getByText(item.title, { exact: false }))
+      await capture('finance-created-' + item.list)
+      created.push({ item, body, request })
+    }
+    assert.equal(financeRequests.filter(x => /^\/api\/(subscription|redemption)/.test(x.path)).length, 0, 'legacy finance endpoint used')
+  })
+  await run('finance-restart-readback', async () => {
+    const restarted = await control('restart-finance-core')
+    assert.notEqual(restarted.old_pid, restarted.new_pid)
+    for (const { item, body } of created) {
+      await financePage(item)
+      assert.deepEqual((await financeList(item)).filter(x => x.id === body.id), [body])
+      await ready(page.getByText(item.title, { exact: false }))
+      await capture('finance-restarted-' + item.list)
+    }
+    assert.equal(financeRequests.filter(x => /^\/api\/(subscription|redemption)/.test(x.path)).length, 0)
+  })
   if (cfg.noticeRetest) {
     await page.context().close()
     page = await context()
     const identity = await login('consoleordinary', cfg.ordinaryPassword, '/system-settings/site/header-navigation')
     assert.ok(identity.platform_level < 6)
   } else await ordinaryNoWrite()
+    await run('finance-ordinary-denial', async () => {
+      for (const { item, request } of created) {
+        const response = await page.context().request.get(cfg.origin + item.endpoint, { headers: { Authorization: 'Bearer ' + token } })
+        assert.equal(response.status(), 403)
+        const code = item.list === 'plans' ? 'SUBSCRIPTION_FORBIDDEN' : 'PROMOTION_FORBIDDEN'
+        assert.equal((await response.json()).error.code, code)
+        const denied = await page.context().request.post(cfg.origin + item.endpoint, { headers: { Authorization: 'Bearer ' + token }, data: { ...request, operation_key: 'ordinary-denied-' + item.list } })
+        assert.equal(denied.status(), 403)
+        assert.equal((await denied.json()).error.code, code)
+      }
+    })
     await run('navigation-ordinary-denial', async () => {
       await page.goto(cfg.origin + '/system-settings/site/header-navigation')
       await page.waitForLoadState('networkidle')
@@ -434,6 +544,7 @@ try {
   if (browser) await browser.close()
   await save('browser-events.json', events)
   await save('write-attempts.json', writeAttempts)
+  await save('finance-requests.json', financeRequests)
   await save('browser-errors.json', { pageErrors: errors, blockedExternalRequests: external })
   await save('browser-result.json', { overall: cfg.ordinaryOnly && !process.exitCode ? 'INDEPENDENT_CASE_PASS' : cfg.diagnoseSelector && !process.exitCode ? 'DIAGNOSTIC_ONLY' : Object.values(cases).every(x => x === 'PASS' || x === 'REUSED_PASS') ? 'PASS' : 'INCOMPLETE', cases })
 }

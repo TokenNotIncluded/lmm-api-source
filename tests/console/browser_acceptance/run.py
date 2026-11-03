@@ -365,14 +365,15 @@ def main():
                     elif action == 'restore-grants':
                         fixture.grants()
                         data = {'ok': True}
-                    elif action == 'restart-core':
+                    elif action in ('restart-core', 'restart-finance-core'):
                         old_pid = fixture.main.proc.pid
                         fixture.main.stop()
-                        fixture.start_core('navigation_restart')
+                        restart_name = 'navigation' if action == 'restart-core' else 'finance'
+                        fixture.start_core(restart_name + '_restart')
                         data = {'old_pid': old_pid, 'new_pid': fixture.main.proc.pid,
                                 'core_sha256': sha(f'/proc/{fixture.main.proc.pid}/exe')}
                         require(data['new_pid'] != old_pid and data['core_sha256'] == args.core_sha256, 'restart_binding')
-                        save(root / 'navigation-restart.json', data)
+                        save(root / (restart_name + '-restart.json'), data)
                     elif action == 'arm-commit-loss':
                         fixture.proxy.arm()
                         data = {'ok': True}
