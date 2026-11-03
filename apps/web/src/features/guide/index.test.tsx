@@ -123,12 +123,19 @@ async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
-async function renderGuide(user: AuthUser | null) {
+async function renderGuide(user: AuthUser | null, serverAddress?: string) {
   useAuthStore.getState().auth.setUser(user)
   api.get = (async (url) => {
     if (url === '/api/status') {
       return {
-        data: { success: true, data: { assistant: { enabled: false } } },
+        data: {
+          success: true,
+          data: {
+            assistant: { enabled: false },
+            server_address: serverAddress,
+            system_name: 'Custom Relay',
+          },
+        },
       }
     }
     return { data: { success: true, data: url === '/api/notice' ? '' : [] } }
@@ -359,4 +366,36 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.equal(document.activeElement, support)
     assert.equal(consumeQueuedAssistantRequest(), undefined)
   })
+})
+
+test('configured guide address retains the public prefix in client setup and copied requests', async () => {
+  const { container } = await renderGuide(
+    null,
+    'https://relay.example.test:8443/gateway/v1'
+  )
+  assert.match(
+    container.textContent ?? '',
+    /https:\/\/relay\.example\.test:8443\/gateway/
+  )
+  assert.match(container.textContent ?? '', /Custom Relay/)
+  assert.doesNotMatch(container.textContent ?? '', /gateway\/v1\/v1/)
+  const endpoint = [...container.querySelectorAll('.guide-code')].find((node) =>
+    node.textContent?.includes('API endpoint root')
+  )
+  assert.ok(
+    endpoint?.textContent?.includes('https://relay.example.test:8443/gateway')
+  )
+})
+
+test('invalid configured guide address offers no endpoint copy or generated client config', async () => {
+  const { container } = await renderGuide(
+    null,
+    'https://secret:password@relay.example.test'
+  )
+  assert.match(container.textContent ?? '', /API address unavailable/)
+  assert.doesNotMatch(container.textContent ?? '', /secret:password/)
+  const endpoint = [...container.querySelectorAll('.guide-code')].find((node) =>
+    node.textContent?.includes('API endpoint root')
+  )
+  assert.equal(endpoint?.querySelector('button')?.disabled, true)
 })

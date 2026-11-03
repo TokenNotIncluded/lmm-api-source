@@ -3,14 +3,15 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { useApiBaseUrl } from '@/hooks/use-api-base-url'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 
 import {
   LMM_ISSUER,
   LMM_SOURCE,
   OAUTH_PROMPT,
-  PRICING_EXAMPLE,
-  PRICING_PROMPT,
+  buildPricingExample,
+  buildPricingPrompt,
 } from './integration-prompts'
 import { RequestBuilder } from './request-builder'
 
@@ -71,12 +72,13 @@ export function IntegrationPrompt({
   )
 }
 
-function PricingExample() {
+function PricingExample({ rootUrl }: { rootUrl: string }) {
+  const pricingExample = buildPricingExample(rootUrl)
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const [failed, setFailed] = useState(false)
-  const copy = async () => setFailed(!(await copyToClipboard(PRICING_EXAMPLE)))
-  const copied = copiedText === PRICING_EXAMPLE
+  const copy = async () => setFailed(!(await copyToClipboard(pricingExample)))
+  const copied = copiedText === pricingExample
 
   return (
     <div className='bg-muted/40 mt-3 min-w-0 overflow-hidden rounded-xl border'>
@@ -97,7 +99,7 @@ function PricingExample() {
         aria-label={t('Fetch pricing from your backend.')}
         className='focus-visible:outline-ring max-w-full overflow-x-auto p-4 font-mono text-xs leading-7 focus-visible:outline-2 focus-visible:-outline-offset-2'
       >
-        <code>{PRICING_EXAMPLE}</code>
+        <code>{pricingExample}</code>
       </pre>
       {failed && (
         <p role='alert' className='text-destructive px-4 pb-4 text-sm'>
@@ -130,6 +132,7 @@ function Endpoint({
 
 export function DevelopersPage() {
   const { t } = useTranslation()
+  const { rootUrl, loading } = useApiBaseUrl()
   return (
     <main className='mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-16 lg:py-20'>
       <h1 className='text-3xl font-semibold tracking-tight sm:text-5xl'>
@@ -214,10 +217,16 @@ export function DevelopersPage() {
             <h3 className='mt-6 text-sm font-semibold'>
               {t('Fetch pricing from your backend.')}
             </h3>
-            <PricingExample />
+            {rootUrl ? (
+              <PricingExample rootUrl={rootUrl} />
+            ) : (
+              <p role='status'>
+                {t(loading ? 'Loading...' : 'API address unavailable')}
+              </p>
+            )}
             <a
               className='mt-4 inline-block text-sm underline underline-offset-4'
-              href={`${LMM_SOURCE}/blob/wip/rust-core-go-extensions/services/core/src/model_http/catalog.rs`}
+              href={`${LMM_SOURCE}/blob/main/services/core/src/model_http/catalog.rs`}
               target='_blank'
               rel='noopener noreferrer'
             >
@@ -228,10 +237,12 @@ export function DevelopersPage() {
             aria-label={t('Copy pricing prompt')}
             className='order-1 border-b pb-6 lg:order-2 lg:border-b-0 lg:border-l lg:pt-1 lg:pb-0 lg:pl-7'
           >
-            <IntegrationPrompt
-              prompt={PRICING_PROMPT}
-              label={t('Copy pricing prompt')}
-            />
+            {rootUrl ? (
+              <IntegrationPrompt
+                prompt={buildPricingPrompt(rootUrl)}
+                label={t('Copy pricing prompt')}
+              />
+            ) : null}
           </aside>
         </div>
       </section>
@@ -296,7 +307,7 @@ export function DevelopersPage() {
                 {t('Discovery')}
               </a>
               <a
-                href={`${LMM_SOURCE}/blob/wip/rust-core-go-extensions/services/core/src/oauth2_http.rs`}
+                href={`${LMM_SOURCE}/blob/main/services/core/src/oauth2_http.rs`}
                 target='_blank'
                 rel='noopener noreferrer'
               >

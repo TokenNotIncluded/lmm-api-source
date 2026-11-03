@@ -1,12 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 
 export const LMM_ISSUER = 'https://api.lmm.best'
-export const LMM_SOURCE = 'https://github.com/TokenNotIncluded/lmm-api'
+export const LMM_SOURCE = 'https://github.com/TokenNotIncluded/lmm-api-source'
 
 // Copyable technical artifacts deliberately use English; the surrounding UI is localized.
-export const PRICING_PROMPT = `Integrate LMM model pricing into this project. First inspect its framework, HTTP client, authentication and tests; reuse the existing stack and check dependencies before adding anything. Explain your changes in the language of our conversation.
+export const buildPricingPrompt = (
+  rootUrl: string
+) => `Integrate LMM model pricing into this project. First inspect its framework, HTTP client, authentication and tests; reuse the existing stack and check dependencies before adding anything. Explain your changes in the language of our conversation.
 
-Provider: https://api.lmm.best
+Provider: ${rootUrl}
 1. Public catalog: GET /core/v1/pricing/public. Access follows the site's visibility settings; handle 401/403 explicitly. Browser account catalog: GET /core/v1/pricing/session with the current Session credential. Never send an OAuth bearer or API key as a browser Session. Both return a versioned document directly, not the old success/data/model_ratio envelope; validate schema_version, visibility, routing_version, pricing_version, groups and models at the boundary.
 2. Preserve exact model IDs, names, group identities, supported APIs and pricing units. Group-specific prices already include their configured group factors: do not multiply them twice or combine different group rates into one invented base price. Only show protocols actually listed for that model. Do not infer supported routes or prices from a model name.
 3. For an already registered OAuth client, GET /api/oauth2/catalog with Authorization: Bearer ACCESS_TOKEN and an approved grant including catalog:read. This separate endpoint returns {schema_version, resource, updated_at, routing_version, pricing_version, groups, models}. Do not send browser cookies, Session credentials or API-key headers with OAuth bearer credentials.
@@ -15,10 +17,10 @@ Provider: https://api.lmm.best
 6. Add HTTP boundary tests for success, empty catalog, null versus zero prices, different group rates, token versus per-image units, 401/403, 404, 429, timeout and invalid JSON. Do not make paid model requests to test the catalog.
 
 Source contracts:
-https://github.com/TokenNotIncluded/lmm-api/blob/wip/rust-core-go-extensions/services/core/src/pricing_http.rs
-https://github.com/TokenNotIncluded/lmm-api/blob/wip/rust-core-go-extensions/services/core/src/model_http/pricing.rs
-https://github.com/TokenNotIncluded/lmm-api/blob/wip/rust-core-go-extensions/services/core/src/model_http/catalog.rs
-https://github.com/TokenNotIncluded/lmm-api/blob/wip/rust-core-go-extensions/services/core/src/oauth2_http.rs
+https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/pricing_http.rs
+https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/model_http/pricing.rs
+https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/model_http/catalog.rs
+https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/oauth2_http.rs
 Deliver the implementation, configuration example without credentials, and test results.`
 
 export const OAUTH_PROMPT = `Integrate LMM OAuth into this project where the provider contract supports it. First inspect the application type and existing auth libraries; check installed dependencies and reuse the current stack. Explain your work in the language of our conversation.
@@ -42,13 +44,15 @@ For a registered native client:
 - Test callback cancellation, mismatched state/issuer, expired/replayed code, denied scopes, timeout, refresh concurrency, token revocation and unavailable discovery with mocks. Do not request a user's password or API key in chat.
 
 Source contract:
-https://github.com/TokenNotIncluded/lmm-api/blob/wip/rust-core-go-extensions/services/core/src/oauth2_http.rs
-https://github.com/TokenNotIncluded/lmm-api/blob/wip/rust-core-go-extensions/services/core/src/identity/grants/protocol.rs
+https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/oauth2_http.rs
+https://github.com/TokenNotIncluded/lmm-api-source/blob/main/services/core/src/identity/grants/protocol.rs
 Deliver code only for supported, registered flows; clearly list remaining provider prerequisites and test results.`
 
-export const PRICING_EXAMPLE = `export async function getLmmPricing() {
+export const buildPricingExample = (
+  rootUrl: string
+) => `export async function getLmmPricing() {
   const response = await fetch(
-    'https://api.lmm.best/core/v1/pricing/public',
+    ${JSON.stringify(`${rootUrl}/core/v1/pricing/public`)},
     { signal: AbortSignal.timeout(10_000) }
   );
   if (!response.ok) throw new Error('Pricing: HTTP ' + response.status);

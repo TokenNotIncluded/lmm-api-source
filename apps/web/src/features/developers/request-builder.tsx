@@ -12,10 +12,10 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { getPricing, pricingQueryKey } from '@/features/pricing/api'
+import { useApiBaseUrl } from '@/hooks/use-api-base-url'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { LMM_ISSUER } from './integration-prompts'
 import { buildRequestBody, buildRequestSnippet } from './request-snippet'
 
 import './request-builder.css'
@@ -84,12 +84,13 @@ function sortModels(models: string[]): string[] {
 }
 
 /**
- * Build a real request against api.lmm.best without sending the prompt. Model
+ * Build a request against the configured public API without sending the prompt. Model
  * choices come from the live public pricing catalogue, filtered by endpoint
  * compatibility, so the examples do not age into hard-coded legacy models.
  */
 export function RequestBuilder() {
   const { t } = useTranslation()
+  const { rootUrl, loading } = useApiBaseUrl()
   const { user, session } = useAuthStore((state) => state.auth)
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const [protocol, setProtocol] = useState<Protocol>('chat')
@@ -129,13 +130,15 @@ export function RequestBuilder() {
   }, [model, modelOptions])
 
   const active = PROTOCOLS.find((item) => item.id === protocol) ?? PROTOCOLS[0]
-  const url = `${LMM_ISSUER}${active.path.replace('{model}', encodeURIComponent(model || 'MODEL'))}`
+  const url = rootUrl
+    ? `${rootUrl}${active.path.replace('{model}', encodeURIComponent(model || 'MODEL'))}`
+    : null
   const body = useMemo(
     () => buildRequestBody(active.shape, model || 'MODEL', prompt || 'Hello'),
     [active.shape, model, prompt]
   )
   const snippet = useMemo(
-    () => buildRequestSnippet(language, url, body),
+    () => (url ? buildRequestSnippet(language, url, body) : ''),
     [language, url, body]
   )
   const copied = copiedText === snippet
@@ -221,13 +224,18 @@ export function RequestBuilder() {
       </div>
       <div className='dev-builder-output'>
         <div className='dev-builder-output-head'>
-          <code>{url}</code>
+          <code>
+            {url ?? t(loading ? 'Loading...' : 'API address unavailable')}
+          </code>
           <Button
             type='button'
             variant='outline'
             size='sm'
             aria-label={`${t('Copy')}: ${active.label} · ${language}`}
-            onClick={() => void copyToClipboard(snippet)}
+            disabled={!url}
+            onClick={() => {
+              if (url) void copyToClipboard(snippet)
+            }}
             className='min-h-11 shrink-0'
           >
             <span aria-live='polite'>{copied ? t('Copied') : t('Copy')}</span>

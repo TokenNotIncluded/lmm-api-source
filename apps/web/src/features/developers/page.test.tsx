@@ -32,8 +32,11 @@ await createInstance()
   .use(initReactI18next)
   .init({ lng: 'en', resources: { en: { translation: {} } } })
 const { DevelopersPage, IntegrationPrompt } = await import('./page')
-const { PRICING_EXAMPLE, PRICING_PROMPT, OAUTH_PROMPT } =
+const { buildPricingExample, buildPricingPrompt, OAUTH_PROMPT } =
   await import('./integration-prompts')
+const publicRoot = 'https://relay.example.test:8443/gateway'
+const PRICING_EXAMPLE = buildPricingExample(publicRoot)
+const PRICING_PROMPT = buildPricingPrompt(publicRoot)
 after(() => dom.close())
 
 test('one click copies the complete pricing integration instructions', async () => {
@@ -128,6 +131,9 @@ for (const clipboardAvailable of [true, false]) {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { enabled: false } },
     })
+    queryClient.setQueryData(['status', 'anonymous'], {
+      server_address: `${publicRoot}/v1`,
+    })
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -143,6 +149,15 @@ for (const clipboardAvailable of [true, false]) {
         'pre[aria-label="Fetch pricing from your backend."]'
       )
       assert.ok(example)
+      const builder = container.querySelector('.dev-builder-output')
+      assert.ok(
+        builder?.textContent?.includes(`${publicRoot}/v1/chat/completions`)
+      )
+      assert.ok(
+        container.querySelector(
+          'a[href="https://api.lmm.best/.well-known/oauth-authorization-server"]'
+        )
+      )
       assert.equal(example.textContent, PRICING_EXAMPLE)
       const exampleBlock = example.parentElement
       assert.ok(exampleBlock)
@@ -169,3 +184,52 @@ for (const clipboardAvailable of [true, false]) {
     }
   })
 }
+
+test('invalid configured API address disables request copying and hides pricing artifacts', async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { enabled: false } },
+  })
+  queryClient.setQueryData(['status', 'anonymous'], {
+    server_address: 'https://key:secret@relay.test',
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <DevelopersPage />
+        </QueryClientProvider>
+      )
+    )
+    assert.match(container.textContent ?? '', /API address unavailable/)
+    assert.doesNotMatch(container.textContent ?? '', /key:secret/)
+    assert.equal(
+      container.querySelector<HTMLButtonElement>('.dev-builder-output button')
+        ?.disabled,
+      true
+    )
+    assert.equal(
+      container.querySelector(
+        'pre[aria-label="Fetch pricing from your backend."]'
+      ),
+      null
+    )
+    assert.equal(
+      container.querySelector(
+        'textarea[aria-label="Integration prompt: Copy pricing prompt"]'
+      ),
+      null
+    )
+    assert.ok(
+      container.querySelector(
+        'a[href="https://api.lmm.best/.well-known/oauth-authorization-server"]'
+      )
+    )
+  } finally {
+    await act(async () => root.unmount())
+    queryClient.clear()
+    container.remove()
+  }
+})

@@ -42,9 +42,12 @@ import {
   AssistantSetupTool,
   type ClientTab,
 } from '@/features/assistant/assistant-setup-tool'
+import { buildRequestSnippet } from '@/features/developers/request-snippet'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
 import { useStatus } from '@/hooks/use-status'
+import { useSystemConfig } from '@/hooks/use-system-config'
+import { resolveApiBaseUrl } from '@/lib/api-base-url'
 import {
   getOnboardingState,
   isConsoleActivated,
@@ -84,6 +87,7 @@ function GuideContents({ copy }: { copy: GuideCopy }) {
 }
 
 function GuideCode({
+  disabled = false,
   label,
   value,
   copy,
@@ -91,9 +95,11 @@ function GuideCode({
   label: string
   value: string
   copy: GuideCopy
+  disabled?: boolean
 }) {
   const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const copyValue = async () => {
+    if (disabled) return
     try {
       await navigator.clipboard.writeText(value)
       setStatus('copied')
@@ -107,6 +113,7 @@ function GuideCode({
       <div className='guide-code-toolbar'>
         <span>{label}</span>
         <Button
+          disabled={disabled}
           type='button'
           variant='ghost'
           className='guide-copy-button'
@@ -163,6 +170,7 @@ function SectionHeading({
 
 export function Guide() {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
   const navigate = useNavigate()
   const { status, capabilitiesReady } = useStatus()
   const assistantAvailable =
@@ -202,10 +210,13 @@ export function Guide() {
         t('Send first request'),
       ]
     : copy.stages
-  const rootUrl =
-    typeof window === 'undefined'
-      ? 'https://api.lmm.best'
-      : window.location.origin
+  const baseUrl = status
+    ? resolveApiBaseUrl(
+        status.server_address ?? status.data?.server_address,
+        typeof window === 'undefined' ? '' : window.location.origin
+      )
+    : null
+  const rootUrl = baseUrl?.replace(/\/v1$/, '') ?? null
   const modelsQuery = useQuery({
     queryKey: ['guide-available-models', user?.id],
     queryFn: getAssistantSetupModels,
@@ -254,11 +265,12 @@ export function Guide() {
     }
     askAssistant(copy.requestAccessQuestion, 'onboarding')
   }
-  const example = String.raw`export LMM_API_KEY='paste-your-key-here'
-curl ${rootUrl}/v1/chat/completions \
-  -H "Authorization: Bearer $LMM_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"your-model-id","messages":[{"role":"user","content":"Hello"}]}'`
+  const example = baseUrl
+    ? buildRequestSnippet('curl', `${baseUrl}/chat/completions`, {
+        model: 'your-model-id',
+        messages: [{ role: 'user', content: 'Hello' }],
+      })
+    : null
   const stageItems = stages.map((stage, index) => (
     <li key={stage}>
       <span className='guide-stage-number' aria-hidden='true'>
@@ -348,7 +360,8 @@ curl ${rootUrl}/v1/chat/completions \
                   <>
                     <GuideCode
                       label={t('API endpoint root')}
-                      value={rootUrl}
+                      value={rootUrl ?? t('API address unavailable')}
+                      disabled={!rootUrl}
                       copy={copy}
                     />
                     <p className='guide-connection-note'>{copy.endpointHint}</p>
@@ -397,20 +410,26 @@ curl ${rootUrl}/v1/chat/completions \
                   description={copy.setupBody}
                   id='client-setup-title'
                 />
-                <AssistantSetupTool
-                  publicGuide
-                  onClientChange={setSelectedClient}
-                  rootUrl={rootUrl}
-                  openAIBaseUrl={`${rootUrl}/v1`}
-                  availableModels={
-                    developerAccessGranted ? (modelsQuery.data ?? []) : []
-                  }
-                  modelsLoading={modelsQuery.isLoading}
-                  developerAccessGranted={developerAccessGranted}
-                  onCreateKey={createKey}
-                  onRequestAccess={requestAccess}
-                  onAskQuestion={assistantAvailable ? askAssistant : undefined}
-                />
+                {rootUrl && baseUrl ? (
+                  <AssistantSetupTool
+                    publicGuide
+                    onClientChange={setSelectedClient}
+                    rootUrl={rootUrl}
+                    openAIBaseUrl={baseUrl}
+                    availableModels={
+                      developerAccessGranted ? (modelsQuery.data ?? []) : []
+                    }
+                    modelsLoading={modelsQuery.isLoading}
+                    developerAccessGranted={developerAccessGranted}
+                    onCreateKey={createKey}
+                    onRequestAccess={requestAccess}
+                    onAskQuestion={
+                      assistantAvailable ? askAssistant : undefined
+                    }
+                  />
+                ) : (
+                  <p role='status'>{t('API address unavailable')}</p>
+                )}
                 {developerAccessGranted && modelsQuery.isError && (
                   <div className='guide-model-error' role='alert'>
                     <p>{copy.modelsError}</p>
@@ -466,7 +485,8 @@ curl ${rootUrl}/v1/chat/completions \
                     <p>{copy.developerBody}</p>
                     <GuideCode
                       label='Bash · OpenAI-compatible API'
-                      value={example}
+                      value={example ?? t('API address unavailable')}
+                      disabled={!example}
                       copy={copy}
                     />
                   </details>
@@ -618,7 +638,7 @@ curl ${rootUrl}/v1/chat/completions \
                 )}
               </section>
               <footer className='guide-footer'>
-                <span>LMM API</span>
+                <span>{systemName}</span>
                 <Link to='/developers'>
                   {copy.reference}
                   <ArrowUpRight aria-hidden='true' />

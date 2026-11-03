@@ -37,10 +37,12 @@ import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
 import { BookmarkletInstall } from '@/features/test-key/bookmarklet-install'
+import { useApiBaseUrl } from '@/hooks/use-api-base-url'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type Platform = 'linux' | 'macos' | 'windows'
+import { commandFor, scriptUrl, type Platform } from './script-commands'
+
 type ScriptMeta = {
   name: string
   size?: number
@@ -64,24 +66,6 @@ type RepositoryResponse = {
   data?: RepositoryConfig
 }
 
-const scriptBaseUrl = () =>
-  typeof window === 'undefined'
-    ? 'https://api.lmm.best'
-    : window.location.origin
-function scriptUrl(name: string) {
-  return `${scriptBaseUrl()}/scripts/${encodeURIComponent(name)}`
-}
-function commandFor(name: string, platform: Platform) {
-  const url = scriptUrl(name)
-  if (platform === 'windows') {
-    if (name.toLowerCase().endsWith('.ps1')) {
-      return `irm "${url}" | iex`
-    }
-    return `Invoke-WebRequest -Uri "${url}" -OutFile "${name}"; .\\${name}`
-  }
-  const shell = name.toLowerCase().endsWith('.zsh') ? 'zsh' : 'bash'
-  return `curl -fsSL "${url}" | ${shell}`
-}
 /** Best-effort guess at the visitor's platform, so the right tab is
  * pre-selected instead of making them find it. */
 function detectPlatform(): Platform {
@@ -113,7 +97,13 @@ function formatUpdated(value: string | undefined, fallback: string) {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
 }
 
-function PublicScriptSource({ script }: { script: ScriptMeta }) {
+function PublicScriptSource({
+  script,
+  rootUrl,
+}: {
+  script: ScriptMeta
+  rootUrl: string | null
+}) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const source = useQuery({
@@ -148,7 +138,7 @@ function PublicScriptSource({ script }: { script: ScriptMeta }) {
       {open && (
         <div className='min-w-0 space-y-3 px-4 pb-4 sm:px-5 sm:pb-5'>
           <a
-            href={scriptUrl(script.name)}
+            href={scriptUrl(rootUrl, script.name) ?? undefined}
             download={script.name}
             className='text-primary focus-visible:ring-ring inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 outline-none focus-visible:ring-2'
           >
@@ -191,6 +181,7 @@ export function PublicScriptsPanel({
 }) {
   const { t } = useTranslation()
   const scripts = useScriptList()
+  const { rootUrl, loading } = useApiBaseUrl()
   const [copied, setCopied] = useState<string | null>(null)
   const [picked, setPicked] = useState<Platform | null>(null)
   const detected = useMemo(detectPlatform, [])
@@ -206,7 +197,9 @@ export function PublicScriptsPanel({
   )
   const copyCommand = async (name: string, platform: Platform) => {
     try {
-      await navigator.clipboard.writeText(commandFor(name, platform))
+      const command = commandFor(rootUrl, name, platform)
+      if (!command) return
+      await navigator.clipboard.writeText(command)
       const id = `${name}:${platform}`
       setCopied(id)
       window.setTimeout(
@@ -320,6 +313,7 @@ export function PublicScriptsPanel({
                 type='button'
                 className='min-h-11'
                 variant={index === 0 ? 'default' : 'outline'}
+                disabled={!rootUrl}
                 onClick={() => void copyCommand(script.name, platform)}
               >
                 {copied === id ? (
@@ -335,11 +329,14 @@ export function PublicScriptsPanel({
               tabIndex={0}
               aria-label={script.name}
             >
-              <code>{commandFor(script.name, platform)}</code>
+              <code>
+                {commandFor(rootUrl, script.name, platform) ??
+                  t(loading ? 'Loading...' : 'API address unavailable')}
+              </code>
             </pre>
             <a
               className='text-muted-foreground focus-visible:ring-ring inline-flex min-h-9 items-center rounded-sm text-xs break-all underline underline-offset-4 outline-none focus-visible:ring-2'
-              href={scriptUrl(script.name)}
+              href={scriptUrl(rootUrl, script.name) ?? undefined}
             >
               {script.name}
             </a>
@@ -351,7 +348,11 @@ export function PublicScriptsPanel({
           {t('Scripts')} ({scripts.data?.length ?? 0})
         </summary>
         {scripts.data?.map((script) => (
-          <PublicScriptSource key={script.name} script={script} />
+          <PublicScriptSource
+            key={script.name}
+            script={script}
+            rootUrl={rootUrl}
+          />
         ))}
       </details>
     </div>
