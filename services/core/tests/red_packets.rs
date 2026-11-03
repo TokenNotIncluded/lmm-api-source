@@ -138,7 +138,9 @@ async fn red_packet_claims_spend_bound_codes_once(pool: PgPool) {
     let items = codes(&f, "packet", 100, 3).await;
     // Non-admins cannot create; legacy row ids and discount items are rejected.
     assert!(matches!(
-        f.store.red_packet_create(&f.users[0], packet(&items, 1)).await,
+        f.store
+            .red_packet_create(&f.users[0], packet(&items, 1))
+            .await,
         Err(RedPacketError::Core(lmm_core::promotions::Error::Forbidden))
     ));
     let mut legacy = packet(&items, 1);
@@ -157,16 +159,29 @@ async fn red_packet_claims_spend_bound_codes_once(pool: PgPool) {
         f.store.red_packet_create(&f.root, discount).await.err(),
         Some(RedPacketError::InvalidItem)
     );
-    let created = f.store.red_packet_create(&f.root, packet(&items, 1)).await.unwrap();
+    let created = f
+        .store
+        .red_packet_create(&f.root, packet(&items, 1))
+        .await
+        .unwrap();
     let slug = created["slug"].as_str().unwrap().to_owned();
     let id = created["id"].as_i64().unwrap();
     // A code can live in only one packet at a time.
     assert_eq!(
-        f.store.red_packet_create(&f.root, packet(&items[..1], 1)).await.err(),
+        f.store
+            .red_packet_create(&f.root, packet(&items[..1], 1))
+            .await
+            .err(),
         Some(RedPacketError::DuplicatedItem)
     );
     let view = f.store.red_packet_public(&slug).await.unwrap();
-    assert_eq!((view["total_items"].as_i64(), view["remaining_items"].as_i64()), (Some(3), Some(3)));
+    assert_eq!(
+        (
+            view["total_items"].as_i64(),
+            view["remaining_items"].as_i64()
+        ),
+        (Some(3), Some(3))
+    );
 
     let reward = f.store.red_packet_claim(&f.users[0], &slug).await.unwrap();
     assert_eq!(reward["quota"], 100);
@@ -196,16 +211,29 @@ async fn red_packet_claims_spend_bound_codes_once(pool: PgPool) {
         f.store.red_packet_claim(&f.users[3], &slug).await.err(),
         Some(RedPacketError::Exhausted)
     );
-    let mine = f.store.red_packet_my_claims(&f.users[0], &slug).await.unwrap();
+    let mine = f
+        .store
+        .red_packet_my_claims(&f.users[0], &slug)
+        .await
+        .unwrap();
     assert_eq!(mine.len(), 1);
     assert_eq!(mine[0]["claim_id"], reward["claim_id"]);
-    assert!(f.store.red_packet_my_claims(&f.users[3], &slug).await.unwrap().is_empty());
+    assert!(
+        f.store
+            .red_packet_my_claims(&f.users[3], &slug)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let list = f.store.red_packet_admin_list(&f.root).await.unwrap();
     assert_eq!(list[0]["claim_count"], 2);
     assert_eq!(list[0]["remaining_items"], 0);
     // Claimed packets cannot replace stock.
     assert_eq!(
-        f.store.red_packet_update(&f.root, id, packet(&items, 1)).await.err(),
+        f.store
+            .red_packet_update(&f.root, id, packet(&items, 1))
+            .await
+            .err(),
         Some(RedPacketError::HasClaims)
     );
     balanced(&pool).await;
@@ -215,14 +243,20 @@ async fn red_packet_claims_spend_bound_codes_once(pool: PgPool) {
 async fn red_packet_concurrent_claims_never_oversell(pool: PgPool) {
     let (f, _runtime) = fixture(&pool, 8).await;
     let items = codes(&f, "concurrent", 250, 3).await;
-    let slug = f.store.red_packet_create(&f.root, packet(&items, 1)).await.unwrap()["slug"]
+    let slug = f
+        .store
+        .red_packet_create(&f.root, packet(&items, 1))
+        .await
+        .unwrap()["slug"]
         .as_str()
         .unwrap()
         .to_owned();
     let mut tasks = Vec::new();
     for user in f.users.clone() {
         let (store, slug) = (f.store.clone(), slug.clone());
-        tasks.push(tokio::spawn(async move { store.red_packet_claim(&user, &slug).await }));
+        tasks.push(tokio::spawn(async move {
+            store.red_packet_claim(&user, &slug).await
+        }));
     }
     let (mut ok, mut exhausted) = (0, 0);
     for task in tasks {
@@ -233,7 +267,12 @@ async fn red_packet_concurrent_claims_never_oversell(pool: PgPool) {
         }
     }
     assert_eq!((ok, exhausted), (3, 5));
-    let total: i64 = sqlx::query_scalar("SELECT coalesce(sum(amount_units),0)::bigint FROM core_promotions.claims").fetch_one(&pool).await.unwrap();
+    let total: i64 = sqlx::query_scalar(
+        "SELECT coalesce(sum(amount_units),0)::bigint FROM core_promotions.claims",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(total, 750);
     balanced(&pool).await;
 }
@@ -242,22 +281,50 @@ async fn red_packet_concurrent_claims_never_oversell(pool: PgPool) {
 async fn red_packet_delete_and_expiry_release_unclaimed_codes(pool: PgPool) {
     let (f, _runtime) = fixture(&pool, 2).await;
     let items = codes(&f, "release", 100, 3).await;
-    let created = f.store.red_packet_create(&f.root, packet(&items, 1)).await.unwrap();
-    let (id, slug) = (created["id"].as_i64().unwrap(), created["slug"].as_str().unwrap().to_owned());
+    let created = f
+        .store
+        .red_packet_create(&f.root, packet(&items, 1))
+        .await
+        .unwrap();
+    let (id, slug) = (
+        created["id"].as_i64().unwrap(),
+        created["slug"].as_str().unwrap().to_owned(),
+    );
     f.store.red_packet_claim(&f.users[0], &slug).await.unwrap();
     f.store.red_packet_delete(&f.root, id).await.unwrap();
     f.store.red_packet_delete(&f.root, id).await.unwrap();
-    let released: i64 = sqlx::query_scalar("SELECT count(*) FROM core_promotions.red_packet_items WHERE released_at IS NOT NULL").fetch_one(&pool).await.unwrap();
+    let released: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_promotions.red_packet_items WHERE released_at IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(released, 2);
     let view = f.store.red_packet_public(&slug).await.unwrap();
-    assert_eq!((view["enabled"].as_bool(), view["remaining_items"].as_i64()), (Some(false), Some(0)));
+    assert_eq!(
+        (view["enabled"].as_bool(), view["remaining_items"].as_i64()),
+        (Some(false), Some(0))
+    );
     assert_eq!(
         f.store.red_packet_claim(&f.users[1], &slug).await.err(),
         Some(RedPacketError::NotFound)
     );
     // The claimant still sees the received reward after deletion.
-    assert_eq!(f.store.red_packet_my_claims(&f.users[0], &slug).await.unwrap().len(), 1);
-    assert!(f.store.red_packet_admin_list(&f.root).await.unwrap().is_empty());
+    assert_eq!(
+        f.store
+            .red_packet_my_claims(&f.users[0], &slug)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        f.store
+            .red_packet_admin_list(&f.root)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     // Released codes keep their reserved budget and can back a new, expired packet.
     let unclaimed: Vec<(String, String)> = {
         let claimed: String = sqlx::query_scalar("SELECT encode(i.code_digest,'hex') FROM core_promotions.red_packet_items i JOIN core_promotions.red_packet_claims r ON r.item_id=i.id").fetch_one(&pool).await.unwrap();
@@ -274,7 +341,9 @@ async fn red_packet_delete_and_expiry_release_unclaimed_codes(pool: PgPool) {
         Some(RedPacketError::Expired)
     );
     assert_eq!(wallet(&f, 1).await, 0);
-    let reserved: String = f.store.campaigns(&f.root, true).await.unwrap()[0].reserved_units.clone();
+    let reserved: String = f.store.campaigns(&f.root, true).await.unwrap()[0]
+        .reserved_units
+        .clone();
     assert_eq!(reserved, "200");
     balanced(&pool).await;
 }
@@ -285,7 +354,10 @@ async fn red_packet_http_uses_legacy_envelope(pool: PgPool) {
     let items = codes(&f, "http", 100, 1).await;
     let app = red_packets::router(runtime.pool.clone());
     let call = |method: &str, uri: &str, auth: Option<&str>, body: String| {
-        let mut request = Request::builder().method(method).uri(uri).header("content-type", "application/json");
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
         if let Some(secret) = auth {
             request = request.header("authorization", format!("Bearer {secret}"));
         }
@@ -294,25 +366,100 @@ async fn red_packet_http_uses_legacy_envelope(pool: PgPool) {
         async move {
             let response = app.oneshot(request).await.unwrap();
             let status = response.status();
-            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20).await.unwrap();
+            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap();
             (status, serde_json::from_slice::<Value>(&bytes).unwrap())
         }
     };
-    let body = format!(r#"{{"title":"HTTP","items":[{{"item_type":"redemption","code_id":"{}","weight":1}}]}}"#, items[0].0);
+    let body = format!(
+        r#"{{"title":"HTTP","items":[{{"item_type":"redemption","code_id":"{}","weight":1}}]}}"#,
+        items[0].0
+    );
     let (status, created) = call("POST", "/api/red-packet/admin", Some(&f.root), body).await;
     assert_eq!(status, StatusCode::OK);
     let slug = created["data"]["slug"].as_str().unwrap().to_owned();
-    let (status, _) = call("POST", &format!("/api/red-packet/public/{slug}/claim"), None, "{}".into()).await;
+    let (status, _) = call(
+        "POST",
+        &format!("/api/red-packet/public/{slug}/claim"),
+        None,
+        "{}".into(),
+    )
+    .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    let (status, view) = call("GET", &format!("/api/red-packet/public/{slug}"), None, String::new()).await;
-    assert_eq!((status, view["data"]["remaining_items"].as_i64()), (StatusCode::OK, Some(1)));
-    let (_, won) = call("POST", &format!("/api/red-packet/public/{slug}/claim"), Some(&f.users[0]), "{}".into()).await;
-    assert_eq!((won["success"].as_bool(), won["data"]["quota"].as_i64()), (Some(true), Some(100)));
-    let (status, again) = call("POST", &format!("/api/red-packet/public/{slug}/claim"), Some(&f.users[0]), "{}".into()).await;
-    assert_eq!((status, again["success"].as_bool()), (StatusCode::OK, Some(false)));
+    let (status, view) = call(
+        "GET",
+        &format!("/api/red-packet/public/{slug}"),
+        None,
+        String::new(),
+    )
+    .await;
+    assert_eq!(
+        (status, view["data"]["remaining_items"].as_i64()),
+        (StatusCode::OK, Some(1))
+    );
+    let (_, won) = call(
+        "POST",
+        &format!("/api/red-packet/public/{slug}/claim"),
+        Some(&f.users[0]),
+        "{}".into(),
+    )
+    .await;
+    assert_eq!(
+        (won["success"].as_bool(), won["data"]["quota"].as_i64()),
+        (Some(true), Some(100))
+    );
+    let (status, again) = call(
+        "POST",
+        &format!("/api/red-packet/public/{slug}/claim"),
+        Some(&f.users[0]),
+        "{}".into(),
+    )
+    .await;
+    assert_eq!(
+        (status, again["success"].as_bool()),
+        (StatusCode::OK, Some(false))
+    );
     assert_eq!(again["message"], "已达到该红包的领取次数上限");
-    let (status, _) = call("GET", "/api/red-packet/admin", Some(&f.users[0]), String::new()).await;
+    let (status, _) = call(
+        "GET",
+        "/api/red-packet/admin",
+        Some(&f.users[0]),
+        String::new(),
+    )
+    .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(wallet(&f, 0).await, 100);
     balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn packet_claim_racing_original_code_redeem_posts_one_reward(pool: PgPool) {
+    let (f, runtime) = fixture(&pool, 2).await;
+    let items = codes(&f, "packet_direct_race", 100, 1).await;
+    let created = f
+        .store
+        .red_packet_create(&f.root, packet(&items, 1))
+        .await
+        .unwrap();
+    let slug = created["slug"].as_str().unwrap();
+    let (packet, direct) = tokio::join!(
+        f.store.red_packet_claim(&f.users[0], slug),
+        f.store.redeem(
+            &f.users[1],
+            RedeemRequest {
+                code: items[0].1.clone(),
+                operation_key: "direct_packet_race_01".into(),
+            }
+        ),
+    );
+    assert_ne!(packet.is_ok(), direct.is_ok());
+    assert_eq!(wallet(&f, 0).await + wallet(&f, 1).await, 100);
+    let claims: i64 = sqlx::query_scalar("SELECT count(*) FROM core_promotions.claims")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(claims, 1);
+    balanced(&pool).await;
+    runtime.cleanup().await;
 }
