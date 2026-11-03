@@ -51,6 +51,8 @@ MIGRATION_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\Z")
 # This deliberately accepts only the format the Rust verifier currently uses.
 ARGON2 = re.compile(r"\$argon2id\$v=19\$m=19456,t=2,p=1\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)\Z")
 TABLES = ("accounts", "users", "user_profiles", "password_logins", "developer_access")
+ACCOUNT_IMPORT_SQL = """  INSERT INTO core_identity.accounts(id,kind,service_level,active,created_at) OVERRIDING SYSTEM VALUE
+   SELECT (r->>'account_id')::bigint,'personal',0,(r->>'active')::boolean,to_timestamp(coalesce((r->>'registered_at')::bigint,0)) FROM jsonb_array_elements(payload) r;"""
 IDENTITY_VERSION = 5
 # Bind this importer to the reviewed DDL, rather than trusting a caller's hash.
 IDENTITY_FINGERPRINT = "c637586f484386a8357e1b9e9dd39023d0d53316f17d0de403c864a3b49ebec9"
@@ -527,6 +529,8 @@ def map_identity(users: list[dict], second_factors: list[dict], *, source_sha256
             profile[field], changed = text(source.get(field), limit, field + "_invalid", default)
             if changed:
                 normalized.append(field + "_null_default")
+        registered_at = source.get("created_at")
+        require(registered_at is None or (type(registered_at) is int and 0 <= registered_at <= 253402300799), "registration_time_invalid")
         auth_version = positive_int(source.get("auth_version"), "auth_version_invalid")
         blocked = []
         role = source.get("role")
@@ -569,6 +573,7 @@ def map_identity(users: list[dict], second_factors: list[dict], *, source_sha256
         developer_granted, developer_reason = developer_decision(source)
         record = {
             "user_id": user_id, "account_id": account_id, "platform_role": platform_role,
+            "registered_at": registered_at,
             "active": active, "auth_version": auth_version, "username": username,
             **profile, "email_login_allowed": False, "password_login_allowed": password_allowed,
             "second_factor_required": second_factor, "legacy_bcrypt_allowed": legacy_bcrypt,
@@ -586,6 +591,8 @@ def map_identity(users: list[dict], second_factors: list[dict], *, source_sha256
     digest = hashlib.sha256(canonical({"source_sha256": source_sha256, "records": records}).encode()).hexdigest()
     return {"records": records, "mapping_sha256": digest, "summary": {
         "source_user_count": len(users), "mapped_user_count": len(records), "dropped_user_count": 0,
+        "registration_time_known_count": sum(bool(row["registered_at"]) for row in records),
+        "registration_time_unknown_count": sum(not row["registered_at"] for row in records),
         "active_user_count": sum(row["active"] for row in records),
         "password_login_allowed_count": sum(row["password_login_allowed"] for row in records),
         "password_verifier_count": sum(row["password_hash"] is not None for row in records),
@@ -1092,8 +1099,8 @@ BEGIN
    EXECUTE format('SELECT EXISTS(SELECT 1 FROM %I.%I)',table_row.nspname,table_row.relname) INTO occupied;
    IF occupied THEN RAISE EXCEPTION 'target business table is not empty'; END IF;
   END LOOP;
-  INSERT INTO core_identity.accounts(id,kind,service_level,active) OVERRIDING SYSTEM VALUE
-   SELECT (r->>'account_id')::bigint,'personal',0,(r->>'active')::boolean FROM jsonb_array_elements(payload) r;
+  -- Epoch zero explicitly marks an unknown legacy registration time; never use import time.
+{ACCOUNT_IMPORT_SQL}
   INSERT INTO core_identity.users(id,personal_account_id,platform_role,active,auth_version)
    SELECT (r->>'user_id')::bigint,(r->>'account_id')::bigint,r->>'platform_role',(r->>'active')::boolean,(r->>'auth_version')::bigint FROM jsonb_array_elements(payload) r;
   INSERT INTO core_identity.user_profiles(user_id,username,display_name,email,email_login_allowed,setting,password_login_allowed,second_factor_required,legacy_bcrypt_allowed)
@@ -1146,10 +1153,10 @@ BEGIN
   LEFT JOIN core_identity.password_logins l ON l.user_id=u.id
   LEFT JOIN core_identity.developer_access d ON d.user_id=u.id
   LEFT JOIN core_billing.account_policies b ON b.account_id=a.id
-  WHERE ROW(u.personal_account_id,u.platform_role,u.active,u.auth_version,a.kind,a.service_level,a.active,
+  WHERE ROW(u.personal_account_id,u.platform_role,u.active,u.auth_version,a.kind,a.service_level,a.active,a.created_at,
    p.username,p.display_name,p.email,p.email_login_allowed,p.setting,p.password_login_allowed,p.second_factor_required,p.legacy_bcrypt_allowed,
    l.login_name,l.password_hash,b.preference,b.revision,d.granted,d.source_reference,d.revision) IS DISTINCT FROM
-  ROW((r->>'account_id')::bigint,r->>'platform_role',(r->>'active')::boolean,(r->>'auth_version')::bigint,'personal'::text,0::smallint,(r->>'active')::boolean,
+  ROW((r->>'account_id')::bigint,r->>'platform_role',(r->>'active')::boolean,(r->>'auth_version')::bigint,'personal'::text,0::smallint,(r->>'active')::boolean,to_timestamp(coalesce((r->>'registered_at')::bigint,0)),
    r->>'username',r->>'display_name',r->>'email',false,r->>'setting',(r->>'password_login_allowed')::boolean,(r->>'second_factor_required')::boolean,(r->>'legacy_bcrypt_allowed')::boolean,
    CASE WHEN r->>'password_hash' IS NULL THEN NULL ELSE 'legacy-'||(r->>'user_id') END,r->>'password_hash','wallet_only'::text,1::bigint,
    (r->>'developer_access_granted')::boolean,r->>'developer_access_source_reference',(r->>'developer_access_revision')::bigint)) THEN

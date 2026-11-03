@@ -146,6 +146,16 @@ def without_literals_and_comments(sql):
 
 
 class IdentityMappingTests(unittest.TestCase):
+    def test_registration_time_is_preserved_or_explicitly_unknown(self):
+        self.assertEqual(mapped([user(created_at=1700000001)])["records"][0]["registered_at"], 1700000001)
+        self.assertIsNone(mapped([user()])["records"][0]["registered_at"])
+        summary = mapped([user(1, created_at=1700000001), user(2), user(3, created_at=0)])["summary"]
+        self.assertEqual(summary["registration_time_known_count"], 1)
+        self.assertEqual(summary["registration_time_unknown_count"], 2)
+        for invalid in (-1, True, "1700000001", 253402300800):
+            with self.assertRaises(MODULE.MappingError):
+                mapped([user(created_at=invalid)])
+
     def test_preserves_user_ids_and_maps_accounts_independently_in_stable_order(self):
         result = mapped([user(91), user(7), user(300)])
         self.assertEqual([row["user_id"] for row in result["records"]], [7, 91, 300])
