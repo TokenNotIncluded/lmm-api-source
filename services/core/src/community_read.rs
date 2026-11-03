@@ -189,6 +189,26 @@ pub struct RegistrationPage {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ActivityRequest {
+    pub user_ids: Vec<i64>,
+    pub from: i64,
+    pub to: i64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ActivityDay {
+    pub user_id: i64,
+    pub day: i64,
+    pub first_at: i64,
+    pub last_at: i64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NativeActivity {
+    pub native_only: bool,
+    pub rows: Vec<ActivityDay>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KeyRequest {
     pub user_id: i64,
     pub credential_id: i64,
@@ -480,6 +500,43 @@ impl CommunityRead {
     }
 
     /// Public names and onboarding facts for a bounded set of users.
+    /// Native API-key requests only. Legacy success evidence is not present in
+    /// usage history and must never be inferred from consumption totals.
+    pub async fn native_activity(&self, r: &ActivityRequest) -> Result<NativeActivity> {
+        if r.user_ids.is_empty()
+            || r.user_ids.len() > 100
+            || r.user_ids.iter().any(|id| *id <= 0)
+            || r.from < 0
+            || r.to <= r.from
+            || r.to > 253_402_300_799
+            || r.to - r.from > MAX_WINDOW
+        {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.snapshot().await?;
+        let rows=sqlx::query("SELECT r.actor_user_id AS user_id,(r.authorized_at/86400)*86400 AS day,min(r.authorized_at) AS first_at,max(r.authorized_at) AS last_at FROM core_charging.requests r JOIN core_identity.credentials c ON c.id=r.key_id AND c.kind='api_key' WHERE r.actor_user_id=ANY($1) AND r.state='settled' AND r.outcome='completed' AND r.authorized_at >= $2 AND r.authorized_at < $3 GROUP BY r.actor_user_id,(r.authorized_at/86400)*86400 ORDER BY r.actor_user_id,day LIMIT 10001")
+          .bind(&r.user_ids).bind(r.from).bind(r.to).fetch_all(&mut *tx).await?;
+        tx.commit().await?;
+        if rows.len() > 10000 {
+            return Err(Error::TooDense);
+        }
+        let rows = rows
+            .into_iter()
+            .map(|row| {
+                Ok(ActivityDay {
+                    user_id: row.try_get("user_id")?,
+                    day: row.try_get("day")?,
+                    first_at: row.try_get("first_at")?,
+                    last_at: row.try_get("last_at")?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(NativeActivity {
+            native_only: true,
+            rows,
+        })
+    }
+
     pub async fn user_page(&self, r: &UserPageRequest) -> Result<RegistrationPage> {
         if r.after_id < 0 || !(1..=100).contains(&r.limit) {
             return Err(Error::Invalid);

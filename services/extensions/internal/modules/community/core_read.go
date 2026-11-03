@@ -229,3 +229,25 @@ func (c *CoreRead) UserPage(ctx context.Context, after int64, limit int) (Regist
 	err := c.call(ctx, "users/page", map[string]int64{"after_id": after, "limit": int64(limit)}, &out)
 	return out, err
 }
+
+// NativeActivity excludes legacy history; its absence cannot prove no activity.
+type ActivityDay struct {
+	UserID  int64 `json:"user_id"`
+	Day     int64 `json:"day"`
+	FirstAt int64 `json:"first_at"`
+	LastAt  int64 `json:"last_at"`
+}
+type NativeActivity struct {
+	NativeOnly bool          `json:"native_only"`
+	Rows       []ActivityDay `json:"rows"`
+}
+
+func (c *CoreRead) NativeActivity(ctx context.Context, ids []int64, from, to int64) (NativeActivity, error) {
+	var out NativeActivity
+	err := c.call(ctx, "activity/native", struct {
+		UserIDs []int64 `json:"user_ids"`
+		From    int64   `json:"from"`
+		To      int64   `json:"to"`
+	}{ids, from, to}, &out)
+	return out, err
+}

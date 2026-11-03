@@ -44,6 +44,14 @@ func TestCoreUserRolesLive(t *testing.T) {
 		t.Fatal("negative cursor accepted")
 	}
 
+	activity, err := client.NativeActivity(ctx, []int64{1}, 1, 86401)
+	if err != nil || !activity.NativeOnly || len(activity.Rows) != 0 {
+		t.Fatalf("native activity contract: %#v %v", activity, err)
+	}
+	if _, err = client.NativeActivity(ctx, nil, 1, 86401); err == nil {
+		t.Fatal("empty activity target accepted")
+	}
+
 	wrong, err := NewCoreRead(socket, []byte(strings.Repeat("x", 40)))
 	if err != nil {
 		t.Fatal(err)

@@ -1270,3 +1270,78 @@ async fn upstream_cost_receipts_wallet_replays_zero_and_over_reservation(pool: P
     );
     assert_balanced(&pool).await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn private_activity_counts_completed_native_requests_only(pool: PgPool) {
+    use lmm_core::community_read::{ActivityRequest, CommunityRead};
+    let (_, _, charging, _, key, _) = fixture(&pool, 1000).await;
+    let before: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint-1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    for (id, outcome) in [
+        ("activity-cancelled", ChargeOutcome::Cancelled),
+        ("activity-completed", ChargeOutcome::Completed),
+    ] {
+        let spec = request(id, 100);
+        charging.reserve(&key, &spec, &WORKER).await.unwrap();
+        charging.start(&spec.id, &WORKER).await.unwrap();
+        charging
+            .settle(&spec.id, &WORKER, usage(), outcome)
+            .await
+            .unwrap();
+        if id == "activity-cancelled" {
+            let at: i64 = sqlx::query_scalar(
+                "SELECT authorized_at FROM core_charging.requests WHERE id='activity-cancelled'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let data = read
+                .native_activity(&ActivityRequest {
+                    user_ids: vec![7],
+                    from: before,
+                    to: at + 2,
+                })
+                .await
+                .unwrap();
+            assert!(data.rows.is_empty());
+        }
+    }
+    let at: i64 = sqlx::query_scalar(
+        "SELECT authorized_at FROM core_charging.requests WHERE id='activity-completed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    let data = read
+        .native_activity(&ActivityRequest {
+            user_ids: vec![7, 999],
+            from: before,
+            to: at + 2,
+        })
+        .await
+        .unwrap();
+    assert!(data.native_only);
+    assert_eq!(data.rows.len(), 1);
+    assert_eq!(
+        (
+            data.rows[0].user_id,
+            data.rows[0].day,
+            data.rows[0].first_at,
+            data.rows[0].last_at
+        ),
+        (7, (at / 86400) * 86400, at, at)
+    );
+    let excluded = read
+        .native_activity(&ActivityRequest {
+            user_ids: vec![7],
+            from: before,
+            to: at,
+        })
+        .await
+        .unwrap();
+    assert!(excluded.rows.is_empty());
+}
