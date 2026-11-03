@@ -28,6 +28,7 @@ type GoConfig struct {
 	Assistant        AssistantConfig        `toml:"assistant"`
 	Operations       DatabaseConfig         `toml:"operations"`
 	Community        DatabaseConfig         `toml:"community"`
+	Acquisition      DatabaseConfig         `toml:"acquisition"`
 	Payments         PaymentsConfig         `toml:"payments"`
 	Scripts          ScriptConfig           `toml:"scripts"`
 }
@@ -135,6 +136,7 @@ func LoadConfig(path string) (GoConfig, error) {
 		case "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"operations", "operations.database_name", "operations.database_url_file",
 			"community", "community.database_name", "community.database_url_file",
+			"acquisition", "acquisition.database_name", "acquisition.database_url_file",
 			"scripts", "scripts.root", "scripts.manifest", "scripts.manifest.name", "scripts.manifest.sha256":
 			continue
 		}
@@ -157,7 +159,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.AssistantTokenFile, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Scripts.Root} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.AssistantTokenFile, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}
@@ -165,7 +167,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if (cfg.Core.Socket == "") != (cfg.Core.IdentityTokenFile == "") {
 		return cfg, errors.New("configure both core socket and identity_token_file")
 	}
-	for _, db := range []DatabaseConfig{cfg.Store, cfg.Support, cfg.Operations, cfg.Community} {
+	for _, db := range []DatabaseConfig{cfg.Store, cfg.Support, cfg.Operations, cfg.Community, cfg.Acquisition} {
 		if (db.DatabaseName == "") != (db.DatabaseURLFile == "") {
 			return cfg, errors.New("configure both extension database_name and database_url_file")
 		}

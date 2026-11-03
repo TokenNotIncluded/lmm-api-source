@@ -9,6 +9,7 @@ import (
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
@@ -60,6 +61,7 @@ type Config struct {
 	AssistantPublicSnapshot       assistant_services.PublicSnapshotReader
 	Operations                    StorageConfig
 	Community                     StorageConfig
+	Acquisition                   StorageConfig
 	Scripts                       *operations.ScriptConfig
 }
 
@@ -84,6 +86,7 @@ type Runtime struct {
 	AssistantServices           *assistant_services.Service
 	Operations                  *operations.Service
 	Community                   *community.Service
+	Acquisition                 *acquisition.Service
 	close                       []func() error
 	workerCancel                context.CancelFunc
 	workerDone                  chan struct{}
@@ -360,6 +363,18 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	} else if cfg.Community.URLFile != "" || cfg.Community.Database != "" {
 		return nil, errors.New("community configuration requires explicit module selection")
 	}
+	if selected["acquisition"] {
+		db, err := openStorage(ctx, cfg.Acquisition)
+		if err != nil {
+			return nil, err
+		}
+		r.close = append(r.close, db.Close)
+		if r.Acquisition, err = acquisition.New(ctx, db, cfg.HostPublicOrigin, !cfg.LocalHTTP); err != nil {
+			return nil, err
+		}
+	} else if cfg.Acquisition.URLFile != "" || cfg.Acquisition.Database != "" {
+		return nil, errors.New("acquisition configuration requires explicit module selection")
+	}
 	for _, name := range cfg.Selected {
 		switch name {
 		case "identity":
@@ -380,7 +395,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			r.Modules = append(r.Modules, r.ToolMarket)
 		case "assistant":
 			r.Modules = append(r.Modules, r.Assistant)
-		case "operations", "community":
+		case "operations", "community", "acquisition":
 			// The process entry mounts its authenticated adapter with the
 			// separately loaded host credential before constructing the host.
 		default:

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/bounties"
@@ -45,6 +46,16 @@ type plan struct {
 
 func compiled(component string) (plan, error) {
 	switch component {
+	case "acquisition":
+		return plan{prefix: "lmm_acquisition", schema: acquisition.Schema, namespaces: []string{"lmm_acquisition"}, grants: []string{
+			"GRANT USAGE ON SCHEMA lmm_acquisition TO ",
+			"GRANT SELECT ON ALL TABLES IN SCHEMA lmm_acquisition TO ",
+			"GRANT UPDATE ON lmm_acquisition.config TO ",
+			"GRANT INSERT ON lmm_acquisition.attribution_policies,lmm_acquisition.corrections TO ",
+			"GRANT SELECT,INSERT,UPDATE,DELETE ON lmm_acquisition.links,lmm_acquisition.visitors,lmm_acquisition.visits,lmm_acquisition.accounts,lmm_acquisition.consents,lmm_acquisition.correction_heads,lmm_acquisition.costs,lmm_acquisition.self_reports TO ",
+			"GRANT USAGE ON ALL SEQUENCES IN SCHEMA lmm_acquisition TO ",
+		}}, nil
+
 	case "assistant":
 		// Only this compiled increment has transaction wrappers. Remove its exact
 		// framing so the complete installation remains one atomic transaction.

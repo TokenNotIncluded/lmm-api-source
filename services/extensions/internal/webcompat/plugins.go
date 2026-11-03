@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
@@ -181,6 +182,8 @@ func webPluginName(path string) string {
 		return "payments"
 	case strings.HasPrefix(path, "/api/release-notes/") || strings.HasPrefix(path, "/api/scripts") || strings.HasPrefix(path, "/scripts"):
 		return "operations"
+	case acquisition.Owns(path):
+		return "acquisition"
 	case community.Owns(path):
 		return "community"
 	default:

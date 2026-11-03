@@ -47,7 +47,7 @@ type storagePolicy struct {
 
 func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, error) {
 	switch component {
-	case "store", "support", "assistant", "payments", "operations", "toolmarket", "community":
+	case "store", "support", "assistant", "payments", "operations", "toolmarket", "community", "acquisition":
 	default:
 		return storagePolicy{}, errors.New("unknown extension storage component")
 	}
