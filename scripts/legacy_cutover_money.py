@@ -139,6 +139,11 @@ def pending_liability(data, table, row, *, archive_sha, migration_id, observed_a
 # ---------------------------------------------------------------- subscriptions
 def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
     unit = p["duration_unit"]
+    if unit in ("month", "year"):
+        # Legacy calcPlanEndTime uses Go AddDate, not a fixed day count.
+        # Refuse to silently shorten/extend paid rights until Core can retain
+        # the calendar duration for future purchases and renewals.
+        fail("plan_calendar_duration_unrepresentable")
     if unit == "custom":
         duration = p["custom_seconds"]
     elif unit in DURATION:
