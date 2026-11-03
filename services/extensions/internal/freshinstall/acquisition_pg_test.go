@@ -56,9 +56,17 @@ func TestAcquisitionCompiledSchemaAndRuntimeACL(t *testing.T) {
 		t.Fatal(err)
 	}
 	var canMutate bool
-	if err = tx.QueryRow(`SELECT has_table_privilege('lmm_acquisition.contract','INSERT,UPDATE,DELETE,TRUNCATE') OR has_table_privilege('lmm_acquisition.corrections','UPDATE,DELETE,TRUNCATE')`).Scan(&canMutate); err != nil || canMutate {
+	if err = tx.QueryRow(`SELECT has_table_privilege('lmm_acquisition.contract','INSERT,UPDATE,DELETE,TRUNCATE') OR has_table_privilege('lmm_acquisition.corrections','UPDATE,TRUNCATE')`).Scan(&canMutate); err != nil || canMutate {
 		t.Fatalf("authority expanded: %v %v", err, canMutate)
 	}
+	// Withdrawal removes derived rows; it must not fail halfway through
+	// because a historical snapshot was made read-only to normal writers.
+	for _, table := range []string{"activities", "corrections", "correction_heads", "first_payments", "accounts"} {
+		if _, err = tx.Exec("DELETE FROM lmm_acquisition." + table + " WHERE user_id=1"); err != nil {
+			t.Fatalf("withdrawal cleanup %s: %v", table, err)
+		}
+	}
+
 	if !strings.Contains(p.prefix, "acquisition") {
 		t.Fatal("wrong database prefix")
 	}

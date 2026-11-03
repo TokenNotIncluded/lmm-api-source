@@ -52,6 +52,7 @@ func compiled(component string) (plan, error) {
 			"GRANT SELECT ON ALL TABLES IN SCHEMA lmm_acquisition TO ",
 			"GRANT UPDATE ON lmm_acquisition.config TO ",
 			"GRANT INSERT ON lmm_acquisition.attribution_policies,lmm_acquisition.corrections TO ",
+			"GRANT DELETE ON lmm_acquisition.activities,lmm_acquisition.first_payments,lmm_acquisition.corrections TO ",
 			"GRANT SELECT,INSERT,UPDATE,DELETE ON lmm_acquisition.links,lmm_acquisition.visitors,lmm_acquisition.visits,lmm_acquisition.accounts,lmm_acquisition.consents,lmm_acquisition.correction_heads,lmm_acquisition.costs,lmm_acquisition.self_reports TO ",
 			"GRANT USAGE ON ALL SEQUENCES IN SCHEMA lmm_acquisition TO ",
 		}}, nil
