@@ -158,6 +158,7 @@ pub struct UsersInfoRequest {
 pub struct UserInfo {
     pub user_id: i64,
     pub active: bool,
+    pub platform_role: String,
     pub name: String,
     pub developer_access: bool,
     pub has_active_key: bool,
@@ -212,7 +213,11 @@ impl CommunityRead {
         let aggregates: bool = sqlx::query_scalar("SELECT to_regclass('core_history.quota_aggregates') IS NOT NULL AND has_table_privilege('core_history.quota_aggregates','SELECT')")
             .fetch_one(&mut *tx)
             .await?;
-        let history = if aggregates { HISTORY_AGGREGATES } else { HISTORY_LOGS };
+        let history = if aggregates {
+            HISTORY_AGGREGATES
+        } else {
+            HISTORY_LOGS
+        };
         let usage = format!("({NATIVE}) UNION ALL ({history})");
         sqlx::query(&format!("SELECT * FROM ({usage}) u WHERE FALSE"))
             .bind(0_i64)
@@ -464,7 +469,7 @@ impl CommunityRead {
         };
         let mut tx = self.snapshot().await?;
         let rows = sqlx::query(&format!(
-            "SELECT u.id, u.active, coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
+            "SELECT u.id, u.active, u.platform_role, coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
               (u.platform_role IN ('admin','superadmin') OR coalesce(d.granted,false)) AS developer,
               EXISTS(SELECT FROM core_identity.credentials c JOIN core_identity.api_key_settings k ON k.credential_id=c.id
                 WHERE c.user_id=u.id AND c.kind='api_key' AND k.enabled AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp()) AS has_key,
@@ -483,6 +488,7 @@ impl CommunityRead {
                 Ok(UserInfo {
                     user_id: row.try_get("id")?,
                     active: row.try_get("active")?,
+                    platform_role: row.try_get("platform_role")?,
                     name: row.try_get("name")?,
                     developer_access: row.try_get("developer")?,
                     has_active_key: row.try_get("has_key")?,
@@ -525,19 +531,44 @@ mod tests {
     fn visibility_defaults_private() {
         assert_eq!(leaderboard_visibility(None), "anonymous");
         assert_eq!(leaderboard_visibility(Some("not json")), "anonymous");
-        assert_eq!(leaderboard_visibility(Some(r#"{"usage_leaderboard_visibility":" Public "}"#)), "public");
-        assert_eq!(leaderboard_visibility(Some(r#"{"usage_leaderboard_visibility":"hidden"}"#)), "hidden");
-        assert_eq!(leaderboard_visibility(Some(r#"{"usage_leaderboard_visibility":"x"}"#)), "anonymous");
+        assert_eq!(
+            leaderboard_visibility(Some(r#"{"usage_leaderboard_visibility":" Public "}"#)),
+            "public"
+        );
+        assert_eq!(
+            leaderboard_visibility(Some(r#"{"usage_leaderboard_visibility":"hidden"}"#)),
+            "hidden"
+        );
+        assert_eq!(
+            leaderboard_visibility(Some(r#"{"usage_leaderboard_visibility":"x"}"#)),
+            "anonymous"
+        );
     }
 
     #[test]
     fn windows_are_bounded() {
-        let ok = Window { start: 0, end: 86_400, bucket_seconds: 3600 };
+        let ok = Window {
+            start: 0,
+            end: 86_400,
+            bucket_seconds: 3600,
+        };
         assert!(ok.validate().is_ok());
         for bad in [
-            Window { start: 10, end: 5, bucket_seconds: 0 },
-            Window { start: 0, end: MAX_WINDOW + 1, bucket_seconds: 0 },
-            Window { start: 0, end: 10, bucket_seconds: 60 },
+            Window {
+                start: 10,
+                end: 5,
+                bucket_seconds: 0,
+            },
+            Window {
+                start: 0,
+                end: MAX_WINDOW + 1,
+                bucket_seconds: 0,
+            },
+            Window {
+                start: 0,
+                end: 10,
+                bucket_seconds: 60,
+            },
         ] {
             assert_eq!(bad.validate(), Err(Error::Invalid));
         }

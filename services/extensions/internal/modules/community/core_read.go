@@ -161,6 +161,7 @@ func (c *CoreRead) UserUsage(ctx context.Context, userID, start, end, bucket int
 }
 
 type CoreUserInfo struct {
+	PlatformRole      string `json:"platform_role"`
 	UserID            int64  `json:"user_id"`
 	Active            bool   `json:"active"`
 	Name              string `json:"name"`
