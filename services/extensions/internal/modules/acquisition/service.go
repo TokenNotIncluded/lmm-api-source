@@ -107,7 +107,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("GET /api/admin/acquisition/links", h.admin(permRead, h.links))
 	mux.HandleFunc("POST /api/admin/acquisition/links", h.admin(permWrite, h.saveLink))
 	mux.HandleFunc("DELETE /api/admin/acquisition/links/{id}", h.admin(permWrite, h.deleteLink))
-	mux.HandleFunc("POST /api/admin/acquisition/activity/rebuild", h.admin(permWrite, unavailableAdmin))
+	mux.HandleFunc("POST /api/admin/acquisition/activity/rebuild", h.admin(permWrite, h.rebuildActivity))
 	mux.HandleFunc("GET /api/admin/acquisition/users/export", h.admin(permExport, h.exportUsers))
 	mux.HandleFunc("GET /api/admin/acquisition/users/{id}/corrections", h.admin(permDetails, h.corrections))
 	mux.HandleFunc("POST /api/admin/acquisition/users/{id}/corrections", h.admin(permDetailsWrite, h.saveCorrection))

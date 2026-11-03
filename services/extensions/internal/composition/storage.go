@@ -275,7 +275,9 @@ func storageTables(component string) []storageTable {
 		add("lmm_acquisition.config", "UPDATE")
 		add("lmm_acquisition.attribution_policies", "INSERT")
 		add("lmm_acquisition.corrections", "INSERT", "DELETE")
-		add("lmm_acquisition.activities", "DELETE")
+		add("lmm_acquisition.activities", "INSERT", "UPDATE", "DELETE")
+		add("lmm_acquisition.activity_state", "INSERT", "UPDATE")
+		add("lmm_acquisition.activity_gaps", "INSERT", "UPDATE")
 		add("lmm_acquisition.first_payments", "DELETE")
 		for _, name := range []string{"links", "visitors", "visits", "accounts", "consents", "self_reports", "correction_heads", "costs"} {
 			add("lmm_acquisition."+name, "INSERT", "UPDATE", "DELETE")

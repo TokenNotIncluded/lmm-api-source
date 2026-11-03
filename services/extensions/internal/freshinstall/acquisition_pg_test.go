@@ -55,6 +55,12 @@ func TestAcquisitionCompiledSchemaAndRuntimeACL(t *testing.T) {
 	if _, err = tx.Exec(`INSERT INTO lmm_acquisition.corrections(user_id,previous_revision,previous_source,source,reason,actor_id,created_at) VALUES(1,0,'unknown','manual','synthetic',1,1)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = tx.Exec(`INSERT INTO lmm_acquisition.activities(user_id,day,first_at,last_at) VALUES(1,0,1,1); UPDATE lmm_acquisition.activities SET last_at=2 WHERE user_id=1;
+ INSERT INTO lmm_acquisition.activity_state(singleton,started_at,scanned_through,updated_at,status,incomplete) VALUES(true,1,2,2,'native_only',true); UPDATE lmm_acquisition.activity_state SET updated_at=3 WHERE singleton;
+ INSERT INTO lmm_acquisition.activity_gaps(from_at,through_at) VALUES(1,2); UPDATE lmm_acquisition.activity_gaps SET through_at=3 WHERE from_at=1`); err != nil {
+		t.Fatalf("runtime activity writes: %v", err)
+	}
+
 	var canMutate bool
 	if err = tx.QueryRow(`SELECT has_table_privilege('lmm_acquisition.contract','INSERT,UPDATE,DELETE,TRUNCATE') OR has_table_privilege('lmm_acquisition.corrections','UPDATE,TRUNCATE')`).Scan(&canMutate); err != nil || canMutate {
 		t.Fatalf("authority expanded: %v %v", err, canMutate)

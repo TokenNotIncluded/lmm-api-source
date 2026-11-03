@@ -30,6 +30,22 @@ func (v testUserRead) Users(ctx context.Context, ids []int64) (map[int64]communi
 func (v testUserRead) UserPage(ctx context.Context, after int64, limit int) (community.RegistrationPage, error) {
 	return community.RegistrationPage{Users: []community.RegistrationUser{{UserID: 77, PlatformRole: v.role, Active: true}}, NextID: 77}, nil
 }
+func (v testUserRead) NativeActivity(ctx context.Context, ids []int64, from, to int64) (community.NativeActivity, error) {
+	at := from + 1
+	return community.NativeActivity{NativeOnly: true, Rows: []community.ActivityDay{{UserID: 77, Day: (at / daySeconds) * daySeconds, FirstAt: at, LastAt: at}}}, nil
+}
+
+type revokeActivityRead struct {
+	testUserRead
+	s *Service
+}
+
+func (v revokeActivityRead) NativeActivity(ctx context.Context, ids []int64, from, to int64) (community.NativeActivity, error) {
+	if err := v.s.RevokeAccount(ctx, 77); err != nil {
+		return community.NativeActivity{}, err
+	}
+	return v.testUserRead.NativeActivity(ctx, ids, from, to)
+}
 func TestLinksPostgresHTTP(t *testing.T) {
 	dsn := os.Getenv("ACQUISITION_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -377,11 +393,47 @@ func TestLinksPostgresHTTP(t *testing.T) {
 		t.Fatalf("admin CSV permission: %d", deniedExport.Code)
 	}
 
-	if _, err = db.Exec(`INSERT INTO lmm_acquisition.consents(user_id,allowed,version,updated_at) VALUES(77,false,1,$1)`, s.now().Unix()); err != nil {
+	if _, err = db.Exec(`UPDATE lmm_acquisition.config SET started_at=$1`, now-200); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE lmm_acquisition.accounts SET consent_version=2,created_at=$1 WHERE user_id=77`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.consents(user_id,allowed,version,updated_at) VALUES(77,true,2,$1)`, now); err != nil {
+		t.Fatal(err)
+	}
+	rebuild := func() {
+		w := httptest.NewRecorder()
+		rootMux.ServeHTTP(w, httptest.NewRequest("POST", "/api/admin/acquisition/activity/rebuild", nil))
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"incomplete":true`) {
+			t.Fatalf("native rebuild: %d %s", w.Code, w.Body.String())
+		}
+	}
+	rebuild()
+	rebuild()
+	var nativeRows int
+	var incomplete bool
+	if err = db.QueryRow(`SELECT count(*) FROM lmm_acquisition.activities WHERE user_id=77 AND day>0`).Scan(&nativeRows); err != nil || nativeRows != 1 {
+		t.Fatalf("idempotent daily activity %d %v", nativeRows, err)
+	}
+	if err = db.QueryRow(`SELECT incomplete FROM lmm_acquisition.activity_state WHERE singleton`).Scan(&incomplete); err != nil || !incomplete {
+		t.Fatalf("legacy gap lost: %v %v", incomplete, err)
+	}
+
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.consents(user_id,allowed,version,updated_at) VALUES(77,false,1,$1) ON CONFLICT(user_id) DO UPDATE SET allowed=false`, s.now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if status := save(fmt.Sprintf(`{"expected_revision":%d,"source":"denied","reason":"operator correction"}`, revision)); status != 400 {
 		t.Fatalf("withdrawn consent: %d", status)
+	}
+
+	if _, err = db.Exec(`UPDATE lmm_acquisition.consents SET allowed=true,version=2 WHERE user_id=77`); err != nil {
+		t.Fatal(err)
+	}
+	s.UserRead = revokeActivityRead{testUserRead{"user"}, s}
+	rebuild()
+	if err = db.QueryRow(`SELECT (SELECT count(*) FROM lmm_acquisition.activities WHERE user_id=77)+(SELECT count(*) FROM lmm_acquisition.correction_heads WHERE user_id=77)`).Scan(&nativeRows); err != nil || nativeRows != 0 {
+		t.Fatalf("withdrawn activity resurrected %d %v", nativeRows, err)
 	}
 
 	for _, tc := range []struct {
