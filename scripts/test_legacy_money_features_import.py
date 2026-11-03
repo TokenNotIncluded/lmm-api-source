@@ -3,6 +3,9 @@ from legacy_money_features_import import plan
 
 
 class Target:
+    def run(self, sql):
+        return "1" if "core_promotions.codes" in sql else "0"
+
     def rows(self, sql):
         if 'platform_role' in sql:
             return [{'id': 1}]
