@@ -94,7 +94,7 @@ endpoint!(key, KeyRequest, key);
 
 async fn capabilities(State(s): State<Service>, headers: HeaderMap) -> Response {
     reply(s.check(&headers).map(|_| {
-        serde_json::json!({"protocol_major":1,"features":["community.usage.v1","community.users.v1","community.users.roles.v1","community.users.registration.v1","community.users.page.v1","community.activity.native.v1","community.payments.native.first.v1","community.payments.first.v1","community.keys.v1"],"history_source":s.read.history_source})
+        serde_json::json!({"protocol_major":1,"features":["community.usage.v1","community.users.v1","community.users.roles.v1","community.users.registration.v1","community.users.page.v1","community.activity.native.v1","community.payments.native.first.v1","community.payments.first.v1","community.payments.repeat.v1","community.keys.v1"],"history_source":s.read.history_source})
     }))
 }
 

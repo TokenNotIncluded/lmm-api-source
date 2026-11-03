@@ -1,12 +1,16 @@
-//! Source-bound first cash payment facts for acquisition analytics.
+//! Source-bound first and second cash payment facts for acquisition analytics.
 use super::*;
 
-pub(super) const NATIVE_FIRST_CASH_SQL: &str = r#"SELECT u.id AS user_id,floor(extract(epoch FROM min(r.created_at)))::bigint AS first_paid_at FROM core_identity.users u LEFT JOIN core_payments.intents i ON i.created_by_user_id=u.id AND i.account_id=u.personal_account_id AND i.environment='live' AND i.currency<>'LDC' AND i.credit_journal_id IS NOT NULL AND i.provider_transaction IS NOT NULL LEFT JOIN core_payments.receipts r ON r.intent_id=i.id AND r.method='credit' AND EXISTS(SELECT 1 FROM core_payments.provider_events e JOIN core_payments.accepted_proofs p ON p.channel_id=e.channel_id AND p.event_id=e.event_id AND p.intent_id=e.intent_id JOIN core_billing.ledger_journals j ON j.id=i.credit_journal_id AND j.kind='credit' WHERE e.intent_id=i.id AND e.receipt_id=r.id) WHERE u.id=ANY($1) GROUP BY u.id ORDER BY u.id"#;
+pub(super) const NATIVE_CASH_EVENTS_SQL: &str = r#"SELECT i.created_by_user_id AS user_id,i.id AS order_id,floor(extract(epoch FROM min(r.created_at)))::bigint AS paid_at
+ FROM core_identity.users u JOIN core_payments.intents i ON i.created_by_user_id=u.id AND i.account_id=u.personal_account_id AND i.environment='live' AND i.currency<>'LDC' AND i.credit_journal_id IS NOT NULL AND i.provider_transaction IS NOT NULL
+ JOIN core_payments.receipts r ON r.intent_id=i.id AND r.method='credit' AND EXISTS(SELECT 1 FROM core_payments.provider_events e JOIN core_payments.accepted_proofs p ON p.channel_id=e.channel_id AND p.event_id=e.event_id AND p.intent_id=e.intent_id JOIN core_billing.ledger_journals j ON j.id=i.credit_journal_id AND j.kind='credit' WHERE e.intent_id=i.id AND e.receipt_id=r.id)
+ WHERE u.id=ANY($1) GROUP BY i.created_by_user_id,i.id"#;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FirstCashPayment {
     pub user_id: i64,
     pub first_paid_at: Option<i64>,
+    pub second_paid_at: Option<i64>,
     pub history_complete: bool,
     pub unclassified_orders: i64,
 }
@@ -16,8 +20,8 @@ pub struct FirstCashPayments {
 }
 
 impl CommunityRead {
-    /// Personal-wallet first cash receipt across native and imported history.
-    /// Incomplete/unclassified history never supplies a purported first date.
+    /// Personal-wallet first two cash orders across native and imported history.
+    /// Incomplete/unclassified history never supplies purported first/second dates.
     pub async fn first_cash_payments(
         &self,
         request: &UsersInfoRequest,
@@ -30,7 +34,9 @@ impl CommunityRead {
         }
         let mut tx = self.snapshot().await?;
         let sql = format!(
-            r#"WITH native AS ({NATIVE_FIRST_CASH_SQL}), manifests AS MATERIALIZED (
+            r#"WITH native_events AS MATERIALIZED ({NATIVE_CASH_EVENTS_SQL}), native AS (
+ SELECT u.id AS user_id,ARRAY(SELECT e.paid_at FROM native_events e WHERE e.user_id=u.id AND NOT EXISTS(SELECT 1 FROM core_history.finance_sources s WHERE s.complete AND e.order_id<=s.native_intent_floor) ORDER BY e.paid_at,e.order_id LIMIT 2) AS paid_times FROM core_identity.users u WHERE u.id=ANY($1)
+), manifests AS MATERIALIZED (
  SELECT i.source_archive_sha256,i.manifest FROM core_migration.import_runs i
  WHERE i.manifest->>'scope'='wallet-topup-history.v1'
  AND i.manifest->>'complete'='true'
@@ -74,12 +80,12 @@ impl CommunityRead {
  LEFT JOIN core_history.finance_topups t ON t.source_key=m.source_key AND t.source_order_id=r.order_id
  WHERE r.status='success'
 ), historical AS (
- SELECT user_id,min(paid_at) FILTER(WHERE classification='cash' AND paid_at>0) AS first_paid_at,
+ SELECT user_id,(array_agg(paid_at ORDER BY paid_at) FILTER(WHERE classification='cash' AND paid_at>0))[1:2] AS paid_times,
  count(*) FILTER(WHERE classification IS NULL OR classification IN ('invalid','unconfirmed')
    OR (classification='cash' AND coalesce(paid_at,0)<=0))::bigint AS unclassified
  FROM orders GROUP BY user_id
 )
-SELECT n.user_id,n.first_paid_at AS native_first,h.first_paid_at AS historical_first,
+SELECT n.user_id,ARRAY(SELECT at FROM unnest(n.paid_times || coalesce(h.paid_times,'{{}}'::bigint[])) at ORDER BY at LIMIT 2) AS paid_times,
  coalesce(h.unclassified,0) AS unclassified,
  (EXISTS(SELECT 1 FROM mapped m WHERE m.user_id=n.user_id) OR (
   NOT EXISTS(SELECT 1 FROM core_history.finance_users f WHERE f.user_id=n.user_id)
@@ -99,8 +105,7 @@ LEFT JOIN historical h ON h.user_id=n.user_id ORDER BY n.user_id"#
         let users = rows
             .into_iter()
             .map(|row| {
-                let native: Option<i64> = row.try_get("native_first")?;
-                let historical: Option<i64> = row.try_get("historical_first")?;
+                let times: Vec<i64> = row.try_get("paid_times")?;
                 let unclassified_orders: i64 = row.try_get("unclassified")?;
                 let history_complete =
                     row.try_get::<bool, _>("covered")? && unclassified_orders == 0;
@@ -109,7 +114,12 @@ LEFT JOIN historical h ON h.user_id=n.user_id ORDER BY n.user_id"#
                     history_complete,
                     unclassified_orders,
                     first_paid_at: if history_complete {
-                        native.into_iter().chain(historical).min()
+                        times.first().copied()
+                    } else {
+                        None
+                    },
+                    second_paid_at: if history_complete {
+                        times.get(1).copied()
                     } else {
                         None
                     },

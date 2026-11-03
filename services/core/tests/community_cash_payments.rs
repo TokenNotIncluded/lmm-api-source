@@ -73,7 +73,10 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
         user_ids: vec![101, 102, 999],
     };
     let mut first_prepared = 0;
-    for (index, secret) in [live.secret, test.secret].iter().enumerate() {
+    for (index, secret) in [live.secret.clone(), test.secret, live.secret]
+        .iter()
+        .enumerate()
+    {
         let actor = identity.authorize(secret).await.unwrap();
         let intent = payments
             .prepare(
@@ -84,7 +87,7 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
                         expected_version: None,
                     }),
                     account_id: actor.owner_account_id,
-                    payment_channel_id: index as i64 + 1,
+                    payment_channel_id: (index % 2) as i64 + 1,
                     currency: "USD".into(),
                     amount_minor: 137,
                 },
@@ -108,23 +111,30 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
             .unwrap();
         proof.accepted_proof_id = accepted.proof_id;
         let uncredited = read.native_first_cash_payments(&request).await.unwrap();
+        if index < 2 {
+            assert!(
+                uncredited.users[index].first_paid_at.is_none(),
+                "accepted input alone is not a payment"
+            );
+        }
         assert!(
-            uncredited.users[index].first_paid_at.is_none(),
-            "accepted input alone is not a payment"
+            read.first_cash_payments(&request).await.unwrap().users[0]
+                .second_paid_at
+                .is_none(),
+            "proof acceptance and credit replay cannot create repeat payments"
         );
         tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-        let credit = payments
-            .credit(pb::CreditTopupRequest {
-                mutation: Some(pb::MutationContext {
-                    idempotency_key: format!("cash_read_credit_{index}"),
-                    expected_version: None,
-                }),
-                intent_id: intent.intent_id,
-                evidence: Some(proof),
-            })
-            .await
-            .unwrap();
+        let credit_request = pb::CreditTopupRequest {
+            mutation: Some(pb::MutationContext {
+                idempotency_key: format!("cash_read_credit_{index}"),
+                expected_version: None,
+            }),
+            intent_id: intent.intent_id,
+            evidence: Some(proof),
+        };
+        let credit = payments.credit(credit_request.clone()).await.unwrap();
         assert_eq!(credit.state, 1);
+        assert_eq!(payments.credit(credit_request).await.unwrap(), credit);
     }
     let result = read.native_first_cash_payments(&request).await.unwrap();
     assert!(
@@ -158,9 +168,11 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
     std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
     let socket = dir.join("core.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
-    let router =
-        lmm_core::community_read::http::router(read, b"synthetic-community-purpose-token-20261104")
-            .unwrap();
+    let router = lmm_core::community_read::http::router(
+        read.clone(),
+        b"synthetic-community-purpose-token-20261104",
+    )
+    .unwrap();
     let server = tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -198,4 +210,119 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
             String::from_utf8_lossy(&output.stdout)
         );
     }
+}
+
+#[sqlx::test(migrations = false)]
+async fn repeat_cash_merges_historical_and_native_orders(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let identity = IdentityStore::from_pool(pool.clone());
+    let key = identity.bootstrap_user(101, 0).await.unwrap();
+    let owner = identity
+        .authorize(&key.secret)
+        .await
+        .unwrap()
+        .owner_account_id;
+    let base = json!({"migration_id":"mixed-cash-opening","source_entity_key":"user:101",
+      "source_archive_sha256":"a".repeat(64),"mapping_sha256":"b".repeat(64),"source_row_sha256":"c".repeat(64),"observed_at":1793674367_i64,"account_id":owner});
+    let mut opening = base.clone();
+    for field in ["available_units", "reserved_units", "affiliate_units"] {
+        opening[field] = json!(0);
+    }
+    let mut counters = base;
+    counters["user_id"] = json!(101);
+    for field in ["used_quota", "request_count", "aff_history"] {
+        counters[field] = json!(0);
+    }
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SET LOCAL synchronous_commit=on")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT core_billing.import_opening_balance($1)")
+        .bind(opening)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT core_billing.import_account_opening_counters($1)")
+        .bind(counters)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let payments = PaymentsStore::new(
+        pool.clone(),
+        vec![Channel::stripe_live(
+            1,
+            MERCHANT.into(),
+            SECRET.into(),
+            100_000,
+        )],
+    )
+    .unwrap();
+    for index in 0..2 {
+        let intent = payments
+            .prepare(
+                &key.secret,
+                pb::PrepareTopupRequest {
+                    mutation: Some(pb::MutationContext {
+                        idempotency_key: format!("mixed_cash_prepare_{index}"),
+                        expected_version: None,
+                    }),
+                    account_id: owner,
+                    payment_channel_id: 1,
+                    currency: "USD".into(),
+                    amount_minor: 137,
+                },
+            )
+            .await
+            .unwrap();
+        let mut proof = evidence(&intent);
+        let accepted = payments
+            .accept_proof(pb::AcceptProviderProofRequest {
+                intent_id: intent.intent_id,
+                evidence: Some(proof.clone()),
+            })
+            .await
+            .unwrap();
+        proof.accepted_proof_id = accepted.proof_id;
+        payments
+            .credit(pb::CreditTopupRequest {
+                mutation: Some(pb::MutationContext {
+                    idempotency_key: format!("mixed_cash_credit_{index}"),
+                    expected_version: None,
+                }),
+                intent_id: intent.intent_id,
+                evidence: Some(proof),
+            })
+            .await
+            .unwrap();
+        if index == 0 {
+            sqlx::query("INSERT INTO core_history.finance_sources(source_key,contract,source_archive_sha256,mapping_sha256,tables_sha256,normalization_sha256,rows_sha256,observed_at,user_count,topup_count,credits_per_usd,complete,native_request_ids) VALUES(repeat('d',64),'core.site-finance-source.v1',repeat('a',64),repeat('b',64),repeat('c',64),repeat('e',64),repeat('f',64),1793674367,1,1,500000,true,'{}')").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO core_history.finance_users(user_id,account_id,source_key,source_row_sha256,raw_used_quota,normalized_used_credits) VALUES(101,$1,repeat('d',64),repeat('c',64),0,0)").bind(owner).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO core_history.finance_topups(source_key,source_order_id,source_row_sha256,classification,currency,gross_amount_micros,refunded_amount_micros) VALUES(repeat('d',64),1,repeat('c',64),'cash','USD',1000000,0)").execute(&pool).await.unwrap();
+            let manifest = json!({"scope":"wallet-topup-history.v1","source_archive_sha256":"a".repeat(64),"complete":true,"source_row_count":1,
+      "rows":[{"target_user_id":101,"target_personal_account_id":owner,"record":{"id":1,"user_id":101,"complete_time":1700000000_i64,"status":"success"}}],
+      "identity_map":[{"source_user_id":101,"target_user_id":101,"target_personal_account_id":owner}],"per_source_user_counts":{"101":1}});
+            sqlx::query("INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest) VALUES('cash-history',repeat('a',64),repeat('b',64),$1)").bind(manifest).execute(&pool).await.unwrap();
+
+            tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        }
+    }
+    let read = CommunityRead::new(pool).await.unwrap();
+    let request = UsersInfoRequest {
+        user_ids: vec![101],
+    };
+    let native = read.native_first_cash_payments(&request).await.unwrap();
+    let combined = read.first_cash_payments(&request).await.unwrap();
+    assert_eq!(combined.users[0].first_paid_at, Some(1700000000));
+    assert!(
+        combined.users[0].second_paid_at.unwrap() > native.users[0].first_paid_at.unwrap(),
+        "pre-fence native orders are already covered by the imported snapshot"
+    );
+    assert!(combined.users[0].second_paid_at.unwrap() > 1700000000);
 }

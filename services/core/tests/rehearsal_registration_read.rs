@@ -154,6 +154,7 @@ async fn restored_cash_history_matches_original_classifications() {
             mismatches += usize::from(
                 actual.user_id != expected.user_id
                     || actual.first_paid_at != expected.first_paid_at
+                    || actual.second_paid_at != expected.second_paid_at
                     || actual.history_complete != expected.history_complete
                     || actual.unclassified_orders != expected.unclassified_orders,
             );

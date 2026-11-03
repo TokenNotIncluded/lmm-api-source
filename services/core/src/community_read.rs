@@ -613,7 +613,11 @@ impl CommunityRead {
         // The event, accepted proof and successful credit receipt must refer to
         // the same intent/event. Preparation time is never payment time.
         // LDC is a virtual unit in the canonical finance classification, not cash.
-        let rows = sqlx::query(payments::NATIVE_FIRST_CASH_SQL)
+        let sql = format!(
+            "SELECT u.id AS user_id,min(e.paid_at) AS first_paid_at FROM core_identity.users u LEFT JOIN ({}) e ON e.user_id=u.id WHERE u.id=ANY($1) GROUP BY u.id ORDER BY u.id",
+            payments::NATIVE_CASH_EVENTS_SQL
+        );
+        let rows = sqlx::query(&sql)
             .bind(&r.user_ids)
             .fetch_all(&mut *tx)
             .await?;

@@ -281,6 +281,7 @@ func (c *CoreRead) NativeFirstCashPayments(ctx context.Context, ids []int64) (Na
 type FirstCashPayment struct {
 	UserID             int64  `json:"user_id"`
 	FirstPaidAt        *int64 `json:"first_paid_at"`
+	SecondPaidAt       *int64 `json:"second_paid_at"`
 	HistoryComplete    bool   `json:"history_complete"`
 	UnclassifiedOrders int64  `json:"unclassified_orders"`
 }
@@ -290,6 +291,11 @@ type FirstCashPayments struct {
 
 func (c *CoreRead) ReadyFirstCashPayments(ctx context.Context) error {
 	return c.ready(ctx, "community.payments.first.v1")
+}
+
+// ReadyRepeatCashPayments requires the additive second-paid timestamp contract.
+func (c *CoreRead) ReadyRepeatCashPayments(ctx context.Context) error {
+	return c.ready(ctx, "community.payments.repeat.v1")
 }
 func (c *CoreRead) FirstCashPayments(ctx context.Context, ids []int64) (FirstCashPayments, error) {
 	var out FirstCashPayments
