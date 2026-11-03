@@ -336,8 +336,7 @@ def plan_promotions(data, archive_sha, migration_id, observed_at):
         stats["codes_redeemable_units"] += quota * len(redeemable)
         stats["codes_used_recorded"] += len(used)
         stats["codes_revoked_other"] += len(rows) - len(used) - len(redeemable)
-    # Legacy check-in awarded a random, trust-scaled amount per day. Core awards
-    # a fixed amount: use the legacy mean of the final 30 days (owner may revise).
+    # Legacy check-in awarded a random, trust-scaled amount per day.
     # Historical averages are not the configured reward contract. Legacy
     # check-ins use trust-level-dependent random ranges and no inferred budget.
     # Preserve the gap explicitly until that contract can be imported exactly.

@@ -119,6 +119,17 @@ def reconcile(args):
     fields=('source_key_id','target_credential_id','target_user_id','target_account_id','credential_user_version','source_secret_sha256','sk_alias_sha256')
     t=[{**{k:r[k] for k in fields},'revoked_rekey_required':r.get('revoked_rekey_required',False)} for r in aliases['keys']]
     compare('raw_and_sk_alias_bindings',s,t,'source_key_id')
+    # Preserve every original check-in, including deleted-user history. This
+    # archive is not a native claim and must never replay an already-opened award.
+    compare('checkin_original_history',
+        query(f'SELECT id,user_id,checkin_date,quota_awarded,created_at FROM {schema}.checkins',True),
+        query("SELECT (r->'record'->>'id')::bigint AS id,(r->'record'->>'user_id')::bigint AS user_id,r->'record'->>'checkin_date' AS checkin_date,(r->'record'->>'quota_awarded')::bigint AS quota_awarded,(r->'record'->>'created_at')::bigint AS created_at FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_array_elements(i.manifest->'rows') r WHERE i.manifest->>'scope'='checkin-history.v1'"))
+    checkin_keys="('checkin_setting.enabled','checkin_setting.min_quota','checkin_setting.max_quota','checkin_setting.level_multipliers')"
+    compare('checkin_original_reward_options_archive',
+        query(f'SELECT key AS id,value FROM {schema}.options WHERE key IN {checkin_keys}',True),
+        query("SELECT e.key AS id,e.value FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_each_text(i.manifest->'settings') e WHERE i.manifest->>'scope'='checkin-history.v1'"))
+    receipts=query("SELECT source_archive_sha256,manifest->>'source_namespace' AS namespace,(manifest->>'observed_at')::bigint AS observed_at,manifest->>'balance_effect' AS balance_effect FROM core_migration.import_runs WHERE manifest->>'scope'='checkin-history.v1'")
+    checks['checkin_history_source_binding']={'passed':receipts==[{'source_archive_sha256':args.archive_sha256,'namespace':'lmm_api.lmm_prod_20260802.checkins','observed_at':args.observed_at,'balance_effect':'none'}]}
     # Terminal transfers retain real original history; never invent Core settlements.
     s=query(f"SELECT id,sender_id AS owner_user,CASE WHEN status='claimed' THEN recipient_id END AS recipient_user,quota AS amount,status AS state,created_at,CASE WHEN status='claimed' THEN claimed_at ELSE cancelled_at END AS finished_at FROM {schema}.wallet_transfers WHERE status IN('claimed','cancelled')",True)
     t=query('SELECT id,owner_user,recipient_user,amount,state,created_at,finished_at FROM core_wallet.legacy_transfer_history')
@@ -165,7 +176,7 @@ def reconcile(args):
     orders=query(f'SELECT id,user_id,status,reserved_quota,refunded_quota,charge_quota FROM {schema}.hero_sms_sms_orders',True)
     sms_ledgers=query(f'SELECT order_id,user_id,entry_type,amount_quota FROM {schema}.hero_sms_sms_quota_ledgers',True)
     checks['source_hero_sms_order_ledger_consistency']=hero_sms_consistency(orders,sms_ledgers)
-    gaps=query(f"SELECT (SELECT count(*) FROM {schema}.logs l WHERE NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=l.user_id)) AS orphan_log_rows,(SELECT count(*) FROM {schema}.quota_data q WHERE NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=q.user_id)) AS orphan_quota_rows,(SELECT count(*) FROM {schema}.checkins) AS source_checkin_rows_not_covered_by_this_verifier",True)[0]
+    gaps=query(f"SELECT (SELECT count(*) FROM {schema}.logs l WHERE NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=l.user_id)) AS orphan_log_rows,(SELECT count(*) FROM {schema}.quota_data q WHERE NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=q.user_id)) AS orphan_quota_rows,1 AS checkin_native_reward_contract_not_verified",True)[0]
     channel_ids={r['id'] for r in query(f'SELECT id FROM {schema}.channels',True)}
     gaps['channel_identities_not_imported']=len(channel_ids-{r['id'] for r in query('SELECT id FROM core_channels.identities')})
     gaps.update(query(f"SELECT (SELECT count(*) FROM {schema}.discount_codes) AS source_discount_codes_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.discount_code_reservations) AS source_discount_reservations_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.referral_rewards) AS source_referral_rewards_not_covered_by_this_verifier,(SELECT count(*) FROM {schema}.referral_rewards WHERE status='earned' AND stage='awaiting_first_top_up') AS referral_rewards_awaiting_first_top_up_not_imported,(SELECT count(*) FROM {schema}.public_relay_contributions) AS public_relay_contributions_not_imported,(SELECT count(*) FROM {schema}.hero_sms_email_orders) AS hero_sms_email_orders_not_imported",True)[0])
