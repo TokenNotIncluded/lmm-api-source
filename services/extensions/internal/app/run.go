@@ -87,8 +87,9 @@ func Run() error {
 		Support:                   composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts,
-		Acquisition: composition.StorageConfig{Component: "acquisition", URLFile: cfg.Acquisition.DatabaseURLFile, Database: cfg.Acquisition.DatabaseName},
-		Community:   composition.StorageConfig{Component: "community", URLFile: cfg.Community.DatabaseURLFile, Database: cfg.Community.DatabaseName},
+		UserReadTokenFile: cfg.Core.UserReadTokenFile,
+		Acquisition:       composition.StorageConfig{Component: "acquisition", URLFile: cfg.Acquisition.DatabaseURLFile, Database: cfg.Acquisition.DatabaseName},
+		Community:         composition.StorageConfig{Component: "community", URLFile: cfg.Community.DatabaseURLFile, Database: cfg.Community.DatabaseName},
 	})
 	if err != nil {
 		return err

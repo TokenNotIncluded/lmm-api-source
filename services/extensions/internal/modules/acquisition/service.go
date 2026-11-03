@@ -21,6 +21,7 @@ import (
 	"time"
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -44,7 +45,12 @@ type Verifier interface {
 	Verify(context.Context, *http.Request) (*pb.AuthorizeResponse, error)
 }
 
+type UserReader interface {
+	Users(context.Context, []int64) (map[int64]community.CoreUserInfo, error)
+}
+
 type Service struct {
+	UserRead     UserReader
 	db           *sql.DB
 	secureCookie bool
 	ownHosts     []string
@@ -103,7 +109,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("DELETE /api/admin/acquisition/links/{id}", h.admin(permWrite, h.deleteLink))
 	mux.HandleFunc("POST /api/admin/acquisition/activity/rebuild", h.admin(permWrite, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/users/export", h.admin(permExport, unavailableAdmin))
-	mux.HandleFunc("GET /api/admin/acquisition/users/{id}/corrections", h.admin(permDetails, unavailableAdmin))
+	mux.HandleFunc("GET /api/admin/acquisition/users/{id}/corrections", h.admin(permDetails, h.corrections))
 	mux.HandleFunc("POST /api/admin/acquisition/users/{id}/corrections", h.admin(permDetailsWrite, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/users", h.admin(permDetails, unavailableAdmin))
 	mux.HandleFunc("GET /api/admin/acquisition/users/{id}", h.admin(permDetails, unavailableAdmin))

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	_ "github.com/lib/pq"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,12 @@ type listVerifier struct{ level int32 }
 
 func (v listVerifier) Verify(context.Context, *http.Request) (*pb.AuthorizeResponse, error) {
 	return &pb.AuthorizeResponse{UserId: 1, PlatformLevel: v.level}, nil
+}
+
+type testUserRead struct{ role string }
+
+func (v testUserRead) Users(ctx context.Context, ids []int64) (map[int64]community.CoreUserInfo, error) {
+	return map[int64]community.CoreUserInfo{77: {UserID: 77, Active: true, PlatformRole: v.role}}, nil
 }
 func TestLinksPostgresHTTP(t *testing.T) {
 	dsn := os.Getenv("ACQUISITION_TEST_DATABASE_URL")
@@ -176,6 +183,40 @@ func TestLinksPostgresHTTP(t *testing.T) {
 	}
 	if w := request("POST", "/api/admin/acquisition/links", `{"name":"Bad","source":"source","target":"https://external.example"}`); w.Code != 400 {
 		t.Fatalf("external target accepted: %d", w.Code)
+	}
+
+	rootMux := http.NewServeMux()
+	s.Register(rootMux, listVerifier{6})
+	s.UserRead = testUserRead{"user"}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.corrections(user_id,previous_revision,previous_source,source,reason,actor_id,created_at) SELECT 77,n,'old','corrected','synthetic',1,$1 FROM generate_series(1,101) n`, s.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	history := httptest.NewRecorder()
+	rootMux.ServeHTTP(history, httptest.NewRequest("GET", "/api/admin/acquisition/users/77/corrections", nil))
+	var changes struct {
+		Data struct {
+			Items   []json.RawMessage
+			HasMore bool `json:"has_more"`
+		}
+	}
+	if err = json.Unmarshal(history.Body.Bytes(), &changes); err != nil || history.Code != 200 || len(changes.Data.Items) != 100 || !changes.Data.HasMore {
+		t.Fatalf("correction history: %d %s", history.Code, history.Body.String())
+	}
+	for _, tc := range []struct {
+		role   string
+		status int
+	}{{"admin", 403}, {"superadmin", 403}, {"", 503}} {
+		s.UserRead = testUserRead{tc.role}
+		w := httptest.NewRecorder()
+		rootMux.ServeHTTP(w, httptest.NewRequest("GET", "/api/admin/acquisition/users/77/corrections", nil))
+		if w.Code != tc.status {
+			t.Fatalf("role %q: %d", tc.role, w.Code)
+		}
+	}
+	adminDenied := httptest.NewRecorder()
+	mux.ServeHTTP(adminDenied, httptest.NewRequest("GET", "/api/admin/acquisition/users/77/corrections", nil))
+	if adminDenied.Code != 403 {
+		t.Fatalf("admin read user details: %d", adminDenied.Code)
 	}
 
 	denied := http.NewServeMux()

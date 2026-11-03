@@ -43,6 +43,7 @@ type HostConfig struct {
 	WebCompat       bool     `toml:"web_compat"`
 }
 type CoreConfig struct {
+	UserReadTokenFile  string `toml:"user_read_token_file"`
 	Socket             string `toml:"socket"`
 	IdentityTokenFile  string `toml:"identity_token_file"`
 	CommerceTokenFile  string `toml:"commerce_token_file"`
@@ -133,7 +134,7 @@ func LoadConfig(path string) (GoConfig, error) {
 			continue
 		}
 		switch key.String() {
-		case "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
+		case "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"operations", "operations.database_name", "operations.database_url_file",
 			"community", "community.database_name", "community.database_url_file",
 			"acquisition", "acquisition.database_name", "acquisition.database_url_file",
@@ -159,7 +160,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.AssistantTokenFile, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}

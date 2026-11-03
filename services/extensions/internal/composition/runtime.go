@@ -62,6 +62,7 @@ type Config struct {
 	Operations                    StorageConfig
 	Community                     StorageConfig
 	Acquisition                   StorageConfig
+	UserReadTokenFile             string
 	Scripts                       *operations.ScriptConfig
 }
 
@@ -372,7 +373,23 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		if r.Acquisition, err = acquisition.New(ctx, db, cfg.HostPublicOrigin, !cfg.LocalHTTP); err != nil {
 			return nil, err
 		}
-	} else if cfg.Acquisition.URLFile != "" || cfg.Acquisition.Database != "" {
+
+		if cfg.UserReadTokenFile != "" {
+			token, err := coreclient.ReadTokenFile(cfg.UserReadTokenFile)
+			if err != nil {
+				return nil, err
+			}
+			reader, err := community.NewCoreRead(cfg.Socket, token)
+			if err != nil {
+				return nil, err
+			}
+			r.close = append(r.close, func() error { reader.Close(); return nil })
+			if err = reader.Ready(ctx); err != nil {
+				return nil, err
+			}
+			r.Acquisition.UserRead = reader
+		}
+	} else if cfg.Acquisition.URLFile != "" || cfg.Acquisition.Database != "" || cfg.UserReadTokenFile != "" {
 		return nil, errors.New("acquisition configuration requires explicit module selection")
 	}
 	for _, name := range cfg.Selected {
