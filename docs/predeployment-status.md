@@ -70,3 +70,21 @@ Core 使用 Rust 1.99.0 `cargo build --locked --bin lmm-core -j 2` 的 dev 产�
 前两次启动失败分别为缺少共享锁目录和 systemd 工作目录导致相对脚本路径错误；
 均在业务验收前失败，日志保留。本次成功后 runner 已删除自建数据库、凭据、冻结源码、
 依赖及产物，保留截图、日志、合同与哈希。未操作生产或部署。
+
+## 导航独立业务验收与资源预检
+
+独立执行方在源码 `766de7ba41e5c4d8714361655367123bb836649e` 上完成真实浏览器
+11/11 组 PASS：保留上述八组并扩展到 320 像素，新增导航管理员保存/读取/刷新、
+实际 Core 重启后持久化与公共导航一致、普通用户 403 拒绝且公共配置未变。
+三个宽度为 1440、390、320，均检查实际页面；输入与 Core 构建来源核对一致。
+证据为 `/home/lightjunction/Documents/Codex/cb1103p4/` 中的结果、截图和
+`navigation-restart.json`，独立报告为验证证据目录的
+`navigation-independent-exec-result.txt`。页面异常为零，自建数据库与临时输入已清理。
+这仅验收公告与导航，不覆盖资金弹窗、完整项目或 S11。
+
+准备联合资金资源验收时，真实 systemd 预检暴露测试工具竞态：预期退出 17 的子进程
+在身份快照完成后、最后读取 `/proc/PID/cgroup` 前已退出，原工具抛出 FileNotFoundError。
+现将这个明确的进程消失报告为 LauncherExited，不重试、不生成成功身份回执；测试
+保留原退出码。14 项工具自测通过。原 `resource-preflight-01` FAIL 保留，第二次
+`resource-preflight-02` 的共享 CPU、原子回执、提前退出、缺失单元清理四项 PASS。
+这些使用合成进程，尚未运行当前候选的真实 Core+Go 联合负载；不作为产品资源结论。

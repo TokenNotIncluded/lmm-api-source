@@ -179,6 +179,20 @@ class StartupIdentityTests(unittest.TestCase):
         self.assertEqual(self.launcher.poll.return_value, 17)
         self.assertEqual(self.receipt()["result"], "failed")
 
+    def test_exit_after_snapshot_is_reported_without_success_receipt(self):
+        def exit_at_final_read(result):
+            if self.cgroup_reads == 3:
+                self.launcher.poll.return_value = 17
+                raise FileNotFoundError(errno.ENOENT, "process already exited")
+            return result
+
+        self.cgroup_mutation = exit_at_final_read
+        with self.assertRaisesRegex(v.LauncherExited, "after the identity snapshot"):
+            self.launch()
+        self.assertEqual(self.launcher.poll(), 17)
+        self.assertEqual(self.cgroup_reads, 3)
+        self.assertFalse((self.root / "service-1-identity.json").exists())
+
     def test_pid_replacement_after_denial_is_rejected(self):
         self.open_errors = [PermissionError(errno.EACCES, "startup")]
         self.observation_mutation = lambda result: result.update(

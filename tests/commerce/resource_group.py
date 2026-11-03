@@ -452,7 +452,11 @@ class Group:
             current = binary.stat()
             if (current.st_dev, current.st_ino) != (held_info.st_dev, held_info.st_ino):
                 raise ResourceError("binary path changed during launch")
-            if Path(f"/proc/{pid}/cgroup").read_text().strip() != f"0::{path}":
+            try:
+                final_cgroup = Path(f"/proc/{pid}/cgroup").read_text().strip()
+            except FileNotFoundError as error:
+                raise LauncherExited("product exited after the identity snapshot") from error
+            if final_cgroup != f"0::{path}":
                 raise ResourceError("child process is outside the shared parent budget")
             actual_limits = limits(item["group"])
             if (
