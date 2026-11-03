@@ -51,6 +51,16 @@ func TestCoreUserRolesLive(t *testing.T) {
 	if _, err = client.NativeActivity(ctx, nil, 1, 86401); err == nil {
 		t.Fatal("empty activity target accepted")
 	}
+	if err = client.ReadyNativeCashPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payments, err := client.NativeFirstCashPayments(ctx, []int64{1, 2, 999})
+	if err != nil || !payments.NativeOnly || len(payments.Users) != 2 || payments.Users[0].UserID != 1 || payments.Users[0].FirstPaidAt != nil || payments.Users[1].UserID != 2 || payments.Users[1].FirstPaidAt != nil {
+		t.Fatalf("native cash payment read: %#v %v", payments, err)
+	}
+	if _, err = client.NativeFirstCashPayments(ctx, nil); err == nil {
+		t.Fatal("empty cash payment target accepted")
+	}
 
 	wrong, err := NewCoreRead(socket, []byte(strings.Repeat("x", 40)))
 	if err != nil {
@@ -59,5 +69,8 @@ func TestCoreUserRolesLive(t *testing.T) {
 	defer wrong.Close()
 	if err = wrong.ReadyUsers(ctx); err == nil {
 		t.Fatal("Core accepted another purpose token")
+	}
+	if _, err = wrong.NativeFirstCashPayments(ctx, []int64{1}); err == nil {
+		t.Fatal("Core exposed payment evidence with another purpose token")
 	}
 }

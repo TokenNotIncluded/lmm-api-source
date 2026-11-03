@@ -83,6 +83,11 @@ func (c *CoreRead) ReadyUsers(ctx context.Context) error {
 	return c.ready(ctx, "community.users.roles.v1")
 }
 
+// ReadyNativeCashPayments rejects older Core versions before analytics use.
+func (c *CoreRead) ReadyNativeCashPayments(ctx context.Context) error {
+	return c.ready(ctx, "community.payments.native.first.v1")
+}
+
 func (c *CoreRead) ready(ctx context.Context, required string) error {
 	var caps struct {
 		Protocol int      `json:"protocol_major"`
@@ -249,5 +254,24 @@ func (c *CoreRead) NativeActivity(ctx context.Context, ids []int64, from, to int
 		From    int64   `json:"from"`
 		To      int64   `json:"to"`
 	}{ids, from, to}, &out)
+	return out, err
+}
+
+// NativeFirstCashPayments excludes legacy history. A nil timestamp never proves
+// that a legacy user has not paid. No payment identifiers or amounts leave Core.
+type NativeFirstCashPayment struct {
+	UserID      int64  `json:"user_id"`
+	FirstPaidAt *int64 `json:"first_paid_at"`
+}
+type NativeFirstCashPayments struct {
+	NativeOnly bool                     `json:"native_only"`
+	Users      []NativeFirstCashPayment `json:"users"`
+}
+
+func (c *CoreRead) NativeFirstCashPayments(ctx context.Context, ids []int64) (NativeFirstCashPayments, error) {
+	var out NativeFirstCashPayments
+	err := c.call(ctx, "payments/native/first", struct {
+		UserIDs []int64 `json:"user_ids"`
+	}{ids}, &out)
 	return out, err
 }

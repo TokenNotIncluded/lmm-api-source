@@ -228,6 +228,19 @@ pub struct NativeActivity {
     pub rows: Vec<ActivityDay>,
 }
 
+/// First verified cash receipt under the native payment authority. Absence is
+/// not evidence about legacy payments, gifts, wallet balances or imports.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NativeFirstCashPayment {
+    pub user_id: i64,
+    pub first_paid_at: Option<i64>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NativeFirstCashPayments {
+    pub native_only: bool,
+    pub users: Vec<NativeFirstCashPayment>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyRequest {
@@ -584,6 +597,35 @@ impl CommunityRead {
             users,
             has_more,
             next_id,
+        })
+    }
+
+    pub async fn native_first_cash_payments(
+        &self,
+        r: &UsersInfoRequest,
+    ) -> Result<NativeFirstCashPayments> {
+        if r.user_ids.is_empty() || r.user_ids.len() > 100 || r.user_ids.iter().any(|id| *id <= 0) {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.snapshot().await?;
+        // The event, accepted proof and successful credit receipt must refer to
+        // the same intent/event. Preparation time is never payment time.
+        // LDC is a virtual unit in the canonical finance classification, not cash.
+        let rows = sqlx::query("SELECT u.id AS user_id,floor(extract(epoch FROM min(r.created_at)))::bigint AS first_paid_at FROM core_identity.users u LEFT JOIN core_payments.intents i ON i.created_by_user_id=u.id AND i.account_id=u.personal_account_id AND i.environment='live' AND i.currency<>'LDC' AND i.credit_journal_id IS NOT NULL AND i.provider_transaction IS NOT NULL LEFT JOIN core_payments.receipts r ON r.intent_id=i.id AND r.method='credit' AND EXISTS(SELECT 1 FROM core_payments.provider_events e JOIN core_payments.accepted_proofs p ON p.channel_id=e.channel_id AND p.event_id=e.event_id AND p.intent_id=e.intent_id JOIN core_billing.ledger_journals j ON j.id=i.credit_journal_id AND j.kind='credit' WHERE e.intent_id=i.id AND e.receipt_id=r.id) WHERE u.id=ANY($1) GROUP BY u.id ORDER BY u.id")
+            .bind(&r.user_ids).fetch_all(&mut *tx).await?;
+        tx.commit().await?;
+        let users = rows
+            .into_iter()
+            .map(|row| {
+                Ok(NativeFirstCashPayment {
+                    user_id: row.try_get("user_id")?,
+                    first_paid_at: row.try_get("first_paid_at")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(NativeFirstCashPayments {
+            native_only: true,
+            users,
         })
     }
 
