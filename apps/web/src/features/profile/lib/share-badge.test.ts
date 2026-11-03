@@ -20,6 +20,8 @@ import {
   canShareBadge,
 } from './share-badge'
 
+const site = { name: 'Custom Relay', url: 'https://relay.test/gateway' }
+
 test('brand presets use the monochrome ribbon identity and readable contrast', () => {
   const luminance = (color: string) => {
     const channels = [1, 3, 5].map((start) => {
@@ -95,7 +97,7 @@ test('aggregate sharing uses independent consent and excludes model-only SVG par
   assert.equal(url.searchParams.has('top'), false)
   assert.equal(options.height, 720)
   assert.match(
-    buildBadgeEmbedCode(url.toString(), options).markdown,
+    buildBadgeEmbedCode(url.toString(), options, site).markdown,
     /AI usage across linked profiles/
   )
 })
@@ -200,21 +202,45 @@ test('copy embeds only the chosen live image, never a stale statistics snapshot'
     INITIAL_OPTIONS,
     'en'
   )
-  const code = buildBadgeEmbedCode(url, INITIAL_OPTIONS)
+  const code = buildBadgeEmbedCode(url, INITIAL_OPTIONS, site)
   assert.equal(
     code.markdown,
-    `[![LMM API model usage](${url})](https://api.lmm.best)`
+    `[![Custom Relay model usage](${url})](https://relay.test/gateway)`
   )
   assert.ok(code.html.includes('&amp;'))
   assert.ok(code.html.includes('width="1200" height="900"'))
   assert.ok(!code.markdown.includes('###'))
   const unsafe = buildBadgeEmbedCode(
     'https://example.test/?x="<>&',
-    INITIAL_OPTIONS
+    INITIAL_OPTIONS,
+    site
   )
   assert.ok(unsafe.html.includes('&quot;&lt;&gt;&amp;'))
-  assert.deepEqual(buildBadgeEmbedCode('', INITIAL_OPTIONS), {
+  assert.deepEqual(buildBadgeEmbedCode('', INITIAL_OPTIONS, site), {
     markdown: '',
     html: '',
   })
+})
+
+test('custom brand is escaped in embeds and an unavailable site has no share code', () => {
+  const custom = {
+    name: 'Relay [team] "<>&',
+    url: 'https://relay.test/customer(1)',
+  }
+  const code = buildBadgeEmbedCode(
+    'https://images.test/badge.svg',
+    INITIAL_OPTIONS,
+    custom
+  )
+  assert.ok(code.markdown.includes('Relay \\[team\\]'))
+  assert.ok(code.markdown.endsWith('(https://relay.test/customer%281%29)'))
+  assert.ok(code.html.includes('Relay [team] &quot;&lt;&gt;&amp; model usage'))
+  assert.ok(code.html.includes('href="https://relay.test/customer(1)"'))
+  assert.deepEqual(
+    buildBadgeEmbedCode('https://images.test/badge.svg', INITIAL_OPTIONS, {
+      name: 'Relay',
+      url: null,
+    }),
+    { markdown: '', html: '' }
+  )
 })

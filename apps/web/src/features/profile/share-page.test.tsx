@@ -166,7 +166,12 @@ function adapter() {
   api.defaults.adapter = async (config) => {
     const method = config.method
     let data: unknown
-    if (config.url === '/api/user/self') {
+    if (config.url === '/api/status') {
+      data = {
+        server_address: 'https://relay.test:8443/gateway/v1',
+        system_name: 'Custom Relay',
+      }
+    } else if (config.url === '/api/user/self') {
       data = { username: 'review-account' }
     } else {
       assert.equal(config.url, '/api/user/self/profile-share')
@@ -403,6 +408,28 @@ test('the top linked sharing toggle sends only consent and preserves configured 
     assert.equal(
       view.host.querySelector<HTMLInputElement>('input[type="url"]')?.value,
       'https://cursor.com/@old'
+    )
+  } finally {
+    await view.close()
+  }
+})
+
+test('share page uses the configured site link and default badge footer', async () => {
+  adapter()
+  const view = await mount()
+  try {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+    await settled(() =>
+      (view.host.textContent ?? '').includes('https://relay.test:8443/gateway')
+    )
+    assert.doesNotMatch(view.host.textContent ?? '', /https:\/\/api\.lmm\.best/)
+    const preview = view.host.querySelector<HTMLImageElement>('img')
+    assert.ok(preview)
+    assert.equal(
+      new URL(preview.src).searchParams.get('footer'),
+      'Custom Relay'
     )
   } finally {
     await view.close()

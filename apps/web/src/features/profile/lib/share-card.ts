@@ -5,11 +5,15 @@ import {
   type ProfileDailyUsage,
 } from './activity'
 
-export const PROFILE_SHARE_URL = 'https://api.lmm.best'
+export interface ProfileShareSite {
+  name: string
+  url: string | null
+}
 export const PROFILE_SHARE_CARD_WIDTH = 1200
 export const PROFILE_SHARE_CARD_HEIGHT = 865
 
 export interface ProfileShareCardContent {
+  site: ProfileShareSite
   displayName: string
   username: string
   roleLabel: string
@@ -267,19 +271,27 @@ export function drawProfileShareCard(
   context.textAlign = 'left'
   context.fillStyle = COLOR.muted
   context.font = '500 17px "Public Sans Variable", "Public Sans", sans-serif'
-  context.fillText('LMM Best', 40, 834)
+  context.fillText(truncateToWidth(context, content.site.name, 420), 40, 834)
   context.textAlign = 'right'
   context.fillStyle = COLOR.foreground
-  context.fillText(PROFILE_SHARE_URL, 1160, 834)
+  if (content.site.url) {
+    context.fillText(truncateToWidth(context, content.site.url, 650), 1160, 834)
+  }
 }
 
-export function profileSharePostText(message: string): string {
-  return `${message.trim()}\n${PROFILE_SHARE_URL}`
+export function profileSharePostText(
+  message: string,
+  siteUrl: string | null
+): string {
+  return siteUrl ? `${message.trim()}\n${siteUrl}` : message.trim()
 }
 
-export function profileShareXIntent(message: string): string {
+export function profileShareXIntent(
+  message: string,
+  siteUrl: string | null
+): string {
   const url = new URL('https://twitter.com/intent/tweet')
   url.searchParams.set('text', message.trim())
-  url.searchParams.set('url', PROFILE_SHARE_URL)
+  if (siteUrl) url.searchParams.set('url', siteUrl)
   return url.toString()
 }

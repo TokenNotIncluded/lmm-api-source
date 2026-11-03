@@ -37,6 +37,8 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { useApiBaseUrl } from '@/hooks/use-api-base-url'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { createQueryRetry } from '@/lib/query-retry'
 
@@ -75,6 +77,8 @@ import { registerProfileShareTranslations } from './share-i18n'
 export function ProfileSharePage() {
   const { t, i18n } = useTranslation()
   const money = useWalletCurrency()
+  const { systemName } = useSystemConfig()
+  const { rootUrl: siteUrl } = useApiBaseUrl()
   registerProfileShareTranslations(i18n)
   const reduceMotion = useReducedMotion()
   const queryClient = useQueryClient()
@@ -137,7 +141,11 @@ export function ProfileSharePage() {
       publicEnabled && shareQuery.data?.url
         ? buildBadgeURL(
             shareQuery.data.url,
-            reduceMotion ? { ...options, animation: 'none' } : options,
+            {
+              ...options,
+              footer: options.footer || systemName,
+              ...(reduceMotion ? { animation: 'none' as const } : {}),
+            },
             i18n.resolvedLanguage || i18n.language,
             money.currency
           )
@@ -150,6 +158,7 @@ export function ProfileSharePage() {
       i18n.resolvedLanguage,
       i18n.language,
       money.currency,
+      systemName,
     ]
   )
   useEffect(() => {
@@ -166,7 +175,8 @@ export function ProfileSharePage() {
 
   const { markdown: readmeCode, html: htmlCode } = buildBadgeEmbedCode(
     badgeURL,
-    options
+    options,
+    { name: systemName, url: siteUrl }
   )
   const changeLayout = (layout: BadgeLayout) =>
     setOptions((previous) => ({

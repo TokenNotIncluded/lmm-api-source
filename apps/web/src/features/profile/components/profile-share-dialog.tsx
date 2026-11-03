@@ -19,6 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useApiBaseUrl } from '@/hooks/use-api-base-url'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { toIntlLocale } from '@/i18n/languages'
 import { getGravatarImage } from '@/lib/avatar-cache'
 import { formatCompactNumber, formatNumber } from '@/lib/format'
@@ -30,7 +32,6 @@ import {
   drawProfileShareCard,
   PROFILE_SHARE_CARD_HEIGHT,
   PROFILE_SHARE_CARD_WIDTH,
-  PROFILE_SHARE_URL,
   profileSharePostText,
   profileShareXIntent,
 } from '../lib/share-card'
@@ -63,12 +64,14 @@ export function ProfileShareDialog({
   activityAvailable,
 }: ProfileShareDialogProps) {
   const { t, i18n } = useTranslation()
+  const { systemName } = useSystemConfig()
+  const { rootUrl: siteUrl } = useApiBaseUrl()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [imageBlob, setImageBlob] = useState<Blob | null>(null)
   const [imageURL, setImageURL] = useState<string | null>(null)
   const [renderError, setRenderError] = useState(false)
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language) ?? 'en'
-  const postMessage = t('My AI activity on LMM Best')
+  const postMessage = t('My AI activity on {{site}}', { site: systemName })
   const canShareImage =
     typeof navigator !== 'undefined' &&
     typeof navigator.share === 'function' &&
@@ -91,6 +94,7 @@ export function ProfileShareDialog({
     setRenderError(false)
 
     const content = {
+      site: { name: systemName, url: siteUrl },
       displayName: getDisplayName(profile),
       username: profile.username,
       roleLabel: getRoleLabel(profile.role),
@@ -170,14 +174,24 @@ export function ProfileShareDialog({
     return () => {
       active = false
     }
-  }, [activityAvailable, days, locale, open, profile, summary, t])
+  }, [
+    activityAvailable,
+    days,
+    locale,
+    open,
+    profile,
+    summary,
+    t,
+    systemName,
+    siteUrl,
+  ])
 
   const downloadImage = () => {
     if (!imageBlob) return
     const objectUrl = URL.createObjectURL(imageBlob)
     const link = document.createElement('a')
     link.href = objectUrl
-    link.download = 'lmm-best-share.png'
+    link.download = 'profile-share.png'
     document.body.append(link)
     link.click()
     link.remove()
@@ -213,7 +227,7 @@ export function ProfileShareDialog({
 
   const shareImage = async () => {
     if (!imageBlob || !canShareImage) return
-    const file = new File([imageBlob], 'lmm-best-share.png', {
+    const file = new File([imageBlob], 'profile-share.png', {
       type: 'image/png',
     })
     if (!navigator.canShare({ files: [file] })) {
@@ -225,8 +239,8 @@ export function ProfileShareDialog({
     try {
       await navigator.share({
         files: [file],
-        title: t('My year with LMM Best'),
-        text: profileSharePostText(postMessage),
+        title: t('My year with {{site}}', { site: systemName }),
+        text: profileSharePostText(postMessage, siteUrl),
       })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
@@ -311,7 +325,7 @@ export function ProfileShareDialog({
           ) : null}
           <a
             className={buttonVariants({ variant: 'secondary', size: 'sm' })}
-            href={profileShareXIntent(postMessage)}
+            href={profileShareXIntent(postMessage, siteUrl)}
             target='_blank'
             rel='noopener noreferrer'
           >
@@ -323,7 +337,7 @@ export function ProfileShareDialog({
             size='sm'
             onClick={() =>
               void copyText(
-                profileSharePostText(postMessage),
+                profileSharePostText(postMessage, siteUrl),
                 t('Post text copied')
               )
             }
@@ -334,7 +348,10 @@ export function ProfileShareDialog({
           <Button
             variant='ghost'
             size='sm'
-            onClick={() => void copyText(PROFILE_SHARE_URL, t('Link copied'))}
+            disabled={!siteUrl}
+            onClick={() => {
+              if (siteUrl) void copyText(siteUrl, t('Link copied'))
+            }}
           >
             <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
             {t('Copy link')}

@@ -22,7 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import type { WalletDisplayCurrency } from '@/lib/currency'
 
-import { PROFILE_SHARE_URL } from './share-card'
+import type { ProfileShareSite } from './share-card'
 
 export type BadgeTheme = 'paper' | 'dark' | 'transparent'
 export type BadgeLayout = 'profile' | 'badge' | 'models' | 'aggregate'
@@ -252,8 +252,12 @@ export function canShareBadge(
   )
 }
 
-export function buildBadgeEmbedCode(url: string, options: BadgeOptions) {
-  if (!url) return { markdown: '', html: '' }
+export function buildBadgeEmbedCode(
+  url: string,
+  options: BadgeOptions,
+  site: ProfileShareSite
+) {
+  if (!url || !site.url) return { markdown: '', html: '' }
   const escape = (text: string) =>
     text
       .replaceAll('&', '&amp;')
@@ -264,10 +268,15 @@ export function buildBadgeEmbedCode(url: string, options: BadgeOptions) {
     options.layout === 'aggregate'
       ? 'AI usage across linked profiles'
       : options.layout === 'models'
-        ? 'LMM API model usage'
-        : 'LMM API token usage'
+        ? `${site.name} model usage`
+        : `${site.name} token usage`
+  const markdownUrl = (value: string) =>
+    value.replace(
+      /[()<>\s]/g,
+      (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
   return {
-    markdown: `[![${alt}](${url})](${PROFILE_SHARE_URL})`,
-    html: `<a href="${PROFILE_SHARE_URL}" target="_blank" rel="noopener noreferrer"><img src="${escape(url)}" alt="${alt}" width="${options.width}" height="${options.height}"></a>`,
+    markdown: `[![${alt.replaceAll(/[\\[\]]/g, '\\$&')}](${markdownUrl(url)})](${markdownUrl(site.url)})`,
+    html: `<a href="${escape(site.url)}" target="_blank" rel="noopener noreferrer"><img src="${escape(url)}" alt="${escape(alt)}" width="${options.width}" height="${options.height}"></a>`,
   }
 }

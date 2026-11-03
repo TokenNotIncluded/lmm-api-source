@@ -75,7 +75,9 @@ function canvasContext(renderedText: string[]) {
     beginPath() {},
     arc() {},
     clip() {},
-    fillRect() {},
+    fillRect(x: number, y: number) {
+      if (x === 0 && y === 0) renderedText.length = 0
+    },
     roundRect() {},
     stroke() {},
     moveTo() {},
@@ -165,6 +167,7 @@ test('the share PNG canvas includes unavailable tokens, images and text-only sco
     value: () => canvasContext(renderedText),
   })
   drawProfileShareCard(canvas, {
+    site: { name: 'Custom Relay', url: 'https://relay.test/gateway' },
     displayName: 'Alice',
     username: 'alice',
     roleLabel: 'User',
@@ -194,7 +197,12 @@ test('the share PNG canvas includes unavailable tokens, images and text-only sco
   assert.equal(renderedText.filter((text) => text === 'Unavailable').length, 2)
   assert.ok(renderedText.includes('Images: 2 · Platform sponsored requests: 1'))
   assert.ok(renderedText.includes('Tokens cover settled text requests only.'))
-  assert.doesNotMatch(renderedText.join('\n'), /wallet|debit/i)
+  assert.doesNotMatch(
+    renderedText.join('\n'),
+    /wallet|debit|LMM Best|api\.lmm\.best/i
+  )
+  assert.ok(renderedText.includes('Custom Relay'))
+  assert.ok(renderedText.includes('https://relay.test/gateway'))
 })
 
 test('profile header shows unavailable image tokens and keeps actual zero text tokens', async () => {
@@ -302,6 +310,19 @@ test('profile header shows unavailable image tokens and keeps actual zero text t
 })
 
 test('the share dialog exports image token null as unavailable and text zero as zero', async () => {
+  const previousGet = api.get
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        server_address: 'https://relay.test/gateway/v1',
+        system_name: 'Custom Relay',
+      },
+    },
+  })) as typeof api.get
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   const renderedText: string[] = []
   const prototype = dom.HTMLCanvasElement.prototype
   const previousContext = Object.getOwnPropertyDescriptor(
@@ -339,16 +360,18 @@ test('the share dialog exports image token null as unavailable and text zero as 
     renderedText.length = 0
     await act(async () => {
       root.render(
-        <I18nextProvider i18n={i18n}>
-          <ProfileShareDialog
-            open
-            onOpenChange={() => undefined}
-            profile={profile}
-            days={days}
-            summary={buildProfileUsageSummary(days)}
-            activityAvailable
-          />
-        </I18nextProvider>
+        <QueryClientProvider client={client}>
+          <I18nextProvider i18n={i18n}>
+            <ProfileShareDialog
+              open
+              onOpenChange={() => undefined}
+              profile={profile}
+              days={days}
+              summary={buildProfileUsageSummary(days)}
+              activityAvailable
+            />
+          </I18nextProvider>
+        </QueryClientProvider>
       )
     })
     for (
@@ -377,9 +400,16 @@ test('the share dialog exports image token null as unavailable and text zero as 
     assert.ok(
       renderedText.includes('Images: 0 · Platform sponsored requests: 0')
     )
-    assert.doesNotMatch(renderedText.join('\n'), /wallet|debit/i)
+    assert.doesNotMatch(
+      renderedText.join('\n'),
+      /wallet|debit|LMM Best|api\.lmm\.best/i
+    )
+    assert.ok(renderedText.includes('Custom Relay'))
+    assert.ok(renderedText.includes('https://relay.test/gateway'))
   } finally {
     await act(async () => root.unmount())
+    client.clear()
+    api.get = previousGet
     if (previousContext) {
       Object.defineProperty(prototype, 'getContext', previousContext)
     } else {
