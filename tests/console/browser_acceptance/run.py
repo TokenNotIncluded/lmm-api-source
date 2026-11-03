@@ -67,7 +67,7 @@ def main():
     require(root.parent.resolve() == Path('/home/lightjunction/Documents/Codex'), 'private Codex root required')
     require(len(os.fsencode(root / 'tmp')) <= 55, 'short_private_root_required_for_Chromium_Unix_socket')
     root.mkdir(mode=0o700, exist_ok=False)
-    env = {'PATH': '/home/lightjunction/.bun/bin:/usr/bin:/bin', 'HOME': str(Path.home()),
+    env = {'PATH': str(args.bun.parent) + ':/usr/bin:/bin', 'HOME': str(Path.home()),
            'LANG': 'C.UTF-8', 'TZ': 'UTC', 'NODE_OPTIONS': '--max-old-space-size=1152',
            'GOMAXPROCS': '1', 'RAYON_NUM_THREADS': '1', 'UV_THREADPOOL_SIZE': '1', 'CI': '1'}
     (root / 'tmp').mkdir()
@@ -163,6 +163,9 @@ def main():
             results[case] = 'PASS'
 
             case = 'dependencies'
+            require(args.bun.is_file(), 'pinned_Bun_missing_no_install')
+            command('bun-version', [args.bun, '--version'])
+            require((root / 'bun-version.log').read_text().strip() == '1.3.14', 'pinned_Bun_version_mismatch_no_fallback')
             require(args.playwright.is_file() and args.chromium.is_file(), 'existing_browser_tools_missing')
             save(root / 'dependency-preflight.json', {
                 'repository_rsbuild_present': (args.repo / 'apps/web/node_modules/@rsbuild/core/package.json').exists(),
