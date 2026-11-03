@@ -10,7 +10,7 @@ import (
 )
 
 func TestCompiledPlansAreClosedAndTransactionSafe(t *testing.T) {
-	for _, component := range []string{"assistant", "toolmarket", "toolmarket-builtins", "payments"} {
+	for _, component := range []string{"assistant", "toolmarket", "toolmarket-builtins", "payments", "acquisition"} {
 		p, e := compiled(component)
 		if e != nil || p.schema == "" || len(p.grants) == 0 {
 			t.Fatalf("plan %s: %v", component, e)

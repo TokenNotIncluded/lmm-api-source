@@ -57,6 +57,30 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 		return storagePolicy{}, errors.New("invalid extension storage bundle")
 	}
 	policy := storagePolicy{namespaces: []string{"lmm_" + component}, tables: storageTables(component)}
+	if component == "acquisition" {
+		policy.contracts = []storageContract{{"lmm_acquisition.contract", 1}}
+		allowed := map[string]map[string]bool{}
+		for _, table := range policy.tables {
+			if allowed[table.name] == nil {
+				allowed[table.name] = map[string]bool{}
+			}
+			for _, priv := range table.privileges {
+				allowed[table.name][priv] = true
+			}
+		}
+		for name, grants := range allowed {
+			for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"} {
+				if grants[priv] {
+					continue
+				}
+				policy.forbidden = append(policy.forbidden, storageTable{name, []string{priv}})
+				if priv == "SELECT" || priv == "INSERT" || priv == "UPDATE" || priv == "REFERENCES" {
+					policy.forbiddenColumns = append(policy.forbiddenColumns, storageTable{name, []string{priv}})
+				}
+			}
+		}
+	}
+
 	if component == "assistant" {
 		policy.contracts = []storageContract{{"lmm_assistant.contract", 2}}
 		policy.updateColumns = []storageColumnGrant{{"lmm_assistant.preset_stats", []string{"clicks"}}}
