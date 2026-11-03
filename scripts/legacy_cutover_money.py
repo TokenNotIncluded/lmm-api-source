@@ -329,16 +329,10 @@ def plan_promotions(data, archive_sha, migration_id, observed_at):
         stats["codes_revoked_other"] += len(rows) - len(used) - len(redeemable)
     # Legacy check-in awarded a random, trust-scaled amount per day. Core awards
     # a fixed amount: use the legacy mean of the final 30 days (owner may revise).
-    recent = data["checkin_recent"][0]
-    if data["options"].get("checkin_setting.enabled") == "true" and recent["n"]:
-        award = int((Decimal(recent["total"]) / recent["n"]).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-        max_claims = min(1_000_000, recent["n"] * 13)  # ~one year at the legacy daily rate
-        cid = sha_hex(json.dumps(["legacy-checkin", migration_id]))
-        sql.append("INSERT INTO core_promotions.campaigns(id,revision,kind,title,award_units,budget_units,max_claims,"
-                   "max_claims_per_user,starts_at,ends_at,enabled) "
-                   f"VALUES({lit(cid)},1,'checkin','Daily check-in',{award},{award * max_claims},{max_claims},"
-                   f"366,{observed_at},{observed_at + 365 * DAY},TRUE);")
-        stats.update(checkin_campaigns=1, checkin_award_units=award, checkin_max_claims=max_claims)
+    # Historical averages are not the configured reward contract. Legacy
+    # check-ins use trust-level-dependent random ranges and no inferred budget.
+    # Preserve the gap explicitly until that contract can be imported exactly.
+    stats["unrepresented_checkin_enabled"] = data["options"].get("checkin_setting.enabled") == "true"
     stats["legacy_checkins_history_not_imported"] = data["checkin_total"][0]["n"]
     live = lambda expires: not expires or expires > observed_at  # noqa: E731
     stats["unrepresented_discount_codes_usable"] = sum(

@@ -1,7 +1,7 @@
 """Money cutover must preserve paid contract terms before emitting SQL."""
 import unittest
 
-from legacy_cutover_money import plan_terms, subscription_order_links
+from legacy_cutover_money import plan_terms, subscription_order_links, plan_promotions
 
 
 class SubscriptionTermsTest(unittest.TestCase):
@@ -25,6 +25,17 @@ class SubscriptionTermsTest(unittest.TestCase):
         self.assertEqual(result[0]["state"], "missing_source_link")
         self.assertEqual(result[0]["source_subscription_id"], 0)
         self.assertEqual(result[0]["timestamp_candidate_ids"], [9])
+
+    def test_checkin_history_does_not_authorize_a_new_reward_budget(self):
+        data = {key: [] for key in ("redemptions", "discount_codes", "discount_code_reservations",
+            "red_packets", "red_packet_items", "referral_rewards", "other_counts")}
+        data.update(users=[{"id": 1, "role": 100, "deleted_at": None}],
+            options={"checkin_setting.enabled": "true"}, checkin_recent=[{"n": 10, "total": 100}],
+            checkin_total=[{"n": 10}], red_packet_claims=[{"n": 0}])
+        sql, stats = plan_promotions(data, "a" * 64, "test", 1000)
+        self.assertEqual(sql, [])
+        self.assertTrue(stats["unrepresented_checkin_enabled"])
+        self.assertEqual(stats["legacy_checkins_history_not_imported"], 10)
 
     def test_fixed_duration_terms_preserve_exact_units(self):
         terms, archived = plan_terms({
