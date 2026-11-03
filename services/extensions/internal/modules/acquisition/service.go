@@ -98,11 +98,10 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("PUT /api/acquisition/self-report", h.selfReport)
 	mux.HandleFunc("DELETE /api/acquisition/self-report", h.selfReport)
 
-	// Administrative acquisition handlers were not completed before handoff.
-	// Keep their authorization boundaries and return an explicit failure until B11
-	// supplies the real implementations; never serve fabricated analytics.
+	// Unfinished reporting endpoints fail explicitly after authorization.
+	// Completed handlers retain the same Core identity and permission boundary.
 	mux.HandleFunc("GET /api/admin/acquisition/links/{id}/preview", h.admin(permRead, h.previewLink))
-	mux.HandleFunc("GET /api/admin/acquisition/cost", h.admin(permRead, unavailableAdmin))
+	mux.HandleFunc("GET /api/admin/acquisition/cost", h.admin(permRead, h.cost))
 	mux.HandleFunc("PUT /api/admin/acquisition/cost", h.admin(permWrite, h.saveCost))
 	mux.HandleFunc("GET /api/admin/acquisition/links", h.admin(permRead, h.links))
 	mux.HandleFunc("POST /api/admin/acquisition/links", h.admin(permWrite, h.saveLink))

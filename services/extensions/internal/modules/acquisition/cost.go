@@ -2,8 +2,13 @@
 package acquisition
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type costScope struct {
@@ -42,4 +47,151 @@ func (h *handlers) saveCost(w http.ResponseWriter, r *http.Request, a actor) {
 		return
 	}
 	respond(w, json.RawMessage(payload), nil)
+}
+
+type firstCashReader interface {
+	FirstCashPayments(context.Context, []int64) (community.FirstCashPayments, error)
+}
+
+type costReport struct {
+	Scope costScope `json:"scope"`
+	Spend *struct {
+		Amount int64 `json:"amount_micros"`
+	} `json:"spend"`
+	Registrations       int    `json:"registrations"`
+	FirstPayingAccounts int    `json:"first_paying_accounts"`
+	Unclassified        int64  `json:"payment_rows_unclassified"`
+	Observing           bool   `json:"observing"`
+	CompleteAfter       int64  `json:"complete_after"`
+	ObservedUntil       int64  `json:"observed_until"`
+	PerRegistration     *int64 `json:"cost_per_registration_micros"`
+	PerPayer            *int64 `json:"cost_per_first_payer_micros"`
+}
+
+func (h *handlers) cost(w http.ResponseWriter, r *http.Request, a actor) {
+	q := r.URL.Query()
+	from, e1 := strconv.ParseInt(q.Get("from"), 10, 64)
+	to, e2 := strconv.ParseInt(q.Get("to"), 10, 64)
+	days, e3 := strconv.Atoi(q.Get("observation_days"))
+	scope := costScope{LinkID: q.Get("link_id"), From: from, To: to, Days: days, Currency: q.Get("currency")}
+	now := h.s.now().Unix()
+	if e1 != nil || e2 != nil || e3 != nil || !scope.valid(now) {
+		respond(w, nil, ErrInvalid)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	identity, err := h.registrationSnapshot(ctx)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	tx, err := h.s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM lmm_acquisition.links WHERE id=$1)`, scope.LinkID).Scan(&exists); err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	if !exists {
+		respond(w, nil, errNotFound)
+		return
+	}
+	var spend sql.NullInt64
+	err = tx.QueryRowContext(ctx, `SELECT (SELECT amount_micros FROM lmm_acquisition.costs WHERE link_id=$1 AND from_at=$2 AND to_at=$3 AND observation_days=$4 AND currency=$5)`, scope.LinkID, from, to, days, scope.Currency).Scan(&spend)
+	if err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	rows, err := tx.QueryContext(ctx, `WITH identity AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS u(user_id bigint,registered_at bigint)), attributed AS (SELECT u.user_id,coalesce(u.registered_at,c.registered_at) AS registered_at FROM identity u LEFT JOIN lmm_acquisition.cohort c USING(user_id) JOIN lmm_acquisition.accounts a USING(user_id) WHERE a.registration_link_id=$2 AND a.created_at>=$5) SELECT user_id,registered_at FROM attributed WHERE registered_at IS NULL OR (registered_at>=$3 AND registered_at<$4) ORDER BY user_id`, string(identity), scope.LinkID, from, to, now-AccountDays*daySeconds)
+	if err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	ids := []int64{}
+	registered := map[int64]int64{}
+	for rows.Next() {
+		var id int64
+		var at sql.NullInt64
+		if err = rows.Scan(&id, &at); err != nil {
+			break
+		}
+		if !at.Valid {
+			err = errUnavailable
+			break
+		}
+		ids = append(ids, id)
+		registered[id] = at.Int64
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	result := costReport{Scope: scope, Registrations: len(ids), CompleteAfter: to + int64(days)*daySeconds, ObservedUntil: now}
+	result.Observing = now < result.CompleteAfter
+	for start := 0; start < len(ids); start += 100 {
+		reader, ok := h.s.UserRead.(firstCashReader)
+		if !ok {
+			respond(w, nil, errUnavailable)
+			return
+		}
+		batch := ids[start:min(start+100, len(ids))]
+		facts, e := reader.FirstCashPayments(ctx, batch)
+		if e != nil || len(facts.Users) != len(batch) {
+			respond(w, nil, errUnavailable)
+			return
+		}
+		requested := map[int64]bool{}
+		for _, id := range batch {
+			requested[id] = true
+		}
+		for _, fact := range facts.Users {
+			if !requested[fact.UserID] || fact.UnclassifiedOrders < 0 || (!fact.HistoryComplete && fact.UnclassifiedOrders == 0) || (fact.HistoryComplete && fact.UnclassifiedOrders != 0) {
+				respond(w, nil, errUnavailable)
+				return
+			}
+			delete(requested, fact.UserID)
+			result.Unclassified += fact.UnclassifiedOrders
+			if !fact.HistoryComplete {
+				continue
+			}
+			if fact.FirstPaidAt != nil {
+				paid := *fact.FirstPaidAt
+				at := registered[fact.UserID]
+				if paid < at {
+					respond(w, nil, errUnavailable)
+					return
+				}
+				if paid < now && paid < at+int64(days)*daySeconds {
+					result.FirstPayingAccounts++
+				}
+			}
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	if spend.Valid {
+		result.Spend = &struct {
+			Amount int64 `json:"amount_micros"`
+		}{spend.Int64}
+		if result.Registrations > 0 {
+			value := (spend.Int64 + int64(result.Registrations)/2) / int64(result.Registrations)
+			result.PerRegistration = &value
+		}
+		if !result.Observing && result.Unclassified == 0 && result.FirstPayingAccounts > 0 {
+			value := (spend.Int64 + int64(result.FirstPayingAccounts)/2) / int64(result.FirstPayingAccounts)
+			result.PerPayer = &value
+		}
+	}
+	respond(w, result, nil)
 }

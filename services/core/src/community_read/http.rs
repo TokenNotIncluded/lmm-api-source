@@ -89,11 +89,12 @@ endpoint!(
     UsersInfoRequest,
     native_first_cash_payments
 );
+endpoint!(first_cash_payments, UsersInfoRequest, first_cash_payments);
 endpoint!(key, KeyRequest, key);
 
 async fn capabilities(State(s): State<Service>, headers: HeaderMap) -> Response {
     reply(s.check(&headers).map(|_| {
-        serde_json::json!({"protocol_major":1,"features":["community.usage.v1","community.users.v1","community.users.roles.v1","community.users.registration.v1","community.users.page.v1","community.activity.native.v1","community.payments.native.first.v1","community.keys.v1"],"history_source":s.read.history_source})
+        serde_json::json!({"protocol_major":1,"features":["community.usage.v1","community.users.v1","community.users.roles.v1","community.users.registration.v1","community.users.page.v1","community.activity.native.v1","community.payments.native.first.v1","community.payments.first.v1","community.keys.v1"],"history_source":s.read.history_source})
     }))
 }
 
@@ -108,6 +109,10 @@ pub fn router(read: CommunityRead, token: &[u8]) -> Result<Router> {
         .route("/internal/community/v1/usage/user", post(user_usage))
         .route("/internal/community/v1/users", post(users))
         .route("/internal/community/v1/users/page", post(user_page))
+        .route(
+            "/internal/community/v1/payments/first",
+            post(first_cash_payments),
+        )
         .route(
             "/internal/community/v1/payments/native/first",
             post(native_first_cash_payments),

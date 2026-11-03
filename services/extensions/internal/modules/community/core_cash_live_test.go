@@ -32,4 +32,12 @@ func TestCoreCashPaymentsLive(t *testing.T) {
 	if result.Users[1].UserID != 102 || result.Users[1].FirstPaidAt != nil {
 		t.Fatalf("test-mode credit counted as cash: %#v", result.Users[1])
 	}
+	if err = client.ReadyFirstCashPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	combined, err := client.FirstCashPayments(ctx, []int64{101, 102, 999})
+	if err != nil || len(combined.Users) != 2 || !combined.Users[0].HistoryComplete || combined.Users[0].FirstPaidAt == nil || *combined.Users[0].FirstPaidAt != *result.Users[0].FirstPaidAt || !combined.Users[1].HistoryComplete || combined.Users[1].FirstPaidAt != nil {
+		t.Fatalf("combined payment response: %#v %v", combined, err)
+	}
+
 }

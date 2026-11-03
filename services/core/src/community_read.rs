@@ -2,6 +2,8 @@
 //! rankings, opted-in profile cards, onboarding facts and public display names.
 //! No spending authority, no writes, no per-request records leave Core.
 pub mod http;
+mod payments;
+pub use payments::{FirstCashPayment, FirstCashPayments};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -611,8 +613,10 @@ impl CommunityRead {
         // The event, accepted proof and successful credit receipt must refer to
         // the same intent/event. Preparation time is never payment time.
         // LDC is a virtual unit in the canonical finance classification, not cash.
-        let rows = sqlx::query("SELECT u.id AS user_id,floor(extract(epoch FROM min(r.created_at)))::bigint AS first_paid_at FROM core_identity.users u LEFT JOIN core_payments.intents i ON i.created_by_user_id=u.id AND i.account_id=u.personal_account_id AND i.environment='live' AND i.currency<>'LDC' AND i.credit_journal_id IS NOT NULL AND i.provider_transaction IS NOT NULL LEFT JOIN core_payments.receipts r ON r.intent_id=i.id AND r.method='credit' AND EXISTS(SELECT 1 FROM core_payments.provider_events e JOIN core_payments.accepted_proofs p ON p.channel_id=e.channel_id AND p.event_id=e.event_id AND p.intent_id=e.intent_id JOIN core_billing.ledger_journals j ON j.id=i.credit_journal_id AND j.kind='credit' WHERE e.intent_id=i.id AND e.receipt_id=r.id) WHERE u.id=ANY($1) GROUP BY u.id ORDER BY u.id")
-            .bind(&r.user_ids).fetch_all(&mut *tx).await?;
+        let rows = sqlx::query(payments::NATIVE_FIRST_CASH_SQL)
+            .bind(&r.user_ids)
+            .fetch_all(&mut *tx)
+            .await?;
         tx.commit().await?;
         let users = rows
             .into_iter()

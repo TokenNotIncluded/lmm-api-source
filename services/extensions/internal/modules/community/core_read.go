@@ -275,3 +275,26 @@ func (c *CoreRead) NativeFirstCashPayments(ctx context.Context, ids []int64) (Na
 	}{ids}, &out)
 	return out, err
 }
+
+// FirstCashPayments combines source-bound history and native payment authority.
+// Incomplete history carries no purported first-payment timestamp.
+type FirstCashPayment struct {
+	UserID             int64  `json:"user_id"`
+	FirstPaidAt        *int64 `json:"first_paid_at"`
+	HistoryComplete    bool   `json:"history_complete"`
+	UnclassifiedOrders int64  `json:"unclassified_orders"`
+}
+type FirstCashPayments struct {
+	Users []FirstCashPayment `json:"users"`
+}
+
+func (c *CoreRead) ReadyFirstCashPayments(ctx context.Context) error {
+	return c.ready(ctx, "community.payments.first.v1")
+}
+func (c *CoreRead) FirstCashPayments(ctx context.Context, ids []int64) (FirstCashPayments, error) {
+	var out FirstCashPayments
+	err := c.call(ctx, "payments/first", struct {
+		UserIDs []int64 `json:"user_ids"`
+	}{ids}, &out)
+	return out, err
+}

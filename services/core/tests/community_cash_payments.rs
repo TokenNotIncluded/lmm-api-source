@@ -169,8 +169,10 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
             .args([
                 "test",
                 "./internal/modules/community",
+                "./internal/modules/acquisition",
                 "-run",
-                "^TestCoreCashPaymentsLive$",
+                "^TestCore(CashPayments|Cost)Live$",
+                "-v",
                 "-count=1",
             ])
             .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../extensions"))
@@ -189,4 +191,11 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    if std::env::var_os("ACQUISITION_TEST_DATABASE_URL").is_some() {
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("--- PASS: TestCoreCostLive"),
+            "Core-backed cost integration must execute: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
 }

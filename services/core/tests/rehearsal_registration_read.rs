@@ -9,9 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[tokio::test]
-#[ignore = "requires an explicitly selected local restored rehearsal database"]
-async fn restored_registration_times_survive_all_import_receipts() {
+async fn rehearsal_pool() -> sqlx::PgPool {
     let dsn = std::env::var("LMM_CORE_REHEARSAL_READ_DATABASE_URL")
         .expect("explicit rehearsal DSN required");
     let options: PgConnectOptions = dsn.parse().expect("invalid rehearsal DSN");
@@ -45,6 +43,13 @@ async fn restored_registration_times_survive_all_import_receipts() {
         local,
         "requires an isolated read-only local rehearsal connection"
     );
+    pool
+}
+
+#[tokio::test]
+#[ignore = "requires an explicitly selected local restored rehearsal database"]
+async fn restored_registration_times_survive_all_import_receipts() {
+    let pool = rehearsal_pool().await;
     let rows = sqlx::query("SELECT e.key::bigint AS id,e.value::bigint AS registered FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_each_text(i.manifest->'registration_times') e WHERE i.manifest->>'scope'='legacy-cutover-identity.v1'")
         .fetch_all(&pool).await.unwrap();
     let expected: BTreeMap<i64, Option<i64>> = rows
@@ -110,6 +115,53 @@ async fn restored_registration_times_survive_all_import_receipts() {
     assert_eq!(
         batch_mismatches, 0,
         "batch user details must match the same source cohort"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires original-source private expected cash facts and local rehearsal"]
+async fn restored_cash_history_matches_original_classifications() {
+    let path = PathBuf::from(
+        std::env::var_os("LMM_CORE_REHEARSAL_CASH_EXPECTED")
+            .expect("explicit expected facts required"),
+    )
+    .canonicalize()
+    .unwrap();
+    let backups = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Backups")
+        .canonicalize()
+        .unwrap();
+    assert!(
+        path.starts_with(backups),
+        "expected cash facts must stay in private Backups"
+    );
+    let expected: Vec<lmm_core::community_read::FirstCashPayment> =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert!(!expected.is_empty());
+    let pool = rehearsal_pool().await;
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    let mut mismatches = 0;
+    for batch in expected.chunks(100) {
+        let result = read
+            .first_cash_payments(&UsersInfoRequest {
+                user_ids: batch.iter().map(|u| u.user_id).collect(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.users.len(), batch.len());
+        for (actual, expected) in result.users.iter().zip(batch) {
+            mismatches += usize::from(
+                actual.user_id != expected.user_id
+                    || actual.first_paid_at != expected.first_paid_at
+                    || actual.history_complete != expected.history_complete
+                    || actual.unclassified_orders != expected.unclassified_orders,
+            );
+        }
+    }
+    assert_eq!(
+        mismatches, 0,
+        "source-derived dates, unknowns and coverage must match for every imported user"
     );
     pool.close().await;
 }
