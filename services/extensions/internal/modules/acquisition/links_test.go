@@ -80,6 +80,27 @@ func TestLinksPostgresHTTP(t *testing.T) {
 		mux.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
 		return w
 	}
+	for _, body := range []string{`{"days":0}`, `{"days":91}`} {
+		if w := request("PUT", "/api/admin/acquisition/lookback", body); w.Code != 400 {
+			t.Fatalf("invalid lookback accepted: %d", w.Code)
+		}
+	}
+	if _, err = db.Exec(`INSERT INTO lmm_acquisition.accounts(user_id,lookback_days) VALUES(77,30)`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if w := request("PUT", "/api/admin/acquisition/lookback", `{"days":7}`); w.Code != 200 {
+			t.Fatalf("lookback failed: %d %s", w.Code, w.Body.String())
+		}
+	}
+	var current, historical, policies int
+	if err = db.QueryRow(`SELECT (SELECT lookback_days FROM lmm_acquisition.config),(SELECT lookback_days FROM lmm_acquisition.accounts WHERE user_id=77),(SELECT count(*) FROM lmm_acquisition.attribution_policies)`).Scan(&current, &historical, &policies); err != nil {
+		t.Fatal(err)
+	}
+	if current != 7 || historical != 30 || policies != 2 {
+		t.Fatalf("lookback rewrote history or duplicated policy: %d %d %d", current, historical, policies)
+	}
+
 	created := request("POST", "/api/admin/acquisition/links", `{"name":"Campaign","source":"original","target":"/pricing"}`)
 	var saved struct {
 		Data struct {
