@@ -36,3 +36,15 @@ Hero SMS 保留订单及 quota ledger 的全部原字段，包括原价格字符
 [统一核对工具](../scripts/verify_legacy_cutover_rehearsal.py) 对签到逐字段比较，对 SMS 两张表使用 PostgreSQL 规范 JSON 的全部字段 hash 比较，并核验 archive、观察时间和无资金重放标记。另检查原 SMS 订单与旧流水的一致性。对账只输出数量与差异数量，不输出密文、手机号、验证码或原价格内容。
 
 仍有资金、权利或业务缺口时报告保留 `SCOPED_PASS_WITH_GAPS`，退出码为 `2`；这不等于完整业务验收。必须分别保存导入重放与拒绝证据、逐条核对、余额和总账不变证明、密文读取、实际服务/页面、独立验收及最终停写快照的证明。旧演练回执不能当作最终切流边界。
+
+## 本人 SMS 资金历史接口
+
+`GET /core/v1/hero-sms/history?p=1&page_size=20` 只接受本人个人账户的有效 Session，拒绝 API Key。页码范围为 1–100000，每页为 1–100；不接受 `user_id`、`include_hidden` 等其他参数。所有响应均为 `Cache-Control: no-store`。
+
+接口要求唯一、完整且绑定同一 opening archive 和观察时间的 owner 回执。缺回执、来源边界不匹配、重复回执或用户不在原映射中时返回 503；已映射用户确实没有可见订单时才返回成功空列表。按旧版规则只读取 `history_hidden_at = 0`，按创建时间和订单 ID 倒序分页。
+
+返回原订单状态、服务、国家、运营商、创建/完成时间、原 USD 报价字符串，以及预扣、退款、净扣除和逐条流水的原额度十进制字符串。报价不是支付凭证；`quota_unit=legacy_raw_no_conversion`，不得把它直接当成新 credits 或换算金额。手机号、验证码、消息、供应商快照及其密文、上游成本和内部幂等键均不返回。
+
+`payload_available=false` 和 `supplier_operations_available=false` 表明这里只提供冻结历史，不提供解密或供应商操作。此接口没有下单、退款或重新扣款副作用；Web 页面接入与完整 SMS 业务验收仍须单独完成。
+
+本地真实 PostgreSQL/HTTP 自测位于 [hero_sms_history.rs](../services/core/tests/hero_sms_history.rs)。冻结旧事实检查使用显式 `LMM_SMS_HISTORY_MANIFEST` 私密文件路径和 `--include-ignored`；合成会话仅用于隔离读取验收，不证明旧密码登录或独立验收。

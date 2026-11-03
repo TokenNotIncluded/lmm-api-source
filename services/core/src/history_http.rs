@@ -62,6 +62,7 @@ impl ExportParams {
 pub fn router(store: HistoryStore) -> Router {
     Router::new()
         .route("/core/v1/checkins/history", get(checkin_history))
+        .route("/core/v1/hero-sms/history", get(hero_sms_history))
         .route("/api/log", get(logs))
         .route("/api/log/", get(logs))
         .route("/api/log/stat", get(stats))
@@ -536,6 +537,25 @@ async fn checkin_history(
         Err(_) => return error_response(HistoryError::Invalid),
     };
     match store.checkin_history(secret, &month).await {
+        Ok(data) => Json(json!({"success": true, "data": data})).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+async fn hero_sms_history(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<crate::history_read::hero_sms::SmsHistoryQuery>, QueryRejection>,
+) -> Response {
+    let secret = match extract_bearer(&headers) {
+        Ok(secret) => secret,
+        Err(error) => return error_response(error),
+    };
+    let query = match query {
+        Ok(Query(query)) => query,
+        Err(_) => return error_response(HistoryError::Invalid),
+    };
+    match store.hero_sms_history(secret, &query).await {
         Ok(data) => Json(json!({"success": true, "data": data})).into_response(),
         Err(error) => error_response(error),
     }

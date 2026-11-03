@@ -3,6 +3,7 @@
 //! Nothing here creates wallets, imports facts, replays requests or values raw
 //! opening counters. Source installation and HTTP mounting are explicit gates.
 pub mod checkins;
+pub mod hero_sms;
 pub(crate) mod performance;
 pub mod projection;
 pub mod quota_aggregates;
