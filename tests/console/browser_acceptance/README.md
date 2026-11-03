@@ -18,7 +18,7 @@ a10 冻结 HEAD7c3ebb8 + 主线程两行 Notice 修复，Bun1.3.14 复用现有�
 都写入新的 `/home/lightjunction/Documents/Codex/` 私有直属目录。没有产品修改、CI、
 生产访问、DMIT、付费上游、成功响应 mock 或调试 persona。
 
-`run.py` 固定当前 HEAD（默认 `7c3ebb86cf406c5f0a268ea2eb90edb985271751`）的
+历史版本 `run.py` 固定当时 HEAD（`7c3ebb86cf406c5f0a268ea2eb90edb985271751`）的
 `git archive`，排除工作树修改。初始新装模式会在冻结源码中构建 Web，记录原始文件、构建输出及
 构建后生成文件的哈希。缺少依赖先记 `dependency-preflight.json`，只允许一次
 240 秒、有 frozen lockfile、禁 lifecycle scripts、单网络并发的安装；构建限时 600 秒。
@@ -29,7 +29,7 @@ Core 固定用户交付的实际 main，SHA-256：
 其交付目录 `delivery-native-binding.json` 将其绑定到 `7c3ebb86`；此说明不把 dev
 产物升级为 release-profile/发布/部署证据。
 
-当前续验使用以下模式，不执行 install/build/init-db/create-first-owner/register：
+当时续验使用以下模式，不执行 install/build/init-db/create-first-owner/register：
 
 ```bash
 XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
@@ -100,3 +100,14 @@ UNKNOWN必须有真实PG提交回执丢失证据，并实际读取和刷新对�
 
 `--ordinary-only` 用于独立普通用户组，不执行设置保存或注册；a9已实跑通过。
 所有新轮继续用已停止a6 PG的写时复制副本和原账号，不改普通注册403边界。
+
+## 当前候选输入
+
+当前 runner 要求显式传入 `--commit <完整源码提交>` 和
+`--core-sha256 <已审核候选二进制摘要>`，不再默认采用历史候选。
+摘要用于防止输入漂移；源码到二进制的构建对应关系仍须提供独立构建证据。
+上面的历史执行命令与结果不代表当前候选，重跑时必须补齐这两个参数。
+新建和复用夹具均核对已安装组件名称、全部 SQL 摘要、身份库版本及摘要与该二进制
+`schema-manifest` 一致，结果保存为 `installed-schema-comparison.json`。
+这项核对不代替业务、浏览器或资源验收。校验器自测：
+`python3 -B tests/console/independent_process/test_schema_binding.py`。

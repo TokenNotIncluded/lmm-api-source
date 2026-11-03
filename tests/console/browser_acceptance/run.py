@@ -21,7 +21,6 @@ import time
 from unittest.mock import patch
 
 
-CORE_SHA = '6eca9a6e8b270bc7368057469dbd8185ad287db74589df3f3a223f610a53ec31'
 NOTICE_PATH = 'apps/web/src/features/system-settings/maintenance/notice-section.tsx'
 CASES = ['freeze', 'dependencies', 'build', 'fixture', 'browser']
 
@@ -48,7 +47,8 @@ def require(test, message):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--repo', type=Path, required=True)
-    p.add_argument('--commit', default='7c3ebb86cf406c5f0a268ea2eb90edb985271751')
+    p.add_argument('--commit', required=True)
+    p.add_argument('--core-sha256', required=True, help='Reviewed candidate binary SHA256')
     p.add_argument('--core', type=Path, required=True)
     p.add_argument('--root', type=Path, required=True)
     p.add_argument('--playwright', type=Path, required=True, help='Existing playwright/index.mjs')
@@ -111,13 +111,13 @@ def main():
             require(limits[key] != 'max' and int(limits[key]) <= ceiling, 'resource_limit_' + key)
         quota, period = limits['cpu.max'].split()
         require(quota != 'max' and int(quota) <= int(period), 'CPU1_required')
-        require(sha(args.core) == CORE_SHA, 'actual_Core_SHA_mismatch')
+        require(sha(args.core) == args.core_sha256, 'actual_Core_SHA_mismatch')
         tests = root / 'runner'
         if args.reuse_root:
             previous = args.reuse_root.resolve(strict=True)
             require(previous.parent == root.parent and previous != root, 'private_reuse_root_required')
             freeze = json.loads((previous / 'freeze.json').read_text())
-            require(freeze['commit'] == args.commit and freeze['core_sha256'] == CORE_SHA, 'reuse_binding_mismatch')
+            require(freeze['commit'] == args.commit and freeze['core_sha256'] == args.core_sha256, 'reuse_binding_mismatch')
             frozen = previous / 'source'
             dist = frozen / 'apps/web/dist'
             source_pins = json.loads((previous / 'source-pins.json').read_text())
@@ -151,8 +151,8 @@ def main():
             source_pins = pins(frozen)
             save(root / 'source-pins.json', source_pins)
             save(root / 'freeze.json', {'commit': args.commit, 'git_archive_sha256': sha(archive),
-                 'source_files': len(source_pins), 'core_path': str(args.core), 'core_sha256': CORE_SHA,
-                 'core_provenance': 'User supplied actual Core; delivery-native-binding.json associates it with 7c3ebb86; not a release-profile claim',
+                 'source_files': len(source_pins), 'core_path': str(args.core), 'core_sha256': args.core_sha256,
+                 'core_provenance': 'Caller supplied candidate hash; source-to-binary provenance requires separate build evidence; not a release-profile claim',
                  'working_tree_changes_included': False})
             tests = root / 'runner'
             tests.mkdir()
@@ -265,7 +265,7 @@ def main():
                 super().start_core(label)
 
         fargs = argparse.Namespace(source=frozen, core=args.core, evidence=root / 'fixture-evidence',
-                                   pins=root / 'source-pins.json', freeze=root / 'freeze.json', core_sha256=CORE_SHA)
+                                   pins=root / 'source-pins.json', freeze=root / 'freeze.json', core_sha256=args.core_sha256)
         fixture = Fixture(fargs)
         fixture.env.update({'TMPDIR': str(root / 'tmp')})
         fixture.webport = base.free_port()
@@ -313,6 +313,7 @@ def main():
             credentials = json.loads((previous / 'browser-private.json').read_text())
             fixture.password = fixture.secret(credentials['adminPassword'])
             fixture.user_password = fixture.secret(credentials['ordinaryPassword'])
+            fixture.verify_installed_schema()
             fixture.start_core('reused_formal_main')
         else:
             original_mkdtemp = tempfile.mkdtemp
@@ -434,7 +435,7 @@ def main():
         if args.reuse_root:
             require(pins(original_work) == original_pins, 'original_failure_PG_changed')
             require(all(sha(dist / k) == v for k, v in artifacts.items()), 'bundle_changed')
-        require(sha(args.core) == CORE_SHA, 'Core_drift')
+        require(sha(args.core) == args.core_sha256, 'Core_drift')
         results[case] = 'PASS'
     except Exception as error:
         results[case] = 'FAIL'

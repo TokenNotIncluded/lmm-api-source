@@ -233,6 +233,20 @@ SELECT json_build_object(
         self.command("core_version", [self.core, "--version"])
         self.command("compiled_schema", [self.core, "schema-manifest"])
 
+    def verify_installed_schema(self):
+        need(sha(self.core) == self.args.core_sha256, "schema_binary_hash_drift")
+        manifest = json.loads(self.command("installed_schema_manifest", [self.core, "schema-manifest"]))
+        need(manifest["format_version"] == 1 and manifest["scope"] == "compiled-core-schema-contract",
+             "unsupported_schema_manifest")
+        expected = {item["name"]: item["raw_schema_sha256"] for item in manifest["components"]}
+        need(bool(expected) and len(expected) == len(manifest["components"]), "invalid_component_manifest")
+        actual = json.loads(self.sql("installed_components", "SELECT coalesce(json_object_agg(name,encode(fingerprint,'hex')),'{}'::json) FROM core_meta.component_contract"))
+        need(actual == expected, "installed_component_contract_mismatch")
+        identity = json.loads(self.sql("installed_identity", "SELECT json_build_object('version',version,'fingerprint_sha256',encode(fingerprint,'hex')) FROM core_meta.schema_contract WHERE singleton"))
+        need(identity == manifest["identity"], "installed_identity_contract_mismatch")
+        self.save("installed-schema-comparison.json", {"core_sha256": self.args.core_sha256,
+                  "components": actual, "identity": identity, "result": "PASS"})
+
     def grants(self):
         self.command("official_grants", ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1",
                     "-v", "runtime_role=console_runtime", "-v", "enable_console=true",
@@ -304,8 +318,7 @@ CREATE DATABASE console_acceptance OWNER lmm_core_owner;
         need(receipt.get("setup_completed") is True, "first_owner_receipt")
         self.owner_id = receipt["user_id"]
         self.grants()
-        need(self.sql("schema_v6", "SELECT version FROM core_meta.schema_contract WHERE singleton") == "6", "identity_not_v6")
-        need(self.sql("component27", "SELECT count(*) FROM core_meta.component_contract") == "27", "not_27_components")
+        self.verify_installed_schema()
         identity = json.loads(self.sql("pg_identity", "SELECT json_build_object('system_id',system_identifier::text,'data_directory',current_setting('data_directory'),'database',current_database(),'listen',current_setting('listen_addresses')) FROM pg_control_system()"))
         need(Path(identity["data_directory"]).resolve() == (self.work / "data").resolve() and identity["listen"] == "", "pg_identity_mismatch")
         self.save("postgres-identity.json", identity)
