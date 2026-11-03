@@ -12,6 +12,9 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[path = "common/runtime.rs"]
+mod runtime;
+
 fn render(data: &Value, phase: &str, archive: &str) -> String {
     let mut child = Command::new("python3")
         .arg("-B").arg("-c")
@@ -142,6 +145,40 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
             .await
             .is_err()
     );
+    let runtime = runtime::RuntimeRole::create(&pool).await;
+    let grants = include_str!("../../../deployment/postgres/grant-core-runtime.sql")
+        .split_once("\\if :enable_wallet\n")
+        .unwrap()
+        .1
+        .split_once("\\endif")
+        .unwrap()
+        .0
+        .replace(":\"runtime_role\"", &runtime.name);
+    sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    let rights: (bool,bool) = sqlx::query_as("SELECT has_table_privilege('core_wallet.legacy_transfer_history','SELECT'),has_table_privilege('core_wallet.legacy_transfer_history','INSERT,UPDATE,DELETE,TRUNCATE')")
+        .fetch_one(&runtime.pool).await.unwrap();
+    assert_eq!(rights, (true, false));
+    let restricted = Store::new(runtime.pool.clone());
+    let page = restricted
+        .list(bundle.data["access_token"].as_str().unwrap(), 4)
+        .await
+        .unwrap();
+    assert!(page.iter().all(|t| t.id < 4));
+    assert_eq!(
+        restricted
+            .list(bundle.data["access_token"].as_str().unwrap(), 0)
+            .await
+            .unwrap()
+            .len(),
+        4
+    );
+    assert!(
+        restricted
+            .list(&recipient_session.secret, 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let history = store
         .list(bundle.data["access_token"].as_str().unwrap(), 0)
         .await
@@ -236,4 +273,5 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
             .await
             .unwrap();
     assert!(conserved);
+    runtime.cleanup().await;
 }
