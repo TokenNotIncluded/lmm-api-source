@@ -38,8 +38,10 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     let expected = serde_json::to_value(lmm_core::core_schema::schema_manifest()).unwrap();
     assert_eq!(actual, expected);
     assert_eq!(actual["format_version"], 1);
-    assert_eq!(actual["components"].as_array().unwrap().len(), 52);
+    assert_eq!(actual["components"].as_array().unwrap().len(), 54);
     assert_eq!(actual["components"][51]["name"], "affiliate-claims");
+    assert_eq!(actual["components"][52]["name"], "referral-ledger-revision");
+    assert_eq!(actual["components"][53]["name"], "legacy-referrals");
     use sha2::{Digest, Sha256};
     assert_eq!(
         actual["components"][51]["raw_schema_sha256"],
@@ -48,6 +50,21 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
             Sha256::digest(include_bytes!("../schema/affiliate_claims.sql"))
         )
     );
+    for (index, raw) in [
+        (
+            52,
+            include_bytes!("../schema/referral_ledger_revision.sql").as_slice(),
+        ),
+        (
+            53,
+            include_bytes!("../schema/legacy_referrals.sql").as_slice(),
+        ),
+    ] {
+        assert_eq!(
+            actual["components"][index]["raw_schema_sha256"],
+            format!("{:x}", Sha256::digest(raw))
+        );
+    }
     assert_eq!(actual["scope"], "compiled-core-schema-contract");
     assert_eq!(
         actual["components"].as_array().unwrap().len(),
