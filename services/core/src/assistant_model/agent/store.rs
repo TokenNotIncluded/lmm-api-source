@@ -403,6 +403,16 @@ impl AgentService {
     ) -> Result<TurnSnapshot, Error> {
         let mut tx = self.base.begin().await?;
         let principal = actor(&mut tx, session).await?;
+        // Status polling must not queue behind a worker's durable transaction.
+        // A busy conversation is retryable, not a storage outage after lock_timeout.
+        let locked: bool =
+            sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1,908534117))")
+                .bind(conversation_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if !locked {
+            return Err(Error::Conflict);
+        }
         self.base
             .lock_conversation(&mut tx, &principal, conversation_id)
             .await?;

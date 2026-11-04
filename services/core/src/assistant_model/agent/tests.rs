@@ -297,6 +297,30 @@ async fn agent_request_limits_persist_rejection_without_answer_hold_or_dispatch(
 }
 
 #[sqlx::test(migrations = false)]
+async fn status_poll_retries_busy_conversation_without_storage_outage(pool: PgPool) {
+    let (agent, session, _, p) = setup(&pool, "get_account_access").await;
+    let cv = agent
+        .base
+        .conversation(&session, "agent-busy-status", true)
+        .await
+        .unwrap()
+        .core_conversation_id;
+    let mut worker = pool.begin().await.unwrap();
+    super::super::lock_conversation_id(&mut worker, &cv)
+        .await
+        .unwrap();
+    let busy = tokio::time::timeout(Duration::from_secs(1), agent.get(&session, &cv, "turn1"))
+        .await
+        .expect("status must not wait for the worker's conversation lock");
+    assert!(matches!(busy, Err(Error::Conflict)));
+    worker.rollback().await.unwrap();
+    assert!(matches!(
+        agent.get(&session, &cv, "turn1").await,
+        Err(Error::NotFound)
+    ));
+    assert_eq!(p.hits.load(Ordering::SeqCst), 0);
+}
+#[sqlx::test(migrations = false)]
 async fn core_read_round_settles_twice_and_uses_actual_stored_context(pool: PgPool) {
     let (agent, session, account, p) = setup(&pool, "get_account_access").await;
     let cv = agent
