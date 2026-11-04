@@ -1,6 +1,7 @@
 //! Read-only community aggregates for the Go community extension: public usage
 //! rankings, opted-in profile cards, onboarding facts and public display names.
 //! No spending authority, no writes, no per-request records leave Core.
+mod connection_history;
 mod connections;
 pub mod http;
 pub use connections::{ConnectionMilestone, ConnectionMilestones};

@@ -152,6 +152,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "legacy-referrals",
         include_str!("../schema/legacy_referrals.sql"),
     ),
+    (
+        "connection-history",
+        include_str!("../schema/connection_history.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

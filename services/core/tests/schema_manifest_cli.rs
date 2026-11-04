@@ -38,10 +38,11 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     let expected = serde_json::to_value(lmm_core::core_schema::schema_manifest()).unwrap();
     assert_eq!(actual, expected);
     assert_eq!(actual["format_version"], 1);
-    assert_eq!(actual["components"].as_array().unwrap().len(), 54);
+    assert_eq!(actual["components"].as_array().unwrap().len(), 55);
     assert_eq!(actual["components"][51]["name"], "affiliate-claims");
     assert_eq!(actual["components"][52]["name"], "referral-ledger-revision");
     assert_eq!(actual["components"][53]["name"], "legacy-referrals");
+    assert_eq!(actual["components"][54]["name"], "connection-history");
     use sha2::{Digest, Sha256};
     assert_eq!(
         actual["components"][51]["raw_schema_sha256"],
@@ -58,6 +59,10 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
         (
             53,
             include_bytes!("../schema/legacy_referrals.sql").as_slice(),
+        ),
+        (
+            54,
+            include_bytes!("../schema/connection_history.sql").as_slice(),
         ),
     ] {
         assert_eq!(

@@ -14,7 +14,7 @@ fn target() -> Result<Target, IdentityError> {
         .map_err(|_| IdentityError::Storage)?;
     let mut bytes = serde_json::to_vec(&schema_manifest()).map_err(|_| IdentityError::Storage)?;
     bytes.push(b'\n');
-    if COMPONENTS.len() != 54 || target.manifest_sha256 != format!("{:x}", Sha256::digest(bytes)) {
+    if COMPONENTS.len() != 55 || target.manifest_sha256 != format!("{:x}", Sha256::digest(bytes)) {
         return Err(IdentityError::Storage);
     }
     Ok(target)

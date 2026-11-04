@@ -342,10 +342,15 @@ func (c *CoreRead) CashPaymentTotals(ctx context.Context, ids []int64, from, to 
 // ConnectionMilestone carries credential creation, not social-login bindings.
 // Incomplete history proves positives only; nil is never a historical negative.
 type ConnectionMilestone struct {
-	UserID            int64  `json:"user_id"`
-	APIKeyCreatedAt   *int64 `json:"api_key_created_at"`
-	OAuthAuthorizedAt *int64 `json:"oauth_authorized_at"`
-	HistoryComplete   bool   `json:"history_complete"`
+	ApplicationSubmittedAt     *int64 `json:"application_submitted_at"`
+	AccessApprovedAt           *int64 `json:"access_approved_at"`
+	ApplicationHistoryComplete bool   `json:"application_history_complete"`
+	ApprovalHistoryComplete    bool   `json:"approval_history_complete"`
+	HistorySource              string `json:"history_source"`
+	UserID                     int64  `json:"user_id"`
+	APIKeyCreatedAt            *int64 `json:"api_key_created_at"`
+	OAuthAuthorizedAt          *int64 `json:"oauth_authorized_at"`
+	HistoryComplete            bool   `json:"history_complete"`
 }
 type ConnectionMilestones struct {
 	Users []ConnectionMilestone `json:"users"`

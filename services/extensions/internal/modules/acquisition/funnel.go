@@ -161,6 +161,20 @@ func (h *handlers) funnel(w http.ResponseWriter, r *http.Request, a actor) {
 				respond(w, nil, e)
 				return
 			}
+			for _, v := range []struct {
+				stage    string
+				at       *int64
+				complete bool
+			}{
+				{"application_submitted", fact.ApplicationSubmittedAt, fact.ApplicationHistoryComplete},
+				{"access_approved", fact.AccessApprovedAt, fact.ApprovalHistoryComplete},
+			} {
+				if v.at != nil && (*v.at < u.Registered || *v.at > now) {
+					respond(w, nil, errUnavailable)
+					return
+				}
+				observations[v.stage][u.ID] = funnelObservation{RegisteredAt: u.Registered, At: v.at, Complete: v.complete, FirstIsExact: v.complete}
+			}
 			observations["api_key_created"][u.ID] = key
 			observations["oauth_authorized"][u.ID] = oauth
 			ready := key
