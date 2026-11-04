@@ -1,7 +1,8 @@
 """Money cutover must preserve paid contract terms before emitting SQL."""
+import json
 import unittest
 
-from legacy_cutover_money import plan_terms, subscription_order_links, plan_promotions, discount_available
+from legacy_cutover_money import plan_terms, subscription_order_links, plan_promotions, discount_available, discount_capacity_holds, topup_can_settle, TOPUP_PAYABLE_SQL, plan_wallet
 
 
 class SubscriptionTermsTest(unittest.TestCase):
@@ -56,6 +57,45 @@ class SubscriptionTermsTest(unittest.TestCase):
         self.assertEqual(terms["price_units"], "1000000")
         self.assertFalse(archived)
 
+
+
+
+class DiscountPaymentLifecycleTest(unittest.TestCase):
+    def test_released_timeout_and_unreserved_payable_orders_still_hold_capacity(self):
+        def order(trade, status="failed", provider="waffo_pancake", reason="checkout_timeout"):
+            return {"trade_no":trade,"discount_code_id":1,"status":status,"payment_provider":provider,"failure_reason_code":reason}
+        rows=[order("released-timeout"),order("unreserved-timeout"),order("unreserved-pending","pending"),order("closed-failure",reason="declined"),order("closed-expired","expired"),order("unknown-reason",reason=None),order("consumed","success")]
+        reservations=[{"top_up_trade_no":trade,"discount_code_id":1,"status":status,"expires_time":1} for trade,status in [("released-timeout","released"),("closed-failure","reserved"),("closed-expired","reserved"),("unknown-reason","reserved"),("missing-order","reserved"),("consumed","consumed")]]
+        data={"discount_codes":[{"id":1}],"discount_code_reservations":reservations,"discount_top_ups":rows}
+        self.assertEqual(discount_capacity_holds(data),{1:5})
+        self.assertTrue(topup_can_settle(rows[0]))
+        self.assertFalse(topup_can_settle(rows[3]))
+        self.assertFalse(topup_can_settle(rows[5]))
+        self.assertIn("checkout_timeout", TOPUP_PAYABLE_SQL)
+        with self.assertRaisesRegex(SystemExit,"discount_payment_lifecycle_missing"):
+            discount_capacity_holds({k:v for k,v in data.items() if k!="discount_top_ups"})
+        with self.assertRaisesRegex(SystemExit,"duplicate"):
+            discount_capacity_holds({**data,"discount_top_ups":rows+[rows[0]]})
+
+    def test_wallet_keeps_timeout_status_and_quarantines_missing_owners(self):
+        timeout={"id":11,"user_id":1,"status":"failed","payment_provider":"waffo_pancake","failure_reason_code":"checkout_timeout","credited_quota":123}
+        data={"users":[{"id":1}],"wallet_transfers":[],"top_ups_payable":[timeout,{**timeout,"id":12,"user_id":9}]}
+        sql,stats=plan_wallet(data,"a"*64,"fixture",100)
+        self.assertEqual(stats["pending_topup_liabilities"],1)
+        self.assertEqual(stats["late_payable_timeout_topup_liabilities"],1)
+        self.assertEqual(stats["unrepresented_payable_topup_orphan_rows"],1)
+        request=json.loads(sql[0].split("(",1)[1].removesuffix("::jsonb);")[1:-1].replace("''","'"))
+        self.assertEqual(request["request"]["source_status"],"failed")
+        self.assertEqual(request["status"],"failed")
+        self.assertEqual(request["payload_json"],timeout)
+        self.assertEqual(request["settlement_state"],"unknown")
+        self.assertIs(request["spendable"],False)
+        self.assertEqual(request["spendable_units"],0)
+        self.assertNotIn('post_ledger',"".join(sql))
+        with self.assertRaisesRegex(SystemExit,"topup_not_payable"):
+            plan_wallet({**data,"top_ups_payable":[{**timeout,"status":"success"}]},"a"*64,"fixture",100)
+        with self.assertRaisesRegex(SystemExit,"topup_payable_lifecycle_missing"):
+            plan_wallet({k:v for k,v in data.items() if k!="top_ups_payable"},"a"*64,"fixture",100)
 
 if __name__ == "__main__":
     unittest.main()

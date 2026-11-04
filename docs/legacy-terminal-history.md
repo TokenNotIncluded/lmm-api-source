@@ -48,3 +48,5 @@ Hero SMS 保留订单及 quota ledger 的全部原字段，包括原价格字符
 `payload_available=false` 和 `supplier_operations_available=false` 表明这里只提供冻结历史，不提供解密或供应商操作。此接口没有下单、退款或重新扣款副作用。短信页面已接入独立的冻结资金历史卡片，不依赖当前目录或供应商请求成功；原额度按大整数显示，原报价不经浮点数转换。加载失败不显示伪空列表，分页与缓存按用户和会话隔离；换账户后重置页码并丢弃旧响应。真实 Core＋Go＋Web 联调、视觉检查和完整 SMS 独立业务验收仍须单独完成。
 
 本地真实 PostgreSQL/HTTP 自测位于 [hero_sms_history.rs](../services/core/tests/hero_sms_history.rs)。冻结旧事实检查使用显式 `LMM_SMS_HISTORY_MANIFEST` 私密文件路径和 `--include-ignored`；合成会话仅用于隔离读取验收，不证明旧密码登录或独立验收。
+
+充值超时后的潜在到账与折扣名额规则另见[旧充值的未决支付义务](legacy-payment-obligations.md)，不能从终态记录名推断已经结清。

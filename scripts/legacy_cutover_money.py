@@ -40,6 +40,54 @@ def digest(value) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str,
                                      separators=(",", ":")).encode()).hexdigest()
 
+TOPUP_PAYABLE_SQL = "(status='pending' OR (status='failed' AND payment_provider='waffo_pancake' AND failure_reason_code='checkout_timeout'))"
+
+
+def topup_can_settle(row):
+    return row is not None and (row.get("status") == "pending" or (
+        row.get("status") == "failed" and row.get("payment_provider") == "waffo_pancake"
+        and row.get("failure_reason_code") == "checkout_timeout"))
+
+
+def discount_capacity_holds(data):
+    """Mirror original capacity rules; reservation TTL never proves closure."""
+    reservations = data["discount_code_reservations"]
+    if not data["discount_codes"] and not reservations:
+        return Counter()
+    if "discount_top_ups" not in data:
+        fail("discount_payment_lifecycle_missing")
+    orders = {}
+    for row in data["discount_top_ups"]:
+        trade = row["trade_no"]
+        if not isinstance(trade, str) or not trade or trade in orders:
+            fail("discount_topup_reference_invalid_or_duplicate")
+        orders[trade] = row
+    held = Counter()
+    reserved_trades = set()
+    for row in reservations:
+        trade = row["top_up_trade_no"]
+        if trade in reserved_trades:
+            fail("discount_reservation_reference_duplicate")
+        reserved_trades.add(trade)
+        order = orders.get(trade)
+        # Match SQL's nullable failure_reason_code: unknown is not proof of closure.
+        closed = order is not None and (order.get("status") == "expired" or (
+            order.get("status") == "failed" and (
+                (order.get("payment_provider") or "") != "waffo_pancake" or (
+                    order.get("failure_reason_code") is not None
+                    and order["failure_reason_code"] != "checkout_timeout"))))
+        if row["status"] == "reserved" and not closed:
+            held[row["discount_code_id"]] += 1
+        elif row["status"] == "released" and topup_can_settle(order):
+            held[row["discount_code_id"]] += 1
+        elif row["status"] not in ("reserved", "released", "consumed"):
+            fail("discount_reservation_status_unknown")
+    for trade, order in orders.items():
+        if order["discount_code_id"] > 0 and trade not in reserved_trades and topup_can_settle(order):
+            held[order["discount_code_id"]] += 1
+    return held
+
+
 PHASES = ("subscriptions", "promotions", "bounties", "wallet")
 GUARDS = {
     "subscriptions": "SELECT (SELECT count(*) FROM core_subscriptions.plans)"
@@ -85,9 +133,11 @@ def load_source(src, schema: str) -> dict:
         "bounty_challenges": q("SELECT * FROM open_source_bounty_challenges ORDER BY id"),
         "bounty_disputes": q("SELECT * FROM open_source_bounty_disputes ORDER BY id"),
         "wallet_transfers": q("SELECT * FROM wallet_transfers ORDER BY id"),
-        "top_ups_pending": q("SELECT * FROM top_ups WHERE status='pending' ORDER BY id"),
+        "top_ups_payable": q("SELECT * FROM top_ups WHERE " + TOPUP_PAYABLE_SQL + " ORDER BY id"),
+        "discount_top_ups": q("SELECT trade_no,discount_code_id,status,payment_provider,failure_reason_code FROM top_ups "
+                              "WHERE discount_code_id>0 OR trade_no IN (SELECT top_up_trade_no FROM discount_code_reservations)"),
         "discount_codes": q("SELECT id,status,used_count,max_uses,starts_time,expired_time,deleted_at,owner_user_id FROM discount_codes"),
-        "discount_code_reservations": q("SELECT id,status,discount_code_id,expires_time FROM discount_code_reservations"),
+        "discount_code_reservations": q("SELECT id,status,discount_code_id,expires_time,top_up_trade_no FROM discount_code_reservations"),
         "red_packets": q("SELECT id,enabled,end_at,deleted_at FROM red_packets"),
         "red_packet_items": q("SELECT id,packet_id,item_type,claimed_by FROM red_packet_items"),
         "red_packet_claims": q("SELECT count(*) AS n FROM red_packet_claims"),
@@ -128,11 +178,11 @@ def pending_liability(data, table, row, *, archive_sha, migration_id, observed_a
         "migration_id": migration_id, "source_archive_sha256": archive_sha,
         "mapping_sha256": opening_mapping(data), "source_table": table, "source_row_key": str(row["id"]),
         "source_row_sha256": digest(row), "source_parent_plan_sha256": None,
-        "owner_user_id": uid, "owner_account_id": uid, "status": "pending", "settlement_state": "unknown",
+        "owner_user_id": uid, "owner_account_id": uid, "status": row["status"], "settlement_state": "unknown",
         "payload_json": row, "amount_raw_json": {k: row.get(k) for k in amount_fields},
         "currency_raw_json": {k: row.get(k) for k in currency_fields},
         "spendable": False, "spendable_units": 0, "observed_at": observed_at,
-        "request": {"importer": "legacy_cutover_money", "source_status": "pending"},
+        "request": {"importer": "legacy_cutover_money", "source_status": row["status"]},
         "result": {"provider_status": "unobserved"}}) + ");"
 
 
@@ -343,8 +393,7 @@ def plan_promotions(data, archive_sha, migration_id, observed_at):
     stats["unrepresented_checkin_enabled"] = data["options"].get("checkin_setting.enabled") == "true"
     stats["legacy_checkins_history_not_imported"] = data["checkin_total"][0]["n"]
     live = lambda expires: not expires or expires > observed_at  # noqa: E731
-    reserved = Counter(r["discount_code_id"] for r in data["discount_code_reservations"]
-                       if r["status"] == "reserved")
+    reserved = discount_capacity_holds(data)
     stats["unrepresented_discount_codes_usable"] = sum(
         discount_available(d, reserved[d["id"]], observed_at) for d in data["discount_codes"])
     stats["unrepresented_discount_code_reservations"] = len(data["discount_code_reservations"])
@@ -499,7 +548,16 @@ END$wt$;""")
         stats["pending_units"] += amount
     if top:
         sql.append(f"SELECT setval(pg_get_serial_sequence('core_wallet.transfers','id'),{top});")
-    for row in data["top_ups_pending"]:
+    if "top_ups_payable" not in data:
+        fail("topup_payable_lifecycle_missing")
+    for row in data["top_ups_payable"]:
+        if not topup_can_settle(row):
+            fail("topup_not_payable")
+        if row["user_id"] not in users:
+            # Keep the complete row in the private source export; never assign a
+            # deleted user's payment to a new account or mark it settled.
+            stats["unrepresented_payable_topup_orphan_rows"] += 1
+            continue
         sql.append(pending_liability(data, "top_ups", row, archive_sha=archive_sha, migration_id=migration_id,
                                      observed_at=observed_at,
                                      amount_fields=("amount", "money", "expected_amount_micros", "settled_amount_micros",
@@ -507,6 +565,7 @@ END$wt$;""")
                                                     "platform_amount_micros"),
                                      currency_fields=("settlement_currency", "discount_qualifying_unit")))
         stats["pending_topup_liabilities"] += 1
+        stats["late_payable_timeout_topup_liabilities"] += row["status"] == "failed"
     return sql, dict(stats)
 
 
