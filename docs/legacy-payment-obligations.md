@@ -45,3 +45,9 @@ fixture 要求本机 `~/Backups/` 下的 socket、端口 55436、名称以 `lmm_
 生成的 `legacy-topup-settlement-facts.v1` owner 回执绑定同一 opening archive 与观察时间，严格重放只接受同一 manifest。它保存原订单引用、原额度与原应付金额、被拒绝记录和未映射用户；`runtime_settlement_available=false`。真正的 `LegacyPaymentBasis` 运行时表、商户/环境/币种绑定、旧订单验签入口、折扣消费和原子入账仍须实现，不能把事实回执当作付款或发放授权。
 
 本次固定快照的原函数观察为 190 单中 182 单额度有效，8 单 EPay 记录被原规则拒绝。全部订单的原应付金额可读；3 单 owner 已删除。逐单观察与订单、1 份重基母计划、5 项额度配置均已在本地回执精确保留，重复导入无额外资金写入。独立业务验收与真实回调仍未执行。
+
+### 新旧订单算术边界
+
+preparer 额外输出 `compatibility.private.json`，只核对当前新订单的整分金额与整数 `credits_per_minor` 约束，不修改原 manifest 或冻结报价。原快照的 182 笔有效报价中，3 笔应付金额不是整分；其余整分订单中有 177 笔的原额度无法表示成整数 credits/分，仅 2 笔算术上可表示。该数字不证明渠道、验签、归属或退款就绪。
+
+旧回调需要独立的冻结报价结算依据，保留原金额的微单位精度和原有效额度。不能通过舍入原金额、调整到账额度或重选当前汇率适配新订单表。当前报告始终为 `native_intent_replay_authorized=false`，实际运行时结算仍未开放。

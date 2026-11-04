@@ -78,6 +78,26 @@ def prepare(source, oracle, *, archive_sha256, expected_rows):
             'oracle':oracle,'tables':tables}
 
 
+
+def native_intent_compatibility(manifest):
+    """Report actual incompatibility with the existing integer-minor-unit schema.
+
+    This never changes a quote, releases a blocker, or authorizes an import.
+    Counts describe arithmetic only; merchant and signature bindings are separate.
+    """
+    accepted=[r for r in manifest['oracle']['results'] if not r['rejected']]
+    fractional=sum(r['expected_micros']%10000!=0 for r in accepted)
+    incompatible=sum(r['expected_micros']%10000==0 and
+                     r['quota']%(r['expected_micros']//10000)!=0 for r in accepted)
+    return {'scope':'legacy-versus-native-intent-arithmetic.v1',
+            'accepted_original_quotes':len(accepted),
+            'amount_not_whole_minor_units':fractional,
+            'noninteger_credits_per_minor_unit':incompatible,
+            'arithmetically_representable':len(accepted)-fractional-incompatible,
+            'native_intent_replay_authorized':False,
+            'runtime_settlement_available':False}
+
+
 def import_sql(manifest):
     return owner_history_import_sql(manifest,scope=SCOPE,error_prefix='legacy_settlement_facts')
 
@@ -89,7 +109,8 @@ def main():
     p.add_argument('--expected-rows',type=int,required=True);a=p.parse_args()
     m=prepare(json.loads(a.input.read_text()),json.loads(a.oracle.read_text()),archive_sha256=a.archive_sha256,expected_rows=a.expected_rows)
     a.output.mkdir(mode=0o700,parents=True,exist_ok=True)
-    for name,text in [('manifest.private.json',canonical(m)+'\n'),('import.private.sql',import_sql(m))]:
+    for name,text in [('manifest.private.json',canonical(m)+'\n'),('import.private.sql',import_sql(m)),
+                      ('compatibility.private.json',canonical(native_intent_compatibility(m))+'\n')]:
         with os.fdopen(os.open(a.output/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as f:f.write(text)
     print(json.dumps({k:m[k] for k in ('source_order_count','original_quota_accepted_count','original_quota_rejected_count','balance_effect','runtime_settlement_available')}))
 

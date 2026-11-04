@@ -1,6 +1,6 @@
 import copy
 import unittest
-from prepare_legacy_settlement_basis import prepare, import_sql, NAMESPACE, LEGACY_COMMIT
+from prepare_legacy_settlement_basis import prepare, import_sql, native_intent_compatibility, NAMESPACE, LEGACY_COMMIT
 from prepare_wallet_history_snapshot import digest
 
 class SettlementFactsTest(unittest.TestCase):
@@ -22,6 +22,21 @@ class SettlementFactsTest(unittest.TestCase):
         s=copy.deepcopy(self.source);s['source_user_ids']=[8]
         o=copy.deepcopy(self.oracle);o['source_user_ids_sha256']=digest([8]);o['results'][0].update(quota=0,rejected=True)
         m=self.run_plan(s,o);self.assertEqual(m['original_quota_rejected_count'],1);self.assertEqual(m['unmapped_order_ids'],[1])
+    def test_native_arithmetic_does_not_round_or_reprice_legacy_quotes(self):
+        m=self.run_plan()
+        r=native_intent_compatibility(m)
+        self.assertEqual(r['noninteger_credits_per_minor_unit'],1)
+        self.assertEqual(r['arithmetically_representable'],0)
+        self.assertFalse(r['native_intent_replay_authorized'])
+        m['oracle']['results'][0].update(expected_micros=123456,quota=123)
+        r=native_intent_compatibility(m)
+        self.assertEqual(r['amount_not_whole_minor_units'],1)
+        self.assertEqual(r['noninteger_credits_per_minor_unit'],0)
+        m['oracle']['results'][0].update(expected_micros=100000,quota=50000)
+        self.assertEqual(native_intent_compatibility(m)['arithmetically_representable'],1)
+        m['oracle']['results'][0].update(rejected=True,quota=0)
+        self.assertEqual(native_intent_compatibility(m)['accepted_original_quotes'],0)
+
     def test_tampered_scope_rows_owners_and_failed_observations_are_rejected(self):
         for mutate in [lambda o:o.update(source_orders_sha256='e'*64),lambda o:o.update(source_tables_sha256='e'*64),lambda o:o.update(network_isolated=False),lambda o:o['results'][0].update(user_id=8),lambda o:o['results'][0].update(quota=0),lambda o:o['results'][0].update(rejected=True)]:
             o=copy.deepcopy(self.oracle);mutate(o)
