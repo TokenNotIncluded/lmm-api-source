@@ -42,7 +42,7 @@ fixture 要求本机 `~/Backups/` 下的 socket、端口 55436、名称以 `lmm_
 
 [事实 preparer](../scripts/prepare_legacy_settlement_basis.py) 接受 `--input`、`--oracle`、`--archive-sha256`、`--expected-rows` 和私密 `--output`。oracle 文档绑定原提交、二进制/捕获源码/原源码归档 SHA-256、完整表与原用户 ID 向量 hash、禁网与回滚范围，以及逐单原结果。preparer 验证精确覆盖、owner、金额和拒绝状态；这些 hash 是来源保留材料，不是对任意 JSON 的真实性签名，仍需独立审核原函数执行过程。
 
-生成的 `legacy-topup-settlement-facts.v1` owner 回执绑定同一 opening archive 与观察时间，严格重放只接受同一 manifest。它保存原订单引用、原额度与原应付金额、被拒绝记录和未映射用户；`runtime_settlement_available=false`。当前运行时依据表为 `core_payments.legacy_bases`，见下节；它与事实回执是不同层次。owner 依据加载器和审批执行尚未实现，不能把事实回执当作付款或发放授权。
+生成的 `legacy-topup-settlement-facts.v1` owner 回执绑定同一 opening archive 与观察时间，严格重放只接受同一 manifest。它保存原订单引用、原额度与原应付金额、被拒绝记录和未映射用户；`runtime_settlement_available=false`。当前运行时依据表为 `core_payments.legacy_bases`，见下节；它与事实回执是不同层次。下述离线 preparer 可生成依据安装 SQL，真实渠道审核与审批执行尚未完成，不能把事实回执当作付款或发放授权。
 
 本次固定快照的原函数观察为 190 单中 182 单额度有效，8 单 EPay 记录被原规则拒绝。全部订单的原应付金额可读；3 单 owner 已删除。逐单观察与订单、1 份重基母计划、5 项额度配置均已在本地回执精确保留，重复导入无额外资金写入。独立业务验收与真实回调仍未执行。
 
@@ -65,13 +65,25 @@ Core 的 [独立验签器](../services/core/src/payments/legacy_pancake.rs) 接�
 
 ## 当前 component 50 内部实现
 
-以下描述内部实现及其局部自测，不代表发布、独立验收或生产就绪。[schema](../services/core/schema/legacy_payments.sql) 属于 fresh component 50；不提供将已有 component 49 数据库升级到 50 的流程。普通启动不能代替 owner 安装或既有站点升级。
+以下描述内部实现及其局部自测，不代表发布、完整业务独立验收或生产就绪。[schema](../services/core/schema/legacy_payments.sql) 属于 fresh component 50；不提供将已有 component 49 数据库升级到 50 的流程。普通启动不能代替 owner 安装或既有站点升级。
 
 ### owner 安装的不可变依据
 
 `legacy_bases` 保存原订单、原用户、来源归档与原行 hash、审核 hash，以及绑定的商户、环境、渠道、币种、store/product 和原折扣码。插入触发器要求依据的 opening migration、`user:<原用户 ID>`、来源归档 SHA-256 与原 opening 导入一致，且目标必须是该映射用户的原个人账户。不能改绑团队账户或其他用户，也不能为已删除用户凭空生成归属。依据仅接受 pending 或 checkout_timeout 的 failed 原订单；冻结的正整数 `amount_micros` 和 `credit_units` 保留原微单位金额及原有效额度，不按当前价格、汇率或 credits/分重算。
 
-依据表禁止更新、删除和 truncate，运行时不得写入 owner 条款。上述约束不验证审核材料的真实性，也不执行 owner 审批；当前没有 owner basis 加载器，没有执行真实旧订单依据安装或审批；合成依据仅用于本地自测。原函数 oracle、来源归档及独立审核要求仍然适用。
+依据表禁止更新、删除和 truncate，运行时不得写入 owner 条款。上述约束不验证审核材料的真实性，也不执行 owner 审批；下述加载器只生成安装材料，没有执行真实旧订单依据安装或审批；合成依据仅用于本地自测。原函数 oracle、来源归档及独立审核要求仍然适用。
+
+### 离线依据准备与安装
+
+[绑定 preparer](../scripts/prepare_legacy_payment_bindings.py) 复用上述 source/oracle 校验，接受相同的 `--input`、`--oracle`、`--archive-sha256` 和 `--expected-rows`，以及新的私密 `--output` 目录。未提供 `--bindings` 时只输出 `bindings.template.private.json`：真实冻结快照产生 174 笔可审阅草稿；被拒绝的原额度、已删除 owner 和不支持的供应商保留在 gaps，未选订单不自动激活。草稿中的渠道和目标账户仍需审核补全，没有安装 SQL。
+
+提供 `--bindings` 时，文件仅含 `scope=owner-reviewed-legacy-payment-bindings.v1`、原 facts 的 `facts_sha256`、`opening_migration_id` 和明确选中的 `orders`。不能直接把带有 draft scope、gaps、installable 等报告字段的草稿作为审核文件。逐单绑定保留原行 hash，显式提供目标 user/account/channel、merchant/environment/currency/store 和原 product；原非空币种、store/product 不可用当前配置替换。金额和额度只取原函数观察值，不能由审核文件重写。审核 hash 按行绑定原 facts 与 opening identity，后续增加其他审核行不改变旧行。
+
+输出 `plan.private.json` 和 `install.private.sql`，均以 0600 排他创建，目录须禁止组和其他用户访问。SQL 要求实际安装 owner、已安装且完全一致的原 facts、同一来源归档和观察时点的 opening run，再依靠账户归属触发器逐单验证。依据安装和严格重放在一个可持久化的 serializable 事务中完成；同 ID 内容冲突整批失败，不改写旧依据。安装只增加不可变依据，不联系渠道、不产生付款证明、不调用账本发放。
+
+本地自测使用真实新库验证安装、重复安装、增量选单、缺失 facts、原账户不匹配整批回滚、冲突审核重放和非 owner 拒绝；没有安装真实旧订单。显式隔离的新库可通过 `LMM_BINDING_TEST_DATABASE_URL` 运行 [集成测试](../scripts/test_prepare_legacy_payment_bindings.py)，数据库名必须以 `lmm_binding_test_` 开头，目标仅为 `127.0.0.1`；测试需要当前 Core 二进制、psql 和可创建 NOLOGIN 测试角色的安装 owner。默认未设置该变量时只运行纯 preparer 用例，PostgreSQL 用例标为未运行。
+
+独立 owner 使用另一组合成输入，通过真实 CLI 和全新 PostgreSQL 验证了 preparer / SQL loader 的文件权限、字段原值、严格重放、整批回滚及 facts/opening/owner 拒绝；账本与余额全量快照不变。该局部验收不包含原 Go oracle 执行、真实旧订单、付款运行时或完整迁移。
 
 ### 接纳证明与资金应用分开
 
@@ -79,7 +91,7 @@ Core 的 [独立验签器](../services/core/src/payments/legacy_pancake.rs) 接�
 
 [共享标识实现](../services/core/src/payments/identifiers.rs) 将 native intent 与 legacy basis 放入同一 provider/merchant/environment 范围的标识空间，按 `event`、`order`、`payment` 分别保留 event、ORD、PAY 的类型。每个标识只归属一个原支付主体；native 的 credit 接纳也认领 payment，Pancake 同时认领 ORD。缺少 PAY 的旧报文仍认领 ORD，不能借此跨新旧主体重复使用交易标识。类型化标识不是把任意同名 ORD 与 PAY 文本视为相同值。
 
-`apply_legacy_payment` 单独应用持久证明，以 basis 事务锁、按 basis 与 operation key 派生的稳定 operation id、账本操作及 `legacy_applications` 同一事务保存结果。schema 对每个 basis 只允许一条 posted 应用，并校验 journal 的 scope、操作号、原个人钱包与冻结额度。这是当前源码中的持久精确一次应用机制，尚待测试验证。提交结果不确定时必须使用同一 operation key 重放；同 key 返回原持久回执，换 proof 使用该 key 会冲突。basis 一旦 posted，后续新 key 或后续证明返回首次 posted 的原 operation/proof/outcome 回执，不新发资金。rejected 回执也保留；核对后使用新 key 才能重试，不能改写原拒绝结果。
+`apply_legacy_payment` 单独应用持久证明，以 basis 事务锁、按 basis 与 operation key 派生的稳定 operation id、账本操作及 `legacy_applications` 同一事务保存结果。schema 对每个 basis 只允许一条 posted 应用，并校验 journal 的 scope、操作号、原个人钱包与冻结额度。本地 PostgreSQL 自测覆盖该精确一次应用机制，独立端到端回调验收尚未完成。提交结果不确定时必须使用同一 operation key 重放；同 key 返回原持久回执，换 proof 使用该 key 会冲突。basis 一旦 posted，后续新 key 或后续证明返回首次 posted 的原 operation/proof/outcome 回执，不新发资金。rejected 回执也保留；核对后使用新 key 才能重试，不能改写原拒绝结果。
 
 ### 折扣消费视图与未完成接入
 
