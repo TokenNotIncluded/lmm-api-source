@@ -767,9 +767,37 @@ impl PaymentsStore {
             payment: evidence.payment.clone(),
             accepted_unix_seconds: now()?,
         };
+        // Freeze referral source eligibility at the same trusted verification boundary.
+        // The EPay adapter also carries community/internal credits; never infer cash
+        // from its provider name or from Go's interpretation of a callback.
+        let channel = self.channel(&intent)?;
+        let method = channel
+            .verification
+            .payment_type
+            .trim()
+            .to_ascii_lowercase();
+        let referral_cash_eligible = intent.provider != "epay"
+            || (intent.currency == "CNY"
+                && !matches!(
+                    method.as_str(),
+                    "balance"
+                        | "gift"
+                        | "bonus"
+                        | "checkin"
+                        | "invite"
+                        | "bounty"
+                        | "ldc"
+                        | "linuxdo"
+                        | "linux_do"
+                        | "linuxdo_credit"
+                        | "internal"
+                        | "admin"
+                ));
+        let mut verified_facts = serde_json::to_value(&verified).map_err(|_| Error::Storage)?;
+        verified_facts["referral_cash_eligible"] = json!(referral_cash_eligible);
         sqlx::query("INSERT INTO core_payments.accepted_proofs(id,channel_id,event_id,intent_id,payload_hash,signed_payload,signature,verified_facts,receipt_wire) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
             .bind(&receipt.proof_id).bind(intent.channel_id).bind(verified.event_id.clone()).bind(intent.id)
-            .bind(digest).bind(&evidence.signed_payload).bind(&evidence.signature).bind(Json(verified)).bind(receipt.encode_to_vec())
+            .bind(digest).bind(&evidence.signed_payload).bind(&evidence.signature).bind(Json(verified_facts)).bind(receipt.encode_to_vec())
             .execute(&mut *tx).await?;
         Self::bind_dispatch_proof(&mut tx, &intent, &receipt.proof_id).await?;
         tx.commit().await?;

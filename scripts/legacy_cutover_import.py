@@ -24,6 +24,7 @@ from pathlib import Path
 import legacy_cutover_history as HISTORY
 import legacy_cutover_keys as KEYS
 import legacy_cutover_money as MONEY
+import legacy_referral_import as REFERRALS
 
 LOGIN = re.compile(r"[a-z0-9][a-z0-9_.-]{2,63}\Z")
 BCRYPT = re.compile(r"\$2[aby]\$(0[4-9]|1[0-6])\$[./A-Za-z0-9]{53}\Z")
@@ -35,7 +36,7 @@ OAUTH_ISSUERS = {
     "discord_id": "https://discord.com",
 }
 CUSTOM_OAUTH_ISSUERS = {"google": "https://accounts.google.com"}
-PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES
+PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES + ("referrals",)
 
 
 def fail(code: str) -> None:
@@ -305,28 +306,41 @@ def main() -> int:
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--apply", action="store_true")
     p.add_argument("--api-key-encryption-key-file", type=Path, help="keys: Core 32-byte recovery key")
+    p.add_argument("--referral-source", type=Path, help="referrals: private frozen source export")
+    p.add_argument("--referral-review", type=Path, help="referrals: source-bound reviewed credit terms")
     HISTORY.add_arguments(p)
     a = p.parse_args()
     if not re.fullmatch(r"[0-9a-f]{64}", a.archive_sha256):
         fail("archive_sha256_invalid")
     a.output.mkdir(mode=0o700, parents=False, exist_ok=True)
-    src = Db(a.socket, a.port, a.source_db, a.source_user, readonly=True)
-    data = load_source(src, a.source_schema)
-    target = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner, readonly=True)
-    if a.phase in KEYS.PHASES:
-        sql, stats = KEYS.plan(a.phase, data, a, target)
-    elif a.phase in MONEY.PHASES:
-        data.update(MONEY.load_source(src, a.source_schema))
-        sql, stats = MONEY.plan(a.phase, data, a.archive_sha256, a.migration_id, a.observed_at)
-    elif a.phase in HISTORY.PHASES:
-        sql, stats = HISTORY.plan(a.phase, a, src, target)
-    elif a.phase == "identity":
-        sql, stats = plan_identity(data, a.archive_sha256)
+    if a.phase == "referrals":
+        if a.referral_source is None or a.referral_review is None:
+            fail("referrals_require_source_and_review")
+        source = json.loads(a.referral_source.read_text())
+        review = json.loads(a.referral_review.read_text())
+        script = REFERRALS.plan(source, review, a.archive_sha256, a.migration_id)
+        sql = script.splitlines()
+        stats = {"bindings": len(source["users"]), "raw_rewards": len(source["rewards"]),
+                 "historical_entries": len(source["ledger_entries"] if "ledger_entries" in source else source["ledger"]),
+                 "executable_pending": len(review["pending"])}
     else:
-        sql, stats = plan_opening(data, a.archive_sha256, a.migration_id, a.observed_at)
-    script = ("BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL synchronous_commit=on;\n"
-              f"DO $$BEGIN IF ({GUARDS[a.phase]})<>0 THEN RAISE EXCEPTION 'phase target not empty'; END IF; END$$;\n"
-              + "\n".join(sql) + "\nCOMMIT;\n")
+        src = Db(a.socket, a.port, a.source_db, a.source_user, readonly=True)
+        data = load_source(src, a.source_schema)
+        target = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner, readonly=True)
+        if a.phase in KEYS.PHASES:
+            sql, stats = KEYS.plan(a.phase, data, a, target)
+        elif a.phase in MONEY.PHASES:
+            data.update(MONEY.load_source(src, a.source_schema))
+            sql, stats = MONEY.plan(a.phase, data, a.archive_sha256, a.migration_id, a.observed_at)
+        elif a.phase in HISTORY.PHASES:
+            sql, stats = HISTORY.plan(a.phase, a, src, target)
+        elif a.phase == "identity":
+            sql, stats = plan_identity(data, a.archive_sha256)
+        else:
+            sql, stats = plan_opening(data, a.archive_sha256, a.migration_id, a.observed_at)
+        script = ("BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL synchronous_commit=on;\n"
+                  f"DO $$BEGIN IF ({GUARDS[a.phase]})<>0 THEN RAISE EXCEPTION 'phase target not empty'; END IF; END$$;\n"
+                  + "\n".join(sql) + "\nCOMMIT;\n")
     plan = a.output / f"{a.phase}.sql"
     fd = os.open(plan, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as stream:

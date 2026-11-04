@@ -144,6 +144,14 @@ const COMPONENTS: &[(&str, &str)] = &[
         "affiliate-claims",
         include_str!("../schema/affiliate_claims.sql"),
     ),
+    (
+        "referral-ledger-revision",
+        include_str!("../schema/referral_ledger_revision.sql"),
+    ),
+    (
+        "legacy-referrals",
+        include_str!("../schema/legacy_referrals.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

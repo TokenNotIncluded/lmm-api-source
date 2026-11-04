@@ -1970,4 +1970,191 @@ mod tests {
             Err(Error::Denied)
         );
     }
+    mod referral_runtime {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/common/runtime.rs"
+        ));
+    }
+
+    /// Complete frozen pending contract -> RSA ingress -> real ledger credit -> tail.
+    #[sqlx::test]
+    async fn legacy_referral_cash_store(pool: sqlx::PgPool) {
+        use crate::{billing::ledger::Ledger, identity::IdentityStore};
+        crate::core_schema::init(&pool).await.unwrap();
+        let identity = IdentityStore::from_pool(pool.clone());
+        let mut accounts = Vec::new();
+        let mut payer_secret = String::new();
+        for user in [101, 102] {
+            let issued = identity.bootstrap_user(user, 0).await.unwrap();
+            if user == 101 {
+                payer_secret = issued.secret.clone();
+            }
+            accounts.push(
+                identity
+                    .authorize(&issued.secret)
+                    .await
+                    .unwrap()
+                    .owner_account_id,
+            );
+        }
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        for (user, account) in [101, 102].into_iter().zip(&accounts) {
+            sqlx::query("SELECT core_billing.import_opening_balance($1)")
+                .bind(json!({"migration_id":"synthetic-referral","source_archive_sha256":"a".repeat(64),
+                    "mapping_sha256":"b".repeat(64),"source_row_sha256":"c".repeat(64),
+                    "source_entity_key":format!("user:{user}"),"account_id":account,"observed_at":1,
+                    "available_units":0,"reserved_units":0,"affiliate_units":0}))
+                .execute(&mut *tx).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/legacy_referrals_fixture.py");
+        let plan = std::process::Command::new("python3")
+            .arg(fixture)
+            .output()
+            .unwrap();
+        assert!(
+            plan.status.success(),
+            "{}",
+            String::from_utf8_lossy(&plan.stderr)
+        );
+        sqlx::raw_sql(std::str::from_utf8(&plan.stdout).unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql("INSERT INTO core_console.options(key,value) VALUES('payment_setting.compliance_confirmed','true'),('payment_setting.compliance_terms_version','v1') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;")
+            .execute(&pool).await.unwrap();
+        let role = referral_runtime::RuntimeRole::create(&pool).await;
+        role.optional("core_payments").await;
+        let source_denied:bool=sqlx::query_scalar("SELECT NOT has_function_privilege($1,'core_referrals.delta(bigint,text,bigint)','EXECUTE') AND NOT has_function_privilege($1,'core_referrals.settle(bigint,text,text,text,bigint,bigint)','EXECUTE') AND NOT has_table_privilege($1,'core_referrals.contracts','INSERT,UPDATE,DELETE,TRUNCATE')").bind(&role.name).fetch_one(&pool).await.unwrap();
+        assert!(source_denied);
+        // A genuinely verified community-credit payment must not consume cash-first eligibility.
+        use crate::internal_rpc::pb;
+        let mut ldc = channel("epay");
+        ldc.id = 8;
+        ldc.currency = "LDC".into();
+        ldc.verification.endpoint = "https://credit.linux.do/epay".into();
+        ldc.verification.payment_type = "epay".into();
+        let ldc_store = PaymentsStore::new(role.pool.clone(), vec![ldc.clone()]).unwrap();
+        let intent = ldc_store
+            .prepare(
+                &payer_secret,
+                pb::PrepareTopupRequest {
+                    mutation: Some(pb::MutationContext {
+                        idempotency_key: "referral-ldc-prepare-01".into(),
+                        expected_version: None,
+                    }),
+                    account_id: accounts[0],
+                    payment_channel_id: 8,
+                    currency: "LDC".into(),
+                    amount_minor: 1000,
+                },
+            )
+            .await
+            .unwrap();
+        let transaction = "ldc_referral_transaction";
+        let mut fields = BTreeMap::from([
+            ("pid".into(), ldc.merchant.clone()),
+            ("type".into(), "epay".into()),
+            ("out_trade_no".into(), format!("top_{}", intent.intent_id)),
+            ("trade_no".into(), transaction.into()),
+            ("money".into(), "10.00".into()),
+            ("trade_status".into(), "TRADE_SUCCESS".into()),
+        ]);
+        let signature = epay_signature(&fields, SECRET);
+        fields.insert("sign".into(), signature.clone());
+        let raw = form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(fields)
+            .finish()
+            .into_bytes();
+        let mut evidence = pb::ProviderEvidence {
+            payment: Some(pb::ExternalPaymentReference {
+                provider: "epay".into(),
+                merchant: ldc.merchant.clone(),
+                environment: "test".into(),
+                transaction: transaction.into(),
+            }),
+            signed_payload: raw,
+            signature: signature.into_bytes(),
+            provider_event_id: stable_key(&[transaction, "TRADE_SUCCESS"]),
+            accepted_proof_id: String::new(),
+        };
+        evidence.accepted_proof_id = ldc_store
+            .accept_proof(pb::AcceptProviderProofRequest {
+                intent_id: intent.intent_id,
+                evidence: Some(evidence.clone()),
+            })
+            .await
+            .unwrap()
+            .proof_id;
+        ldc_store
+            .credit(pb::CreditTopupRequest {
+                mutation: Some(pb::MutationContext {
+                    idempotency_key: "referral-ldc-credit-01".into(),
+                    expected_version: None,
+                }),
+                intent_id: intent.intent_id,
+                evidence: Some(evidence),
+            })
+            .await
+            .unwrap();
+        let cash_source: Option<String> =
+            sqlx::query_scalar("SELECT first_source FROM core_referrals.contracts WHERE id=1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(cash_source.is_none());
+        sqlx::query("INSERT INTO core_payments.legacy_bases(id,opening_migration_id,source_archive_sha256,source_order_id,source_user_id,opening_entity_key,source_row_sha256,review_sha256,user_id,account_id,provider,channel_id,merchant,environment,currency,order_reference,store_id,source_product_id,amount_micros,credit_units,source_status) VALUES('legacy_'||repeat('d',64),'synthetic-referral',repeat('a',64),42,101,'user:101',decode(repeat('c',64),'hex'),decode(repeat('e',64),'hex'),101,$1,'waffo_pancake',7,'merchant_fixture','test','USD','top_42','STO_fixture','PROD_fixture',10000000,5000000,'pending')")
+            .bind(accounts[0]).execute(&pool).await.unwrap();
+        let store = PaymentsStore::new(role.pool.clone(), vec![channel("waffo_pancake")]).unwrap();
+        let mut event = pancake_event();
+        event["data"]["chargedAmount"] = json!("10.00");
+        event["data"]["amount"] = json!("10.00");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, super::super::now().unwrap() * 1000);
+        let proof = store
+            .admit_legacy_pancake(7, "top_42", &raw, signature.as_bytes())
+            .await
+            .unwrap();
+        let receipt = store
+            .apply_legacy_payment(&proof.proof_id, "synthetic-legacy-credit-1")
+            .await
+            .unwrap();
+        assert!(matches!(
+            receipt.outcome,
+            crate::billing::ledger::Outcome::Posted { .. }
+        ));
+        store
+            .apply_legacy_payment(&proof.proof_id, "synthetic-legacy-credit-1")
+            .await
+            .unwrap();
+        store
+            .apply_legacy_payment(&proof.proof_id, "synthetic-legacy-credit-2")
+            .await
+            .unwrap();
+        let ledger = Ledger::from_pool(pool.clone());
+        assert_eq!(
+            ledger.balance(accounts[0]).await.unwrap().available_units,
+            10000000
+        );
+        assert_eq!(
+            ledger.balance(accounts[1]).await.unwrap().affiliate_units,
+            1000000
+        );
+        let stage: String =
+            sqlx::query_scalar("SELECT stage FROM core_referrals.contracts WHERE id=1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stage, "first_top_up_completed");
+        crate::core_schema::check(&pool).await.unwrap();
+        drop(store);
+        drop(ldc_store);
+        role.cleanup().await;
+    }
 }
