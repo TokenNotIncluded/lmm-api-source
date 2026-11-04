@@ -194,7 +194,7 @@ async fn disconnect_reclaim_stale_ack_lost_ack_and_durable_retry(pool: PgPool) {
     );
     assert!(
         sqlx::query_scalar::<_, bool>(
-            "SELECT available_at > $1::text::timestamptz FROM core_events.deliveries"
+            "SELECT available_at >= $1::text::timestamptz + interval '1 second' FROM core_events.deliveries"
         )
         .bind(&retry_started)
         .fetch_one(&pool)
