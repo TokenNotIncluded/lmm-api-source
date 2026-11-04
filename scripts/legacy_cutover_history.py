@@ -26,13 +26,14 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
-PHASES = ("history", "oauth_apps", "mfa", "passkeys", "telegram", "channels_history")
+PHASES = ("history", "oauth_apps", "mfa", "passkeys", "telegram", "channel_identities", "channels_history")
 GUARDS = {
     "history": "SELECT count(*) FROM core_history.sources",
     "oauth_apps": "SELECT count(*) FROM core_market_oauth.clients",
     "mfa": "SELECT count(*) FROM core_identity.mfa_factors",
     "passkeys": "SELECT count(*) FROM core_passkeys.credentials",
     "telegram": "SELECT count(*) FROM core_telegram_auth.bindings",
+    "channel_identities": "SELECT count(*) FROM core_channels.identities",
     "channels_history": "SELECT count(*) FROM core_channels.opening_sources",
 }
 MAX_TIME = 253402300799
@@ -91,6 +92,9 @@ def query(db, sql: str, schema: str | None = None):
 
 
 def add_arguments(parser) -> None:
+    parser.add_argument("--channel-identity-mapping", type=Path,
+                        help="channel_identities: explicit archive/observation/schema-bound JSON mapping; "
+                             "channels contain source_channel_id, channel_id, source_row_sha256")
     parser.add_argument("--mfa-keyring", type=Path,
                         help="mfa: Core [identity.mfa] keyring TOML used to encrypt enabled legacy TOTP secrets")
     parser.add_argument("--market-issuer",
@@ -102,7 +106,8 @@ def add_arguments(parser) -> None:
 def plan(phase: str, args, src, target) -> tuple[list[str], dict]:
     return {
         "history": plan_history, "oauth_apps": plan_oauth_apps, "mfa": plan_mfa,
-        "passkeys": plan_passkeys, "telegram": plan_telegram, "channels_history": plan_channels,
+        "passkeys": plan_passkeys, "telegram": plan_telegram, "channel_identities": plan_channel_identities,
+        "channels_history": plan_channels,
     }[phase](args, src, target)
 
 
@@ -591,6 +596,113 @@ def plan_telegram(a, src, tgt):
         sql.append(f"INSERT INTO core_telegram_auth.bindings(subject,user_id) VALUES({lit(subject)},{r['id']});")
         stats["telegram_bindings"] += 1
     return sql, dict(stats)
+
+
+# ---------------------------------------------------------- channel_identities
+def channel_identity_material(a, channels, mapping):
+    """Validate a complete explicit identity map; never retain source credentials.
+
+    Mapping JSON: format_version=1, archive_sha256, observed_at, source_schema,
+    channels=[{source_channel_id, channel_id, source_row_sha256}]. IDs are kept,
+    not reassigned. Full row digests use this fresh protocol's existing sha().
+    """
+    if (type(mapping) is not dict or set(mapping) != {
+            "format_version", "archive_sha256", "observed_at", "source_schema", "channels"}
+            or type(mapping["format_version"]) is not int or mapping["format_version"] != 1
+            or mapping["archive_sha256"] != a.archive_sha256
+            or mapping["observed_at"] != a.observed_at
+            or type(mapping["observed_at"]) is not int
+            or mapping["source_schema"] != a.source_schema
+            or type(mapping["channels"]) is not list):
+        fail("channel_identity_mapping_source_mismatch")
+    if not re.fullmatch(r"[0-9a-f]{64}", a.archive_sha256):
+        fail("archive_sha256_invalid")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", a.source_schema):
+        fail("channel_identity_source_schema_invalid")
+    _int(a.observed_at, "channel_identity_observation_invalid", 1, MAX_TIME, False)
+    source = {}
+    for c in channels:
+        cid = _int(c["id"], "channel_identity_source_id_invalid", 1, MAX_ID, False)
+        if cid in source:
+            fail("channel_identity_source_duplicate")
+        _int(c["status"], "channel_identity_source_status_invalid", nullable=False)
+        source[cid] = c
+    seen, rows = set(), []
+    for m in mapping["channels"]:
+        if type(m) is not dict or set(m) != {"source_channel_id", "channel_id", "source_row_sha256"}:
+            fail("channel_identity_mapping_invalid")
+        cid = _int(m["source_channel_id"], "channel_identity_mapping_id_invalid", 1, MAX_ID, False)
+        target = _int(m["channel_id"], "channel_identity_mapping_id_invalid", 1, MAX_ID, False)
+        if cid != target or cid in seen or cid not in source:
+            fail("channel_identity_mapping_not_one_to_one")
+        c = source[cid]
+        if m["source_row_sha256"] != sha(c):
+            fail("channel_identity_source_row_mismatch")
+        seen.add(cid)
+        # Only explicit non-secret provenance fields leave the source row.
+        rows.append({**m, "status": c["status"],
+                     **{k: c[k] for k in ("type", "created_time", "deleted_at") if k in c}})
+    if seen != set(source) or not seen:
+        fail("channel_identity_mapping_incomplete")
+    rows.sort(key=lambda r: r["source_channel_id"])
+    return {"scope": "legacy-cutover-channel-identities.v1", "source_schema": a.source_schema,
+            "source_archive_sha256": a.archive_sha256, "observed_at": a.observed_at,
+            "opening_migration_id": a.migration_id, "mapping_sha256": sha(mapping),
+            "rows_sha256": sha(rows), "channels": rows}
+
+
+def plan_channel_identities(a, src, tgt):
+    path = getattr(a, "channel_identity_mapping", None)
+    if path is None:
+        fail("channel_identity_mapping_required")
+    mapping = json.loads(path.read_text())
+    # Validate schema before interpolating it into the existing source reader.
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", a.source_schema):
+        fail("channel_identity_source_schema_invalid")
+    channels = query(src, "SELECT * FROM channels ORDER BY id", a.source_schema)
+    manifest = channel_identity_material(a, channels, mapping)
+    if query(tgt, "SELECT id,origin,history_ambiguous,retired_at FROM core_channels.identities"):
+        fail("channel_identity_target_not_empty")
+    receipt_id = "legacy-channel-identities-" + sha({"migration_id": a.migration_id,
+                                                        "archive": a.archive_sha256})
+    tables = ("core_channels.identities", "core_channels.counter_baselines",
+              "core_channels.balance_observations", "core_channels.opening_sources",
+              "core_channels.opening_baselines", "public.routing_config_versions",
+              "public.routing_active_release", "core_charging.requests")
+    owner_tables = tables + ("core_migration.import_runs", "core_billing.opening_import_runs")
+    nonempty = [f"EXISTS(SELECT 1 FROM {table}" +
+                (" WHERE config_version IS NOT NULL)" if table == "public.routing_active_release" else ")")
+                for table in tables]
+    sql = [f"""DO $channel_identities$
+BEGIN
+ IF current_setting('transaction_isolation')<>'serializable'
+ OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname=current_user AND (rolcanlogin OR rolsuper))
+ OR EXISTS(SELECT 1 FROM pg_class WHERE oid IN ({','.join(lit(t) + '::regclass' for t in owner_tables)})
+           AND relowner<>(SELECT oid FROM pg_roles WHERE rolname=current_user)) THEN
+  RAISE EXCEPTION 'channel identities require serializable installation owner';
+ END IF;
+ LOCK TABLE {','.join(tables)} IN SHARE ROW EXCLUSIVE MODE;
+ LOCK TABLE core_billing.opening_import_runs IN SHARE MODE;
+ LOCK TABLE core_migration.import_runs IN SHARE ROW EXCLUSIVE MODE;
+ IF {' OR '.join(nonempty)} THEN
+  RAISE EXCEPTION 'channel identity fresh target not empty';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM core_billing.opening_import_runs
+  WHERE migration_id={lit(a.migration_id)} AND source_archive_sha256={lit(a.archive_sha256)}
+  AND observed_at={a.observed_at}) THEN
+  RAISE EXCEPTION 'channel identity opening source mismatch';
+ END IF;
+ INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest)
+ VALUES({lit(receipt_id)},{lit(a.archive_sha256)},{lit(manifest['mapping_sha256'])},{jlit(manifest)} || jsonb_build_object('opening_source',
+  (SELECT to_jsonb(r) FROM core_billing.opening_import_runs r WHERE migration_id={lit(a.migration_id)})));
+END $channel_identities$;"""]
+    for c in manifest["channels"]:
+        cid = c["channel_id"]
+        sql += [f"INSERT INTO core_channels.identities(id,origin,history_ambiguous) VALUES({cid},'migrated',FALSE);",
+                f"INSERT INTO core_channels.counter_baselines(channel_id,historical_coverage) VALUES({cid},FALSE);",
+                f"INSERT INTO core_channels.balance_observations(channel_id,kind) VALUES({cid},'unknown');"]
+    return sql, {"identities": len(channels), "mapping_sha256": manifest["mapping_sha256"],
+                 "rows_sha256": manifest["rows_sha256"], "receipt_id": receipt_id}
 
 
 # ------------------------------------------------------------ channels_history

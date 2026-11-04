@@ -246,3 +246,63 @@ single-attempt/resolve transport orchestration. They use no PostgreSQL/network.
 They do **not** establish SQL execution, runtime permission acceptance, actual
 transaction rollback/commit, full builds, browser acceptance or production
 migration. PostgreSQL/owner-role acceptance must be scheduled separately by Main.
+
+
+## Fresh cutover channel identities
+
+The fresh cutover runner registers `channel_identities` immediately before
+`channels_history`. Run it before starting Core with model configuration or
+publishing routes. The target must have no channel identities, routing versions,
+active routing release, channel openings or Native charging requests. The empty
+routing singleton created by `init-db` is allowed.
+
+Supply `--channel-identity-mapping /absolute/private/channel-identities.json`:
+
+```json
+{
+  "format_version": 1,
+  "archive_sha256": "<original archive SHA-256>",
+  "observed_at": 1793674367,
+  "source_schema": "lmm_prod_20260802",
+  "channels": [{
+    "source_channel_id": 17,
+    "channel_id": 17,
+    "source_row_sha256": "<legacy_cutover_history.sha(full source row)>"
+  }]
+}
+```
+
+Include every source channel, including disabled channels, exactly once, keeping
+its original ID. Use the same archive, observation and `--migration-id` as the
+opening import. This fresh protocol uses `legacy_cutover_history.sha` for full
+row digests; the standalone opening file package above uses `F.digest`.
+
+The installation owner applies one SERIALIZABLE transaction. It checks table
+ownership, the matching opening run and the empty target, then records the full
+mapping, original status and source row hashes in
+`core_migration.import_runs`. It creates permanent `migrated` identities,
+`historical_coverage=false` counter baselines and `unknown` balance observations.
+The receipt contains no original channel key. Existing identities, including
+bootstrap, retired or ambiguous IDs, are rejected. Run the separate
+`channels_history` phase next to import supported counter offsets and cached
+balance observations. Route publication and credential configuration remain
+separate operations.
+
+In the local fresh component-51 rehearsal, all 29 original identities and the
+following history phase were imported. Five post-rebase counters had proved
+units; 24 earlier counters retained unknown units. The four Core ledger tables
+had identical SHA-256 aggregates before and after these phases. This evidence
+covers local import behavior; it does not establish model traffic, page
+acceptance or production readiness.
+
+Independent local acceptance confirmed all 29 source mappings and receipt
+rows, five supported offsets, 24 unknown offsets, seven copied observations
+and 22 unknown observations. Existing-identity replay and a LOGIN installer
+running without the owner role were rejected without state changes. The unified
+24-check financial reconciliation still passed, with the channel-identity gap
+reduced to zero; other financial and feature gaps remain. Concurrent writers,
+wrong-opening and active-routing guard variants were not exercised on real
+PostgreSQL.
+
+The targeted planner check is
+`python3 -B -m unittest discover -s scripts -p test_legacy_cutover_channel_identities.py`.
