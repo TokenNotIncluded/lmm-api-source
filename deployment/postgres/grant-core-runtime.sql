@@ -641,5 +641,9 @@ GRANT SELECT(source_archive_sha256, manifest) ON core_migration.import_runs TO :
 GRANT USAGE ON SCHEMA core_oauth, core_market_oauth TO :"runtime_role";
 GRANT SELECT(user_id,created_at,issuance_kind) ON core_oauth.families TO :"runtime_role";
 GRANT SELECT(user_id,created_at) ON core_market_oauth.families TO :"runtime_role";
+-- Retained connection observations and target binding only; no import authority.
+GRANT SELECT(document,mapping,native_credential_floor,snapshot_observed_at,
+    target_database,target_database_oid,target_nonce)
+    ON core_history.connection_snapshot TO :"runtime_role";
 \endif
 COMMIT;

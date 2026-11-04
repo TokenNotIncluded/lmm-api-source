@@ -122,11 +122,19 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     }
     body.push_str("</form>");
     let mut response = axum::response::Html(body).into_response();
+    let mut policy = String::from(
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
+    if page.account.is_some() {
+        // Browsers also enforce form-action on the consent POST's redirect.
+        // pending() supplies only the canonical callback validated by the issuer;
+        // allow this request's exact endpoint, never arbitrary loopback ports.
+        policy.push(' ');
+        policy.push_str(&page.redirect_uri);
+    }
     response.headers_mut().insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-        ),
+        HeaderValue::from_str(&policy).expect("validated OAuth callback is a CSP source"),
     );
     response.headers_mut().insert(
         header::REFERRER_POLICY,
@@ -256,6 +264,78 @@ async fn revoke_all_grants(State(state): State<AuthState>, headers: HeaderMap) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn consent_csp_allows_only_the_current_validated_callback() {
+        use crate::identity::grants::LmmProfile;
+
+        let config = LegacyAuthConfig::new("https://issuer.example.test", &[3; 32]).unwrap();
+        let profile = LmmProfile::new("https://issuer.example.test", vec!["default".into()])
+            .unwrap()
+            .with_pi_budget_limit(100)
+            .unwrap();
+        for client in ["lmm", "lmm-pi"] {
+            for port in [38423, 52917] {
+                let request = profile
+                    .validate_authorization(AuthorizationRequest {
+                        response_type: "code".into(),
+                        client_id: client.into(),
+                        redirect_uri: format!("http://127.0.0.1:{port}/oauth/lmm/callback"),
+                        scope: if client == "lmm-pi" {
+                            "catalog:read balance:read usage:read models:invoke"
+                        } else {
+                            "catalog:read balance:read"
+                        }
+                        .into(),
+                        resource: profile.resource().into(),
+                        code_challenge: "A".repeat(43),
+                        code_challenge_method: "S256".into(),
+                        state: "test-state".into(),
+                    })
+                    .unwrap();
+                for signed_in in [false, true] {
+                    let response = page(
+                        ConsentPage {
+                            binding: "B".repeat(43),
+                            csrf: "C".repeat(43),
+                            expires_at: 300,
+                            account: signed_in.then(|| "synthetic-user".into()),
+                            client_id: request.client_id.clone(),
+                            redirect_uri: request.redirect_uri.clone(),
+                            maximum_budget_credits: (client == "lmm-pi").then_some(100),
+                            groups: vec!["default".into()],
+                        },
+                        &config,
+                    );
+                    let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
+                        .to_str()
+                        .unwrap();
+                    let mut expected = String::from(
+                        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                    );
+                    if signed_in {
+                        expected.push(' ');
+                        expected.push_str(&request.redirect_uri);
+                    }
+                    assert_eq!(policy, expected);
+                    let body = axum::body::to_bytes(response.into_body(), 8192)
+                        .await
+                        .unwrap();
+                    let html = std::str::from_utf8(&body).unwrap();
+                    let action = if signed_in { "consent" } else { "continue" };
+                    assert!(html.contains(&format!(
+                        "<form method=post action=\"/api/user/auth/oauth2/{action}\">"
+                    )));
+                    assert!(html.contains("type=hidden name=csrf"));
+                    assert!(!html.contains(&request.redirect_uri));
+                    if signed_in {
+                        assert!(html.contains("name=decision value=allow"));
+                        assert!(html.contains("name=decision value=deny"));
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn stage_cookie_selection_requires_its_own_random_binding() {
         let config = LegacyAuthConfig::new("https://issuer.example.test", &[3; 32]).unwrap();

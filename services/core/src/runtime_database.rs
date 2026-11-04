@@ -107,7 +107,14 @@ pub(crate) async fn check_connection(
                 ('core_oauth.families','created_at'),
                 ('core_oauth.families','issuance_kind'),
                 ('core_market_oauth.families','user_id'),
-                ('core_market_oauth.families','created_at')) needed(relation,column_name)
+                ('core_market_oauth.families','created_at'),
+                ('core_history.connection_snapshot','document'),
+                ('core_history.connection_snapshot','mapping'),
+                ('core_history.connection_snapshot','native_credential_floor'),
+                ('core_history.connection_snapshot','snapshot_observed_at'),
+                ('core_history.connection_snapshot','target_database'),
+                ('core_history.connection_snapshot','target_database_oid'),
+                ('core_history.connection_snapshot','target_nonce')) needed(relation,column_name)
                 WHERE NOT has_column_privilege(relation,column_name,'SELECT'))
         "#,
         )

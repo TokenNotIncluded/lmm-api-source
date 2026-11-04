@@ -19,6 +19,8 @@ pub struct ConsentPage {
     pub expires_at: i64,
     pub account: Option<String>,
     pub client_id: String,
+    /// Canonical loopback callback from the validated authorization request.
+    pub redirect_uri: String,
     pub maximum_budget_credits: Option<i64>,
     pub groups: Vec<String>,
 }
@@ -235,6 +237,7 @@ impl LmmIssuer {
             expires_at: expires,
             account,
             client_id: request.client_id.clone(),
+            redirect_uri: request.redirect_uri.clone(),
             maximum_budget_credits: if request.client_id == "lmm-pi" {
                 self.profile.pi_budget_limit()
             } else {

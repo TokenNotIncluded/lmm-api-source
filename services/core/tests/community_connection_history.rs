@@ -251,7 +251,8 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
                 }
             )
             .await,
-            Err(runtime_database::RuntimeDatabaseError::MissingPrivileges)
+            Err(runtime_database::RuntimeDatabaseError::MissingPrivileges),
+            "missing SELECT({column}) must block community startup"
         );
         let missing = CommunityRead::new(runtime.clone()).await.unwrap();
         assert!(
@@ -262,6 +263,88 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         );
         sqlx::query(&format!("GRANT SELECT({column}) ON core_history.connection_snapshot TO connection_history_runtime")).execute(&owner).await.unwrap();
     }
+    // Reset optional grants with the shipped script, preserving baseline history.
+    let revoke = Command::new("psql")
+        .args([
+            "-X",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-v",
+            "runtime_role=connection_history_runtime",
+            "-v",
+            "confirm_revoke=true",
+            "-f",
+        ])
+        .arg(source.join("deployment/postgres/revoke-core-runtime.sql"))
+        .env("PGDATABASE", &db)
+        .output()
+        .unwrap();
+    std::fs::write(out.join("runtime-revoke.stderr.log"), &revoke.stderr).unwrap();
+    assert!(
+        revoke.status.success(),
+        "runtime revoke: {}",
+        String::from_utf8_lossy(&revoke.stderr)
+    );
+    let snapshot_readable: bool = sqlx::query_scalar(
+        "SELECT has_any_column_privilege('core_history.connection_snapshot','SELECT')",
+    )
+    .fetch_one(&runtime)
+    .await
+    .unwrap();
+    assert!(
+        !snapshot_readable,
+        "optional reset left snapshot column grants"
+    );
+    let baseline_readable: bool = sqlx::query_scalar(
+        "SELECT has_schema_privilege('core_history','USAGE') AND has_table_privilege('core_history.sources','SELECT')",
+    ).fetch_one(&runtime).await.unwrap();
+    assert!(
+        baseline_readable,
+        "optional reset removed baseline history reads"
+    );
+    assert_eq!(
+        runtime_database::check(
+            &runtime,
+            RequiredCapabilities {
+                community: true,
+                ..Default::default()
+            }
+        )
+        .await,
+        Err(runtime_database::RuntimeDatabaseError::MissingPrivileges)
+    );
+    let regrant = Command::new("psql")
+        .args([
+            "-X",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-v",
+            "runtime_role=connection_history_runtime",
+            "-v",
+            "enable_community=true",
+            "-f",
+        ])
+        .arg(source.join("deployment/postgres/grant-core-runtime.sql"))
+        .env("PGDATABASE", &db)
+        .output()
+        .unwrap();
+    std::fs::write(out.join("runtime-regrant.stderr.log"), &regrant.stderr).unwrap();
+    assert!(
+        regrant.status.success(),
+        "runtime regrant: {}",
+        String::from_utf8_lossy(&regrant.stderr)
+    );
+    runtime_database::check(
+        &runtime,
+        RequiredCapabilities {
+            community: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     let read = CommunityRead::new(runtime.clone()).await.unwrap();
     let facts = read
         .connection_milestones(&UsersInfoRequest {

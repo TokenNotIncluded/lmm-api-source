@@ -59,7 +59,7 @@ def mapped(rows, factors=None, source_sha256=SOURCE_SHA256, **options):
 
 
 def target_contract(**options):
-    return {**MODULE.current_contract(), "catalog_fingerprint_sha256": MODULE.CORE54_CATALOG_SHA256,
+    return {**MODULE.current_contract(), "catalog_fingerprint_sha256": MODULE.CORE55_CATALOG_SHA256,
             "allow_initialized_core_seed": True, "initialized_core_seed_contract": MODULE.CORE_SEED_CONTRACT,
             "initialized_core_seed_sha256": "d" * 64,
             "trust_policy_seed": {
@@ -518,9 +518,9 @@ class DeveloperAccessTests(unittest.TestCase):
 
 
 class IdentityContractTests(unittest.TestCase):
-    def test_core54_assembly_uses_exact_concat_lf_and_telegram_alias(self):
+    def test_core55_assembly_uses_exact_concat_lf_and_telegram_alias(self):
         schemas = MODULE.component_schemas()
-        self.assertEqual(len(schemas), 54)
+        self.assertEqual(len(schemas), 55)
         root = MODULE.ROOT / "services/core/schema"
         self.assertEqual(schemas["trust-pricing"], (root / "trust_pricing.sql").read_bytes()
                          + b"\n" + (root / "image_trust_extension.sql").read_bytes())
@@ -568,26 +568,45 @@ class IdentityContractTests(unittest.TestCase):
                     self.assertEqual(path.read_bytes(), subprocess.check_output(
                         ["git", "show", "b69dfe6:" + str(path.relative_to(MODULE.ROOT))], cwd=HISTORY_ROOT))
         self.assertEqual(list(schemas)[49:], ["legacy-payments", "legacy-payment-opening-identity",
-            "affiliate-claims", "referral-ledger-revision", "legacy-referrals"])
+            "affiliate-claims", "referral-ledger-revision", "legacy-referrals", "connection-history"])
         self.assertIn(b"ALTER TABLE core_billing.ledger_journals", schemas["referral-ledger-revision"])
         self.assertIn(b"CREATE OR REPLACE FUNCTION core_billing.ledger_apply_entry", schemas["referral-ledger-revision"])
 
-    def test_core54_manifest_pin_and_entire_source_review_are_bound(self):
+    def test_core54_profile_remains_exact_and_rejects_core55_assembly(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
+            shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
+            for relative in ("services/core/src/core_schema.rs",
+                             "services/core/src/core_schema/navigation_options.rs",
+                             "services/core/src/core_schema/upgrade/fresh_target.json"):
+                (root / relative).write_bytes(subprocess.check_output(
+                    ["git", "show", "5194aca:" + relative], cwd=HISTORY_ROOT))
+            contract54 = MODULE.current_contract(root)
+            self.assertEqual(contract54["import_profile"], MODULE.CORE54_SEED_CONTRACT)
+            self.assertEqual(contract54["compiled_manifest_sha256"], MODULE.CORE54_MANIFEST_SHA256)
+            self.assertEqual(len(contract54["component_fingerprints"]), 54)
+            (root / "services/core/src/core_schema.rs").write_bytes(
+                (MODULE.ROOT / "services/core/src/core_schema.rs").read_bytes())
+            with self.assertRaises(MODULE.MappingError):
+                MODULE.current_contract(root)
+
+    def test_core55_manifest_pin_and_entire_source_review_are_bound(self):
         contract = MODULE.current_contract()
-        self.assertEqual(contract["import_profile"], MODULE.CORE54_SEED_CONTRACT)
-        self.assertEqual(contract["compiled_manifest_sha256"], MODULE.CORE54_MANIFEST_SHA256)
-        self.assertEqual(contract["fresh_catalog_sha256"], MODULE.CORE54_CATALOG_SHA256)
+        self.assertEqual(contract["import_profile"], MODULE.CORE55_SEED_CONTRACT)
+        self.assertEqual(contract["compiled_manifest_sha256"], MODULE.CORE55_MANIFEST_SHA256)
+        self.assertEqual(contract["fresh_catalog_sha256"], MODULE.CORE55_CATALOG_SHA256)
         self.assertEqual(contract["seed_query_sha256"], hashlib.sha256(MODULE.fresh_seed_hash_query().encode()).hexdigest())
         self.assertTrue(set(MODULE.REVIEWED_RUST_FILES_54) <= set(contract["source_file_hashes"]))
         self.assertNotEqual(contract["component_fingerprints"]["wallet"], MODULE.REVIEWED_COMPONENTS["wallet"][1])
 
-    def test_core54_each_new_component_and_manifest_producer_reject_byte_drift(self):
+    def test_core55_each_new_component_and_manifest_producer_reject_byte_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
             shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
             files = ["services/core/schema/" + name.replace("-", "_") + ".sql"
-                     for name in list(MODULE.REVIEWED_COMPONENTS_54)[49:]] + [
+                     for name in list(MODULE.REVIEWED_COMPONENTS_55)[49:]] + [
                          "services/core/src/core_schema/manifest.rs",
                          "services/core/src/core_schema/navigation_options.rs",
                          "services/core/src/core_schema/upgrade/fresh_target.json"]
@@ -599,10 +618,11 @@ class IdentityContractTests(unittest.TestCase):
                     MODULE.current_contract(root)
                 path.write_bytes(original)
 
-    def test_no_receipt_can_relabel49_or_supply_its_own54_catalog(self):
+    def test_no_receipt_can_relabel_older_profile_or_supply_its_own_catalog(self):
         plan = mapped([user()])
         manifest = manifest_for(plan)
         for key, value in (("import_profile", MODULE.CORE49_SEED_CONTRACT),
+                           ("import_profile", MODULE.CORE54_SEED_CONTRACT),
                            ("source_schema_revision", "0" * 40),
                            ("compiled_manifest_sha256", "0" * 64),
                            ("fresh_catalog_sha256", "0" * 64),
@@ -615,11 +635,11 @@ class IdentityContractTests(unittest.TestCase):
             with self.subTest(missing=key), self.assertRaisesRegex(MODULE.MappingError, "target_assembled_contract_invalid"):
                 MODULE.build_import_sql(plan, migration_id="profile54-test", source_sha256=SOURCE_SHA256,
                     target_contract=changed, manifest=manifest, target_identity={})
-        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh54_catalog_mismatch"):
+        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh_catalog_mismatch"):
             MODULE.build_import_sql(plan, migration_id="profile54-test", source_sha256=SOURCE_SHA256,
                 target_contract=target_contract(catalog_fingerprint_sha256="c" * 64), manifest=manifest, target_identity={})
 
-    def test_core54_seed_snapshot_adds_empty_rights_and_physical_sequences_only(self):
+    def test_core55_seed_snapshot_includes_empty_rights_and_physical_sequences(self):
         query = MODULE.fresh_seed_hash_query()
         for relation in ("legacy_bases", "legacy_proofs", "provider_identifiers", "legacy_applications"):
             self.assertIn("core_payments." + relation, query)
@@ -628,6 +648,8 @@ class IdentityContractTests(unittest.TestCase):
         for relation in ("core_wallet.affiliate_claims_id_seq", "core_referrals.events_id_seq"):
             self.assertIn("FROM " + relation + " t", query)
         self.assertEqual(query.count("'log_cnt',t.log_cnt"), 3)
+        self.assertIn("core_history.connection_snapshot", query)
+        self.assertNotIn("core_history.connection_snapshot", MODULE.fresh_seed_hash_query(MODULE.CORE54_SEED_CONTRACT))
         self.assertNotIn("core_referrals", MODULE.fresh_seed_hash_query(MODULE.CORE49_SEED_CONTRACT))
         with self.assertRaisesRegex(MODULE.MappingError, "seed_profile_not_reviewed"):
             MODULE.fresh_seed_hash_query("fresh55-unreviewed")
@@ -1594,7 +1616,7 @@ class RealIdentityTransactionTests(unittest.TestCase):
 
     The private receipt must attest status=initialized-empty-identity-fixture,
     synthetic_only=true, registry_provisioned=true, and no app/worker started.
-    It supplies connection, instance_identity, and the reviewed schema-6 Core54 fresh-install contract
+    It supplies connection, instance_identity, and the reviewed schema-6 Core55 fresh-install contract
     with allow_initialized_core_seed=true and initialized_core_seed_contract.
     Never use an application database here.
     Every database response and error stays in a new private private evidence directory directory.

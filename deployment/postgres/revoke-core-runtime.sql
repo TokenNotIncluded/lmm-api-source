@@ -101,6 +101,13 @@ REVOKE UPDATE(released_at) ON core_promotions.red_packet_items FROM :"runtime_ro
 REVOKE ALL PRIVILEGES ON SEQUENCE core_promotions.red_packets_id_seq,
     core_promotions.red_packet_items_id_seq,core_promotions.red_packet_claims_id_seq FROM :"runtime_role";
 
+-- Community history is optional within the baseline history schema. Table-level
+-- revocation alone does not remove its explicit column grants.
+REVOKE ALL PRIVILEGES ON core_history.connection_snapshot FROM :"runtime_role";
+REVOKE SELECT(document,mapping,native_credential_floor,snapshot_observed_at,
+    target_database,target_database_oid,target_nonce)
+    ON core_history.connection_snapshot FROM :"runtime_role";
+
 REVOKE SELECT(migration_id, manifest) ON core_migration.import_runs FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON core_migration.import_runs FROM :"runtime_role";
 REVOKE USAGE ON SCHEMA core_migration FROM :"runtime_role";
