@@ -88,6 +88,7 @@ func Run() error {
 		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts,
 		UserReadTokenFile: cfg.Core.UserReadTokenFile,
+		UserReadSocket:    cfg.Core.UserReadSocket,
 		Acquisition:       composition.StorageConfig{Component: "acquisition", URLFile: cfg.Acquisition.DatabaseURLFile, Database: cfg.Acquisition.DatabaseName},
 		Community:         composition.StorageConfig{Component: "community", URLFile: cfg.Community.DatabaseURLFile, Database: cfg.Community.DatabaseName},
 	})

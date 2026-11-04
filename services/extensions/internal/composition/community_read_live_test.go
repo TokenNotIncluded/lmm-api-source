@@ -44,7 +44,7 @@ func TestCoreCommunityRuntimeLive(t *testing.T) {
 	}
 	identity := write("identity.token", "synthetic-ranking-identity-token-20261104")
 	read := write("read.token", "synthetic-community-purpose-token-20261104")
-	cfg := Config{Selected: []string{"community"}, Socket: socket, TokenFile: identity, UserReadTokenFile: read, HostCredential: []byte("synthetic-ranking-http-host-token-20261104"), HostPublicOrigin: "https://synthetic.example", Community: StorageConfig{Component: "community", URLFile: fixture["community"].RuntimeURLFile, Database: fixture["community"].Database}}
+	cfg := Config{Selected: []string{"community"}, Socket: socket, TokenFile: identity, UserReadSocket: socket, UserReadTokenFile: read, HostCredential: []byte("synthetic-ranking-http-host-token-20261104"), HostPublicOrigin: "https://synthetic.example", Community: StorageConfig{Component: "community", URLFile: fixture["community"].RuntimeURLFile, Database: fixture["community"].Database}}
 	runtime, err := New(context.Background(), cfg)
 	if err != nil {
 		t.Fatal("actual community-only runtime rejected", err)
@@ -124,6 +124,7 @@ func TestCoreCommunityRuntimeLive(t *testing.T) {
 	}
 	noRead := cfg
 	noRead.UserReadTokenFile = ""
+	noRead.UserReadSocket = ""
 	offline, err := New(context.Background(), noRead)
 	if err != nil {
 		t.Fatal(err)

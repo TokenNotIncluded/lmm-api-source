@@ -64,6 +64,7 @@ type Config struct {
 	Community                     StorageConfig
 	Acquisition                   StorageConfig
 	UserReadTokenFile             string
+	UserReadSocket                string
 	Scripts                       *operations.ScriptConfig
 }
 
@@ -176,8 +177,11 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	if err := validatePaymentSelection(cfg); err != nil {
 		return nil, err
 	}
-	if cfg.UserReadTokenFile != "" && !slices.Contains(cfg.Selected, "community") && !slices.Contains(cfg.Selected, "acquisition") {
+	if (cfg.UserReadTokenFile != "" || cfg.UserReadSocket != "") && !slices.Contains(cfg.Selected, "community") && !slices.Contains(cfg.Selected, "acquisition") {
 		return nil, errors.New("Core read configuration requires community or acquisition")
+	}
+	if (cfg.UserReadSocket == "") != (cfg.UserReadTokenFile == "") {
+		return nil, errors.New("configure both Core read socket and token file")
 	}
 	r := &Runtime{}
 	defer func() {
@@ -362,7 +366,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		if e != nil {
 			return nil, e
 		}
-		reader, e = community.NewCoreRead(cfg.Socket, token)
+		reader, e = community.NewCoreRead(cfg.UserReadSocket, token)
 		if e != nil {
 			return nil, e
 		}

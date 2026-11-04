@@ -131,3 +131,24 @@ func TestHostAdmissionConfig(t *testing.T) {
 		t.Fatal(cfg, e)
 	}
 }
+
+func TestCoreReadUsesSeparateSocket(t *testing.T) {
+	base := "version=1\n[host]\ntoken_file='/tmp/host-token'\nmodules=['community']\n[core]\nsocket='/tmp/identity.sock'\nidentity_token_file='/tmp/identity.token'\n"
+	read := "user_read_socket='/tmp/community.sock'\nuser_read_token_file='/tmp/read.token'\n"
+	load := func(text string) (GoConfig, error) {
+		path := filepath.Join(t.TempDir(), "extensions.toml")
+		if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return LoadConfig(path)
+	}
+	cfg, err := load(base + read)
+	if err != nil || cfg.Core.Socket != "/tmp/identity.sock" || cfg.Core.UserReadSocket != "/tmp/community.sock" {
+		t.Fatalf("distinct identity and read endpoints lost: %v", err)
+	}
+	for _, fields := range []string{"user_read_socket='/tmp/community.sock'\n", "user_read_token_file='/tmp/read.token'\n", "user_read_socket='relative.sock'\nuser_read_token_file='/tmp/read.token'\n"} {
+		if _, err := load(base + fields); err == nil {
+			t.Fatal("accepted incomplete or relative read endpoint")
+		}
+	}
+}

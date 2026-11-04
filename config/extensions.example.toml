@@ -24,6 +24,8 @@ max_in_flight = 16
 # identity_token_file = "/etc/lmm.conf.d/secrets/extensions/core-rpc-token"
 # The community read-purpose token enables rankings and acquisition analytics.
 # Select "community", "acquisition", or both; it is not the identity RPC token.
+# The read service speaks HTTP on its own private socket, not gRPC core.socket.
+# user_read_socket = "/run/lmm/core/community.sock"
 # user_read_token_file = "/etc/lmm.conf.d/secrets/extensions/community-read-token"
 # commerce_token_file = "/etc/lmm.conf.d/secrets/extensions/commerce-rpc-token"
 # payment_token_file = "/etc/lmm.conf.d/secrets/extensions/payment-rpc-token"
