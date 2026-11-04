@@ -95,6 +95,20 @@ v1 独立 owner 使用另一组合成输入，通过真实 CLI 和全新 Postgre
 
 `apply_legacy_payment` 单独应用持久证明，以 basis 事务锁、按 basis 与 operation key 派生的稳定 operation id、账本操作及 `legacy_applications` 同一事务保存结果。schema 对每个 basis 只允许一条 posted 应用，并校验 journal 的 scope、操作号、原个人钱包与冻结额度。本地 PostgreSQL 自测覆盖该精确一次应用机制，独立端到端回调验收尚未完成。提交结果不确定时必须使用同一 operation key 重放；同一 basis 与 key 返回原持久回执；后续已验签的 event/PAY 证明不会改变该资金请求，仍返回首次 proof/outcome，不重新记账。basis 一旦 posted，后续新 key 或后续证明返回首次 posted 的原 operation/proof/outcome 回执，不新发资金。rejected 回执也保留；核对后使用新 key 才能重试，不能改写原拒绝结果。
 
+### 完整折扣事实前置材料
+
+统一离线导入器新增 `--phase discounts`，注册在 Money 阶段之后、history 之前。
+`legacy-discount-facts.v1` 回执保存全部折扣定义、预留、关联订单、报价单位白名单配置及逐订单占用来源。单位配置白名单同时包含 `general_setting.quota_display_type` 和旧兼容字段 `DisplayInCurrencyEnabled`；后者也会改变旧运行时展示与门槛单位。冻结源中两字段均缺失，按缺失保留，不填入当前默认值。原优惠码按旧规则去空白、转大写后存 SHA-256；其余定义字段，包括私有 owner、原 used count、门槛、时间与软删除状态均保留。完整原始表摘要另外保存，不能用当前政策改写旧条款。
+
+本机 component-51 目标库的实际导入为 98 个定义、16 条预留、28 笔关联订单和 8 个占用事实。5 笔仍可支付的超时订单即使已有 released 预留也保持占用事实，另有 3 笔可支付订单没有预留行。预留 TTL 本身不能证明订单关闭；缺少订单或未知失败原因也不释放仍为 reserved 的记录。
+
+导入沿用安装 owner、opening 归档与 observation、用户映射和不可覆写回执检查，由外层统一 runner 提交 SERIALIZABLE 事务。回执明确记录 `balance_effect=none`、`native_discount_enabled_by_import=false` 和 `capacity_reserved_by_import=false`；它不修改账本或旧 used count，也没有创建原生折扣预留。通用 owner SQL body 支持嵌入此事务，并选择载荷中未出现的 dollar-quote 分隔符，保留名称中的引号及类似 SQL body 标签的文字。
+
+统一只读核对器逐行比较脱敏定义、完整预留、关联订单、单位配置、来源绑定及逐订单占用。定义和预留的事实比较通过后，可消除其“未覆盖”统计；`discount_capacity_holds_not_imported` 继续表示尚未生效的原生容量保护，并另保留原生报价、预留和退款未验收门槛。保存这些材料不能代替下面的 Core 接入工作。
+
+
+独立实际 PostgreSQL 验收通过严格重放、篡改拒绝、错误 opening 来源拒绝、未切 owner 拒绝、非空 scope 拒绝，以及含 body 标签和引号的名称原样回读。之后另建全新 component-51 目标，按注册顺序运行 16 个阶段及 4 个补充导入；独立逐阶段回读、目标 Key 别名绑定和统一 30 项对账通过。所有 233 张 Core 表在只读复验前后保持一致，状态仍为 `SCOPED_PASS_WITH_GAPS`。该演练不包含 Go 业务数据的完整安装、原生折扣、全页面验收或上线。
+
 ### 折扣消费视图与未完成接入
 
 `legacy_discount_consumptions` 仅投影已 posted 且带原折扣码的依据，以来源归档和原订单标识消费。后续名额计算须从导入的 held 集合扣除这些订单，并将消费加入原 used count，避免同时计为预留和已用。该视图不是完整优惠券引擎，不实现原生报价、原子预留、最后名额并发或完整折扣生命周期。

@@ -26,8 +26,9 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
-PHASES = ("history", "oauth_apps", "mfa", "passkeys", "telegram", "channel_identities", "channels_history")
+PHASES = ("discounts", "history", "oauth_apps", "mfa", "passkeys", "telegram", "channel_identities", "channels_history")
 GUARDS = {
+    "discounts": "SELECT count(*) FROM core_migration.import_runs WHERE manifest->>'scope'='legacy-discount-facts.v1'",
     "history": "SELECT count(*) FROM core_history.sources",
     "oauth_apps": "SELECT count(*) FROM core_market_oauth.clients",
     "mfa": "SELECT count(*) FROM core_identity.mfa_factors",
@@ -104,8 +105,9 @@ def add_arguments(parser) -> None:
 
 
 def plan(phase: str, args, src, target) -> tuple[list[str], dict]:
+    from legacy_discount_facts import plan as plan_discounts
     return {
-        "history": plan_history, "oauth_apps": plan_oauth_apps, "mfa": plan_mfa,
+        "discounts": plan_discounts, "history": plan_history, "oauth_apps": plan_oauth_apps, "mfa": plan_mfa,
         "passkeys": plan_passkeys, "telegram": plan_telegram, "channel_identities": plan_channel_identities,
         "channels_history": plan_channels,
     }[phase](args, src, target)

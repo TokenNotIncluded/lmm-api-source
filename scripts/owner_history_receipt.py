@@ -4,16 +4,22 @@ import re
 from prepare_wallet_history_snapshot import literal, require
 
 
-def owner_history_import_sql(manifest, *, scope, error_prefix):
+def owner_history_import_sql(manifest, *, scope, error_prefix, include_transaction=True):
     require(manifest.get("scope") == scope, "receipt_scope_mismatch")
     require(re.fullmatch("[a-z_]+", error_prefix) is not None, "receipt_error_prefix_invalid")
-    return f"""BEGIN ISOLATION LEVEL SERIALIZABLE;
+    payload = literal(manifest)
+    delimiter = "$owner_history$"
+    suffix = 0
+    while delimiter in payload:
+        suffix += 1
+        delimiter = f"$owner_history_{suffix}$"
+    body = f"""
 SET LOCAL standard_conforming_strings=on;
 SET LOCAL lock_timeout='5s';
 SET LOCAL statement_timeout='60s';
 SELECT pg_advisory_xact_lock(741803121);
-DO $owner_history$
-DECLARE m jsonb := {literal(manifest)}::jsonb; previous core_migration.import_runs%ROWTYPE;
+DO {delimiter}
+DECLARE m jsonb := {payload}::jsonb; previous core_migration.import_runs%ROWTYPE;
 BEGIN
  IF NOT EXISTS(SELECT FROM pg_class WHERE oid='core_migration.import_runs'::regclass
    AND pg_get_userbyid(relowner)=current_user)
@@ -39,7 +45,9 @@ BEGIN
   INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest)
   VALUES(m->>'migration_id',m->>'source_archive_sha256',m->>'mapping_sha256',m);
  END IF;
-END $owner_history$;
-COMMIT;
+END {delimiter};
 """
+    if include_transaction:
+        return "BEGIN ISOLATION LEVEL SERIALIZABLE;\n" + body + "COMMIT;\n"
+    return body
 

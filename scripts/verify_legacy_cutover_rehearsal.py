@@ -64,6 +64,64 @@ def hero_sms_consistency(orders, ledgers):
         'passed':not any(errors.values())}
 
 
+
+def reconcile_discount_facts(query, schema, archive_sha256, observed_at, compare):
+    """Compare full original terms and held orders; this is not Native admission."""
+    scope = "legacy-discount-facts.v1"
+    selector = (f"i.manifest->>'scope'='{scope}' AND "
+                f"i.source_archive_sha256='{archive_sha256}' AND "
+                f"(i.manifest->>'observed_at')::bigint={observed_at}")
+    source_users = [row['id'] for row in query(f'SELECT id FROM {schema}.users ORDER BY id', True)]
+    compare('discount_facts_source_binding',
+            [dict(id='receipt', source_namespace='lmm_api.lmm_prod_20260802.discounts',
+                  source_user_ids=source_users, balance_effect='none',
+                  native_discount_enabled_by_import=False, capacity_reserved_by_import=False)],
+            query(f"SELECT 'receipt' AS id,manifest->>'source_namespace' AS source_namespace,"
+                  f"manifest->'source_user_ids' AS source_user_ids,manifest->>'balance_effect' AS balance_effect,"
+                  f"(manifest->>'native_discount_enabled_by_import')::boolean AS native_discount_enabled_by_import,"
+                  f"(manifest->>'capacity_reserved_by_import')::boolean AS capacity_reserved_by_import "
+                  f"FROM core_migration.import_runs i WHERE {selector}"))
+    for table in ('discount_codes', 'discount_code_reservations'):
+        value = ("(to_jsonb(d)-'code')||jsonb_build_object('code_sha256',"
+                 "encode(sha256(convert_to(upper(btrim(d.code)),'UTF8')),'hex'))"
+                 if table == 'discount_codes' else 'to_jsonb(d)')
+        compare('discount_facts_' + table,
+                query(f"SELECT id,md5(({value})::text) AS row_hash FROM {schema}.{table} d", True),
+                query(f"SELECT (r->>'id')::bigint AS id,md5(r::text) AS row_hash "
+                      f"FROM core_migration.import_runs i CROSS JOIN LATERAL "
+                      f"jsonb_array_elements(i.manifest->'tables'->'{table}') r WHERE {selector}"))
+    option_keys = "'QuotaPerUnit','LegacyPricingQuotaPerUnit','CreditsPerUSD','PublicCreditsPerUSD','USDExchangeRate','general_setting.quota_display_type','DisplayInCurrencyEnabled'"
+    compare('discount_facts_quote_options',
+            query(f"SELECT key AS id,md5(to_jsonb(o)::text) AS row_hash FROM "
+                  f"(SELECT key,value FROM {schema}.options WHERE key IN({option_keys})) o", True),
+            query(f"SELECT r->>'key' AS id,md5(r::text) AS row_hash FROM core_migration.import_runs i "
+                  f"CROSS JOIN LATERAL jsonb_array_elements(i.manifest->'options') r WHERE {selector}"))
+    orders = (f"SELECT id,user_id,trade_no,discount_code_id,status,payment_provider,failure_reason_code "
+              f"FROM {schema}.top_ups WHERE discount_code_id>0 OR trade_no IN "
+              f"(SELECT top_up_trade_no FROM {schema}.discount_code_reservations)")
+    compare('discount_facts_related_orders',
+            query(f"SELECT id,md5(to_jsonb(d)::text) AS row_hash FROM ({orders}) d", True),
+            query(f"SELECT (r->>'id')::bigint AS id,md5(r::text) AS row_hash "
+                  f"FROM core_migration.import_runs i CROSS JOIN LATERAL "
+                  f"jsonb_array_elements(i.manifest->'tables'->'discount_top_ups') r WHERE {selector}"))
+    payable = "(t.status='pending' OR(t.status='failed' AND t.payment_provider='waffo_pancake' AND t.failure_reason_code='checkout_timeout'))"
+    closed = "(t.status='expired' OR(t.status='failed' AND(coalesce(t.payment_provider,'')<>'waffo_pancake' OR(t.failure_reason_code IS NOT NULL AND t.failure_reason_code<>'checkout_timeout'))))"
+    holds = (f"SELECT r.top_up_trade_no AS id,r.discount_code_id,t.id AS source_order_id,"
+             f"r.id AS source_reservation_id,coalesce(t.user_id,r.user_id) AS source_user_id "
+             f"FROM {schema}.discount_code_reservations r LEFT JOIN {schema}.top_ups t ON t.trade_no=r.top_up_trade_no "
+             f"WHERE(r.status='reserved' AND NOT coalesce({closed},false)) OR(r.status='released' AND {payable}) "
+             f"UNION ALL SELECT t.trade_no,t.discount_code_id,t.id,NULL::bigint,t.user_id "
+             f"FROM {schema}.top_ups t WHERE t.discount_code_id>0 AND {payable} AND NOT EXISTS "
+             f"(SELECT FROM {schema}.discount_code_reservations r WHERE r.top_up_trade_no=t.trade_no)")
+    compare('discount_facts_capacity_holds', query(holds, True),
+            query(f"SELECT r->>'top_up_trade_no' AS id,(r->>'discount_code_id')::bigint AS discount_code_id,"
+                  f"(r->>'source_order_id')::bigint AS source_order_id,"
+                  f"(r->>'source_reservation_id')::bigint AS source_reservation_id,"
+                  f"(r->>'source_user_id')::bigint AS source_user_id "
+                  f"FROM core_migration.import_runs i CROSS JOIN LATERAL "
+                  f"jsonb_array_elements(i.manifest->'capacity_holds') r WHERE {selector}"))
+
+
 def reconciliation_status(checks, gaps):
     if not all(check['passed'] for check in checks.values()):
         return 'FAILED'
@@ -212,6 +270,11 @@ def reconcile(args):
     basis=query(f"SELECT (manifest->>'original_quota_rejected_count')::bigint AS rejected FROM core_migration.import_runs i WHERE {basis_filter}")
     gaps['legacy_original_quota_rejections_require_handling']=basis[0]['rejected'] if len(basis)==1 else 1
     gaps['legacy_payment_channel_binding_not_verified']=1
+    reconcile_discount_facts(query, schema, args.archive_sha256, args.observed_at, compare)
+    gaps['discount_native_quote_reservation_and_refund_not_verified']=1
+    for table in ('discount_codes','discount_code_reservations'):
+        if checks['discount_facts_'+table]['passed']:
+            gaps['source_'+('discount_reservations' if table=='discount_code_reservations' else table)+'_not_covered_by_this_verifier']=0
     # A source ledger check proves old-book consistency, never target migration.
     status=reconciliation_status(checks,gaps)
     return {'scope':'read-only-available-core-phase-reconciliation','status':status,
