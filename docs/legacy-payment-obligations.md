@@ -30,7 +30,7 @@
 
 私密证据位于 `~/Backups/lmm-full-rehearsal-20261104/discount-lifecycle/`。这只适用于该冻结快照、本地 owner 事务和对应源码，不证明最终快照、完整新库演练、真实到账或独立验收。
 
-[统一核对器](../scripts/verify_legacy_cutover_rehearsal.py) 比较有映射的超时义务并保留孤儿记录、折扣容量及旧回调未验收的 gap；有缺口仍为 `SCOPED_PASS_WITH_GAPS`，退出码 2。原生折扣报价与原子预留、最后名额并发、旧签名回调的精确一次入账、晚到账消费原折扣名额，以及原支付币种/金额校验继续单独完成；保存回执不能代替这些业务代码。
+[统一核对器](../scripts/verify_legacy_cutover_rehearsal.py) 比较有映射的超时义务并保留孤儿记录、折扣容量及旧回调未验收的 gap；有缺口仍为 `SCOPED_PASS_WITH_GAPS`，退出码 2。原生折扣报价与原子预留、最后名额并发、旧签名回调的精确一次入账、晚到账消费原折扣名额，以及原支付币种/金额校验仍须单独完成接入与验证；下述实现不改变这份演练的 gap，保存回执不能代替业务验收。
 
 ## 保存逐单原结算观察值
 
@@ -42,7 +42,7 @@ fixture 要求本机 `~/Backups/` 下的 socket、端口 55436、名称以 `lmm_
 
 [事实 preparer](../scripts/prepare_legacy_settlement_basis.py) 接受 `--input`、`--oracle`、`--archive-sha256`、`--expected-rows` 和私密 `--output`。oracle 文档绑定原提交、二进制/捕获源码/原源码归档 SHA-256、完整表与原用户 ID 向量 hash、禁网与回滚范围，以及逐单原结果。preparer 验证精确覆盖、owner、金额和拒绝状态；这些 hash 是来源保留材料，不是对任意 JSON 的真实性签名，仍需独立审核原函数执行过程。
 
-生成的 `legacy-topup-settlement-facts.v1` owner 回执绑定同一 opening archive 与观察时间，严格重放只接受同一 manifest。它保存原订单引用、原额度与原应付金额、被拒绝记录和未映射用户；`runtime_settlement_available=false`。真正的 `LegacyPaymentBasis` 运行时表、商户/环境/币种绑定、旧订单验签入口、折扣消费和原子入账仍须实现，不能把事实回执当作付款或发放授权。
+生成的 `legacy-topup-settlement-facts.v1` owner 回执绑定同一 opening archive 与观察时间，严格重放只接受同一 manifest。它保存原订单引用、原额度与原应付金额、被拒绝记录和未映射用户；`runtime_settlement_available=false`。当前运行时依据表为 `core_payments.legacy_bases`，见下节；它与事实回执是不同层次。owner 依据加载器和审批执行尚未实现，不能把事实回执当作付款或发放授权。
 
 本次固定快照的原函数观察为 190 单中 182 单额度有效，8 单 EPay 记录被原规则拒绝。全部订单的原应付金额可读；3 单 owner 已删除。逐单观察与订单、1 份重基母计划、5 项额度配置均已在本地回执精确保留，重复导入无额外资金写入。独立业务验收与真实回调仍未执行。
 
@@ -58,6 +58,31 @@ Core 的 [独立验签器](../services/core/src/payments/legacy_pancake.rs) 接�
 
 金额保留原十进制及科学计数法语法，换算结果必须为正整数微单位，不舍入；尾随零不改变金额。与固定旧 SDK 一致，`chargedAmount` 优先于目录 `amount`，带 `listPrice` 却没有实付金额的现代报文不能证明付款。老报文允许缺少产品/商户元数据；有原产品绑定且报文携带产品键时必须匹配，原产品不会被新渠道产品覆盖。原钱包规则不校验 `lmm_merchant`，legacy 分支同样不把该字段与当前 merchant 比较；渠道归属仍需 owner 绑定。新订单的整分金额和元数据要求保持原规则。
 
-原 Go 将 `data.orderId` 保存为供应商交易号，新 Core 则使用 `data.paymentId`。验签结果分别保留这两个标识、原 event id（缺少时回退 eventId）、原金额、原额度和载荷 hash。旧报文可以缺少 paymentId；这不代表允许绕过跨新旧订单的交易去重。后续入账必须先处理两种标识的别名与并发保护。
+原 Go 将 `data.orderId` 保存为供应商交易号，新 Core 则使用 `data.paymentId`。验签结果分别保留这两个标识、原 event id（缺少时回退 eventId）、原金额、原额度和载荷 hash。旧报文可以缺少 paymentId；这不代表允许绕过跨新旧订单的交易去重。当前共享标识表和入账存储已处理这两种标识的归属与并发约束，见下节；这不代表回调接入已完成或验收通过。
 
 该函数只验证回调观察，不创建付款证明、折扣消费或账本记录，尚未接入 HTTP/RPC 的旧订单结算入口。原始事实回执仍不可授权发放。当前自测使用本地生成的 RSA 签名，不是供应商真实回调或独立验收。
+
+
+## 当前 component 50 内部实现
+
+以下描述内部实现及其局部自测，不代表发布、独立验收或生产就绪。[schema](../services/core/schema/legacy_payments.sql) 属于 fresh component 50；不提供将已有 component 49 数据库升级到 50 的流程。普通启动不能代替 owner 安装或既有站点升级。
+
+### owner 安装的不可变依据
+
+`legacy_bases` 保存原订单、原用户、来源归档与原行 hash、审核 hash，以及绑定的商户、环境、渠道、币种、store/product 和原折扣码。插入触发器要求依据的 opening migration、`user:<原用户 ID>`、来源归档 SHA-256 与原 opening 导入一致，且目标必须是该映射用户的原个人账户。不能改绑团队账户或其他用户，也不能为已删除用户凭空生成归属。依据仅接受 pending 或 checkout_timeout 的 failed 原订单；冻结的正整数 `amount_micros` 和 `credit_units` 保留原微单位金额及原有效额度，不按当前价格、汇率或 credits/分重算。
+
+依据表禁止更新、删除和 truncate，运行时不得写入 owner 条款。上述约束不验证审核材料的真实性，也不执行 owner 审批；当前没有 owner basis 加载器，没有执行真实旧订单依据安装或审批；合成依据仅用于本地自测。原函数 oracle、来源归档及独立审核要求仍然适用。
+
+### 接纳证明与资金应用分开
+
+[存储实现](../services/core/src/payments/legacy_store.rs) 的 `admit_legacy_pancake` 只读取已安装依据，匹配配置中的 provider、merchant、environment 和 currency，再按冻结报价验签。它持久保存签名原文、签名、载荷 hash、event、供应商 ORD（orderId）及可选 PAY（paymentId）；不会增加余额或写入资金账本。同一 event 仅在依据和载荷 hash 一致时返回原证明，不同归属或内容冲突会拒绝。同一依据已有证明的 ORD 不能改变，两个非空 PAY 也不能互换。
+
+[共享标识实现](../services/core/src/payments/identifiers.rs) 将 native intent 与 legacy basis 放入同一 provider/merchant/environment 范围的标识空间，按 `event`、`order`、`payment` 分别保留 event、ORD、PAY 的类型。每个标识只归属一个原支付主体；native 的 credit 接纳也认领 payment，Pancake 同时认领 ORD。缺少 PAY 的旧报文仍认领 ORD，不能借此跨新旧主体重复使用交易标识。类型化标识不是把任意同名 ORD 与 PAY 文本视为相同值。
+
+`apply_legacy_payment` 单独应用持久证明，以 basis 事务锁、按 basis 与 operation key 派生的稳定 operation id、账本操作及 `legacy_applications` 同一事务保存结果。schema 对每个 basis 只允许一条 posted 应用，并校验 journal 的 scope、操作号、原个人钱包与冻结额度。这是当前源码中的持久精确一次应用机制，尚待测试验证。提交结果不确定时必须使用同一 operation key 重放；同 key 返回原持久回执，换 proof 使用该 key 会冲突。basis 一旦 posted，后续新 key 或后续证明返回首次 posted 的原 operation/proof/outcome 回执，不新发资金。rejected 回执也保留；核对后使用新 key 才能重试，不能改写原拒绝结果。
+
+### 折扣消费视图与未完成接入
+
+`legacy_discount_consumptions` 仅投影已 posted 且带原折扣码的依据，以来源归档和原订单标识消费。后续名额计算须从导入的 held 集合扣除这些订单，并将消费加入原 used count，避免同时计为预留和已用。该视图不是完整优惠券引擎，不实现原生报价、原子预留、最后名额并发或完整折扣生命周期。
+
+目前没有 HTTP/RPC 旧 callback 路由；内部存储方法不等于对外结算入口。本地自测已用隔离 PostgreSQL 验证新库安装、证明不增余额、按原额度入账、原回执重放、后续 PAY 别名、单次折扣消费投影及新订单 ORD 冲突拒绝；原有 14 项渠道测试、两项运行时最小权限与禁止写权限测试通过。测试使用本地 RSA 签名和合成账户，不覆盖旧订单 HTTP/RPC、真实供应商或完整折扣引擎。尚无真实供应商回调，也未执行独立业务验收；上述历史本地演练及 RSA 自签名验签结果不能代替这些门槛。

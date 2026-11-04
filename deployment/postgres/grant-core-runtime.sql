@@ -474,6 +474,10 @@ GRANT SELECT ON core_commerce.orders TO :"runtime_role";
 
 \if :enable_payments
 GRANT USAGE ON SCHEMA core_payments TO :"runtime_role";
+GRANT SELECT ON core_payments.legacy_bases TO :"runtime_role";
+GRANT SELECT ON core_payments.legacy_discount_consumptions TO :"runtime_role";
+GRANT SELECT, INSERT ON core_payments.legacy_proofs,
+    core_payments.provider_identifiers,core_payments.legacy_applications TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE ON core_payments.intents,
     core_payments.refund_holds TO :"runtime_role";
 GRANT SELECT, INSERT ON core_payments.receipts, core_payments.provider_events,

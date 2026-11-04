@@ -780,6 +780,22 @@ async fn new_evidence_and_import_tables_reject_table_and_column_write_grants(poo
             "UPDATE ON core_payments.accepted_proofs",
         ),
         (
+            "INSERT ON core_payments.legacy_bases",
+            "INSERT ON core_payments.legacy_bases",
+        ),
+        (
+            "UPDATE(signed_payload) ON core_payments.legacy_proofs",
+            "UPDATE(signed_payload) ON core_payments.legacy_proofs",
+        ),
+        (
+            "UPDATE ON core_payments.provider_identifiers",
+            "UPDATE ON core_payments.provider_identifiers",
+        ),
+        (
+            "DELETE ON core_payments.legacy_applications",
+            "DELETE ON core_payments.legacy_applications",
+        ),
+        (
             "DELETE ON core_payments.refund_holds",
             "DELETE ON core_payments.refund_holds",
         ),

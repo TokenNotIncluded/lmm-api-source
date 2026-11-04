@@ -150,11 +150,12 @@ pub(crate) async fn check_connection(
               OR (n.nspname='core_billing' AND c.relname<>'account_policies')
               OR (n.nspname='core_tool_market' AND c.relname='publishers')
               OR (n.nspname='core_gift' AND c.relname IN ('policy','risk_key'))
-              OR (n.nspname='core_bounties' AND c.relname='policy'))
+              OR (n.nspname='core_bounties' AND c.relname='policy')
+              OR (n.nspname='core_payments' AND c.relname='legacy_bases'))
              AND (has_table_privilege(c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
                OR has_any_column_privilege(c.oid,'INSERT,UPDATE,REFERENCES')))
             OR ((n.nspname='core_console' AND c.relname='announcement_reads'
-               OR n.nspname='core_payments' AND c.relname IN ('receipts','provider_events','provider_refunds','blocked_refunds','accepted_proofs','refund_dispatches','refund_dispatch_bindings')
+               OR n.nspname='core_payments' AND c.relname IN ('receipts','provider_events','provider_refunds','blocked_refunds','accepted_proofs','refund_dispatches','refund_dispatch_bindings','legacy_proofs','provider_identifiers','legacy_applications')
                OR n.nspname='core_charging' AND c.relname IN ('budget_checks','usage_events','refunds','policy_events','ledger_commands')
                OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials')
                OR n.nspname='core_commerce' AND c.relname='operations'
@@ -609,7 +610,9 @@ pub(crate) async fn check_connection(
             AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
               CROSS JOIN (VALUES ('SELECT'),('INSERT')) AS p(privilege)
               WHERE n.nspname='core_payments' AND c.relkind IN ('r','p')
+                AND NOT (c.relname='legacy_bases' AND p.privilege='INSERT')
                 AND NOT has_table_privilege(c.oid,p.privilege))
+            AND has_table_privilege('core_payments.legacy_discount_consumptions','SELECT')
             AND has_table_privilege('core_payments.intents','UPDATE')
             AND has_table_privilege('core_payments.refund_holds','UPDATE')
             AND has_sequence_privilege('core_payments.intents_id_seq','USAGE')

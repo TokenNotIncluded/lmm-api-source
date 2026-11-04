@@ -132,6 +132,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "legacy-history-compat",
         include_str!("../schema/legacy_history_compat.sql"),
     ),
+    (
+        "legacy-payments",
+        include_str!("../schema/legacy_payments.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -139,6 +143,9 @@ const COMPONENTS: &[(&str, &str)] = &[
 pub fn component_count() -> usize {
     COMPONENTS.len()
 }
+
+#[cfg(test)]
+mod capture_tests;
 
 const CONTRACT: &str = "CREATE TABLE core_meta.component_contract (name TEXT PRIMARY KEY, fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint)=32)); CREATE TABLE core_meta.runtime_contract (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_fingerprint BYTEA NOT NULL CHECK (octet_length(catalog_fingerprint)=32));";
 const UPGRADE_METADATA: &str = include_str!("../schema/core_upgrade.sql");

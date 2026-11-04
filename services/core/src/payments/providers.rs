@@ -1141,7 +1141,7 @@ mod tests {
     fn pancake_event() -> Value {
         json!({"id":"delivery_fixture", "eventId":"payment_fixture", "eventType":"order.completed",
             "mode":"test", "storeId":"STO_fixture", "data":{
-                "orderMerchantExternalId":"top_42", "paymentId":"PAY_fixture", "orderStatus":"completed",
+                "orderMerchantExternalId":"top_42", "orderId":"ORD_fixture", "paymentId":"PAY_fixture", "orderStatus":"completed",
                 "paymentStatus":"succeeded", "chargedAmount":"1.00", "amount":"1.00", "currency":"USD",
                 "orderMetadata":{"lmm_product_id":"PROD_fixture", "lmm_merchant":"merchant_fixture"}}})
     }
@@ -1358,6 +1358,155 @@ mod tests {
         assert!(PaymentsStore::new(pool.clone(), vec![a.clone(), b.clone()]).is_ok());
         b.environment = "live".into();
         assert!(PaymentsStore::new(pool, vec![a, b]).is_err());
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn legacy_frozen_credit_replay_and_native_order_collision(pool: sqlx::PgPool) {
+        use crate::{billing::ledger::Outcome, identity::IdentityStore, internal_rpc::pb};
+        crate::core_schema::init(&pool).await.unwrap();
+        let identity = IdentityStore::from_pool(pool.clone());
+        let session = identity.bootstrap_user(7301, 0).await.unwrap();
+        let account = identity
+            .authorize(&session.secret)
+            .await
+            .unwrap()
+            .owner_account_id;
+        let opening = json!({"migration_id":"legacy-test-opening", "source_entity_key":"user:1901",
+            "source_archive_sha256":"aa".repeat(32), "mapping_sha256":"bb".repeat(32),
+            "source_row_sha256":"cc".repeat(32), "observed_at":1700000000,
+            "account_id":account, "available_units":0, "reserved_units":0, "affiliate_units":0});
+        let mut opening_tx = pool.begin().await.unwrap();
+        sqlx::raw_sql(
+            "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SET LOCAL synchronous_commit=on",
+        )
+        .execute(&mut *opening_tx)
+        .await
+        .unwrap();
+        sqlx::query("SELECT core_billing.import_opening_balance($1)")
+            .bind(sqlx::types::Json(opening))
+            .execute(&mut *opening_tx)
+            .await
+            .unwrap();
+        opening_tx.commit().await.unwrap();
+        let mut c = channel("waffo_pancake");
+        c.credits_per_minor = 7;
+        c.max_amount_minor = 1;
+        let store = PaymentsStore::new(pool.clone(), vec![c.clone()]).unwrap();
+        let basis_id = format!("legacy_{}", "11".repeat(32));
+        sqlx::query("INSERT INTO core_payments.legacy_bases(id,opening_migration_id,source_archive_sha256,source_order_id,source_user_id,source_row_sha256,review_sha256,user_id,account_id,provider,channel_id,merchant,environment,currency,order_reference,store_id,source_product_id,amount_micros,credit_units,discount_code_id,source_status,failure_reason) VALUES($1,'legacy-test-opening',$2,123,1901,decode(repeat('cc',32),'hex'),decode(repeat('dd',32),'hex'),7301,$3,'waffo_pancake',$4,$5,'test','USD','old_checkout_123','STO_fixture','PROD_fixture',1234567,7654321,17,'failed','checkout_timeout')")
+            .bind(&basis_id).bind("aa".repeat(32)).bind(account).bind(c.id).bind(&c.merchant)
+            .execute(&pool).await.unwrap();
+        let balance = || async {
+            sqlx::query_scalar::<_, i64>("SELECT b.balance_units FROM core_billing.balance_state b JOIN core_billing.ledger_accounts a ON a.id=b.ledger_account_id WHERE a.owner_account_id=$1 AND a.bucket='wallet'")
+                .bind(account).fetch_one(&pool).await.unwrap()
+        };
+        let mut event = pancake_event();
+        event["data"]["orderMerchantExternalId"] = json!("old_checkout_123");
+        event["data"]["chargedAmount"] = json!("1.234567");
+        event["data"].as_object_mut().unwrap().remove("paymentId");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, super::super::now().unwrap() * 1000);
+        let proof = store
+            .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
+            .await
+            .unwrap();
+        assert_eq!(balance().await, 0, "admission must not post money");
+        assert_eq!(
+            store
+                .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
+                .await
+                .unwrap(),
+            proof
+        );
+        let first = store
+            .apply_legacy_payment(&proof, "legacy_apply_original_123")
+            .await
+            .unwrap();
+        assert!(matches!(first.outcome, Outcome::Posted { .. }));
+        assert_eq!(
+            balance().await,
+            7_654_321,
+            "use exact original units regardless of current rate/cap"
+        );
+        assert_eq!(
+            store
+                .apply_legacy_payment(&proof, "legacy_apply_original_123")
+                .await
+                .unwrap(),
+            first
+        );
+        assert_eq!(
+            store
+                .apply_legacy_payment(&proof, "legacy_apply_other_key_123")
+                .await
+                .unwrap(),
+            first
+        );
+        event["id"] = json!("payment_later_delivery");
+        event["eventId"] = json!("payment_later_delivery");
+        event["data"]["paymentId"] = json!("PAY_late_alias");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, super::super::now().unwrap() * 1000);
+        let later = store
+            .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .apply_legacy_payment(&later, "legacy_apply_later_proof")
+                .await
+                .unwrap(),
+            first
+        );
+        assert_eq!(balance().await, 7_654_321);
+        let uses: i64 = sqlx::query_scalar("SELECT count(*) FROM core_payments.legacy_discount_consumptions WHERE discount_code_id=17")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(uses, 1);
+        let native = store
+            .prepare_personal(
+                &session.secret,
+                pb::PreparePersonalTopupRequest {
+                    mutation: Some(pb::MutationContext {
+                        idempotency_key: "native_collision_prepare".into(),
+                        expected_version: None,
+                    }),
+                    payment_channel_id: c.id,
+                    currency: c.currency.clone(),
+                    amount_minor: 1,
+                },
+            )
+            .await
+            .unwrap();
+        event["id"] = json!("payment_native_collision");
+        event["eventId"] = json!("payment_native_collision");
+        event["data"]["orderMerchantExternalId"] = json!(format!("top_{}", native.intent_id));
+        event["data"]["paymentId"] = json!("PAY_different_native");
+        event["data"]["chargedAmount"] = json!("0.01");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, super::super::now().unwrap() * 1000);
+        let result = store
+            .accept_proof(pb::AcceptProviderProofRequest {
+                intent_id: native.intent_id,
+                evidence: Some(pb::ProviderEvidence {
+                    payment: Some(pb::ExternalPaymentReference {
+                        provider: c.provider,
+                        merchant: c.merchant,
+                        environment: c.environment,
+                        transaction: "PAY_different_native".into(),
+                    }),
+                    signed_payload: raw,
+                    signature: signature.into_bytes(),
+                    provider_event_id: "payment_native_collision".into(),
+                    accepted_proof_id: String::new(),
+                }),
+            })
+            .await;
+        assert_eq!(
+            result,
+            Err(Error::Conflict),
+            "same original ORD cannot credit a native intent via another PAY"
+        );
+        assert_eq!(balance().await, 7_654_321);
     }
 
     #[sqlx::test]

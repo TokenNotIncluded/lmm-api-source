@@ -1,14 +1,17 @@
 //! Core-owned payment intents and independently verified provider transitions.
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
+mod identifiers;
 mod legacy;
 mod legacy_pancake;
+mod legacy_store;
 mod providers;
 pub mod rpc;
 mod stripe;
 pub(crate) mod waffo;
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
 pub use legacy_pancake::{FrozenPancakeQuote, VerifiedLegacyPancake, verify_legacy_pancake};
+pub use legacy_store::LegacyPaymentReceipt;
 
 use crate::{
     billing::{
@@ -34,7 +37,9 @@ pub const SCHEMA: &str = concat!(
     "\n",
     include_str!("../schema/payment_gateways.sql"),
     "\n",
-    include_str!("../schema/coinbase_payments.sql")
+    include_str!("../schema/coinbase_payments.sql"),
+    "\n",
+    include_str!("../schema/legacy_payments.sql")
 );
 const CREDIT_UNIT: &str = "credit_500k_usd";
 const PREPARED: i32 = 7;
@@ -706,6 +711,14 @@ impl PaymentsStore {
                 return Err(Error::Denied);
             }
         }
+        identifiers::native(
+            &mut tx,
+            self.channel(&intent)?,
+            intent.id,
+            &verified,
+            &evidence.signed_payload,
+        )
+        .await?;
         // Persist the verified original PaymentIntent before any ledger credit.
         // A refund may arrive while that credit is still pending; it must use
         // this durable binding without minting money or trusting refund metadata.

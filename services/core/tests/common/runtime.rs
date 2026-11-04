@@ -340,8 +340,11 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             return;
         }
         if schema == "core_payments" {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_payments TO {0}; GRANT SELECT,INSERT ON ALL TABLES IN SCHEMA core_payments TO {0}; GRANT UPDATE ON core_payments.intents,core_payments.refund_holds TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_payments.intents_id_seq TO {0}",self.name))
-                .execute(&self.owner).await.unwrap();
+            let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                .split_once("\\if :enable_payments\n").unwrap().1
+                .split_once("\\endif").unwrap().0
+                .replace(":\"runtime_role\"", &self.name);
+            sqlx::raw_sql(&grants).execute(&self.owner).await.unwrap();
             return;
         }
         let sql = match schema {
