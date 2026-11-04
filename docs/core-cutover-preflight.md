@@ -32,6 +32,23 @@ never returned by the public status endpoint. The preflight binds those values
 from the candidate manifest, package readback and runtime evidence instead;
 the hashes alone are not proof of a provider, database or public edge check.
 
+## Local WIP fresh-install contract, 2026-11-04
+
+The terminal legacy transfer history table belongs to the fresh-only
+`legacy-history-compat` component. The previously frozen `wallet` component
+retains its original SQL bytes, so historical upgrade manifests are unchanged.
+The 49-component fresh manifest changes with this assignment; its measured
+catalog pin remains unchanged because the table and trigger definitions did
+not change. An isolated PostgreSQL 18.6 payment gateway fixture verified fresh
+construction against that catalog pin and exercised native proof admission,
+credit, replay and personal-payer checks.
+
+Existing local rehearsal receipts from before this correction are retained,
+not silently relabelled as the new installation contract. Ordinary startup
+does not update their component hashes. The full financial import and joint
+Core/Go/Web acceptance must run against a new database with the current
+contract; the gateway fixture is not that rehearsal or a cutover approval.
+
 ## Current ArchDmit evidence
 
 The latest read-only rehearsal record (2026-10-24) is still blocked:
