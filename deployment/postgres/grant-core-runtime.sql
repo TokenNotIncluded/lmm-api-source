@@ -632,5 +632,10 @@ TO :"runtime_role";
 -- identity profile reads are granted above. No writes.
 GRANT USAGE ON SCHEMA core_charging TO :"runtime_role";
 GRANT SELECT ON core_charging.requests TO :"runtime_role";
+-- Cash projections verify accepted provider evidence; they never settle payments.
+GRANT USAGE ON SCHEMA core_payments, core_migration TO :"runtime_role";
+GRANT SELECT ON core_payments.intents, core_payments.receipts, core_payments.accepted_proofs,
+    core_payments.provider_events, core_payments.provider_refunds TO :"runtime_role";
+GRANT SELECT(source_archive_sha256, manifest) ON core_migration.import_runs TO :"runtime_role";
 \endif
 COMMIT;

@@ -17,7 +17,7 @@ use tower::ServiceExt;
 mod runtime;
 
 #[sqlx::test(migrations = false)]
-async fn community_reads_require_the_charging_read_grant(pool: PgPool) {
+async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
     let required = RequiredCapabilities {
@@ -25,24 +25,54 @@ async fn community_reads_require_the_charging_read_grant(pool: PgPool) {
         ..RequiredCapabilities::default()
     };
     sqlx::raw_sql(&format!(
-        "GRANT USAGE ON SCHEMA core_charging TO {0}; GRANT SELECT ON core_charging.requests TO {0}",
+        "GRANT USAGE ON SCHEMA core_charging,core_payments,core_migration TO {0}; GRANT SELECT ON core_charging.requests, core_payments.intents, core_payments.receipts, core_payments.accepted_proofs, core_payments.provider_events, core_payments.provider_refunds TO {0}; GRANT SELECT(source_archive_sha256,manifest) ON core_migration.import_runs TO {0}",
         role.name
     ))
     .execute(&pool)
     .await
     .unwrap();
     runtime_database::check(&role.pool, required).await.unwrap();
-    sqlx::query(&format!(
-        "REVOKE SELECT ON core_charging.requests FROM {}",
-        role.name
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        runtime_database::check(&role.pool, required).await,
-        Err(Error::MissingPrivileges)
-    );
+    for table in [
+        "core_charging.requests",
+        "core_payments.intents",
+        "core_payments.receipts",
+        "core_payments.accepted_proofs",
+        "core_payments.provider_events",
+        "core_payments.provider_refunds",
+    ] {
+        sqlx::query(&format!("REVOKE SELECT ON {table} FROM {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(&format!("GRANT SELECT ON {table} TO {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    for column in ["source_archive_sha256", "manifest"] {
+        sqlx::query(&format!(
+            "REVOKE SELECT({column}) ON core_migration.import_runs FROM {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(&format!(
+            "GRANT SELECT({column}) ON core_migration.import_runs TO {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
     role.cleanup().await;
 }
 

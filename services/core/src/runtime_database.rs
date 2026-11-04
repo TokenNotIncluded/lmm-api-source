@@ -93,7 +93,7 @@ pub(crate) async fn check_connection(
     required: RequiredCapabilities,
 ) -> Result<(), RuntimeDatabaseError> {
     if required.community {
-        let complete: bool = sqlx::query_scalar("SELECT has_schema_privilege('core_charging','USAGE') AND has_table_privilege('core_charging.requests','SELECT')")
+        let complete: bool = sqlx::query_scalar("SELECT has_schema_privilege('core_charging','USAGE') AND has_table_privilege('core_charging.requests','SELECT') AND has_schema_privilege('core_payments','USAGE') AND has_table_privilege('core_payments.receipts','SELECT') AND has_table_privilege('core_payments.accepted_proofs','SELECT') AND has_table_privilege('core_payments.provider_events','SELECT') AND has_table_privilege('core_payments.provider_refunds','SELECT') AND has_table_privilege('core_payments.intents','SELECT') AND has_schema_privilege('core_migration','USAGE') AND has_column_privilege('core_migration.import_runs','source_archive_sha256','SELECT') AND has_column_privilege('core_migration.import_runs','manifest','SELECT')")
             .fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
