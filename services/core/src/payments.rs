@@ -2,11 +2,13 @@
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
 mod legacy;
+mod legacy_pancake;
 mod providers;
 pub mod rpc;
 mod stripe;
 pub(crate) mod waffo;
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
+pub use legacy_pancake::{FrozenPancakeQuote, VerifiedLegacyPancake, verify_legacy_pancake};
 
 use crate::{
     billing::{

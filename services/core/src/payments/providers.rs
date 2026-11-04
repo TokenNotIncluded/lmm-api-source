@@ -621,6 +621,23 @@ fn verify_pancake(
     amount: i64,
     now: i64,
 ) -> Result<Verified> {
+    let event = pancake_envelope(payload, signature, c, now)?;
+    verify_pancake_order(&event, c, order, amount)
+}
+
+pub(super) fn pancake_envelope(
+    payload: &[u8],
+    signature: &[u8],
+    c: &Channel,
+    now: i64,
+) -> Result<Value> {
+    if payload.is_empty()
+        || payload.len() > 32 * 1024
+        || signature.is_empty()
+        || signature.len() > 2048
+    {
+        return Err(Error::Invalid);
+    }
     let header = std::str::from_utf8(signature).map_err(|_| Error::Invalid)?;
     let mut fields = BTreeMap::new();
     for field in header.split(',') {
@@ -647,7 +664,10 @@ fn verify_pancake(
         &signed,
         fields.get("v1").ok_or(Error::Invalid)?.as_bytes(),
     )?;
-    let event = stripe::unique_json(payload)?;
+    stripe::unique_json(payload)
+}
+
+fn verify_pancake_order(event: &Value, c: &Channel, order: &str, amount: i64) -> Result<Verified> {
     let data = event.get("data").ok_or(Error::Invalid)?;
     let mode = if c.environment == "live" {
         "prod"
@@ -666,9 +686,9 @@ fn verify_pancake(
             || text(data, "amount"),
             |v| v.as_str().ok_or(Error::Invalid),
         )?;
-    if text(&event, "eventType")? != "order.completed"
-        || text(&event, "mode")? != mode
-        || text(&event, "storeId")? != c.verification.store_id
+    if text(event, "eventType")? != "order.completed"
+        || text(event, "mode")? != mode
+        || text(event, "storeId")? != c.verification.store_id
         || text(data, "orderMerchantExternalId")? != order
         || text(data, "currency")? != c.currency
         || decimal_minor(charged)? != amount
@@ -698,7 +718,7 @@ fn verify_pancake(
         return Err(Error::Conflict);
     }
     Ok(paid(
-        id(&event, "id")?.to_owned(),
+        id(event, "id")?.to_owned(),
         id(data, "paymentId")?.to_owned(),
         amount,
     ))
@@ -1129,6 +1149,143 @@ mod tests {
         let mut signed = format!("{timestamp}.").into_bytes();
         signed.extend_from_slice(raw);
         format!("t={timestamp},v1={}", signed_rsa(&signed))
+    }
+
+    #[test]
+    fn legacy_pancake_preserves_original_reference_micros_and_credit() {
+        use super::super::{FrozenPancakeQuote, verify_legacy_pancake};
+        let mut c = channel("waffo_pancake");
+        c.max_amount_minor = 1;
+        c.credits_per_minor = 7;
+        let quote = FrozenPancakeQuote {
+            order_reference: "legacy_42_1793674367",
+            currency: "USD",
+            amount_micros: 1_234_567,
+            credit_units: 7_654_321,
+            source_store_id: Some("STO_fixture"),
+            source_product_id: Some("PROD_original"),
+        };
+        let mut event = pancake_event();
+        event["data"]["orderMerchantExternalId"] = json!(quote.order_reference);
+        event["data"]["orderId"] = json!("ORD_original");
+        event["data"]["amount"] = json!("5.00");
+        event["data"]["listPrice"] = json!({"total":"5.00","taxAmount":"0.00"});
+        event["data"]["chargedAmount"] = json!("1.234567000");
+        event["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("orderMetadata");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, NOW * 1000);
+        let verified = verify_legacy_pancake(&raw, signature.as_bytes(), &c, &quote, NOW).unwrap();
+        assert_eq!(verified.amount_micros, 1_234_567);
+        assert_eq!(verified.credit_units, 7_654_321);
+        assert_eq!(verified.order_id, "ORD_original");
+        assert_eq!(verified.payment_id.as_deref(), Some("PAY_fixture"));
+        assert_eq!(
+            verified.payload_sha256,
+            <[u8; 32]>::from(Sha256::digest(&raw))
+        );
+        // Historical admission must not broaden the native top_{id}/cent contract.
+        assert!(verify(&raw, signature.as_bytes(), &c, 42, "USD", 123, NOW).is_err());
+
+        // The old wallet contract did not bind merchant metadata. Preserve
+        // the historical product binding, not the current checkout product.
+        event["data"]["orderMetadata"] = json!({
+            "lmm_product_id":"PROD_original", "lmm_merchant":"original_merchant"
+        });
+        event["data"]["chargedAmount"] = json!("1234567e-6");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, NOW * 1000);
+        assert_eq!(
+            verify_legacy_pancake(&raw, signature.as_bytes(), &c, &quote, NOW)
+                .unwrap()
+                .amount_micros,
+            1_234_567
+        );
+
+        event.as_object_mut().unwrap().remove("id");
+        event["data"].as_object_mut().unwrap().remove("paymentId");
+        event["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("chargedAmount");
+        event["data"].as_object_mut().unwrap().remove("listPrice");
+        event["data"]["amount"] = json!("1.234567000");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, NOW * 1000);
+        let old = verify_legacy_pancake(&raw, signature.as_bytes(), &c, &quote, NOW).unwrap();
+        assert_eq!(old.event_id, "payment_fixture");
+        assert_eq!(old.payment_id, None);
+        assert_eq!(old.order_id, "ORD_original");
+    }
+
+    #[test]
+    fn legacy_pancake_rejects_signed_mismatches_and_untrusted_bytes() {
+        use super::super::{FrozenPancakeQuote, verify_legacy_pancake};
+        let c = channel("waffo_pancake");
+        let quote = FrozenPancakeQuote {
+            order_reference: "legacy_original",
+            currency: "USD",
+            amount_micros: 1_234_567,
+            credit_units: 91,
+            source_store_id: Some("STO_fixture"),
+            source_product_id: Some("PROD_original"),
+        };
+        let mut event = pancake_event();
+        event["data"]["orderMerchantExternalId"] = json!(quote.order_reference);
+        event["data"]["orderId"] = json!("ORD_original");
+        event["data"]["amount"] = json!("1.234567");
+        event["data"]["chargedAmount"] = json!("1.234567");
+        event["data"]["orderMetadata"] = json!({"lmm_product_id":"PROD_original"});
+        for (path, value) in [
+            ("/storeId", json!("STO_other")),
+            ("/mode", json!("prod")),
+            ("/eventType", json!("subscription.activated")),
+            ("/data/orderMerchantExternalId", json!("legacy_other")),
+            ("/data/currency", json!("CNY")),
+            ("/data/chargedAmount", json!("1.234566")),
+            ("/data/chargedAmount", json!("1.234568")),
+            ("/data/chargedAmount", json!("1.2345671")),
+            ("/data/chargedAmount", json!("0")),
+            ("/data/chargedAmount", json!(1.234567)),
+            ("/data/paymentStatus", json!("failed")),
+            ("/data/orderStatus", json!("pending")),
+            ("/data/orderMetadata/lmm_product_id", json!("PROD_other")),
+            ("/data/orderMetadata/lmm_product_id", json!("")),
+        ] {
+            let mut changed = event.clone();
+            *changed.pointer_mut(path).unwrap() = value;
+            let raw = serde_json::to_vec(&changed).unwrap();
+            let signature = signed_pancake(&raw, NOW * 1000);
+            assert!(
+                verify_legacy_pancake(&raw, signature.as_bytes(), &c, &quote, NOW).is_err(),
+                "{path}"
+            );
+        }
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, NOW * 1000);
+        assert!(verify_legacy_pancake(&raw, signature.as_bytes(), &c, &quote, NOW + 2701).is_err());
+        let mut changed = raw.clone();
+        changed.push(b' ');
+        assert!(verify_legacy_pancake(&changed, signature.as_bytes(), &c, &quote, NOW).is_err());
+        let duplicate = format!(
+            "{{\"id\":\"duplicate\",{}",
+            std::str::from_utf8(&raw[1..]).unwrap()
+        );
+        let signature = signed_pancake(duplicate.as_bytes(), NOW * 1000);
+        assert!(
+            verify_legacy_pancake(duplicate.as_bytes(), signature.as_bytes(), &c, &quote, NOW)
+                .is_err()
+        );
+        event["data"]["listPrice"] = json!("1.234567");
+        event["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("chargedAmount");
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, NOW * 1000);
+        assert!(verify_legacy_pancake(&raw, signature.as_bytes(), &c, &quote, NOW).is_err());
     }
 
     #[test]
