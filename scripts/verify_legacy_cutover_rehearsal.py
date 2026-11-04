@@ -198,6 +198,20 @@ def reconcile(args):
     gaps.update(query(f"SELECT count(*) AS payable_topup_orphan_rows_not_mapped FROM {schema}.top_ups t WHERE ({late}) AND NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=t.user_id)",True)[0])
     gaps['discount_capacity_holds_not_imported']=query(f"WITH payable AS(SELECT trade_no,discount_code_id FROM {schema}.top_ups WHERE status='pending' OR(status='failed' AND payment_provider='waffo_pancake' AND failure_reason_code='checkout_timeout')),closed AS(SELECT trade_no FROM {schema}.top_ups WHERE trade_no IS NOT NULL AND(status='expired' OR(status='failed' AND(COALESCE(payment_provider,'')<>'waffo_pancake' OR failure_reason_code<>'checkout_timeout')))) SELECT (SELECT count(*) FROM {schema}.discount_code_reservations r WHERE(r.status='reserved' AND r.top_up_trade_no NOT IN(SELECT trade_no FROM closed)) OR(r.status='released' AND r.top_up_trade_no IN(SELECT trade_no FROM payable)))+(SELECT count(*) FROM payable t WHERE discount_code_id>0 AND NOT EXISTS(SELECT FROM {schema}.discount_code_reservations r WHERE r.top_up_trade_no=t.trade_no)) AS holds",True)[0]['holds']
     gaps['legacy_late_payment_callback_not_verified']=1
+    basis_scope="legacy-topup-settlement-facts.v1"
+    basis_filter=f"i.manifest->>'scope'='{basis_scope}' AND i.source_archive_sha256='{args.archive_sha256}' AND (i.manifest->>'observed_at')::bigint={args.observed_at}"
+    compare('legacy_settlement_source_orders',
+        query(f"SELECT id,md5((to_jsonb(t)||jsonb_build_object('money',t.money::text))::text) AS row_hash FROM {schema}.top_ups t WHERE status='pending' OR(status='failed' AND payment_provider='waffo_pancake' AND failure_reason_code='checkout_timeout')",True),
+        query(f"SELECT (r->>'id')::bigint AS id,md5(r::text) AS row_hash FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_array_elements(i.manifest->'tables'->'top_ups') r WHERE {basis_filter}"))
+    compare('legacy_settlement_parent_audits',
+        query(f"SELECT migration_id AS id,md5(to_jsonb(p)::text) AS row_hash FROM {schema}.wallet_credit_rebases p",True),
+        query(f"SELECT r->>'migration_id' AS id,md5(r::text) AS row_hash FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_array_elements(i.manifest->'tables'->'wallet_credit_rebases') r WHERE {basis_filter}"))
+    compare('legacy_settlement_credit_options',
+        query(f"SELECT key AS id,md5(to_jsonb(o)::text) AS row_hash FROM {schema}.options o WHERE key IN('CreditsPerUSD','LegacyPricingQuotaPerUnit','QuotaPerUnit','USDExchangeRate','TopUpPlatformUnitsPerCNY','PublicCreditsPerUSD')",True),
+        query(f"SELECT r->>'key' AS id,md5(r::text) AS row_hash FROM core_migration.import_runs i CROSS JOIN LATERAL jsonb_array_elements(i.manifest->'tables'->'credit_options') r WHERE {basis_filter}"))
+    basis=query(f"SELECT (manifest->>'original_quota_rejected_count')::bigint AS rejected FROM core_migration.import_runs i WHERE {basis_filter}")
+    gaps['legacy_original_quota_rejections_require_handling']=basis[0]['rejected'] if len(basis)==1 else 1
+    gaps['legacy_payment_channel_binding_not_verified']=1
     # A source ledger check proves old-book consistency, never target migration.
     status=reconciliation_status(checks,gaps)
     return {'scope':'read-only-available-core-phase-reconciliation','status':status,
