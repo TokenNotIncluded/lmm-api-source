@@ -156,6 +156,7 @@ const COMPONENTS: &[(&str, &str)] = &[
         "connection-history",
         include_str!("../schema/connection_history.sql"),
     ),
+    ("directory-ads", include_str!("../schema/directory_ads.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
