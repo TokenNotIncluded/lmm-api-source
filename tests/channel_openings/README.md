@@ -15,16 +15,16 @@ Main's later execution interface:
 
 ```sh
 python3 -B tests/channel_openings/importer_selftest.py --execute \
-  --connection /absolute/private/Backups/synthetic-admin.json \
+  --connection /absolute/private/evidence/synthetic-admin.json \
   --core /cache/cargo-target/debug/lmm-core \
-  --output /absolute/private/Backups/new-empty-owner-pg-run
+  --output /absolute/private/evidence/new-empty-owner-pg-run
 ```
 
 Use the actual absolute binary path. Main must run space-first before approving
 the database clones; this invocation may cumulatively exceed 100 MB. The output
 must already exist, be empty and mode 0700. Referenced connection/pgpass files
-must satisfy the existing owner tool's private Backups path checks. This harness
-never scans Backups for inputs. Its only directory listing checks the explicitly
+must satisfy the existing owner tool's private 私有材料目录 path checks. This harness
+never scans 私有材料目录 for inputs. Its only directory listing checks the explicitly
 provided output for emptiness.
 
 The connection file uses the existing local socket fields `socket_directory`,

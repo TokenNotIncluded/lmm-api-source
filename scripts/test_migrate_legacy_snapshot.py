@@ -1492,7 +1492,7 @@ class RealIdentityTransactionTests(unittest.TestCase):
     It supplies connection, instance_identity, and the reviewed schema-6 Core49 contract
     with allow_initialized_core_seed=true and initialized_core_seed_contract.
     Never use an application database here.
-    Every database response and error stays in a new private Backups directory.
+    Every database response and error stays in a new private private evidence directory directory.
     """
 
     def test_atomic_rollback_replay_and_conflicting_receipts(self):

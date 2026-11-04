@@ -1,6 +1,6 @@
 """Authenticated, bounded backup files for isolated A09 tests; never an installer.
 
-Full dumps, recovered plaintext and recovery keys stay under Backups. Keys use
+Full dumps, recovered plaintext and recovery keys stay under private evidence directory. Keys use
 separate private directories, never the directory containing a dump. Authentication finishes before any restored bytes are published to a
 consumer. This module does not connect to a database or authorize an upgrade.
 """
@@ -19,7 +19,7 @@ import tempfile
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-BACKUPS = Path('/home/lightjunction/Backups')
+BACKUPS = Path('/home/lightjunction/.local/state/lmm-api')
 MAGIC = b'LMM-A09-BACKUP\x01\n'
 CHUNK = 1024 * 1024
 MAX_HEADER = 4096
@@ -42,7 +42,7 @@ def in_backups(path: Path) -> None:
     private_dir(BACKUPS)
     private_dir(path.parent)
     if not path.is_absolute() or not path.is_relative_to(BACKUPS) or path == BACKUPS:
-        raise BackupError('complete backup files must remain under Backups')
+        raise BackupError('complete backup files must remain under private evidence directory')
 
 
 @contextmanager

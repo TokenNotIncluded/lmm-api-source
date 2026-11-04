@@ -37,7 +37,7 @@ def main():
         "--output",
         type=Path,
         required=True,
-        help="New private directory under ~/Backups; all parent directories must be mode 0700",
+        help="New private directory under ~/.local/state/lmm-api; all parent directories must be mode 0700",
     )
     parser.add_argument("--include-opening-counters", action="store_true",
                         help="Select the separately reviewed wallet-plus-raw-counters profile; default stays opening-only")

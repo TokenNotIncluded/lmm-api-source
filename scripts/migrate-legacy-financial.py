@@ -1070,7 +1070,7 @@ def main() -> int:
     parser.add_argument("--identity-manifest", type=Path, required=True, help="Reviewed identity-only manifest binding this ID-map file to the same source archive")
     parser.add_argument("--source-timezone", help="Proven legacy application IANA timezone; never inferred from the database timezone")
     parser.add_argument("--reuse-export-proof", type=Path, help="Replan a previous owned private export after exact hash/catalog/count checks, without source queries")
-    parser.add_argument("--output", type=Path, required=True, help="New 0700 directory under ~/Backups")
+    parser.add_argument("--output", type=Path, required=True, help="New 0700 directory under ~/.local/state/lmm-api")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true")
     # @mark migration.financial-rights role=cli

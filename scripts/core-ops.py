@@ -14,7 +14,7 @@ from contextlib import ExitStack
 import argparse, datetime, hashlib, ipaddress, json, os, re, selectors, stat
 import subprocess, sys, time, unicodedata, uuid
 
-BACKUPS = Path('/home/lightjunction/Backups')
+BACKUPS = Path('/home/lightjunction/.local/state/lmm-api')
 MAX_JSON = 1 << 20
 MAX_BINARY = 1 << 30
 MAX_STDOUT = 128 << 10

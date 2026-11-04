@@ -65,7 +65,7 @@ lmm-core --config /absolute/private/core.toml check-db
 
 [`scripts/core-ops.py`](../scripts/core-ops.py) 提供配套的 `plan`、`status` 和
 `reconcile`。先用 `python3 -B scripts/core-ops.py --help` 查看入口；它要求显式的
-安装记录、文件摘要和私有输入，`plan` 仅在 Backups 中独占创建新计划文件。
+安装记录、文件摘要和私有输入，`plan` 仅在 私有材料目录 中独占创建新计划文件。
 `status` 与 `reconcile` 只读检查，UNKNOWN 不重放；物理身份尚未验证时会明确返回
 `PHYSICAL_IDENTITY_UNVERIFIED` 和退出码 `3`。它不授予维护、接管或恢复权限。
 

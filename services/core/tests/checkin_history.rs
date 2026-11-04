@@ -151,12 +151,12 @@ async fn restored_history_reads_exactly_for_every_mapped_account(pool: PgPool) {
     .canonicalize()
     .unwrap();
     let backups = PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Backups")
+        .join(".local/state/lmm-api")
         .canonicalize()
         .unwrap();
     assert!(
         path.starts_with(backups),
-        "only local Backups input allowed"
+        "only local private evidence directory input allowed"
     );
     let manifest: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(manifest["scope"], "checkin-history.v1");

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
 """Independently reconcile available Core imports against a local restored source.
 
-Read-only Unix-socket connections under Backups only. Raw keys are hashed inside
+Read-only Unix-socket connections under private evidence directory only. Raw keys are hashed inside
 PostgreSQL; only aggregate differences are reported. This checks the listed
 fields, not live authentication, every financial feature, or cutover acceptance.
 Exit 2 preserves a failed comparison or unresolved orphan/channel data as a gate.

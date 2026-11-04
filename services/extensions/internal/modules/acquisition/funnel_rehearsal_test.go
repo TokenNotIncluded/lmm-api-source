@@ -174,13 +174,13 @@ func TestRestoredFunnelLive(t *testing.T) {
 	}
 	output := os.Getenv("LMM_REHEARSAL_FUNNEL_REPORT")
 	if output != "" {
-		base, e := filepath.Abs(filepath.Join(os.Getenv("HOME"), "Backups"))
+		base, e := filepath.Abs(filepath.Join(os.Getenv("HOME"), ".local/state/lmm-api"))
 		if e != nil {
 			t.Fatal(e)
 		}
 		relative, e := filepath.Rel(base, output)
 		if e != nil || !filepath.IsLocal(relative) {
-			t.Fatal("report must stay under private Backups")
+			t.Fatal("report must stay under private private evidence directory")
 		}
 		data, e := json.Marshal(reports)
 		if e != nil {

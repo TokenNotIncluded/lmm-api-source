@@ -28,7 +28,7 @@
 
 2026-11-04 的冻结旧快照有 13 笔 pending 和 177 笔仍可结算的超时充值。新增本地演练保留 174 笔有映射的超时回执，3 笔已删除用户记录单独隔离；174 笔完整原行、来源 hash、owner、状态和金额均读回一致，严格重放不新增，余额及账本条数不变。旧 SQL 与 Python 独立计算均为 8 个占用名额，其中 5 个对应 released 预留、3 个没有预留记录。
 
-私密证据位于 `~/Backups/lmm-full-rehearsal-20261104/discount-lifecycle/`。这只适用于该冻结快照、本地 owner 事务和对应源码，不证明最终快照、完整新库演练、真实到账或独立验收。
+私密证据位于 私有材料（本地路径已移除）。这只适用于该冻结快照、本地 owner 事务和对应源码，不证明最终快照、完整新库演练、真实到账或独立验收。
 
 [统一核对器](../scripts/verify_legacy_cutover_rehearsal.py) 比较有映射的超时义务并保留孤儿记录、折扣容量及旧回调未验收的 gap；有缺口仍为 `SCOPED_PASS_WITH_GAPS`，退出码 2。原生折扣报价与原子预留、最后名额并发、旧签名回调的精确一次入账、晚到账消费原折扣名额，以及原支付币种/金额校验仍须单独完成接入与验证；下述实现不改变这份演练的 gap，保存回执不能代替业务验收。
 
@@ -38,7 +38,7 @@
 
 [原函数捕获 fixture](../scripts/fixtures/legacy_settlement_basis_capture_test.go) 只用于父仓库固定历史提交 `3948a0a1ee1cefdd016a7aa45a11851545bb4b85` 的独立源码副本。将它复制到该副本的 `apps/api-go/model/`，编译测试二进制后，在禁用外网的 network namespace 内执行唯一的 `TestCaptureLegacySettlementBasisOffline`。不编译成新架构运行程序，不向新 Go 扩展提供 Core 数据库凭据。
 
-fixture 要求本机 `~/Backups/` 下的 socket、端口 55436、名称以 `lmm_legacy_quote_oracle_` 开头的专用旧库副本。`LMM_LEGACY_ORACLE_SOCKET`、`LMM_LEGACY_ORACLE_DATABASE`、`LMM_LEGACY_ORACLE_EXPECTED_ROWS` 和 `LMM_LEGACY_ORACLE_OUTPUT` 必须显式提供；输出文件不可已存在。它调用原 `VerifyCreditUnits` 的只读路径、`pendingTopUpSettlementQuotaTx` 和 `expectedTopUpAmountMicros`，随后回滚观察事务。仅原 `ErrInvalidTopUpQuota` 计为拒绝，存储等其他错误必须失败，不能伪装为业务拒绝。保留完整源码、捕获 fixture、二进制、运行日志、来源与副本一致性证明及指纹。
+fixture 要求本机 私有材料（本地路径已移除） 下的 socket、端口 55436、名称以 `lmm_legacy_quote_oracle_` 开头的专用旧库副本。`LMM_LEGACY_ORACLE_SOCKET`、`LMM_LEGACY_ORACLE_DATABASE`、`LMM_LEGACY_ORACLE_EXPECTED_ROWS` 和 `LMM_LEGACY_ORACLE_OUTPUT` 必须显式提供；输出文件不可已存在。它调用原 `VerifyCreditUnits` 的只读路径、`pendingTopUpSettlementQuotaTx` 和 `expectedTopUpAmountMicros`，随后回滚观察事务。仅原 `ErrInvalidTopUpQuota` 计为拒绝，存储等其他错误必须失败，不能伪装为业务拒绝。保留完整源码、捕获 fixture、二进制、运行日志、来源与副本一致性证明及指纹。
 
 [事实 preparer](../scripts/prepare_legacy_settlement_basis.py) 接受 `--input`、`--oracle`、`--archive-sha256`、`--expected-rows` 和私密 `--output`。oracle 文档绑定原提交、二进制/捕获源码/原源码归档 SHA-256、完整表与原用户 ID 向量 hash、禁网与回滚范围，以及逐单原结果。preparer 验证精确覆盖、owner、金额和拒绝状态；这些 hash 是来源保留材料，不是对任意 JSON 的真实性签名，仍需独立审核原函数执行过程。
 

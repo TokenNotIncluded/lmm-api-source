@@ -4,7 +4,7 @@
 Run through mise. Dry-run is the default. Receipts describe local Unix sockets;
 this tool never connects over TCP, creates a schema, or imports funds, sessions,
 API keys, OAuth links, passkeys, or second-factor secrets. Private artifacts must
-stay below ~/Backups. See --help for the explicit target receipt contract.
+stay below ~/.local/state/lmm-api. See --help for the explicit target receipt contract.
 
 For a NOLOGIN target owner, connection.role is the effective owner, and the
 explicit pair login_role/set_role names the actual LOGIN member and that same
@@ -36,7 +36,7 @@ import sys
 from typing import Any
 
 
-BACKUP_ROOT = Path.home() / "Backups"
+BACKUP_ROOT = Path.home() / ".local/state/lmm-api"
 # Bound the local client as well as connection setup. A write timeout does not
 # establish rollback: retain the run ID/materials and resolve the original session.
 PSQL_CLIENT_TIMEOUT_SECONDS = 600
@@ -699,7 +699,7 @@ def owned_path(path: Path, *, private: bool, directory: bool = False) -> Path:
 def private_backup_path(path: Path, *, directory: bool = False) -> Path:
     root = BACKUP_ROOT.resolve()
     require(path.is_absolute() and path.resolve().is_relative_to(root) and path.resolve() != root, "private_artifact_outside_backups")
-    # Check every component below Backups, not just the final path.
+    # Check every component below private evidence directory, not just the final path.
     for parent in reversed(path.parents):
         if parent != root and parent.is_relative_to(root):
             owned_path(parent, private=True, directory=True)
@@ -1341,7 +1341,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source-receipt", type=Path, required=True)
     parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned fresh49 receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
-    parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/Backups; must not already exist")
+    parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/.local/state/lmm-api; must not already exist")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true", help="Explicitly execute the private SQL plan against the matching empty initialized target")
     parser.add_argument("--confirm-source-sha256", help="Required on apply; exact immutable archive SHA256")

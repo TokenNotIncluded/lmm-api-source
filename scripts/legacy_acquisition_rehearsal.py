@@ -109,15 +109,15 @@ def main():
     parser.add_argument('--report', required=True, type=Path)
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
-    backup = (Path.home() / 'Backups').resolve()
+    backup = (Path.home() / '.local/state/lmm-api').resolve()
     socket = args.socket.resolve(strict=True)
     if not socket.is_relative_to(backup) or not socket.is_dir() or not 1 <= args.port <= 65535:
-        parser.error('local restored database socket under Backups required')
+        parser.error('local restored database socket under private evidence directory required')
     if not re.fullmatch(r'[a-z_][a-z_0-9]*', args.source) or not re.fullmatch(r'lmm_acquisition_audit_[a-z0-9_]+', args.target) or args.source == args.target:
         parser.error('requires a separate lmm_acquisition_audit_* target and plain database names')
     report_path = args.report.resolve()
     if not report_path.is_relative_to(backup) or report_path.exists():
-        parser.error('report must be a new private file under Backups')
+        parser.error('report must be a new private file under private evidence directory')
     exported = psql(socket, args.port, args.source, snapshot_sql(args.schema), True)
     data, audit = decode_snapshot_documents(exported)
     projection = audit.pop('projection')

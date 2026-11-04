@@ -17,12 +17,12 @@ async fn rehearsal_pool() -> sqlx::PgPool {
         .get_socket()
         .map_or_else(|| Path::new(options.get_host()), PathBuf::as_path);
     let backups = PathBuf::from(std::env::var_os("HOME").expect("home required"))
-        .join("Backups")
+        .join(".local/state/lmm-api")
         .canonicalize()
         .unwrap();
     assert!(
         socket.canonicalize().unwrap().starts_with(backups),
-        "only a local Backups socket is allowed"
+        "only a local private evidence directory socket is allowed"
     );
     let pool = PgPoolOptions::new()
         .max_connections(1)
@@ -129,12 +129,12 @@ async fn restored_cash_history_matches_original_classifications() {
     .canonicalize()
     .unwrap();
     let backups = PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Backups")
+        .join(".local/state/lmm-api")
         .canonicalize()
         .unwrap();
     assert!(
         path.starts_with(backups),
-        "expected cash facts must stay in private Backups"
+        "expected cash facts must stay in private private evidence directory"
     );
     let expected: Vec<lmm_core::community_read::FirstCashPayment> =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -229,7 +229,7 @@ async fn restored_cash_amounts_match_original_orders() {
     .canonicalize()
     .unwrap();
     let backups = PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Backups")
+        .join(".local/state/lmm-api")
         .canonicalize()
         .unwrap();
     assert!(path.starts_with(backups));

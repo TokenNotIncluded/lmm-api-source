@@ -29,7 +29,7 @@ func TestCaptureLegacySettlementBasisOffline(t *testing.T) {
 	if e != nil || err != nil || expected < 0 {
 		t.Fatal("explicit local oracle scope required")
 	}
-	backups, e := filepath.EvalSymlinks(filepath.Join(home, "Backups"))
+	backups, e := filepath.EvalSymlinks(filepath.Join(home, ".local/state/lmm-api"))
 	if e != nil {
 		t.Fatal("private backup root required")
 	}

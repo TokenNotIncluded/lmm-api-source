@@ -67,12 +67,12 @@ time; it is not presented as the provider's observation time.
 ## Private input contracts
 
 All artifacts and referenced files must be owned, private, non-symlink files
-under `/home/lightjunction/Backups`; directories are 0700 and files 0600. Output
+under 私有材料（本地路径已移除）; directories are 0700 and files 0600. Output
 directories must already exist and be unused. Writes are O_EXCL, fsynced, and
 never overwrite evidence. Do not put raw exports, secrets, database connections,
 approvals, or materials in Git. Nothing below authorizes production access.
 Only explicitly supplied local synthetic/frozen files and their receipt-listed
-metadata are read; Backups is never scanned for inputs. Archive and referenced
+metadata are read; 私有材料目录 is never scanned for inputs. Archive and referenced
 file hashes reuse the existing 1 MiB streaming SHA-256 helper. Proof files are
 checked for nonempty size without loading their entire contents.
 
@@ -155,7 +155,7 @@ from available logs or current settings.
 Use `python3 -B scripts/legacy_channel_accounting.py --help` for arguments.
 Examples below only name **prepared local owner files**; do not execute them
 against production or use them to initialize a database. Choose existing unused
-private output directories under Backups for every step.
+private output directories under 私有材料目录 for every step.
 
 1. Run `inspect --files <source-manifest> --output <inspection-dir>`. This is
    file-only and needs only the four frozen-source entries. Its private output

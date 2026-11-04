@@ -4,7 +4,7 @@
 Only three legacy option keys, setup facts and announcement receipts are copied.
 Use an owned immutable local snapshot and a separately initialized, stopped core
 target. Both connections require checked private Unix sockets. Raw exports and
-SQL contain private data and must remain in a new directory below ~/Backups.
+SQL contain private data and must remain in a new directory below ~/.local/state/lmm-api.
 Announcement interpretation follows main 7be6ee81's mandatory_announcement.go;
 the original TEXT, revision and epoch values are retained, not recalculated.
 
@@ -595,7 +595,7 @@ def main() -> int:
     parser.add_argument("--source-receipt", type=Path, required=True)
     parser.add_argument("--target-receipt", type=Path, help="Private receipt: status=initialized-console-import-target; migration_id/source_archive_sha256; connection/instance_identity from owner; contract=current identity version/fingerprint, component_fingerprints, catalog_query_sha256, catalog_fingerprint_sha256, identity_import={migration_id,source_archive_sha256,mapping_sha256,manifest_sha256,source_target_id_map_sha256}; registry_provisioned=true; application_or_worker_started=false")
     parser.add_argument("--identity-manifest", type=Path, help="Required with target: reviewed private Core26 identity manifest; reads identity-mapping.private.json and source-target-id-map.private.jsonl in the same directory")
-    parser.add_argument("--output", type=Path, required=True, help="New 0700 directory below ~/Backups")
+    parser.add_argument("--output", type=Path, required=True, help="New 0700 directory below ~/.local/state/lmm-api")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-source-sha256")

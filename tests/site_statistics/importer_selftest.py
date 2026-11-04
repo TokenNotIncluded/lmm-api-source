@@ -2,7 +2,7 @@
 """Author real-PG/full-CLI self-test; synthetic archives only, no Core build.
 
 Run after space-first with --candidate <passed final build> --root <new short
-~/Backups directory> --execute. This is developer evidence, not independent QA.
+~/.local/state/lmm-api directory> --execute. This is developer evidence, not independent QA.
 """
 from __future__ import annotations
 
@@ -906,7 +906,7 @@ def main():
             "candidate lacks the server-generated seal floor")
     require("native_request_ids TEXT[] NOT NULL" in (candidate / "source/services/core/schema/site_statistics.sql").read_text(),
             "candidate lacks the exact opaque request seal")
-    require(root.parent == Path.home() / "Backups" and not root.exists(), "fresh short private backup root required")
+    require(root.parent == Path.home() / ".local/state/lmm-api" and not root.exists(), "fresh short private backup root required")
     require(len(str(root / "s/.s.PGSQL.55613").encode()) < 104, "Unix socket path too long")
     require(shutil.disk_usage(root.parent).free >= 2 * 1024**3, "disk admission failed; run space-first")
     root.mkdir(mode=0o700)

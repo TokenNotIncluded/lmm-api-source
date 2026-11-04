@@ -2,7 +2,7 @@
 """Restore the complete compiled Core into a new, owned synthetic PostgreSQL.
 
 This runner accepts no DSN, existing database, container or data directory.
-Backups and keys remain in Backups. A failed/uncertain mutation is retained.
+private evidence directory and keys remain in private evidence directory. A failed/uncertain mutation is retained.
 It is an offline qualification tool, not an online upgrade or holder takeover.
 """
 from __future__ import annotations

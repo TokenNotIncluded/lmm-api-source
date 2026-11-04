@@ -1020,7 +1020,7 @@ def main():
                 {
                     "status": "PLAN_ONLY; PG NOT RUN",
                     "groups": GROUPS,
-                    "requires": "Main-authorized Unix-only PG18 synthetic Core44 template with nonempty canonical Native IDs, clean projection; direct resource-owner connection; prebuilt matching Core44; new private Backups output",
+                    "requires": "Main-authorized Unix-only PG18 synthetic Core44 template with nonempty canonical Native IDs, clean projection; direct resource-owner connection; prebuilt matching Core44; new private private evidence directory output",
                     "source_adapter": "real pg_dump/restore; narrow channels+options readonly export using existing financial framing/reader",
                     "large_output": "Main runs space-first before authorizing database clones",
                 },

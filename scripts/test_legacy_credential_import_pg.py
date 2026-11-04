@@ -2,7 +2,7 @@
 
 Run LMM_CREDENTIAL_IMPORT_PG_TEST=1 python3 -B
 scripts/test_legacy_credential_import_pg.py -v. Retains private synthetic inputs,
-SQL, command results and stopped database under ~/Backups/api-lmm-credential-import/local/.
+SQL, command results and stopped database under ~/.local/state/lmm-api/api-lmm-credential-import/local/.
 Uses complete reviewed installer DDL, not compiled init-db. Financial source
 metadata/review are synthetic: original archive/export validation, production
 financial approval and runtime authentication are outside this test's scope.

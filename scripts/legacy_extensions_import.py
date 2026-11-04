@@ -14,7 +14,7 @@ Rows that only Core can own are never written here. Where a phase needs them it
 emits a separate SQL file (core-<phase>.sql) for the coordinator's Core phase.
 
 Connections use local Unix sockets only (libpq environment). Plans and reports
-are written below --output (0700, under ~/Backups). Dry-run is the default.
+are written below --output (0700, under ~/.local/state/lmm-api). Dry-run is the default.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-BACKUP_ROOT = Path.home() / "Backups"
+BACKUP_ROOT = Path.home() / ".local/state/lmm-api"
 
 
 def fail(code: str) -> None:
@@ -1255,7 +1255,7 @@ def main() -> None:
     p.add_argument("--source-db", default="legacy")
     p.add_argument("--source-user", default="postgres")
     p.add_argument("--schema", required=True, help="legacy schema, e.g. lmm_prod_20260802")
-    p.add_argument("--output", required=True, type=Path, help="private plan/report dir under ~/Backups")
+    p.add_argument("--output", required=True, type=Path, help="private plan/report dir under ~/.local/state/lmm-api")
     p.add_argument("--phase", action="append", choices=sorted(PHASES), help="default: all")
     p.add_argument("--target", action="append", help="PHASE=DATABASE override")
     p.add_argument("--login", help="login role for module DBs (default lmm_<x>_installer)")

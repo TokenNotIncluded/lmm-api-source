@@ -83,10 +83,10 @@ def main():
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
-    backup = (Path.home() / 'Backups').resolve()
+    backup = (Path.home() / '.local/state/lmm-api').resolve()
     socket, projection, report = (path.resolve() for path in (args.socket, args.projection, args.report))
     if not socket.is_dir() or not socket.is_relative_to(backup) or not projection.is_relative_to(backup) or not report.is_relative_to(backup) or report.exists():
-        parser.error('requires a local socket, private projection and new report under Backups')
+        parser.error('requires a local socket, private projection and new report under private evidence directory')
     if not 1 <= args.port <= 65535 or not re.fullmatch(r'lmm_acquisition_audit_[a-z0-9_]+', args.target) or not re.fullmatch(r'[0-9a-f]{64}', args.projection_sha256):
         parser.error('requires a plain local audit database name and projection SHA256')
     raw = projection.read_bytes().removesuffix(b'\n')

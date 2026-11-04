@@ -19,7 +19,7 @@ def raw_log(log_id=1, **changes):
 
 
 def source_files(plan):
-    return {k:{"path":"/home/test/Backups/"+k+".json","sha256":plan["source"]["source_export_sha256"] if k=="history_export" else "c"*64}
+    return {k:{"path":"/home/test/.local/state/lmm-api/"+k+".json","sha256":plan["source"]["source_export_sha256"] if k=="history_export" else "c"*64}
             for k in ("history_export","credential_mapping","source_review")}
 
 
@@ -148,7 +148,7 @@ class DriverTests(unittest.TestCase):
              patch.object(F,"write_private",side_effect=write), \
              patch.object(F,"run_sql",side_effect=run):
             return H.execute(self.m,approval=self.approval,original_sql=self.sql,
-                connection=self.connection,output=Path("/home/test/Backups/history-attempt"),original_attempt=original_attempt)
+                connection=self.connection,output=Path("/home/test/.local/state/lmm-api/history-attempt"),original_attempt=original_attempt)
 
     def test_transport_failure_and_malformed_ack_are_unknown_without_retry(self):
         for response in ((1,""),(0,"bad-json"),(0,'{"status":"COMMITTED"}')):

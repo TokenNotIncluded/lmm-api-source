@@ -48,7 +48,7 @@ def source_fixture():
         "credits_per_usd": 500000, "source_archive_sha256": archive_hash,
         "mapping_sha256": plan["mapping_sha256"], "identity_map_sha256": plan["identity_map_sha256"],
         "evidence_sha256": "e" * 64, "other_rights_policy": "remain-disabled-pending-separate-import"}
-    files = {name: {"path": "/home/test/Backups/" + name, "sha256": "f" * 64} for name in F.SOURCE_FILES}
+    files = {name: {"path": "/home/test/.local/state/lmm-api/" + name, "sha256": "f" * 64} for name in F.SOURCE_FILES}
     files["archive"]["sha256"] = archive_hash
     files["identity_map"]["sha256"] = F.sha(id_map.encode())
     return {"plan": plan, "identities": identities, "identity_plan": identity_plan, "observation": observation,
@@ -168,7 +168,7 @@ def escrow_material_fixture(source=None, snapshot=None, runtime_roles=None):
         "evidence_sha256": F.sha(b"SYNTHETIC independent economic review\r\n")}
     files = copy.deepcopy(source["files"])
     for name in F.ESCROW_SOURCE_FILES:
-        files[name] = {"path": "/home/test/Backups/" + name, "sha256": "f" * 64}
+        files[name] = {"path": "/home/test/.local/state/lmm-api/" + name, "sha256": "f" * 64}
     files["source_review_evidence"]["sha256"] = review["evidence_sha256"]
     files["escrow_policy_evidence"]["sha256"] = evidence["source_policy_evidence_sha256"]
     files["inflight_process_evidence"]["sha256"] = process_hash

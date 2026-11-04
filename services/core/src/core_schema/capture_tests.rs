@@ -8,7 +8,7 @@ async fn capture_fresh_install_catalog(pool: PgPool) {
     let output = PathBuf::from(std::env::var("LMM_FRESH_CATALOG_CAPTURE").unwrap());
     let parent = output.parent().unwrap().canonicalize().unwrap();
     let backups = PathBuf::from(std::env::var("HOME").unwrap())
-        .join("Backups")
+        .join(".local/state/lmm-api")
         .canonicalize()
         .unwrap();
     assert!(parent.starts_with(backups));

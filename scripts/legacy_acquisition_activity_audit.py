@@ -3,7 +3,7 @@
 """Read-only audit of legacy acquisition daily bounds against success receipts.
 
 By default only aggregate counts leave the restored local database. An explicit
---projection writes daily bounds and user IDs to a private Backups file; it never
+--projection writes daily bounds and user IDs to a private private evidence directory file; it never
 exports browser identifiers, request IDs or log metadata. Exit 2 means the
 stored activity cache differs from the consent-scoped request reconstruction.
 This does not import data or claim activity coverage is complete.
@@ -70,15 +70,15 @@ def main():
     parser.add_argument('--report', type=Path)
     parser.add_argument('--projection', type=Path, help='private daily reconstruction and preserved cache evidence; never applied automatically')
     args = parser.parse_args()
-    backup = (Path.home() / 'Backups').resolve()
+    backup = (Path.home() / '.local/state/lmm-api').resolve()
     socket = args.socket.resolve(strict=True)
     if not socket.is_relative_to(backup) or not socket.is_dir() or not 1 <= args.port <= 65535:
-        parser.error('requires a local restored database socket under Backups')
+        parser.error('requires a local restored database socket under private evidence directory')
     if not re.fullmatch(r"[a-z_][a-z_0-9]*", args.database):
         parser.error("database must be a local database name, not a connection string")
     for path in (args.report, args.projection):
         if path and (not path.resolve().is_relative_to(backup) or path.exists()):
-            parser.error('output must be a new private file under Backups')
+            parser.error('output must be a new private file under private evidence directory')
     if args.report and args.projection and args.report.resolve() == args.projection.resolve():
         parser.error('report and projection require different files')
     sql = audit_sql(args.schema, args.projection is not None)
@@ -104,7 +104,7 @@ def main():
     if args.report:
         path = args.report.resolve()
         if not path.is_relative_to(backup):
-            parser.error('report must stay under Backups')
+            parser.error('report must stay under private evidence directory')
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             stream.write(output)

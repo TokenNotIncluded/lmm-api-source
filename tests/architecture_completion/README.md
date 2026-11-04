@@ -15,8 +15,8 @@ MISE_DISABLE_TOOLS=rust mise exec -- python3 -B -m unittest discover \
 ```
 
 [Backup tests](test_backup.py) exercise real AES-256-GCM and private file handling.
-Complete synthetic dumps stay below `/home/lightjunction/Backups`, with private
-0700 directories and 0600 files. Recovery keys also stay under Backups, in a
+Complete synthetic dumps stay below 私有材料（本地路径已移除）, with private
+0700 directories and 0600 files. Recovery keys also stay under 私有材料目录, in a
 separate private directory from dump files; this is directory separation, not
 independent-media key custody. The tests
 create and remove only their own random test directories. A GCM tag, source/target
@@ -35,7 +35,7 @@ The [runner](run_postgres_recovery.py) needs the local Docker socket and the
 already-cached, pinned image in [pg_fixture.py](pg_fixture.py). Its connection
 denial check also requires an installed host libpq 18 at `/usr/lib/libpq.so.5`;
 the helper does not install it. Supply a new,
-absolute, private parent directory under `/home/lightjunction/Backups` for
+absolute, private parent directory under 私有材料（本地路径已移除） for
 fixture recovery credentials and receipts. No external DSN or existing container is
 accepted. The runner never pulls an image or changes global shell settings.
 
@@ -72,7 +72,7 @@ Only an exact owned container generation can be removed. Cleanup checks the
 cluster system ID, boot, data directory and port; it closes new database
 connections and rechecks for existing clients before removal. Unknown identity,
 a changed container, a live client or a driver error retains the resource.
-Backups, keys and private receipts stay in the supplied task directory. Only a
+私有材料目录, keys and private receipts stay in the supplied task directory. Only a
 fully successful probe attempts cleanup. Failed provisioning or later checks
 retain the container and partial recovery material for explicit inspection;
 there is no prefix cleanup, TTL takeover or adoption of a previous run.

@@ -1,7 +1,7 @@
 """Offline history and explicit scope-coverage writer.
 
 Input logs and generated material/SQL may contain personal data: a real operator
-must keep those files under the private Backups directory, never ordinary output
+must keep those files under the private private evidence directory directory, never ordinary output
 or Git. Only an explicit offline execute call opens a target connection; there
 is no automatic apply CLI or runtime import route.
 

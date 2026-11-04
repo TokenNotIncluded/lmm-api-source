@@ -59,10 +59,10 @@ def fixture(*, changes=None, owner_inactive=False):
                 "identity_import": identity, "source_archive_sha256": source["source_archive_sha256"],
                 "mapping_sha256": "d" * 64, "identity_map_sha256": "9" * 64,
                 "source_review": economic_review, "source_files": {"source_export": {"sha256": source["source_export_sha256"]}}}}}}
-    files = {name: {"path": "/home/lightjunction/Backups/synthetic-credential-test/" + name,
+    files = {name: {"path": "/home/lightjunction/.local/state/lmm-api/synthetic-credential-test/" + name,
                     "sha256": "a" * 64} for name in IMPORT.FILES}
     if not source["tokens"][0]["one_time_reveal"]:
-        files["encryption_key"] = {"path": "/home/lightjunction/Backups/synthetic-credential-test/key", "sha256": "b" * 64}
+        files["encryption_key"] = {"path": "/home/lightjunction/.local/state/lmm-api/synthetic-credential-test/key", "sha256": "b" * 64}
     return source, target, proposal, review, snapshot, files
 
 
@@ -630,7 +630,7 @@ class ProducerTests(unittest.TestCase):
         review["decision"] = "approve-offline-revoke-unsupported-credentials"
         review["source_input_sha256"] = IMPORT.PROPOSAL.sha256(source)
         review["proposal_sha256"] = proposal["proposal_sha256"]
-        files = {name: {"path": "/home/lightjunction/Backups/synthetic-credential-test/" + name,
+        files = {name: {"path": "/home/lightjunction/.local/state/lmm-api/synthetic-credential-test/" + name,
                         "sha256": "a" * 64} for name in IMPORT.FILES}
         material = IMPORT.prepare_material(source, target, proposal, review, migration_id="synthetic-import",
             snapshot=snapshot, runtime_roles=["synthetic_runtime"], source_files=files)

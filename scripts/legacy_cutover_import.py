@@ -7,7 +7,7 @@ refuses a non-empty target for the tables it owns, so a phase cannot run twice.
 Legacy user IDs are kept as Core user and personal account IDs.
 
 Connections use local Unix sockets only (libpq environment), never DSNs in argv.
-Private SQL plans and reports are written under --output (0700, under ~/Backups).
+Private SQL plans and reports are written under --output (0700, under ~/.local/state/lmm-api).
 """
 from __future__ import annotations
 

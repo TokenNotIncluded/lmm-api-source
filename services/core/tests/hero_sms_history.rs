@@ -162,7 +162,7 @@ async fn restored_visible_orders_and_ledgers_match_for_every_mapped_account(pool
     .canonicalize()
     .unwrap();
     let backups = PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Backups")
+        .join(".local/state/lmm-api")
         .canonicalize()
         .unwrap();
     assert!(path.starts_with(backups));

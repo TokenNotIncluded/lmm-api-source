@@ -2,7 +2,7 @@
 
 Run with LMM_CREDENTIAL_PROJECTION_PG_TEST=1 python3 -B
 scripts/test_legacy_credential_projection_pg.py -v. Creates its own Unix-only
-cluster under ~/Backups and retains SQL, logs and data after stopping it.
+cluster under ~/.local/state/lmm-api and retains SQL, logs and data after stopping it.
 This tests the projection against selected native table DDL, not installation,
 financial approval, credential import or production acceptance.
 """

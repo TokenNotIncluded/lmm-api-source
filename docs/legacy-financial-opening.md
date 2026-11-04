@@ -45,7 +45,7 @@
 
 `--source-rights-preview` 只读取已经核验的冻结导出和身份映射，列出钱包、债务、affiliate、订阅、Key 额度、悬赏托管等来源事实，帮助逐项审核。它不查询来源或目标数据库，不生成 opening payload、approval 或零预留证明。
 
-该模式要求 `--reuse-export-proof`；不能同时选择三个 opening 模式，也不能传目标 receipt、预留审核或 opening approval/attempt。其他共用来源参数与 planner 一致，输出仍须为 `~/Backups` 下一个新的私有目录。凭据和用户事实不放进 argv 或仓库。
+该模式要求 `--reuse-export-proof`；不能同时选择三个 opening 模式，也不能传目标 receipt、预留审核或 opening approval/attempt。其他共用来源参数与 planner 一致，输出仍须为 `~/.local/state/lmm-api` 下一个新的私有目录。凭据和用户事实不放进 argv 或仓库。
 
 详细结果保存在 `source-rights-reconciliation.private.json`，manifest 绑定它的实际文件 hash 和类型 hash，以及当前工具源码。该模式保留冻结来源引用、字节 hash、source proof 和非秘密投影，不生成包含完整原行的 `financial-full-source-manifest.private.json`，避免额外复制 Key bearer；manifest 明确 `full_source_manifest_created=false`、`raw_source_rows_copied=false`。原始完整行继续在原冻结私有导出中保留；普通金融 planner 的私有 full-source DTO 协议本轮不变。汇总按表、字段、观察状态分别统计，不把重叠来源或不同币种相加。未知单位、缺失关联、未映射用户和未投影的表继续保留为待审核。核对范围仅限这份选定导出，来源 catalog 中未导出的表也不因此获得放行；`reserved_zero_proven=false`、`financial_rows_migrated=0` 是正常结果，命令成功不代表经济审核或迁移成功。
 
@@ -95,7 +95,7 @@ Key 之间及 Key 与用户的历史用量可能重叠，不汇成新资金，�
 只有缺失目标的记录才没有目标 ID。
 
 `--source-rights-preview --target-key-inventory PATH` 可读取这一份已独立准备的离线 JSON；该参数不能用于
-普通 planner 或三个 opening 模式，也不会连接目标数据库。文件沿用 `~/Backups` 私有路径规则，拒绝
+普通 planner 或三个 opening 模式，也不会连接目标数据库。文件沿用 `~/.local/state/lmm-api` 私有路径规则，拒绝
 符号链接、不安全权限、重复 JSON 属性和非有限数。通过格式及已知 bearer 检查后，原始字节保留为
 `target-key-inventory.private.json`；manifest 分别记录 `target_key_inventory_file_sha256` 与
 `target_key_inventory_typed_sha256`，前者绑定文件字节，后者绑定带类型的内容。
@@ -126,7 +126,7 @@ matched，也不授权激活或证明单位与历史部署规则正确。实际�
 
 `--source-rights-preview --target-wallet-inventory PATH` 可增加一份独立准备的私有目标观察，
 逐用户比较钱包、债务和返佣三个桶。此参数只用于离线来源预览，不连接或写入数据库，
-不能用于普通 planner 或 opening 模式。文件遵守同样的 `~/Backups` 私有路径和 JSON 检查规则。
+不能用于普通 planner 或 opening 模式。文件遵守同样的 `~/.local/state/lmm-api` 私有路径和 JSON 检查规则。
 
 清单根字段为 `format_version=1`、`scope=legacy-wallet-positions`、`unit=credit_500k_usd`
 及 `records`。每条记录只含 `source_user_id`、`account_id`、`wallet_units`、
@@ -194,7 +194,7 @@ python3 -B scripts/migrate-legacy-financial.py --help
 | `--reservation-evidence` | 全表、全用户的真实预留核对证据文件 |
 | `--reservation-review` | 独立审核记录，绑定上述证据的实际文件字节、来源、映射与排除范围 |
 | `--migration-id` | 本 opening 批次固定 ID，必须与其引用的 identity import ID 不同 |
-| `--output` | `~/Backups` 下一个尚不存在的新输出目录，权限为 `0700`；每次预览、执行或对账各用新目录 |
+| `--output` | `~/.local/state/lmm-api` 下一个尚不存在的新输出目录，权限为 `0700`；每次预览、执行或对账各用新目录 |
 | `--source-timezone` | 可选：有证据的历史应用 IANA 时区；不得从数据库时区推断，冻结后须保持一致 |
 
 `--opening-approval` 是审核完成后单独保留的 approval 文件。
@@ -292,7 +292,7 @@ proof hash 仅绑定审核材料，不能代替原单位、经济权利和完整
 母计划、审计行与原执行代码证据。它只用于候选，不能作为经济批准。没有单位材料或存在来源 blocker 时，
 `batch_candidate=null`，仍保留逐项候选事实和明确的 blocker。退出 `0` 只表示预览成功生成。
 
-stdout 只给计数、状态和拒绝原因；详细资料仅写入私有 Backups 目录。manifest 分别绑定候选和单位
+stdout 只给计数、状态和拒绝原因；详细资料仅写入私有 私有材料目录 目录。manifest 分别绑定候选和单位
 材料的原文件字节 hash、带类型内容 hash 及 mapper 源码。预览没有数据库连接，不写入资金，
 `approval_created=false`、`source_unit_authority_verified=false`、`inflight_reservations_verified=false`。
 

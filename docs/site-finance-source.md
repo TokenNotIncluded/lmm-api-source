@@ -135,7 +135,7 @@ selected_table_counts, source_instance`。本工具核对原 catalog 的全部�
 
 ## 离线工作流
 
-所有材料、连接配置、输出目录均使用现有 `~/Backups` 私有路径约束：目录 0700、
+所有材料、连接配置、输出目录均使用现有 `~/.local/state/lmm-api` 私有路径约束：目录 0700、
 文件 0600，拒绝符号链接。输出目录预先创建且每次使用新目录；文件以 O_EXCL 写入并 fsync。
 连接 JSON 沿用 `financial_import.py` 的本机 Unix socket owner/login_role/set_role 格式。
 只读阶段也使用当前离线 owner；runtime 没有来源表写权限。
@@ -215,7 +215,7 @@ python3 -B tests/site_statistics/importer_selftest.py \
 
 启动前先运行 space-first；candidate 必须具有 passed result、binaries.json 与全部
 冻结输入，工具自行核验 hash 和实际 schema-manifest；已 superseded 的 R5 不启动。
-新 root 必须是 `~/Backups`
+新 root 必须是 `~/.local/state/lmm-api`
 下不存在的短目录。执行使用共享 `/tmp/lmm-delegate/heavy-build.lock`，MemAvailable
 至少 2GiB，实际用户 unit 限额 MemoryMax=2G、MemoryHigh=1536M、MemorySwapMax=4G、
 CPUQuota=100%。没有数据库或安装器 SQL fallback。

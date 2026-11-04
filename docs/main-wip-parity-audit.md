@@ -86,11 +86,11 @@ Google 仅内置预设实现，真实 Google 授权/MFA、管理员激活仍未�
 CLI、负载及全站功能对齐仍缺证据，不编造追平百分比。
 
 证据根：`~/.local/state/api-lmm-microservices-20261011/pr-issue-local-integration/`；
-礼包定向日志在同级 `assistant-gift-safety/`。私密材料只留统一 Backups 私有目录，
+礼包定向日志在同级 `assistant-gift-safety/`。私密材料只留统一 私有材料目录 私有目录，
 不输出凭据或用户数据。三路实际结果已读回，分别见
 `deploy/handoff-parallel/{docs,archive,health}-result.md`：
 
-- 已将五个未引用 Google 中间构建归档到统一 Backups，逐文件校验内容、权限和链接后
+- 已将五个未引用 Google 中间构建归档到统一 私有材料目录，逐文件校验内容、权限和链接后
   移除原文件；旧 Core 重复副本复用已有验证恢复文件后移除。计入新归档后，本轮目标
   实际释放约 **368.7 MiB**。旧 Web 仍被候选恢复配置引用，**保留未清理**。
 - 归档前后五个候选 unit 均 active/running，应用 PID/二进制哈希未变化；Core、Go
@@ -130,7 +130,7 @@ CLI、负载及全站功能对齐仍缺证据，不编造追平百分比。
 
 Rust 实测为已有 **1.98.0**；固定 1.99 的共享安装不完整，旧私有工具链已不存在。
 未重装或更改全局配置；上述 Rust 结果不是固定 1.99 验收。新认证合成库已核验归属、
-零客户端并停止，材料留在统一 Backups；商店既有隔离测试资源没有被停止。
+零客户端并停止，材料留在统一 私有材料目录；商店既有隔离测试资源没有被停止。
 父 agent 另执行 39 项前端认证回归、19 项源码边界检查；未重跑全仓聚合或正式构建。
 源码、命令、输入哈希、失败尝试与六份回执保存在本机私有证据目录
 `~/.local/state/api-lmm-microservices-20261011/parallel-main-parity/`。

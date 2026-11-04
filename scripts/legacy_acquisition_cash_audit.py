@@ -63,10 +63,10 @@ def main():
     parser.add_argument('--schema', required=True)
     parser.add_argument('--report', required=True, type=Path)
     args = parser.parse_args()
-    backup = (Path.home() / 'Backups').resolve()
+    backup = (Path.home() / '.local/state/lmm-api').resolve()
     socket, report = args.socket.resolve(), args.report.resolve()
     if not socket.is_relative_to(backup) or not socket.is_dir() or not report.is_relative_to(backup) or report.exists() or not 1 <= args.port <= 65535 or not re.fullmatch(r'[a-z_][a-z_0-9]*', args.source):
-        parser.error('requires a local restored database and new private report under Backups')
+        parser.error('requires a local restored database and new private report under private evidence directory')
     result = json.loads(psql(socket, args.port, args.source, audit_sql(args.schema), True))
     with os.fdopen(os.open(report, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
         json.dump(result, stream, sort_keys=True)
