@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -87,6 +88,7 @@ func (s *AgentChat) Chat(ctx context.Context, credential string, request Persona
 	if request.ConversationID < 0 || request.ConversationID > maxSafeHistoryID || !access.ID(request.ClientTurnID) || len(request.ClientTurnID) > 64 || !utf8.ValidString(request.Message) || len(request.Message) > 8192 || strings.TrimSpace(request.Message) == "" {
 		return PersonalChatReply{}, access.ErrInvalid
 	}
+	deadline := time.Now().Add(15 * time.Second)
 	p, err := s.actor(ctx, credential)
 	if err != nil {
 		return PersonalChatReply{}, err
@@ -150,12 +152,12 @@ func (s *AgentChat) Chat(ctx context.Context, credential string, request Persona
 	if fresh {
 		snap, err = s.port.StartAgentTurn(ctx, credential, AgentTurnStart{Key: key, Text: request.Message})
 	} else {
-		snap, err = s.port.GetAgentTurn(ctx, credential, key)
+		snap, err = s.getAgentTurn(ctx, credential, key, deadline)
 	}
 	if err != nil {
 		return PersonalChatReply{ConversationID: id, ClientTurnID: request.ClientTurnID, State: string(AgentTurnUnknown)}, agentRecoveryError(err)
 	}
-	return s.advance(ctx, credential, p, id, request.ClientTurnID, snap, false)
+	return s.advance(ctx, credential, p, id, request.ClientTurnID, snap, false, deadline)
 }
 
 // Recover never starts a model turn or executes an extension effect. Completed
@@ -164,6 +166,7 @@ func (s *AgentChat) Recover(ctx context.Context, credential string, conversation
 	if !validAgentChatID(conversation, turn) {
 		return PersonalChatReply{}, access.ErrInvalid
 	}
+	deadline := time.Now().Add(15 * time.Second)
 	p, err := s.actor(ctx, credential)
 	if err != nil {
 		return PersonalChatReply{}, err
@@ -182,11 +185,11 @@ func (s *AgentChat) Recover(ctx context.Context, credential string, conversation
 	if err != nil {
 		return PersonalChatReply{}, err
 	}
-	snap, err := s.port.GetAgentTurn(ctx, credential, key)
+	snap, err := s.getAgentTurn(ctx, credential, key, deadline)
 	if err != nil {
 		return PersonalChatReply{}, agentRecoveryError(err)
 	}
-	return s.advance(ctx, credential, p, conversation, turn, snap, true)
+	return s.advance(ctx, credential, p, conversation, turn, snap, true, deadline)
 }
 
 // Resume is an explicit continuation command for the original durable user
@@ -245,10 +248,33 @@ func (s *AgentChat) storeSnapshot(ctx context.Context, p access.Principal, conve
 	return stored, err
 }
 
-func (s *AgentChat) advance(ctx context.Context, credential string, p access.Principal, conversation int64, turn string, snap AgentTurnSnapshot, recoverOnly bool) (PersonalChatReply, error) {
+// Only busy status lookups are retried; write commands are not replayed here.
+// Conflict has no busy subtype at the port boundary, so keep the original key
+// and stop at the existing request deadline.
+func (s *AgentChat) getAgentTurn(ctx context.Context, credential string, key AgentTurnKey, deadline time.Time) (AgentTurnSnapshot, error) {
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	for {
+		if ctx.Err() != nil {
+			return AgentTurnSnapshot{}, ctx.Err()
+		}
+		snap, err := s.port.GetAgentTurn(ctx, credential, key)
+		if !errors.Is(err, access.ErrConflict) {
+			return snap, err
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return AgentTurnSnapshot{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *AgentChat) advance(ctx context.Context, credential string, p access.Principal, conversation int64, turn string, snap AgentTurnSnapshot, recoverOnly bool, deadline time.Time) (PersonalChatReply, error) {
 	reply := PersonalChatReply{ConversationID: conversation, ClientTurnID: turn}
 	// One request is bounded even if Core or a tool keeps returning pending.
-	deadline := time.Now().Add(15 * time.Second)
 	for step := 0; step < 512; step++ {
 		if paused, pauseErr := s.paused(ctx, credential, snap.Key.CoreConversationID); pauseErr != nil {
 			return reply, pauseErr
@@ -282,7 +308,7 @@ func (s *AgentChat) advance(ctx context.Context, credential string, p access.Pri
 				return reply, ErrDelegationUnknown
 			case <-timer.C:
 			}
-			next, getErr := s.port.GetAgentTurn(ctx, credential, snap.Key)
+			next, getErr := s.getAgentTurn(ctx, credential, snap.Key, deadline)
 			if getErr != nil {
 				return reply, agentRecoveryError(getErr)
 			}
@@ -303,7 +329,7 @@ func (s *AgentChat) advance(ctx context.Context, credential string, p access.Pri
 		if !progressed {
 			return reply, nil
 		}
-		next, err := s.port.GetAgentTurn(ctx, credential, snap.Key)
+		next, err := s.getAgentTurn(ctx, credential, snap.Key, deadline)
 		if err != nil {
 			return reply, agentRecoveryError(err)
 		}
@@ -315,7 +341,7 @@ func (s *AgentChat) advance(ctx context.Context, credential string, p access.Pri
 				return reply, ErrDelegationUnknown
 			case <-timer.C:
 			}
-			next, err = s.port.GetAgentTurn(ctx, credential, snap.Key)
+			next, err = s.getAgentTurn(ctx, credential, snap.Key, deadline)
 			if err != nil {
 				return reply, agentRecoveryError(err)
 			}

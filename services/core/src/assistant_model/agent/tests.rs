@@ -640,14 +640,21 @@ async fn four_rpc_methods_use_real_private_uds_and_original_runtime_session(pool
     };
     let mut waiting = None;
     for _ in 0..200 {
-        let turn: pb::AssistantAgentTurn = wire(
+        let turn: pb::AssistantAgentTurn = match wire(
             &channel,
             "/lmm.core.v1.CoreAssistantModel/GetAgentTurn",
             lookup.clone(),
             &session,
         )
         .await
-        .unwrap();
+        {
+            Ok(turn) => turn,
+            Err(status) if status.code() == tonic::Code::Aborted => {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            Err(status) => panic!("GetAgentTurn failed: {status:?}"),
+        };
         if turn.phase == 3 && !turn.pending_calls.is_empty() {
             waiting = Some(turn);
             break;
@@ -698,14 +705,21 @@ async fn four_rpc_methods_use_real_private_uds_and_original_runtime_session(pool
     assert_eq!(completed.state, 1);
     let mut done = None;
     for _ in 0..200 {
-        let turn: pb::AssistantAgentTurn = wire(
+        let turn: pb::AssistantAgentTurn = match wire(
             &channel,
             "/lmm.core.v1.CoreAssistantModel/GetAgentTurn",
             lookup.clone(),
             &session,
         )
         .await
-        .unwrap();
+        {
+            Ok(turn) => turn,
+            Err(status) if status.code() == tonic::Code::Aborted => {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            Err(status) => panic!("GetAgentTurn failed: {status:?}"),
+        };
         if turn.phase == 4 {
             done = Some(turn);
             break;

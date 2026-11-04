@@ -162,3 +162,102 @@ func TestAgentResumeCannotInventMissingTurnOrBypassRevokedSession(t *testing.T) 
 		t.Fatal("resume created missing or unauthorized work")
 	}
 }
+
+// Busy responses do not advance the provider fixture or acknowledge any write.
+type busyAgentPort struct {
+	AgentTurnPort
+	reads  int
+	err    error
+	cancel context.CancelFunc
+}
+
+func (p *busyAgentPort) GetAgentTurn(ctx context.Context, credential string, key AgentTurnKey) (AgentTurnSnapshot, error) {
+	p.reads++
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if p.err != nil {
+		return AgentTurnSnapshot{}, p.err
+	}
+	if p.reads%2 == 1 {
+		return AgentTurnSnapshot{}, access.ErrConflict
+	}
+	return p.AgentTurnPort.GetAgentTurn(ctx, credential, key)
+}
+
+func TestAgentChatBusyReadsRecoverWithoutRepeatingWrites(t *testing.T) {
+	c, _, p, e, h := agentChatFixture(t)
+	async := &asyncResumePort{agentChatPortFixture: p}
+	busy := &busyAgentPort{AgentTurnPort: async}
+	c.port = busy
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	reply, err := c.Chat(ctx, "session", agentRequest)
+	if err != nil || reply.State != "settled" || reply.Text != "Core final answer" || busy.reads != 10 || p.gets != 5 || p.starts != 1 || p.claims != 1 || p.completes != 1 || e.executes != 1 || h.calls != 1 {
+		t.Fatal(reply, err, busy.reads, p.gets, p.starts, p.claims, p.completes, e.executes, h.calls)
+	}
+}
+
+func TestAgentRecoverBusyReadNeverStartsOrClaims(t *testing.T) {
+	c, _, p, e, h := agentChatFixture(t)
+	p.loseStart = true
+	if _, err := c.Chat(context.Background(), "session", agentRequest); err == nil {
+		t.Fatal("expected lost start acknowledgement")
+	}
+	busy := &busyAgentPort{AgentTurnPort: p}
+	c.port = busy
+	reply, err := c.Recover(context.Background(), "session", 10, "turn")
+	if err != nil || reply.State != string(AgentTurnAwaitingTools) || busy.reads != 2 || p.starts != 1 || p.claims != 0 || p.completes != 0 || e.executes != 0 || h.calls != 0 {
+		t.Fatal(reply, err, busy.reads, p.starts, p.claims, p.completes, e.executes, h.calls)
+	}
+}
+
+func TestAgentChatNonBusyGetErrorsAreNotRetriedOrSwallowed(t *testing.T) {
+	for _, want := range []error{access.ErrUnauthorized, access.ErrForbidden, access.ErrInvalid, access.ErrUnavailable} {
+		t.Run(want.Error(), func(t *testing.T) {
+			c, _, p, e, h := agentChatFixture(t)
+			busy := &busyAgentPort{AgentTurnPort: &asyncResumePort{agentChatPortFixture: p}, err: want}
+			c.port = busy
+			reply, err := c.Chat(context.Background(), "session", agentRequest)
+			if !errors.Is(err, want) || reply.State != string(AgentTurnRunning) || busy.reads != 1 || p.starts != 1 || p.claims != 0 || e.executes != 0 || h.calls != 0 {
+				t.Fatal(reply, err, busy.reads, p.starts, p.claims, e.executes, h.calls)
+			}
+		})
+	}
+}
+
+func TestAgentBusyGetStopsAtDeadlineOrCancellation(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		c, _, p, e, h := agentChatFixture(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		busy := &busyAgentPort{AgentTurnPort: p, err: access.ErrConflict}
+		if canceled {
+			busy.cancel = cancel
+		}
+		c.port = busy
+		began := time.Now()
+		snap, err := c.getAgentTurn(ctx, "session", p.snapshot.Key, began.Add(100*time.Millisecond))
+		cancel()
+		want := context.DeadlineExceeded
+		if canceled {
+			want = context.Canceled
+		}
+		if !errors.Is(err, want) || snap.Phase == AgentTurnCompleted || time.Since(began) > time.Second || busy.reads == 0 || p.starts != 0 || p.claims != 0 || p.completes != 0 || e.executes != 0 || h.calls != 0 {
+			t.Fatal(snap, err, busy.reads, p.starts, p.claims, p.completes, e.executes, h.calls)
+		}
+	}
+}
+
+func TestAgentResumeBusyReadKeepsOriginalTurnAndTool(t *testing.T) {
+	c, _, p, e, h := agentChatFixture(t)
+	p.loseStart = true
+	if _, err := c.Chat(context.Background(), "session", agentRequest); err == nil {
+		t.Fatal("expected lost start acknowledgement")
+	}
+	busy := &busyAgentPort{AgentTurnPort: p}
+	c.port = busy
+	reply, err := c.Resume(context.Background(), "session", 10, "turn")
+	if err != nil || reply.State != "settled" || busy.reads != 4 || p.starts != 1 || p.claims != 1 || p.completes != 1 || e.executes != 1 || h.calls != 1 || h.turn.UserContent != agentRequest.Message {
+		t.Fatal(reply, err, busy.reads, p.starts, p.claims, p.completes, e.executes, h.calls)
+	}
+}
