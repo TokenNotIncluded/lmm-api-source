@@ -715,12 +715,28 @@ async fn prepared_contract_team_member_and_key_caps_share_real_pending_spend(poo
                 price(),
                 b"owner-wire",
             );
-            reserve(&charging, &key, &spec, basis, &proof).await
+            let result = reserve(&charging, &key, &spec, basis, &proof).await;
+            (key, spec, basis, proof, result)
         });
     }
     let mut admitted = 0;
+    let mut pending_retries = Vec::new();
     while let Some(result) = contenders.join_next().await {
-        match result.unwrap() {
+        let (key, spec, basis, proof, result) = result.unwrap();
+        match result {
+            Ok(charge) => {
+                assert_eq!(charge.payer_account_id, team_account);
+                admitted += 1;
+            }
+            Err(charging::Error::Retry) => pending_retries.push((key, spec, basis, proof)),
+            Err(error) => assert_eq!(error, charging::Error::BudgetExceeded),
+        }
+    }
+    // The bounded HTTP retry policy may finish before its concurrent winner.
+    // Reconcile after both calls return, then replay only the original frozen
+    // request. A transient abort is not itself a business budget decision.
+    for (key, spec, basis, proof) in pending_retries {
+        match reserve(&charging, &key, &spec, basis, &proof).await {
             Ok(charge) => {
                 assert_eq!(charge.payer_account_id, team_account);
                 admitted += 1;

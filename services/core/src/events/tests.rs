@@ -182,12 +182,31 @@ async fn disconnect_reclaim_stale_ack_lost_ack_and_durable_retry(pool: PgPool) {
             .await,
         Err(EventError::LeaseLost)
     );
+    let retry_started: String = sqlx::query_scalar("SELECT clock_timestamp()::text")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(
         !reopened
             .retry("extensions", "consumer", id, &second.lease_token, 1)
             .await
             .unwrap()
     );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT available_at > $1::text::timestamptz FROM core_events.deliveries"
+        )
+        .bind(&retry_started)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    // Keep the retry pending while probing replay. A slow machine may spend
+    // longer than the real backoff on the intervening database calls.
+    sqlx::query("UPDATE core_events.deliveries SET available_at=greatest(available_at,clock_timestamp()+interval '1 hour')")
+        .execute(&pool)
+        .await
+        .unwrap();
     let when: String = sqlx::query_scalar("SELECT available_at::text FROM core_events.deliveries")
         .fetch_one(&pool)
         .await

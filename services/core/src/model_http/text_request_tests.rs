@@ -169,7 +169,7 @@ async fn call(g: &ModelGateway, request: HttpRequest<Body>) -> (StatusCode, Head
     let body = to_bytes(response.into_body(), 1 << 20)
         .await
         .map(|b| b.to_vec())
-        .unwrap_or_default();
+        .expect("read the complete text response body through EOF");
     // The detached relay always finalizes, including a client-visible stream error.
     tokio::time::timeout(Duration::from_secs(4), async {
         while !g.bridge.active.lock().unwrap().is_empty() {
@@ -241,7 +241,11 @@ async fn text_request_pg_completed_zero_token_stream_and_duplicate_charge_once(p
         let id = response.1["x-request-id"].to_str().unwrap();
         assert!(!response.2.is_empty());
         if stream {
-            assert!(String::from_utf8_lossy(&response.2).ends_with("data: [DONE]\n\n"));
+            let body = String::from_utf8_lossy(&response.2);
+            assert!(
+                body.ends_with("data: [DONE]\n\n"),
+                "completed text stream must end with [DONE]; request_id={id}, body={body:?}"
+            );
         }
         let charge = g.bridge.charging.resolve(id).await.unwrap().unwrap();
         assert_eq!(
