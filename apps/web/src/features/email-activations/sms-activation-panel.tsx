@@ -56,6 +56,7 @@ import {
   type HeroSmsSmsService,
 } from './sms-api.js'
 import { SmsBalanceNotice } from './sms-balance-notice.js'
+import { SmsHistoryCard } from './sms-history-card'
 import { isSmsMinimumBalanceError } from './sms-balance.js'
 import { describeSmsAccessError } from './sms-error.js'
 import {
@@ -1301,6 +1302,7 @@ export function HeroSmsSmsActivationPanel() {
           </TabsContent>
         </Tabs>
       </div>
+      <SmsHistoryCard />
       <SmsOrderDetailDialog
         open={historyDetailOrderId !== null}
         onOpenChange={(open) => {
