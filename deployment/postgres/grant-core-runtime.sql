@@ -380,6 +380,15 @@ GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint)
 \endif
 
 \if :enable_web_identity
+-- BEGIN affiliate-claims runtime grants
+GRANT USAGE ON SCHEMA core_console TO :"runtime_role";
+GRANT SELECT(key,value) ON core_console.options TO :"runtime_role";
+-- Affiliate previews are immutable; only the durable ledger outcome may be sealed.
+GRANT USAGE ON SCHEMA core_wallet TO :"runtime_role";
+GRANT SELECT,INSERT(owner_user,account_id,session_id,amount,csrf_digest,expires_at),UPDATE(outcome)
+    ON core_wallet.affiliate_claims TO :"runtime_role";
+GRANT USAGE,SELECT ON SEQUENCE core_wallet.affiliate_claims_id_seq TO :"runtime_role";
+-- END affiliate-claims runtime grants
 -- BEGIN wallet-topup-history runtime grants
 -- Self top-up history reads only the owner-imported immutable receipt columns.
 GRANT USAGE ON SCHEMA core_migration TO :"runtime_role";

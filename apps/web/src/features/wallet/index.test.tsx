@@ -632,7 +632,7 @@ test('unavailable ledger facts disable wallet writes without inventing zero amou
   queryClient.clear()
 })
 
-test('unknown historical money retains credits and loads native workspaces without enabling transfers', async () => {
+test('unknown historical money retains credits and offers authoritative reward preview', async () => {
   window.history.replaceState({}, '', '/wallet')
   const posts: string[] = []
   api.post = (async (url: string) => {
@@ -668,13 +668,21 @@ test('unknown historical money retains credits and loads native workspaces witho
   assert.equal(container.querySelector('#topup-amount'), null)
   assert.match(container.textContent ?? '', /No subscription plans yet/)
   assert.ok(container.querySelector('#native-redeem-code'))
-  for (const label of ['Transfer', 'Transfer to Balance']) {
+  for (const label of ['Transfer']) {
     const button = [
       ...container.querySelectorAll<HTMLButtonElement>('button'),
     ].find((item) => item.textContent?.trim() === label)
     assert.ok(button?.disabled, label)
     await act(async () => button.click())
   }
+  const preview = container.querySelector<HTMLAnchorElement>(
+    'a[href="/core/v1/affiliate/claim"]'
+  )
+  assert.equal(preview?.textContent, 'Preview reward transfer')
+  // Observe the navigation intent without loading a server or moving funds.
+  preview?.addEventListener('click', (event) => event.preventDefault())
+  await act(async () => preview?.click())
+  assert.equal(container.querySelector('#transfer-amount'), null)
   assert.equal(container.querySelector('#native-payment-amount'), null)
   assert.equal(posts.length, 0)
   queryClient.clear()
@@ -778,7 +786,11 @@ test('unknown historical money still requires explicitly confirmed quoted native
   assert.match(container.textContent ?? '', /No subscription plans yet/)
   assert.ok(container.querySelector('#native-redeem-code'))
   assert.equal(button('Transfer').disabled, true)
-  assert.equal(button('Transfer to Balance').disabled, true)
+  const preview = container.querySelector<HTMLAnchorElement>(
+    'a[href="/core/v1/affiliate/claim"]'
+  )
+  assert.equal(preview?.textContent, 'Preview reward transfer')
+  assert.equal(container.querySelector('#transfer-amount'), null)
   await act(async () => {
     button('Review payment').click()
     await new Promise((r) => setTimeout(r, 20))

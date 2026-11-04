@@ -71,17 +71,61 @@ test('unknown native amount never falls back to a zero', () => {
   assert.match(html, /Unknown/)
   assert.doesNotMatch(html, /0 Credits/)
 })
-test('native read projection does not enable referral transfer or invent affiliate totals', () => {
-  const html = renderToStaticMarkup(
+function rewards(value: UserWalletData, complianceConfirmed = true) {
+  return renderToStaticMarkup(
     <AffiliateRewardsCard
-      user={{ ...user, aff_quota: 900000 }}
+      user={value}
       affiliateLink=''
+      complianceConfirmed={complianceConfirmed}
       onTransfer={() => {
-        throw new Error('no transfer')
+        throw new Error('Native navigation must not use the legacy transfer')
       }}
     />
   )
+}
+
+test('native rewards link navigates to the same-origin authoritative preview without submitting money', () => {
+  const html = rewards({
+    ...user,
+    aff_quota: 900000,
+    aff_history_quota: 123456789,
+  })
+  assert.match(html, /900,000 Credits/)
+  assert.match(
+    html,
+    /<a[^>]*href="\/core\/v1\/affiliate\/claim"[^>]*>Preview reward transfer<\/a>/
+  )
   assert.match(html, /Unavailable/)
+  assert.doesNotMatch(
+    html,
+    /123,456,789|amount_credits|aff_transfer|target=|<form/
+  )
+  assert.doesNotMatch(html, /<button[^>]*>Transfer to Balance<\/button>/)
+})
+
+test('missing or unavailable affiliate balance still offers preview without inventing an amount', () => {
+  for (const value of [
+    user,
+    { ...user, financial_projection_available: false, aff_quota: 900000 },
+    { ...user, aff_quota: Number.MAX_SAFE_INTEGER + 1 },
+    { ...user, wallet_unit: 'unknown', aff_quota: 900000 },
+  ]) {
+    const html = rewards(value)
+    assert.match(html, /href="\/core\/v1\/affiliate\/claim"/)
+    assert.doesNotMatch(html, /900,000|0 Credits|amount_credits/)
+  }
+})
+
+test('native referral debt uses credits and preserves access to authoritative preview', () => {
+  const html = rewards({ ...user, aff_quota: 0, aff_debt: 70 })
+  assert.match(html, /Reward debt/)
+  assert.match(html, /70 Credits/)
+  assert.match(html, /href="\/core\/v1\/affiliate\/claim"/)
+})
+
+test('native preview preserves the compliance gate', () => {
+  const html = rewards({ ...user, aff_quota: 900000 }, false)
+  assert.doesNotMatch(html, /href="\/core\/v1\/affiliate\/claim"/)
   assert.match(html, /disabled=""/)
-  assert.doesNotMatch(html, /900,000/)
+  assert.match(html, /administrator confirms compliance terms/)
 })

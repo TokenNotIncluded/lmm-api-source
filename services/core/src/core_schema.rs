@@ -140,6 +140,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "legacy-payment-opening-identity",
         include_str!("../schema/legacy_payment_opening_identity.sql"),
     ),
+    (
+        "affiliate-claims",
+        include_str!("../schema/affiliate_claims.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

@@ -1134,6 +1134,8 @@ function WalletCheckout(
       return false
     }
 
+    if (walletProjection(user).native) return false
+
     const success = await transferQuota(amount)
     if (success) {
       await refreshWalletUser()
@@ -1461,7 +1463,7 @@ function WalletCheckout(
         neutralMode={!developerAccessGranted}
       />
 
-      {developerAccessGranted ? (
+      {developerAccessGranted && !walletProjection(user).native ? (
         <TransferDialog
           open={transferDialogOpen}
           onOpenChange={setTransferDialogOpen}

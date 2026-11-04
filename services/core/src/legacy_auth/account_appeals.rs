@@ -281,6 +281,7 @@ mod tests {
                 .map(|v| v.to_str().unwrap())
                 .collect();
             assert!(cookies[0].starts_with("new_api_refresh=normal-refresh;"));
+            assert!(cookies[1].starts_with("new_api_refresh=normal-refresh; Path=/core;"));
             assert_eq!(
                 cookies
                     .iter()
@@ -289,10 +290,10 @@ mod tests {
                 1
             );
             assert!(
-                cookies[1]
+                cookies[2]
                     .starts_with("lmm_account_appeal=; Path=/api/user/account-action-requests;")
             );
-            assert!(cookies[1].contains("Secure; HttpOnly; SameSite=Lax; Max-Age=0"));
+            assert!(cookies[2].contains("Secure; HttpOnly; SameSite=Lax; Max-Age=0"));
         }
     }
 

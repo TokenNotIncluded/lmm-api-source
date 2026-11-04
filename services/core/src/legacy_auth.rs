@@ -1011,23 +1011,27 @@ fn set_cookie(
     config: &LegacyAuthConfig,
 ) -> Response {
     let secure = if config.secure { "Secure; " } else { "" };
-    let value = match cookie {
-        Some((token, expires)) => {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO)
-                .as_secs() as i64;
-            format!(
-                "{COOKIE}={token}; Path=/api/user/auth; Max-Age={}; HttpOnly; {secure}SameSite=Strict",
-                (expires - now).max(1)
-            )
+    // Keep the refresh API scope and Core-owned browser confirmations separate.
+    // Neither cookie is sent to Go extension routes or the rest of /api.
+    for path in ["/api/user/auth", "/core"] {
+        let value = match cookie {
+            Some((token, expires)) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::ZERO)
+                    .as_secs() as i64;
+                format!(
+                    "{COOKIE}={token}; Path={path}; Max-Age={}; HttpOnly; {secure}SameSite=Strict",
+                    (expires - now).max(1)
+                )
+            }
+            None => format!(
+                "{COOKIE}=; Path={path}; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; HttpOnly; {secure}SameSite=Strict"
+            ),
+        };
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            response.headers_mut().append(header::SET_COOKIE, value);
         }
-        None => format!(
-            "{COOKIE}=; Path=/api/user/auth; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; HttpOnly; {secure}SameSite=Strict"
-        ),
-    };
-    if let Ok(value) = HeaderValue::from_str(&value) {
-        response.headers_mut().append(header::SET_COOKIE, value);
     }
     if cookie.is_some() {
         account_appeals::clear_proof_cookie(response, config)
@@ -1042,6 +1046,31 @@ mod mfa_http_tests {
 
     fn config() -> LegacyAuthConfig {
         LegacyAuthConfig::new("https://app.example", &[42; 32]).unwrap()
+    }
+
+    #[test]
+    fn refresh_cookie_scopes_rotate_and_clear_together() {
+        let config = config();
+        for token in [Some("old-refresh"), Some("rotated-refresh"), None] {
+            let response = set_cookie(success(None), token.map(|token| (token, i64::MAX)), &config);
+            let cookies: Vec<_> = response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .map(|value| value.to_str().unwrap())
+                .filter(|value| value.starts_with("new_api_refresh="))
+                .collect();
+            assert_eq!(cookies.len(), 2);
+            for (value, path) in cookies.iter().zip(["/api/user/auth", "/core"]) {
+                assert!(value.starts_with(&format!("new_api_refresh={};", token.unwrap_or(""))));
+                assert!(value.contains(&format!("Path={path};")));
+                assert!(value.contains("HttpOnly; Secure; SameSite=Strict"));
+                assert!(!value.contains("Domain="));
+                if token.is_none() {
+                    assert!(value.contains("Max-Age=0"));
+                }
+            }
+        }
     }
 
     #[test]

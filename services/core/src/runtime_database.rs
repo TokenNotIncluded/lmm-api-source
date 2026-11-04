@@ -168,6 +168,11 @@ pub(crate) async fn check_connection(
                 OR has_any_column_privilege(c.oid,'UPDATE,REFERENCES')))
             OR (n.nspname IN ('core_charging','core_events','core_commerce','core_payments','core_tool_market','core_assistant','core_image','core_wallet','core_bounties')
               AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
+            OR (n.nspname='core_wallet' AND c.relname='affiliate_claims'
+              AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'REFERENCES')
+                OR EXISTS(SELECT FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                  AND a.attname NOT IN ('owner_user','account_id','session_id','amount','csrf_digest','expires_at')
+                  AND has_column_privilege(c.oid,a.attname,'INSERT'))))
             OR (n.nspname='core_assistant' AND has_any_column_privilege(c.oid,'REFERENCES'))
             OR (n.nspname='core_gift' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR has_any_column_privilege(c.oid,'REFERENCES')
@@ -218,7 +223,9 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_assistant' AND c.relname='agent_tool_operations' AND a.attname NOT IN ('state','claim_key','result_json','result_sha256','domain_receipt_id'))
             OR (n.nspname='core_assistant' AND c.relname='agent_tool_observations')
             OR (n.nspname='core_image' AND (c.relname<>'operations' OR a.attname NOT IN ('state','confirmed_at','confirmation_digest','confirmation_sid','charge_id','output','output_digest','image_usage','settled_credits')))
-            OR (n.nspname='core_wallet' AND (c.relname<>'transfers' OR a.attname NOT IN ('state','hold_journal','final_journal','recipient_user','confirmed_at','finished_at','confirmation_digest','confirmation_sid','confirmation_kind','confirmation_expires')))
+            OR (n.nspname='core_wallet' AND NOT (
+              (c.relname='transfers' AND a.attname IN ('state','hold_journal','final_journal','recipient_user','confirmed_at','finished_at','confirmation_digest','confirmation_sid','confirmation_kind','confirmation_expires'))
+              OR (c.relname='affiliate_claims' AND a.attname='outcome')))
             OR (n.nspname='core_bounties' AND NOT ((c.relname='projects' AND a.attname='body') OR (c.relname='confirmations' AND a.attname IN ('approved','csrf','browser_sid'))))
             OR (n.nspname='core_gift' AND c.relname='decisions' AND a.attname NOT IN ('claimed_at','ledger_journal_id'))
             OR (n.nspname='core_gift' AND c.relname='registration_profiles' AND a.attname<>'observed_at')
@@ -393,7 +400,16 @@ pub(crate) async fn check_connection(
     }
     if required.web_identity {
         let complete: bool = sqlx::query_scalar(r#"
-          SELECT has_schema_privilege('core_charging','USAGE')
+          SELECT has_column_privilege('core_console.options','key','SELECT')
+            AND has_column_privilege('core_console.options','value','SELECT')
+            AND has_schema_privilege('core_wallet','USAGE')
+            AND has_table_privilege('core_wallet.affiliate_claims','SELECT')
+            AND has_column_privilege('core_wallet.affiliate_claims','outcome','UPDATE')
+            AND NOT EXISTS(SELECT FROM (VALUES ('owner_user'),('account_id'),('session_id'),('amount'),('csrf_digest'),('expires_at')) c(name)
+              WHERE NOT has_column_privilege('core_wallet.affiliate_claims',c.name,'INSERT'))
+            AND has_sequence_privilege('core_wallet.affiliate_claims_id_seq','USAGE')
+            AND has_sequence_privilege('core_wallet.affiliate_claims_id_seq','SELECT')
+            AND has_schema_privilege('core_charging','USAGE')
             AND NOT EXISTS(SELECT FROM (VALUES ('budgets'),('requests'),('external_consumption'),('budget_opening_consumption')) t(name)
               WHERE NOT has_table_privilege('core_charging.'||t.name,'SELECT'))
             AND has_table_privilege('core_charging.budgets','INSERT')

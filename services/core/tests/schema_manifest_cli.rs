@@ -38,6 +38,16 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     let expected = serde_json::to_value(lmm_core::core_schema::schema_manifest()).unwrap();
     assert_eq!(actual, expected);
     assert_eq!(actual["format_version"], 1);
+    assert_eq!(actual["components"].as_array().unwrap().len(), 52);
+    assert_eq!(actual["components"][51]["name"], "affiliate-claims");
+    use sha2::{Digest, Sha256};
+    assert_eq!(
+        actual["components"][51]["raw_schema_sha256"],
+        format!(
+            "{:x}",
+            Sha256::digest(include_bytes!("../schema/affiliate_claims.sql"))
+        )
+    );
     assert_eq!(actual["scope"], "compiled-core-schema-contract");
     assert_eq!(
         actual["components"].as_array().unwrap().len(),

@@ -25,7 +25,11 @@ import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
-import { walletProjection } from '../lib/wallet-projection'
+import {
+  exactCredit,
+  nativeCreditDisplay,
+  walletProjection,
+} from '../lib/wallet-projection'
 import type { UserWalletData } from '../types'
 import { AffiliateInviteDialog } from './affiliate-invite-dialog'
 import { ReferralHistoryDialog } from './referral-history-dialog'
@@ -66,6 +70,23 @@ export function AffiliateRewardsCard({
   const financialAvailable =
     user?.financial_projection_available !== false && !projection.readOnly
   const hasRewards = financialAvailable && (user?.aff_quota ?? 0) > 0
+  // The current affiliate bucket is authoritative; legacy lifetime counters
+  // are not a native earnings total or a currency conversion basis.
+  const nativeRewards =
+    projection.native &&
+    user?.wallet_unit === 'core_credit' &&
+    user.financial_projection_available === true
+      ? exactCredit(user.aff_quota)
+      : null
+  const nativeDebt = nativeRewards !== null ? exactCredit(user?.aff_debt) : null
+  const rewardDebt = projection.native
+    ? (nativeDebt ?? 0) > 0
+    : financialAvailable && (user?.aff_debt ?? 0) > 0
+  const nativeRewardDisplay = nativeCreditDisplay(
+    rewardDebt ? nativeDebt : nativeRewards,
+    t('Credits'),
+    t('Unavailable')
+  )
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -89,16 +110,16 @@ export function AffiliateRewardsCard({
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
             [
-              financialAvailable && (user?.aff_debt ?? 0) > 0
-                ? t('Reward debt')
-                : t('Available Rewards'),
-              financialAvailable
-                ? formatQuota(
-                    (user?.aff_debt ?? 0) > 0
-                      ? (user?.aff_debt ?? 0)
-                      : (user?.aff_quota ?? 0)
-                  )
-                : t('Unavailable'),
+              rewardDebt ? t('Reward debt') : t('Available Rewards'),
+              projection.native
+                ? nativeRewardDisplay
+                : financialAvailable
+                  ? formatQuota(
+                      (user?.aff_debt ?? 0) > 0
+                        ? (user?.aff_debt ?? 0)
+                        : (user?.aff_quota ?? 0)
+                    )
+                  : t('Unavailable'),
             ],
             [
               t('Total Earned'),
@@ -129,16 +150,27 @@ export function AffiliateRewardsCard({
             <AffiliateInviteDialog affiliateLink={affiliateLink} />
           ) : null}
           <ReferralHistoryDialog />
-          {(hasRewards || !financialAvailable) && (
+          {projection.native && complianceConfirmed ? (
             <Button
-              onClick={onTransfer}
-              disabled={!complianceConfirmed || !financialAvailable}
+              render={<a href='/core/v1/affiliate/claim' />}
               className='h-9 shrink-0 px-3'
               size='sm'
               variant='outline'
             >
-              {t('Transfer to Balance')}
+              {t('Preview reward transfer')}
             </Button>
+          ) : (
+            (hasRewards || !financialAvailable) && (
+              <Button
+                onClick={onTransfer}
+                disabled={!complianceConfirmed || !financialAvailable}
+                className='h-9 shrink-0 px-3'
+                size='sm'
+                variant='outline'
+              >
+                {t('Transfer to Balance')}
+              </Button>
+            )
           )}
         </div>
         {!complianceConfirmed ? (

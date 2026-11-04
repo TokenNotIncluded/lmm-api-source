@@ -280,20 +280,23 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             "core_promotions" => &["promotions"],
             "core_console" => &["notifications", "subscriptions", "promotions"],
             // account-security includes the narrow account-appeals grants.
-            "web_identity" => &["account-security", "wallet-topup-history"],
+            "web_identity" => &["account-security", "wallet-topup-history", "affiliate-claims"],
             _ => &[],
         };
         for fragment in fragments {
             let namespace = match *fragment {
                 "account-security" => "core_passkeys".to_owned(),
                 "wallet-topup-history" => "core_migration".to_owned(),
+                "affiliate-claims" => "core_wallet".to_owned(),
                 other => format!("core_{other}"),
             };
-            let installed: bool = sqlx::query_scalar("SELECT to_regnamespace($1) IS NOT NULL")
-                .bind(namespace)
-                .fetch_one(&self.owner)
-                .await
-                .unwrap();
+            let installed: bool = if *fragment == "affiliate-claims" {
+                sqlx::query_scalar("SELECT to_regclass('core_wallet.affiliate_claims') IS NOT NULL")
+                    .fetch_one(&self.owner).await.unwrap()
+            } else {
+                sqlx::query_scalar("SELECT to_regnamespace($1) IS NOT NULL")
+                    .bind(namespace).fetch_one(&self.owner).await.unwrap()
+            };
             if installed {
                 let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
                 let begin = format!("-- BEGIN {fragment} runtime grants\n");

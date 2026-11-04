@@ -12,8 +12,8 @@ pub mod builtins;
 pub mod channel_http;
 #[cfg(unix)]
 pub mod commerce;
-pub mod config;
 pub mod community_read;
+pub mod config;
 pub mod console_compat;
 pub mod core_schema;
 pub mod edge_access;
@@ -74,3 +74,5 @@ mod independent_966_log_tests;
 #[path = "../staged/email_delivery.rs"]
 pub mod email_delivery;
 pub mod email_http;
+
+pub mod affiliate;

@@ -36,7 +36,8 @@ RESERVED_PREFIXES = ("lmmk_", "lmms_", "lmmr_", "lmmi_", "lmmf_", "lmmt_", "lmmo
 # Options the current Core reads from core_console.options (options_http.rs,
 # console_compat.rs, http.rs, edge_access.rs). Everything else is reported.
 CONSOLE_KEYS = ("Notice", "console_setting.announcements", "Announcements", "HeaderNavModules",
-                "IPAccessRoutingRules", "IPAccessRoutingBypassEligibilityV1")
+                "IPAccessRoutingRules", "IPAccessRoutingBypassEligibilityV1",
+                "payment_setting.compliance_confirmed", "payment_setting.compliance_terms_version")
 RECEIPT_FILE = "credential-mapping-receipt.private.json"
 ALIAS_FILE = "legacy-api-key-wire-aliases.private.json"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")

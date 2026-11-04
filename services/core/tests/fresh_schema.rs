@@ -15,7 +15,7 @@ async fn full_core_contract_includes_new_components_and_does_not_repair_missing_
             .await
             .unwrap();
     assert_eq!(components.len(), lmm_core::core_schema::component_count());
-    for name in ["console", "model-gateway", "commerce"] {
+    for name in ["console", "model-gateway", "commerce", "affiliate-claims"] {
         assert!(components.iter().any(|entry| entry == name));
     }
     sqlx::raw_sql("DROP SCHEMA core_model CASCADE; DELETE FROM core_meta.component_contract WHERE name='model-gateway'")

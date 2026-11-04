@@ -528,6 +528,12 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 wallet_history = wallet_history.with_history(history);
             }
             routes = routes.merge(lmm_core::wallet_history_read_http::router(wallet_history));
+            let affiliate = lmm_core::affiliate::Store::new(pool.clone());
+            affiliate
+                .check_ready()
+                .await
+                .map_err(|_| "affiliate claim authority unavailable")?;
+            routes = routes.merge(config::affiliate_browser_router(affiliate)?);
             routes = routes.merge(match &email_runtime {
                 Some(mail) => {
                     lmm_core::legacy_auth::router_with_email(store, config.auth, mail.http.clone())

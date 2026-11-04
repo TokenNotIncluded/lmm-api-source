@@ -1387,6 +1387,12 @@ pub fn wallet_browser_router(store: crate::wallet::Store) -> io::Result<axum::Ro
     )
     .map_err(|_| invalid_config("invalid wallet browser confirmation origin"))
 }
+pub fn affiliate_browser_router(store: crate::affiliate::Store) -> io::Result<axum::Router> {
+    let origin = setting("LMM_CORE_WEB_ORIGIN")
+        .map_err(|_| invalid_config("affiliate confirmation requires Web browser authentication"))?;
+    crate::affiliate::router(store, origin, bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?)
+        .map_err(|_| invalid_config("invalid affiliate browser confirmation origin"))
+}
 pub fn support_projection_configured() -> bool {
     setting_os("LMM_CORE_SUPPORT_PROJECTION_TOKEN_FILE").is_some()
         || setting_os("LMM_CORE_SUPPORT_PROJECTION_SOCKET").is_some()
