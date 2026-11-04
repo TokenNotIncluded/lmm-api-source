@@ -59,6 +59,9 @@ pub(super) fn old_ddl(name: &str, unchanged: &'static str) -> &'static str {
         "console" => include_str!("../../upgrade_offline/historical/console.sql"),
         "ledger" => include_str!("../../../tests/core_schema/ledger_before_escrow_submit.sql"),
         "routing" => include_str!("../../../tests/core_schema/routing_before_payload_policy.sql"),
+        "wallet" => {
+            include_str!("../../../tests/core_schema/wallet_before_legacy_transfer_history.sql")
+        }
         _ => unchanged,
     }
 }
@@ -111,7 +114,12 @@ pub(super) fn preserved(count: usize) -> Manifest {
         .map(|(name, ddl)| Component {
             name: (*name).into(),
             raw_schema_sha256: super::hex(&Sha256::digest(
-                if count <= 26 { old_ddl(name, ddl) } else { ddl }.as_bytes(),
+                if count <= 26 || *name == "wallet" {
+                    old_ddl(name, ddl)
+                } else {
+                    ddl
+                }
+                .as_bytes(),
             )),
         })
         .collect();
