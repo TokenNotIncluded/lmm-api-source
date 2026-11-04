@@ -7,22 +7,26 @@ from prepare_legacy_payment_bindings import prepare, draft, SCOPE
 from prepare_wallet_history_snapshot import digest
 
 
-def synthetic():
+def synthetic(mixed_openings=False):
     f = fixture.SettlementFactsTest(); f.setUp()
     source = f.source
     row = source['tables']['top_ups'][0]
     row.update(provider_store_id='STO_original', provider_product_id='PROD_original', settlement_currency='USD')
     second = dict(row, id=2, trade_no='synthetic-second-ref')
+    if mixed_openings:
+        second['user_id'] = 8
+        source['source_user_ids'] = [7,8]
     source['tables']['top_ups'].append(second)
     oracle = f.oracle
     oracle['results'][0].update(quota=7654321, expected_micros=1234567)
-    oracle['results'].append(dict(oracle['results'][0], id=2))
+    oracle['results'].append(dict(oracle['results'][0], id=2, user_id=second['user_id']))
+    oracle['source_user_ids_sha256'] = digest(source['source_user_ids'])
     oracle.update(source_orders_sha256=digest(source['tables']['top_ups']), source_tables_sha256=digest(source['tables']))
     facts = facts_prepare(source, oracle, archive_sha256='a'*64, expected_rows=2)
     review = dict(scope=SCOPE, facts_sha256=digest(facts), opening_migration_id='synthetic-opening', orders=[])
     for r in source['tables']['top_ups']:
-        review['orders'].append(dict(source_order_id=r['id'], source_row_sha256=digest(r), user_id=7,
-            account_id=7, channel_id=9, merchant='synthetic-merchant', environment='test', currency='USD',
+        review['orders'].append(dict(source_order_id=r['id'], source_row_sha256=digest(r), user_id=r['user_id'],
+            account_id=r['user_id'], opening_entity_key=f"legacy.users/{r['user_id']}" if mixed_openings and r['user_id']==8 else f"user:{r['user_id']}", channel_id=9, merchant='synthetic-merchant', environment='test', currency='USD',
             store_id='STO_original', source_product_id='PROD_original'))
     return facts, review
 
@@ -44,7 +48,8 @@ class BindingsTest(unittest.TestCase):
             lambda r:r['orders'][0].update(currency='EUR'),
             lambda r:r['orders'][0].update(store_id='STO_current'),
             lambda r:r['orders'][0].update(source_product_id='PROD_current'),
-            lambda r:r['orders'][0].update(account_id=True)]
+            lambda r:r['orders'][0].update(account_id=True),
+            lambda r:r['orders'][0].update(opening_entity_key='legacy.users/8')]
         for change in mutations:
             r=copy.deepcopy(review);change(r)
             with self.assertRaises(ValueError):prepare(facts,r)
@@ -97,14 +102,15 @@ class BindingsPostgresTest(unittest.TestCase):
         init = subprocess.run([str(binary), '--legacy-env', 'init-db'], capture_output=True, text=True,
                               env={'PATH':os.environ['PATH'], 'HOME':os.environ['HOME'], 'LMM_CORE_DATABASE_URL':url})
         self.assertEqual(init.returncode, 0, init.stderr)
-        facts, review = synthetic()
+        facts, review = synthetic(mixed_openings=True)
         opening = dict(migration_id='synthetic-opening', source_entity_key='user:7',
                        source_archive_sha256='a'*64, mapping_sha256='b'*64, source_row_sha256='c'*64,
                        observed_at=100, account_id=7, available_units=0, reserved_units=0, affiliate_units=0)
-        sql("INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES(7,'personal');"
-            "INSERT INTO core_identity.users(id,personal_account_id) VALUES(7,7);"
+        sql("INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES(7,'personal'),(8,'personal');"
+            "INSERT INTO core_identity.users(id,personal_account_id) VALUES(7,7),(8,8);"
             "BEGIN ISOLATION LEVEL SERIALIZABLE; SET LOCAL synchronous_commit=on;"
-            "SELECT core_billing.import_opening_balance("+literal(opening)+"::jsonb);COMMIT;")
+            "SELECT core_billing.import_opening_balance("+literal(opening)+"::jsonb);"
+            "SELECT core_billing.import_opening_balance("+literal(dict(opening, account_id=8, source_entity_key='legacy.users/8'))+"::jsonb);COMMIT;")
         first = copy.deepcopy(review);first['orders'] = first['orders'][:1]
         single = prepare(facts, first)
         missing = sql(import_sql(single), success=False)

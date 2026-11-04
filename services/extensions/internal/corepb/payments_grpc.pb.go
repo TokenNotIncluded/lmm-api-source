@@ -19,18 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CorePayments_AcceptProviderProof_FullMethodName  = "/lmm.core.v1.CorePayments/AcceptProviderProof"
-	CorePayments_GetProviderProof_FullMethodName     = "/lmm.core.v1.CorePayments/GetProviderProof"
-	CorePayments_PrepareTopup_FullMethodName         = "/lmm.core.v1.CorePayments/PrepareTopup"
-	CorePayments_PreparePersonalTopup_FullMethodName = "/lmm.core.v1.CorePayments/PreparePersonalTopup"
-	CorePayments_GetEPayCheckout_FullMethodName      = "/lmm.core.v1.CorePayments/GetEPayCheckout"
-	CorePayments_CreditTopup_FullMethodName          = "/lmm.core.v1.CorePayments/CreditTopup"
-	CorePayments_HoldRefund_FullMethodName           = "/lmm.core.v1.CorePayments/HoldRefund"
-	CorePayments_BeginRefundDispatch_FullMethodName  = "/lmm.core.v1.CorePayments/BeginRefundDispatch"
-	CorePayments_CommitRefund_FullMethodName         = "/lmm.core.v1.CorePayments/CommitRefund"
-	CorePayments_ReleaseRefund_FullMethodName        = "/lmm.core.v1.CorePayments/ReleaseRefund"
-	CorePayments_ApplyExternalRefund_FullMethodName  = "/lmm.core.v1.CorePayments/ApplyExternalRefund"
-	CorePayments_GetPaymentReceipt_FullMethodName    = "/lmm.core.v1.CorePayments/GetPaymentReceipt"
+	CorePayments_AcceptLegacyProviderProof_FullMethodName = "/lmm.core.v1.CorePayments/AcceptLegacyProviderProof"
+	CorePayments_GetLegacyProviderProof_FullMethodName    = "/lmm.core.v1.CorePayments/GetLegacyProviderProof"
+	CorePayments_CreditLegacyTopup_FullMethodName         = "/lmm.core.v1.CorePayments/CreditLegacyTopup"
+	CorePayments_AcceptProviderProof_FullMethodName       = "/lmm.core.v1.CorePayments/AcceptProviderProof"
+	CorePayments_GetProviderProof_FullMethodName          = "/lmm.core.v1.CorePayments/GetProviderProof"
+	CorePayments_PrepareTopup_FullMethodName              = "/lmm.core.v1.CorePayments/PrepareTopup"
+	CorePayments_PreparePersonalTopup_FullMethodName      = "/lmm.core.v1.CorePayments/PreparePersonalTopup"
+	CorePayments_GetEPayCheckout_FullMethodName           = "/lmm.core.v1.CorePayments/GetEPayCheckout"
+	CorePayments_CreditTopup_FullMethodName               = "/lmm.core.v1.CorePayments/CreditTopup"
+	CorePayments_HoldRefund_FullMethodName                = "/lmm.core.v1.CorePayments/HoldRefund"
+	CorePayments_BeginRefundDispatch_FullMethodName       = "/lmm.core.v1.CorePayments/BeginRefundDispatch"
+	CorePayments_CommitRefund_FullMethodName              = "/lmm.core.v1.CorePayments/CommitRefund"
+	CorePayments_ReleaseRefund_FullMethodName             = "/lmm.core.v1.CorePayments/ReleaseRefund"
+	CorePayments_ApplyExternalRefund_FullMethodName       = "/lmm.core.v1.CorePayments/ApplyExternalRefund"
+	CorePayments_GetPaymentReceipt_FullMethodName         = "/lmm.core.v1.CorePayments/GetPaymentReceipt"
 )
 
 // CorePaymentsClient is the client API for CorePayments service.
@@ -42,6 +45,10 @@ const (
 // verified provider evidence and a core-issued intent/authority, not merely a
 // service token. Go cannot assert that a provider event has been verified.
 type CorePaymentsClient interface {
+	// Owner-installed legacy bases retain original micros and credit units.
+	AcceptLegacyProviderProof(ctx context.Context, in *AcceptLegacyProviderProofRequest, opts ...grpc.CallOption) (*LegacyProviderProofReceipt, error)
+	GetLegacyProviderProof(ctx context.Context, in *GetLegacyProviderProofRequest, opts ...grpc.CallOption) (*LegacyProviderProofReceipt, error)
+	CreditLegacyTopup(ctx context.Context, in *CreditLegacyTopupRequest, opts ...grpc.CallOption) (*LegacyPaymentReceipt, error)
 	AcceptProviderProof(ctx context.Context, in *AcceptProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error)
 	GetProviderProof(ctx context.Context, in *GetProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error)
 	PrepareTopup(ctx context.Context, in *PrepareTopupRequest, opts ...grpc.CallOption) (*PaymentIntent, error)
@@ -65,6 +72,36 @@ type corePaymentsClient struct {
 
 func NewCorePaymentsClient(cc grpc.ClientConnInterface) CorePaymentsClient {
 	return &corePaymentsClient{cc}
+}
+
+func (c *corePaymentsClient) AcceptLegacyProviderProof(ctx context.Context, in *AcceptLegacyProviderProofRequest, opts ...grpc.CallOption) (*LegacyProviderProofReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LegacyProviderProofReceipt)
+	err := c.cc.Invoke(ctx, CorePayments_AcceptLegacyProviderProof_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *corePaymentsClient) GetLegacyProviderProof(ctx context.Context, in *GetLegacyProviderProofRequest, opts ...grpc.CallOption) (*LegacyProviderProofReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LegacyProviderProofReceipt)
+	err := c.cc.Invoke(ctx, CorePayments_GetLegacyProviderProof_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *corePaymentsClient) CreditLegacyTopup(ctx context.Context, in *CreditLegacyTopupRequest, opts ...grpc.CallOption) (*LegacyPaymentReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LegacyPaymentReceipt)
+	err := c.cc.Invoke(ctx, CorePayments_CreditLegacyTopup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *corePaymentsClient) AcceptProviderProof(ctx context.Context, in *AcceptProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error) {
@@ -196,6 +233,10 @@ func (c *corePaymentsClient) GetPaymentReceipt(ctx context.Context, in *GetPayme
 // verified provider evidence and a core-issued intent/authority, not merely a
 // service token. Go cannot assert that a provider event has been verified.
 type CorePaymentsServer interface {
+	// Owner-installed legacy bases retain original micros and credit units.
+	AcceptLegacyProviderProof(context.Context, *AcceptLegacyProviderProofRequest) (*LegacyProviderProofReceipt, error)
+	GetLegacyProviderProof(context.Context, *GetLegacyProviderProofRequest) (*LegacyProviderProofReceipt, error)
+	CreditLegacyTopup(context.Context, *CreditLegacyTopupRequest) (*LegacyPaymentReceipt, error)
 	AcceptProviderProof(context.Context, *AcceptProviderProofRequest) (*ProviderProofReceipt, error)
 	GetProviderProof(context.Context, *GetProviderProofRequest) (*ProviderProofReceipt, error)
 	PrepareTopup(context.Context, *PrepareTopupRequest) (*PaymentIntent, error)
@@ -221,6 +262,15 @@ type CorePaymentsServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCorePaymentsServer struct{}
 
+func (UnimplementedCorePaymentsServer) AcceptLegacyProviderProof(context.Context, *AcceptLegacyProviderProofRequest) (*LegacyProviderProofReceipt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptLegacyProviderProof not implemented")
+}
+func (UnimplementedCorePaymentsServer) GetLegacyProviderProof(context.Context, *GetLegacyProviderProofRequest) (*LegacyProviderProofReceipt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLegacyProviderProof not implemented")
+}
+func (UnimplementedCorePaymentsServer) CreditLegacyTopup(context.Context, *CreditLegacyTopupRequest) (*LegacyPaymentReceipt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreditLegacyTopup not implemented")
+}
 func (UnimplementedCorePaymentsServer) AcceptProviderProof(context.Context, *AcceptProviderProofRequest) (*ProviderProofReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AcceptProviderProof not implemented")
 }
@@ -276,6 +326,60 @@ func RegisterCorePaymentsServer(s grpc.ServiceRegistrar, srv CorePaymentsServer)
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&CorePayments_ServiceDesc, srv)
+}
+
+func _CorePayments_AcceptLegacyProviderProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptLegacyProviderProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).AcceptLegacyProviderProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_AcceptLegacyProviderProof_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).AcceptLegacyProviderProof(ctx, req.(*AcceptLegacyProviderProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CorePayments_GetLegacyProviderProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLegacyProviderProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).GetLegacyProviderProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_GetLegacyProviderProof_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).GetLegacyProviderProof(ctx, req.(*GetLegacyProviderProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CorePayments_CreditLegacyTopup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreditLegacyTopupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).CreditLegacyTopup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_CreditLegacyTopup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).CreditLegacyTopup(ctx, req.(*CreditLegacyTopupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _CorePayments_AcceptProviderProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -501,6 +605,18 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "lmm.core.v1.CorePayments",
 	HandlerType: (*CorePaymentsServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "AcceptLegacyProviderProof",
+			Handler:    _CorePayments_AcceptLegacyProviderProof_Handler,
+		},
+		{
+			MethodName: "GetLegacyProviderProof",
+			Handler:    _CorePayments_GetLegacyProviderProof_Handler,
+		},
+		{
+			MethodName: "CreditLegacyTopup",
+			Handler:    _CorePayments_CreditLegacyTopup_Handler,
+		},
 		{
 			MethodName: "AcceptProviderProof",
 			Handler:    _CorePayments_AcceptProviderProof_Handler,

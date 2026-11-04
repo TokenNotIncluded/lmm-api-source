@@ -28,6 +28,20 @@ struct Basis {
     credit_units: i64,
 }
 
+/// Durable proof metadata only; signed bytes and financial state stay private.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, sqlx::FromRow)]
+pub struct LegacyProofReceipt {
+    pub proof_id: String,
+    pub basis_id: String,
+    pub channel_id: i64,
+    pub order_reference: String,
+    pub event_id: String,
+    pub order_id: String,
+    pub payment_id: Option<String>,
+    pub payload_sha256: Vec<u8>,
+    pub accepted_unix_seconds: i64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LegacyPaymentReceipt {
     pub operation_id: String,
@@ -92,7 +106,7 @@ impl PaymentsStore {
         order_reference: &str,
         payload: &[u8],
         signature: &[u8],
-    ) -> Result<String> {
+    ) -> Result<LegacyProofReceipt> {
         let mut tx = self.begin().await?;
         let b: Basis = sqlx::query_as(
             "SELECT * FROM core_payments.legacy_bases WHERE channel_id=$1 AND order_reference=$2",
@@ -137,12 +151,19 @@ impl PaymentsStore {
             "SELECT id,basis_id,payload_sha256 FROM core_payments.legacy_proofs WHERE provider=$1 AND merchant=$2 AND environment=$3 AND event_id=$4",
         ).bind(&b.provider).bind(&b.merchant).bind(&b.environment).bind(&verified.event_id)
             .fetch_optional(&mut *tx).await?;
-        if let Some((id, basis, hash)) = prior {
+        if let Some((_id, basis, hash)) = prior {
             if basis != b.id || hash != verified.payload_sha256 {
                 return Err(Error::Conflict);
             }
             tx.commit().await?;
-            return Ok(id);
+            return self
+                .get_legacy_proof(
+                    channel_id,
+                    order_reference,
+                    &verified.event_id,
+                    &verified.payload_sha256,
+                )
+                .await;
         }
         let id = digest_id(
             "lproof",
@@ -154,7 +175,44 @@ impl PaymentsStore {
             .bind(verified.payload_sha256.as_slice()).bind(payload).bind(signature)
             .execute(&mut *tx).await?;
         tx.commit().await?;
-        Ok(id)
+        self.get_legacy_proof(
+            channel_id,
+            order_reference,
+            &verified.event_id,
+            &verified.payload_sha256,
+        )
+        .await
+    }
+
+    /// Reconcile an ingress commit without re-verifying an expired signature.
+    /// The selector binds the original channel namespace, order, event and bytes.
+    /// No missing proof is admitted here and this method never posts money.
+    pub async fn get_legacy_proof(
+        &self,
+        channel_id: i64,
+        order_reference: &str,
+        event_id: &str,
+        payload_sha256: &[u8],
+    ) -> Result<LegacyProofReceipt> {
+        if !super::valid_id(order_reference)
+            || !super::valid_id(event_id)
+            || payload_sha256.len() != 32
+        {
+            return Err(Error::Invalid);
+        }
+        let c = self.channels.get(&channel_id).ok_or(Error::NotFound)?;
+        if c.provider != "waffo_pancake" {
+            return Err(Error::Invalid);
+        }
+        let receipt: LegacyProofReceipt = sqlx::query_as(
+            "SELECT p.id AS proof_id,p.basis_id,b.channel_id,b.order_reference,p.event_id,p.order_id,p.payment_id,p.payload_sha256,floor(extract(epoch FROM p.accepted_at))::bigint AS accepted_unix_seconds FROM core_payments.legacy_proofs p JOIN core_payments.legacy_bases b ON b.id=p.basis_id WHERE b.channel_id=$1 AND b.order_reference=$2 AND p.event_id=$3 AND b.provider=$4 AND b.merchant=$5 AND b.environment=$6 AND b.currency=$7",
+        ).bind(channel_id).bind(order_reference).bind(event_id).bind(&c.provider)
+            .bind(&c.merchant).bind(&c.environment).bind(&c.currency)
+            .fetch_optional(&self.pool).await?.ok_or(Error::NotFound)?;
+        if receipt.payload_sha256 != payload_sha256 {
+            return Err(Error::Conflict);
+        }
+        Ok(receipt)
     }
 
     /// Apply a durable proof. Retry an uncertain commit using the SAME key.
@@ -186,9 +244,9 @@ impl PaymentsStore {
         channel(self, &b)?;
         let operation_id = digest_id("lapply", json!([basis_id, operation_key]));
         if let Some(prior) = application(&mut tx, &operation_id).await? {
-            if prior.proof_id != proof_id {
-                return Err(Error::Conflict);
-            }
+            // The financial request is the immutable basis plus operation key.
+            // A later verified delivery may enrich ORD/PAY proof metadata;
+            // retain the original proof and outcome instead of applying again.
             tx.commit().await?;
             return Ok(prior);
         }

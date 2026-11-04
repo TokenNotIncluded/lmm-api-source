@@ -8,6 +8,10 @@ import "lmm/core/v1/commands.proto";
 // verified provider evidence and a core-issued intent/authority, not merely a
 // service token. Go cannot assert that a provider event has been verified.
 service CorePayments {
+  // Owner-installed legacy bases retain original micros and credit units.
+  rpc AcceptLegacyProviderProof(AcceptLegacyProviderProofRequest) returns (LegacyProviderProofReceipt);
+  rpc GetLegacyProviderProof(GetLegacyProviderProofRequest) returns (LegacyProviderProofReceipt);
+  rpc CreditLegacyTopup(CreditLegacyTopupRequest) returns (LegacyPaymentReceipt);
   rpc AcceptProviderProof(AcceptProviderProofRequest) returns (ProviderProofReceipt);
   rpc GetProviderProof(GetProviderProofRequest) returns (ProviderProofReceipt);
   rpc PrepareTopup(PrepareTopupRequest) returns (PaymentIntent);
@@ -155,4 +159,40 @@ message PaymentReceipt {
 message PaymentStateChangedEvent {
   PaymentReceipt receipt = 1;
   int64 account_id = 2;
+}
+
+message AcceptLegacyProviderProofRequest {
+  int64 payment_channel_id = 1;
+  string order_reference = 2;
+  bytes signed_payload = 3;
+  bytes signature = 4;
+}
+message GetLegacyProviderProofRequest {
+  int64 payment_channel_id = 1;
+  string order_reference = 2;
+  string provider_event_id = 3;
+  bytes payload_sha256 = 4;
+}
+message LegacyProviderProofReceipt {
+  string proof_id = 1;
+  string basis_id = 2;
+  int64 payment_channel_id = 3;
+  string order_reference = 4;
+  string provider_event_id = 5;
+  string provider_order_id = 6;
+  string provider_payment_id = 7;
+  bytes payload_sha256 = 8;
+  int64 accepted_unix_seconds = 9;
+}
+message CreditLegacyTopupRequest {
+  MutationContext mutation = 1;
+  string proof_id = 2;
+}
+message LegacyPaymentReceipt {
+  string operation_id = 1;
+  string basis_id = 2;
+  string proof_id = 3;
+  PaymentReceiptState state = 4; // CREDIT_APPLIED or REJECTED only.
+  int64 journal_id = 5;
+  string rejection_code = 6;
 }

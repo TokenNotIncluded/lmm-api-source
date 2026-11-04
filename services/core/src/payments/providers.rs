@@ -1393,35 +1393,147 @@ mod tests {
         c.max_amount_minor = 1;
         let store = PaymentsStore::new(pool.clone(), vec![c.clone()]).unwrap();
         let basis_id = format!("legacy_{}", "11".repeat(32));
-        sqlx::query("INSERT INTO core_payments.legacy_bases(id,opening_migration_id,source_archive_sha256,source_order_id,source_user_id,source_row_sha256,review_sha256,user_id,account_id,provider,channel_id,merchant,environment,currency,order_reference,store_id,source_product_id,amount_micros,credit_units,discount_code_id,source_status,failure_reason) VALUES($1,'legacy-test-opening',$2,123,1901,decode(repeat('cc',32),'hex'),decode(repeat('dd',32),'hex'),7301,$3,'waffo_pancake',$4,$5,'test','USD','old_checkout_123','STO_fixture','PROD_fixture',1234567,7654321,17,'failed','checkout_timeout')")
+        sqlx::query("INSERT INTO core_payments.legacy_bases(id,opening_migration_id,opening_entity_key,source_archive_sha256,source_order_id,source_user_id,source_row_sha256,review_sha256,user_id,account_id,provider,channel_id,merchant,environment,currency,order_reference,store_id,source_product_id,amount_micros,credit_units,discount_code_id,source_status,failure_reason) VALUES($1,'legacy-test-opening','user:1901',$2,123,1901,decode(repeat('cc',32),'hex'),decode(repeat('dd',32),'hex'),7301,$3,'waffo_pancake',$4,$5,'test','USD','old_checkout_123','STO_fixture','PROD_fixture',1234567,7654321,17,'failed','checkout_timeout')")
             .bind(&basis_id).bind("aa".repeat(32)).bind(account).bind(c.id).bind(&c.merchant)
             .execute(&pool).await.unwrap();
         let balance = || async {
             sqlx::query_scalar::<_, i64>("SELECT b.balance_units FROM core_billing.balance_state b JOIN core_billing.ledger_accounts a ON a.id=b.ledger_account_id WHERE a.owner_account_id=$1 AND a.bucket='wallet'")
                 .bind(account).fetch_one(&pool).await.unwrap()
         };
+        use pb::core_payments_server::CorePayments;
+        fn rpc_request<T>(body: T) -> tonic::Request<T> {
+            let mut r = tonic::Request::new(body);
+            r.metadata_mut().insert(
+                "authorization",
+                "Bearer 0123456789abcdef0123456789abcdef".parse().unwrap(),
+            );
+            r.metadata_mut()
+                .insert("x-lmm-protocol", "1".parse().unwrap());
+            r
+        }
+        let rpc = crate::payments::rpc::PaymentsRpc::new(
+            store.clone(),
+            b"0123456789abcdef0123456789abcdef",
+            crate::payments::rpc::Permissions {
+                proof_ingress: true,
+                proof_read: true,
+                credit_evidence: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let mut event = pancake_event();
         event["data"]["orderMerchantExternalId"] = json!("old_checkout_123");
         event["data"]["chargedAmount"] = json!("1.234567");
         event["data"].as_object_mut().unwrap().remove("paymentId");
         let raw = serde_json::to_vec(&event).unwrap();
         let signature = signed_pancake(&raw, super::super::now().unwrap() * 1000);
-        let proof = store
-            .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
+        let admitted = rpc
+            .accept_legacy_provider_proof(rpc_request(pb::AcceptLegacyProviderProofRequest {
+                payment_channel_id: c.id,
+                order_reference: "old_checkout_123".into(),
+                signed_payload: raw.clone(),
+                signature: signature.as_bytes().to_vec(),
+            }))
             .await
-            .unwrap();
+            .unwrap()
+            .into_inner();
+        let proof = admitted.proof_id.clone();
+        assert_eq!(admitted.basis_id, basis_id);
         assert_eq!(balance().await, 0, "admission must not post money");
         assert_eq!(
             store
                 .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
                 .await
-                .unwrap(),
+                .unwrap()
+                .proof_id,
             proof
         );
+        let payload_hash = Sha256::digest(&raw);
+        let recovered = store
+            .get_legacy_proof(c.id, "old_checkout_123", "delivery_fixture", &payload_hash)
+            .await
+            .unwrap();
+        let recovered_wire = rpc
+            .get_legacy_provider_proof(rpc_request(pb::GetLegacyProviderProofRequest {
+                payment_channel_id: c.id,
+                order_reference: "old_checkout_123".into(),
+                provider_event_id: "delivery_fixture".into(),
+                payload_sha256: payload_hash.to_vec(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(recovered_wire, admitted);
+        assert_eq!(recovered.proof_id, proof);
+        assert_eq!(recovered.basis_id, basis_id);
+        assert!(recovered.accepted_unix_seconds > 0);
+        assert_eq!(recovered.order_id, "ORD_fixture");
+        assert_eq!(recovered.payment_id, None);
+        assert_eq!(
+            store
+                .get_legacy_proof(c.id, "old_checkout_123", "delivery_fixture", &[0; 32])
+                .await,
+            Err(Error::Conflict)
+        );
+        assert_eq!(
+            store
+                .get_legacy_proof(
+                    c.id,
+                    "another_original_order",
+                    "delivery_fixture",
+                    &payload_hash
+                )
+                .await,
+            Err(Error::NotFound)
+        );
+        // Rotation after acceptance must not make the durable proof depend on
+        // the old signature key or a fresh timestamp. Ingress still verifies.
+        let mut rotated = c.clone();
+        rotated.webhook_secrets = vec![
+            RsaPrivateKey::new(&mut StdRng::seed_from_u64(43), 2048)
+                .unwrap()
+                .to_public_key()
+                .to_public_key_pem(Default::default())
+                .unwrap(),
+        ];
+        let recovery_store = PaymentsStore::new(pool.clone(), vec![rotated]).unwrap();
+        assert_eq!(
+            recovery_store
+                .get_legacy_proof(c.id, "old_checkout_123", "delivery_fixture", &payload_hash)
+                .await
+                .unwrap(),
+            recovered
+        );
+        assert!(
+            recovery_store
+                .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
+                .await
+                .is_err()
+        );
+        assert_eq!(balance().await, 0);
+        let credited_wire = rpc
+            .credit_legacy_topup(rpc_request(pb::CreditLegacyTopupRequest {
+                mutation: Some(pb::MutationContext {
+                    idempotency_key: "legacy_apply_original_123".into(),
+                    expected_version: None,
+                }),
+                proof_id: proof.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            credited_wire.state,
+            pb::PaymentReceiptState::CreditApplied as i32
+        );
+        assert!(credited_wire.journal_id > 0 && credited_wire.rejection_code.is_empty());
         let first = store
             .apply_legacy_payment(&proof, "legacy_apply_original_123")
             .await
             .unwrap();
+        assert_eq!(credited_wire.operation_id, first.operation_id);
+        assert_eq!(credited_wire.proof_id, first.proof_id);
         assert!(matches!(first.outcome, Outcome::Posted { .. }));
         assert_eq!(
             balance().await,
@@ -1450,7 +1562,28 @@ mod tests {
         let later = store
             .admit_legacy_pancake(c.id, "old_checkout_123", &raw, signature.as_bytes())
             .await
-            .unwrap();
+            .unwrap()
+            .proof_id;
+        assert_eq!(
+            store
+                .apply_legacy_payment(&later, "legacy_apply_original_123")
+                .await
+                .unwrap(),
+            first
+        );
+        assert_eq!(
+            rpc.credit_legacy_topup(rpc_request(pb::CreditLegacyTopupRequest {
+                mutation: Some(pb::MutationContext {
+                    idempotency_key: "legacy_apply_original_123".into(),
+                    expected_version: None
+                }),
+                proof_id: later.clone()
+            }))
+            .await
+            .unwrap()
+            .into_inner(),
+            credited_wire
+        );
         assert_eq!(
             store
                 .apply_legacy_payment(&later, "legacy_apply_later_proof")

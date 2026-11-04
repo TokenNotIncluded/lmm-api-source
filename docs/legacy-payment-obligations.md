@@ -60,30 +60,32 @@ Core 的 [独立验签器](../services/core/src/payments/legacy_pancake.rs) 接�
 
 原 Go 将 `data.orderId` 保存为供应商交易号，新 Core 则使用 `data.paymentId`。验签结果分别保留这两个标识、原 event id（缺少时回退 eventId）、原金额、原额度和载荷 hash。旧报文可以缺少 paymentId；这不代表允许绕过跨新旧订单的交易去重。当前共享标识表和入账存储已处理这两种标识的归属与并发约束，见下节；这不代表回调接入已完成或验收通过。
 
-该函数只验证回调观察，不创建付款证明、折扣消费或账本记录，尚未接入 HTTP/RPC 的旧订单结算入口。原始事实回执仍不可授权发放。当前自测使用本地生成的 RSA 签名，不是供应商真实回调或独立验收。
+该函数只验证回调观察，不创建付款证明、折扣消费或账本记录，接入范围见下述内部 RPC 与回调入口。原始事实回执仍不可授权发放。当前自测使用本地生成的 RSA 签名，不是供应商真实回调或独立验收。
 
 
-## 当前 component 50 内部实现
+## 当前 component 50/51 内部实现
 
-以下描述内部实现及其局部自测，不代表发布、完整业务独立验收或生产就绪。[schema](../services/core/schema/legacy_payments.sql) 属于 fresh component 50；不提供将已有 component 49 数据库升级到 50 的流程。普通启动不能代替 owner 安装或既有站点升级。
+以下描述内部实现及其局部自测，不代表发布、完整业务独立验收或生产就绪。[schema](../services/core/schema/legacy_payments.sql) 保留 fresh component 50 原文；[component 51](../services/core/schema/legacy_payment_opening_identity.sql) 显式修正 opening identity。当前只支持 fresh 51，不提供从已有 49/50 升级到 51 的流程。普通启动不能代替 owner 安装或既有站点升级。
 
 ### owner 安装的不可变依据
 
-`legacy_bases` 保存原订单、原用户、来源归档与原行 hash、审核 hash，以及绑定的商户、环境、渠道、币种、store/product 和原折扣码。插入触发器要求依据的 opening migration、`user:<原用户 ID>`、来源归档 SHA-256 与原 opening 导入一致，且目标必须是该映射用户的原个人账户。不能改绑团队账户或其他用户，也不能为已删除用户凭空生成归属。依据仅接受 pending 或 checkout_timeout 的 failed 原订单；冻结的正整数 `amount_micros` 和 `credit_units` 保留原微单位金额及原有效额度，不按当前价格、汇率或 credits/分重算。
+`legacy_bases` 保存原订单、原用户、来源归档与原行 hash、审核 hash，以及绑定的商户、环境、渠道、币种、store/product 和原折扣码。插入触发器要求依据的 opening migration、显式原 opening entity key、来源归档 SHA-256 与原 opening 导入一致，且目标必须是该映射用户的原个人账户。不能改绑团队账户或其他用户，也不能为已删除用户凭空生成归属。依据仅接受 pending 或 checkout_timeout 的 failed 原订单；冻结的正整数 `amount_micros` 和 `credit_units` 保留原微单位金额及原有效额度，不按当前价格、汇率或 credits/分重算。
 
 依据表禁止更新、删除和 truncate，运行时不得写入 owner 条款。上述约束不验证审核材料的真实性，也不执行 owner 审批；下述加载器只生成安装材料，没有执行真实旧订单依据安装或审批；合成依据仅用于本地自测。原函数 oracle、来源归档及独立审核要求仍然适用。
+
+component 51 将原生成列变为不可变显式 `opening_entity_key`，仅接受与原用户 ID 严格相符的 `user:<ID>` 或 `legacy.users/<ID>`。前者来自 `legacy_cutover_import.plan_opening`，后者来自独立 financial planner/preflight。FK 和 guard 匹配审核指定的精确标识，不默认猜测、不改写 opening，不回退另一种形式。v2 审核文件必须明确该键；既有 v1 材料须按实际 opening 重新审阅，不能直接安装到 fresh 51。
 
 ### 离线依据准备与安装
 
 [绑定 preparer](../scripts/prepare_legacy_payment_bindings.py) 复用上述 source/oracle 校验，接受相同的 `--input`、`--oracle`、`--archive-sha256` 和 `--expected-rows`，以及新的私密 `--output` 目录。未提供 `--bindings` 时只输出 `bindings.template.private.json`：真实冻结快照产生 174 笔可审阅草稿；被拒绝的原额度、已删除 owner 和不支持的供应商保留在 gaps，未选订单不自动激活。草稿中的渠道和目标账户仍需审核补全，没有安装 SQL。
 
-提供 `--bindings` 时，文件仅含 `scope=owner-reviewed-legacy-payment-bindings.v1`、原 facts 的 `facts_sha256`、`opening_migration_id` 和明确选中的 `orders`。不能直接把带有 draft scope、gaps、installable 等报告字段的草稿作为审核文件。逐单绑定保留原行 hash，显式提供目标 user/account/channel、merchant/environment/currency/store 和原 product；原非空币种、store/product 不可用当前配置替换。金额和额度只取原函数观察值，不能由审核文件重写。审核 hash 按行绑定原 facts 与 opening identity，后续增加其他审核行不改变旧行。
+提供 `--bindings` 时，文件仅含 `scope=owner-reviewed-legacy-payment-bindings.v2`、原 facts 的 `facts_sha256`、`opening_migration_id` 和明确选中的 `orders`。不能直接把带有 draft scope、gaps、installable 等报告字段的草稿作为审核文件。逐单绑定保留原行 hash，显式提供原 `opening_entity_key`、目标 user/account/channel、merchant/environment/currency/store 和原 product；原非空币种、store/product 不可用当前配置替换。金额和额度只取原函数观察值，不能由审核文件重写。审核 hash 按行绑定原 facts 与 opening identity，后续增加其他审核行不改变旧行。
 
 输出 `plan.private.json` 和 `install.private.sql`，均以 0600 排他创建，目录须禁止组和其他用户访问。SQL 要求实际安装 owner、已安装且完全一致的原 facts、同一来源归档和观察时点的 opening run，再依靠账户归属触发器逐单验证。依据安装和严格重放在一个可持久化的 serializable 事务中完成；同 ID 内容冲突整批失败，不改写旧依据。安装只增加不可变依据，不联系渠道、不产生付款证明、不调用账本发放。
 
 本地自测使用真实新库验证安装、重复安装、增量选单、缺失 facts、原账户不匹配整批回滚、冲突审核重放和非 owner 拒绝；没有安装真实旧订单。显式隔离的新库可通过 `LMM_BINDING_TEST_DATABASE_URL` 运行 [集成测试](../scripts/test_prepare_legacy_payment_bindings.py)，数据库名必须以 `lmm_binding_test_` 开头，目标仅为 `127.0.0.1`；测试需要当前 Core 二进制、psql 和可创建 NOLOGIN 测试角色的安装 owner。默认未设置该变量时只运行纯 preparer 用例，PostgreSQL 用例标为未运行。
 
-独立 owner 使用另一组合成输入，通过真实 CLI 和全新 PostgreSQL 验证了 preparer / SQL loader 的文件权限、字段原值、严格重放、整批回滚及 facts/opening/owner 拒绝；账本与余额全量快照不变。该局部验收不包含原 Go oracle 执行、真实旧订单、付款运行时或完整迁移。
+v1 独立 owner 使用另一组合成输入，通过真实 CLI 和全新 PostgreSQL 验证了 preparer / SQL loader 的文件权限、字段原值、严格重放、整批回滚及 facts/opening/owner 拒绝；账本与余额全量快照不变。该 v1 局部验收不包含原 Go oracle 执行、真实旧订单、付款运行时或完整迁移。后续联合流程揭示了两个官方 opening 标识的差异；v2 和 component 51 已修复，并通过同库混合两种标识的本地回归，独立主进程复验已覆盖 v2 官方 financial opening 路径，范围见下节。
 
 ### 接纳证明与资金应用分开
 
@@ -91,10 +93,18 @@ Core 的 [独立验签器](../services/core/src/payments/legacy_pancake.rs) 接�
 
 [共享标识实现](../services/core/src/payments/identifiers.rs) 将 native intent 与 legacy basis 放入同一 provider/merchant/environment 范围的标识空间，按 `event`、`order`、`payment` 分别保留 event、ORD、PAY 的类型。每个标识只归属一个原支付主体；native 的 credit 接纳也认领 payment，Pancake 同时认领 ORD。缺少 PAY 的旧报文仍认领 ORD，不能借此跨新旧主体重复使用交易标识。类型化标识不是把任意同名 ORD 与 PAY 文本视为相同值。
 
-`apply_legacy_payment` 单独应用持久证明，以 basis 事务锁、按 basis 与 operation key 派生的稳定 operation id、账本操作及 `legacy_applications` 同一事务保存结果。schema 对每个 basis 只允许一条 posted 应用，并校验 journal 的 scope、操作号、原个人钱包与冻结额度。本地 PostgreSQL 自测覆盖该精确一次应用机制，独立端到端回调验收尚未完成。提交结果不确定时必须使用同一 operation key 重放；同 key 返回原持久回执，换 proof 使用该 key 会冲突。basis 一旦 posted，后续新 key 或后续证明返回首次 posted 的原 operation/proof/outcome 回执，不新发资金。rejected 回执也保留；核对后使用新 key 才能重试，不能改写原拒绝结果。
+`apply_legacy_payment` 单独应用持久证明，以 basis 事务锁、按 basis 与 operation key 派生的稳定 operation id、账本操作及 `legacy_applications` 同一事务保存结果。schema 对每个 basis 只允许一条 posted 应用，并校验 journal 的 scope、操作号、原个人钱包与冻结额度。本地 PostgreSQL 自测覆盖该精确一次应用机制，独立端到端回调验收尚未完成。提交结果不确定时必须使用同一 operation key 重放；同一 basis 与 key 返回原持久回执；后续已验签的 event/PAY 证明不会改变该资金请求，仍返回首次 proof/outcome，不重新记账。basis 一旦 posted，后续新 key 或后续证明返回首次 posted 的原 operation/proof/outcome 回执，不新发资金。rejected 回执也保留；核对后使用新 key 才能重试，不能改写原拒绝结果。
 
 ### 折扣消费视图与未完成接入
 
 `legacy_discount_consumptions` 仅投影已 posted 且带原折扣码的依据，以来源归档和原订单标识消费。后续名额计算须从导入的 held 集合扣除这些订单，并将消费加入原 used count，避免同时计为预留和已用。该视图不是完整优惠券引擎，不实现原生报价、原子预留、最后名额并发或完整折扣生命周期。
 
-目前没有 HTTP/RPC 旧 callback 路由；内部存储方法不等于对外结算入口。本地自测已用隔离 PostgreSQL 验证新库安装、证明不增余额、按原额度入账、原回执重放、后续 PAY 别名、单次折扣消费投影及新订单 ORD 冲突拒绝；原有 14 项渠道测试、两项运行时最小权限与禁止写权限测试通过。测试使用本地 RSA 签名和合成账户，不覆盖旧订单 HTTP/RPC、真实供应商或完整折扣引擎。尚无真实供应商回调，也未执行独立业务验收；上述历史本地演练及 RSA 自签名验签结果不能代替这些门槛。
+### 内部 RPC 与旧订单回调
+
+内部 `CorePayments` 增加 `AcceptLegacyProviderProof`、`GetLegacyProviderProof` 和 `CreditLegacyTopup`，分别使用已有的 proof ingress、proof read、credit evidence 服务权限。服务令牌、protocol metadata、并发上限和超时沿用支付 RPC 边界；客户端不能指定到账账户、汇率或金额。证明响应只含持久 proof/basis、原订单、事件、ORD/PAY、载荷 hash 和接纳时间，不返回签名或到账状态。恢复查询绑定当前配置中的渠道 namespace、原订单、事件和精确载荷 hash，不重新验签；合法公钥轮换后仍能恢复已接纳证明，未知或变更内容不能凭查询取得发放依据。
+
+Go 的原 `/callbacks/{channel}` 为 Pancake 增加旧引用分支；`top_` 前缀仍走新订单路径，失败不能回退到旧订单。冻结快照的 177 个 Pancake 原引用均不匹配新订单格式。旧分支保留原始请求字节与签名，不把原微单位金额转成新订单整分，不强制匹配当前 Go 商品元数据。它先查询持久证明，仅 NotFound 才提交验签；随后使用固定 `legacy-credit:<basis_id>` 操作键请求入账。只有 Core 返回有效 CREDIT_APPLIED、原 basis 和持久 journal 才确认成功；rejected、未知提交和其他错误不确认成功。新的 delivery/proof 若对应已入账 basis，Core 可返回首次入账的原 proof 回执。
+
+新入口没有安装真实旧订单依据，仍需真实渠道绑定审核、完整折扣/返佣等副作用和最终业务验收。当前没有自动扫描并应用遗留证明的恢复 worker；保留的证明可在后续回调时恢复，不能把仅接纳证明当作已完成入账或已排队资金。
+
+本地自测已用隔离 PostgreSQL 验证新库安装、证明不增余额、按原额度入账、原回执重放、后续 PAY 别名、单次折扣消费投影及新订单 ORD 冲突拒绝；原有 14 项渠道测试、两项运行时最小权限与禁止写权限测试通过。测试使用本地 RSA 签名和合成账户，Core RPC 方法已在真实数据库验证，Go 回调及 bridge 包测试通过；独立真实 Core/Go 主进程及分离权限 PostgreSQL 联合验收 13/13 通过：正常首次回调、立即重复、证明已保存但无入账时重启、过期/畸形签名配原载荷恢复、新 event/PAY 别名及相应拒绝分支。两笔合成订单各只有一个 application/journal，钱包精确为两份冻结额度之和；原回执内容不变。验收使用冻结二进制，没有重新生成编译缓存，不覆盖真实供应商或完整折扣引擎。Rejected 回执的 HTTP 重放、原生新订单完整生命周期、自动恢复 worker、最终全量演练及页面验收仍未完成。尚无真实供应商回调，也未执行独立业务验收；上述历史本地演练及 RSA 自签名验签结果不能代替这些门槛。

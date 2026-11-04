@@ -38,6 +38,19 @@ fn single<'a>(metadata: &'a MetadataMap, name: &'static str) -> Result<&'a str, 
         .to_str()
         .map_err(|_| Status::unauthenticated("invalid credential or protocol"))
 }
+fn legacy_proof(r: super::LegacyProofReceipt) -> pb::LegacyProviderProofReceipt {
+    pb::LegacyProviderProofReceipt {
+        proof_id: r.proof_id,
+        basis_id: r.basis_id,
+        payment_channel_id: r.channel_id,
+        order_reference: r.order_reference,
+        provider_event_id: r.event_id,
+        provider_order_id: r.order_id,
+        provider_payment_id: r.payment_id.unwrap_or_default(),
+        payload_sha256: r.payload_sha256,
+        accepted_unix_seconds: r.accepted_unix_seconds,
+    }
+}
 fn status(error: Error) -> Status {
     match error {
         Error::Invalid => Status::invalid_argument("invalid payment request"),
@@ -56,6 +69,9 @@ impl PaymentsRpc {
         let p = self.permissions;
         [
             (p.proof_ingress, "payments.proof.accept"),
+            (p.proof_ingress, "payments.legacy.proof.accept"),
+            (p.proof_read, "payments.legacy.proof.reconcile"),
+            (p.credit_evidence, "payments.legacy.topup.credit"),
             (p.proof_read, "payments.proof.reconcile"),
             (p.prepare, "payments.topup.prepare"),
             (p.prepare, "payments.topup.prepare_personal"),
@@ -137,6 +153,90 @@ impl PaymentsRpc {
 }
 #[tonic::async_trait]
 impl pb::core_payments_server::CorePayments for PaymentsRpc {
+    async fn accept_legacy_provider_proof(
+        &self,
+        request: Request<pb::AcceptLegacyProviderProofRequest>,
+    ) -> Result<Response<pb::LegacyProviderProofReceipt>, Status> {
+        self.check(request.metadata(), self.permissions.proof_ingress)?;
+        let r = request.into_inner();
+        self.bounded_for(Duration::from_secs(3), async {
+            self.store
+                .admit_legacy_pancake(
+                    r.payment_channel_id,
+                    &r.order_reference,
+                    &r.signed_payload,
+                    &r.signature,
+                )
+                .await
+                .map(legacy_proof)
+        })
+        .await
+    }
+    async fn get_legacy_provider_proof(
+        &self,
+        request: Request<pb::GetLegacyProviderProofRequest>,
+    ) -> Result<Response<pb::LegacyProviderProofReceipt>, Status> {
+        self.check(request.metadata(), self.permissions.proof_read)?;
+        let r = request.into_inner();
+        self.bounded(async {
+            self.store
+                .get_legacy_proof(
+                    r.payment_channel_id,
+                    &r.order_reference,
+                    &r.provider_event_id,
+                    &r.payload_sha256,
+                )
+                .await
+                .map(legacy_proof)
+        })
+        .await
+    }
+    async fn credit_legacy_topup(
+        &self,
+        request: Request<pb::CreditLegacyTopupRequest>,
+    ) -> Result<Response<pb::LegacyPaymentReceipt>, Status> {
+        self.check(request.metadata(), self.permissions.credit_evidence)?;
+        let r = request.into_inner();
+        let mutation = r
+            .mutation
+            .ok_or_else(|| Status::invalid_argument("missing mutation"))?;
+        if mutation.expected_version.is_some() {
+            return Err(Status::invalid_argument(
+                "legacy payment does not accept expected version",
+            ));
+        }
+        self.bounded(async {
+            let receipt = self
+                .store
+                .apply_legacy_payment(&r.proof_id, &mutation.idempotency_key)
+                .await?;
+            let (state, journal_id, rejection_code) = match receipt.outcome {
+                crate::billing::ledger::Outcome::Posted { journal_id, .. } => (
+                    pb::PaymentReceiptState::CreditApplied,
+                    journal_id,
+                    String::new(),
+                ),
+                crate::billing::ledger::Outcome::Rejected { code } => (
+                    pb::PaymentReceiptState::Rejected,
+                    0,
+                    serde_json::to_value(code)
+                        .map_err(|_| Error::Storage)?
+                        .as_str()
+                        .ok_or(Error::Storage)?
+                        .to_owned(),
+                ),
+            };
+            Ok(pb::LegacyPaymentReceipt {
+                operation_id: receipt.operation_id,
+                basis_id: receipt.basis_id,
+                proof_id: receipt.proof_id,
+                state: state as i32,
+                journal_id,
+                rejection_code,
+            })
+        })
+        .await
+    }
     async fn accept_provider_proof(
         &self,
         request: Request<pb::AcceptProviderProofRequest>,
@@ -301,6 +401,53 @@ mod tests {
         assert_eq!(
             service(true)
                 .prepare_topup(duplicate)
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_methods_require_their_explicit_payment_permissions() {
+        fn auth<T>(body: T) -> Request<T> {
+            let mut request = Request::new(body);
+            request.metadata_mut().insert(
+                "authorization",
+                "Bearer 0123456789abcdef0123456789abcdef".parse().unwrap(),
+            );
+            request
+                .metadata_mut()
+                .insert("x-lmm-protocol", "1".parse().unwrap());
+            request
+        }
+        assert_eq!(
+            service(true)
+                .accept_legacy_provider_proof(auth(pb::AcceptLegacyProviderProofRequest::default()))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+        assert_eq!(
+            service(true)
+                .get_legacy_provider_proof(auth(pb::GetLegacyProviderProofRequest::default()))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+        assert_eq!(
+            service(true)
+                .credit_legacy_topup(auth(pb::CreditLegacyTopupRequest::default()))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+        assert_eq!(
+            service(true)
+                .credit_legacy_topup(Request::new(pb::CreditLegacyTopupRequest::default()))
                 .await
                 .unwrap_err()
                 .code(),

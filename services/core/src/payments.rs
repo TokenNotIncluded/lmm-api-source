@@ -11,7 +11,7 @@ mod stripe;
 pub(crate) mod waffo;
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
 pub use legacy_pancake::{FrozenPancakeQuote, VerifiedLegacyPancake, verify_legacy_pancake};
-pub use legacy_store::LegacyPaymentReceipt;
+pub use legacy_store::{LegacyPaymentReceipt, LegacyProofReceipt};
 
 use crate::{
     billing::{
@@ -39,7 +39,9 @@ pub const SCHEMA: &str = concat!(
     "\n",
     include_str!("../schema/coinbase_payments.sql"),
     "\n",
-    include_str!("../schema/legacy_payments.sql")
+    include_str!("../schema/legacy_payments.sql"),
+    "\n",
+    include_str!("../schema/legacy_payment_opening_identity.sql")
 );
 const CREDIT_UNIT: &str = "credit_500k_usd";
 const PREPARED: i32 = 7;

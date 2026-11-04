@@ -10,12 +10,12 @@ import re
 from prepare_legacy_settlement_basis import prepare as settlement_facts
 from prepare_wallet_history_snapshot import canonical, digest, literal, require
 
-SCOPE = 'owner-reviewed-legacy-payment-bindings.v1'
+SCOPE = 'owner-reviewed-legacy-payment-bindings.v2'
 INTS = {'source_order_id', 'source_user_id', 'user_id', 'account_id', 'channel_id',
         'amount_micros', 'credit_units', 'discount_code_id'}
 HASHES = {'source_row_sha256', 'review_sha256'}
 BINDING_FIELDS = {'source_order_id', 'source_row_sha256', 'user_id', 'account_id',
-                  'channel_id', 'merchant', 'environment', 'currency', 'store_id', 'source_product_id'}
+                  'channel_id', 'merchant', 'environment', 'currency', 'store_id', 'source_product_id', 'opening_entity_key'}
 
 
 def candidates(facts):
@@ -38,7 +38,7 @@ def draft(facts):
     rows = []
     for r in eligible:
         rows.append(dict(source_order_id=r['id'], source_row_sha256=digest(r),
-                         user_id=None, account_id=None, channel_id=None, merchant=None,
+                         user_id=None, account_id=None, opening_entity_key=None, channel_id=None, merchant=None,
                          environment=None, currency=(r.get('settlement_currency') or '').strip().upper() or None,
                          store_id=r.get('provider_store_id') or None,
                          source_product_id=r.get('provider_product_id') or None))
@@ -64,6 +64,7 @@ def prepare(facts, bindings):
         seen.add(oid)
         row = by_id[oid]
         require(binding['source_row_sha256'] == digest(row), 'binding_source_row_mismatch')
+        require(binding['opening_entity_key'] in (f"user:{row['user_id']}", f"legacy.users/{row['user_id']}"), 'binding_opening_identity_invalid')
         for key in ('user_id', 'account_id', 'channel_id'):
             require(type(binding[key]) is int and 0 < binding[key] <= 2**63-1, 'binding_identity_invalid')
         for key in ('merchant', 'store_id'):
@@ -125,7 +126,7 @@ BEGIN
  FOR r IN SELECT value FROM jsonb_array_elements(p->'bases') LOOP
   SELECT * INTO prior FROM core_payments.legacy_bases WHERE id=r->>'id';
   IF FOUND THEN
-   IF (to_jsonb(prior)-ARRAY['opening_entity_key','source_row_sha256','review_sha256'])
+   IF (to_jsonb(prior)-ARRAY['source_row_sha256','review_sha256'])
       IS DISTINCT FROM (r-ARRAY['source_row_sha256','review_sha256'])
       OR prior.source_row_sha256 IS DISTINCT FROM decode(r->>'source_row_sha256','hex')
       OR prior.review_sha256 IS DISTINCT FROM decode(r->>'review_sha256','hex')

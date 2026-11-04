@@ -294,6 +294,11 @@ func (s *Service) Receive(ctx context.Context, channelID int64, req *http.Reques
 	if a == nil {
 		return ErrNotFound
 	}
+	if _, ok := a.(*Pancake); ok {
+		if handled, err := s.receiveLegacyPancake(ctx, a, req); handled || err != nil {
+			return err
+		}
+	}
 	if gated, ok := a.(proofGatedCallback); ok {
 		e, err := gated.parseCallback(req)
 		if err != nil {

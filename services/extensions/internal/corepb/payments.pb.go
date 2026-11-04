@@ -1277,6 +1277,386 @@ func (x *PaymentStateChangedEvent) GetAccountId() int64 {
 	return 0
 }
 
+type AcceptLegacyProviderProofRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PaymentChannelId int64                  `protobuf:"varint,1,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
+	OrderReference   string                 `protobuf:"bytes,2,opt,name=order_reference,json=orderReference,proto3" json:"order_reference,omitempty"`
+	SignedPayload    []byte                 `protobuf:"bytes,3,opt,name=signed_payload,json=signedPayload,proto3" json:"signed_payload,omitempty"`
+	Signature        []byte                 `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AcceptLegacyProviderProofRequest) Reset() {
+	*x = AcceptLegacyProviderProofRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptLegacyProviderProofRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptLegacyProviderProofRequest) ProtoMessage() {}
+
+func (x *AcceptLegacyProviderProofRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptLegacyProviderProofRequest.ProtoReflect.Descriptor instead.
+func (*AcceptLegacyProviderProofRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AcceptLegacyProviderProofRequest) GetPaymentChannelId() int64 {
+	if x != nil {
+		return x.PaymentChannelId
+	}
+	return 0
+}
+
+func (x *AcceptLegacyProviderProofRequest) GetOrderReference() string {
+	if x != nil {
+		return x.OrderReference
+	}
+	return ""
+}
+
+func (x *AcceptLegacyProviderProofRequest) GetSignedPayload() []byte {
+	if x != nil {
+		return x.SignedPayload
+	}
+	return nil
+}
+
+func (x *AcceptLegacyProviderProofRequest) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+type GetLegacyProviderProofRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PaymentChannelId int64                  `protobuf:"varint,1,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
+	OrderReference   string                 `protobuf:"bytes,2,opt,name=order_reference,json=orderReference,proto3" json:"order_reference,omitempty"`
+	ProviderEventId  string                 `protobuf:"bytes,3,opt,name=provider_event_id,json=providerEventId,proto3" json:"provider_event_id,omitempty"`
+	PayloadSha256    []byte                 `protobuf:"bytes,4,opt,name=payload_sha256,json=payloadSha256,proto3" json:"payload_sha256,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetLegacyProviderProofRequest) Reset() {
+	*x = GetLegacyProviderProofRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLegacyProviderProofRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLegacyProviderProofRequest) ProtoMessage() {}
+
+func (x *GetLegacyProviderProofRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLegacyProviderProofRequest.ProtoReflect.Descriptor instead.
+func (*GetLegacyProviderProofRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetLegacyProviderProofRequest) GetPaymentChannelId() int64 {
+	if x != nil {
+		return x.PaymentChannelId
+	}
+	return 0
+}
+
+func (x *GetLegacyProviderProofRequest) GetOrderReference() string {
+	if x != nil {
+		return x.OrderReference
+	}
+	return ""
+}
+
+func (x *GetLegacyProviderProofRequest) GetProviderEventId() string {
+	if x != nil {
+		return x.ProviderEventId
+	}
+	return ""
+}
+
+func (x *GetLegacyProviderProofRequest) GetPayloadSha256() []byte {
+	if x != nil {
+		return x.PayloadSha256
+	}
+	return nil
+}
+
+type LegacyProviderProofReceipt struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ProofId             string                 `protobuf:"bytes,1,opt,name=proof_id,json=proofId,proto3" json:"proof_id,omitempty"`
+	BasisId             string                 `protobuf:"bytes,2,opt,name=basis_id,json=basisId,proto3" json:"basis_id,omitempty"`
+	PaymentChannelId    int64                  `protobuf:"varint,3,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
+	OrderReference      string                 `protobuf:"bytes,4,opt,name=order_reference,json=orderReference,proto3" json:"order_reference,omitempty"`
+	ProviderEventId     string                 `protobuf:"bytes,5,opt,name=provider_event_id,json=providerEventId,proto3" json:"provider_event_id,omitempty"`
+	ProviderOrderId     string                 `protobuf:"bytes,6,opt,name=provider_order_id,json=providerOrderId,proto3" json:"provider_order_id,omitempty"`
+	ProviderPaymentId   string                 `protobuf:"bytes,7,opt,name=provider_payment_id,json=providerPaymentId,proto3" json:"provider_payment_id,omitempty"`
+	PayloadSha256       []byte                 `protobuf:"bytes,8,opt,name=payload_sha256,json=payloadSha256,proto3" json:"payload_sha256,omitempty"`
+	AcceptedUnixSeconds int64                  `protobuf:"varint,9,opt,name=accepted_unix_seconds,json=acceptedUnixSeconds,proto3" json:"accepted_unix_seconds,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *LegacyProviderProofReceipt) Reset() {
+	*x = LegacyProviderProofReceipt{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyProviderProofReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyProviderProofReceipt) ProtoMessage() {}
+
+func (x *LegacyProviderProofReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyProviderProofReceipt.ProtoReflect.Descriptor instead.
+func (*LegacyProviderProofReceipt) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *LegacyProviderProofReceipt) GetProofId() string {
+	if x != nil {
+		return x.ProofId
+	}
+	return ""
+}
+
+func (x *LegacyProviderProofReceipt) GetBasisId() string {
+	if x != nil {
+		return x.BasisId
+	}
+	return ""
+}
+
+func (x *LegacyProviderProofReceipt) GetPaymentChannelId() int64 {
+	if x != nil {
+		return x.PaymentChannelId
+	}
+	return 0
+}
+
+func (x *LegacyProviderProofReceipt) GetOrderReference() string {
+	if x != nil {
+		return x.OrderReference
+	}
+	return ""
+}
+
+func (x *LegacyProviderProofReceipt) GetProviderEventId() string {
+	if x != nil {
+		return x.ProviderEventId
+	}
+	return ""
+}
+
+func (x *LegacyProviderProofReceipt) GetProviderOrderId() string {
+	if x != nil {
+		return x.ProviderOrderId
+	}
+	return ""
+}
+
+func (x *LegacyProviderProofReceipt) GetProviderPaymentId() string {
+	if x != nil {
+		return x.ProviderPaymentId
+	}
+	return ""
+}
+
+func (x *LegacyProviderProofReceipt) GetPayloadSha256() []byte {
+	if x != nil {
+		return x.PayloadSha256
+	}
+	return nil
+}
+
+func (x *LegacyProviderProofReceipt) GetAcceptedUnixSeconds() int64 {
+	if x != nil {
+		return x.AcceptedUnixSeconds
+	}
+	return 0
+}
+
+type CreditLegacyTopupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mutation      *MutationContext       `protobuf:"bytes,1,opt,name=mutation,proto3" json:"mutation,omitempty"`
+	ProofId       string                 `protobuf:"bytes,2,opt,name=proof_id,json=proofId,proto3" json:"proof_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreditLegacyTopupRequest) Reset() {
+	*x = CreditLegacyTopupRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreditLegacyTopupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreditLegacyTopupRequest) ProtoMessage() {}
+
+func (x *CreditLegacyTopupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreditLegacyTopupRequest.ProtoReflect.Descriptor instead.
+func (*CreditLegacyTopupRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *CreditLegacyTopupRequest) GetMutation() *MutationContext {
+	if x != nil {
+		return x.Mutation
+	}
+	return nil
+}
+
+func (x *CreditLegacyTopupRequest) GetProofId() string {
+	if x != nil {
+		return x.ProofId
+	}
+	return ""
+}
+
+type LegacyPaymentReceipt struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OperationId   string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	BasisId       string                 `protobuf:"bytes,2,opt,name=basis_id,json=basisId,proto3" json:"basis_id,omitempty"`
+	ProofId       string                 `protobuf:"bytes,3,opt,name=proof_id,json=proofId,proto3" json:"proof_id,omitempty"`
+	State         PaymentReceiptState    `protobuf:"varint,4,opt,name=state,proto3,enum=lmm.core.v1.PaymentReceiptState" json:"state,omitempty"` // CREDIT_APPLIED or REJECTED only.
+	JournalId     int64                  `protobuf:"varint,5,opt,name=journal_id,json=journalId,proto3" json:"journal_id,omitempty"`
+	RejectionCode string                 `protobuf:"bytes,6,opt,name=rejection_code,json=rejectionCode,proto3" json:"rejection_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LegacyPaymentReceipt) Reset() {
+	*x = LegacyPaymentReceipt{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LegacyPaymentReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LegacyPaymentReceipt) ProtoMessage() {}
+
+func (x *LegacyPaymentReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LegacyPaymentReceipt.ProtoReflect.Descriptor instead.
+func (*LegacyPaymentReceipt) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *LegacyPaymentReceipt) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *LegacyPaymentReceipt) GetBasisId() string {
+	if x != nil {
+		return x.BasisId
+	}
+	return ""
+}
+
+func (x *LegacyPaymentReceipt) GetProofId() string {
+	if x != nil {
+		return x.ProofId
+	}
+	return ""
+}
+
+func (x *LegacyPaymentReceipt) GetState() PaymentReceiptState {
+	if x != nil {
+		return x.State
+	}
+	return PaymentReceiptState_PAYMENT_RECEIPT_STATE_UNSPECIFIED
+}
+
+func (x *LegacyPaymentReceipt) GetJournalId() int64 {
+	if x != nil {
+		return x.JournalId
+	}
+	return 0
+}
+
+func (x *LegacyPaymentReceipt) GetRejectionCode() string {
+	if x != nil {
+		return x.RejectionCode
+	}
+	return ""
+}
+
 var File_lmm_core_v1_payments_proto protoreflect.FileDescriptor
 
 const file_lmm_core_v1_payments_proto_rawDesc = "" +
@@ -1377,7 +1757,38 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\x18PaymentStateChangedEvent\x125\n" +
 	"\areceipt\x18\x01 \x01(\v2\x1b.lmm.core.v1.PaymentReceiptR\areceipt\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x02 \x01(\x03R\taccountId*\xdf\x02\n" +
+	"account_id\x18\x02 \x01(\x03R\taccountId\"\xbe\x01\n" +
+	" AcceptLegacyProviderProofRequest\x12,\n" +
+	"\x12payment_channel_id\x18\x01 \x01(\x03R\x10paymentChannelId\x12'\n" +
+	"\x0forder_reference\x18\x02 \x01(\tR\x0eorderReference\x12%\n" +
+	"\x0esigned_payload\x18\x03 \x01(\fR\rsignedPayload\x12\x1c\n" +
+	"\tsignature\x18\x04 \x01(\fR\tsignature\"\xc9\x01\n" +
+	"\x1dGetLegacyProviderProofRequest\x12,\n" +
+	"\x12payment_channel_id\x18\x01 \x01(\x03R\x10paymentChannelId\x12'\n" +
+	"\x0forder_reference\x18\x02 \x01(\tR\x0eorderReference\x12*\n" +
+	"\x11provider_event_id\x18\x03 \x01(\tR\x0fproviderEventId\x12%\n" +
+	"\x0epayload_sha256\x18\x04 \x01(\fR\rpayloadSha256\"\x8c\x03\n" +
+	"\x1aLegacyProviderProofReceipt\x12\x19\n" +
+	"\bproof_id\x18\x01 \x01(\tR\aproofId\x12\x19\n" +
+	"\bbasis_id\x18\x02 \x01(\tR\abasisId\x12,\n" +
+	"\x12payment_channel_id\x18\x03 \x01(\x03R\x10paymentChannelId\x12'\n" +
+	"\x0forder_reference\x18\x04 \x01(\tR\x0eorderReference\x12*\n" +
+	"\x11provider_event_id\x18\x05 \x01(\tR\x0fproviderEventId\x12*\n" +
+	"\x11provider_order_id\x18\x06 \x01(\tR\x0fproviderOrderId\x12.\n" +
+	"\x13provider_payment_id\x18\a \x01(\tR\x11providerPaymentId\x12%\n" +
+	"\x0epayload_sha256\x18\b \x01(\fR\rpayloadSha256\x122\n" +
+	"\x15accepted_unix_seconds\x18\t \x01(\x03R\x13acceptedUnixSeconds\"o\n" +
+	"\x18CreditLegacyTopupRequest\x128\n" +
+	"\bmutation\x18\x01 \x01(\v2\x1c.lmm.core.v1.MutationContextR\bmutation\x12\x19\n" +
+	"\bproof_id\x18\x02 \x01(\tR\aproofId\"\xed\x01\n" +
+	"\x14LegacyPaymentReceipt\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12\x19\n" +
+	"\bbasis_id\x18\x02 \x01(\tR\abasisId\x12\x19\n" +
+	"\bproof_id\x18\x03 \x01(\tR\aproofId\x126\n" +
+	"\x05state\x18\x04 \x01(\x0e2 .lmm.core.v1.PaymentReceiptStateR\x05state\x12\x1d\n" +
+	"\n" +
+	"journal_id\x18\x05 \x01(\x03R\tjournalId\x12%\n" +
+	"\x0erejection_code\x18\x06 \x01(\tR\rrejectionCode*\xdf\x02\n" +
 	"\x13PaymentReceiptState\x12%\n" +
 	"!PAYMENT_RECEIPT_STATE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$PAYMENT_RECEIPT_STATE_CREDIT_APPLIED\x10\x01\x12%\n" +
@@ -1386,8 +1797,12 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"%PAYMENT_RECEIPT_STATE_REFUND_RELEASED\x10\x04\x121\n" +
 	"-PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED\x10\x05\x12\"\n" +
 	"\x1ePAYMENT_RECEIPT_STATE_REJECTED\x10\x06\x12\"\n" +
-	"\x1ePAYMENT_RECEIPT_STATE_PREPARED\x10\a2\x8e\b\n" +
-	"\fCorePayments\x12a\n" +
+	"\x1ePAYMENT_RECEIPT_STATE_PREPARED\x10\a2\xd1\n" +
+	"\n" +
+	"\fCorePayments\x12s\n" +
+	"\x19AcceptLegacyProviderProof\x12-.lmm.core.v1.AcceptLegacyProviderProofRequest\x1a'.lmm.core.v1.LegacyProviderProofReceipt\x12m\n" +
+	"\x16GetLegacyProviderProof\x12*.lmm.core.v1.GetLegacyProviderProofRequest\x1a'.lmm.core.v1.LegacyProviderProofReceipt\x12]\n" +
+	"\x11CreditLegacyTopup\x12%.lmm.core.v1.CreditLegacyTopupRequest\x1a!.lmm.core.v1.LegacyPaymentReceipt\x12a\n" +
 	"\x13AcceptProviderProof\x12'.lmm.core.v1.AcceptProviderProofRequest\x1a!.lmm.core.v1.ProviderProofReceipt\x12[\n" +
 	"\x10GetProviderProof\x12$.lmm.core.v1.GetProviderProofRequest\x1a!.lmm.core.v1.ProviderProofReceipt\x12L\n" +
 	"\fPrepareTopup\x12 .lmm.core.v1.PrepareTopupRequest\x1a\x1a.lmm.core.v1.PaymentIntent\x12\\\n" +
@@ -1415,72 +1830,85 @@ func file_lmm_core_v1_payments_proto_rawDescGZIP() []byte {
 }
 
 var file_lmm_core_v1_payments_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_lmm_core_v1_payments_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_lmm_core_v1_payments_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_lmm_core_v1_payments_proto_goTypes = []any{
-	(PaymentReceiptState)(0),            // 0: lmm.core.v1.PaymentReceiptState
-	(*ExternalPaymentReference)(nil),    // 1: lmm.core.v1.ExternalPaymentReference
-	(*ProviderEvidence)(nil),            // 2: lmm.core.v1.ProviderEvidence
-	(*AcceptProviderProofRequest)(nil),  // 3: lmm.core.v1.AcceptProviderProofRequest
-	(*GetProviderProofRequest)(nil),     // 4: lmm.core.v1.GetProviderProofRequest
-	(*ProviderProofReceipt)(nil),        // 5: lmm.core.v1.ProviderProofReceipt
-	(*PrepareTopupRequest)(nil),         // 6: lmm.core.v1.PrepareTopupRequest
-	(*PreparePersonalTopupRequest)(nil), // 7: lmm.core.v1.PreparePersonalTopupRequest
-	(*PaymentIntent)(nil),               // 8: lmm.core.v1.PaymentIntent
-	(*GetEPayCheckoutRequest)(nil),      // 9: lmm.core.v1.GetEPayCheckoutRequest
-	(*EPayCheckout)(nil),                // 10: lmm.core.v1.EPayCheckout
-	(*CreditTopupRequest)(nil),          // 11: lmm.core.v1.CreditTopupRequest
-	(*HoldRefundRequest)(nil),           // 12: lmm.core.v1.HoldRefundRequest
-	(*ResolveRefundRequest)(nil),        // 13: lmm.core.v1.ResolveRefundRequest
-	(*ExternalRefundRequest)(nil),       // 14: lmm.core.v1.ExternalRefundRequest
-	(*GetPaymentReceiptRequest)(nil),    // 15: lmm.core.v1.GetPaymentReceiptRequest
-	(*PaymentReceipt)(nil),              // 16: lmm.core.v1.PaymentReceipt
-	(*PaymentStateChangedEvent)(nil),    // 17: lmm.core.v1.PaymentStateChangedEvent
-	(*MutationContext)(nil),             // 18: lmm.core.v1.MutationContext
+	(PaymentReceiptState)(0),                 // 0: lmm.core.v1.PaymentReceiptState
+	(*ExternalPaymentReference)(nil),         // 1: lmm.core.v1.ExternalPaymentReference
+	(*ProviderEvidence)(nil),                 // 2: lmm.core.v1.ProviderEvidence
+	(*AcceptProviderProofRequest)(nil),       // 3: lmm.core.v1.AcceptProviderProofRequest
+	(*GetProviderProofRequest)(nil),          // 4: lmm.core.v1.GetProviderProofRequest
+	(*ProviderProofReceipt)(nil),             // 5: lmm.core.v1.ProviderProofReceipt
+	(*PrepareTopupRequest)(nil),              // 6: lmm.core.v1.PrepareTopupRequest
+	(*PreparePersonalTopupRequest)(nil),      // 7: lmm.core.v1.PreparePersonalTopupRequest
+	(*PaymentIntent)(nil),                    // 8: lmm.core.v1.PaymentIntent
+	(*GetEPayCheckoutRequest)(nil),           // 9: lmm.core.v1.GetEPayCheckoutRequest
+	(*EPayCheckout)(nil),                     // 10: lmm.core.v1.EPayCheckout
+	(*CreditTopupRequest)(nil),               // 11: lmm.core.v1.CreditTopupRequest
+	(*HoldRefundRequest)(nil),                // 12: lmm.core.v1.HoldRefundRequest
+	(*ResolveRefundRequest)(nil),             // 13: lmm.core.v1.ResolveRefundRequest
+	(*ExternalRefundRequest)(nil),            // 14: lmm.core.v1.ExternalRefundRequest
+	(*GetPaymentReceiptRequest)(nil),         // 15: lmm.core.v1.GetPaymentReceiptRequest
+	(*PaymentReceipt)(nil),                   // 16: lmm.core.v1.PaymentReceipt
+	(*PaymentStateChangedEvent)(nil),         // 17: lmm.core.v1.PaymentStateChangedEvent
+	(*AcceptLegacyProviderProofRequest)(nil), // 18: lmm.core.v1.AcceptLegacyProviderProofRequest
+	(*GetLegacyProviderProofRequest)(nil),    // 19: lmm.core.v1.GetLegacyProviderProofRequest
+	(*LegacyProviderProofReceipt)(nil),       // 20: lmm.core.v1.LegacyProviderProofReceipt
+	(*CreditLegacyTopupRequest)(nil),         // 21: lmm.core.v1.CreditLegacyTopupRequest
+	(*LegacyPaymentReceipt)(nil),             // 22: lmm.core.v1.LegacyPaymentReceipt
+	(*MutationContext)(nil),                  // 23: lmm.core.v1.MutationContext
 }
 var file_lmm_core_v1_payments_proto_depIdxs = []int32{
 	1,  // 0: lmm.core.v1.ProviderEvidence.payment:type_name -> lmm.core.v1.ExternalPaymentReference
 	2,  // 1: lmm.core.v1.AcceptProviderProofRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
 	1,  // 2: lmm.core.v1.ProviderProofReceipt.payment:type_name -> lmm.core.v1.ExternalPaymentReference
-	18, // 3: lmm.core.v1.PrepareTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	18, // 4: lmm.core.v1.PreparePersonalTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	18, // 5: lmm.core.v1.CreditTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	23, // 3: lmm.core.v1.PrepareTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	23, // 4: lmm.core.v1.PreparePersonalTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	23, // 5: lmm.core.v1.CreditTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 6: lmm.core.v1.CreditTopupRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
-	18, // 7: lmm.core.v1.HoldRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	18, // 8: lmm.core.v1.ResolveRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	23, // 7: lmm.core.v1.HoldRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	23, // 8: lmm.core.v1.ResolveRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 9: lmm.core.v1.ResolveRefundRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
-	18, // 10: lmm.core.v1.ExternalRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	23, // 10: lmm.core.v1.ExternalRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 11: lmm.core.v1.ExternalRefundRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
 	0,  // 12: lmm.core.v1.PaymentReceipt.state:type_name -> lmm.core.v1.PaymentReceiptState
 	16, // 13: lmm.core.v1.PaymentStateChangedEvent.receipt:type_name -> lmm.core.v1.PaymentReceipt
-	3,  // 14: lmm.core.v1.CorePayments.AcceptProviderProof:input_type -> lmm.core.v1.AcceptProviderProofRequest
-	4,  // 15: lmm.core.v1.CorePayments.GetProviderProof:input_type -> lmm.core.v1.GetProviderProofRequest
-	6,  // 16: lmm.core.v1.CorePayments.PrepareTopup:input_type -> lmm.core.v1.PrepareTopupRequest
-	7,  // 17: lmm.core.v1.CorePayments.PreparePersonalTopup:input_type -> lmm.core.v1.PreparePersonalTopupRequest
-	9,  // 18: lmm.core.v1.CorePayments.GetEPayCheckout:input_type -> lmm.core.v1.GetEPayCheckoutRequest
-	11, // 19: lmm.core.v1.CorePayments.CreditTopup:input_type -> lmm.core.v1.CreditTopupRequest
-	12, // 20: lmm.core.v1.CorePayments.HoldRefund:input_type -> lmm.core.v1.HoldRefundRequest
-	13, // 21: lmm.core.v1.CorePayments.BeginRefundDispatch:input_type -> lmm.core.v1.ResolveRefundRequest
-	13, // 22: lmm.core.v1.CorePayments.CommitRefund:input_type -> lmm.core.v1.ResolveRefundRequest
-	13, // 23: lmm.core.v1.CorePayments.ReleaseRefund:input_type -> lmm.core.v1.ResolveRefundRequest
-	14, // 24: lmm.core.v1.CorePayments.ApplyExternalRefund:input_type -> lmm.core.v1.ExternalRefundRequest
-	15, // 25: lmm.core.v1.CorePayments.GetPaymentReceipt:input_type -> lmm.core.v1.GetPaymentReceiptRequest
-	5,  // 26: lmm.core.v1.CorePayments.AcceptProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
-	5,  // 27: lmm.core.v1.CorePayments.GetProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
-	8,  // 28: lmm.core.v1.CorePayments.PrepareTopup:output_type -> lmm.core.v1.PaymentIntent
-	8,  // 29: lmm.core.v1.CorePayments.PreparePersonalTopup:output_type -> lmm.core.v1.PaymentIntent
-	10, // 30: lmm.core.v1.CorePayments.GetEPayCheckout:output_type -> lmm.core.v1.EPayCheckout
-	16, // 31: lmm.core.v1.CorePayments.CreditTopup:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 32: lmm.core.v1.CorePayments.HoldRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 33: lmm.core.v1.CorePayments.BeginRefundDispatch:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 34: lmm.core.v1.CorePayments.CommitRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 35: lmm.core.v1.CorePayments.ReleaseRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 36: lmm.core.v1.CorePayments.ApplyExternalRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 37: lmm.core.v1.CorePayments.GetPaymentReceipt:output_type -> lmm.core.v1.PaymentReceipt
-	26, // [26:38] is the sub-list for method output_type
-	14, // [14:26] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	23, // 14: lmm.core.v1.CreditLegacyTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	0,  // 15: lmm.core.v1.LegacyPaymentReceipt.state:type_name -> lmm.core.v1.PaymentReceiptState
+	18, // 16: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:input_type -> lmm.core.v1.AcceptLegacyProviderProofRequest
+	19, // 17: lmm.core.v1.CorePayments.GetLegacyProviderProof:input_type -> lmm.core.v1.GetLegacyProviderProofRequest
+	21, // 18: lmm.core.v1.CorePayments.CreditLegacyTopup:input_type -> lmm.core.v1.CreditLegacyTopupRequest
+	3,  // 19: lmm.core.v1.CorePayments.AcceptProviderProof:input_type -> lmm.core.v1.AcceptProviderProofRequest
+	4,  // 20: lmm.core.v1.CorePayments.GetProviderProof:input_type -> lmm.core.v1.GetProviderProofRequest
+	6,  // 21: lmm.core.v1.CorePayments.PrepareTopup:input_type -> lmm.core.v1.PrepareTopupRequest
+	7,  // 22: lmm.core.v1.CorePayments.PreparePersonalTopup:input_type -> lmm.core.v1.PreparePersonalTopupRequest
+	9,  // 23: lmm.core.v1.CorePayments.GetEPayCheckout:input_type -> lmm.core.v1.GetEPayCheckoutRequest
+	11, // 24: lmm.core.v1.CorePayments.CreditTopup:input_type -> lmm.core.v1.CreditTopupRequest
+	12, // 25: lmm.core.v1.CorePayments.HoldRefund:input_type -> lmm.core.v1.HoldRefundRequest
+	13, // 26: lmm.core.v1.CorePayments.BeginRefundDispatch:input_type -> lmm.core.v1.ResolveRefundRequest
+	13, // 27: lmm.core.v1.CorePayments.CommitRefund:input_type -> lmm.core.v1.ResolveRefundRequest
+	13, // 28: lmm.core.v1.CorePayments.ReleaseRefund:input_type -> lmm.core.v1.ResolveRefundRequest
+	14, // 29: lmm.core.v1.CorePayments.ApplyExternalRefund:input_type -> lmm.core.v1.ExternalRefundRequest
+	15, // 30: lmm.core.v1.CorePayments.GetPaymentReceipt:input_type -> lmm.core.v1.GetPaymentReceiptRequest
+	20, // 31: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
+	20, // 32: lmm.core.v1.CorePayments.GetLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
+	22, // 33: lmm.core.v1.CorePayments.CreditLegacyTopup:output_type -> lmm.core.v1.LegacyPaymentReceipt
+	5,  // 34: lmm.core.v1.CorePayments.AcceptProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
+	5,  // 35: lmm.core.v1.CorePayments.GetProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
+	8,  // 36: lmm.core.v1.CorePayments.PrepareTopup:output_type -> lmm.core.v1.PaymentIntent
+	8,  // 37: lmm.core.v1.CorePayments.PreparePersonalTopup:output_type -> lmm.core.v1.PaymentIntent
+	10, // 38: lmm.core.v1.CorePayments.GetEPayCheckout:output_type -> lmm.core.v1.EPayCheckout
+	16, // 39: lmm.core.v1.CorePayments.CreditTopup:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 40: lmm.core.v1.CorePayments.HoldRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 41: lmm.core.v1.CorePayments.BeginRefundDispatch:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 42: lmm.core.v1.CorePayments.CommitRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 43: lmm.core.v1.CorePayments.ReleaseRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 44: lmm.core.v1.CorePayments.ApplyExternalRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 45: lmm.core.v1.CorePayments.GetPaymentReceipt:output_type -> lmm.core.v1.PaymentReceipt
+	31, // [31:46] is the sub-list for method output_type
+	16, // [16:31] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_lmm_core_v1_payments_proto_init() }
@@ -1495,7 +1923,7 @@ func file_lmm_core_v1_payments_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmm_core_v1_payments_proto_rawDesc), len(file_lmm_core_v1_payments_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
