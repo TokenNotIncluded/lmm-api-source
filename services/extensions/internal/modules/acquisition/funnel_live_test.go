@@ -114,8 +114,17 @@ func testCoreFunnelLive(t *testing.T, db *sql.DB, service *Service, client *comm
 	if code, v := call(path + "&campaign=absent"); code != 200 || len(v.Channels) != 0 || len(v.Sources) != 0 {
 		t.Fatalf("empty cohort: %d %#v", code, v)
 	}
-	if code, _ := call(path + "&connection_method=oauth"); code != 503 {
-		t.Fatalf("unsupported filter silently ignored: %d", code)
+	for _, method := range []string{"oauth", "api_key", "both", "unknown"} {
+		code, filtered := call(path + "&connection_method=" + method)
+		if code != 200 {
+			t.Fatalf("connection %s: %d", method, code)
+		}
+		if method != "unknown" && (len(filtered.Channels) != 0 || len(filtered.Sources) != 0) {
+			t.Fatalf("nonexistent credentials entered %s: %#v", method, filtered)
+		}
+		if method == "unknown" && len(filtered.Channels) != 2 {
+			t.Fatalf("missing unknown cohort: %#v", filtered)
+		}
 	}
 	if code, _ := call(path + "&connection_method=invalid"); code != 400 {
 		t.Fatalf("invalid filter: %d", code)

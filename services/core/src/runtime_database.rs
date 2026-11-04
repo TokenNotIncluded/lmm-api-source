@@ -98,6 +98,24 @@ pub(crate) async fn check_connection(
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
+        let connections: bool = sqlx::query_scalar(
+            r#"
+            SELECT has_schema_privilege('core_oauth','USAGE')
+            AND has_schema_privilege('core_market_oauth','USAGE')
+            AND NOT EXISTS(SELECT FROM (VALUES
+                ('core_oauth.families','user_id'),
+                ('core_oauth.families','created_at'),
+                ('core_oauth.families','issuance_kind'),
+                ('core_market_oauth.families','user_id'),
+                ('core_market_oauth.families','created_at')) needed(relation,column_name)
+                WHERE NOT has_column_privilege(relation,column_name,'SELECT'))
+        "#,
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+        if !connections {
+            return Err(RuntimeDatabaseError::MissingPrivileges);
+        }
     }
     let unsafe_role: bool = sqlx::query_scalar(r#"
         SELECT current_user<>session_user

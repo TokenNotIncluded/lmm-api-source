@@ -338,3 +338,26 @@ func (c *CoreRead) CashPaymentTotals(ctx context.Context, ids []int64, from, to 
 	}{ids, from, to}, &out)
 	return out, err
 }
+
+// ConnectionMilestone carries credential creation, not social-login bindings.
+// Incomplete history proves positives only; nil is never a historical negative.
+type ConnectionMilestone struct {
+	UserID            int64  `json:"user_id"`
+	APIKeyCreatedAt   *int64 `json:"api_key_created_at"`
+	OAuthAuthorizedAt *int64 `json:"oauth_authorized_at"`
+	HistoryComplete   bool   `json:"history_complete"`
+}
+type ConnectionMilestones struct {
+	Users []ConnectionMilestone `json:"users"`
+}
+
+func (c *CoreRead) ReadyConnectionMilestones(ctx context.Context) error {
+	return c.ready(ctx, "community.connections.v1")
+}
+func (c *CoreRead) ConnectionMilestones(ctx context.Context, ids []int64) (ConnectionMilestones, error) {
+	var out ConnectionMilestones
+	err := c.call(ctx, "connections", struct {
+		UserIDs []int64 `json:"user_ids"`
+	}{ids}, &out)
+	return out, err
+}

@@ -25,7 +25,7 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
         ..RequiredCapabilities::default()
     };
     sqlx::raw_sql(&format!(
-        "GRANT USAGE ON SCHEMA core_charging,core_payments,core_migration TO {0}; GRANT SELECT ON core_charging.requests, core_payments.intents, core_payments.receipts, core_payments.accepted_proofs, core_payments.provider_events, core_payments.provider_refunds TO {0}; GRANT SELECT(source_archive_sha256,manifest) ON core_migration.import_runs TO {0}",
+        "GRANT USAGE ON SCHEMA core_charging,core_payments,core_migration TO {0}; GRANT SELECT ON core_charging.requests, core_payments.intents, core_payments.receipts, core_payments.accepted_proofs, core_payments.provider_events, core_payments.provider_refunds TO {0}; GRANT SELECT(source_archive_sha256,manifest) ON core_migration.import_runs TO {0}; GRANT USAGE ON SCHEMA core_oauth,core_market_oauth TO {0}; GRANT SELECT(user_id,created_at,issuance_kind) ON core_oauth.families TO {0}; GRANT SELECT(user_id,created_at) ON core_market_oauth.families TO {0}",
         role.name
     ))
     .execute(&pool)
@@ -67,6 +67,51 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
         );
         sqlx::query(&format!(
             "GRANT SELECT({column}) ON core_migration.import_runs TO {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let reader = lmm_core::community_read::CommunityRead::new(role.pool.clone())
+        .await
+        .unwrap();
+    let facts = reader
+        .connection_milestones(&lmm_core::community_read::UsersInfoRequest {
+            user_ids: vec![404],
+        })
+        .await
+        .unwrap();
+    assert!(facts.users.is_empty());
+    for (relation, column) in [
+        ("core_oauth.families", "user_id"),
+        ("core_oauth.families", "created_at"),
+        ("core_oauth.families", "issuance_kind"),
+        ("core_market_oauth.families", "user_id"),
+        ("core_market_oauth.families", "created_at"),
+    ] {
+        assert!(
+            !sqlx::query_scalar::<_, bool>(&format!(
+                "SELECT has_table_privilege('{}','INSERT,UPDATE,DELETE')",
+                relation
+            ))
+            .fetch_one(&role.pool)
+            .await
+            .unwrap()
+        );
+        sqlx::query(&format!(
+            "REVOKE SELECT({column}) ON {relation} FROM {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(&format!(
+            "GRANT SELECT({column}) ON {relation} TO {}",
             role.name
         ))
         .execute(&pool)

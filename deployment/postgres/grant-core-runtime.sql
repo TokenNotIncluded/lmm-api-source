@@ -637,5 +637,9 @@ GRANT USAGE ON SCHEMA core_payments, core_migration TO :"runtime_role";
 GRANT SELECT ON core_payments.intents, core_payments.receipts, core_payments.accepted_proofs,
     core_payments.provider_events, core_payments.provider_refunds TO :"runtime_role";
 GRANT SELECT(source_archive_sha256, manifest) ON core_migration.import_runs TO :"runtime_role";
+-- Connection milestones use grant creation metadata, never OAuth token material.
+GRANT USAGE ON SCHEMA core_oauth, core_market_oauth TO :"runtime_role";
+GRANT SELECT(user_id,created_at,issuance_kind) ON core_oauth.families TO :"runtime_role";
+GRANT SELECT(user_id,created_at) ON core_market_oauth.families TO :"runtime_role";
 \endif
 COMMIT;

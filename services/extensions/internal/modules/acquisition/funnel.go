@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"net/http"
 	"sort"
 	"strconv"
@@ -47,6 +48,11 @@ type repeatCashReader interface {
 	ReadyRepeatCashPayments(context.Context) error
 }
 
+type connectionReader interface {
+	ReadyConnectionMilestones(context.Context) error
+	ConnectionMilestones(context.Context, []int64) (community.ConnectionMilestones, error)
+}
+
 func (h *handlers) funnel(w http.ResponseWriter, r *http.Request, a actor) {
 	q := r.URL.Query()
 	from, e1 := strconv.ParseInt(q.Get("from"), 10, 64)
@@ -59,10 +65,7 @@ func (h *handlers) funnel(w http.ResponseWriter, r *http.Request, a actor) {
 		return
 	}
 	switch q.Get("connection_method") {
-	case "":
-	case "oauth", "api_key", "both", "unknown":
-		respond(w, nil, errUnavailable)
-		return
+	case "", "oauth", "api_key", "both", "unknown":
 	default:
 		respond(w, nil, ErrInvalid)
 		return
@@ -127,6 +130,52 @@ func (h *handlers) funnel(w http.ResponseWriter, r *http.Request, a actor) {
 		}
 		observations["first_successful_request"][u.ID] = v
 	}
+	connections, hasConnections := h.s.UserRead.(connectionReader)
+	if !hasConnections || connections.ReadyConnectionMilestones(ctx) != nil {
+		respond(w, nil, errUnavailable)
+		return
+	}
+	selected := make([]funnelAccount, 0, len(doc.Items))
+	for start := 0; start < len(doc.Items); start += 100 {
+		batch := doc.Items[start:min(start+100, len(doc.Items))]
+		ids := make([]int64, 0, len(batch))
+		pending := map[int64]bool{}
+		for _, u := range batch {
+			ids = append(ids, u.ID)
+			pending[u.ID] = true
+		}
+		facts, e := connections.ConnectionMilestones(ctx, ids)
+		if e != nil || len(facts.Users) != len(ids) {
+			respond(w, nil, errUnavailable)
+			return
+		}
+		for _, fact := range facts.Users {
+			if !pending[fact.UserID] {
+				respond(w, nil, errUnavailable)
+				return
+			}
+			delete(pending, fact.UserID)
+			u := byID[fact.UserID]
+			key, oauth, method, e := connectionObservations(u, fact, now, days)
+			if e != nil {
+				respond(w, nil, e)
+				return
+			}
+			observations["api_key_created"][u.ID] = key
+			observations["oauth_authorized"][u.ID] = oauth
+			ready := key
+			if ready.At == nil || (oauth.At != nil && *oauth.At < *ready.At) {
+				ready = oauth
+			}
+			ready.Complete = fact.HistoryComplete
+			ready.FirstIsExact = fact.HistoryComplete
+			observations["credential_ready"][u.ID] = ready
+			if q.Get("connection_method") == "" || q.Get("connection_method") == method {
+				selected = append(selected, u)
+			}
+		}
+	}
+	doc.Items = selected
 	firstDates := map[int64]int64{}
 	for start := 0; start < len(doc.Items); start += 100 {
 		batch := doc.Items[start:min(start+100, len(doc.Items))]
