@@ -27,6 +27,12 @@ export type DirectoryAdQuote = {
   duration_days: number
   min_bid_cents: number
   max_bid_cents: number
+  quote_id: string
+  request_id: string
+  content_sha256: string
+  quote_contract_version: number
+  expires_at: number
+  confirmation_path: string
 }
 
 export function isUsdDirectoryAdQuote(
@@ -44,14 +50,19 @@ export function isUsdDirectoryAdQuote(
   )
 }
 
-export type DirectoryAdInput = {
+export type DirectoryAdDraft = {
   name: string
   url: string
   summary: string
   description: string
   bid_cents: number
-  expected_quota: number
   request_id: string
+}
+
+export type DirectoryAdInput = DirectoryAdDraft & {
+  expected_quota: number
+  quote_id: string
+  content_sha256: string
 }
 
 type ApiEnvelope<T> = {
@@ -83,14 +94,25 @@ export function listDirectoryAds(offset = 0) {
   }>(getPublicDirectory(`/api/ai-directory/ads?offset=${offset}`))
 }
 
-export async function quoteDirectoryAd(bidCents: number) {
+export async function prepareDirectoryAd(input: DirectoryAdDraft) {
   const quote = await unwrap<DirectoryAdQuote>(
-    api.get(`/api/ai-directory/ads/quote?bid_cents=${bidCents}`, {
+    api.post('/api/ai-directory/ads/prepare', input, {
       skipErrorHandler: true,
       skipBusinessError: true,
     })
   )
-  if (!isUsdDirectoryAdQuote(quote)) {
+  if (
+    !isUsdDirectoryAdQuote(quote) ||
+    quote.request_id !== input.request_id ||
+    quote.bid_cents !== input.bid_cents ||
+    quote.quote_contract_version !== 1 ||
+    !/^[a-f0-9]{64}$/.test(quote.quote_id) ||
+    !/^[a-f0-9]{64}$/.test(quote.content_sha256) ||
+    !Number.isSafeInteger(quote.expires_at) ||
+    quote.expires_at <= Date.now() / 1000 ||
+    quote.confirmation_path !==
+      `/core/v1/directory-ads/confirm/${quote.quote_id}`
+  ) {
     throw new Error('Unable to get a price quote. Try again.')
   }
   return quote

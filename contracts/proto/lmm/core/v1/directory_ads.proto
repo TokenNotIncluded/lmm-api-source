@@ -1,0 +1,76 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb;corepb";
+
+// Dedicated advertising principal; authorization: Bearer <service token>,
+// x-lmm-protocol: 1. All except Reconcile require x-lmm-user-credential.
+service CoreDirectoryAds {
+  rpc PrepareDirectoryAd(PrepareDirectoryAdRequest) returns (DirectoryAdQuote);
+  rpc PayDirectoryAd(PayDirectoryAdRequest) returns (DirectoryAdReceipt);
+  rpc QueryDirectoryAdPayment(PayDirectoryAdRequest) returns (DirectoryAdResult);
+  rpc ReconcileDirectoryAdPayment(PayDirectoryAdRequest) returns (DirectoryAdResult);
+  rpc RefundDirectoryAd(RefundDirectoryAdRequest) returns (DirectoryAdReceipt);
+  rpc QueryDirectoryAdRefund(RefundDirectoryAdRequest) returns (DirectoryAdResult);
+  rpc ReconcileDirectoryAdRefund(RefundDirectoryAdRequest) returns (DirectoryAdResult);
+}
+// Content must already be canonical: trim ASCII SP, HT, CR, LF at both ends;
+// reject remaining C0 controls and DEL. No Unicode normalization or URL rewrite.
+// UTF-8 scalar limits: name 1..80, summary 0..180, description 0..1200;
+// URL 1..2048 bytes, public HTTPS, no userinfo or whitespace.
+// content_sha256 = lowercase hex SHA256 of ASCII "lmm.directory-ad.content.v1\n"
+// then, in order name,url,summary,description: ASCII decimal UTF-8 byte length,
+// ASCII colon, exact UTF-8 bytes, ASCII newline. No BOM, no JSON serialization.
+message PrepareDirectoryAdRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2; // [A-Za-z0-9_-]{16,80}, unique within advertising principal
+  int64 bid_cents = 3;
+  uint32 content_version = 4; // 1
+  string name = 5;
+  string url = 6;
+  string summary = 7;
+  string description = 8;
+  string content_sha256 = 9;
+}
+message DirectoryAdQuote {
+  string quote_id = 1;
+  string request_id = 2;
+  string content_sha256 = 3;
+  int64 bid_cents = 4;
+  int64 quota = 5;
+  string currency = 6;
+  uint32 pricing_schema_version = 7;
+  uint32 quote_contract_version = 8;
+  int64 expires_at = 9;
+  uint32 duration_days = 10;
+  int64 min_bid_cents = 11;
+  int64 max_bid_cents = 12;
+  string confirmation_path = 13;
+}
+message PayDirectoryAdRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string quote_id = 3;
+  int64 expected_quota = 4;
+  string content_sha256 = 5;
+}
+message RefundDirectoryAdRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string payment_id = 3;
+}
+message DirectoryAdReceipt {
+  string request_id = 1;
+  string command_sha256 = 2; // Core-generated opaque digest; persist without recomputing
+  string outcome = 3; // succeeded, rejected, pending (accepted refund awaiting funds)
+  string rejection_code = 4;
+  string payment_id = 5;
+  int64 charged_quota = 6;
+  int64 paid_at = 7;
+  int64 ad_expires_at = 8;
+  string refund_id = 9;
+  int64 refunded_quota = 10;
+  int64 refunded_at = 11;
+}
+message DirectoryAdResult {
+  optional DirectoryAdReceipt receipt = 1; // absent = UNKNOWN; never permission to change key
+}

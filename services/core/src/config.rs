@@ -328,6 +328,7 @@ struct CoreFile {
     abuse: Option<AbuseFile>,
     payments: Option<FinancialFile>,
     commerce: Option<FinancialFile>,
+    directory_ads: Option<FinancialFile>,
     assistant: Option<AssistantFile>,
     tool_market: Option<ToolMarketFile>,
     market_oauth: Option<market_oauth_config::MarketOAuthFile>,
@@ -429,6 +430,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.abuse.is_some()
             || file.payments.is_some()
             || file.commerce.is_some()
+            || file.directory_ads.is_some()
             || file.assistant.is_some()
             || file.tool_market.is_some()
             || file.market_oauth.is_some()
@@ -841,6 +843,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             "LMM_CORE_COMMERCE_CONFIG_FILE",
             "LMM_CORE_COMMERCE_TOKEN_FILE",
         ),
+        (file.directory_ads, "LMM_CORE_DIRECTORY_ADS_CONFIG_FILE", "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE"),
     ] {
         if let Some(section) = section {
             paths.extend([
@@ -1372,6 +1375,14 @@ pub fn image_browser_router(gateway: &crate::model_http::ModelGateway) -> io::Re
     .map_err(|_| invalid_config("invalid image confirmation origin"))
 }
 /// Requires the configured browser cookie family. No native Session confirmation fallback.
+pub fn directory_ads_configured() -> bool {
+    setting_os("LMM_CORE_DIRECTORY_ADS_CONFIG_FILE").is_some() || setting_os("LMM_CORE_DIRECTORY_ADS_TOKEN_FILE").is_some()
+}
+pub fn directory_ads_browser_router(store: crate::directory_ads::Store) -> io::Result<axum::Router> {
+    let origin = setting("LMM_CORE_WEB_ORIGIN").map_err(|_| invalid_config("advertisement confirmation requires Web authentication"))?;
+    if setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE").is_none() { return Err(invalid_config("advertisement confirmation requires Web authentication")); }
+    crate::directory_ads::http::router(store, origin, bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?).map_err(|_| invalid_config("invalid advertisement confirmation origin"))
+}
 pub fn wallet_browser_router(store: crate::wallet::Store) -> io::Result<axum::Router> {
     let origin = setting("LMM_CORE_WEB_ORIGIN")
         .map_err(|_| invalid_config("wallet confirmation requires Web browser authentication"))?;
@@ -2128,6 +2139,7 @@ fn rpc_configuration(
 pub struct FinancialRpcs {
     pub payments: Option<crate::payments::rpc::PaymentsRpc>,
     pub commerce: Option<crate::commerce::rpc::CommerceRpc>,
+    pub directory_ads: Option<crate::directory_ads::rpc::DirectoryAdsRpc>,
 }
 
 #[cfg(unix)]
@@ -2164,6 +2176,17 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
         payments.as_ref().map(|(_, token)| token.as_slice()),
         commerce.as_ref().map(|(_, token)| token.as_slice()),
     )?;
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct AdsConfig { version: u32, principal: String, #[serde(default)] pay: bool, #[serde(default)] refund: bool, #[serde(default)] read: bool, #[serde(default)] reconcile: bool }
+    let directory_ads = if let Some((document, token)) = rpc_configuration("LMM_CORE_DIRECTORY_ADS_CONFIG_FILE", "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE")? {
+        if token == control_token || payments.as_ref().is_some_and(|(_, t)| *t == token) || commerce.as_ref().is_some_and(|(_, t)| *t == token) { return Err(invalid_config("advertisement credential must be independent")); }
+        let config: AdsConfig = parse_document(&document).map_err(|_| invalid_config("invalid advertisement RPC configuration"))?;
+        if config.version != 1 { return Err(invalid_config("unsupported advertisement configuration version")); }
+        let rpc = crate::directory_ads::rpc::DirectoryAdsRpc::new(crate::directory_ads::Store::new(bounded_database_pool(url, 2).await?), &token, config.principal, crate::directory_ads::rpc::Permissions {pay:config.pay,refund:config.refund,read:config.read,reconcile:config.reconcile}).map_err(|_| invalid_config("invalid advertisement RPC configuration"))?;
+        if rpc.features().is_empty() {return Err(invalid_config("advertisement RPC requires explicit permissions"));}
+        Some(rpc)
+    } else {None};
     let payments = if let Some((document, token)) = payments {
         let config: PaymentConfig = parse_document(&document)
             .map_err(|_| invalid_config("invalid payment configuration"))?;
@@ -2223,7 +2246,7 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
     } else {
         None
     };
-    Ok(FinancialRpcs { payments, commerce })
+    Ok(FinancialRpcs { payments, commerce, directory_ads })
 }
 
 /// Secret/configuration files must be private regular files. Errors deliberately

@@ -363,6 +363,7 @@ pub struct RpcServer {
     control: Control,
     payments: Option<crate::payments::rpc::PaymentsRpc>,
     commerce: Option<crate::commerce::rpc::CommerceRpc>,
+    directory_ads: Option<crate::directory_ads::rpc::DirectoryAdsRpc>,
     assistant: Option<crate::assistant_model::rpc::AssistantRpc>,
 }
 impl RpcServer {
@@ -449,6 +450,7 @@ impl RpcServer {
             control,
             payments: None,
             commerce: None,
+            directory_ads: None,
             assistant: None,
         })
     }
@@ -474,8 +476,13 @@ impl RpcServer {
         self
     }
     pub fn with_commerce(mut self, commerce: crate::commerce::rpc::CommerceRpc) -> Self {
-        self.control.commerce_features = commerce.features();
+        self.control.commerce_features.extend(commerce.features());
         self.commerce = Some(commerce);
+        self
+    }
+    pub fn with_directory_ads(mut self, ads: crate::directory_ads::rpc::DirectoryAdsRpc) -> Self {
+        self.control.commerce_features.extend(ads.features());
+        self.directory_ads = Some(ads);
         self
     }
     pub fn with_assistant(mut self, assistant: crate::assistant_model::rpc::AssistantRpc) -> Self {
@@ -493,6 +500,7 @@ impl RpcServer {
             control,
             payments,
             commerce,
+            directory_ads,
             assistant,
         } = self;
         let connections = Arc::new(Semaphore::new(MAX_CONNECTIONS));
@@ -530,6 +538,11 @@ impl RpcServer {
             }))
             .add_optional_service(commerce.map(|commerce| {
                 pb::core_commerce_server::CoreCommerceServer::new(commerce)
+                    .max_decoding_message_size(MAX_MESSAGE)
+                    .max_encoding_message_size(MAX_MESSAGE)
+            }))
+            .add_optional_service(directory_ads.map(|ads| {
+                pb::core_directory_ads_server::CoreDirectoryAdsServer::new(ads)
                     .max_decoding_message_size(MAX_MESSAGE)
                     .max_encoding_message_size(MAX_MESSAGE)
             }))

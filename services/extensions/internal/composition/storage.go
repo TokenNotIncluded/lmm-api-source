@@ -285,7 +285,7 @@ func storageTables(component string) []storageTable {
 
 	case "community":
 		add("lmm_community.contract", "SELECT")
-		for _, name := range []string{"directory_settings", "directory_ads", "onboarding_todos", "signal_records"} {
+		for _, name := range []string{"directory_settings", "directory_ads", "directory_ad_intents", "onboarding_todos", "signal_records"} {
 			add("lmm_community."+name, "SELECT", "INSERT", "UPDATE")
 		}
 		for _, name := range []string{"profile_shares", "signal_attempts"} {

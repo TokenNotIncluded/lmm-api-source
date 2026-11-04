@@ -77,6 +77,7 @@ func Run() error {
 		ToolMarketWitnessSocket:    cfg.ToolMarket.FixedWitnessSocket, ToolMarketWitnessTokenFile: cfg.ToolMarket.FixedWitnessTokenFile,
 		ToolMarket: composition.StorageConfig{Component: "toolmarket", URLFile: cfg.ToolMarket.DatabaseURLFile, Database: cfg.ToolMarket.DatabaseName}, ToolMarketKeyFile: cfg.ToolMarket.EncryptionKeyFile, ToolMarketMeteringFile: cfg.ToolMarket.MeteringConfigFile, ToolMarketCallbackURL: cfg.ToolMarket.CallbackURL, ToolMarketSocket: cfg.ToolMarket.CoreSocket, ToolMarketTokenFile: cfg.ToolMarket.CoreTokenFile,
 		CommerceTokenFile:         cfg.Core.CommerceTokenFile,
+		DirectoryAdTokenFile:      cfg.Core.DirectoryAdTokenFile,
 		AssistantTokenFile:        cfg.Core.AssistantTokenFile,
 		AssistantAgentRequired:    cfg.Assistant.AgentRequired,
 		AssistantServicesPolicies: assistant_services.PublishedLegalReader{Handler: policies},

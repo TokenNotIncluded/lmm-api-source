@@ -24,7 +24,7 @@ def fixture():
                           'opening_entity_key': 'legacy.users/101'}], 'omitted_users': []}
     target = {'contract': 'legacy.connection-target.v1', 'component_count': 55,
               'target_database': 'synthetic_core55', 'target_database_oid': 123,
-              'target_nonce': 'd'*64, 'catalog_sha256': 'e'*64, 'native_credential_floor': 8}
+              'target_nonce': 'd'*64, 'catalog_sha256': imp.TARGET_CATALOGS[55], 'native_credential_floor': 8}
     return raw, metadata, json.dumps(mapping).encode(), target
 
 
@@ -48,6 +48,21 @@ class ConnectionImport(unittest.TestCase):
                 if mutation in ('count', 'duplicate', 'secret-column'):
                     args[0] = json.dumps(doc).encode(); args[1]['export_file_sha256'] = imp.sha(args[0])
                 with self.assertRaises(ValueError): self.plan(args)
+
+    def test_each_reviewed_target_is_importable(self):
+        for count, catalog in imp.TARGET_CATALOGS.items():
+            with self.subTest(count=count):
+                args = list(fixture())
+                args[3].update(component_count=count, catalog_sha256=catalog)
+                self.assertTrue(self.plan(args))
+
+    def test_target_catalog_is_bound_to_exact_reviewed_component_count(self):
+        for count, catalog in ((55, 'e' * 64), (56, imp.TARGET_CATALOGS[55]),
+                               (True, imp.TARGET_CATALOGS[55])):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                args = list(fixture())
+                args[3].update(component_count=count, catalog_sha256=catalog)
+                self.plan(args)
 
     def test_missing_facts_and_explicit_omissions_remain_importable(self):
         args = list(fixture()); doc = json.loads(args[0])

@@ -8,7 +8,7 @@ import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
 import type { Root } from 'react-dom/client'
 
-import type { DirectoryAd, DirectoryAdInput } from './ads-api'
+import type { DirectoryAd, DirectoryAdDraft, DirectoryAdInput } from './ads-api'
 
 const domWindow = new Window({
   url: 'https://console.example.test/ai-directory',
@@ -104,6 +104,8 @@ let root: Root
 let container: HTMLDivElement
 let cache: InstanceType<typeof QueryClient>
 let oldQuote = false
+let paymentError: string | null = null
+const preparations: DirectoryAdDraft[] = []
 const bids: DirectoryAdInput[] = []
 
 async function flush() {
@@ -170,6 +172,8 @@ async function render(moderation = false) {
 
 beforeEach(async () => {
   oldQuote = false
+  paymentError = null
+  preparations.length = 0
   bids.length = 0
   await i18n.changeLanguage('en')
   useAuthStore.setState({
@@ -194,22 +198,6 @@ beforeEach(async () => {
       data: { items: [historicalAd], has_more: false, next_offset: 1 },
     })
   api.get = (async (url: string) => {
-    if (url.startsWith('/api/ai-directory/ads/quote')) {
-      return {
-        data: {
-          success: true,
-          data: {
-            ...(oldQuote ? {} : { pricing_schema_version: 2 }),
-            currency: 'USD',
-            bid_cents: 100,
-            quota: 500_000,
-            duration_days: 30,
-            min_bid_cents: 100,
-            max_bid_cents: 1_000_000,
-          },
-        },
-      }
-    }
     if (url === '/api/ai-directory/ads/mine') {
       return { data: { success: true, data: { items: [historicalAd] } } }
     }
@@ -221,8 +209,32 @@ beforeEach(async () => {
     throw new Error(`Unexpected request: ${url}`)
   }) as typeof api.get
   api.post = (async (url: string, input: DirectoryAdInput) => {
+    if (url === '/api/ai-directory/ads/prepare') {
+      preparations.push(input)
+      return {
+        data: {
+          success: true,
+          data: {
+            ...(oldQuote ? {} : { pricing_schema_version: 2 }),
+            quote_contract_version: 1,
+            currency: 'USD',
+            bid_cents: input.bid_cents,
+            quota: 500_000,
+            duration_days: 30,
+            min_bid_cents: 100,
+            max_bid_cents: 1_000_000,
+            quote_id: 'a'.repeat(64),
+            request_id: input.request_id,
+            content_sha256: 'b'.repeat(64),
+            expires_at: Math.floor(Date.now() / 1000) + 300,
+            confirmation_path: `/core/v1/directory-ads/confirm/${'a'.repeat(64)}`,
+          },
+        },
+      }
+    }
     assert.equal(url, '/api/ai-directory/ads')
     bids.push(input)
+    if (paymentError) return { data: { success: false, code: paymentError } }
     return {
       data: {
         success: true,
@@ -358,7 +370,7 @@ test('a one-dollar bid submits 100 USD cents and the server charge while its dis
   const dialog = document.querySelector('[role="dialog"]')
   assert.ok(dialog)
   assert.match(dialog.textContent ?? '', /Bid \(USD\)/)
-  assert.match(dialog.textContent ?? '', /Exact charge: 7 CNY for 30 days/)
+  assert.equal(preparations.length, 0)
   assert.match(dialog.textContent ?? '', /7 CNY paid/)
   const form = dialog.querySelector('form')
   assert.ok(form)
@@ -373,10 +385,42 @@ test('a one-dollar bid submits 100 USD cents and the server charge while its dis
   await select('Credits', dialog)
   assert.match(dialog.textContent ?? '', /Wallet charge500,000 Credits/)
   assert.match(dialog.textContent ?? '', /Bid1 USD/)
+  const confirmation =
+    dialog.querySelector<HTMLAnchorElement>('a[target="_blank"]')
+  assert.equal(
+    confirmation?.getAttribute('href'),
+    `/core/v1/directory-ads/confirm/${'a'.repeat(64)}`
+  )
+  assert.equal(confirmation?.rel, 'noopener noreferrer')
+  assert.equal(bids.length, 0)
+  paymentError = 'AI_DIRECTORY_AD_CONFIRMATION_REQUIRED'
   await click('Pay and publish', dialog)
-  assert.equal(bids.length, 1)
+  assert.match(
+    dialog.querySelector('[role="alert"]')?.textContent ?? '',
+    /Approve this advertisement/
+  )
+  assert.ok(document.querySelector('[role="dialog"]'))
+  paymentError = 'AI_DIRECTORY_AD_PAYMENT_PENDING'
+  await click('Pay and publish', dialog)
+  assert.match(
+    dialog.querySelector('[role="alert"]')?.textContent ?? '',
+    /Payment is not yet verified/
+  )
+  assert.ok(
+    [...dialog.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Back'
+    )?.disabled
+  )
+  paymentError = null
+  await click('Pay and publish', dialog)
+  assert.equal(bids.length, 3)
+  assert.deepEqual(bids[0], bids[1])
+  assert.deepEqual(bids[1], bids[2])
+  assert.equal(bids[0]?.request_id, preparations[0]?.request_id)
   assert.equal(bids[0]?.bid_cents, 100)
   assert.equal(bids[0]?.expected_quota, 500_000)
+  assert.equal(bids[0]?.quote_id, 'a'.repeat(64))
+  assert.equal(bids[0]?.content_sha256, 'b'.repeat(64))
 })
 
 test('a legacy backend quote cannot open confirmation or submit a payment', async () => {
@@ -399,12 +443,14 @@ test('a legacy backend quote cannot open confirmation or submit a payment', asyn
   await edit('sponsor-url', 'https://new.example.test')
   const dialog = document.querySelector('[role="dialog"]')
   assert.ok(dialog)
+  const form = dialog.querySelector('form')
+  assert.ok(form)
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flush()
+  })
   assert.match(dialog.textContent ?? '', /Unable to get a price quote/)
   assert.doesNotMatch(dialog.textContent ?? '', /Exact charge:/)
-  const review = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(
-    (button) => button.textContent === 'Review payment'
-  )
-  assert.ok(review?.disabled)
   assert.doesNotMatch(dialog.textContent ?? '', /Confirm advertisement payment/)
   assert.equal(bids.length, 0)
 })

@@ -61,7 +61,7 @@ test('public request failures reject without refreshing or redirecting', async (
 test('advertising and management keep their authenticated client', () => {
   const source = readFileSync(new URL('./ads-api.ts', import.meta.url), 'utf8')
   assert.match(source, /getPublicDirectory\(`/)
-  assert.match(source, /api.get\(`\/api\/ai-directory\/ads\/quote/)
+  assert.match(source, /api.post\('\/api\/ai-directory\/ads\/prepare'/)
   assert.match(source, /api.get\('\/api\/ai-directory\/ads\/mine'/)
   assert.match(source, /api.post\('\/api\/ai-directory\/ads'/)
   assert.match(source, /api.post\(`\/api\/ai-directory\/ads\/\$\{id\}\/hide/)

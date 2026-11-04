@@ -160,6 +160,7 @@ fn required() -> Result<RequiredCapabilities, Rejection> {
         events: config::setting_os("LMM_CORE_RPC_SOCKET").is_some(),
         payments: config::payments_configured(),
         commerce: config::commerce_configured(),
+        directory_ads: config::directory_ads_configured(),
         assistant: config::assistant_configured(),
         assistant_agent: config::assistant_agent_configured()
             .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,

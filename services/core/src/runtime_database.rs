@@ -31,6 +31,7 @@ pub struct RequiredCapabilities {
     pub payments: bool,
     pub console: bool,
     pub commerce: bool,
+    pub directory_ads: bool,
     pub assistant: bool,
     pub assistant_agent: bool,
     pub assistant_tools: bool,
@@ -280,6 +281,7 @@ pub(crate) async fn check_connection(
         return Err(RuntimeDatabaseError::UnsafePrivileges);
     }
 
+    crate::directory_ads::check_privileges(connection, required.directory_ads).await?;
     trust_policy::check(connection, required.trust_policy_editor).await?;
     if required.models || required.images || required.assistant || required.assistant_agent {
         let trust_visible:bool=sqlx::query_scalar("SELECT COALESCE((SELECT has_schema_privilege(n.oid,'USAGE') FROM pg_namespace n WHERE n.nspname='core_trust_pricing'),false)")
@@ -467,6 +469,7 @@ pub(crate) async fn check_connection(
     if required.models
         || required.images
         || required.commerce
+        || required.directory_ads
         || required.assistant
         || required.assistant_agent
     {

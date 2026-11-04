@@ -93,7 +93,7 @@ func compiled(component string) (plan, error) {
 	case "community":
 		return plan{prefix: "lmm_community", schema: community.Schema, namespaces: []string{"lmm_community"}, grants: []string{
 			"GRANT SELECT ON lmm_community.contract TO ",
-			"GRANT SELECT,INSERT,UPDATE ON lmm_community.directory_settings,lmm_community.directory_ads,lmm_community.onboarding_todos,lmm_community.signal_records TO ",
+			"GRANT SELECT,INSERT,UPDATE ON lmm_community.directory_settings,lmm_community.directory_ads,lmm_community.directory_ad_intents,lmm_community.onboarding_todos,lmm_community.signal_records TO ",
 			"GRANT SELECT,INSERT,UPDATE,DELETE ON lmm_community.profile_shares,lmm_community.signal_attempts TO ",
 			"GRANT USAGE ON ALL SEQUENCES IN SCHEMA lmm_community TO ",
 		}}, nil

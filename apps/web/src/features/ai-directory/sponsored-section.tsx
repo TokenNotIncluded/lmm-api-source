@@ -24,7 +24,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
-import { useDebounce } from '@/hooks/use-debounce'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
@@ -33,11 +32,12 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   createDirectoryAd,
   directoryAdErrorCode,
-  isUsdDirectoryAdQuote,
   listDirectoryAds,
   listMyDirectoryAds,
-  quoteDirectoryAd,
+  prepareDirectoryAd,
   type DirectoryAd,
+  type DirectoryAdDraft,
+  type DirectoryAdQuote,
 } from './ads-api'
 import { DirectoryAdCurrencyControl } from './ads-currency-control'
 import { safeDirectoryUrl } from './api'
@@ -59,6 +59,14 @@ function centsFromInput(value: string): number | null {
 
 function adErrorMessage(code: string | null): string {
   switch (code) {
+    case 'AI_DIRECTORY_AD_CONFIRMATION_REQUIRED':
+      return 'Approve this advertisement on the confirmation page, then return here to pay.'
+    case 'AI_DIRECTORY_AD_QUOTE_EXPIRED':
+      return 'This quote expired. Review a new quote before paying.'
+    case 'AI_DIRECTORY_AD_PAYMENT_PENDING':
+      return 'Payment is not yet verified. Retry this same request to check the result.'
+    case 'AI_DIRECTORY_AD_BUDGET_EXCEEDED':
+      return 'This payment exceeds the advertising budget.'
     case 'AI_DIRECTORY_AD_INSUFFICIENT_BALANCE':
       return 'Your wallet balance is too low. Add credits and try again.'
     case 'AI_DIRECTORY_AD_QUOTE_CHANGED':
@@ -125,17 +133,18 @@ function AdvertisementDialog({
   const [step, setStep] = useState<'edit' | 'confirm'>('edit')
   const [requestID, setRequestID] = useState(() => crypto.randomUUID())
   const [attempted, setAttempted] = useState(false)
+  const [prepared, setPrepared] = useState<{
+    input: DirectoryAdDraft
+    quote: DirectoryAdQuote
+  } | null>(null)
+  const [paymentAttempted, setPaymentAttempted] = useState(false)
   const bidCents = centsFromInput(draft.bid)
-  const debouncedBid = useDebounce(bidCents, 300)
-  const quote = useQuery({
-    queryKey: ['ai-directory-ad-quote', debouncedBid],
-    queryFn: () => {
-      if (debouncedBid === null) throw new Error('Invalid bid')
-      return quoteDirectoryAd(debouncedBid)
+  const prepare = useMutation({
+    mutationFn: prepareDirectoryAd,
+    onSuccess: (quote, input) => {
+      setPrepared({ input, quote })
+      setStep('confirm')
     },
-    enabled: open && debouncedBid !== null,
-    staleTime: 0,
-    retry: false,
   })
   const mine = useQuery({
     queryKey: ['ai-directory-my-ads'],
@@ -157,6 +166,9 @@ function AdvertisementDialog({
       setDraft(EMPTY_DRAFT)
       setRequestID(crypto.randomUUID())
       setAttempted(false)
+      setPrepared(null)
+      setPaymentAttempted(false)
+      prepare.reset()
       void Promise.allSettled([
         cache.invalidateQueries({ queryKey: ['ai-directory-ads'] }),
         cache.invalidateQueries({ queryKey: ['ai-directory-my-ads'] }),
@@ -166,20 +178,26 @@ function AdvertisementDialog({
     onError: (error) => {
       const code = directoryAdErrorCode(error)
       toast.error(t(adErrorMessage(code)))
-      if (code === 'AI_DIRECTORY_AD_QUOTE_CHANGED') {
-        setStep('edit')
-        void quote.refetch()
+      if (
+        code === 'AI_DIRECTORY_AD_QUOTE_EXPIRED' ||
+        code === 'AI_DIRECTORY_AD_QUOTE_CHANGED' ||
+        code === 'AI_DIRECTORY_AD_INSUFFICIENT_BALANCE' ||
+        code === 'AI_DIRECTORY_AD_BUDGET_EXCEEDED'
+      ) {
+        setPaymentAttempted(false)
       }
     },
   })
   const changeOpen = (next: boolean) => {
-    if (mutation.isPending) return
+    if (mutation.isPending || prepare.isPending) return
     onOpenChange(next)
-    if (!next) setStep('edit')
+    if (!next && !paymentAttempted) setStep('edit')
   }
   const update = (patch: Partial<typeof draft>) => {
     setDraft((current) => ({ ...current, ...patch }))
     setRequestID(crypto.randomUUID())
+    setPrepared(null)
+    prepare.reset()
   }
   const validName =
     draft.name.trim().length > 0 && draft.name.trim().length <= 80
@@ -192,33 +210,24 @@ function AdvertisementDialog({
     validName && validURL && validSummary && validDescription && validBid
   const review = () => {
     setAttempted(true)
-    if (
-      valid &&
-      quote.isSuccess &&
-      isUsdDirectoryAdQuote(quote.data) &&
-      quote.data.bid_cents === bidCents
-    ) {
-      setStep('confirm')
-    }
-  }
-  const pay = () => {
-    if (
-      !valid ||
-      bidCents === null ||
-      !isUsdDirectoryAdQuote(quote.data) ||
-      quote.data.bid_cents !== bidCents ||
-      mutation.isPending
-    ) {
-      return
-    }
-    mutation.mutate({
+    if (!valid || bidCents === null || prepare.isPending) return
+    prepare.mutate({
       name: draft.name.trim(),
       url: draft.url.trim(),
       summary: draft.summary.trim(),
       description: draft.description.trim(),
       bid_cents: bidCents,
-      expected_quota: quote.data.quota,
       request_id: requestID,
+    })
+  }
+  const pay = () => {
+    if (!prepared || mutation.isPending) return
+    setPaymentAttempted(true)
+    mutation.mutate({
+      ...prepared.input,
+      expected_quota: prepared.quote.quota,
+      quote_id: prepared.quote.quote_id,
+      content_sha256: prepared.quote.content_sha256,
     })
   }
 
@@ -243,107 +252,92 @@ function AdvertisementDialog({
                 review()
               }}
             >
-              <div className='grid gap-1.5'>
-                <Label htmlFor='sponsor-name'>{t('Website name')}</Label>
-                <Input
-                  id='sponsor-name'
-                  value={draft.name}
-                  maxLength={80}
-                  onChange={(event) => update({ name: event.target.value })}
-                  aria-invalid={attempted && !validName}
-                />
-              </div>
-              <div className='grid gap-1.5'>
-                <Label htmlFor='sponsor-url'>{t('Website address')}</Label>
-                <Input
-                  id='sponsor-url'
-                  type='url'
-                  value={draft.url}
-                  onChange={(event) => update({ url: event.target.value })}
-                  aria-invalid={attempted && !validURL}
-                />
-              </div>
-              <div className='grid gap-1.5'>
-                <Label htmlFor='sponsor-summary'>{t('Short summary')}</Label>
-                <Input
-                  id='sponsor-summary'
-                  value={draft.summary}
-                  maxLength={180}
-                  onChange={(event) => update({ summary: event.target.value })}
-                />
-              </div>
-              <div className='grid gap-1.5'>
-                <Label htmlFor='sponsor-description'>
-                  {t('Expanded description')}
-                </Label>
-                <Textarea
-                  id='sponsor-description'
-                  value={draft.description}
-                  maxLength={1200}
-                  onChange={(event) =>
-                    update({ description: event.target.value })
-                  }
-                  rows={3}
-                />
-              </div>
-              <div className='grid gap-1.5'>
-                <Label htmlFor='sponsor-bid'>{t('Bid (USD)')}</Label>
-                <Input
-                  id='sponsor-bid'
-                  type='number'
-                  min='1'
-                  max='10000'
-                  step='0.01'
-                  inputMode='decimal'
-                  value={draft.bid}
-                  onChange={(event) => update({ bid: event.target.value })}
-                  aria-invalid={attempted && !validBid}
-                />
-                <p className='text-muted-foreground text-xs'>
-                  {t('Bid 1 to 10,000 USD. Payment uses wallet credits.')}
-                </p>
-              </div>
-              {validBid &&
-                quote.isSuccess &&
-                isUsdDirectoryAdQuote(quote.data) &&
-                quote.data.bid_cents === bidCents && (
-                  <p className='ai-sponsored-quote'>
-                    {t('Exact charge: {{amount}} for {{days}} days.', {
-                      amount: formatQuota(quote.data.quota),
-                      days: quote.data.duration_days,
-                    })}
+              <fieldset disabled={prepare.isPending} className='grid gap-4'>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor='sponsor-name'>{t('Website name')}</Label>
+                  <Input
+                    id='sponsor-name'
+                    value={draft.name}
+                    maxLength={80}
+                    onChange={(event) => update({ name: event.target.value })}
+                    aria-invalid={attempted && !validName}
+                  />
+                </div>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor='sponsor-url'>{t('Website address')}</Label>
+                  <Input
+                    id='sponsor-url'
+                    type='url'
+                    value={draft.url}
+                    onChange={(event) => update({ url: event.target.value })}
+                    aria-invalid={attempted && !validURL}
+                  />
+                </div>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor='sponsor-summary'>{t('Short summary')}</Label>
+                  <Input
+                    id='sponsor-summary'
+                    value={draft.summary}
+                    maxLength={180}
+                    onChange={(event) =>
+                      update({ summary: event.target.value })
+                    }
+                  />
+                </div>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor='sponsor-description'>
+                    {t('Expanded description')}
+                  </Label>
+                  <Textarea
+                    id='sponsor-description'
+                    value={draft.description}
+                    maxLength={1200}
+                    onChange={(event) =>
+                      update({ description: event.target.value })
+                    }
+                    rows={3}
+                  />
+                </div>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor='sponsor-bid'>{t('Bid (USD)')}</Label>
+                  <Input
+                    id='sponsor-bid'
+                    type='number'
+                    min='1'
+                    max='10000'
+                    step='0.01'
+                    inputMode='decimal'
+                    value={draft.bid}
+                    onChange={(event) => update({ bid: event.target.value })}
+                    aria-invalid={attempted && !validBid}
+                  />
+                  <p className='text-muted-foreground text-xs'>
+                    {t('Bid 1 to 10,000 USD. Payment uses wallet credits.')}
+                  </p>
+                </div>
+                {prepare.isError && (
+                  <p role='alert' className='text-destructive text-sm'>
+                    {t('Unable to get a price quote. Try again.')}
                   </p>
                 )}
-              {quote.isError && validBid && (
-                <p role='alert' className='text-destructive text-sm'>
-                  {t('Unable to get a price quote. Try again.')}
-                </p>
-              )}
-              {attempted && !valid && (
-                <p role='alert' className='text-destructive text-sm'>
-                  {t('Check the website details and bid amount.')}
-                </p>
-              )}
-              <DialogFooter>
-                <Button
-                  type='button'
-                  variant='outline'
-                  onClick={() => changeOpen(false)}
-                >
-                  {t('Cancel')}
-                </Button>
-                <Button
-                  type='submit'
-                  disabled={
-                    valid &&
-                    (!quote.isSuccess ||
-                      !isUsdDirectoryAdQuote(quote.data) ||
-                      quote.data.bid_cents !== bidCents)
-                  }
-                >
-                  {t('Review payment')}
-                </Button>
-              </DialogFooter>
+                {attempted && !valid && (
+                  <p role='alert' className='text-destructive text-sm'>
+                    {t('Check the website details and bid amount.')}
+                  </p>
+                )}
+                <DialogFooter>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    onClick={() => changeOpen(false)}
+                  >
+                    {t('Cancel')}
+                  </Button>
+                  <Button type='submit' disabled={prepare.isPending}>
+                    {t('Review payment')}
+                  </Button>
+                </DialogFooter>
+              </fieldset>
             </form>
             {mine.data?.items.length ? (
               <div className='border-border border-t pt-4'>
@@ -404,14 +398,14 @@ function AdvertisementDialog({
               <p>
                 <span>{t('Wallet charge')}</span>
                 <strong>
-                  {quote.data ? formatQuota(quote.data.quota) : '—'}
+                  {prepared ? formatQuota(prepared.quote.quota) : '—'}
                 </strong>
               </p>
               <p>
                 <span>{t('Display period')}</span>
                 <strong>
                   {t('{{days}} days', {
-                    days: quote.data?.duration_days ?? 30,
+                    days: prepared?.quote.duration_days ?? 30,
                   })}
                 </strong>
               </p>
@@ -421,16 +415,45 @@ function AdvertisementDialog({
                 'The ad starts after payment and ends automatically. It will not renew on its own.'
               )}
             </p>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Approve this advertisement on the confirmation page, then return here to pay.'
+              )}
+            </p>
+            {prepared && (
+              <a
+                href={prepared.quote.confirmation_path}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-primary text-sm underline underline-offset-4'
+              >
+                {t('Open confirmation page')}
+              </a>
+            )}
+            {mutation.isError && (
+              <p role='alert' className='text-destructive text-sm'>
+                {t(adErrorMessage(directoryAdErrorCode(mutation.error)))}
+              </p>
+            )}
             <DialogFooter>
               <Button
                 type='button'
                 variant='outline'
-                onClick={() => setStep('edit')}
-                disabled={mutation.isPending}
+                onClick={() => {
+                  setStep('edit')
+                  setPrepared(null)
+                  setRequestID(crypto.randomUUID())
+                  mutation.reset()
+                }}
+                disabled={mutation.isPending || paymentAttempted}
               >
                 {t('Back')}
               </Button>
-              <Button type='button' onClick={pay} disabled={mutation.isPending}>
+              <Button
+                type='button'
+                onClick={pay}
+                disabled={!prepared || mutation.isPending}
+              >
                 {mutation.isPending ? t('Publishing...') : t('Pay and publish')}
               </Button>
             </DialogFooter>

@@ -13,6 +13,7 @@ pub mod channel_http;
 #[cfg(unix)]
 pub mod commerce;
 pub mod community_read;
+pub mod directory_ads;
 pub mod config;
 pub mod console_compat;
 pub mod core_schema;

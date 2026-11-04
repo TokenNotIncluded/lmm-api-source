@@ -204,22 +204,14 @@ func (h *handlers) createAd(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	var in struct {
-		Name          string `json:"name"`
-		URL           string `json:"url"`
-		Summary       string `json:"summary"`
-		Description   string `json:"description"`
-		BidCents      int64  `json:"bid_cents"`
-		ExpectedQuota int64  `json:"expected_quota"`
-		RequestID     string `json:"request_id"`
-	}
+	var in directoryAdInput
 	if err = decode(w, r, 8<<10, &in, false); err != nil || !adRequestID.MatchString(in.RequestID) {
 		respond(w, nil, errAdInvalid)
 		return
 	}
 	ad, err := scanAd(h.s.db.QueryRowContext(r.Context(), `SELECT `+adColumns+` FROM lmm_community.directory_ads WHERE request_id=$1`, in.RequestID))
 	if errors.Is(err, sql.ErrNoRows) {
-		respond(w, nil, errAdPaymentUnavailable)
+		h.payAd(w, r, actor.GetUserId(), in)
 		return
 	}
 	if err != nil {
@@ -251,8 +243,8 @@ func (h *handlers) myAds(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/ai-directory/ads/{id}/hide withdraws a running placement
-// (administrators only). The legacy full refund is a Core wallet credit; it is
-// recorded as refund_status=pending_core and never issued here.
+// (administrators only). Refunds require the original Core payment and current
+// Core authorization; legacy placements without that evidence remain pending.
 func (h *handlers) hideAd(w http.ResponseWriter, r *http.Request) {
 	actor, err := h.admin(r)
 	if err != nil {
@@ -287,5 +279,13 @@ func (h *handlers) hideAd(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	respond(w, map[string]any{"ad": ad, "refunded": ad.RefundStatus == "refunded", "refunded_quota": 0, "refund_pending": ad.RefundStatus == "pending_core"}, nil)
+	if err = h.refundAd(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), &ad); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	var refunded int64
+	if ad.RefundStatus == "refunded" {
+		refunded = ad.ChargedQuota
+	}
+	respond(w, map[string]any{"ad": ad, "refunded": ad.RefundStatus == "refunded", "refunded_quota": refunded, "refund_pending": ad.RefundStatus == "pending_core"}, nil)
 }

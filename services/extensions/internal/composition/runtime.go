@@ -51,6 +51,7 @@ type Config struct {
 	PaymentConfigFile             string
 	Payments                      StorageConfig
 	CommerceTokenFile             string
+	DirectoryAdTokenFile          string
 	Store                         StorageConfig
 	Support                       StorageConfig
 	Assistant                     StorageConfig
@@ -360,6 +361,25 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
 		return nil, errors.New("operations configuration requires explicit module selection")
 	}
+	var adCore community.DirectoryAdCore
+	if cfg.DirectoryAdTokenFile != "" {
+		if !selected["community"] {
+			return nil, errors.New("advertising RPC configuration requires community")
+		}
+		adToken, e := coreclient.ReadTokenFile(cfg.DirectoryAdTokenFile)
+		if e != nil {
+			return nil, e
+		}
+		if e = independentRuntimeCredentials(cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, adToken); e != nil {
+			return nil, e
+		}
+		client, e := coreclient.New(cfg.Socket, adToken)
+		if e != nil {
+			return nil, e
+		}
+		r.close = append(r.close, client.Close)
+		adCore = client
+	}
 	var reader *community.CoreRead
 	if cfg.UserReadTokenFile != "" {
 		token, e := coreclient.ReadTokenFile(cfg.UserReadTokenFile)
@@ -388,7 +408,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			return nil, err
 		}
 		r.close = append(r.close, db.Close)
-		if r.Community, err = community.New(ctx, db, cfg.HostPublicOrigin, community.Options{Core: reader}); err != nil {
+		if r.Community, err = community.New(ctx, db, cfg.HostPublicOrigin, community.Options{Core: reader, AdCore: adCore}); err != nil {
 			return nil, err
 		}
 	} else if cfg.Community.URLFile != "" || cfg.Community.Database != "" {

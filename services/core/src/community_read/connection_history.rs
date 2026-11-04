@@ -27,11 +27,11 @@ pub(super) const SQL: &str = r#"WITH users AS MATERIALIZED (
  WHERE t.user_id=m.source_user_id
 ), historical AS MATERIALIZED (
  SELECT m.id,
- (SELECT min(t.created_time) FROM tokens t WHERE t.id=m.id AND t.oauth_managed=false AND t.created_time>0 AND t.created_time<=m.snapshot_observed_at) AS key_at,
+ (SELECT min(t.created_time) FROM tokens t WHERE t.id=m.id AND t.oauth_managed=false AND t.created_time>0 AND t.created_time BETWEEN m.registered_at AND m.snapshot_observed_at) AS key_at,
  (SELECT min(at) FROM (
- SELECT t.created_time AS at FROM tokens t WHERE t.id=m.id AND t.oauth_managed=true AND t.created_time>0 AND t.created_time<=m.snapshot_observed_at
+ SELECT t.created_time AS at FROM tokens t WHERE t.id=m.id AND t.oauth_managed=true AND t.created_time>0 AND t.created_time BETWEEN m.registered_at AND m.snapshot_observed_at
  UNION ALL SELECT g.created_at_ms/1000 FROM jsonb_to_recordset(m.document->'oauth_server_grants') g(user_id bigint,created_at_ms bigint)
- WHERE g.user_id=m.source_user_id AND g.created_at_ms/1000>0 AND g.created_at_ms/1000<=m.snapshot_observed_at) events) AS oauth_at,
+ WHERE g.user_id=m.source_user_id AND g.created_at_ms/1000>0 AND g.created_at_ms/1000 BETWEEN m.registered_at AND m.snapshot_observed_at) events) AS oauth_at,
  m.registered_at>0 AND NOT EXISTS(SELECT FROM tokens t WHERE t.id=m.id AND
  (t.oauth_managed IS NULL OR (t.oauth_managed=false AND NOT coalesce(t.created_time BETWEEN m.registered_at AND m.snapshot_observed_at,false)))) AS key_complete,
  m.registered_at>0 AND NOT EXISTS(SELECT FROM tokens t WHERE t.id=m.id AND
@@ -39,9 +39,9 @@ pub(super) const SQL: &str = r#"WITH users AS MATERIALIZED (
  AND NOT EXISTS(SELECT FROM jsonb_to_recordset(m.document->'oauth_server_grants') g(user_id bigint,created_at_ms bigint)
  WHERE g.user_id=m.source_user_id AND NOT coalesce(g.created_at_ms/1000 BETWEEN m.registered_at AND m.snapshot_observed_at,false)) AS oauth_complete,
  (SELECT min(a.created_at) FROM jsonb_to_recordset(m.document->'developer_access_requests') a(user_id bigint,created_at bigint)
- WHERE a.user_id=m.source_user_id AND a.created_at>0 AND a.created_at<=m.snapshot_observed_at) AS application_at,
+ WHERE a.user_id=m.source_user_id AND a.created_at>0 AND a.created_at BETWEEN m.registered_at AND m.snapshot_observed_at) AS application_at,
  (SELECT min(a.reviewed_at) FROM jsonb_to_recordset(m.document->'developer_access_requests') a(user_id bigint,status text,reviewed_at bigint)
- WHERE a.user_id=m.source_user_id AND a.status='approved' AND a.reviewed_at>0 AND a.reviewed_at<=m.snapshot_observed_at) AS approval_at,
+ WHERE a.user_id=m.source_user_id AND a.status='approved' AND a.reviewed_at>0 AND a.reviewed_at BETWEEN m.registered_at AND m.snapshot_observed_at) AS approval_at,
  m.registered_at>0 AND NOT EXISTS(SELECT FROM jsonb_to_recordset(m.document->'developer_access_requests') a(user_id bigint,created_at bigint)
  WHERE a.user_id=m.source_user_id AND NOT coalesce(a.created_at BETWEEN m.registered_at AND m.snapshot_observed_at,false)) AS application_complete,
  m.registered_at>0 AND NOT EXISTS(SELECT FROM jsonb_to_recordset(m.document->'developer_access_requests') a(user_id bigint,status text,reviewed_at bigint)

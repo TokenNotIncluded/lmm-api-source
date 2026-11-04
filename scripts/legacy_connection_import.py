@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Produce a new owner-only atomic Core55 SQL plan; never connect to a database.
+"""Produce a new owner-only atomic Core55/56 SQL plan; never connect to a database.
 
 Uses exact export/mapping bytes. All retained rows include soft deletes and
 revocations. Unknown/missing values remain raw, not fabricated negative facts.
@@ -14,6 +14,11 @@ from pathlib import Path
 
 MAX_ID = 9007199254740991
 COVERAGE = 'all_retained_rows_in_frozen_snapshot_including_soft_deleted_and_revoked'
+# Each supported assembly is pinned independently; an unreviewed suffix is rejected.
+TARGET_CATALOGS = {
+    55: '5376f90af7a78aeb501c4d976d799033a6a88346f28a57b3e5853a3e0e442207',
+    56: '46cbd8e0a9e9bb6c55cb899558b40fa8c8df1affa2e366cbbde733a8527bda43',
+}
 TABLES = ('users', 'tokens', 'oauth_server_grants', 'developer_access_requests')
 FIELDS = {
     'users': {'id', 'created_at'},
@@ -130,8 +135,10 @@ def plan(raw, metadata, mapping_raw, target, *, opening_migration_id,
         mapped.add(uid)
     if mapped != users or not isinstance(mapping.get('users'), list) or not isinstance(mapping.get('omitted_users'), list):
         raise ValueError('mapping must cover all retained source users')
-    if target.get('contract') != 'legacy.connection-target.v1' or target.get('component_count') != 55:
-        raise ValueError('new Core55 target required')
+    count = target.get('component_count')
+    if (target.get('contract') != 'legacy.connection-target.v1' or type(count) is not int
+            or count not in TARGET_CATALOGS or target.get('catalog_sha256') != TARGET_CATALOGS[count]):
+        raise ValueError('reviewed target component/catalog contract required')
     nonce = hexhash(target.get('target_nonce'))
     if nonce == '0'*64:
         raise ValueError('unique target nonce required')

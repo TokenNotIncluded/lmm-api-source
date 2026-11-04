@@ -26,7 +26,7 @@ import (
 //go:embed schema.sql
 var Schema string
 
-const contractVersion = 1
+const contractVersion = 2
 
 // Verifier is satisfied by webcompat.Authenticator. Both methods validate the
 // live credential through Core on every request.
@@ -40,13 +40,15 @@ type Service struct {
 	origin       string
 	now          func() time.Time
 	core         *CoreRead
+	adCore       DirectoryAdCore
 	rankingCache rankingCache
 }
 
 // Options supplies the optional Core read port. Without it, usage-backed pages
 // fail explicitly. Paid placements remain disabled until commerce is implemented.
 type Options struct {
-	Core *CoreRead
+	Core   *CoreRead
+	AdCore DirectoryAdCore
 }
 
 // New borrows the dedicated pool opened by composition and checks the schema
@@ -65,6 +67,7 @@ func New(ctx context.Context, db *sql.DB, publicOrigin string, opts ...Options) 
 	s := &Service{db: db, origin: strings.TrimRight(publicOrigin, "/"), now: time.Now}
 	if len(opts) == 1 {
 		s.core = opts[0].Core
+		s.adCore = opts[0].AdCore
 	}
 	return s, nil
 }
@@ -90,6 +93,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("PUT /api/ai-directory/links", h.updateDirectoryLinks)
 	mux.HandleFunc("GET /api/ai-directory/ads", h.listAds)
 	mux.HandleFunc("GET /api/ai-directory/ads/quote", h.quoteAd)
+	mux.HandleFunc("POST /api/ai-directory/ads/prepare", h.prepareAd)
 	mux.HandleFunc("GET /api/ai-directory/ads/mine", h.myAds)
 	mux.HandleFunc("POST /api/ai-directory/ads", h.createAd)
 	mux.HandleFunc("POST /api/ai-directory/ads/{id}/hide", h.hideAd)

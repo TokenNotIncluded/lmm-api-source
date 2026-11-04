@@ -356,6 +356,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 events: config::setting_os("LMM_CORE_RPC_SOCKET").is_some(),
                 payments: config::payments_configured(),
                 commerce: config::commerce_configured(),
+                directory_ads: config::directory_ads_configured(),
                 assistant: config::assistant_configured(),
                 assistant_agent: config::assistant_agent_configured()?,
                 assistant_tools: config::assistant_tools_enabled()?,
@@ -563,6 +564,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 .merge(lmm_core::native_key_read::router(pool.clone()))
                 .merge(lmm_core::pricing_http::PricingHttp::unavailable(pool.clone()).router());
         }
+        if config::directory_ads_configured() {
+            routes = routes.merge(config::directory_ads_browser_router(lmm_core::directory_ads::Store::new(pool.clone()))?);
+        }
         if config::wallet_configured() {
             let wallet = lmm_core::wallet::Store::new(pool.clone());
             wallet
@@ -656,6 +660,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 if let Some(payments) = financial.payments {
                     server = server.with_payments(payments);
                     capabilities.payments = true;
+                }
+                if let Some(ads) = financial.directory_ads {
+                    server = server.with_directory_ads(ads);
                 }
                 if let Some(commerce) = financial.commerce {
                     server = server.with_commerce(commerce);

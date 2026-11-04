@@ -103,6 +103,13 @@ REVOKE ALL PRIVILEGES ON SEQUENCE core_promotions.red_packets_id_seq,
 
 -- Community history is optional within the baseline history schema. Table-level
 -- revocation alone does not remove its explicit column grants.
+REVOKE ALL PRIVILEGES ON core_directory_ads.quotes, core_directory_ads.payments,
+    core_directory_ads.refunds FROM :"runtime_role";
+REVOKE UPDATE(confirmation_digest,confirmation_sid,confirmed_sid,confirmed_at)
+    ON core_directory_ads.quotes FROM :"runtime_role";
+REVOKE UPDATE(receipt,journal_id) ON core_directory_ads.refunds FROM :"runtime_role";
+REVOKE USAGE ON SCHEMA core_directory_ads FROM :"runtime_role";
+
 REVOKE ALL PRIVILEGES ON core_history.connection_snapshot FROM :"runtime_role";
 REVOKE SELECT(document,mapping,native_credential_floor,snapshot_observed_at,
     target_database,target_database_oid,target_nonce)

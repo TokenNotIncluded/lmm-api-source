@@ -2,7 +2,7 @@
 -- No Core or other-extension joins or foreign keys. User IDs are Core user IDs.
 CREATE SCHEMA lmm_community;
 CREATE TABLE lmm_community.contract (singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton), version integer NOT NULL);
-INSERT INTO lmm_community.contract VALUES (true, 1);
+INSERT INTO lmm_community.contract VALUES (true, 2);
 
 CREATE TABLE lmm_community.directory_settings (
  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
@@ -33,6 +33,22 @@ CREATE TABLE lmm_community.directory_ads (
 );
 CREATE INDEX directory_ads_active ON lmm_community.directory_ads (status, expires_at, charged_quota DESC, paid_at, id);
 CREATE INDEX directory_ads_owner ON lmm_community.directory_ads (owner_user_id, paid_at DESC, id DESC);
+
+-- Frozen request facts and Core receipts; never store user credentials.
+CREATE TABLE lmm_community.directory_ad_intents (
+ request_id text PRIMARY KEY,
+ owner_user_id bigint NOT NULL CHECK (owner_user_id>0),
+ name text NOT NULL, url text NOT NULL, summary text NOT NULL, description text NOT NULL,
+ bid_cents bigint NOT NULL CHECK (bid_cents BETWEEN 100 AND 1000000),
+ content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+ quote_id text NOT NULL DEFAULT '', quota bigint NOT NULL DEFAULT 0,
+ quote_expires_at bigint NOT NULL DEFAULT 0,
+ payment_id text NOT NULL DEFAULT '', command_sha256 text NOT NULL DEFAULT '',
+ payment_state text NOT NULL DEFAULT 'preparing' CHECK (payment_state IN ('preparing','prepared','paid','rejected')),
+ rejection_code text NOT NULL DEFAULT '',
+ refund_request_id text NOT NULL DEFAULT '', refund_state text NOT NULL DEFAULT 'none' CHECK (refund_state IN ('none','pending','refunded')),
+ refund_command_sha256 text NOT NULL DEFAULT ''
+);
 
 CREATE TABLE lmm_community.profile_shares (
  user_id bigint PRIMARY KEY CHECK (user_id>0),

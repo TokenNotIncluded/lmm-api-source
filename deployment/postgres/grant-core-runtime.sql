@@ -32,6 +32,10 @@
 \else
 \set enable_commerce false
 \endif
+\if :{?enable_directory_ads}
+\else
+\set enable_directory_ads false
+\endif
 \if :{?enable_payments}
 \else
 \set enable_payments false
@@ -352,6 +356,15 @@ GRANT EXECUTE ON FUNCTION public.routing_control_read(),
 \endif
 \if :enable_commerce
 \set enable_charging true
+\endif
+\if :enable_directory_ads
+\set enable_charging true
+GRANT USAGE ON SCHEMA core_directory_ads TO :"runtime_role";
+GRANT SELECT, INSERT ON core_directory_ads.quotes, core_directory_ads.payments,
+    core_directory_ads.refunds TO :"runtime_role";
+GRANT UPDATE(confirmation_digest,confirmation_sid,confirmed_sid,confirmed_at)
+    ON core_directory_ads.quotes TO :"runtime_role";
+GRANT UPDATE(receipt,journal_id) ON core_directory_ads.refunds TO :"runtime_role";
 \endif
 \if :enable_images
 \set enable_charging true
