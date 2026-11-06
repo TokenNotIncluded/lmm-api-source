@@ -6,7 +6,8 @@ use crate::{
         charging::Charging, image_price::ImagePriceConfig,
         transactional_ledger::TransactionalLedger,
     },
-    model_http::image_execution::{DrawingInput, Error, ImageService, ProviderSpec},
+    image::DrawingInput,
+    model_http::image_execution::{Error, ImageService, ProviderSpec},
     relay::Limits,
 };
 use axum::{Json, Router, routing::post};

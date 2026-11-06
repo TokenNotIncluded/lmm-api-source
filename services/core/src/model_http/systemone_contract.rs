@@ -2,7 +2,8 @@
 //! Source: official TypeSafe OpenAPI ee599512cbea3a198b34af3f60addcd72b381d3521196f93c70ae83185c057c3
 //! plus frozen images.md/errors.md under output/remaining-20261020/models/jev-20261020.
 use crate::{
-    model_http::image_provider::{self, ImageMediaType, ImageUpload},
+    image::ImageMediaType,
+    model_http::image_provider::{self, ImageUpload},
     relay::{RelayError, Usage},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};

@@ -11,16 +11,20 @@ use crate::{
         image_price::{ImageEndpoint, ImagePriceConfig, ImageQuote, ImageQuoteRequest, ImageUsage},
     },
     identity::{self, BrowserAuth, CredentialKind},
+    image::{
+        self, DrawingInput, DrawingPreviewInput, drawing_cookie_anchor_matches,
+        drawing_session_anchor_matches,
+    },
     relay::Limits,
     tool_market::{
         credit_access::CreditStore,
         credit_execution::{BuiltinContext, BuiltinKind},
     },
 };
+pub use drawing_input::DrawingUpload;
 pub(crate) use drawing_input::MAX_PREVIEW_BODY;
-pub use drawing_input::{DrawingPreviewInput, DrawingUpload, ReferenceImage};
 use rand::{RngCore, rngs::OsRng};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
@@ -41,41 +45,6 @@ pub enum Error {
     Storage,
 }
 type Result<T> = std::result::Result<T, Error>;
-
-/// A persisted drawing keeps its real original credential as an immutable
-/// anchor. Only a live current credential in that same browser family may
-/// replace it; native Sessions still require the exact original credential.
-/// The caller's original transaction and identity/financial locks are retained.
-pub(crate) async fn drawing_session_anchor_matches(
-    c: &mut PgConnection,
-    actor: &identity::Principal,
-    original: i64,
-    version: i64,
-) -> Result<bool> {
-    if actor.credential_kind != CredentialKind::Session {
-        return Ok(false);
-    }
-    let allowed: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM core_identity.credentials old JOIN core_identity.credentials live ON live.id=$2 JOIN core_identity.users u ON u.id=$3 JOIN core_identity.accounts a ON a.id=$4 WHERE old.id=$1 AND old.kind='session' AND old.user_id=u.id AND old.owner_account_id=a.id AND old.user_version=$5 AND live.kind='session' AND live.user_id=u.id AND live.owner_account_id=a.id AND live.user_version=$5 AND live.revoked_at IS NULL AND live.expires_at>clock_timestamp() AND u.active AND a.active AND u.auth_version=$5 AND ((old.id=live.id AND NOT EXISTS(SELECT 1 FROM core_identity.web_session_credentials WHERE credential_id=old.id) AND NOT EXISTS(SELECT 1 FROM core_identity.web_sessions WHERE current_credential_id=old.id)) OR EXISTS(SELECT 1 FROM core_identity.web_session_credentials original_map JOIN core_identity.web_session_credentials current_map ON current_map.sid=original_map.sid JOIN core_identity.web_sessions family ON family.sid=original_map.sid WHERE original_map.credential_id=old.id AND current_map.credential_id=live.id AND family.current_credential_id=live.id AND family.user_id=u.id AND family.user_version=$5 AND family.revoked_at IS NULL AND family.expires_at>clock_timestamp() AND (NOT family.weekly_logout OR family.created_at>clock_timestamp()-interval '7 days'))))",
-    )
-    .bind(original)
-    .bind(actor.credential_id)
-    .bind(actor.user_id)
-    .bind(actor.owner_account_id)
-    .bind(version)
-    .fetch_one(c)
-    .await?;
-    Ok(allowed)
-}
-
-async fn drawing_cookie_anchor_matches(
-    c: &mut PgConnection,
-    original: i64,
-    sid: &str,
-) -> Result<bool> {
-    Ok(sqlx::query_scalar("SELECT (NOT EXISTS(SELECT 1 FROM core_identity.web_session_credentials WHERE credential_id=$1) AND NOT EXISTS(SELECT 1 FROM core_identity.web_sessions WHERE current_credential_id=$1)) OR EXISTS(SELECT 1 FROM core_identity.web_session_credentials m JOIN core_identity.web_sessions s ON s.sid=m.sid WHERE m.credential_id=$1 AND s.sid=$2 AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp())")
-        .bind(original).bind(sid).fetch_one(c).await?)
-}
 
 async fn drawing_context_operation(
     c: &mut PgConnection,
@@ -107,13 +76,20 @@ async fn drawing_context_operation(
     }
     Ok(Some(row))
 }
-impl From<sqlx::Error> for Error {
-    fn from(e: sqlx::Error) -> Self {
-        match e.as_database_error().and_then(|e| e.code()).as_deref() {
-            Some("40001" | "40P01" | "55P03") => Self::Retry,
-            Some("23505") => Self::Conflict,
-            _ => Self::Storage,
+impl From<image::Error> for Error {
+    fn from(error: image::Error) -> Self {
+        match error {
+            image::Error::Invalid => Self::Invalid,
+            image::Error::Forbidden => Self::Forbidden,
+            image::Error::Conflict => Self::Conflict,
+            image::Error::Retry => Self::Retry,
+            image::Error::Storage => Self::Storage,
         }
+    }
+}
+impl From<sqlx::Error> for Error {
+    fn from(error: sqlx::Error) -> Self {
+        image::Error::from(error).into()
     }
 }
 impl From<crate::billing::charging::Error> for Error {
@@ -248,22 +224,6 @@ impl ImageService {
         .map_err(|_| Error::Pending)?
         .map_err(|_| Error::Pending)
     }
-}
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct DrawingInput {
-    pub prompt: String,
-    pub model: String,
-    pub group: String,
-    #[serde(default)]
-    pub size: String,
-    #[serde(default)]
-    pub quality: String,
-    #[serde(default = "one")]
-    pub n: u32,
-}
-fn one() -> u32 {
-    1
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Preview {
@@ -613,17 +573,17 @@ impl ImageService {
                 let item = Capability {
                     endpoint: rule.endpoint,
                     max_reference_images: if edits {
-                        drawing_input::MAX_REFERENCES as u32
+                        image::MAX_REFERENCES as u32
                     } else {
                         0
                     },
                     max_reference_bytes: if edits {
-                        drawing_input::MAX_REFERENCE_BYTES as u64
+                        image::MAX_REFERENCE_BYTES as u64
                     } else {
                         0
                     },
                     max_total_reference_bytes: if edits {
-                        drawing_input::MAX_TOTAL_REFERENCE_BYTES as u64
+                        image::MAX_TOTAL_REFERENCE_BYTES as u64
                     } else {
                         0
                     },
@@ -665,7 +625,7 @@ impl ImageService {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Error::Pending)?;
-        let parsed = drawing_input::parse_arguments(&input)?;
+        let parsed = image::parse_arguments(&input)?;
         // Bytes are checked before a quote can be confirmed. The immutable input
         // digest remains the exact original market arguments, not this sidecar.
         if crate::builtins::input_digest(&input).map_err(|_| Error::Invalid)?
@@ -699,11 +659,7 @@ impl ImageService {
         if builtin.user_id != actor.user_id || builtin.owner_account_id != actor.owner_account_id {
             return Err(Error::Forbidden);
         }
-        drawing_input::authorize_references(
-            &input,
-            &builtin.version_id,
-            &builtin.input_schema_digest,
-        )?;
+        image::authorize_references(&input, &builtin.version_id, &builtin.input_schema_digest)?;
         let stored_input = if uploads.is_empty() {
             drawing_input::freeze(input.clone(), uploads)?
         } else {
@@ -1040,12 +996,12 @@ impl ImageService {
         .await
         .map_err(market_error)?;
         let stored: Value = r.try_get("input")?;
-        let raw = drawing_input::arguments(&stored)?;
+        let raw = image::arguments(&stored)?;
         if crate::builtins::input_digest(&raw).map_err(|_| Error::Storage)? != context.input_digest
         {
             return Err(Error::Storage);
         }
-        let input = drawing_input::parse_arguments(&raw).map_err(|_| Error::Storage)?;
+        let input = image::parse_arguments(&raw).map_err(|_| Error::Storage)?;
         let quote = frozen
             .image
             .as_ref()
@@ -1214,20 +1170,6 @@ impl ImageService {
         Ok(finished)
     }
 }
-/// Private storage projection used by the same-transaction image charge guard.
-/// It never accepts a caller envelope: the argument is the immutable Core row.
-pub(crate) fn authorize_drawing_reference_contract(
-    input: &Value,
-    version: &str,
-    schema: &str,
-) -> Result<()> {
-    drawing_input::authorize_references(input, version, schema)
-}
-pub(crate) fn confirmed_drawing_arguments(stored: &Value) -> Result<Value> {
-    let arguments = drawing_input::arguments(stored)?;
-    drawing_input::parse_arguments(&arguments).map_err(|_| Error::Storage)?;
-    Ok(arguments)
-}
 fn preview_row(r: &sqlx::postgres::PgRow) -> Result<Preview> {
     let frozen: Price = serde_json::from_value(r.try_get("price")?).map_err(|_| Error::Storage)?;
     frozen.validate_actor(r.try_get("actor_user_id")?)?;
@@ -1240,8 +1182,8 @@ fn preview_row(r: &sqlx::postgres::PgRow) -> Result<Preview> {
         .restore()
         .map_err(|_| Error::Storage)?;
     let stored: Value = r.try_get("input")?;
-    let mut input = drawing_input::parse_arguments(&drawing_input::arguments(&stored)?)
-        .map_err(|_| Error::Storage)?;
+    let mut input =
+        image::parse_arguments(&image::arguments(&stored)?).map_err(|_| Error::Storage)?;
     input.settings.size = quote.binding().size.clone();
     input.settings.quality = quote.binding().quality.clone();
     input.settings.n = quote.binding().n;

@@ -2,6 +2,7 @@
 //! Reference: openai/openai-python 0e5794dc48b8f8d51f6047f8a0b1814eb1e65850
 //! (Apache-2.0). Independently implemented; no upstream source copied.
 use crate::billing::image_price::{ImageEndpoint, ImageQuote, ImageQuoteRequest};
+use crate::image::ImageMediaType;
 use crate::relay::{
     Limits, RelayError, honeypot_network,
     provider_network::{ProviderConnection, ProviderTransport},
@@ -63,12 +64,6 @@ pub(crate) struct ImageObservation {
 
 /// Owned upload bytes only: no filesystem paths, URLs, caller filenames,
 /// arbitrary MIME labels, credentials, or multipart field names.
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(crate) enum ImageMediaType {
-    Png,
-    Jpeg,
-    Webp,
-}
 pub(crate) struct ImageUpload {
     pub(crate) bytes: Vec<u8>,
     pub(crate) media_type: ImageMediaType,

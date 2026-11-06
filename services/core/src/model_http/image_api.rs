@@ -2,12 +2,13 @@
 //! image execution service retain identity, group, IP policy and funds authority.
 use super::{
     ModelGateway, ModelIdentity,
-    image_execution::{DrawingInput, Error, Receipt},
-    image_provider::{ImageMediaType, ImageMultipartInput, ImageUpload},
+    image_execution::{Error, Receipt},
+    image_provider::{ImageMultipartInput, ImageUpload},
     one_header, request_id,
 };
 use crate::{
     identity::{CredentialKind, IdentityError},
+    image::{DrawingInput, ImageMediaType},
     relay::RelayError,
 };
 use axum::{

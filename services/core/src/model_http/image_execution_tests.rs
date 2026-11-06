@@ -11,7 +11,8 @@ use crate::{
     },
     funding::FundingPolicy,
     identity::IdentityStore,
-    model_http::image_provider::{ImageMediaType, ImageMultipartInput, ImageUpload},
+    image::ImageMediaType,
+    model_http::image_provider::{ImageMultipartInput, ImageUpload},
 };
 use axum::{
     Json, Router,

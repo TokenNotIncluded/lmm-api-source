@@ -76,7 +76,7 @@ async fn image_source(c: &mut PgConnection, session: &str, id: &str) -> Result<I
     let at = now(c).await?;
     let confirmed: Option<i64> = row.try_get("confirmed_at")?;
     let expires: i64 = row.try_get("expires_at")?;
-    if !crate::model_http::image_execution::drawing_session_anchor_matches(
+    if !crate::image::drawing_session_anchor_matches(
         c,
         &actor,
         row.try_get("session_id")?,
@@ -84,8 +84,8 @@ async fn image_source(c: &mut PgConnection, session: &str, id: &str) -> Result<I
     )
     .await
     .map_err(|error| match error {
-        crate::model_http::image_execution::Error::Retry => Error::Retry,
-        crate::model_http::image_execution::Error::Storage => Error::Storage,
+        crate::image::Error::Retry => Error::Retry,
+        crate::image::Error::Storage => Error::Storage,
         _ => Error::Forbidden,
     })? || row.try_get::<i64, _>("actor_user_id")? != actor.user_id
         || row.try_get::<i64, _>("owner_account_id")? != actor.owner_account_id
@@ -104,8 +104,8 @@ async fn image_source(c: &mut PgConnection, session: &str, id: &str) -> Result<I
     let context: BuiltinContext =
         serde_json::from_value(row.try_get("context")?).map_err(|_| Error::Storage)?;
     let stored_input: Value = row.try_get("input")?;
-    let input = crate::model_http::image_execution::confirmed_drawing_arguments(&stored_input)
-        .map_err(|_| Error::Forbidden)?;
+    let input =
+        crate::image::confirmed_drawing_arguments(&stored_input).map_err(|_| Error::Forbidden)?;
     if !input.is_object() || input_digest(&input)? != context.input_digest {
         return Err(Error::Forbidden);
     }
@@ -120,12 +120,8 @@ async fn image_source(c: &mut PgConnection, session: &str, id: &str) -> Result<I
     if builtin.user_id != actor.user_id || builtin.owner_account_id != actor.owner_account_id {
         return Err(Error::Forbidden);
     }
-    crate::model_http::image_execution::authorize_drawing_reference_contract(
-        &input,
-        &builtin.version_id,
-        &builtin.input_schema_digest,
-    )
-    .map_err(|_| Error::Forbidden)?;
+    crate::image::authorize_references(&input, &builtin.version_id, &builtin.input_schema_digest)
+        .map_err(|_| Error::Forbidden)?;
     let fingerprint: Vec<u8> = row.try_get("fingerprint")?;
     if fingerprint.len() != 32 || fingerprint.iter().all(|byte| *byte == 0) {
         return Err(Error::Storage);

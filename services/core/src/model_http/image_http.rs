@@ -204,8 +204,8 @@ async fn confirm(
 
 #[cfg(test)]
 mod tests {
-    use super::super::image_execution::DrawingInput;
     use super::*;
+    use crate::image::DrawingInput;
     #[test]
     fn image_confirm_cookie_requires_unique_refresh_proof() {
         let mut h = HeaderMap::new();

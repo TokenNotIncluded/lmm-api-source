@@ -2,7 +2,8 @@
 //! payer ordering and budget. They never use drawing's personal Session source.
 use super::*;
 use crate::billing::charging::ReservationBasis;
-use crate::model_http::image_provider::{ImageMediaType, ImageMultipartInput};
+use crate::image::ImageMediaType;
+use crate::model_http::image_provider::ImageMultipartInput;
 use std::net::IpAddr;
 
 /// Host-selected persisted identity, never deserialized from model/Go input.

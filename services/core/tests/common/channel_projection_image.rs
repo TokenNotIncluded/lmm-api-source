@@ -11,7 +11,8 @@ use crate::{
     },
     funding::FundingPolicy,
     identity::IdentityStore,
-    model_http::image_execution::{DrawingInput, ImageService, ProviderSpec},
+    image::DrawingInput,
+    model_http::image_execution::{ImageService, ProviderSpec},
     relay::Limits,
     test_runtime as runtime,
 };

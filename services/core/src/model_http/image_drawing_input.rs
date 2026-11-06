@@ -1,23 +1,17 @@
 //! Drawing-only upload sidecar. Marketplace arguments contain metadata, while
 //! Core freezes verified bytes privately beside that original argument digest.
-use super::super::image_provider::{ImageMediaType, ImageMultipartInput, ImageUpload, dimensions};
-use super::{DrawingInput, Error};
+use super::super::image_provider::{ImageMultipartInput, ImageUpload, dimensions};
+use super::Error;
+use crate::image::{
+    MAX_REFERENCES, MAX_TOTAL_REFERENCE_BYTES, ReferenceImage, media_type, parse_arguments,
+    valid_reference,
+};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-pub(crate) const MAX_REFERENCES: usize = 8;
-pub(crate) const MAX_REFERENCE_BYTES: usize = 10 * 1024 * 1024;
-pub(crate) const MAX_TOTAL_REFERENCE_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_PREVIEW_BODY: usize = 24 * 1024 * 1024 + 64 * 1024;
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ReferenceImage {
-    pub media_type: String,
-    pub sha256: String,
-    pub byte_length: u64,
-}
 /// Never Debug: encoded user image bytes are private operation data.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -27,98 +21,12 @@ pub struct DrawingUpload {
     pub byte_length: u64,
     pub data_base64: String,
 }
-#[derive(Clone, Debug, Serialize)]
-pub struct DrawingPreviewInput {
-    #[serde(flatten)]
-    pub settings: DrawingInput,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub reference_images: Vec<ReferenceImage>,
-}
-impl std::ops::Deref for DrawingPreviewInput {
-    type Target = DrawingInput;
-    fn deref(&self) -> &DrawingInput {
-        &self.settings
-    }
-}
-impl From<DrawingInput> for DrawingPreviewInput {
-    fn from(settings: DrawingInput) -> Self {
-        Self {
-            settings,
-            reference_images: vec![],
-        }
-    }
-}
-// Reviewed additive reference-image contract. The binding comes from the
-// persisted Core quote, never the browser's claimed tool/version metadata.
-pub(crate) fn authorize_references(raw: &Value, version: &str, schema: &str) -> Result<(), Error> {
-    let parsed = parse_arguments(raw)?;
-    if !parsed.reference_images.is_empty()
-        && (version != "ca3a1996-723d-5695-b29e-40e3bef58644"
-            || schema != "abd718715e097d729e362afd0f5cdf19ae664886a878902e1c38ac31a2c2964e")
-    {
-        return Err(Error::Forbidden);
-    }
-    Ok(())
-}
-fn media_type(value: &str) -> Result<ImageMediaType, Error> {
-    match value {
-        "image/png" => Ok(ImageMediaType::Png),
-        "image/jpeg" => Ok(ImageMediaType::Jpeg),
-        "image/webp" => Ok(ImageMediaType::Webp),
-        _ => Err(Error::Invalid),
-    }
-}
-fn valid_reference(reference: &ReferenceImage) -> bool {
-    reference.byte_length > 0
-        && reference.byte_length <= MAX_REFERENCE_BYTES as u64
-        && reference.sha256.len() == 64
-        && reference
-            .sha256
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        && media_type(&reference.media_type).is_ok()
-}
-pub(crate) fn parse_arguments(raw: &Value) -> Result<DrawingPreviewInput, Error> {
-    let mut object = raw.as_object().ok_or(Error::Invalid)?.clone();
-    let references: Vec<ReferenceImage> = match object.remove("reference_images") {
-        Some(v) => serde_json::from_value(v).map_err(|_| Error::Invalid)?,
-        None => vec![],
-    };
-    if references.len() > MAX_REFERENCES
-        || references.iter().any(|r| !valid_reference(r))
-        || references
-            .iter()
-            .try_fold(0u64, |n, r| n.checked_add(r.byte_length))
-            .is_none_or(|n| n > MAX_TOTAL_REFERENCE_BYTES as u64)
-    {
-        return Err(Error::Invalid);
-    }
-    let settings: DrawingInput =
-        serde_json::from_value(Value::Object(object)).map_err(|_| Error::Invalid)?;
-    Ok(DrawingPreviewInput {
-        settings,
-        reference_images: references,
-    })
-}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stored {
     kind: String,
     arguments: Value,
     uploads: Vec<DrawingUpload>,
-}
-/// Only this exact Core-created envelope may contain persisted upload bytes.
-/// Legacy generation/native-Key rows keep their original flat representation.
-pub(crate) fn arguments(raw: &Value) -> Result<Value, Error> {
-    if raw.get("kind").and_then(Value::as_str) == Some("drawing_reference_v1") {
-        let object = raw.as_object().ok_or(Error::Storage)?;
-        if object.len() != 3 || !object.contains_key("uploads") {
-            return Err(Error::Storage);
-        }
-        Ok(object.get("arguments").ok_or(Error::Storage)?.clone())
-    } else {
-        Ok(raw.clone())
-    }
 }
 pub(crate) fn freeze(raw: Value, uploads: Vec<DrawingUpload>) -> Result<Value, Error> {
     let parsed = parse_arguments(&raw)?;
@@ -196,6 +104,7 @@ fn decode_uploads(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image::{MAX_REFERENCE_BYTES, arguments};
     fn png() -> DrawingUpload {
         let data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
         let bytes = STANDARD.decode(data).unwrap();

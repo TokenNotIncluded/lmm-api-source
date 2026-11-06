@@ -30,6 +30,7 @@ mod html;
 pub mod http;
 pub mod identity;
 pub mod identity_http;
+pub mod image;
 #[cfg(unix)]
 pub mod internal_rpc;
 pub mod legacy_auth;
