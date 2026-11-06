@@ -119,9 +119,6 @@ func (m *Module) coreLegacyAccess(ctx context.Context, credential, account, oper
 	}
 	return port, CoreLegacyOperation{Owner: Principal{User: strconv.FormatInt(user, 10), Account: account}, OperationID: operation}, nil
 }
-func legacyReadbackOperation(got, want CoreLegacyOperation) bool {
-	return got == want && got.Owner.valid()
-}
 func legacyReadbackCounters(limit, reserved, spent int64) bool {
 	return legacyQuotaValid(limit) && legacyQuotaValid(reserved) && legacyQuotaValid(spent) && spent <= limit && reserved <= limit-spent
 }

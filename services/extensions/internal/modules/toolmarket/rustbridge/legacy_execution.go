@@ -62,7 +62,7 @@ func (a *Adapter) FinishLegacyCredits(ctx context.Context, in market.LegacyCredi
 		e := a.fixedWitness.requestLegacyFixedWitnessSettlement(ctx, body, &out)
 		return out, e
 	}
-	e := a.requestLegacySettlement(ctx, body, &out)
+	e := a.requestLegacyResult(ctx, "calls/settle", body, &out)
 	return out, e
 }
 func (a *Adapter) QueryLegacyCredits(ctx context.Context, user string, in market.LegacyCreditID) (market.LegacyCreditCall, error) {

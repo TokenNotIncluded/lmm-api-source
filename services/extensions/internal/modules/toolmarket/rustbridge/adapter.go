@@ -4,11 +4,7 @@
 package rustbridge
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"io"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -59,75 +55,6 @@ func (a *Adapter) Close() {
 	if a != nil && a.client != nil {
 		a.client.CloseIdleConnections()
 	}
-}
-
-func (a *Adapter) request(ctx context.Context, action, user string, in, out any) error {
-	return a.requestVersion(ctx, 1, action, user, in, out)
-}
-func (a *Adapter) requestVersion(ctx context.Context, major int, action, user string, in, out any) error {
-	if a == nil || a.client == nil {
-		return market.ErrUnavailable
-	}
-	raw, err := json.Marshal(in)
-	requestLimit := 16384
-	if major == 2 {
-		requestLimit = 32768
-	}
-	if err != nil || len(raw) > requestLimit {
-		return market.ErrInvalid
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://core-toolmarket/internal/tool-market/v"+strconv.Itoa(major)+"/"+action, bytes.NewReader(raw))
-	if err != nil {
-		return market.ErrUnavailable
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+a.token)
-	req.Header.Set("X-Lmm-Protocol", strconv.Itoa(major))
-	if user != "" {
-		req.Header.Set("X-Lmm-User-Credential", user)
-	}
-	response, err := a.client.Do(req)
-	if err != nil {
-		return market.ErrUnavailable
-	}
-	defer response.Body.Close()
-	limit := int64(65536)
-	if major == 2 {
-		limit = 256 << 10
-	}
-	if major == 2 && action == "reports/list" {
-		limit = 4 << 20
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil || int64(len(body)) > limit {
-		return market.ErrUnavailable
-	}
-	if response.StatusCode != http.StatusOK {
-		switch response.StatusCode {
-		case 400:
-			return market.ErrInvalid
-		case 401:
-			return market.ErrAuth
-		case 403:
-			return market.ErrDenied
-		case 404:
-			return market.ErrMissing
-		case 409:
-			return market.ErrConflict
-		default:
-			return market.ErrUnavailable
-		}
-	}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(out); err != nil {
-		return market.ErrUnavailable
-	}
-	var extra any
-	if !errors.Is(decoder.Decode(&extra), io.EOF) {
-		return market.ErrUnavailable
-	}
-	return nil
 }
 
 // Ready negotiates the complete fixed-price capability set before host mounting.

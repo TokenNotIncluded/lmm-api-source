@@ -6,7 +6,6 @@ package assistant_services
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
@@ -278,13 +277,6 @@ func stringID(id int64) string {
 		id /= 10
 	}
 	return string(value[i:])
-}
-func newID() (string, error) {
-	var raw [32]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", access.ErrUnavailable
-	}
-	return hex.EncodeToString(raw[:]), nil
 }
 func safeText(value string, max int) string {
 	value = strings.TrimSpace(value)

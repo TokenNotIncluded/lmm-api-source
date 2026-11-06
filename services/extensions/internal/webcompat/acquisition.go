@@ -24,16 +24,5 @@ func (m *acquisitionModule) Handler() http.Handler { return m.handler }
 func NewAcquisitionModule(auth *Authenticator, s *acquisition.Service) modules.Module {
 	mux := http.NewServeMux()
 	s.Register(mux, auth)
-	return &acquisitionModule{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.Clone(r.Context())
-		values := r.Header.Values("X-LMM-User-Credential")
-		r.Header.Del("Authorization")
-		if len(values) > 0 {
-			r.Header["Authorization"] = make([]string, len(values))
-			for i, v := range values {
-				r.Header["Authorization"][i] = "Bearer " + v
-			}
-		}
-		mux.ServeHTTP(w, r)
-	})}
+	return &acquisitionModule{moduleUserCredential(mux)}
 }

@@ -173,18 +173,7 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 func NewOperationsModule(auth *Authenticator, s *operations.Service) modules.Module {
 	mux := http.NewServeMux()
 	RegisterOperations(mux, auth, s)
-	return &operationsModule{OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.Clone(r.Context())
-		values := r.Header.Values("X-LMM-User-Credential")
-		r.Header.Del("Authorization")
-		if len(values) > 0 {
-			r.Header["Authorization"] = make([]string, len(values))
-			for i, v := range values {
-				r.Header["Authorization"][i] = "Bearer " + v
-			}
-		}
-		mux.ServeHTTP(w, r)
-	}))}
+	return &operationsModule{OperationsGuard(moduleUserCredential(mux))}
 }
 
 // OperationsGuard must wrap the parent's outer Web/extension admission handler,

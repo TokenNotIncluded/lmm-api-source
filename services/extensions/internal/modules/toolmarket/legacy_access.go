@@ -413,25 +413,6 @@ func legacyTightenClientBudget(d *database, s LegacyMetaSubject, now, limit int6
 	legacyAccess(d).Budgets[key] = b
 	return nil
 }
-func legacyTightenToolBudget(d *database, s LegacyMetaSubject, now int64, id, tool, version string, limit int64) error {
-	p, err := legacyMetaPolicy(d, s, now)
-	if err != nil {
-		return err
-	}
-	if !legacyQuotaValid(limit) {
-		return ErrInvalid
-	}
-	g, ok := legacyAccess(d).Grants[id]
-	if !ok || g.UserID != s.UserID || g.ClientID != s.ClientID || g.ToolID != tool || g.VersionID != version || g.RevokedAt != 0 || g.ExpiresAt <= now {
-		return ErrMissing
-	}
-	if limit > p.MaxTotalQuota || limit > g.MaxTotalQuota {
-		return ErrLimit
-	}
-	g.MaxTotalQuota = limit
-	legacyAccess(d).Grants[id] = g
-	return nil
-}
 
 // Record an already-created Core connection for owner UI. Caller must revoke in
 // Core first; changing this display row cannot revoke any live credential.

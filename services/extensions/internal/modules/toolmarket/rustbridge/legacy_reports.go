@@ -20,7 +20,7 @@ func (a *Adapter) ReviewLegacyReport(ctx context.Context, credential string, in 
 }
 func (a *Adapter) ListLegacyReports(ctx context.Context, credential string, in market.LegacyReportListRequest) (market.LegacyReportPage, error) {
 	var out market.LegacyReportPage
-	err := a.requestVersion(ctx, 2, "reports/list", credential, in, &out)
+	err := a.requestWithSpec(ctx, requestSpec{major: 2, action: "reports/list", requestBytes: 32 << 10, responseBytes: 4 << 20}, credential, in, &out)
 	return out, err
 }
 func (a *Adapter) ListLegacyIncome(ctx context.Context, credential string, in market.LegacyIncomeRequest) (market.LegacyIncomePage, error) {
