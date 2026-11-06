@@ -44,7 +44,7 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
-const { AuthArtPanel } = await import('./auth-art-panel')
+const { SignalGamePanel } = await import('./panel')
 
 const originalGet = api.get
 
@@ -66,7 +66,7 @@ async function renderArtwork() {
   await act(async () =>
     root.render(
       <I18nextProvider i18n={i18n}>
-        <AuthArtPanel />
+        <SignalGamePanel />
       </I18nextProvider>
     )
   )
@@ -79,7 +79,7 @@ afterEach(() => {
 })
 after(() => domWindow.close())
 
-describe('AuthArtPanel optional game', () => {
+describe('SignalGamePanel optional game', () => {
   test('plays, hints, wins and restarts without network requests', async () => {
     let requests = 0
     api.get = (async () => {

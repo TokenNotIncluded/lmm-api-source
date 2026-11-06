@@ -16,16 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
-import { BOARD_SIZES } from '@/features/auth/components/signal-game'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import type { ModelContextTool } from '@/features/webmcp'
 import { requireSignedIn } from '@/features/webmcp/tool-kit'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getLeaderboard, getMyRecords } from './api'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { BOARD_SIZES } from './engine'
 import {
   loadSignalRecords,
   rotateSignalTile,

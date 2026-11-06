@@ -28,6 +28,7 @@ import {
 import { useWalletCurrencyPreferenceStore } from '@/stores/wallet-currency-preference-store'
 
 import {
+  createCurrencyFormatters,
   displayAmountToQuota,
   formatCreditAmount,
   formatMinimumQuotaInCurrency,
@@ -158,6 +159,45 @@ test('one Credit and max-safe balances survive exact editable round trips', () =
     }
   }
   assert.notEqual(formatQuotaWithCurrency(1, exact), '0 USD')
+})
+
+test('captured currency formatters retain conversion rates and caller formatting defaults', () => {
+  const config = useSystemConfigStore.getState().config.currency
+  const captured = (['USD', 'CNY', 'CREDIT'] as const).map((currency) =>
+    createCurrencyFormatters(currency, config, (options) => ({
+      ...exact,
+      ...options,
+    }))
+  )
+  useSystemConfigStore.getState().setConfig({
+    currency: { ...config, cnyPerUsd: 8, cnyPerUsdExact: '8' },
+  })
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  const expected = [
+    { amount: 1, label: '1 USD', twice: '2 USD' },
+    { amount: 7.3, label: '7.3 CNY', twice: '14.6 CNY' },
+    { amount: 500000, label: '500,000 Credits', twice: '1,000,000 Credits' },
+  ]
+  captured.forEach((formatter, index) => {
+    const row = expected[index]
+    assert.equal(formatter.formatQuota(500000), row.label)
+    assert.equal(formatter.quotaToAmount(500000), row.amount)
+    assert.equal(formatter.quotaToInput(500000), String(row.amount))
+    assert.equal(formatter.amountToQuota(String(row.amount)), 500000)
+    assert.equal(formatter.formatUSD(2), row.twice)
+    assert.equal(formatter.legacyAmountToQuota('2'), 1000000)
+    assert.equal(formatter.quotaToLegacyAmount(1000000), 2)
+    assert.equal(formatter.formatLegacyAmount(2), row.twice)
+    assert.ok(Number.isNaN(formatter.amountToQuota('not an amount')))
+  })
+  assert.equal(
+    captured[1].formatQuota(500000, { locale: 'de-DE', showSymbol: false }),
+    '7,3'
+  )
+  assert.equal(
+    captured[2].formatQuota(500000, { creditLabel: 'Points' }),
+    '500,000 Points'
+  )
 })
 test('anonymous and account preferences are isolated', () => {
   useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')

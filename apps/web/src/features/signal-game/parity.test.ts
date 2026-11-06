@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
-import { createCircuit } from '@/features/auth/components/signal-game'
+import { createCircuit } from './engine'
 test('browser generation matches the immutable cross-language rules fixture', () => {
   const rows = JSON.parse(
     readFileSync(

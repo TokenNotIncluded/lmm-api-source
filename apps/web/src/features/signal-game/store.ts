@@ -1,15 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { create } from 'zustand'
 
-import {
-  BOARD_SIZES,
-  createCircuit,
-  hintedTile,
-  maxMoves,
-  rotateTile,
-  traceCircuit,
-  type Circuit,
-} from '@/features/auth/components/signal-game'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -20,6 +11,15 @@ import {
   type GameRecord,
   type Participant,
 } from './api'
+import {
+  BOARD_SIZES,
+  createCircuit,
+  hintedTile,
+  maxMoves,
+  rotateTile,
+  traceCircuit,
+  type Circuit,
+} from './engine'
 import { putLocalRecord, readLocalRecords } from './storage'
 
 type Phase = 'playing' | 'loading' | 'countdown' | 'won'

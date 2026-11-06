@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { api } from '@/lib/api'
+
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { RULES_VERSION } from '@/features/auth/components/signal-game'
-/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import { api } from '@/lib/api'
+import { RULES_VERSION } from './engine'
 
 export type Participant = {
   actor: 'human' | 'ai'

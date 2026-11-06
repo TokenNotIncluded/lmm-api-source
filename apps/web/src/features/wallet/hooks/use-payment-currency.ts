@@ -3,15 +3,9 @@ import { createContext, useContext, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
-  displayAmountToQuota,
-  formatQuotaInCurrency,
-  formatUSDInCurrency,
+  createCurrencyFormatters,
   getCurrencyDisplay,
   getCurrencyFormattingLocale,
-  legacyPlatformAmountToQuota,
-  quotaToDisplayAmount,
-  quotaToDisplayInput,
-  quotaToLegacyPlatformAmount,
   resolveWalletDisplayCurrency,
   type CurrencyFormatOptions,
 } from '@/lib/currency'
@@ -55,27 +49,7 @@ export function usePaymentCurrency() {
       label: currency,
       setPreference,
       step: 'any' as const,
-      formatQuota: (quota: number, options?: CurrencyFormatOptions) =>
-        formatQuotaInCurrency(quota, currency, localized(options), config),
-      quotaToAmount: (quota: number) =>
-        quotaToDisplayAmount(quota, currency, config),
-      quotaToInput: (quota: number) =>
-        quotaToDisplayInput(quota, currency, config),
-      amountToQuota: (amount: number | string) =>
-        displayAmountToQuota(amount, currency, config),
-      formatUSD: (usd: number, options?: CurrencyFormatOptions) =>
-        formatUSDInCurrency(usd, currency, localized(options), config),
-      legacyAmountToQuota: (amount: number | string) =>
-        legacyPlatformAmountToQuota(amount, config),
-      quotaToLegacyAmount: (quota: number) =>
-        quotaToLegacyPlatformAmount(quota, config),
-      formatLegacyAmount: (amount: number, options?: CurrencyFormatOptions) =>
-        formatQuotaInCurrency(
-          legacyPlatformAmountToQuota(amount, config),
-          currency,
-          localized(options),
-          config
-        ),
+      ...createCurrencyFormatters(currency, config, localized),
     }
   }, [currencyConfig, currency, preference, language, setPreference])
 }

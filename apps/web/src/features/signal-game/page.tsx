@@ -27,13 +27,13 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AuthArtPanel } from '@/features/auth/components/auth-art-panel'
-import { BOARD_SIZES, maxMoves } from '@/features/auth/components/signal-game'
 import { createQueryRetry } from '@/lib/query-retry'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getLeaderboard, getMyRecords } from './api'
+import { BOARD_SIZES, maxMoves } from './engine'
 import { formatGameTime } from './format'
+import { SignalGamePanel } from './panel'
 import {
   loadSignalRecords,
   uploadSignalRecord,
@@ -113,7 +113,7 @@ export function SignalGamePage() {
   return (
     <main className='mx-auto w-full max-w-7xl px-4 py-10 sm:px-8'>
       <div className='grid items-start gap-8 xl:grid-cols-[minmax(0,1.3fr)_minmax(20rem,1fr)]'>
-        <AuthArtPanel />
+        <SignalGamePanel />
         <div className='space-y-8'>
           <section aria-labelledby='signal-leaderboard-title'>
             <div className='flex flex-wrap items-center justify-between gap-3'>

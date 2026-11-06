@@ -4,12 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import {
-  inputTile,
-  neighbor,
-  outputTile,
-  PORTS,
-} from '@/features/auth/components/signal-game'
+
+import { inputTile, neighbor, outputTile, PORTS } from './engine'
 
 type Props = {
   size: number

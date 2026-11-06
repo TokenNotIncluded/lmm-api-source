@@ -23,9 +23,8 @@ import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { SignalGamePanel } from '@/features/signal-game/panel'
 import { useSystemConfig } from '@/hooks/use-system-config'
-
-import { AuthArtPanel } from './components/auth-art-panel'
 
 import '../forge/forge-public-shell.css'
 import './auth-mobile.css'
@@ -81,7 +80,7 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
               <summary className='text-muted-foreground cursor-pointer py-3 text-center text-sm underline underline-offset-4'>
                 {t('Play a round')}
               </summary>
-              {mobileGameOpen && <AuthArtPanel />}
+              {mobileGameOpen && <SignalGamePanel />}
             </details>
           </div>
         </div>
@@ -91,7 +90,7 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
           <span>{systemName}</span>
           <span>{t('One endpoint')}</span>
         </div>
-        <AuthArtPanel />
+        <SignalGamePanel />
       </div>
     </div>
   )

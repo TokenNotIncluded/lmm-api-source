@@ -9,7 +9,7 @@ import {
   PORTS,
   rotateTile,
   traceCircuit,
-} from './signal-game'
+} from './engine'
 
 test('generated circuits start unsolved and can always be solved by rotations', () => {
   for (let seed = 0; seed < 1000; seed++) {

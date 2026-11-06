@@ -28,24 +28,16 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { HUMAN } from '@/features/signal-game/api'
-import { SignalBoard } from '@/features/signal-game/board'
-import { SignalGameFeedback } from '@/features/signal-game/feedback'
-import { formatGameTime } from '@/features/signal-game/format'
-import {
-  playCue,
-  setSoundEnabled,
-  soundEnabled,
-} from '@/features/signal-game/sound'
-import {
-  rotateSignalTile,
-  startSignalGame,
-  useSignalGame,
-} from '@/features/signal-game/store'
 
-import { BOARD_SIZES, traceCircuit } from './signal-game'
+import { HUMAN } from './api'
+import { SignalBoard } from './board'
+import { BOARD_SIZES, traceCircuit } from './engine'
+import { SignalGameFeedback } from './feedback'
+import { formatGameTime } from './format'
+import { playCue, setSoundEnabled, soundEnabled } from './sound'
+import { rotateSignalTile, startSignalGame, useSignalGame } from './store'
 
-import './signal-game.css'
+import './panel.css'
 
 export function GameClock({
   phase,
@@ -81,7 +73,7 @@ export function GameClock({
     </span>
   )
 }
-export function AuthArtPanel() {
+export function SignalGamePanel() {
   const { t } = useTranslation(),
     titleId = useId(),
     state = useSignalGame(),

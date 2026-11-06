@@ -57,6 +57,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { createCliHeaderTemplate } from '@/lib/cli-header-templates'
 import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
@@ -292,66 +293,6 @@ const GEMINI_IMAGE_4K_TEMPLATE = {
   ],
 }
 
-// Keep in sync with upstream Codex request headers:
-// https://github.com/openai/codex/commit/7c7b4861d88960f7e3bd5b7f30f8351be666dd84
-// https://github.com/openai/codex/commit/14df0e8833aad0d6d78287954b61ffac67af936c
-// https://github.com/openai/codex/commit/ebdd8795e924a8149b616e46ca2ed7848c207a4b
-const CODEX_CLI_HEADER_PASSTHROUGH_HEADERS = [
-  'Originator',
-  'Session_id',
-  'Thread_id',
-  'Session-Id',
-  'Thread-Id',
-  'X-Client-Request-Id',
-  'User-Agent',
-  'X-Codex-Beta-Features',
-  'X-Codex-Turn-State',
-  'X-Codex-Turn-Metadata',
-  'X-Codex-Window-Id',
-  'X-Codex-Parent-Thread-Id',
-  // 'X-Codex-Installation-Id',
-  'X-OpenAI-Subagent',
-  'X-OpenAI-Memgen-Request',
-  // 'X-OAI-Attestation',
-  'X-ResponsesAPI-Include-Timing-Metrics',
-  'X-OpenAI-Internal-Codex-Responses-Lite',
-]
-
-const CLAUDE_CLI_HEADER_PASSTHROUGH_HEADERS = [
-  'X-Stainless-Arch',
-  'X-Stainless-Lang',
-  'X-Stainless-Os',
-  'X-Stainless-Package-Version',
-  'X-Stainless-Retry-Count',
-  'X-Stainless-Runtime',
-  'X-Stainless-Runtime-Version',
-  'X-Stainless-Timeout',
-  'User-Agent',
-  'X-App',
-  'Anthropic-Beta',
-  'Anthropic-Dangerous-Direct-Browser-Access',
-  'Anthropic-Version',
-]
-
-const buildPassHeadersTemplate = (headers: string[]) => ({
-  operations: [
-    { mode: 'pass_headers', value: [...headers], keep_origin: true },
-  ],
-})
-
-const CODEX_CLI_HEADER_PASSTHROUGH_TEMPLATE = {
-  operations: [
-    {
-      mode: 'pass_headers',
-      value: [...CODEX_CLI_HEADER_PASSTHROUGH_HEADERS],
-      keep_origin: true,
-    },
-  ],
-}
-const CLAUDE_CLI_HEADER_PASSTHROUGH_TEMPLATE = buildPassHeadersTemplate(
-  CLAUDE_CLI_HEADER_PASSTHROUGH_HEADERS
-)
-
 const AWS_BEDROCK_ANTHROPIC_COMPAT_TEMPLATE = {
   operations: [
     {
@@ -430,12 +371,12 @@ const TEMPLATE_PRESET_CONFIG: Record<string, TemplatePresetConfig> = {
   claude_cli_headers_passthrough: {
     label: 'Claude CLI Header Passthrough',
     kind: 'operations',
-    payload: CLAUDE_CLI_HEADER_PASSTHROUGH_TEMPLATE,
+    payload: createCliHeaderTemplate('claude'),
   },
   codex_cli_headers_passthrough: {
     label: 'Codex CLI Header Passthrough',
     kind: 'operations',
-    payload: CODEX_CLI_HEADER_PASSTHROUGH_TEMPLATE,
+    payload: createCliHeaderTemplate('codex'),
   },
   aws_bedrock_anthropic_beta_override: {
     label: 'AWS Bedrock Claude Compat',

@@ -4,14 +4,10 @@ import { test } from 'node:test'
 
 import 'fake-indexeddb/auto'
 
-import {
-  createCircuit,
-  rotateTile,
-  traceCircuit,
-} from '@/features/auth/components/signal-game'
 import { api } from '@/lib/api'
 
 import { HUMAN } from './api'
+import { createCircuit, rotateTile, traceCircuit } from './engine'
 import { readLocalRecords } from './storage'
 import {
   loadSignalRecords,
