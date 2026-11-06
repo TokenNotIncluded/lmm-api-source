@@ -20,7 +20,6 @@ import { useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
-import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -130,14 +129,17 @@ function MarketStatusIcon({ value }: { value: string }) {
 
 export function ToolMarket({
   initialServiceID,
+  initialTab = 'market',
 }: {
   initialServiceID?: string
+  initialTab?: 'market' | 'connections' | 'mine'
 }) {
   const userID = useAuthStore((state) => state.auth.user?.id)
   return (
     <ToolMarketWorkspace
       key={userID ?? 'signed-out'}
       initialServiceID={initialServiceID}
+      initialTab={initialTab}
     />
   )
 }
@@ -146,14 +148,18 @@ export function ToolMarket({
 // account changes, even if the router preserves the market page component.
 function ToolMarketWorkspace({
   initialServiceID,
+  initialTab,
 }: {
   initialServiceID?: string
+  initialTab: 'market' | 'connections' | 'mine'
 }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const cache = useQueryClient()
   const key = ['tool-market', user?.id]
-  const [tab, setTab] = useState('market')
+  const [tab, setTab] = useState<string>(
+    initialServiceID ? 'market' : initialTab
+  )
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
@@ -179,13 +185,13 @@ function ToolMarketWorkspace({
   const [deleteTarget, setDeleteTarget] = useState<MarketService | null>(null)
   useEffect(() => {
     const id = parseMarketServiceID(initialServiceID)
-    setTab('market')
+    setTab(id ? 'market' : initialTab)
     setSelected(id ? { id, mode: 'published' } : null)
     setEditor(false)
     setGrantTool(null)
     setCallTool(null)
     setRecord(null)
-  }, [initialServiceID])
+  }, [initialServiceID, initialTab])
   const deletion = useMutation({
     retry: false,
     mutationFn: marketAPI.deleteService,
@@ -400,12 +406,12 @@ function ToolMarketWorkspace({
     chooseTab('market')
   }
   const browse = (items: MarketSummary[]) => (
-    <div className='divide-border divide-y border-y'>
+    <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'>
       {items.map((item) => (
         <button
           type='button'
           key={item.id}
-          className='hover:bg-muted/40 focus-visible:ring-ring group grid w-full min-w-0 gap-3 px-3 py-5 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset sm:grid-cols-[minmax(0,1fr)_minmax(10rem,16rem)] sm:items-center sm:gap-6 sm:px-4'
+          className='hover:bg-muted/40 focus-visible:ring-ring group flex min-h-52 w-full min-w-0 flex-col gap-6 rounded-xl border p-5 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
           onClick={() => setSelected({ id: item.id, mode: 'published' })}
         >
           <span className='min-w-0'>
@@ -421,8 +427,8 @@ function ToolMarketWorkspace({
                 : t('Provider account {{id}}', { id: item.owner_id })}
             </span>
           </span>
-          <span className='flex min-w-0 items-center justify-between gap-3 sm:justify-end'>
-            <span className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 sm:justify-end'>
+          <span className='mt-auto flex w-full min-w-0 items-center justify-between gap-3'>
+            <span className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5'>
               <Badge variant='outline' className='max-w-full whitespace-normal'>
                 {item.execution_type === 'builtin'
                   ? t('Free tool calls')
@@ -438,7 +444,7 @@ function ToolMarketWorkspace({
               {item.execution_type !== 'builtin' &&
                 item.min_price_quota !== undefined &&
                 item.max_price_quota !== undefined && (
-                  <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
+                  <span className='basis-full text-sm font-medium break-words tabular-nums'>
                     {(item.provider_tools ?? 0) > 0
                       ? t('Live upstream price × multiplier; capped per call')
                       : (item.metered_tools ?? 0) > 0
@@ -518,11 +524,8 @@ function ToolMarketWorkspace({
           )}
         </ConfirmDialog>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
-          <div className='relative isolate flex min-h-24 items-center overflow-hidden border-b py-5'>
-            <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
-              <ForgeShaderSurface variant='tools' className='opacity-40' />
-            </div>
-            <p className='text-muted-foreground relative z-10 max-w-[70ch] text-sm leading-6'>
+          <div className='border-b py-5'>
+            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
               {t(
                 'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
               )}
@@ -1317,14 +1320,14 @@ function ToolMarketWorkspace({
                     {catalog.isPending && (
                       <div
                         role='status'
-                        className='divide-border divide-y border-y'
+                        className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'
                       >
                         <span className='sr-only'>{t('Loading…')}</span>
                         {[0, 1, 2].map((row) => (
                           <div
                             key={row}
                             aria-hidden='true'
-                            className='space-y-3 px-3 py-5 sm:px-4'
+                            className='min-h-52 space-y-4 rounded-xl border p-5'
                           >
                             <Skeleton className='h-5 w-40 rounded-sm' />
                             <Skeleton className='h-4 w-full max-w-xl rounded-sm' />

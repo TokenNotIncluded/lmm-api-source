@@ -209,7 +209,12 @@ async function click(element: HTMLElement) {
     await flush()
   })
 }
-async function mount(role = 1, id = 2, initialServiceID?: string) {
+async function mount(
+  role = 1,
+  id = 2,
+  initialServiceID?: string,
+  initialTab?: 'market' | 'connections' | 'mine'
+) {
   resetMarketCurrencyTest()
   useAuthStore.getState().auth.setUser({
     id,
@@ -231,7 +236,10 @@ async function mount(role = 1, id = 2, initialServiceID?: string) {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <ToolMarket initialServiceID={initialServiceID} />
+          <ToolMarket
+            initialServiceID={initialServiceID}
+            initialTab={initialTab}
+          />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -325,6 +333,28 @@ after(() => {
   }
 })
 
+test('a marketplace publish link opens the publisher workspace without a mutation', async () => {
+  stubNavigation([remote])
+  const { container } = await mount(1, 2, undefined, 'mine')
+  await waitFor(
+    () =>
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent === 'My publications'
+  )
+  assert.equal(findButton('Back to list', container), undefined)
+})
+
+test('a marketplace connect link opens connections without authorizing tools', async () => {
+  stubNavigation([remote])
+  const { container } = await mount(1, 2, undefined, 'connections')
+  await waitFor(
+    () =>
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent === 'Connections and limits'
+  )
+  assert.equal(findButton('Back to list', container), undefined)
+})
+
 test('a service deep link opens only the exact published detail without loading, granting or calling', async () => {
   const id = '768e7947-0652-4c6b-a998-712958765432'
   const item = detail(id, 'remote', 12345, 'public')
@@ -337,7 +367,7 @@ test('a service deep link opens only the exact published detail without loading,
   }
   marketAPI.invoke = async () =>
     assert.fail('A deep link cannot call or charge')
-  const { container } = await mount(1, 2, id)
+  const { container } = await mount(1, 2, id, 'mine')
   await waitFor(
     () => container.querySelector('h3')?.textContent === item.version.name
   )

@@ -29,11 +29,12 @@ export type TopNavLink = {
   disabled?: boolean
   requiresAuth?: boolean
   external?: boolean
+  secondary?: boolean
 }
 
 // Domain routes and translation keys live here; shells only select a surface.
 const ROUTES = {
-  home: { title: 'Home', href: '/' },
+  home: { title: 'Tool market', href: '/' },
   directory: { title: 'AI directory', href: '/ai-directory' },
   console: { title: 'Open workspace', href: '' },
   pricing: { title: 'Models and pricing', href: '/pricing' },
@@ -77,6 +78,12 @@ const SURFACE_ORDER: Record<TopNavSurface, readonly (keyof typeof ROUTES)[]> = {
   ],
 }
 
+const PRIMARY_ROUTES: Record<TopNavSurface, readonly (keyof typeof ROUTES)[]> =
+  {
+    default: ['home', 'console', 'pricing'],
+    public: ['home', 'pricing', 'guide'],
+  }
+
 export function buildTopNavLinks({
   modules,
   surface = 'default',
@@ -98,6 +105,9 @@ export function buildTopNavLinks({
   for (const key of SURFACE_ORDER[surface]) {
     const route = ROUTES[key]
     const title = key === 'webmcp' ? route.title : translate(route.title)
+    const priority = PRIMARY_ROUTES[surface].includes(key)
+      ? {}
+      : { secondary: true }
     if (isHeaderNavAccessModule(key)) {
       const access = modules[key]
       if (access.enabled) {
@@ -105,19 +115,20 @@ export function buildTopNavLinks({
           title,
           href: route.href,
           requiresAuth: access.requireAuth && !isAuthed,
+          ...priority,
         })
       }
       continue
     }
     if (modules[key] !== true) continue
     if (key === 'console') {
-      if (isAuthed) links.push({ title, href: workspaceHref })
+      if (isAuthed) links.push({ title, href: workspaceHref, ...priority })
     } else if (key === 'docs') {
       if (hasDocsAccess && docsLink) {
-        links.push({ title, href: docsLink, external: true })
+        links.push({ title, href: docsLink, external: true, ...priority })
       }
     } else {
-      links.push({ title, href: route.href })
+      links.push({ title, href: route.href, ...priority })
     }
   }
   return links

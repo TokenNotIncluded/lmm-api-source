@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { ChevronDown } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -28,6 +29,12 @@ import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
@@ -182,6 +189,8 @@ export function PublicHeader(props: PublicHeaderProps) {
   const showsDefaultWordmark =
     usesDefaultBrand && !customSiteName && systemName === DEFAULT_SYSTEM_NAME
   const links = useDynamicNavLinks ? dynamicLinks : navLinks
+  const primaryLinks = links.filter((link) => !link.secondary)
+  const secondaryLinks = links.filter((link) => link.secondary)
   const mobileNavigationLinks = props.mobileLinks ?? links
 
   const mobileOpen = mobileMenuPath === pathname
@@ -395,7 +404,7 @@ export function PublicHeader(props: PublicHeaderProps) {
 
             {/* Desktop nav */}
             <div className='hidden items-center gap-0.5 min-[1360px]:flex'>
-              {links.map((link) => {
+              {primaryLinks.map((link) => {
                 const isActive = pathname === link.href
                 if (link.external) {
                   return (
@@ -437,6 +446,62 @@ export function PublicHeader(props: PublicHeaderProps) {
                   </Link>
                 )
               })}
+
+              {secondaryLinks.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className={cn(
+                      getDesktopNavLinkClassName(
+                        editorialHeader,
+                        secondaryLinks.some((link) => pathname === link.href),
+                        false
+                      ),
+                      'flex items-center gap-1'
+                    )}
+                  >
+                    {t('More')}
+                    <ChevronDown className='size-3.5' aria-hidden='true' />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align='start'>
+                    {secondaryLinks.map((link) => (
+                      <DropdownMenuItem
+                        key={getNavLinkKey(link)}
+                        disabled={link.disabled}
+                        render={
+                          link.external ? (
+                            <a
+                              href={link.href}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              aria-current={
+                                pathname === link.href ? 'page' : undefined
+                              }
+                              aria-disabled={link.disabled || undefined}
+                              onClick={(event) =>
+                                handleNavLinkClick(event, link)
+                              }
+                            />
+                          ) : (
+                            <Link
+                              to={link.href}
+                              disabled={link.disabled}
+                              aria-current={
+                                pathname === link.href ? 'page' : undefined
+                              }
+                              aria-disabled={link.disabled || undefined}
+                              onClick={(event) =>
+                                handleNavLinkClick(event, link)
+                              }
+                            />
+                          )
+                        }
+                      >
+                        {t(link.title)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
 
               {(showLanguageSwitcher ||
                 showThemeSwitch ||

@@ -11,11 +11,12 @@ import { parseMarketServiceID } from '@/features/tool-market/service-link'
 export const Route = createFileRoute('/_authenticated/tool-market/')({
   validateSearch: z.object({
     service_id: z.preprocess(parseMarketServiceID, z.string().optional()),
+    tab: z.enum(['market', 'connections', 'mine']).catch('market').optional(),
   }),
   component: Page,
 })
 
 function Page() {
-  const { service_id } = Route.useSearch()
-  return <ToolMarket initialServiceID={service_id} />
+  const { service_id, tab } = Route.useSearch()
+  return <ToolMarket initialServiceID={service_id} initialTab={tab} />
 }

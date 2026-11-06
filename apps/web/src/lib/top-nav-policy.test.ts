@@ -166,7 +166,7 @@ test('pricing/security visibility and auth flags survive both surfaces and admin
   )
 })
 
-test('default workspace uses the supplied account-aware landing route and stays after Home', () => {
+test('default workspace uses the supplied account-aware landing route and stays after the marketplace', () => {
   for (const workspaceHref of [
     '/wallet',
     '/dashboard',
@@ -189,6 +189,40 @@ test('default workspace uses the supplied account-aware landing route and stays 
     )
   }
   assert.ok(!makeLinks({}).some((link) => link.title === 'Open workspace'))
+})
+
+test('marketplace leads each surface and supporting destinations are secondary', () => {
+  const publicLinks = makeLinks({}, 'public')
+  assert.equal(publicLinks[0].title, 'Tool market')
+  assert.equal(publicLinks[0].href, '/')
+  assert.deepEqual(hrefs(publicLinks.filter((link) => !link.secondary)), [
+    '/',
+    '/pricing',
+    '/guide',
+  ])
+
+  const defaultLinks = makeLinks({}, 'default', {
+    isAuthed: true,
+    workspaceHref: '/wallet',
+    hasDocsAccess: true,
+    docsLink: 'https://docs.example.test',
+  })
+  assert.equal(defaultLinks[0].title, 'Tool market')
+  assert.deepEqual(hrefs(defaultLinks.filter((link) => !link.secondary)), [
+    '/',
+    '/wallet',
+    '/pricing',
+  ])
+  for (const links of [publicLinks, defaultLinks]) {
+    assert.ok(links.filter((link) => link.secondary).length > 0)
+    assert.ok(
+      links
+        .filter((link) =>
+          ['/security', '/scripts', '/developers'].includes(link.href)
+        )
+        .every((link) => link.secondary === true)
+    )
+  }
 })
 
 test('docs requires explicit rights, enabled config and a server-provided URL', () => {
