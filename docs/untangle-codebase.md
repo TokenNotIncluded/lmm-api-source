@@ -1,6 +1,6 @@
 # Codebase untangling — 2026-11-06
 
-This refactor implements twelve structural decisions across Core, Extensions, Web and offline import tooling. It preserves the tested external behavior and records the remaining verification limits.
+This record covers the original twelve structural decisions across Core, Extensions, Web and offline import tooling, followed by three Core continuation decisions. The [continuation results](#continuation-results--2026-11-06) describe the current source changes and verification limits. The earlier results below remain historical evidence; their successful Core check does not establish a successful build of the continuation.
 
 Baseline: [90e2ce18896e90b23b5297513d1bd7d572abf6fb](https://github.com/TokenNotIncluded/lmm-api-source/commit/90e2ce18896e90b23b5297513d1bd7d572abf6fb).
 Code result: [7a63d1cfbc71ea14ed8446cba4bd45752c996ffd](https://github.com/TokenNotIncluded/lmm-api-source/commit/7a63d1cfbc71ea14ed8446cba4bd45752c996ffd).
@@ -45,7 +45,7 @@ SQL extraction preserves generated literal bytes. Financial interpretation, JSON
 
 Pricing modules now use billing Rust paths. All located in-repository consumers were updated. The Core crate is not published; the pinned CLI has no dependency on lmm-core. HTTP and serialized price contracts did not change.
 
-## Verification results
+## Original-pass verification results
 
 These are developer self-tests; independent acceptance was not run.
 
@@ -124,12 +124,12 @@ go test -p 1 -v ./internal/webcompat \
   -run '^(TestModuleUserCredentials|TestAuthenticator.*|TestOperationsPublicScriptsAndUnavailable|TestOperationsFreshAdminAuthorizationAndModuleAdmission|TestOperationsStrictRequestValidation|TestOperationsGuardPrecedesOuterMuxAndDoesNotBroadenRouting|TestMountOperationsSharesAdmissionAndGuardsBothEntries|TestMountMissingOperationsIsUnavailableNotHost404)$'
 ~~~
 
-## Remaining structural work
+## Follow-up findings from the original pass
 
-The changed areas were searched again after implementation. Two broader Core findings remain open, so this record does not declare the whole codebase fully untangled.
+The original pass identified two broader Core findings. Both are addressed by the continuation below; they are retained here to explain its scope. This record does not declare the whole codebase fully untangled.
 
-1. **Usage and dashboard receipt interpretation.** The readers duplicate receipt interpretation but support different states, density limits and loading strategies. A coherent shared validated representation needs isolated PostgreSQL regression checks for both readers. This refactor does not change either reader's financial decisions.
-2. **Audio contracts and replay.** Audio price, receipt and integrated arithmetic form a cohesive group. Charging recovery also depends on pure journal state embedded in the HTTP streaming module. The next extraction should move this group with the pure journal validator and verify live processing/replay equivalence. Moving individual structs would retain the underlying inverse dependency.
+1. **Usage and dashboard receipt interpretation.** The readers duplicated receipt interpretation but supported different states, density limits and loading strategies. A coherent shared validated representation required PostgreSQL regression checks for both readers; U13 implements that boundary and corrects two previously inconsistent terminal-evidence decisions.
+2. **Audio contracts and replay.** Audio price, receipt and integrated arithmetic formed a cohesive group. Charging recovery also depended on pure journal state embedded in HTTP streaming. U14 moves that group together and checks live processing/replay equivalence, removing the inverse dependency.
 
 Real Unix-socket acceptance and a completed Web full typecheck also remain open. No production deployment, live migration, provider call or payment was performed.
 
@@ -151,44 +151,91 @@ Real Unix-socket acceptance and a completed Web full typecheck also remain open.
 - **Coverage:** passing checks, environment failures and unrun acceptance are recorded separately.
 - **Design:** no new framework, protocol mode, feature flag or compatibility wrapper was added.
 
-## Continuation decisions — 2026-11-06
+## Continuation results — 2026-11-06
 
-The continuation starts from `a399631d65a21e5e443bcd52d54e3cc7941da0c5`.
-The following decisions are recorded before their implementation. Comments and
-Tests cleanup remain unselected; existing regression cases are retained.
+Baseline: [a399631d65a21e5e443bcd52d54e3cc7941da0c5](https://github.com/TokenNotIncluded/lmm-api-source/commit/a399631d65a21e5e443bcd52d54e3cc7941da0c5).
+Code result: [16c0e225f40d4cf38cc0e90802c2534cb1efcac9](https://github.com/TokenNotIncluded/lmm-api-source/commit/16c0e225f40d4cf38cc0e90802c2534cb1efcac9).
 
-- **U13 — Share the validated immutable charging receipt.** Keep request loading,
-  authorization scopes, error mapping and density limits with each reader. Put
-  receipt validation and exact amount projection in `usage/receipts.rs`, using
-  the existing usage reader's stricter invariants. Both readers consume it.
-  - `usage.rs` and `history_http/dashboard/receipts.rs` duplicate identity,
-    final-event, settlement, refund and ledger-command interpretation.
-  - Their interpretations have drifted: the dashboard lacks terminal typed
-    evidence and text-request outcome checks already enforced by usage.
-  - Dashboard's 2,048-entry cap and usage's streaming receipt loader serve
-    distinct requirements and must remain distinct.
-- **U14 — Let billing own pure audio evidence and replay.** Move the coherent
-  audio price, receipt, integrated arithmetic and pure journal state into
-  `billing/audio`; keep provider configuration and HTTP I/O under `model_http`.
-  - Charging imports price contracts and journal validators from HTTP modules.
-  - Live streaming and durable recovery separately carry the same journal
-    packet/byte limits, making protocol changes depend on hidden coordination.
-  - Preserve raw receipt bytes, v3/v4 journal compatibility, arithmetic, final
-    packet/EOF order and each caller's existing error mapping.
+The continuation implements U13–U15. Decisions were recorded before source edits in [527726b](https://github.com/TokenNotIncluded/lmm-api-source/commit/527726bba9bb3935bf353b044c14d0ca2ff8d40d) and [acd0566](https://github.com/TokenNotIncluded/lmm-api-source/commit/acd0566699da81afc2196556941f1096d531592b). Optional bulk Comments and Tests cleanup remained unselected. Existing assertions were retained, and no dependency or lockfile changed.
 
-Validation will use the affected Rust targets and synthetic local PostgreSQL
-where available. Each implementation result records its own command and outcome;
-this section alone does not claim a completed refactor or test pass.
+**Validation status:** the affected source modules passed the bounded checks below, including real PostgreSQL receipt comparisons and drawing-session predicates. A complete Core build or check did not finish: all three attempts ended with compiler SIGKILL. Actual Charging/router regressions and independent acceptance remain unrun. Earlier successful checks elsewhere in this document are not results for this source revision.
 
-- **U15 — Keep persisted drawing evidence and session authority in the Core image domain.**
-  Move drawing-input/reference contracts, their pure stored-envelope validation,
-  the shared image-media kind and drawing-session predicates into `image.rs`.
-  - `billing/charging/image.rs` currently imports these from HTTP execution,
-    which itself depends on charging; this makes financial admission depend on
-    orchestration internals.
-  - Billing and HTTP must use the same reference schema/version and original
-    session-family interpretation. Preserve the SQL predicates, serde shapes,
-    bounds, legacy envelope support and existing error outcomes.
-  - Upload parsing, provider I/O, multipart construction and HTTP route behavior
-    remain in the model transport modules. No new runtime configuration or
-    database schema is required.
+### Ownership and resulting behavior
+
+| ID | Implemented owner | Problem resolved and behavior boundary |
+| --- | --- | --- |
+| U13 | `usage/receipts.rs` owns immutable receipt validation, validated request facts and exact amount projection. Usage, channel projection and dashboard consume it. | Two financial readers independently interpreted identities, commands, terminal evidence and refunds. The original usage validator is retained; dashboard now rejects missing typed terminal evidence and contradictory text-request outcomes consistently with usage. Valid receipts retain their observed amounts and projections. |
+| U14 | `billing/audio` owns audio price/receipt contracts, integrated arithmetic and pure journal validation. | Charging recovery depended on HTTP streaming internals. Live processing and durable replay now share the journal state machine and packet/byte limits. HTTP owns provider configuration, transport and response/error mapping. |
+| U15 | `image.rs` owns persisted drawing contracts, reference-schema validation and drawing-session authority predicates. | Charging imported metadata and session helpers from HTTP execution, which itself used charging. Billing and HTTP now use the same domain implementation; upload parsing, multipart construction and provider I/O retain their transport owners. |
+
+U13 preserves each reader's authorization, query scope, snapshot handling and error conversion. Dashboard remains settled-only, with its 100,000-request window and separate 2,048-command/refund bounds. Its existing `HISTORY_TOO_DENSE` response remains HTTP 400. Usage continues streaming all receipts for bounded request batches. Invalid shared receipts map to usage storage errors and dashboard unavailability. No charging write, money arithmetic, schema, transaction or runtime database grant changes.
+
+The two dashboard corrections are deliberate behavior changes for corrupt settled evidence. A price calculation can accept empty usage for an unstarted request, so an equal computed price alone does not establish valid terminal evidence. The shared validator additionally requires the tool, text-request and grounding evidence implied by the frozen price and checks that the typed text-request outcome agrees with the final outcome. These checks already existed in usage.
+
+U14 preserves serialized receipt bytes, price arithmetic, journal v3/v4 compatibility and final-packet/EOF ordering. The shared limits remain 16 MiB, 4,096 packets and 262,144 bytes per packet. Each caller retains its own error mapping. Five relocated audio files, including the receipt fixture and existing pure tests, match their baseline bytes exactly. A new fixture check compares live processing with replay.
+
+U15 preserves metadata defaults, schema/version allowlists, legacy stored envelopes, native-session and browser-family meanings, and SQL error classification. Nine moved function bodies match after normalizing whitespace and module qualifiers; both moved SQL predicates are byte-identical. No new runtime configuration or schema is introduced.
+
+Within `services/core/src/billing`, production references to `model_http` decreased from 14 to zero. One test-only reference remains because that test exercises the HTTP image service. This is a measured source-dependency reduction, not a runtime performance claim.
+
+### Continuation verification
+
+These are developer self-checks of the identified changes. Counts below describe distinct test scopes and must not be combined into a claim of full application coverage.
+
+| Check | Observed result | Scope and limit |
+| --- | --- | --- |
+| Audio source tests | 15 passed; 0 failed or ignored. | Actual audio production files, existing pure tests and the new live/replay fixture check; no HTTP or database recovery execution. |
+| Drawing source tests | 2 passed on PostgreSQL 18.6; 0 failed or ignored. | Actual `image.rs`, exact production type/table/trigger excerpts and synthetic rows. Covers metadata/projection and native/browser session predicates, including rotation facts, revocation, foreign families, version mismatch, disabled users and weekly expiry. Does not execute authentication issuance/rotation, financial admission, providers or HTTP routes. |
+| Receipt differential cases | 28 passed on PostgreSQL 18.6. | Actual new validator and dashboard adapter compared with both baseline validators using SQLx `PgRow` from synthetic `jsonb_to_record` fixtures. Old/new usage observations agree in every case; valid dashboard observations agree; the two known invalid-terminal cases are rejected consistently. Does not execute Charging writes, application loaders, migrations or HTTP routes. |
+| Receipt boundaries | Partial refund remains 49 gross / 20 refunded / 29 net; full refund retains a known zero net amount. Both readers accept 2,048 records; usage accepts 2,049 while both dashboard versions return `TooDense`. | Included within the 28 differential cases, not additional tests. Nonsettled states, canonical-command/identity/source/refund failures, OAuth and sponsorship are also covered. |
+| Source provenance | Audio relocations, drawing function/SQL comparisons and receipt source hashes matched. | Receipt harness verifies 35 exact source segments and 34 frozen Rust files. Harness wiring and observation adapters are separate from production validation. |
+| Formatting and documentation | Scoped Rust formatting, diff whitespace and maintained-document checks passed. | Only affected paths were formatted; no broad formatting or comment/test cleanup. |
+| Complete Core compilation/check | Incomplete: three commands exited 101 after rustc received SIGKILL. | No successful final whole-Core build, metadata check or actual router integration test is claimed. |
+| Independent acceptance | Not run. | Module evidence does not replace application acceptance. |
+
+The small harnesses use actual source and already-built dependency artifacts. The successful compile peaks were 243,232 KiB for audio, 253,356 KiB for drawing and 472,208 KiB for receipts. They make the checked module boundaries explicit; they do not establish that the complete service compiles or operates correctly.
+
+The first complete library-test attempt exposed missing test-owned `Change` and `LedgerCommand` imports after extraction. Explicit imports corrected that issue. A later unused production import was moved to its test owner. Subsequent metadata checking still ended with SIGKILL. No further whole-Core retries were made, and the exact cause of the signal was not established.
+
+Harness setup failures are retained with the successful records. Audio initially had a harness module-path error, corrected without production changes. The first receipt run selected a cached `regex` build without required Unicode categories and failed before case execution. Selecting the existing full-feature dependency fixed that harness issue without changing source, inputs or assertions.
+
+### Commands and remaining verification
+
+The following complete-Core commands were attempted with Rust 1.99.0 and one build job. All exited 101 with SIGKILL; none is a passing gate:
+
+~~~sh
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --lib --no-run --message-format=json
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --test usage --no-run --message-format=json
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 \
+  cargo +1.99.0 check --locked --manifest-path services/core/Cargo.toml --lib --test usage --test dashboard --message-format=json
+~~~
+
+The original dashboard tests and two new actual Charging/router regressions now live together in the automatically discovered `services/core/tests/dashboard.rs` integration target. All original test bodies and assertions are retained; moving the target required only crate imports and formatting, without exposing internals. The new regressions cover terminal-evidence consistency, the 2,048/2,049 boundary and unchanged money-state snapshots. Their actual execution remains pending.
+
+In an environment able to build the complete Core, the affected verification targets are:
+
+~~~sh
+cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --test usage --test dashboard
+cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --lib billing::audio::
+cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --lib model_http::audio::
+cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --lib image_drawing_
+cargo +1.99.0 test --locked --manifest-path services/core/Cargo.toml --lib audio_charging_variant_keeps_legacy_json
+~~~
+
+The evidence archive `44-codebase-untangling-evidence-20261106.zip` records commands, source manifests, results, logs and retained failures. It excludes database credentials, private database files, binaries and the build cache. Its receipt harness README describes the module comparison and the additional workspace prerequisites; the archive is evidence, not a standalone application test environment.
+
+### Continuation commits and review
+
+| Commit | Change |
+| --- | --- |
+| [527726b](https://github.com/TokenNotIncluded/lmm-api-source/commit/527726bba9bb3935bf353b044c14d0ca2ff8d40d) | Record receipt/audio decisions before implementation. |
+| [acd0566](https://github.com/TokenNotIncluded/lmm-api-source/commit/acd0566699da81afc2196556941f1096d531592b) | Record drawing-domain ownership decision. |
+| [e33ba97](https://github.com/TokenNotIncluded/lmm-api-source/commit/e33ba9701d028f56ac98c78a249cbda1b1f0977f) | Billing owns audio contracts and journal replay. |
+| [a930c31](https://github.com/TokenNotIncluded/lmm-api-source/commit/a930c31117166ad386eb888db47a4b21f7f04920) | Drawing evidence and authority move outside HTTP orchestration. |
+| [16c0e22](https://github.com/TokenNotIncluded/lmm-api-source/commit/16c0e225f40d4cf38cc0e90802c2534cb1efcac9) | Usage and dashboard share immutable receipt validation. |
+
+A finite follow-up sweep found no further high-value structural change within this scope. Other inspected Go decoders and SQL encoders differ in validation, null/number handling, bounds or error policy and were left with their existing owners. Inspected Web imports served composition, pure logic or type use. The earlier full Web typecheck and Unix-socket acceptance limitations remain historical open items; this continuation did not rerun those unrelated checks.
+
+The review ties each contribution to a duplicated owner or reverse dependency, names the behavior changes, distinguishes measured source effects from runtime claims, and records coverage gaps beside passing evidence. No new framework, feature flag or compatibility wrapper was added. No production deployment, live migration, provider request or payment was performed.
