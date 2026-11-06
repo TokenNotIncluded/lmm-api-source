@@ -150,3 +150,32 @@ Real Unix-socket acceptance and a completed Web full typecheck also remain open.
 - **Measured effect:** source ownership and repeated implementations improved; no runtime speedup percentage is claimed.
 - **Coverage:** passing checks, environment failures and unrun acceptance are recorded separately.
 - **Design:** no new framework, protocol mode, feature flag or compatibility wrapper was added.
+
+## Continuation decisions — 2026-11-06
+
+The continuation starts from `a399631d65a21e5e443bcd52d54e3cc7941da0c5`.
+The following decisions are recorded before their implementation. Comments and
+Tests cleanup remain unselected; existing regression cases are retained.
+
+- **U13 — Share the validated immutable charging receipt.** Keep request loading,
+  authorization scopes, error mapping and density limits with each reader. Put
+  receipt validation and exact amount projection in `usage/receipts.rs`, using
+  the existing usage reader's stricter invariants. Both readers consume it.
+  - `usage.rs` and `history_http/dashboard/receipts.rs` duplicate identity,
+    final-event, settlement, refund and ledger-command interpretation.
+  - Their interpretations have drifted: the dashboard lacks terminal typed
+    evidence and text-request outcome checks already enforced by usage.
+  - Dashboard's 2,048-entry cap and usage's streaming receipt loader serve
+    distinct requirements and must remain distinct.
+- **U14 — Let billing own pure audio evidence and replay.** Move the coherent
+  audio price, receipt, integrated arithmetic and pure journal state into
+  `billing/audio`; keep provider configuration and HTTP I/O under `model_http`.
+  - Charging imports price contracts and journal validators from HTTP modules.
+  - Live streaming and durable recovery separately carry the same journal
+    packet/byte limits, making protocol changes depend on hidden coordination.
+  - Preserve raw receipt bytes, v3/v4 journal compatibility, arithmetic, final
+    packet/EOF order and each caller's existing error mapping.
+
+Validation will use the affected Rust targets and synthetic local PostgreSQL
+where available. Each implementation result records its own command and outcome;
+this section alone does not claim a completed refactor or test pass.
