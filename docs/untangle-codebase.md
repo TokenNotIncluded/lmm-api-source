@@ -179,3 +179,16 @@ Tests cleanup remain unselected; existing regression cases are retained.
 Validation will use the affected Rust targets and synthetic local PostgreSQL
 where available. Each implementation result records its own command and outcome;
 this section alone does not claim a completed refactor or test pass.
+
+- **U15 — Keep persisted drawing evidence and session authority in the Core image domain.**
+  Move drawing-input/reference contracts, their pure stored-envelope validation,
+  the shared image-media kind and drawing-session predicates into `image.rs`.
+  - `billing/charging/image.rs` currently imports these from HTTP execution,
+    which itself depends on charging; this makes financial admission depend on
+    orchestration internals.
+  - Billing and HTTP must use the same reference schema/version and original
+    session-family interpretation. Preserve the SQL predicates, serde shapes,
+    bounds, legacy envelope support and existing error outcomes.
+  - Upload parsing, provider I/O, multipart construction and HTTP route behavior
+    remain in the model transport modules. No new runtime configuration or
+    database schema is required.
