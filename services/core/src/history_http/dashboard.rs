@@ -1,12 +1,11 @@
 //! Receipt-backed dashboard reads. No ledger commands are submitted here.
-mod receipts;
-#[cfg(test)]
-mod tests;
-
 use super::{HistoryError, HistoryStore, JS_SAFE, error_response, extract_bearer};
 use crate::identity::admin_users::AdminUsersError;
 use crate::identity::{
     CredentialKind, authenticate_readonly_in_transaction, authorize_admin_read_snapshot,
+};
+use crate::usage::receipts::{
+    Amounts, InvalidReceipt, ReceiptValidation, Refund, StoredCommand, ValidatedRequest, add, safe,
 };
 use axum::{
     Json,
@@ -14,14 +13,42 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use receipts::{Amounts, Receipt, add, safe};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sqlx::Row;
+use sqlx::{Row, postgres::PgRow};
 use std::collections::BTreeMap;
 
 type Result<T> = std::result::Result<T, HistoryError>;
 const MAX_REQUESTS: usize = 100_000;
+const MAX_RECEIPTS: usize = 2048;
+
+impl From<InvalidReceipt> for HistoryError {
+    fn from(_: InvalidReceipt) -> Self {
+        Self::Unavailable
+    }
+}
+
+fn receipt(row: PgRow) -> Result<ValidatedRequest> {
+    let mut validation = ReceiptValidation::new(&row)?;
+    let commands: Vec<StoredCommand> =
+        serde_json::from_value(row.try_get("commands")?).map_err(|_| HistoryError::Unavailable)?;
+    let refunds: Vec<Refund> =
+        serde_json::from_value(row.try_get("refunds")?).map_err(|_| HistoryError::Unavailable)?;
+    if commands.len() > MAX_RECEIPTS || refunds.len() > MAX_RECEIPTS {
+        return Err(HistoryError::TooDense);
+    }
+    for command in commands {
+        validation.command(command)?;
+    }
+    for refund in refunds {
+        validation.refund(refund)?;
+    }
+    let receipt = validation.finish()?;
+    if !receipt.settled() {
+        return Err(HistoryError::Unavailable);
+    }
+    Ok(receipt)
+}
 
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -83,7 +110,7 @@ async fn respond(
     }
 }
 
-// Same immutable inputs and receipt limits as usage.rs; no archive rows or holds.
+// Settled native receipts only; the dashboard retains its bounded row aggregates.
 const SELECT: &str = r#"
  SELECT r.*, a.kind AS payer_kind, p.username,
    coalesce(k.name,r.oauth_source->>'client_id','') AS token_name,
@@ -161,7 +188,7 @@ async fn read(store: &HistoryStore, secret: &str, params: Params, view: View) ->
     let mut buckets: BTreeMap<BucketKey, Bucket> = BTreeMap::new();
     for row in rows {
         let username: Option<String> = row.try_get("username")?;
-        let receipt = Receipt::from_row(row)?;
+        let receipt = receipt(row)?;
         let key = BucketKey {
             user: receipt.user,
             hour: if matches!(view, View::Users) {
@@ -245,7 +272,7 @@ struct Bucket {
 }
 
 impl Bucket {
-    fn include(&mut self, receipt: &Receipt, username: Option<String>) -> Result<()> {
+    fn include(&mut self, receipt: &ValidatedRequest, username: Option<String>) -> Result<()> {
         self.username = username;
         self.token_name = (!receipt.token_name.is_empty()).then(|| receipt.token_name.clone());
         self.amounts.accumulate(receipt.amounts)?;

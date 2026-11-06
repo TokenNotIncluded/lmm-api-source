@@ -1,6 +1,6 @@
 //! Derived Native channel contributions. Financial receipts remain authoritative.
 use super::channel::{ChannelUsage, ChannelUsageError};
-use super::{ReceiptValidation, Refund, StoredCommand};
+use super::receipts::{InvalidReceipt, ReceiptValidation, Refund, StoredCommand};
 use crate::{
     billing::charging::{Charge, Price, contract},
     routing::DeliveryState,
@@ -27,8 +27,8 @@ impl From<sqlx::Error> for ProjectionError {
         Self::Database(error)
     }
 }
-impl From<super::Error> for ProjectionError {
-    fn from(_: super::Error) -> Self {
+impl From<InvalidReceipt> for ProjectionError {
+    fn from(_: InvalidReceipt) -> Self {
         Self::InvalidReceipt
     }
 }
@@ -196,7 +196,7 @@ async fn validated_batch(
             spec: row.try_get("spec_digest")?,
             attempts: Vec::new(),
         };
-        requests.insert(id, (ReceiptValidation::new(row)?, evidence));
+        requests.insert(id, (ReceiptValidation::new(&row)?, evidence));
     }
     if requests.len() != ids.len() {
         return Err(ProjectionError::InvalidReceipt);

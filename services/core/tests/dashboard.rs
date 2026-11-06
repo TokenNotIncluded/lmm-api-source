@@ -1,22 +1,23 @@
 //! Real disposable PostgreSQL + actual Charging/TransactionalLedger receipts.
 //! No production accounts, providers, schema migrations or success-only adapters.
-use crate::{
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
+use lmm_core::{
     accounts::{Account, AccountKind},
     billing::{
         Credits,
         charging::{Charging, Outcome, Price, Request as ChargeRequest, Usage},
         ledger::{Action, Ledger, Outcome as LedgerOutcome, Request as LedgerRequest},
+        text_request_price::{TextRequestPrice, TextRequestUsage},
         transactional_ledger::TransactionalLedger,
     },
     core_schema,
     funding::FundingPolicy,
     http::{self, Capabilities},
     identity::{IdentityStore, IssuedCredential},
-};
-use axum::{
-    Router,
-    body::{Body, to_bytes},
-    http::{Request, StatusCode},
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -266,6 +267,134 @@ async fn dashboard_fails_closed_on_a_missing_final_receipt(pool: PgPool) {
     }
     let (status, body) = get(&f.app, "/api/data/flow/self", Some(&f.session.secret)).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+}
+
+#[sqlx::test(migrations = false)]
+async fn dashboard_and_usage_require_the_same_terminal_request_evidence(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let id = "dashboard-text-request";
+    let mut request = spec(id);
+    request.price.input_per_million = 0;
+    request.price.cached_per_million = 0;
+    request.price.output_per_million = 0;
+    request.price.text_request = Some(TextRequestPrice {
+        usd_micros_per_request: 10,
+        group_multiplier_ppm: 1_000_000,
+        speed_multiplier_ppm: 1_000_000,
+        credits_per_usd: 500_000,
+    });
+    let usage = Usage {
+        text_request: Some(TextRequestUsage::NotSent),
+        ..Default::default()
+    };
+    f.charging
+        .reserve(&f.key.secret, &request, &WORKER)
+        .await
+        .unwrap();
+    f.charging.start(id, &WORKER).await.unwrap();
+    f.charging
+        .settle(id, &WORKER, usage, Outcome::Cancelled)
+        .await
+        .unwrap();
+    let paths = [
+        "/api/data/flow/self",
+        "/api/log/self/stat",
+        "/api/data/self",
+    ];
+    let before = money_state(&pool).await;
+    for path in paths {
+        let (status, body) = get(&f.app, path, Some(&f.session.secret)).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+    let original: Value = sqlx::query_scalar(
+        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='final'",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut missing = original.clone();
+    missing["usage"]
+        .as_object_mut()
+        .unwrap()
+        .remove("text_request");
+    let mut mismatched = original.clone();
+    mismatched["usage"]["text_request"] = json!({
+        "outcome": "rejected", "http_status": 429, "receipt_sha256": vec![1_u8; 32]
+    });
+    for event in [missing, mismatched] {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("ALTER TABLE core_charging.usage_events DISABLE TRIGGER usage_immutable")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE core_charging.usage_events SET detail=$2 WHERE request_id=$1 AND event_id='final'")
+            .bind(id).bind(event).execute(&mut *tx).await.unwrap();
+        sqlx::query("ALTER TABLE core_charging.usage_events ENABLE TRIGGER usage_immutable")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        for path in paths {
+            let (status, body) = get(&f.app, path, Some(&f.session.secret)).await;
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{path}: {body}");
+            assert_eq!(body["success"], false);
+            assert!(body.get("data").is_none());
+        }
+    }
+    assert_eq!(money_state(&pool).await, before);
+}
+
+#[sqlx::test(migrations = false)]
+async fn dashboard_receipt_limit_does_not_cap_streaming_usage(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let id = "dashboard-dense";
+    settled(&f, &f.key.secret, id, Outcome::Completed).await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    // Extend the actual reservation receipt with synthetic identities to reach
+    // the dashboard's exact loading limit without issuing new money commands.
+    sqlx::query(
+        "INSERT INTO core_charging.ledger_commands(operation_id,request_id,command)
+         SELECT lpad(to_hex(n),64,'0'),request_id,
+                jsonb_set(command,'{operation_id}',to_jsonb(lpad(to_hex(n),64,'0')))
+         FROM core_charging.ledger_commands,
+              generate_series(1,2048-(SELECT count(*) FROM core_charging.ledger_commands WHERE request_id=$1)) n
+         WHERE request_id=$1 AND command->'change'->>'operation'='reserve'",
+    )
+    .bind(id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    for path in ["/api/data/flow/self", "/api/log/self/stat"] {
+        let (status, body) = get(&f.app, path, Some(&f.session.secret)).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+    }
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO core_charging.ledger_commands(operation_id,request_id,command)
+         SELECT repeat('f',64),request_id,jsonb_set(command,'{operation_id}',to_jsonb(repeat('f',64)))
+         FROM core_charging.ledger_commands WHERE request_id=$1 AND command->'change'->>'operation'='reserve' LIMIT 1",
+    )
+    .bind(id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let before = money_state(&pool).await;
+    let (status, body) = get(&f.app, "/api/data/flow/self", Some(&f.session.secret)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "HISTORY_TOO_DENSE");
+    let (status, body) = get(&f.app, "/api/log/self/stat", Some(&f.session.secret)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["quota"], 49);
+    assert_eq!(money_state(&pool).await, before);
 }
 
 // Corrupt only the disposable SQLx fixture, then restore the append-only trigger.
