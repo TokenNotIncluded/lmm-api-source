@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 fn packet(choices: Value, usage: Value) -> Vec<u8> {
     format!("data: {}\n\n",json!({"id":"s1","object":"chat.completion.chunk","model":"m","choices":choices,"usage":usage})).into_bytes()
 }
@@ -236,4 +237,46 @@ fn audio_stream_v2_accepts_default_official_metadata_without_retention() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn audio_stream_live_and_replay_preserve_frozen_journal_states() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/chat-journal-v3.json")).unwrap();
+    let packets = fixture["frames"].as_array().unwrap();
+    let model = "synthetic-audio-upstream";
+    for format in [
+        AudioUsageFormat::OpenAiChatV1,
+        AudioUsageFormat::OpenAiChatV2,
+    ] {
+        let mut live = TerminalState::default();
+        let mut replay = JournalState::default();
+        let mut retained = None;
+        for (index, packet) in packets.iter().enumerate() {
+            let packet = packet.as_str().unwrap().as_bytes();
+            let done = live.observe(packet, model, format).unwrap();
+            let (next, usage) = journal_step(&replay, packet, model, format).unwrap();
+            assert_eq!(
+                serde_json::to_value(&next).unwrap(),
+                fixture["rows"][index]["state"]
+            );
+            assert_eq!(done, next.done);
+            assert_eq!(live.has_usage(), next.has_usage);
+            replay = serde_json::from_slice(&serde_json::to_vec(&next).unwrap()).unwrap();
+            if let Some(usage) = usage {
+                assert!(retained.replace(usage).is_none());
+            }
+        }
+        assert!(live.is_done());
+        assert_eq!(retained.as_deref(), fixture["raw_usage"].as_str());
+        let usage_packet = packets[1].as_str().unwrap();
+        assert_eq!(
+            live.into_usage_packet().as_deref(),
+            Some(usage_packet.as_bytes())
+        );
+        assert_eq!(
+            journal_usage(usage_packet, model, format).unwrap(),
+            fixture["raw_usage"].as_str().unwrap()
+        );
+    }
 }

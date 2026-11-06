@@ -87,8 +87,10 @@ async fn legacy_fixture(pool: PgPool, corrupt: bool) {
         .await
         .unwrap();
 
-    let fixture: Value =
-        serde_json::from_str(include_str!("fixtures/chat-journal-v3.json")).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../billing/audio/fixtures/chat-journal-v3.json"
+    ))
+    .unwrap();
     let raw = fixture["raw_usage"].as_str().unwrap();
     let mut bytes = Vec::new();
     for packet in fixture["frames"].as_array().unwrap() {

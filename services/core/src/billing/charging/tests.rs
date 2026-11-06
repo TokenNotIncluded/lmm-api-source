@@ -1916,7 +1916,7 @@ fn upstream_cost_price_requires_receipt_and_preserves_exact_group_quote() {
 
 #[test]
 fn audio_charging_variant_keeps_legacy_json_and_rejects_text_pricing() {
-    use crate::model_http::audio::{AudioMeteredUsage, AudioPrice, AudioUsage};
+    use crate::billing::audio::{AudioMeteredUsage, AudioPrice, AudioUsage};
     let mut price = request("audio-json", 0).price;
     let legacy_price = serde_json::to_value(&price).unwrap();
     let legacy_usage = serde_json::to_value(Usage::default()).unwrap();

@@ -302,7 +302,7 @@ impl PreparedReservation {
         request_fingerprint: String,
         binding: ReservationBinding,
         wire_sha256: String,
-        bounds: crate::model_http::audio::AudioUsage,
+        bounds: crate::billing::audio::AudioUsage,
     ) -> Result<Self, Error> {
         let input = bounds
             .text_input
@@ -585,7 +585,7 @@ impl PreparedReservation {
     fn validate_native_price(&self, price: &super::Price) -> Result<(), Error> {
         if let Some(audio) = &price.audio {
             price.validate()?;
-            if audio.usage_format == crate::model_http::audio::AudioUsageFormat::OpenAiChatV2
+            if audio.usage_format == crate::billing::audio::AudioUsageFormat::OpenAiChatV2
                 && !matches!(
                     self.fields.binding.projection_revision.as_str(),
                     "audio-chat-raw-v2-no-other-modalities"

@@ -1,7 +1,12 @@
 //! Included under charging::engine: audio evidence uses the existing transaction,
 //! ledger, authorization, budget and reconciliation machinery.
 use super::*;
-use crate::model_http::audio::{AudioMeteredUsage, AudioUsageFormat};
+use crate::billing::audio::{
+    AudioMeteredUsage, AudioUsageFormat,
+    journal::{
+        JournalState, MAX_PACKET_BYTES, MAX_PACKETS, MAX_STREAM_BYTES, journal_step, journal_usage,
+    },
+};
 use serde::Deserialize;
 
 const TERMINAL: &str = "audio-terminal:v1";
@@ -159,10 +164,9 @@ async fn verify_packet_tail(
             Err(Error::Invalid)
         };
     }
-    if rows.is_empty() || rows.len() > 4096 {
+    if rows.is_empty() || rows.len() > MAX_PACKETS as usize {
         return Err(Error::Invalid);
     }
-    use crate::model_http::audio::http::stream::{JournalState, journal_step, journal_usage};
     let price_sha = contract::typed_digest(&charge.price)?;
     let mut previous = JournalState::default();
     let mut chain = "00".repeat(32);
@@ -186,8 +190,8 @@ async fn verify_packet_tail(
         let bytes = row["bytes"].as_u64().ok_or(Error::Invalid)?;
         total = total.checked_add(bytes).ok_or(Error::Invalid)?;
         if bytes == 0
-            || bytes > 262144
-            || total > crate::model_http::audio::http::stream::MAX_STREAM_BYTES as u64
+            || bytes > MAX_PACKET_BYTES as u64
+            || total > MAX_STREAM_BYTES as u64
             || row["total_bytes"].as_u64() != Some(total)
             || row["sequence"].as_u64() != Some((i + 1) as u64)
             || row["price_sha256"] != price_sha
@@ -403,14 +407,16 @@ async fn append_packet(
     stream_sha256: [u8; 32],
     terminal: bool,
 ) -> Result<()> {
-    if !(1..=4096).contains(&sequence) || packet.is_empty() || packet.len() > 262144 {
+    if !(1..=MAX_PACKETS).contains(&sequence)
+        || packet.is_empty()
+        || packet.len() > MAX_PACKET_BYTES
+    {
         return Err(Error::Invalid);
     }
     if stored.charge.price.audio.is_none() {
         return Err(Error::Invalid);
     }
     let event_id = format!("audio-packet:v1:{sequence:04}");
-    use crate::model_http::audio::http::stream::{JournalState, journal_step};
     let proof = contract::load(c, &stored.charge)
         .await?
         .ok_or(Error::Invalid)?;
@@ -451,7 +457,7 @@ async fn append_packet(
     let total = prior_bytes
         .checked_add(packet.len() as u64)
         .ok_or(Error::Invalid)?;
-    if total > crate::model_http::audio::http::stream::MAX_STREAM_BYTES as u64 {
+    if total > MAX_STREAM_BYTES as u64 {
         return Err(Error::Invalid);
     }
     let mut detail = json!({"kind":"audio_output_packet","journal_version":4,"sequence":sequence,

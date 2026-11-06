@@ -2,6 +2,7 @@
 //! These fixtures are not provider usage evidence for a real model.
 use super::*;
 use crate::{
+    billing::audio::{AudioPrice, AudioRatio, AudioRounding, AudioTariff, AudioUsage},
     routing::{CredentialRef, Endpoint, PriceConfig, PriceSnapshot, RoutingConfig},
     test_runtime::RuntimeRole,
 };

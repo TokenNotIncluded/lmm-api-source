@@ -150,7 +150,7 @@ impl CacheCreationUsage {
 #[serde(deny_unknown_fields)]
 pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<crate::model_http::audio::AudioMeteredUsage>,
+    pub audio: Option<crate::billing::audio::AudioMeteredUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_request: Option<text_request_price::TextRequestUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -283,7 +283,7 @@ impl Usage {
 #[serde(deny_unknown_fields)]
 pub struct Price {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<crate::model_http::audio::AudioPrice>,
+    pub audio: Option<crate::billing::audio::AudioPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_request: Option<text_request_price::TextRequestPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

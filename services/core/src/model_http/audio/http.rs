@@ -1,8 +1,11 @@
 //! OpenAI Chat audio with durable stream checkpoints. No fabricated usage or text billing fallback.
 use super::super::*;
-use super::*;
+use super::AudioRule;
 use crate::{
-    billing::charging::{self, Outcome},
+    billing::{
+        audio::{AudioUsageFormat, validate_chat_usage_retention, validate_unique_json},
+        charging::{self, Outcome},
+    },
     routing::{PayloadPolicy, Protocol, ReplayPermission, RouteRequest},
 };
 use serde::Deserialize;
@@ -120,7 +123,7 @@ struct StreamOptions {
 }
 impl ChatRequest {
     fn parse(raw: &[u8]) -> std::result::Result<Self, RelayError> {
-        super::receipt::validate_unique_json(raw)
+        validate_unique_json(raw)
             .map_err(|_| RelayError::Invalid("duplicate audio request fields"))?;
         let request: Self = serde_json::from_slice(raw)
             .map_err(|_| RelayError::Invalid("unsupported audio chat request fields"))?;
@@ -658,7 +661,7 @@ fn response(
     struct ResponseUsage {
         usage: Box<RawValue>,
     }
-    super::receipt::validate_unique_json(raw).map_err(|_| RelayError::SettlementPending)?;
+    validate_unique_json(raw).map_err(|_| RelayError::SettlementPending)?;
     let receipt: ResponseUsage =
         serde_json::from_slice(raw).map_err(|_| RelayError::SettlementPending)?;
     let output: Value = serde_json::from_slice(raw).map_err(|_| RelayError::SettlementPending)?;
@@ -704,7 +707,7 @@ fn response(
             }
         }
     }
-    super::receipt::validate_chat_usage_retention(receipt.usage.get().as_bytes())
+    validate_chat_usage_retention(receipt.usage.get().as_bytes())
         .map_err(|_| RelayError::SettlementPending)?;
     format
         .parse(receipt.usage.get().as_bytes())
@@ -717,4 +720,4 @@ fn response(
 mod tests;
 
 #[path = "stream.rs"]
-pub(crate) mod stream;
+mod stream;

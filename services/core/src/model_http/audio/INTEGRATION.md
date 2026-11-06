@@ -8,6 +8,12 @@ streaming, other audio endpoints or production acceptance are complete.
 
 ## Typed integration and authority
 
+Pure audio pricing, usage, receipts and journal validation are owned by
+`services/core/src/billing/audio`. Provider rules and HTTP transport remain in
+`services/core/src/model_http/audio`; charging consumes the billing contracts
+directly. Current refactor checks are recorded in
+[codebase untangling](../../../../../docs/untangle-codebase.md).
+
 - `charging::Price.audio: Option<AudioPrice>` and `Usage.audio: Option<AudioMeteredUsage>`.
   Both use serde default + skip-None. Legacy serialized JSON and its digests do not
   acquire an audio field. Audio counters are disjoint and cannot mix with text,
@@ -101,6 +107,7 @@ With the patch content now present, queue under the coordinator's existing toolc
 lease (the PG tests require an authorized disposable database fixture):
 
 ```
+cargo test --manifest-path services/core/Cargo.toml billing::audio --lib
 cargo test --manifest-path services/core/Cargo.toml model_http::audio --lib
 cargo test --manifest-path services/core/Cargo.toml audio_charging_variant_keeps_legacy_json --lib
 ```
