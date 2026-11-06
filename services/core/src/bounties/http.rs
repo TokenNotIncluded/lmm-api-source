@@ -1,5 +1,6 @@
 //! Mount internal_router only on protected UDS with independent bounty token.
 use super::*;
+use crate::html::escape as escaped;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, State},
@@ -167,13 +168,6 @@ fn cookie(h: &HeaderMap) -> Result<&str> {
         }
     }
     found.ok_or(Error::Forbidden)
-}
-fn escaped(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 async fn page(State(s): State<Browser>, Path(id): Path<String>, h: HeaderMap) -> Result<Response> {
     let mut tx = s.store.pool.begin().await?;

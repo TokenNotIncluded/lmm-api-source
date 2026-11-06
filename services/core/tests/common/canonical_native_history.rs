@@ -2,7 +2,7 @@
 //! receipt-free identity-continuity examples. No validator or source DDL bypass.
 use lmm_core::{
     billing::charging::Price,
-    model_http::image_price::{ImagePriceConfig, ImageQuoteRequest},
+    billing::image_price::{ImagePriceConfig, ImageQuoteRequest},
 };
 use serde_json::json;
 struct NativeCase {

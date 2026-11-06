@@ -2,8 +2,12 @@
 //! live in `ledger`; forwarding still requires integrated authorization and budgets.
 //! No extension may perform these transitions directly.
 pub mod charging;
+pub mod grounding_price;
+pub mod image_price;
 pub mod ledger;
 pub mod legacy_escrow;
+pub mod text_request_price;
+pub mod tool_price;
 pub mod transactional_ledger;
 pub mod trust_pricing;
 

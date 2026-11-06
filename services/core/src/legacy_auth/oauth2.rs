@@ -1,5 +1,6 @@
 //! Explicit native-client browser ceremony inside the existing refresh path.
 use super::*;
+use crate::html::escape;
 use crate::identity::grants::{AuthorizationRequest, ConsentForm, ConsentPage, ContinueForm};
 use axum::extract::Path;
 use axum::extract::{Form, rejection::FormRejection};
@@ -78,14 +79,6 @@ fn flow_cookie(
         response.headers_mut().append(header::SET_COOKIE, value);
     }
     response
-}
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     let pi = page.client_id == "lmm-pi";

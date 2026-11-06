@@ -16,35 +16,8 @@ use crate::{
 };
 use axum::{body::to_bytes, extract::Request};
 use contract::{DangerZone, Request as NativeRequest};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::OwnedSemaphorePermit;
 
-#[derive(Clone)]
-pub(super) struct Host {
-    gate: Arc<Semaphore>,
-    parallelism: usize,
-    transport: crate::relay::provider_network::ProviderTransport,
-}
-impl Host {
-    pub(super) fn new(limits: &Limits) -> Self {
-        let parallelism = limits.max_in_flight.min(2);
-        Self {
-            gate: Arc::new(Semaphore::new(parallelism)),
-            parallelism,
-            transport: crate::relay::provider_network::ProviderTransport::new(parallelism),
-        }
-    }
-    pub(super) async fn drain(&self, grace: Duration) -> usize {
-        self.gate.close();
-        let deadline = tokio::time::Instant::now() + grace;
-        while self.gate.available_permits() < self.parallelism
-            && tokio::time::Instant::now() < deadline
-        {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        self.parallelism
-            .saturating_sub(self.gate.available_permits())
-    }
-}
 pub(super) fn router(gateway: ModelGateway) -> Router {
     Router::new()
         .route("/v1/systemone", post(handle))

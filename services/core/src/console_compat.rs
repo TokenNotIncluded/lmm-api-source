@@ -319,13 +319,8 @@ pub fn announcement_revision(item: &MandatoryAnnouncement) -> Result<String, Con
     } else {
         json!([item.id, generation])
     };
-    let encoded = serde_json::to_string(&fields)
-        .map_err(|_| ConsoleError::Storage)?
-        .replace('&', "\\u0026")
-        .replace('<', "\\u003c")
-        .replace('>', "\\u003e")
-        .replace('\u{2028}', "\\u2028")
-        .replace('\u{2029}', "\\u2029");
+    let encoded = serde_json::to_string(&fields).map_err(|_| ConsoleError::Storage)?;
+    let encoded = crate::go_json::escape(&encoded);
     Ok(format!("{:x}", Sha256::digest(encoded.as_bytes())))
 }
 // Go time.Parse(RFC3339) also accepts comma fractions, one-digit hours,

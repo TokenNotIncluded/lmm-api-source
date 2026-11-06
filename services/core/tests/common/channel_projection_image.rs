@@ -5,15 +5,13 @@ use crate::{
     billing::{
         Credits,
         charging::Charging,
+        image_price::ImagePriceConfig,
         ledger::{Action, Ledger, Request as LedgerRequest},
         transactional_ledger::TransactionalLedger,
     },
     funding::FundingPolicy,
     identity::IdentityStore,
-    model_http::{
-        image_execution::{DrawingInput, ImageService, ProviderSpec},
-        image_price::ImagePriceConfig,
-    },
+    model_http::image_execution::{DrawingInput, ImageService, ProviderSpec},
     relay::Limits,
     test_runtime as runtime,
 };

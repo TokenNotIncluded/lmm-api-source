@@ -605,7 +605,7 @@ impl ValidatedRequest {
             .tool
             .map(|receipt| receipt.http_status)
             .or_else(|| match self.usage.text_request {
-                Some(crate::model_http::text_request_price::TextRequestUsage::Rejected {
+                Some(crate::billing::text_request_price::TextRequestUsage::Rejected {
                     http_status,
                     ..
                 }) => Some(http_status),

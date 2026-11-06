@@ -1,7 +1,7 @@
 //! Server-owned image HTTP boundary. This module observes results, never settles funds.
 //! Reference: openai/openai-python 0e5794dc48b8f8d51f6047f8a0b1814eb1e65850
 //! (Apache-2.0). Independently implemented; no upstream source copied.
-use super::image_price::{ImageEndpoint, ImageQuote, ImageQuoteRequest};
+use crate::billing::image_price::{ImageEndpoint, ImageQuote, ImageQuoteRequest};
 use crate::relay::{
     Limits, RelayError, honeypot_network,
     provider_network::{ProviderConnection, ProviderTransport},
@@ -941,11 +941,11 @@ fn observe(raw: &[u8], requested_n: u32, secret: &str) -> Result<ImageObservatio
 
 #[cfg(test)]
 mod tests {
-    use super::super::image_price::{
-        ExactRatio, ImageCountBasis, ImagePriceConfig, ImagePriceRule, ImageQuoteRequest,
-    };
     use super::*;
     use crate::billing::Credits;
+    use crate::billing::image_price::{
+        ExactRatio, ImageCountBasis, ImagePriceConfig, ImagePriceRule, ImageQuoteRequest,
+    };
     use axum::{Router, routing::post};
     use std::sync::{
         Arc,

@@ -215,7 +215,7 @@ impl Bridge {
             let mut delivery_outcome = None;
             let usage = if sequence == -1 {
                 let Ok(receipt) = serde_json::from_value::<
-                    super::text_request_price::TextRequestUsage,
+                    crate::billing::text_request_price::TextRequestUsage,
                 >(value["evidence"]["receipt"].clone()) else {
                     continue;
                 };

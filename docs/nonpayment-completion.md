@@ -9,8 +9,8 @@
 | 能力 | 当前行为 | 实现与测试入口 |
 | --- | --- | --- |
 | DeepSeek 缓存与 reasoning | 读取 cache hit/miss，校验分区一致性；保留 reasoning effort；推理 token 不重复计费 | [回执解码](../services/core/src/relay/decode.rs)、[请求转换](../services/core/src/relay/request.rs)、[真实账务测试源码](../services/core/src/model_http/prepared_financial_tests.rs) |
-| DeepSeek Search/Fetch | 独立 HTTP 接口，按完整供应商回执确定成功请求数，使用冻结的每次请求价格 | [接口](../services/core/src/model_http/tool_api.rs)、[价格与回执](../services/core/src/model_http/tool_price.rs) |
-| Gemini Google Search | 仅支持有明确上界的 `grounded_request_v1` 合同；一次逻辑请求最多计一次 grounding 费用 | [合同与价格](../services/core/src/model_http/grounding_price.rs)、[供应商绑定](../services/core/src/model_http/provider_policy.rs)、[账务桥接](../services/core/src/model_http/billing.rs) |
+| DeepSeek Search/Fetch | 独立 HTTP 接口，按完整供应商回执确定成功请求数，使用冻结的每次请求价格 | [接口](../services/core/src/model_http/tool_api.rs)、[价格与回执](../services/core/src/billing/tool_price.rs) |
+| Gemini Google Search | 仅支持有明确上界的 `grounded_request_v1` 合同；一次逻辑请求最多计一次 grounding 费用 | [合同与价格](../services/core/src/billing/grounding_price.rs)、[供应商绑定](../services/core/src/model_http/provider_policy.rs)、[账务桥接](../services/core/src/model_http/billing.rs) |
 | Embeddings / Jina Rerank | 使用原生接口，校验完整响应和供应商输入用量，再走 Core 预留、结算及恢复路径 | [接口](../services/core/src/model_http/input_api.rs)、[请求与回执](../services/core/src/model_http/input_contract.rs)、[PostgreSQL 测试源码](../services/core/src/model_http/input_api_tests.rs) |
 | 原生用量管理 | 管理员列表、统计、CSV；个人按相同筛选导出自己的原生记录；缓存分项可见 | [查询投影](../services/core/src/usage.rs)、[CSV](../services/core/src/usage/export.rs)、[Web 页面](../apps/web/src/features/usage-logs/index.tsx)、[权限与筛选测试源码](../services/core/src/usage/index_tests.rs) |
 

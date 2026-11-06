@@ -114,7 +114,7 @@ fn export_rejects_pagination_and_invalid_self_filters() {
 
 #[test]
 fn tool_receipts_export_success_counts_without_synthetic_tokens() {
-    use crate::model_http::tool_price::{PersistedToolPrice, ToolKind, ToolUsage};
+    use crate::billing::tool_price::{PersistedToolPrice, ToolKind, ToolUsage};
     let mut tool = request("settled");
     tool.price.model = "deepseek-search".into();
     tool.price.tool = Some(PersistedToolPrice {
@@ -167,7 +167,7 @@ fn tool_receipts_export_success_counts_without_synthetic_tokens() {
 
 #[test]
 fn grounding_receipt_keeps_reported_tool_input_separate_from_token_usage() {
-    use crate::model_http::grounding_price::{
+    use crate::billing::grounding_price::{
         GroundingContract, GroundingMode, GroundingUsage, PersistedGroundingPrice,
         ToolInputSemantics,
     };
@@ -203,7 +203,7 @@ fn grounding_receipt_keeps_reported_tool_input_separate_from_token_usage() {
 
 #[test]
 fn text_request_receipts_export_quantity_and_keep_unknown_tokens_unavailable() {
-    use crate::model_http::text_request_price::{TextRequestPrice, TextRequestUsage};
+    use crate::billing::text_request_price::{TextRequestPrice, TextRequestUsage};
     for receipt in [
         TextRequestUsage::Completed,
         TextRequestUsage::NotSent,

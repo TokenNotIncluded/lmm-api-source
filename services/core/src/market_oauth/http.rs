@@ -1,4 +1,5 @@
 use super::*;
+use crate::html::escape;
 use axum::{
     Form, Json, Router,
     extract::{ConnectInfo, Path, Query, Request, State},
@@ -134,13 +135,6 @@ fn cookie<'a>(p: &MarketProfile, h: &'a HeaderMap) -> Result<&'a str> {
         }
     }
     found.ok_or(Error::Unauthorized)
-}
-fn escape(v: &str) -> String {
-    v.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 fn page(p: ConsentPage) -> Response {
     let binding = escape(&p.binding);

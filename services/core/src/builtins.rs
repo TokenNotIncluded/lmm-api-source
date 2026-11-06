@@ -83,12 +83,7 @@ pub fn input_digest(arguments: &Value) -> Result<String> {
     if encoded.len() > 65536 {
         return Err(Error::Invalid);
     }
-    let encoded = encoded
-        .replace('&', "\\u0026")
-        .replace('<', "\\u003c")
-        .replace('>', "\\u003e")
-        .replace('\u{2028}', "\\u2028")
-        .replace('\u{2029}', "\\u2029");
+    let encoded = crate::go_json::escape(&encoded);
     Ok(format!("{:x}", Sha256::digest(encoded.as_bytes())))
 }
 fn kind(service: &str, tool: &str) -> Result<BuiltinKind> {

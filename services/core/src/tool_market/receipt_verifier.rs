@@ -1,5 +1,6 @@
 //! Verifies the original fixed-main 3948a0a provider HMAC receipt inside Core.
 //! Neither an extension's usage-source label nor its hash grants spending rights.
+use crate::go_json::escape as go_escape;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -346,7 +347,7 @@ impl ReceiptVerifier {
         };
         let serialized = serde_json::to_string(&message).map_err(|_| ReceiptError::Invalid)?;
         let mut signed = DOMAIN.to_vec();
-        signed.extend_from_slice(go_escape(serialized).as_bytes());
+        signed.extend_from_slice(go_escape(&serialized).as_bytes());
         let signature = decode_signature(&receipt.signature)?;
         let mut mac = Hmac::<Sha256>::new_from_slice(&adapter.key)
             .map_err(|_| ReceiptError::Configuration)?;
@@ -470,13 +471,6 @@ fn valid_text(s: &str) -> bool {
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-fn go_escape(s: String) -> String {
-    s.replace('&', "\\u0026")
-        .replace('<', "\\u003c")
-        .replace('>', "\\u003e")
-        .replace('\u{2028}', "\\u2028")
-        .replace('\u{2029}', "\\u2029")
-}
 fn go_value(value: &Value) -> Result<Vec<u8>> {
     fn write(v: &Value, out: &mut String) -> Result<()> {
         match v {
@@ -488,7 +482,7 @@ fn go_value(value: &Value) -> Result<Vec<u8>> {
                         out.push(',');
                     }
                     out.push_str(&go_escape(
-                        serde_json::to_string(k).map_err(|_| ReceiptError::Invalid)?,
+                        &serde_json::to_string(k).map_err(|_| ReceiptError::Invalid)?,
                     ));
                     out.push(':');
                     write(v, out)?;
@@ -506,7 +500,7 @@ fn go_value(value: &Value) -> Result<Vec<u8>> {
                 out.push(']');
             }
             _ => out.push_str(&go_escape(
-                serde_json::to_string(v).map_err(|_| ReceiptError::Invalid)?,
+                &serde_json::to_string(v).map_err(|_| ReceiptError::Invalid)?,
             )),
         };
         Ok(())

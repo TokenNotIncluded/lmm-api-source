@@ -11,17 +11,16 @@ mod catalog;
 pub(crate) mod channel_operations;
 mod checkpoints;
 mod credential_registry;
-pub mod grounding_price;
 mod honeypot;
 mod image_api;
 pub mod image_execution;
 pub mod image_http;
 pub mod image_internal;
-pub mod image_price;
 mod image_provider;
 mod input_api;
 mod legacy_keys;
 mod native;
+mod native_host;
 mod native_http;
 mod native_models;
 pub mod pricing;
@@ -30,11 +29,9 @@ mod routing;
 #[cfg(test)]
 mod selected_bound_tests;
 mod systemone;
-pub mod text_request_price;
 #[cfg(test)]
 mod text_request_tests;
 mod tool_api;
-pub mod tool_price;
 pub mod trusted_delegation;
 
 use crate::{
@@ -113,8 +110,8 @@ pub struct ModelGateway {
     oauth2: Option<crate::identity::grants::LmmIssuer>,
     images: Option<image_execution::ImageService>,
     audio_rules: Arc<Vec<audio::AudioRule>>,
-    systemone: systemone::Host,
-    native_http: native_http::Host,
+    systemone: native_host::Host,
+    native_http: native_host::Host,
     channel_secret_key: Option<Arc<zeroize::Zeroizing<Vec<u8>>>>,
     #[cfg(test)]
     balance_probe_loopback: Option<channel_operations::BalanceProbeLoopback>,
@@ -206,8 +203,8 @@ impl ModelGateway {
             access: Arc::new(key_groups),
             bridge,
             relay,
-            systemone: systemone::Host::new(&limits),
-            native_http: native_http::Host::new(&limits),
+            systemone: native_host::Host::new(limits.max_in_flight.min(2)),
+            native_http: native_host::Host::new(limits.max_in_flight.min(4)),
             limits,
             local_streaming: false,
             honeypot: None,

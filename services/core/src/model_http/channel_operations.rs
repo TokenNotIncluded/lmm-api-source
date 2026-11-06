@@ -1,6 +1,7 @@
 //! Administrator-requested, non-generating provider catalogue probes.
 //! Destinations and credentials come from the published server configuration.
 use super::*;
+use crate::billing::tool_price;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeSet;

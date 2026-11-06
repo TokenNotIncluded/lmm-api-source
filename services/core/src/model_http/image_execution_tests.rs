@@ -5,15 +5,13 @@ use crate::{
     accounts::{Account, AccountKind},
     billing::{
         Credits,
+        image_price::{ExactRatio, ImageCountBasis, ImagePriceRule},
         ledger::{Action, Ledger, Outcome as LedgerOutcome, Request as LedgerRequest},
         transactional_ledger::TransactionalLedger,
     },
     funding::FundingPolicy,
     identity::IdentityStore,
-    model_http::{
-        image_price::{ExactRatio, ImageCountBasis, ImagePriceRule},
-        image_provider::{ImageMediaType, ImageMultipartInput, ImageUpload},
-    },
+    model_http::image_provider::{ImageMediaType, ImageMultipartInput, ImageUpload},
 };
 use axum::{
     Json, Router,

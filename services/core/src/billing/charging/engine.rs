@@ -1,6 +1,5 @@
 #[path = "assistant.rs"]
 mod assistant;
-#[path = "../../model_http/audio/charging.rs"]
 mod audio;
 #[path = "cache_evidence.rs"]
 mod cache_evidence;
@@ -233,7 +232,7 @@ mod activity_tests {
                 ..Usage::default()
             },
             Usage {
-                image: Some(crate::model_http::image_price::ImageUsage {
+                image: Some(crate::billing::image_price::ImageUsage {
                     output_images: 1,
                     provider_receipt_sha256: [1; 32],
                 }),

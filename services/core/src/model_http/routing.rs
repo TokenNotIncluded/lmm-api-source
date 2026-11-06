@@ -151,7 +151,7 @@ pub(super) fn credit_price(
         price.validate().map_err(super::billing::error)?;
         return Ok(price);
     }
-    if let Some(tariff) = super::text_request_price::TextRequestPrice::from_quote(quote) {
+    if let Some(tariff) = crate::billing::text_request_price::TextRequestPrice::from_quote(quote) {
         let price = Price {
             text_request: Some(tariff),
             tool: None,

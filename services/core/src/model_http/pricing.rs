@@ -1,7 +1,10 @@
 //! Host-created Web pricing projection. Never OAuth authority, routing input,
 //! a supplier health probe, or a replacement for a request's frozen quote.
 use super::ModelGateway;
-use super::tool_price::{PersistedToolPrice, ToolKind};
+use crate::billing::{
+    image_price, text_request_price,
+    tool_price::{PersistedToolPrice, ToolKind},
+};
 use crate::routing::{BillingMode, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol, Speed};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
@@ -96,11 +99,11 @@ pub struct ExactFraction {
 #[derive(Clone, Serialize, PartialEq, Eq)]
 pub struct ImageVariant {
     pub rate_basis: &'static str,
-    pub endpoint: super::image_price::ImageEndpoint,
+    pub endpoint: image_price::ImageEndpoint,
     pub size: String,
     pub quality: String,
     pub max_n: u32,
-    pub count_basis: super::image_price::ImageCountBasis,
+    pub count_basis: image_price::ImageCountBasis,
     pub usd_micros_per_image: ExactFraction,
     pub credits_per_image: ExactFraction,
     pub reservation_credits_for_one: i64,
@@ -304,16 +307,16 @@ impl PricingSurface {
                     } else {
                         UnavailableReason::RoutingUnavailable
                     });
-                let (token_price, upstream_cost_price) =
-                    if quote.billing_mode() == BillingMode::UpstreamCost {
-                        (None, Some(upstream_cost_price(quote)))
-                    } else if tool
-                        || super::text_request_price::TextRequestPrice::from_quote(quote).is_some()
-                    {
-                        (Some(request_price(quote)?), None)
-                    } else {
-                        (Some(token_price(quote)?), None)
-                    };
+                let (token_price, upstream_cost_price) = if quote.billing_mode()
+                    == BillingMode::UpstreamCost
+                {
+                    (None, Some(upstream_cost_price(quote)))
+                } else if tool || text_request_price::TextRequestPrice::from_quote(quote).is_some()
+                {
+                    (Some(request_price(quote)?), None)
+                } else {
+                    (Some(token_price(quote)?), None)
+                };
                 models.push(PricingModel {
                     id: model_id(&route.group, name),
                     model: name.into(),
@@ -428,8 +431,8 @@ fn add_image(model: &mut PricingModel, variant: ImageVariant) {
         model.billing_status = "configured";
     }
     let api = match variant.endpoint {
-        super::image_price::ImageEndpoint::Generations => "openai-images-generations",
-        super::image_price::ImageEndpoint::Edits => "openai-images-edits",
+        image_price::ImageEndpoint::Generations => "openai-images-generations",
+        image_price::ImageEndpoint::Edits => "openai-images-edits",
     };
     if !model.apis.contains(&api) {
         model.apis.push(api)
@@ -564,8 +567,8 @@ fn upstream_cost_price(quote: PriceQuote) -> UpstreamCostPrice {
 }
 
 pub(crate) fn image_variant(
-    rule: &super::image_price::ImagePriceRule,
-    quote: &super::image_price::ImageQuote,
+    rule: &image_price::ImagePriceRule,
+    quote: &image_price::ImageQuote,
 ) -> Result<ImageVariant, PricingError> {
     let n = u128::from(rule.usd_micros_per_image.numerator)
         .checked_mul(u128::from(rule.group_multiplier.numerator))
@@ -1260,10 +1263,8 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn pricing_image_surface_uses_actual_unique_provider_tariffs() {
-        use super::super::{
-            image_execution::{ImageService, ProviderSpec},
-            image_price::*,
-        };
+        use super::super::image_execution::{ImageService, ProviderSpec};
+        use image_price::*;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://unused:unused@127.0.0.1:9/unused")
             .unwrap();
@@ -1372,7 +1373,7 @@ pub(crate) mod tests {
 
     #[test]
     fn pricing_image_rational_is_effective_not_a_token_price() {
-        use super::super::image_price::*;
+        use image_price::*;
         let rule = ImagePriceRule {
             upstream_id: 1,
             vendor: "private-vendor".into(),

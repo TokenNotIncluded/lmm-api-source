@@ -2,7 +2,7 @@
 
 Rust Core 为普通文本调用提供显式按次销售价格，并为 Anthropic、Gemini 客户端提供当前可调用模型的只读列表。价格、身份、权限、预扣、终态回执和恢复均由 Core 处理；列表请求不调用供应商，也不创建预扣。
 
-实现入口是 [文本价格合同](../services/core/src/model_http/text_request_price.rs)、[计费桥接](../services/core/src/model_http/billing.rs)、[恢复](../services/core/src/model_http/checkpoints.rs)和[原生列表](../services/core/src/model_http/native_models.rs)。本文描述实现合同；开发自测、独立验收、真实供应商兼容性和部署是不同结果。
+实现入口是 [文本价格合同](../services/core/src/billing/text_request_price.rs)、[计费桥接](../services/core/src/model_http/billing.rs)、[恢复](../services/core/src/model_http/checkpoints.rs)和[原生列表](../services/core/src/model_http/native_models.rs)。本文描述实现合同；开发自测、独立验收、真实供应商兼容性和部署是不同结果。
 
 ## 启用与价格单位
 
@@ -125,7 +125,7 @@ curl 'https://YOUR_GATEWAY/v1beta/models/text-public' \
 下面命令从仓库根目录执行；PG 用例仅使用 `DATABASE_URL` 指向的隔离测试数据库和生成的受限 runtime 角色。无付费上游请求。不要将生产 URL 用于测试。
 
 ```sh
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::text_request_price::tests
+cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib billing::text_request_price::tests
 cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::billing::text_request_usage_tests
 cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::text_request_tests
 cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::native_models::tests

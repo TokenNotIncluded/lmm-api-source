@@ -1,6 +1,9 @@
 use super::Bridge;
 use crate::{
-    billing::charging::{self, Outcome, Usage},
+    billing::{
+        charging::{self, Outcome, Usage},
+        grounding_price, text_request_price,
+    },
     relay::{
         Billing, InputBlock, OutputCheckpoint, RelayError, RelayFuture, Report, Request,
         RequestContext, Reservation, Route,
@@ -37,7 +40,7 @@ pub(super) fn no_acceptance_usage(price: &charging::Price) -> Result<Usage, Rela
         grounding: price
             .grounding
             .as_ref()
-            .map(|_| super::grounding_price::GroundingUsage {
+            .map(|_| grounding_price::GroundingUsage {
                 grounded_requests: 0,
                 tool_input_tokens: None,
             }),
@@ -595,7 +598,7 @@ impl Billing for Bridge {
                             crate::routing::DeliveryState::NotSent
                                 | crate::routing::DeliveryState::Rejected
                         )) {
-                    use super::text_request_price::TextRequestUsage;
+                    use text_request_price::TextRequestUsage;
                     let receipt = if report.delivery == crate::routing::DeliveryState::Rejected {
                         TextRequestUsage::Rejected {
                             http_status: report
@@ -621,7 +624,7 @@ impl Billing for Bridge {
                     crate::routing::DeliveryState::NotSent
                         | crate::routing::DeliveryState::Rejected
                 ) {
-                    use super::text_request_price::TextRequestUsage;
+                    use text_request_price::TextRequestUsage;
                     if report.provider_complete || report.usage != crate::relay::Usage::default() {
                         return Err(RelayError::SettlementPending);
                     }
@@ -722,7 +725,7 @@ impl Billing for Bridge {
                                 &selected.price.group,
                             )?;
                             quoted_price.grounding = Some(
-                                super::grounding_price::PersistedGroundingPrice::from_quote(
+                                grounding_price::PersistedGroundingPrice::from_quote(
                                     grounding.contract.clone(),
                                     selected.quote.price(),
                                     grounding.provider_contract_revision.clone(),
@@ -962,7 +965,7 @@ pub(super) fn frozen_priced_usage(
     // @context-fold begin frozen-priced-usage
     validate_frozen_observation(contract, charge, observed)?;
     let grounding = if charge.price.grounding.is_some() {
-        let usage = super::grounding_price::GroundingUsage {
+        let usage = grounding_price::GroundingUsage {
             grounded_requests: observed
                 .google_search_grounded_requests
                 .ok_or(RelayError::SettlementPending)?,
@@ -1044,7 +1047,7 @@ fn complete_text_request_usage(observed: crate::relay::Usage) -> Result<Usage, R
         }
         None => None,
     };
-    usage.text_request = Some(super::text_request_price::TextRequestUsage::Completed);
+    usage.text_request = Some(text_request_price::TextRequestUsage::Completed);
     if !usage.valid() {
         return Err(RelayError::SettlementPending);
     }
@@ -1075,7 +1078,7 @@ mod text_request_usage_tests {
         assert_eq!(normalized.cache_creation.unwrap().twelve_hour, Some(15));
         assert_eq!(
             normalized.text_request,
-            Some(super::super::text_request_price::TextRequestUsage::Completed)
+            Some(text_request_price::TextRequestUsage::Completed)
         );
         assert!(
             complete_text_request_usage(crate::relay::Usage {

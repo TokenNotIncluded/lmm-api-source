@@ -1,7 +1,10 @@
 //! Read-only metadata from the exact immutable release installed in ModelGateway.
 //! API labels describe the gateway's bounded text/function adapter surface. They
 //! do not grant invocation, promise current health, enable SSE, or lock a price.
-use super::tool_price::{PersistedToolPrice, ToolKind};
+use crate::billing::{
+    text_request_price,
+    tool_price::{PersistedToolPrice, ToolKind},
+};
 use crate::routing::{
     BillingMode, ModelRoute, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol, ReleaseVersion,
     Router, Speed, UpstreamConfig,
@@ -281,7 +284,7 @@ impl CatalogSurface {
                         apis,
                         pricing: pricing(
                             quote,
-                            tool || super::text_request_price::TextRequestPrice::from_quote(quote)
+                            tool || text_request_price::TextRequestPrice::from_quote(quote)
                                 .is_some(),
                         )?,
                         native_cost: None,

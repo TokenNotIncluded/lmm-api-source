@@ -1,7 +1,9 @@
 //! R1 funds regressions against real identity, PostgreSQL and TransactionalLedger.
 //! Provider evidence is synthetic. No test here contacts an official model API.
 use super::*;
-use crate::billing::{charging::contract::*, transactional_ledger::TransactionalLedger};
+use crate::billing::{
+    charging::contract::*, grounding_price, transactional_ledger::TransactionalLedger,
+};
 use sqlx::postgres::{PgPoolOptions, PgSslMode};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -311,9 +313,9 @@ async fn gemini_grounding_frozen_request_fee_reaches_ledger_and_native_bill(pool
         missing_cached_tokens_is_zero: false,
         missing_cache_creation_tokens_is_zero: false,
         reservation: Default::default(),
-        grounding: Some(super::super::grounding_price::GroundingContract {
-            mode: super::super::grounding_price::GroundingMode::GroundedRequestV1,
-            tool_input: super::super::grounding_price::ToolInputSemantics::ExcludeSearchRetrievalV1,
+        grounding: Some(grounding_price::GroundingContract {
+            mode: grounding_price::GroundingMode::GroundedRequestV1,
+            tool_input: grounding_price::ToolInputSemantics::ExcludeSearchRetrievalV1,
             usd_micros_per_grounded_request: 1,
         }),
     };

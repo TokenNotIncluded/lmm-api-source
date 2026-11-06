@@ -4,38 +4,7 @@
 pub(super) mod test_support;
 
 use super::*;
-use crate::relay::provider_network::{ProviderConnection, ProviderTransport};
-use tokio::sync::Semaphore;
-
-#[derive(Clone)]
-pub(super) struct Host {
-    pub(super) gate: Arc<Semaphore>,
-    pub(super) transport: ProviderTransport,
-    parallelism: usize,
-}
-
-impl Host {
-    pub(super) fn new(limits: &Limits) -> Self {
-        let parallelism = limits.max_in_flight.min(4);
-        Self {
-            gate: Arc::new(Semaphore::new(parallelism)),
-            transport: ProviderTransport::new(parallelism),
-            parallelism,
-        }
-    }
-
-    pub(super) async fn drain(&self, grace: Duration) -> usize {
-        self.gate.close();
-        let deadline = tokio::time::Instant::now() + grace;
-        while self.gate.available_permits() < self.parallelism
-            && tokio::time::Instant::now() < deadline
-        {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        self.parallelism
-            .saturating_sub(self.gate.available_permits())
-    }
-}
+use crate::relay::provider_network::ProviderConnection;
 
 pub(super) struct Caller {
     pub(super) principal: ModelIdentity,

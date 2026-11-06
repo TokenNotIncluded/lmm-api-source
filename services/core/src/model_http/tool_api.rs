@@ -3,8 +3,8 @@
 #[path = "tool_api_tests.rs"]
 mod pg_tests;
 
-use super::tool_price::{PersistedToolPrice, ToolKind, ToolUsage};
 use super::*;
+use crate::billing::tool_price::{PersistedToolPrice, ToolKind, ToolUsage};
 use crate::{
     billing::charging,
     routing::{CreditRate, PayloadPolicy, Protocol, ReplayPermission, RouteRequest},

@@ -2694,7 +2694,7 @@ struct ModelConfig {
     #[serde(default)]
     audio_rules: Vec<crate::model_http::audio::AudioRule>,
     #[serde(default)]
-    image_prices: Option<crate::model_http::image_price::ImagePriceConfig>,
+    image_prices: Option<crate::billing::image_price::ImagePriceConfig>,
     #[serde(default)]
     image_providers: Vec<ImageProviderConfig>,
     #[serde(default)]

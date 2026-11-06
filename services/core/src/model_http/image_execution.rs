@@ -4,12 +4,12 @@
 mod api_execution;
 #[path = "image_drawing_input.rs"]
 mod drawing_input;
-use super::{
-    image_price::{ImageEndpoint, ImagePriceConfig, ImageQuote, ImageQuoteRequest, ImageUsage},
-    image_provider::ImageProvider,
-};
+use super::image_provider::ImageProvider;
 use crate::{
-    billing::charging::{Charge, Charging, Outcome, Price, Request, ReservationBasis, Usage},
+    billing::{
+        charging::{Charge, Charging, Outcome, Price, Request, ReservationBasis, Usage},
+        image_price::{ImageEndpoint, ImagePriceConfig, ImageQuote, ImageQuoteRequest, ImageUsage},
+    },
     identity::{self, BrowserAuth, CredentialKind},
     relay::Limits,
     tool_market::{

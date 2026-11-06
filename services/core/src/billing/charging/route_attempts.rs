@@ -9,7 +9,7 @@ impl Charging {
         id: &str,
         worker: &[u8; 32],
         route_id: &str,
-        receipt: crate::model_http::text_request_price::TextRequestUsage,
+        receipt: crate::billing::text_request_price::TextRequestUsage,
     ) -> Result<()> {
         if !receipt.valid() || receipt.completed_requests() != 0 {
             return Err(Error::Invalid);

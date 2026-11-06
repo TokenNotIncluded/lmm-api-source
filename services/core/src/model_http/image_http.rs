@@ -2,6 +2,7 @@
 //! in ImageService; neither a Go bearer Session nor a caller success flag grants
 //! confirmation. Cookie and origin rules follow wallet/http.rs.
 use super::image_execution::{Error, ImageService, Preview};
+use crate::html::escape;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, State},
@@ -91,20 +92,6 @@ fn check_origin(h: &HeaderMap, origin: &str) -> Result<(), Error> {
         return Err(Error::Forbidden);
     }
     Ok(())
-}
-fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 fn render(p: &Preview, csrf: &str) -> String {
     let prompt = escape(&p.input.prompt);

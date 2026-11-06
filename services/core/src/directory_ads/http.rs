@@ -1,4 +1,5 @@
 use super::*;
+use crate::html::escape;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, State},
@@ -39,13 +40,6 @@ fn cookie(h: &HeaderMap) -> Result<&str> {
         }
     }
     found.ok_or(Error::Unauthorized)
-}
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 fn secure(mut r: Response) -> Response {
     for (k, v) in [

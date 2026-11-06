@@ -1,3 +1,4 @@
+use crate::billing::{grounding_price, image_price, text_request_price, tool_price};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::{fmt, future::Future, pin::Pin};
@@ -151,13 +152,13 @@ pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<crate::model_http::audio::AudioMeteredUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text_request: Option<crate::model_http::text_request_price::TextRequestUsage>,
+    pub text_request: Option<text_request_price::TextRequestUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool: Option<crate::model_http::tool_price::ToolUsage>,
+    pub tool: Option<tool_price::ToolUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grounding: Option<crate::model_http::grounding_price::GroundingUsage>,
+    pub grounding: Option<grounding_price::GroundingUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<crate::model_http::image_price::ImageUsage>,
+    pub image: Option<image_price::ImageUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_cost_atto_usd: Option<u128>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -284,17 +285,17 @@ pub struct Price {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<crate::model_http::audio::AudioPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text_request: Option<crate::model_http::text_request_price::TextRequestPrice>,
+    pub text_request: Option<text_request_price::TextRequestPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool: Option<crate::model_http::tool_price::PersistedToolPrice>,
+    pub tool: Option<tool_price::PersistedToolPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grounding: Option<crate::model_http::grounding_price::PersistedGroundingPrice>,
+    pub grounding: Option<grounding_price::PersistedGroundingPrice>,
     /// Only a verified Core actor's transaction can mint a new entitlement.
     /// Absence remains an explicitly legacy price, including on replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_trust: Option<crate::billing::trust_pricing::FrozenTrustPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<crate::model_http::image_price::PersistedImagePrice>,
+    pub image: Option<image_price::PersistedImagePrice>,
     /// Set only by the trusted Rust router; no client or Go price authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_cost_group_ppm: Option<u32>,

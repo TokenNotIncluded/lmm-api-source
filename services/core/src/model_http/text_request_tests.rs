@@ -1,6 +1,7 @@
 //! Request-only text tariffs through real HTTP, runtime PostgreSQL and ledger.
 use super::*;
 use crate::{
+    billing::text_request_price,
     routing::{CredentialRef, Endpoint, PriceConfig, PriceSnapshot, Protocol, RoutingConfig},
     test_runtime::RuntimeRole,
 };

@@ -575,7 +575,7 @@ impl OpenAiCacheWriteDetails {
 #[serde(deny_unknown_fields)]
 pub struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool: Option<crate::model_http::tool_price::ToolUsage>,
+    pub tool: Option<crate::billing::tool_price::ToolUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub google_search_grounded_requests: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

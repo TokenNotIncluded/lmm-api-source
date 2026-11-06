@@ -2,11 +2,11 @@
 use crate::test_runtime as runtime;
 
 use crate::{
-    billing::{charging::Charging, transactional_ledger::TransactionalLedger},
-    model_http::{
-        image_execution::{DrawingInput, Error, ImageService, ProviderSpec},
-        image_price::ImagePriceConfig,
+    billing::{
+        charging::Charging, image_price::ImagePriceConfig,
+        transactional_ledger::TransactionalLedger,
     },
+    model_http::image_execution::{DrawingInput, Error, ImageService, ProviderSpec},
     relay::Limits,
 };
 use axum::{Json, Router, routing::post};

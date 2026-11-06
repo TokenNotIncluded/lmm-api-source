@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn image_and_typed_cache_cannot_share_a_receipt() {
         let mut invalid = usage(0, 0, Some(0), Some(0));
-        invalid.image = Some(crate::model_http::image_price::ImageUsage {
+        invalid.image = Some(crate::billing::image_price::ImageUsage {
             output_images: 1,
             provider_receipt_sha256: [1; 32],
         });

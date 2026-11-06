@@ -2,6 +2,7 @@
 //! authenticated administrative publication path. Inference payloads cannot
 //! override these limits. Each serving release retains its exact contract.
 use crate::{
+    billing::grounding_price,
     relay::{
         RelayError,
         honeypot_network::{literal_ip, validate_base_url},
@@ -57,7 +58,7 @@ pub struct ExternalModelContext {
     #[serde(default)]
     pub reservation: ReservationProfile,
     #[serde(default)]
-    pub grounding: Option<super::grounding_price::GroundingContract>,
+    pub grounding: Option<grounding_price::GroundingContract>,
     /// Reviewed statuses guaranteed to reject work before any generation or
     /// tool side effect. A status code alone is never this guarantee.
     #[serde(default)]
@@ -171,7 +172,7 @@ impl ProviderPolicy {
     pub(super) fn grounding_price(
         &self,
         attempt: &Attempt,
-    ) -> Result<super::grounding_price::PersistedGroundingPrice, RelayError> {
+    ) -> Result<grounding_price::PersistedGroundingPrice, RelayError> {
         let endpoint = validate_base_url(attempt.endpoint(), true)?;
         let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
         let context = self
@@ -184,7 +185,7 @@ impl ProviderPolicy {
             .ok_or(RelayError::Unsupported(
                 "Google Search requires a reviewed grounded-request contract",
             ))?;
-        super::grounding_price::PersistedGroundingPrice::from_quote(
+        grounding_price::PersistedGroundingPrice::from_quote(
             context.grounding.clone().ok_or(RelayError::Unsupported(
                 "Google Search pricing is not configured",
             ))?,
