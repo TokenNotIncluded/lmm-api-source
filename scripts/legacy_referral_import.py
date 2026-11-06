@@ -15,6 +15,8 @@ import json
 import re
 from pathlib import Path
 
+from legacy_sql import literal as lit
+
 MAX = 9007199254740991
 TERMS = ('registration_credit', 'reward_credit', 'max_reward_credit',
          'min_top_up_credit', 'max_penalty_credit')
@@ -23,16 +25,6 @@ TERMS = ('registration_credit', 'reward_credit', 'max_reward_credit',
 def digest(v):
     return hashlib.sha256(json.dumps(v, sort_keys=True, separators=(',', ':'),
                                      ensure_ascii=False).encode()).hexdigest()
-
-
-def lit(v):
-    if v is None:
-        return 'NULL'
-    if isinstance(v, bool):
-        return 'TRUE' if v else 'FALSE'
-    if isinstance(v, int):
-        return str(v)
-    return "'" + str(v).replace("'", "''") + "'"
 
 
 def jlit(v):

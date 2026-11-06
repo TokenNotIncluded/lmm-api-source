@@ -23,6 +23,8 @@ import struct
 from collections import Counter
 from pathlib import Path
 
+from legacy_sql import literal as lit
+
 PHASES = ("keys", "console")
 GUARDS = {
     "keys": "SELECT count(*) FROM core_identity.credentials WHERE kind='api_key'",
@@ -46,16 +48,6 @@ _pending: dict = {}
 
 def fail(code: str) -> None:
     raise SystemExit(f"error: {code}")
-
-
-def lit(value) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def arr(values, cast: str = "text[]") -> str:

@@ -29,21 +29,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from legacy_sql import literal as lit
+
 BACKUP_ROOT = Path.home() / ".local/state/lmm-api"
 
 
 def fail(code: str) -> None:
     raise SystemExit(f"error: {code}")
-
-
-def lit(value: Any) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def jdump(value: Any) -> str:

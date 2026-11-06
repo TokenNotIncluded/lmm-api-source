@@ -26,6 +26,8 @@ import legacy_cutover_keys as KEYS
 import legacy_cutover_money as MONEY
 import legacy_referral_import as REFERRALS
 
+from legacy_sql import literal as lit
+
 LOGIN = re.compile(r"[a-z0-9][a-z0-9_.-]{2,63}\Z")
 BCRYPT = re.compile(r"\$2[aby]\$(0[4-9]|1[0-6])\$[./A-Za-z0-9]{53}\Z")
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+\Z")
@@ -41,16 +43,6 @@ PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES +
 
 def fail(code: str) -> None:
     raise SystemExit(f"error: {code}")
-
-
-def lit(value) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def jlit(value) -> str:

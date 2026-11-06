@@ -26,6 +26,8 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
+from legacy_sql import literal as lit
+
 PHASES = ("discounts", "history", "oauth_apps", "mfa", "passkeys", "telegram", "channel_identities", "channels_history")
 GUARDS = {
     "discounts": "SELECT count(*) FROM core_migration.import_runs WHERE manifest->>'scope'='legacy-discount-facts.v1'",
@@ -47,16 +49,6 @@ TEXT_FIELDS = (("username", "username"), ("token_name", "token_name"), ("model_n
 
 def fail(code: str) -> None:
     raise SystemExit(f"error: {code}")
-
-
-def lit(value) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def canonical(value) -> str:

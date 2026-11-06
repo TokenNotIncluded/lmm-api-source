@@ -19,20 +19,12 @@ import re
 from collections import Counter, defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 
+from legacy_sql import literal as lit
+
 
 
 def fail(code: str) -> None:
     raise SystemExit(f"error: {code}")
-
-
-def lit(value) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def digest(value) -> str:
