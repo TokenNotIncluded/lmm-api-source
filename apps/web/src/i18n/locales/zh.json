@@ -9567,6 +9567,7 @@
     "Scripts updated from repository": "脚本已从仓库更新",
     "Scroll to bottom": "滚动到底部",
     "Scroll up to explore": "继续向上滚动，进入导航",
+    "Sealed inventory import is unavailable until the shop stock key is configured.": "在配置商店库存密钥之前，密封库存导入不可用。",
     "Search": "搜索",
     "Search & skills": "搜索与技能",
     "Search account roles...": "搜索账号角色……",

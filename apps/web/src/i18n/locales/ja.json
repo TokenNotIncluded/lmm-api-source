@@ -9567,6 +9567,7 @@
     "Scripts updated from repository": "リポジトリからスクリプトを更新しました",
     "Scroll to bottom": "下までスクロール",
     "Scroll up to explore": "上にスクロールして一覧へ",
+    "Sealed inventory import is unavailable until the shop stock key is configured.": "ショップの在庫鍵が設定されるまで、密封在庫のインポートは利用できません。",
     "Search": "検索",
     "Search & skills": "検索とスキル",
     "Search account roles...": "アカウントロールを検索...",

@@ -9567,6 +9567,7 @@
     "Scripts updated from repository": "腳本已從儲存庫更新",
     "Scroll to bottom": "捲動到底部",
     "Scroll up to explore": "繼續向上捲動，進入導覽",
+    "Sealed inventory import is unavailable until the shop stock key is configured.": "在設定商店庫存金鑰之前，密封庫存匯入無法使用。",
     "Search": "搜尋",
     "Search & skills": "搜尋與技能",
     "Search account roles...": "搜尋帳號角色……",

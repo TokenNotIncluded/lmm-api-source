@@ -9567,6 +9567,7 @@
     "Scripts updated from repository": "Đã cập nhật tập lệnh từ kho",
     "Scroll to bottom": "Cuộn xuống cuối",
     "Scroll up to explore": "Cuộn lên để khám phá",
+    "Sealed inventory import is unavailable until the shop stock key is configured.": "Không thể nhập kho đã niêm phong cho đến khi khóa kho của cửa hàng được cấu hình.",
     "Search": "Tìm kiếm",
     "Search & skills": "Tìm kiếm & kỹ năng",
     "Search account roles...": "Tìm vai trò tài khoản...",
