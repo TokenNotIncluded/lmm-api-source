@@ -48,9 +48,9 @@ func (h *handlers) refundAd(ctx context.Context, user string, ad *DirectoryAd) e
 	if err != nil {
 		return errUnavailable
 	}
-	receipt, err := h.s.adCore.RefundDirectoryAd(ctx, user, &pb.RefundDirectoryAdRequest{ProtocolMajor: 1, RequestId: key, PaymentId: payment})
+	receipt, err := resolveAdRefund(ctx, h.s.adCore, user, &pb.RefundDirectoryAdRequest{ProtocolMajor: 1, RequestId: key, PaymentId: payment})
 	if err != nil {
-		return adRPCError(err)
+		return err
 	}
 	if receipt == nil || receipt.GetRequestId() != key || receipt.GetPaymentId() != payment || !adDigest.MatchString(receipt.GetCommandSha256()) {
 		return errAdPending
@@ -117,6 +117,81 @@ func adRPCError(err error) error {
 		}
 	}
 	return errAdPending
+}
+
+// A lost Pay/Refund response is not a new charge. Unavailable and unknown
+// transport errors keep the original request; a missing receipt stays pending.
+func ambiguousAdRPC(err error) bool {
+	switch status.Code(err) {
+	case codes.Canceled, codes.Unknown, codes.DeadlineExceeded, codes.Internal, codes.Aborted, codes.Unavailable, codes.DataLoss:
+		return true
+	default:
+		return false
+	}
+}
+
+func adServiceReadDenied(err error) bool {
+	s, ok := status.FromError(err)
+	return ok && s.Code() == codes.PermissionDenied && s.Message() == "advertisement service permission denied"
+}
+
+func adResultReceipt(result *pb.DirectoryAdResult, err error) (*pb.DirectoryAdReceipt, error) {
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, nil
+	}
+	return result.GetReceipt(), nil
+}
+
+// observeAdReceipt reads the original command. An absent receipt is UNKNOWN and
+// does not authorize another request id. Service-level read denial falls through
+// to reconcile; a user-authority denial does not.
+func observeAdReceipt(query, reconcile func() (*pb.DirectoryAdResult, error)) (*pb.DirectoryAdReceipt, error) {
+	receipt, err := adResultReceipt(query())
+	if err != nil {
+		if !ambiguousAdRPC(err) && !adServiceReadDenied(err) {
+			return nil, adRPCError(err)
+		}
+		receipt = nil
+	}
+	if receipt != nil {
+		return receipt, nil
+	}
+	receipt, err = adResultReceipt(reconcile())
+	if err != nil || receipt == nil {
+		return nil, errAdPending
+	}
+	return receipt, nil
+}
+
+func resolveAdPayment(ctx context.Context, core DirectoryAdCore, user string, req *pb.PayDirectoryAdRequest) (*pb.DirectoryAdReceipt, error) {
+	receipt, err := core.PayDirectoryAd(ctx, user, req)
+	if err == nil {
+		return receipt, nil
+	}
+	if !ambiguousAdRPC(err) {
+		return nil, adRPCError(err)
+	}
+	return observeAdReceipt(
+		func() (*pb.DirectoryAdResult, error) { return core.QueryDirectoryAdPayment(ctx, user, req) },
+		func() (*pb.DirectoryAdResult, error) { return core.ReconcileDirectoryAdPayment(ctx, req) },
+	)
+}
+
+func resolveAdRefund(ctx context.Context, core DirectoryAdCore, user string, req *pb.RefundDirectoryAdRequest) (*pb.DirectoryAdReceipt, error) {
+	receipt, err := core.RefundDirectoryAd(ctx, user, req)
+	if err == nil {
+		return receipt, nil
+	}
+	if !ambiguousAdRPC(err) {
+		return nil, adRPCError(err)
+	}
+	return observeAdReceipt(
+		func() (*pb.DirectoryAdResult, error) { return core.QueryDirectoryAdRefund(ctx, user, req) },
+		func() (*pb.DirectoryAdResult, error) { return core.ReconcileDirectoryAdRefund(ctx, req) },
+	)
 }
 
 func (h *handlers) prepareAd(w http.ResponseWriter, r *http.Request) {
@@ -205,9 +280,9 @@ func (h *handlers) payAd(w http.ResponseWriter, r *http.Request, userID int64, i
 		return
 	}
 	request := &pb.PayDirectoryAdRequest{ProtocolMajor: 1, RequestId: in.RequestID, QuoteId: quote, ExpectedQuota: quota, ContentSha256: digest}
-	receipt, err := h.s.adCore.PayDirectoryAd(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), request)
+	receipt, err := resolveAdPayment(r.Context(), h.s.adCore, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), request)
 	if err != nil {
-		respond(w, nil, adRPCError(err))
+		respond(w, nil, err)
 		return
 	}
 	if validateAdPaymentReceipt(in.RequestID, quota, receipt) != nil || receipt.GetPaymentId() != quote {
