@@ -93,4 +93,15 @@ CREATE TABLE lmm_store.placements (
  CHECK ((body->>'expires_at')::bigint>(body->>'created_at')::bigint)
 );
 CREATE INDEX store_placements_product ON lmm_store.placements (shop_id,(body->>'product_id'));
+CREATE TABLE lmm_store.extore_flows (
+ shop_id text NOT NULL, id text NOT NULL, body jsonb NOT NULL,
+ PRIMARY KEY(shop_id,id), CHECK(jsonb_typeof(body)='object'),
+ CHECK ((body->>'user_id')::bigint>0), CHECK ((body->>'expires_at')::bigint>0)
+);
+CREATE TABLE lmm_store.extore_connections (
+ shop_id text NOT NULL, id text NOT NULL, body jsonb NOT NULL,
+ PRIMARY KEY(shop_id,id), CHECK(jsonb_typeof(body)='object'),
+ CHECK (body->>'ciphertext' LIKE 'v1:%'), CHECK ((body->>'expires_at')::bigint>0)
+);
+CREATE INDEX store_extore_connections_shop ON lmm_store.extore_connections (shop_id,(body->>'shop_id'));
 COMMIT;

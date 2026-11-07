@@ -54,6 +54,8 @@ type Config struct {
 	DirectoryAdTokenFile          string
 	Store                         StorageConfig
 	StoreStockKeyFile             string
+	StoreExtoreKeyFile            string
+	StoreExtoreRedirectURI        string
 	Support                       StorageConfig
 	Assistant                     StorageConfig
 	AssistantCursorKeyFile        string
@@ -299,6 +301,18 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 			if err := r.Store.WithStockKey(key); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.StoreExtoreKeyFile != "" {
+			key, keyErr := coreclient.ReadPrivateFile(cfg.StoreExtoreKeyFile, 32)
+			if keyErr != nil || len(key) != 32 {
+				return nil, errors.New("store Extore key must contain exactly 32 bytes")
+			}
+			if err := independentRuntimeCredentials(key, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
+				return nil, err
+			}
+			if err := r.Store.WithExtore(cfg.StoreExtoreRedirectURI, key); err != nil {
 				return nil, err
 			}
 		}

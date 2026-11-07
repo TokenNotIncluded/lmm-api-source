@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -210,6 +211,9 @@ func Page(limit int) bool { return limit > 0 && limit <= 100 }
 
 type Service struct {
 	stock              *stockCipher
+	extore             *extoreCipher
+	extoreRedirect     string
+	extoreHTTP         *http.Client
 	repo               Repository
 	auth               Authority
 	funds              Funds

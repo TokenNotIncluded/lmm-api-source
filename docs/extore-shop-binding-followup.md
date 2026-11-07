@@ -4,24 +4,18 @@
 
 ## 状态与边界
 
-2026-10-12 已核对 Git：两端代码已推送，未合并、未部署，尚未完成验收。
-本轮只记录任务，不修复功能、不重跑应用测试，不将旧测试结果视为当前验收。
+2026-11-07 续作：用户授权推进 Extore 绑定；仍禁止合并或推送 Extore `main`
+（会自动部署）。旧缓存工作区已不存在；旧单体候选提交保留为移植源。
 
-- 商城分支 `feat/extore-shop-binding-20261012`，提交
-  `5c63dd5d03cb7561c7b32d84b9f9a81f16594fde`。
-- 商城工作区 `/home/lightjunction/.cache/api-extore-shop-binding-20261012`。
-  当前有未跟踪的 `node_modules`，不得覆盖或混入提交。
-- Extore 分支 `feat/shop-binding-20261012`，提交
-  `570dff7315e6f5d9e55dd61ee2dcad3dec4b0656`。
-- Extore 仓库 `/home/lightjunction/Documents/GITHUB/extore`，本次检查工作区干净。
-- 商城 `apps/extore` 是 Git 子模块，已核对固定到上述 Extore 提交。
-- 原商城目录 `/home/lightjunction/Documents/GITHUB/api.lmm.best` 有其他任务的
-  未提交修改：禁止覆盖、清理或混入本任务。本轮没有修改该目录。
+- Extore 任务分支 `feat/shop-binding-20261012`，当前
+  `a7b9cfd`（含 public marketplace 脱敏与 sync_revision 排除卡密统计）。
+- 旧商城绑定候选 `5c63dd5d03cb7561c7b32d84b9f9a81f16594fde`（父仓历史，非微服务
+  main）。其 `apps/api-go/internal/extore` 已移植到微服务
+  `services/extensions/internal/extore`；authorize/catalog 已挂到 store。
+- 微服务仍缺：持久连接列表、按源同步、上游只读编辑限制、绑定 UI 替换旧
+  草稿导入页。配置需 `store.extore_key_file` + `store.extore_redirect_uri`。
 
-**禁止部署；尤其禁止合并或推送 Extore `main`，用户指出这会自动部署。**
-商城的默认开发主线现为微服务分支，不表示这份基于旧单体的功能代码已经移植。
-续作前先读各工作区的 AGENTS.md（如存在）、父目录指引，检查本地和远端状态，
-确认旧实现与 `services/extensions`、Rust 核心的接口归属，保留两端原候选。
+**禁止部署；尤其禁止合并或推送 Extore `main`。**
 不能把旧单体的配置、凭据或资金权限直接接回微服务核心。
 
 ## 最终体验与安全条件
@@ -46,22 +40,16 @@ OAuth 长期连接、`marketplace.sync` 独立权限、Extore 商品/规格配�
 
 ## 剩余工作
 
-1. 检查并阻止 Extore `public_product` 暴露 marketplace 配置，尤其规格
-   `fixed_content`；验证只有授权范围可以读取。
-2. 商品 `sync_revision` 排除全部卡密统计。同配置再次同步只更新统计和时间，
-   不重置商品审核状态。
-3. 连接令牌刷新写入补齐 writer fence（写入权限栅栏）、事务和并发保护；验证
-   撤销、到期、跨店铺访问、刷新失败处理。
-4. 补齐所有商品配置修改入口的上游只读限制；明确空值、清空配置、精确价格映射。
-5. 修复前端类型错误、更新旧导入测试。授权回调失败不得重放已消费 code，须重新
-   授权。查询缓存包含用户身份；成功后返回商品列表。
-6. 核对私密绑定 ID 的商城接入端是否仍需补全；主要入口采用跳转 Extore 勾选批准。
-7. 更新协议 schema、接口契约、文档与多语言文案。
-8. 本地集成测试覆盖登录授权、角色/店铺隔离、多规格首次导入、重复同步不重复
-   创建且不重置审核、配置更新、卡密统计、撤销到期、凭据不泄露；补充并发与失败
-   后持久化状态检查，不用固定成功替身证明真实授权或数据库行为。
-9. 本地验收通过后提交推送，并更新商城子模块指针。先推送 Extore 任务分支并核对
-   提交，再记录其固定指针；仍不合并 Extore `main`，不部署。
+1. ~~检查并阻止 Extore `public_product` 暴露 marketplace~~（`a7b9cfd`）。
+2. ~~`sync_revision` 排除卡密统计~~（`a7b9cfd`）；商城侧同步仍须不重置审核。
+3. 微服务连接令牌刷新 writer fence、事务和并发保护；验证撤销、到期、跨店铺、
+   刷新失败。
+4. 商品配置修改入口的上游只读限制；空值、清空配置、精确价格映射。
+5. 用绑定 UI（自动导入全部规格 + 同步）替换当前草稿导入页；更新测试与文案。
+6. 持久连接列表 / 按 `source_id` 同步 / 来源映射表接到 store。
+7. 更新协议 schema、接口契约与多语言文案。
+8. 本地集成测试（授权、隔离、多规格、重复同步、卡密统计、撤销、凭据不泄露）。
+9. 仍不合并 Extore `main`，不部署；记录固定 Extore 任务分支指针。
 
 ## 交接时的检查结果（未由本轮重跑）
 

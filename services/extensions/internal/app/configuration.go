@@ -57,12 +57,15 @@ type DatabaseConfig struct {
 	DatabaseURLFile string `toml:"database_url_file"`
 }
 
-// StoreConfig is the shop storage pool plus an optional dedicated stock seal key.
-// stock_key_file is a private raw 32-byte file, never shared with Core tokens.
+// StoreConfig is the shop storage pool plus optional dedicated seal keys.
+// stock_key_file and extore_key_file are private raw 32-byte files, never shared
+// with Core tokens or each other.
 type StoreConfig struct {
-	DatabaseName    string `toml:"database_name"`
-	DatabaseURLFile string `toml:"database_url_file"`
-	StockKeyFile    string `toml:"stock_key_file"`
+	DatabaseName      string `toml:"database_name"`
+	DatabaseURLFile   string `toml:"database_url_file"`
+	StockKeyFile      string `toml:"stock_key_file"`
+	ExtoreKeyFile     string `toml:"extore_key_file"`
+	ExtoreRedirectURI string `toml:"extore_redirect_uri"`
 }
 type LegalConfig struct {
 	ConfigFile string `toml:"config_file"`
@@ -138,7 +141,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	}
 	// The decoder's struct matching also accepts case variants. Only canonical
 	// names belong to this versioned operator contract.
-	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "store.stock_key_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
+	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "store.stock_key_file": true, "store.extore_key_file": true, "store.extore_redirect_uri": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
 		if paymentConfigurationKey(key.String()) || toolMarketConfigurationKey(key.String()) || supportCustomersConfigurationKey(key.String()) {
 			continue
@@ -170,7 +173,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}
@@ -184,10 +187,30 @@ func LoadConfig(path string) (GoConfig, error) {
 	if cfg.Store.StockKeyFile != "" && (cfg.Store.DatabaseName == "" || cfg.Store.DatabaseURLFile == "") {
 		return cfg, errors.New("store stock_key_file requires configured store database_name and database_url_file")
 	}
-	if cfg.Store.StockKeyFile != "" {
+	if (cfg.Store.ExtoreKeyFile == "") != (cfg.Store.ExtoreRedirectURI == "") {
+		return cfg, errors.New("configure both store extore_key_file and extore_redirect_uri")
+	}
+	if cfg.Store.ExtoreKeyFile != "" && (cfg.Store.DatabaseName == "" || cfg.Store.DatabaseURLFile == "") {
+		return cfg, errors.New("store Extore import requires configured store database_name and database_url_file")
+	}
+	if cfg.Store.ExtoreRedirectURI != "" {
+		if !strings.HasPrefix(cfg.Store.ExtoreRedirectURI, "https://") || strings.ContainsAny(cfg.Store.ExtoreRedirectURI, " \t\r\n") {
+			return cfg, errors.New("store extore_redirect_uri must be an https callback")
+		}
+	}
+	if cfg.Store.StockKeyFile != "" && cfg.Store.ExtoreKeyFile != "" && cfg.Store.StockKeyFile == cfg.Store.ExtoreKeyFile {
+		return cfg, errors.New("store seal keys must be independent private paths")
+	}
+	for _, secret := range []struct {
+		path string
+		name string
+	}{{cfg.Store.StockKeyFile, "store stock_key_file"}, {cfg.Store.ExtoreKeyFile, "store extore_key_file"}} {
+		if secret.path == "" {
+			continue
+		}
 		for _, other := range []string{cfg.Host.TokenFile, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.PaymentTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.UserReadTokenFile, cfg.Store.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.ToolMarket.EncryptionKeyFile, cfg.ToolMarket.CoreTokenFile} {
-			if other != "" && other == cfg.Store.StockKeyFile {
-				return cfg, errors.New("store stock_key_file must be an independent private path")
+			if other != "" && other == secret.path {
+				return cfg, errors.New(secret.name + " must be an independent private path")
 			}
 		}
 	}

@@ -49,6 +49,10 @@ type storeLikesService interface {
 	ProductLikes(context.Context, string, int64) (map[string]any, error)
 	SetProductLike(context.Context, string, int64, string, bool) (map[string]any, error)
 }
+type storeExtoreService interface {
+	ExtoreAuthorize(context.Context, string, int64, string, string) (map[string]any, error)
+	ExtoreCatalog(context.Context, string, int64, string) (any, error)
+}
 type storePickupService interface {
 	Pickup(context.Context, string, int64, string, string, bool) (map[string]any, error)
 }
@@ -183,6 +187,72 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		value, err := port.PublicProductTerms(r.Context(), actor, r.PathValue("id"))
 		Respond(w, value, err)
 	}))
+
+	mux.HandleFunc("POST /api/store/extore/authorize", func(w http.ResponseWriter, r *http.Request) {
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if store.Missing(service) {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		port, ok := service.(storeExtoreService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		body, err := storeBody(w, r, 4<<10, true)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		var in struct {
+			BaseURL  string `json:"base_url"`
+			ClientID string `json:"client_id"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&in) != nil || decoder.Decode(new(any)) != io.EOF {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		value, err := port.ExtoreAuthorize(r.Context(), bearer(r), self.GetUserId(), in.BaseURL, in.ClientID)
+		Respond(w, value, err)
+	})
+	mux.HandleFunc("POST /api/store/extore/catalog", func(w http.ResponseWriter, r *http.Request) {
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if store.Missing(service) {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		port, ok := service.(storeExtoreService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		body, err := storeBody(w, r, 16<<10, true)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		var in struct {
+			CallbackURL string `json:"callback_url"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&in) != nil || decoder.Decode(new(any)) != io.EOF {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		value, err := port.ExtoreCatalog(r.Context(), bearer(r), self.GetUserId(), in.CallbackURL)
+		Respond(w, value, err)
+	})
 
 	mux.HandleFunc("GET /api/store/products/{id}/likes", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
 		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {

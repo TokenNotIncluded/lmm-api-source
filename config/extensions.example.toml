@@ -42,6 +42,10 @@ max_in_flight = 16
 # Optional private raw 32-byte seal key for per-unit stock contents. Omit to
 # keep stock import disabled; never reuse Core or host credential bytes.
 # stock_key_file = "/etc/lmm.conf.d/secrets/extensions/store-stock-key"
+# Optional Extore authorize/catalog. Both fields are required together. The
+# redirect URI must be the public https origin plus /store/manage.
+# extore_key_file = "/etc/lmm.conf.d/secrets/extensions/store-extore-key"
+# extore_redirect_uri = "https://api.example/store/manage"
 # [support]
 # database_name = "lmm_support"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/support-database-url"
