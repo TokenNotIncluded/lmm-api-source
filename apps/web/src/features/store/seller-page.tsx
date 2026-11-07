@@ -789,6 +789,7 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
             query.data?.items.find((product) => product.id === inventory.id) ||
             inventory
           }
+          stockItemsSupported={config.data?.stock_items_supported === true}
           onClose={() => setInventory(null)}
           onChanged={async () => {
             await Promise.all([
@@ -1674,11 +1675,13 @@ export function StoreProductEditor({
 }
 export function StoreInventoryImport({
   product,
+  stockItemsSupported = false,
   onClose,
   onSaved,
   onChanged,
 }: {
   product: StoreProduct
+  stockItemsSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
   onChanged?: () => Promise<void>
@@ -1770,6 +1773,12 @@ export function StoreInventoryImport({
               {(variant?.template ?? product.template) === 'fixed-content' ? (
                 <p className='text-muted-foreground text-sm'>
                   {t(fixedCopy.noImport)}
+                </p>
+              ) : !stockItemsSupported ? (
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'Sealed inventory import is unavailable until the shop stock key is configured.'
+                  )}
                 </p>
               ) : (
                 <StoreInventoryContent

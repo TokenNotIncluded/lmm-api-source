@@ -221,6 +221,7 @@ export interface StoreConfig {
   extore_import_supported?: boolean
   extore_redirect_uri?: string
   fixed_content_supported?: boolean
+  stock_items_supported?: boolean
   fee_bps: number
   promotion_quota: number
   product_test_mode_supported?: boolean
