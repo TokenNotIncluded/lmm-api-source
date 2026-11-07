@@ -546,23 +546,6 @@ export function consolePageFixture(
       },
     }
   }
-  if (path === '/api/ai-directory/ads/quote') {
-    const bidCents = Number(url.searchParams.get('bid_cents'))
-    if (!Number.isInteger(bidCents) || bidCents < 100 || bidCents > 1_000_000) {
-      return undefined
-    }
-    return {
-      success: true,
-      data: {
-        bid_cents: bidCents,
-        quota: bidCents * 5000,
-        currency: 'USD',
-        duration_days: 30,
-        min_bid_cents: 100,
-        max_bid_cents: 1_000_000,
-      },
-    }
-  }
   if (path === '/api/todos') {
     const category = url.searchParams.get('category') || 'all'
     return {

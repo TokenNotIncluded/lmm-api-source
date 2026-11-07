@@ -183,21 +183,24 @@ func (h *handlers) listAds(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]any{"items": ads, "has_more": more, "next_offset": offset + len(ads)}, nil)
 }
 
-// Prices are quoted in Core wallet credits, and placements charge the Core
-// wallet. Neither the USD→credit rate nor a charge/refund command is available
-// to extensions, so new paid placements stay disabled.
+// Returned when DirectoryAd Core is not configured on this host. Prepare and
+// pay paths share it; the retired GET quote endpoint uses errAdQuoteRetired.
 var errAdPaymentUnavailable = &apiError{http.StatusServiceUnavailable, "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE", "Paid advertisements are temporarily unavailable"}
+
+// GET /api/ai-directory/ads/quote cannot carry draft content or a stable
+// request_id. Clients must POST /api/ai-directory/ads/prepare.
+var errAdQuoteRetired = &apiError{http.StatusGone, "AI_DIRECTORY_AD_QUOTE_RETIRED", "Use POST /api/ai-directory/ads/prepare with the advertisement draft"}
 
 func (h *handlers) quoteAd(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.user(r); err != nil {
 		respond(w, nil, err)
 		return
 	}
-	respond(w, nil, errAdPaymentUnavailable)
+	respond(w, nil, errAdQuoteRetired)
 }
 
-// POST /api/ai-directory/ads only replays an already paid request; a new
-// placement fails before any charge.
+// POST /api/ai-directory/ads replays a paid request_id, or pays a prepared draft
+// through DirectoryAd Core when AdCore is configured.
 func (h *handlers) createAd(w http.ResponseWriter, r *http.Request) {
 	actor, err := h.user(r)
 	if err != nil {

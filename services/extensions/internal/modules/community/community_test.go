@@ -117,6 +117,29 @@ func (f fakeAuth) VerifyAPIKey(_ context.Context, r *http.Request) (*pb.Authoriz
 	return a, err
 }
 
+func TestQuoteAdRetired(t *testing.T) {
+	h := &handlers{
+		s: &Service{},
+		auth: fakeAuth{
+			"user": {UserId: 1, PlatformLevel: 1, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_SESSION},
+		},
+	}
+	req := httptest.NewRequest("GET", "/api/ai-directory/ads/quote", nil)
+	req.Header.Set("Authorization", "Bearer user")
+	rec := httptest.NewRecorder()
+	h.quoteAd(rec, req)
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status: %d %s", rec.Code, rec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["code"] != "AI_DIRECTORY_AD_QUOTE_RETIRED" {
+		t.Fatalf("body: %v", out)
+	}
+}
+
 // TestPostgresHTTP needs COMMUNITY_TEST_DSN: a fresh database with schema.sql
 // installed. It is skipped otherwise and is not persistence evidence then.
 func TestPostgresHTTP(t *testing.T) {
@@ -168,7 +191,10 @@ func TestPostgresHTTP(t *testing.T) {
 		t.Fatalf("links: %v", out)
 	}
 	if code, out := call("POST", "/api/ai-directory/ads", "user", `{"name":"n","url":"https://x.com","summary":"","description":"","bid_cents":100,"expected_quota":1,"request_id":"aaaaaaaaaaaaaaaaaaaa"}`); code != 503 || out["code"] != "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE" {
-		t.Fatalf("new paid ad must stay disabled: %d %v", code, out)
+		t.Fatalf("new paid ad without DirectoryAd Core must stay disabled: %d %v", code, out)
+	}
+	if code, out := call("GET", "/api/ai-directory/ads/quote", "user", ""); code != 410 || out["code"] != "AI_DIRECTORY_AD_QUOTE_RETIRED" {
+		t.Fatalf("legacy quote endpoint: %d %v", code, out)
 	}
 	if code, _ := call("GET", "/api/user/self/profile-share", "", ""); code != 401 {
 		t.Fatalf("anonymous share state: %d", code)
