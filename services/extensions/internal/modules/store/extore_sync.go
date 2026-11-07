@@ -328,7 +328,16 @@ func extoreSyncMessage(err error) string {
 
 func extoreUSDCredits(raw string) (int64, error) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if raw == "" || len(raw) > 100 {
+		return 0, ErrInvalid
+	}
+	for i, ch := range raw {
+		if ch >= '0' && ch <= '9' {
+			continue
+		}
+		if ch == '.' && i > 0 && i < len(raw)-1 && !strings.ContainsRune(raw[:i], '.') {
+			continue
+		}
 		return 0, ErrInvalid
 	}
 	r := new(big.Rat)

@@ -5,68 +5,48 @@
 ## 状态与边界
 
 2026-11-07 续作：用户授权推进 Extore 绑定；仍禁止合并或推送 Extore `main`
-（会自动部署）。旧缓存工作区已不存在；旧单体候选提交保留为移植源。
+（会自动部署）。
 
-- Extore 任务分支 `feat/shop-binding-20261012`，当前
-  `a7b9cfd`（含 public marketplace 脱敏与 sync_revision 排除卡密统计）。
-- 旧商城绑定候选 `5c63dd5d03cb7561c7b32d84b9f9a81f16594fde`（父仓历史，非微服务
-  main）。其 `apps/api-go/internal/extore` 已移植到微服务
-  `services/extensions/internal/extore`。
-- 微服务已挂：authorize、callback 自动同步、连接列表、按连接拉目录、按
-  `source_id` 同步、刷新 fence、上游只读编辑限制、自动导入+同步 UI。
-  配置需 `store.extore_key_file` + `store.extore_redirect_uri`。
-- 本地集成测试、多语言文案、协议 schema 对齐与生产验收仍未完成。
+- Extore 任务分支 `feat/shop-binding-20261012`：协议 schema 已补
+  `marketplace.sync` / `sync_revision` / `card_summary` 文档对齐（本机已测
+  `tests/test_commerce_schema.py` + oauth 相关用例）。
+- 微服务源码已挂 authorize、callback 自动同步、连接列表、按源同步、刷新
+  fence、上游只读、自动导入 UI、多语言文案与定向单测。
+- 配置需 `store.extore_key_file` + `store.extore_redirect_uri`。
+- 端到端联调、生产配置与正式验收仍未完成。
 
 **禁止部署；尤其禁止合并或推送 Extore `main`。**
-不能把旧单体的配置、凭据或资金权限直接接回微服务核心。
 
 ## 最终体验与安全条件
 
 商城点击导入 → 自动跳转 Extore → 未登录先登录 → 勾选商品并批准 →
 自动导入所有规格 → 返回商城商品列表。
 
-- 超级管理员可选择所有店铺商品；店长只可访问自己的店铺。
 - 导入商品显示来源、同步按钮和上次同步时间。
-- 重复同步更新原商品和规格，不重复创建。
-- Extore 是商品配置的真相源。商城所有商品和规格配置都须能在 Extore
-  配置并一一对应；导入商品不得通过商城编辑绕过上游配置。
-- 展示卡密状态、数量；同步不自动发行或补货卡密，保留原有发行权限、
-  额度和幂等保护。
-- 连接撤销、到期和跨店铺隔离须有效。
-- 凭据仅由后端加密保存，不回传浏览器、不写日志。
+- 重复同步更新原商品和规格，不重复创建；同 revision 只刷新卡密统计。
+- Extore 是商品配置的真相源；导入商品不得通过商城编辑绕过上游。
+- 同步不自动发行或补货卡密。
+- 连接撤销、到期和跨店铺隔离须有效；凭据不回浏览器、不写日志。
 
-## 已有实现（用户交接说明，非本轮验收结论）
-
-OAuth 长期连接、`marketplace.sync` 独立权限、Extore 商品/规格配置、
-随机私密绑定 ID、商城加密连接与稳定商品/规格映射、自动导入和再次同步 UI。
-微服务侧对应入口：
+## 微服务入口
 
 - `POST /api/store/extore/authorize`
-- `POST /api/store/extore/catalog`（callback 后写入连接并同步全部 listing）
+- `POST /api/store/extore/catalog`
 - `GET /api/store/extore/connections`
 - `GET /api/store/extore/connections/{id}/catalog`
 - `POST /api/store/extore/connections/{id}/sync`
 
 ## 剩余工作
 
-1. ~~检查并阻止 Extore `public_product` 暴露 marketplace~~（`a7b9cfd`）。
-2. ~~`sync_revision` 排除卡密统计~~（`a7b9cfd`）；同 revision 仅更新
-   `card_summary` / 同步时间，不重置审核。
-3. ~~微服务连接令牌刷新 writer fence~~（`refresh_pending` + version CAS）；
-   仍须实测撤销、到期、跨店铺、刷新失败。
-4. ~~商品配置修改入口的上游只读限制~~（`STORE_EXTORE_SOURCE_MANAGED`）；
-   仍须补空值、清空配置、精确价格映射用例。
-5. ~~用绑定 UI（自动导入全部规格 + 同步）替换草稿导入页~~；文案与测试仍需
-   对齐。
-6. ~~持久连接列表 / 按 `source_id` 同步 / 来源映射表接到 store~~。
-7. 更新协议 schema、接口契约与多语言文案。
-8. 本地集成测试（授权、隔离、多规格、重复同步、卡密统计、撤销、凭据不泄露）。
-9. 仍不合并 Extore `main`，不部署；记录固定 Extore 任务分支指针。
+1. ~~协议 schema 文档与 live schema 对齐~~（含 `marketplace.sync`、
+   `sync_revision`、`card_summary`）。
+2. ~~微服务连接刷新 fence / 上游只读 / 绑定 UI / 映射表 / 定向单测 / 文案~~。
+3. 端到端联调：真实 Extore 授权、隔离、多规格、重复同步、撤销、凭据不泄露。
+4. 生产配置与部署验收（另批）；仍不合并 Extore `main`。
 
-## 交接时的检查结果（未由本轮重跑）
+## 本轮检查
 
-- Extore：56 通过、1 失败；失败为协议 schema 文件未更新。
-- 商城前端类型检查与集成测试本轮未作为验收重跑。
-- Go `services/extensions` 已本地 `go build ./...`；未声称业务验收通过。
-
-后续记录实际命令、实测提交/未提交差异、结果、日志与跳过项；未验收项保持未完成。
+- `go test ./internal/modules/store/ -run Extore`：通过。
+- `bun test` Extore import/sync 前端定向用例：通过。
+- Extore `tests/test_commerce_schema.py` + oauth 相关：本机通过。
+- 未跑生产部署，未声称业务验收完成。
