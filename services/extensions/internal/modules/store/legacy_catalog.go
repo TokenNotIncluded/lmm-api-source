@@ -584,6 +584,9 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		if row.Owner != actor {
 			return nil, ErrForbidden
 		}
+		if err := s.requireLocalProductSource(ctx, actor, r.ID); err != nil {
+			return nil, err
+		}
 		shop = Shop{ID: row.ShopID, Owner: row.Owner}
 		p = row.Product
 		if p.Legacy == nil {
@@ -695,6 +698,9 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 }
 
 func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row LocatedProduct, r LegacyRequest) (any, error) {
+	if err := s.requireLocalProductSource(ctx, actor, row.Product.ID); err != nil {
+		return nil, err
+	}
 	var out Variant
 	err := s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
 		var p Product

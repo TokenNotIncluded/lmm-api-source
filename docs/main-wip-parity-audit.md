@@ -227,9 +227,11 @@ RT16 的 `apps/web/scripts/rt16-markdown-entry.tsx` 和根目录
    reservation TTL 释放优惠名额，包含可恢复的 Waffo timeout。WIP promotions 是
    窄奖励/优惠 RPC 合同，不能证明原充值订单、provider 晚到回调和优惠占位语义
    已接入；需要支付/账本联合验收。
-8. **商城 Extore 接入未进入微服务宿主（A06）。** WIP 商店 PublicConfig 明确返回
-   `extore_import_supported:false`。main 历史上的持久 merchant key 修复
-   `a8d2e710a` 不能替代现在的长期 OAuth 连接。新的双仓候选及全部验收缺项见
+8. **商城 Extore 绑定已接入微服务宿主，尚未验收（A06）。** 配置
+   `extore_key_file`/`extore_redirect_uri` 后 PublicConfig 返回
+   `extore_import_supported:true`。连接列表、callback 自动同步、按源同步与
+   上游只读限制已挂接；main 历史上的持久 merchant key 修复 `a8d2e710a` 不能
+   替代长期 OAuth 连接。验收缺项见
    [独立交接](extore-shop-binding-followup.md)、#894；禁止部署。
 9. **助手完整执行/上下文与旧工具合同未接入（A08）。** main `a3ff114f1` 要求短
    上下文也检查 tool exchanges；另有客户配置指引和 portal request schema 更新。

@@ -246,7 +246,7 @@ func storageTables(component string) []storageTable {
 	case "toolmarket":
 		add("lmm_toolmarket.snapshot", "SELECT", "UPDATE")
 	case "store":
-		for _, name := range []string{"shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations", "stock_items", "product_likes", "placements", "extore_flows", "extore_connections"} {
+		for _, name := range []string{"shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations", "stock_items", "product_likes", "placements", "extore_flows", "extore_connections", "extore_products"} {
 			add("lmm_store."+name, "SELECT", "INSERT", "UPDATE")
 		}
 		// Traffic retention removes expired day rows and dedupe receipts.

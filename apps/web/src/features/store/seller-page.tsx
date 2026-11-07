@@ -53,7 +53,11 @@ import {
 import { extoreCallbackURL, clearExtoreCallbackURL } from './extore-callback'
 import { StoreExtoreImport } from './extore-import'
 import { EXTORE_COPY as extoreCopy } from './extore-import-copy'
-import type { ExtoreDraft } from './extore-import-protocol'
+import {
+  StoreExtoreConnections,
+  StoreExtoreProductSync,
+  StoreExtoreSourceNotice,
+} from './extore-sync'
 import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { StoreFixedContentEditor } from './fixed-content-editor'
 import { StoreInventoryComposer } from './inventory-composer'
@@ -153,7 +157,6 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
   const [extoreCallback, setExtoreCallback] = useState(extoreCallbackURL)
   const [importing, setImporting] = useState(!!extoreCallback)
-  const [importedDraft, setImportedDraft] = useState<ExtoreDraft | null>(null)
   useEffect(() => {
     if (extoreCallback) {
       clearExtoreCallbackURL()
@@ -310,7 +313,6 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
           </Button>
           <Button
             onClick={() => {
-              setImportedDraft(null)
               setEditing('new')
             }}
           >
@@ -318,6 +320,7 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
           </Button>
         </div>
       </div>
+      <StoreExtoreConnections />
       <StoreError
         error={error || query.error}
         retry={() => void query.refetch()}
@@ -372,6 +375,7 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
                       )}
                     </div>
                     <div className='flex flex-wrap gap-2 [&_button]:min-h-10 [&_button]:rounded-full'>
+                      <StoreExtoreProductSync productId={product.id} />
                       <Button
                         size='sm'
                         variant='outline'
@@ -690,19 +694,16 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
         ) : config.data?.extore_import_supported &&
           config.data.extore_redirect_uri ? (
           <StoreExtoreImport
-            userId={user.id}
             callbackUrl={extoreCallback}
-            redirectUri={config.data.extore_redirect_uri}
-            accessSupported={config.data.store_access_supported === true}
             onClose={() => {
               setImporting(false)
               setExtoreCallback(null)
             }}
-            onImport={(draft) => {
-              setImportedDraft(draft)
-              setImporting(false)
-              setExtoreCallback(null)
-              setEditing('new')
+            onImported={() => {
+              void client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              })
+              void client.invalidateQueries({ queryKey: ['store', 'extore'] })
             }}
           />
         ) : (
@@ -743,9 +744,6 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
         <StoreProductEditor
           key={editing === 'new' ? 'new' : editing.id}
           product={editing === 'new' ? undefined : editing}
-          importedDraft={
-            editing === 'new' ? (importedDraft ?? undefined) : undefined
-          }
           allowedMethods={allowedMethods}
           minimumPriceQuota={config.data?.minimum_unit_price_quota}
           linkPresets={config.data?.product_link_presets}
@@ -878,7 +876,6 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
 }
 export function StoreProductEditor({
   product,
-  importedDraft,
   allowedMethods,
   minimumPriceQuota,
   linkPresets = [],
@@ -893,7 +890,6 @@ export function StoreProductEditor({
   onSaved,
 }: {
   product?: StoreProduct
-  importedDraft?: ExtoreDraft
   allowedMethods: StorePaymentMethod[]
   minimumPriceQuota?: number
   linkPresets?: StoreLinkPreset[]
@@ -932,29 +928,28 @@ export function StoreProductEditor({
     t('Default variant')
   )
   const [newVariants, setNewVariants] = useState<StoreNewVariantDraft[]>([])
-  const initialProduct = product ?? importedDraft?.fields
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
-    ...initialProduct,
+    ...product,
     // Unknown prices stay invalid until the editor receives a verified input.
-    price_quota: initialProduct?.price_quota ?? Number.NaN,
+    price_quota: product?.price_quota ?? Number.NaN,
     // Existing variant read DTOs are not create/update inputs.
-    variants: product ? undefined : importedDraft?.fields.variants,
-    visibility: storeVisibility(initialProduct || {}),
-    purchase_login_required: storePurchaseLoginRequired(initialProduct || {}),
-    links: initialProduct?.links?.map((link) => ({ ...link })) || [],
-    image_urls: [...(initialProduct?.image_urls || [])],
+    variants: undefined,
+    visibility: storeVisibility(product || {}),
+    purchase_login_required: storePurchaseLoginRequired(product || {}),
+    links: product?.links?.map((link) => ({ ...link })) || [],
+    image_urls: [...(product?.image_urls || [])],
   }))
   const [confirmAccountCollection, setConfirmAccountCollection] =
     useState(false)
   const [logoImage, setLogoImage] = useState(
-    storeImageEditorText(initialProduct?.image_urls?.[0] || '')
+    storeImageEditorText(product?.image_urls?.[0] || '')
   )
   const [headerImage, setHeaderImage] = useState(
-    storeImageEditorText(initialProduct?.image_urls?.[1] || '')
+    storeImageEditorText(product?.image_urls?.[1] || '')
   )
   const [images, setImages] = useState(
-    (initialProduct?.image_urls || []).slice(2).join('\n')
+    (product?.image_urls || []).slice(2).join('\n')
   )
   const fixedContent = useStoreFixedContentDraft(
     product?.id,
@@ -1120,27 +1115,7 @@ export function StoreProductEditor({
               : 'Save a draft first. Submit it after adding stock and configuring payment methods.'
           )}
         </DialogDescription>
-        {importedDraft && !product && (
-          <div className='space-y-2 text-sm'>
-            <p className='text-muted-foreground'>
-              {t(extoreCopy.reference)}:{' '}
-              {importedDraft.referencePrice
-                ? `${importedDraft.referencePrice} ${importedDraft.referenceCurrency}`
-                : t(extoreCopy.unknownPrice)}
-            </p>
-            <p>{t(extoreCopy.draftHelp)}</p>
-            <details>
-              <summary className='text-muted-foreground cursor-pointer py-2'>
-                {t(extoreCopy.source)}
-              </summary>
-              <p className='text-xs break-all'>
-                {importedDraft.source.issuer} / {importedDraft.source.shopId} /{' '}
-                {importedDraft.source.productId} /{' '}
-                {importedDraft.source.variantId}
-              </p>
-            </details>
-          </div>
-        )}
+        {product ? <StoreExtoreSourceNotice productId={product.id} /> : null}
         <form onSubmit={(event) => void save(event)} className='space-y-5'>
           <StoreError error={error} />
           <div className='grid gap-4 sm:grid-cols-2'>

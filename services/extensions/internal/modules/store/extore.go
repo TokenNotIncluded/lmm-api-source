@@ -210,16 +210,17 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 	if err != nil {
 		return nil, mapExtoreErr(err)
 	}
+	connectionID := ID(extorePurpose, "connection", userID, flow.Origin, catalog.Shop.ID)
 	secret, err := json.Marshal(credentials)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	cipher, err := s.extore.seal(extorePurpose+"\x00connection\x00"+catalog.Shop.ID, secret)
+	cipher, err := s.extore.seal(extoreConnectionAAD(connectionID), secret)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	connectionID := ID(extorePurpose, "connection", userID, flow.Origin, catalog.Shop.ID)
 	now := time.Now().UTC().Unix()
+	var connection extoreConnectionRow
 	err = s.repo.Within(ctx, shop, func(tx Tx) error {
 		var existing extoreConnectionRow
 		version := int64(1)
@@ -230,14 +231,22 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 		default:
 			return err
 		}
-		return tx.Put(extoreConnectionKind, connectionID, extoreConnectionRow{
+		connection = extoreConnectionRow{
 			ID: connectionID, Origin: flow.Origin, ShopID: catalog.Shop.ID, ShopName: catalog.Shop.Name,
 			ClientID: flow.ClientID, Ciphertext: cipher, ExpiresAt: int64(credentials.GrantExpires),
 			Version: version, UpdatedAt: now,
-		})
+		}
+		return tx.Put(extoreConnectionKind, connectionID, connection)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return catalog, nil
+	results := s.syncExtoreCatalog(ctx, userID, connectionID, catalog)
+	return map[string]any{
+		"connection": map[string]any{
+			"id": connection.ID, "origin": connection.Origin, "shop_id": connection.ShopID,
+			"shop_name": connection.ShopName, "expires_at": connection.ExpiresAt, "updated_at": connection.UpdatedAt,
+		},
+		"results": results,
+	}, nil
 }

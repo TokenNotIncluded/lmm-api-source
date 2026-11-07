@@ -135,13 +135,14 @@ The [delivery parser](../../../../web/src/features/store/delivery-template.ts)
 interprets only a valid v1 envelope matching the frozen order template; other
 contents remain literal text. This is a legacy Web contract, not a new delivery API.
 
-[Extore mapping](../../../../web/src/features/store/extore-import-protocol.ts)
-remains a one-time draft import of one explicitly enabled variant: preserve the
-source reference price and currency, leave the actual sale price for the merchant,
-and never infer stock or publish automatically. Missing visibility is private;
-missing variant identity or enabled status permits preview only. This branch has
-no Extore authorize/catalog backend. Browser callback cleanup does not prove
-server or proxy logs are protected, and a frontend update cannot enable the flow.
+[Extore binding](../../../../../docs/extore-shop-binding-followup.md) stores
+encrypted long-lived connections under a seller-scoped Extore shop, synchronizes
+approved listings into the legacy merchant shop, and rejects local edits of
+upstream-managed products. Configure `store.extore_key_file` and
+`store.extore_redirect_uri` together. Sync never issues Extore cards or invents
+stock; inventory remains a separate sealed-stock path. Browser callback cleanup
+does not prove server or proxy logs are protected, and this README does not
+claim production acceptance.
 
 Legacy `merchant_store_*` schemas, writer floors, native startup baselines and
 provider procedures are [fixed historical sources](https://github.com/TokenNotIncluded/lmm-api/tree/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs),

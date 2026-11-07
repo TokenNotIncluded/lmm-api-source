@@ -182,6 +182,9 @@ func (s *Service) setProductCategory(ctx context.Context, actor Account, r Legac
 	if row.Owner != actor {
 		return nil, ErrForbidden
 	}
+	if err := s.requireLocalProductSource(ctx, actor, r.ID); err != nil {
+		return nil, err
+	}
 	err = s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
 		var product Product
 		if err := tx.Get("products", r.ID, &product); err != nil {

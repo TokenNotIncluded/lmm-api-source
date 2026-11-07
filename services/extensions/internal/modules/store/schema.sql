@@ -104,4 +104,12 @@ CREATE TABLE lmm_store.extore_connections (
  CHECK (body->>'ciphertext' LIKE 'v1:%'), CHECK ((body->>'expires_at')::bigint>0)
 );
 CREATE INDEX store_extore_connections_shop ON lmm_store.extore_connections (shop_id,(body->>'shop_id'));
+CREATE TABLE lmm_store.extore_products (
+ shop_id text NOT NULL, id text NOT NULL, body jsonb NOT NULL,
+ PRIMARY KEY(shop_id,id), CHECK(jsonb_typeof(body)='object'),
+ CHECK (char_length(COALESCE(body->>'product_id',''))>0),
+ CHECK (char_length(COALESCE(body->>'source_id',''))>0)
+);
+CREATE UNIQUE INDEX store_extore_products_local ON lmm_store.extore_products ((body->>'product_id'));
+CREATE INDEX store_extore_products_connection ON lmm_store.extore_products (shop_id,(body->>'connection_id'));
 COMMIT;

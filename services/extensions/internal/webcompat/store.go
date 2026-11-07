@@ -52,6 +52,9 @@ type storeLikesService interface {
 type storeExtoreService interface {
 	ExtoreAuthorize(context.Context, string, int64, string, string) (map[string]any, error)
 	ExtoreCatalog(context.Context, string, int64, string) (any, error)
+	ExtoreConnections(context.Context, string, int64) (map[string]any, error)
+	ExtoreConnectionCatalog(context.Context, string, int64, string) (any, error)
+	ExtoreSyncProduct(context.Context, string, int64, string, string) (any, error)
 }
 type storePickupService interface {
 	Pickup(context.Context, string, int64, string, string, bool) (map[string]any, error)
@@ -251,6 +254,86 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 			return
 		}
 		value, err := port.ExtoreCatalog(r.Context(), bearer(r), self.GetUserId(), in.CallbackURL)
+		Respond(w, value, err)
+	})
+	mux.HandleFunc("GET /api/store/extore/connections", func(w http.ResponseWriter, r *http.Request) {
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if store.Missing(service) {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		port, ok := service.(storeExtoreService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		if _, err := supportQuery(r); err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		value, err := port.ExtoreConnections(r.Context(), bearer(r), self.GetUserId())
+		Respond(w, value, err)
+	})
+	mux.HandleFunc("GET /api/store/extore/connections/{id}/catalog", func(w http.ResponseWriter, r *http.Request) {
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if store.Missing(service) {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		port, ok := service.(storeExtoreService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		value, err := port.ExtoreConnectionCatalog(r.Context(), bearer(r), self.GetUserId(), r.PathValue("id"))
+		Respond(w, value, err)
+	})
+	mux.HandleFunc("POST /api/store/extore/connections/{id}/sync", func(w http.ResponseWriter, r *http.Request) {
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if store.Missing(service) {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		port, ok := service.(storeExtoreService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		if !supportID(r.PathValue("id")) {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		body, err := storeBody(w, r, 4<<10, true)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		var in struct {
+			SourceID string `json:"source_id"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&in) != nil || decoder.Decode(new(any)) != io.EOF || in.SourceID == "" || len(in.SourceID) > 100 {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		value, err := port.ExtoreSyncProduct(r.Context(), bearer(r), self.GetUserId(), r.PathValue("id"), in.SourceID)
 		Respond(w, value, err)
 	})
 

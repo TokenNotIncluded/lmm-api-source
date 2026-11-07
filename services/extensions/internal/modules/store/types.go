@@ -29,6 +29,8 @@ var (
 	ErrSellerTermsRequired      = errors.New("seller_terms_required")
 	ErrSellerTermsNotConfigured = errors.New("seller_terms_not_configured")
 	ErrDisclaimerRequired       = errors.New("disclaimer_required")
+	ErrExtoreReauthorize        = errors.New("extore_reauthorize")
+	ErrExtoreSourceManaged      = errors.New("extore_source_managed")
 )
 
 type TermsUpdatedError struct{ RequestKey string }

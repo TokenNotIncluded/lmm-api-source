@@ -61,7 +61,7 @@ func storeTable(name string) (string, error) {
 	switch name {
 	case "shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations",
 		"stock_items", "product_likes", "traffic_days", "traffic_receipts", "placements",
-		"extore_flows", "extore_connections":
+		"extore_flows", "extore_connections", "extore_products":
 		return "lmm_store." + name, nil
 	}
 	return "", ErrInvalid

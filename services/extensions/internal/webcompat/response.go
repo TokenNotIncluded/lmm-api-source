@@ -69,6 +69,10 @@ func responseError(err error) (int, string, string) {
 		return http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, store.ErrInvalid):
 		return http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
+	case errors.Is(err, store.ErrExtoreReauthorize):
+		return http.StatusConflict, "STORE_EXTORE_REAUTHORIZE", "Extore authorization expired or could not be refreshed. Connect again."
+	case errors.Is(err, store.ErrExtoreSourceManaged):
+		return http.StatusConflict, "STORE_EXTORE_SOURCE_MANAGED", "Edit this imported product in Extore, then synchronize it."
 	case errors.Is(err, store.ErrConflict):
 		return http.StatusConflict, "STORE_CONFLICT", "The order or product state has changed. Please refresh."
 	case errors.Is(err, store.ErrSoldOut):

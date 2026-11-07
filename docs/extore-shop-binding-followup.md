@@ -11,9 +11,11 @@
   `a7b9cfd`（含 public marketplace 脱敏与 sync_revision 排除卡密统计）。
 - 旧商城绑定候选 `5c63dd5d03cb7561c7b32d84b9f9a81f16594fde`（父仓历史，非微服务
   main）。其 `apps/api-go/internal/extore` 已移植到微服务
-  `services/extensions/internal/extore`；authorize/catalog 已挂到 store。
-- 微服务仍缺：持久连接列表、按源同步、上游只读编辑限制、绑定 UI 替换旧
-  草稿导入页。配置需 `store.extore_key_file` + `store.extore_redirect_uri`。
+  `services/extensions/internal/extore`。
+- 微服务已挂：authorize、callback 自动同步、连接列表、按连接拉目录、按
+  `source_id` 同步、刷新 fence、上游只读编辑限制、自动导入+同步 UI。
+  配置需 `store.extore_key_file` + `store.extore_redirect_uri`。
+- 本地集成测试、多语言文案、协议 schema 对齐与生产验收仍未完成。
 
 **禁止部署；尤其禁止合并或推送 Extore `main`。**
 不能把旧单体的配置、凭据或资金权限直接接回微服务核心。
@@ -37,16 +39,26 @@
 
 OAuth 长期连接、`marketplace.sync` 独立权限、Extore 商品/规格配置、
 随机私密绑定 ID、商城加密连接与稳定商品/规格映射、自动导入和再次同步 UI。
+微服务侧对应入口：
+
+- `POST /api/store/extore/authorize`
+- `POST /api/store/extore/catalog`（callback 后写入连接并同步全部 listing）
+- `GET /api/store/extore/connections`
+- `GET /api/store/extore/connections/{id}/catalog`
+- `POST /api/store/extore/connections/{id}/sync`
 
 ## 剩余工作
 
 1. ~~检查并阻止 Extore `public_product` 暴露 marketplace~~（`a7b9cfd`）。
-2. ~~`sync_revision` 排除卡密统计~~（`a7b9cfd`）；商城侧同步仍须不重置审核。
-3. 微服务连接令牌刷新 writer fence、事务和并发保护；验证撤销、到期、跨店铺、
-   刷新失败。
-4. 商品配置修改入口的上游只读限制；空值、清空配置、精确价格映射。
-5. 用绑定 UI（自动导入全部规格 + 同步）替换当前草稿导入页；更新测试与文案。
-6. 持久连接列表 / 按 `source_id` 同步 / 来源映射表接到 store。
+2. ~~`sync_revision` 排除卡密统计~~（`a7b9cfd`）；同 revision 仅更新
+   `card_summary` / 同步时间，不重置审核。
+3. ~~微服务连接令牌刷新 writer fence~~（`refresh_pending` + version CAS）；
+   仍须实测撤销、到期、跨店铺、刷新失败。
+4. ~~商品配置修改入口的上游只读限制~~（`STORE_EXTORE_SOURCE_MANAGED`）；
+   仍须补空值、清空配置、精确价格映射用例。
+5. ~~用绑定 UI（自动导入全部规格 + 同步）替换草稿导入页~~；文案与测试仍需
+   对齐。
+6. ~~持久连接列表 / 按 `source_id` 同步 / 来源映射表接到 store~~。
 7. 更新协议 schema、接口契约与多语言文案。
 8. 本地集成测试（授权、隔离、多规格、重复同步、卡密统计、撤销、凭据不泄露）。
 9. 仍不合并 Extore `main`，不部署；记录固定 Extore 任务分支指针。
@@ -54,13 +66,7 @@ OAuth 长期连接、`marketplace.sync` 独立权限、Extore 商品/规格配�
 ## 交接时的检查结果（未由本轮重跑）
 
 - Extore：56 通过、1 失败；失败为协议 schema 文件未更新。
-- 商城前端类型检查失败，包括旧测试 props 与卡密统计类型。
-- Go 定向命令通过，但 `internal/extore` 和 `model` 没有匹配测试，不能证明
-  新功能验收通过。用户未提供这些检查的完整命令与精确实测源码快照。
-
-用户提供的历史日志位置（临时路径不保证长期保留，本轮未核验内容）：
-`/tmp/extore-binding-oauth-tests-v2.log`、
-`/tmp/api-extore-web-typecheck-initial.log`、
-`/tmp/api-extore-binding-tests-initial.log`。
+- 商城前端类型检查与集成测试本轮未作为验收重跑。
+- Go `services/extensions` 已本地 `go build ./...`；未声称业务验收通过。
 
 后续记录实际命令、实测提交/未提交差异、结果、日志与跳过项；未验收项保持未完成。
