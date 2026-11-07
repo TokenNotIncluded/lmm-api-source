@@ -45,6 +45,10 @@ type storeBuyerProductService interface {
 type storePromotionService interface {
 	ResolvePromotion(context.Context, string, string) (map[string]any, error)
 }
+type storeLikesService interface {
+	ProductLikes(context.Context, string, int64) (map[string]any, error)
+	SetProductLike(context.Context, string, int64, string, bool) (map[string]any, error)
+}
 type storePickupService interface {
 	Pickup(context.Context, string, int64, string, string, bool) (map[string]any, error)
 }
@@ -179,6 +183,52 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		value, err := port.PublicProductTerms(r.Context(), actor, r.PathValue("id"))
 		Respond(w, value, err)
 	}))
+
+	mux.HandleFunc("GET /api/store/products/{id}/likes", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
+		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		port, ok := service.(storeLikesService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		value, err := port.ProductLikes(r.Context(), r.PathValue("id"), actor)
+		Respond(w, value, err)
+	}))
+	for _, route := range []struct {
+		method string
+		liked  bool
+	}{{"PUT", true}, {"DELETE", false}} {
+		liked := route.liked
+		mux.HandleFunc(route.method+" /api/store/products/{id}/likes", func(w http.ResponseWriter, r *http.Request) {
+			self, err := auth.Verify(r.Context(), r)
+			if err != nil {
+				Respond(w, nil, err)
+				return
+			}
+			if store.Missing(service) {
+				Respond(w, nil, store.ErrUnavailable)
+				return
+			}
+			if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
+				Respond(w, nil, store.ErrInvalid)
+				return
+			}
+			port, ok := service.(storeLikesService)
+			if !ok {
+				Respond(w, nil, store.ErrUnavailable)
+				return
+			}
+			if _, err = storeBody(w, r, 4<<10, false); err != nil {
+				Respond(w, nil, err)
+				return
+			}
+			value, err := port.SetProductLike(r.Context(), bearer(r), self.GetUserId(), r.PathValue("id"), liked)
+			Respond(w, value, err)
+		})
+	}
 
 	mux.HandleFunc("GET /api/store/products/{id}/promotions/resolve", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
 		query, err := supportQuery(r, "code")

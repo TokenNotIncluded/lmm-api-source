@@ -119,6 +119,30 @@ func (t *postgresTx) List(kind, after string, limit int) ([]json.RawMessage, err
 	return out, rows.Err()
 }
 
+// ProductLikeStats counts currently liked rows and whether the viewer likes.
+func (t *postgresTx) ProductLikeStats(productID string, userID int64) (int64, bool, error) {
+	if !Text(productID, 128) || userID < 0 {
+		return 0, false, ErrInvalid
+	}
+	var count int64
+	err := t.tx.QueryRowContext(t.ctx, `SELECT COUNT(*) FROM lmm_store.product_likes WHERE shop_id=$1 AND body->>'product_id'=$2 AND (body->>'liked')::boolean`, t.shop, productID).Scan(&count)
+	if err != nil {
+		return 0, false, err
+	}
+	if userID == 0 {
+		return count, false, nil
+	}
+	var item productLike
+	switch err := t.Get("product_likes", productLikeID(productID, userID), &item); {
+	case err == nil:
+		return count, item.Liked && item.ProductID == productID && item.UserID == userID, nil
+	case errors.Is(err, ErrNotFound):
+		return count, false, nil
+	default:
+		return 0, false, err
+	}
+}
+
 // StockItems is the indexed per-unit stock lookup used under the shop lock.
 func (t *postgresTx) StockItems(variantID, state string, offset, limit int, random bool) ([]StockItem, error) {
 	if !Text(variantID, 128) || offset < 0 || limit <= 0 || limit > maxStockImport {

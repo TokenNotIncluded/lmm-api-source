@@ -77,7 +77,7 @@ function ProductSocialActions({
   const likesQuery = useQuery({
     queryKey: likeKey,
     queryFn: ({ signal }) => catalogueApi.likes(product.id, signal),
-    enabled: false,
+    enabled: likesSupported,
     initialData: projection?.data,
     initialDataUpdatedAt: projection?.requestedAt,
     refetchOnWindowFocus: false,
