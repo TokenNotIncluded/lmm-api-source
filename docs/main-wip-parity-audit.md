@@ -155,37 +155,31 @@ main 相对于 WIP 有 127 个未被其历史包含的非合并提交，main 相
 435 条文件路径。提交数不能当作缺失功能数：存在重复补丁、不同实现、格式修改、
 已经移植的前端，以及两端都删除的旧部署代码。
 
-## Web：不是整体陈旧，主要遗漏是 HumanGrant
+## Web：分叉后的 HumanGrant 入口已进入默认分支
 
-main 在分叉后修改的 96 条 Web 文件路径中：
+main 在分叉后修改的 96 条 Web 文件路径中（历史分母，不是当前文件清单）：
 
-- 71 条在 WIP 中 blob 完全一致，包括多数日志、财务展示、分页、价格估算、
+- 当时 71 条在 WIP 中 blob 完全一致，包括多数日志、财务展示、分页、价格估算、
   工具市场引导、个人菜单 API Keys 快捷入口与生成路由。
-- 22 条内容不同，经过核查包含 HumanGrant 接线、微服务财务不可用状态保护、
+- 22 条内容不同，当时核查包含 HumanGrant 接线、微服务财务不可用状态保护、
   格式和更强的测试、协议页面替换、翻译及生成报告，不能全部算遗漏。
-- 3 条只在 main 存在：HumanGrant 按钮、HumanGrant 设置区、RT16 浏览器测试入口。
+- 当时 3 条只在 main 存在：HumanGrant 按钮、HumanGrant 设置区、RT16 浏览器测试入口。
 
 上述分母是 **main 分叉后的 Web 增量**，不是 WIP 所有前端文件。两端整个 Web
 树有 110 条不同路径；这些还包括 WIP 自己的品牌、API Key 格式、配置初始化、
 商店及财务边界调整，不能直接回滚成 main。
 
-### 确认缺失
+### HumanGrant 现状（2026-11-07 核对）
 
-main 提交 `5999dc656` 的 HumanGrant 登录页入口和设置区尚未进入 WIP：
+默认分支已具备 HumanGrant 代码面，不再是“按钮/设置区缺失”：
 
-- `apps/web/src/features/auth/components/humangrant-button.tsx` 缺失；
-  `oauth-providers.tsx` 没有对应入口。
-- `apps/web/src/features/system-settings/auth/humangrant-section.tsx` 缺失；
-  `section-registry.tsx` 没有注册该设置区。
-- en、fr、ja、ru、vi、zh-TW、zh 每种语言缺 9 条 HumanGrant 文案，共 63 条。
-  比较的是 JSON 的 `translation` 叶子 key，不是文件顺序或根对象。
-
-#866（Core）与 #880（A10 Web）是未合并候选，不等于默认分支已具备该功能。
-接入前仍需冻结后端权限、撤销、会话和持久化合同；不能只补按钮就宣称完成。
+- Core：`services/core/src/humangrant/`（引擎、HTTP、签名、邮件、schema）与配置装配。
+- Web：登录页 `humangrant-button.tsx`、认证设置 `humangrant-section.tsx` 及注册表入口。
+- 完整链路的独立浏览器/进程验收、生产启用与隐私日志核验仍未完成；有实现不等于已验收。
 
 RT16 的 `apps/web/scripts/rt16-markdown-entry.tsx` 和根目录
-`scripts/security/rt16/` 不在 WIP；这是原安全浏览器复现入口的验收材料缺口，
-不是已经证明 WIP 存在相同漏洞。旧入口依赖旧构建路径，需改为微服务可执行的反例。
+`scripts/security/rt16/` 仍不在当前树；这是原安全浏览器复现入口的验收材料缺口，
+不是已经证明存在相同漏洞。旧入口依赖旧构建路径，需改为微服务可执行的反例。
 
 ### 已移植或 WIP 有意加强
 
@@ -207,9 +201,10 @@ RT16 的 `apps/web/scripts/rt16-markdown-entry.tsx` 和根目录
 
 以下是 main 新增/修复行为与 **固定 WIP** 的对应核查，候选 PR 保持未合并状态。
 
-1. **HumanGrant 完整链路未接入（A02/A10）。** main `5999dc656` 有签名请求、人工
-   consent、原会话绑定、授权/撤销和隐私日志；WIP 当前 Core/Go 没有 HumanGrant
-   实现或对应路由。需接入 Core 的真实持久身份，不恢复旧 Go 身份库。
+1. **HumanGrant 代码已接入，完整验收未完成（A02/A10）。** main `5999dc656` 起的
+   签名请求、人工 consent、原会话绑定、授权/撤销和隐私日志，现已进入默认分支
+   Core `humangrant` 与 Web 入口；剩余是独立进程/浏览器验收与生产启用，不是
+   “无实现”。仍不得恢复旧 Go 身份库，也不得把有代码当成已验收。
 2. **历史日志、统计与完整财务导出未接入（A03/A04）。** main `b4600b4cf` 有
    `quota_usd`、`quota_money_available`、`quota_money_basis`、同快照聚合和未知金额
    处理。WIP 已有 `financial_profile.rs` 的个人钱包读取，但 Core 实际装配中没有
