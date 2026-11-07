@@ -39,6 +39,9 @@ max_in_flight = 16
 # [store]
 # database_name = "lmm_store"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/store-database-url"
+# Optional private raw 32-byte seal key for per-unit stock contents. Omit to
+# keep stock import disabled; never reuse Core or host credential bytes.
+# stock_key_file = "/etc/lmm.conf.d/secrets/extensions/store-stock-key"
 # [support]
 # database_name = "lmm_support"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/support-database-url"

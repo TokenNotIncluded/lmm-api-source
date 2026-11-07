@@ -85,6 +85,7 @@ func Run() error {
 		PaymentConfigFile:         cfg.Payments.ConfigFile,
 		Payments:                  composition.StorageConfig{Component: "payments", URLFile: cfg.Payments.DatabaseURLFile, Database: cfg.Payments.DatabaseName},
 		Store:                     composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
+		StoreStockKeyFile:         cfg.Store.StockKeyFile,
 		Support:                   composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts,

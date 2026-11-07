@@ -22,7 +22,7 @@ type GoConfig struct {
 	Version          int                    `toml:"version"`
 	Host             HostConfig             `toml:"host"`
 	Core             CoreConfig             `toml:"core"`
-	Store            DatabaseConfig         `toml:"store"`
+	Store            StoreConfig            `toml:"store"`
 	Support          DatabaseConfig         `toml:"support"`
 	Legal            LegalConfig            `toml:"legal"`
 	Assistant        AssistantConfig        `toml:"assistant"`
@@ -55,6 +55,14 @@ type CoreConfig struct {
 type DatabaseConfig struct {
 	DatabaseName    string `toml:"database_name"`
 	DatabaseURLFile string `toml:"database_url_file"`
+}
+
+// StoreConfig is the shop storage pool plus an optional dedicated stock seal key.
+// stock_key_file is a private raw 32-byte file, never shared with Core tokens.
+type StoreConfig struct {
+	DatabaseName    string `toml:"database_name"`
+	DatabaseURLFile string `toml:"database_url_file"`
+	StockKeyFile    string `toml:"stock_key_file"`
 }
 type LegalConfig struct {
 	ConfigFile string `toml:"config_file"`
@@ -100,7 +108,7 @@ func legacyConfig(getenv func(string) string) (GoConfig, error) {
 	if raw := getenv("LMM_EXTENSION_MODULES"); raw != "" {
 		selected = strings.Split(raw, ",")
 	}
-	return GoConfig{Version: 1, Host: HostConfig{MaxInFlight: modules.DefaultMaxInFlight, Listen: getenv("LMM_EXTENSION_LISTEN"), TokenFile: getenv("LMM_EXTENSION_TOKEN_FILE"), PluginStateFile: getenv("LMM_EXTENSION_PLUGIN_STATE_FILE"), Modules: selected, WebCompat: web == "true"}, Core: CoreConfig{Socket: getenv("LMM_CORE_RPC_SOCKET"), IdentityTokenFile: getenv("LMM_CORE_RPC_TOKEN_FILE"), CommerceTokenFile: getenv("LMM_CORE_COMMERCE_RPC_TOKEN_FILE")}, Store: DatabaseConfig{DatabaseName: getenv("LMM_STORE_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_STORE_DATABASE_URL_FILE")}, Support: DatabaseConfig{DatabaseName: getenv("LMM_SUPPORT_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_SUPPORT_DATABASE_URL_FILE")}, Legal: LegalConfig{ConfigFile: getenv("LMM_LEGAL_CONFIG_FILE")}}, nil
+	return GoConfig{Version: 1, Host: HostConfig{MaxInFlight: modules.DefaultMaxInFlight, Listen: getenv("LMM_EXTENSION_LISTEN"), TokenFile: getenv("LMM_EXTENSION_TOKEN_FILE"), PluginStateFile: getenv("LMM_EXTENSION_PLUGIN_STATE_FILE"), Modules: selected, WebCompat: web == "true"}, Core: CoreConfig{Socket: getenv("LMM_CORE_RPC_SOCKET"), IdentityTokenFile: getenv("LMM_CORE_RPC_TOKEN_FILE"), CommerceTokenFile: getenv("LMM_CORE_COMMERCE_RPC_TOKEN_FILE")}, Store: StoreConfig{DatabaseName: getenv("LMM_STORE_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_STORE_DATABASE_URL_FILE"), StockKeyFile: getenv("LMM_STORE_STOCK_KEY_FILE")}, Support: DatabaseConfig{DatabaseName: getenv("LMM_SUPPORT_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_SUPPORT_DATABASE_URL_FILE")}, Legal: LegalConfig{ConfigFile: getenv("LMM_LEGAL_CONFIG_FILE")}}, nil
 }
 func absolutePath(path string) bool {
 	return path != "" && filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n")
@@ -130,7 +138,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	}
 	// The decoder's struct matching also accepts case variants. Only canonical
 	// names belong to this versioned operator contract.
-	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
+	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "store.stock_key_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
 		if paymentConfigurationKey(key.String()) || toolMarketConfigurationKey(key.String()) || supportCustomersConfigurationKey(key.String()) {
 			continue
@@ -162,7 +170,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}
@@ -173,7 +181,17 @@ func LoadConfig(path string) (GoConfig, error) {
 	if (cfg.Core.UserReadSocket == "") != (cfg.Core.UserReadTokenFile == "") {
 		return cfg, errors.New("configure both core user_read_socket and user_read_token_file")
 	}
-	for _, db := range []DatabaseConfig{cfg.Store, cfg.Support, cfg.Operations, cfg.Community, cfg.Acquisition} {
+	if cfg.Store.StockKeyFile != "" && (cfg.Store.DatabaseName == "" || cfg.Store.DatabaseURLFile == "") {
+		return cfg, errors.New("store stock_key_file requires configured store database_name and database_url_file")
+	}
+	if cfg.Store.StockKeyFile != "" {
+		for _, other := range []string{cfg.Host.TokenFile, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.PaymentTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.UserReadTokenFile, cfg.Store.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.ToolMarket.EncryptionKeyFile, cfg.ToolMarket.CoreTokenFile} {
+			if other != "" && other == cfg.Store.StockKeyFile {
+				return cfg, errors.New("store stock_key_file must be an independent private path")
+			}
+		}
+	}
+	for _, db := range []DatabaseConfig{{DatabaseName: cfg.Store.DatabaseName, DatabaseURLFile: cfg.Store.DatabaseURLFile}, cfg.Support, cfg.Operations, cfg.Community, cfg.Acquisition} {
 		if (db.DatabaseName == "") != (db.DatabaseURLFile == "") {
 			return cfg, errors.New("configure both extension database_name and database_url_file")
 		}

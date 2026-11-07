@@ -53,6 +53,7 @@ type Config struct {
 	CommerceTokenFile             string
 	DirectoryAdTokenFile          string
 	Store                         StorageConfig
+	StoreStockKeyFile             string
 	Support                       StorageConfig
 	Assistant                     StorageConfig
 	AssistantCursorKeyFile        string
@@ -288,6 +289,18 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		r.Store, err = store.New(repo, auth, funds)
 		if err != nil {
 			return nil, err
+		}
+		if cfg.StoreStockKeyFile != "" {
+			key, keyErr := coreclient.ReadPrivateFile(cfg.StoreStockKeyFile, 32)
+			if keyErr != nil || len(key) != 32 {
+				return nil, errors.New("store stock key must contain exactly 32 bytes")
+			}
+			if err := independentRuntimeCredentials(key, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
+				return nil, err
+			}
+			if err := r.Store.WithStockKey(key); err != nil {
+				return nil, err
+			}
 		}
 		if selected["support"] {
 			db, err := openStorage(ctx, cfg.Support)
