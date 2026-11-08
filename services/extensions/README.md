@@ -88,8 +88,9 @@ the existing assistant storage policy:
 
 Whole-table `UPDATE` is not an acceptable substitute. Existing databases need
 an explicitly reviewed owner-side permission change; normal startup will not
-repair an older broad grant. See the [A08 contract](../../docs/architecture-completion-prompts.md#a08)
-for integration and acceptance requirements.
+repair an older broad grant. Integration and acceptance follow the
+[product requirements](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md).
+Current work is tracked in [project progress](../../docs/progress.md).
 
 ## Operations content
 

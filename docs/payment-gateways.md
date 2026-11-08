@@ -1,221 +1,192 @@
 # Native wallet payment gateways
 
-The native wallet supports six provider protocols: Stripe, EPay, Creem, Waffo
-Global, Waffo Pancake and Coinbase Business Checkout. EPay also supplies the
-Alipay, WeChat Pay and Linux DO Credit channel presets. The first five protocols
-restore the seven wallet choices in the
-[legacy template list](https://github.com/TokenNotIncluded/lmm-api/blob/3948a0a1ee1cefdd016a7aa45a11851545bb4b85/apps/web/src/features/system-settings/integrations/payment-method-templates.ts).
-FastPay is retired and is not an accepted provider or a wallet choice.
+This guide defines wallet gateway configuration, payment evidence and recovery.
+Current implementation gaps and acceptance work belong in [project progress](progress.md).
+Wallet top-ups, subscription purchases and merchant-store orders have separate contracts:
+enabling a top-up provider does not enable its subscription lifecycle or store checkout.
+Core owns wallet balances and subscription entitlements; Go owns provider communication and order recovery.
 
-This implementation covers native wallet top-ups. Provider subscription
-lifecycle, external merchant-store checkout, the former Pancake administration
-screens and all-provider refunds remain separate work. The
-[recipe parity matrix](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PAYMENT_PARITY.md)
-retains those requirements. Code and synthetic self-tests do not establish
-real merchant integration or production acceptance.
+Native [subscription purchases](../services/core/src/subscriptions.rs) spend Core
+wallet balance and issue consumption entitlements. Store balance purchases use the
+separate [Commerce bridge](../services/extensions/internal/modules/store/rustfunds/adapter.go);
+explicit free orders carry no funds transfer. Neither path grants authority to a
+provider's recurring billing or external merchant checkout.
 
-## Supported top-up profiles
+## Provider and unit contracts
 
-| Protocol / wallet channel | Settlement unit | Checkout and proof admission |
+The native wallet has six provider protocols. EPay supplies three channel presets;
+the first five protocols cover the seven choices in the
+[legacy wallet templates](https://github.com/TokenNotIncluded/lmm-api/blob/3948a0a1ee1cefdd016a7aa45a11851545bb4b85/apps/web/src/features/system-settings/integrations/payment-method-templates.ts).
+Coinbase Business Checkout is an additional protocol. FastPay is retired.
+
+| Protocol / channel | Settlement unit | Checkout and Core proof admission |
 | --- | --- | --- |
-| Stripe | USD cents | Hosted Checkout and the existing Core HMAC verification. Existing direct-account refund handling remains available when separately authorized. |
-| EPay Alipay / WeChat Pay | CNY fen | Core signs a fixed intent; Go receives no MD5 merchant key. GET or form callbacks are independently verified in Core. |
-| Linux DO Credit over EPay | Hundredths of LDC | Core signs the `epay` payment type for `https://credit.linux.do/epay/pay/submit.php`. Checkout requires an explicit form POST. LDC has its own conversion policy and is reported as a virtual unit, separate from cash currencies. |
-| Creem | USD / CNY / EUR minor units | One configured, active, one-time product at a fixed amount. Checkout checks the actual product price, currency, environment and inclusive tax before creating a session. Core verifies the original HMAC callback and its product/order/amount binding. |
-| Waffo Global | USD cents | Hosted checkout through the official order protocol. Core verifies the RSA callback and independently queries the frozen order with its own configured provider credentials before accepting new proof. |
-| Waffo Pancake | USD cents / CNY fen | Authenticated checkout using the official SDK. Core verifies the timestamped RSA callback, environment, merchant, store, product, original order and actual paid amount. |
-| Coinbase Business Checkout | USDC, quoted as USD cents at 1:1 | Hosted checkout with a CDP-signed API request. Core verifies the original webhook signature and admits only a completed payment bound to the frozen order, merchant, environment and exact amount. |
+| Stripe | USD cents | Hosted Checkout; Core verifies the original HMAC callback. |
+| EPay Alipay / WeChat Pay | CNY fen | Core signs the frozen intent and verifies the GET/form callback; Go receives no MD5 merchant key. |
+| Linux DO Credit over EPay | Hundredths of LDC | The `epay` payment type uses `https://credit.linux.do/epay/pay/submit.php` through an explicit form POST. LDC has a separate conversion policy and is a virtual unit. |
+| Creem | USD / CNY / EUR minor units | A configured active one-time product fixes the amount. Checkout checks its price, currency, environment and inclusive tax; Core verifies HMAC and product/order/amount binding. |
+| Waffo Global | USD cents | Official hosted order protocol. Core verifies RSA and independently queries the frozen order using its own provider credentials before accepting new proof. |
+| Waffo Pancake | USD cents / CNY fen | Official SDK checkout. Core verifies timestamped RSA, environment, merchant, store, product, original order and actual paid amount. |
+| Coinbase Business Checkout | USDC, quoted as USD cents at 1:1 | CDP-signed checkout request; Core admits a signed completed payment bound to the frozen intent and exact amount. |
 
-Only the existing Stripe adapter exposes automatic refund dispatch. An unsupported
-refund returns an error before creating a hold or provider request. A provider
-API read is an observation; it cannot replace independently accepted proof or a
-Core ledger receipt. This also means EPay's callback path is available while
-its Go-side credentialed lookup is deliberately unavailable: that lookup would
-require the Core-only merchant key.
+Only a Core ledger receipt confirms wallet credit. A provider API response, return
+page or Go order status cannot supply that authority. Site finance includes native
+payments backed by a Core credit journal, reports cash currencies separately and
+LDC as a virtual unit, and does not add unlike units.
 
 ## Configuration and ownership
 
-Use [core-payments.example.toml](../config/core-payments.example.toml) for Core's
-verification and conversion policy, and
-[extensions-payments.example.toml](../config/extensions-payments.example.toml)
-for Go's outgoing adapters. Both documents use `version = 2` and an explicit
-provider and environment on each channel. Version 1 Stripe test/live
-configuration remains accepted. The existing isolated Stripe test profile
-remains a separate laboratory configuration.
+Use [Core payment configuration](../config/core-payments.example.toml) for proof
+verification and conversion, and [Extensions payment configuration](../config/extensions-payments.example.toml)
+for outgoing adapters. Both use `version = 2` with explicit provider and environment.
+Version 1 Stripe configuration remains accepted; isolated test profiles are laboratory configuration.
 
-Each side must agree on channel ID, provider, merchant, environment, currency
-and product/store/payment-type binding. A channel ID represents an immutable
-payment policy. When changing the merchant, product, currency or conversion,
-allocate a new channel ID and keep the old channel configured for outstanding
-callbacks. Set the old Go channel's `enabled = false` to remove it from new
-checkout selection while retaining callback recovery. Do not reuse an old ID
-with a new merchant's credentials.
+The two sides must agree on channel ID, provider, merchant, environment, currency
+and product/store/payment-type binding. A channel ID identifies an immutable policy.
+When changing that policy, allocate a new ID and retain the old channel's verification
+material for outstanding callbacks. Setting the old Go channel's `enabled = false`
+removes it from new checkout selection while allowing recovery.
 
-Core owns `credits_per_minor` and `max_amount_minor`. The exact quote is
-`amount_minor × credits_per_minor`, with checked integer bounds, and is stored
-on the immutable intent. The ledger unit stays `credit_500k_usd`. Stripe USD
-uses the existing 5,000 credit units per cent. Non-USD rates in the example are
-illustrative administrator policy; they are not live FX or pricing defaults.
+Core owns `credits_per_minor` and `max_amount_minor`. It freezes the checked integer
+quote `amount_minor × credits_per_minor` on the intent. The ledger unit is
+`credit_500k_usd`; one USD cent corresponds to 5,000 credit units. Example non-USD
+rates are illustrative administrator policy, not live exchange rates or defaults.
 
-`webhook_secret_file` is the historical field name for the Core verification
-material. It contains a Stripe/Creem/Coinbase webhook secret, an EPay merchant key or a
-Waffo provider public key, depending on the protocol. Waffo Global additionally
-requires `inquiry_api_key_file` and `inquiry_private_key_file` in Core for both
-test and live environments. Core makes this inquiry itself against the fixed
-official endpoint; callers cannot supply a URL or an alleged query response.
-The inquiry runs before the database transaction, and the intent is rechecked
-inside the transaction before proof is persisted.
+| Configuration material | Owner and use |
+| --- | --- |
+| `webhook_secret_file` | Core only: Stripe/Creem/Coinbase webhook secret, EPay merchant key, or Waffo provider public key. The field name is historical. |
+| Waffo `inquiry_api_key_file`, `inquiry_private_key_file` | Core uses both in test and live environments to query the fixed official endpoint. Callers cannot supply a query URL or alleged result. |
+| Outgoing API keys and private keys | Go uses only those required by its provider adapter. Coinbase uses a CDP key name and P-256 PEM private key. |
+| EPay checkout signing | Core's `GetEPayCheckout` returns the method and signed URL for the existing intent; Go has no merchant-key setting or credentialed lookup. |
+| RPC credentials | Separate service credentials authorize narrow operations; they do not replace the user's credential or provider proof. |
 
-Go holds only the credentials needed for outgoing provider operations. EPay
-has no Go API-key or merchant-key setting: `GetEPayCheckout` returns the
-checkout method and signed URL for an already frozen intent. Standard CNY EPay
-uses GET; Linux DO Credit uses POST with the URL query fields as form inputs.
-The Linux DO callback may omit `sign_type`; when present it must be `MD5`.
-Standard CNY EPay callbacks require `sign_type=MD5`. Core cannot sign arbitrary
-caller fields. Core verification keys, original callback signatures, provider API
-keys and checkout bearer URLs must not appear in public status or logs.
+Waffo inquiry runs before the database transaction; Core rechecks the intent inside
+the transaction before persisting proof. Standard CNY EPay uses GET checkout and
+requires `sign_type=MD5` on callbacks. Linux DO Credit uses POST with signed query
+fields as form inputs; its callback may omit `sign_type`, but a supplied value must be `MD5`.
 
-Secrets are bounded private regular files, owned by the appropriate service
-or root, with mode `0400` or `0600`. The Go provider document itself is private.
-Never copy an actual secret into a TOML example or browser configuration.
+Secrets must be bounded private regular files owned by the appropriate service or
+root, with mode `0400` or `0600`. The Go provider document is also private. Keep
+verification material, original callback signatures, provider API keys and checkout
+bearer URLs out of public status, logs, examples and browser configuration.
 
-To assemble the feature, provision the separate payment database and its
-restricted Go role, set `host.modules` to include `payments`, enable
-`host.web_compat`, and supply `[core].payment_token_file` plus `[payments]`
-storage and configuration settings. Enable `callbacks_enabled` only with the
-callback ingress in place. Core needs its own payment configuration, narrow RPC
-permissions and payment runtime grants. Normal startup performs no DDL.
-See [runtime configuration](../config/extensions.example.toml) and
-[database provisioning](../deployment/postgres/README.md).
+To assemble payments, provision the dedicated payment database and restricted Go
+role, select `payments` in `host.modules`, enable `host.web_compat`, and configure
+`[core].payment_token_file` plus `[payments]` storage and `config_file`.
+Enable `callbacks_enabled` with its callback ingress. Core requires its own payment
+configuration, narrowly granted RPC permissions and payment runtime privileges.
+The example leaves refund permissions disabled; grant them explicitly when enabling refunds.
+See [Core runtime configuration](../config/core.example.toml),
+[Extensions runtime configuration](../config/extensions.example.toml) and
+[database provisioning](../deployment/postgres/README.md). Ordinary startup performs no DDL.
+
+## Refunds and recovery
+
+The native [Stripe](../services/extensions/internal/modules/payments/stripe.go) and
+[Waffo Global](../services/extensions/internal/modules/payments/waffo_refunds.go)
+adapters support full and partial refund dispatch.
+Other native profiles do not expose automatic refunds in their normal configuration.
+Unsupported requests are rejected before a refund hold or provider write is created.
+Subscription entitlements and store-order refunds remain separate business operations;
+a wallet refund adapter does not authorize either of them.
+
+Core implements hold, dispatch registration, commit, release and external-refund
+operations under `refund_user` / `refund_evidence` permissions. `ReleaseRefund` requires the trusted evidence
+and original dispatch binding checked by Core; a Go failure flag or an unbound failed
+refund cannot release another operation's hold. The implementation is in
+[`payments/rpc.rs`](../services/core/src/payments/rpc.rs) and
+[`payments.rs`](../services/core/src/payments.rs).
+
+The worker records `UNKNOWN` before refund provider I/O. After a crash, lost response
+or timeout, it retains the original order, refund, hold, dispatch and request key.
+An ambiguous refund is reconciled by its original provider identity, without sending
+a second refund POST. API observations alone cannot commit or release Core funds.
+Checkout retries also respect the adapter's replay window; no assumed retention period
+authorizes a new operation. Recovery behavior is defined in
+[`worker.go`](../services/extensions/internal/modules/payments/worker.go).
 
 ## Coinbase Business Checkout
 
-Coinbase receives USDC and the native wallet quotes the same numeric USD amount.
-For example, a quote for 1,000 USD cents creates a checkout for `10.00 USDC`.
-This is the top-up's explicit conversion policy, using integer cents; it is not
-a live exchange-rate lookup. The payment form and confirmation display USDC
-before the customer opens Coinbase. Core continues to own the exact credit
-quote and the eventual ledger entry.
+A quote of 1,000 USD cents creates `10.00 USDC` of checkout value. This explicit
+integer conversion is shown before checkout and is not a live exchange-rate lookup.
+Go's `api_key_file` holds the CDP key name; `private_key_file` holds the P-256 PEM key
+used for short-lived request JWTs. Core separately holds the webhook subscription
+secret. The configured `merchant` is a stable account label matching on both sides.
 
-Use an ECDSA CDP API key for the Coinbase Business account. Go's `api_key_file`
-contains the CDP key name, and `private_key_file` contains its P-256 PEM private
-key. Go signs a short-lived JWT for each outgoing request. Core holds the
-webhook subscription secret independently in `webhook_secret_file`; Go never
-loads that secret. The configured `merchant` is this installation's stable
-account label, and must match on both sides.
+Use separate channel IDs, subscription secrets and callback URLs for test and live.
+Test requests use `https://business.coinbase.com/sandbox/api/v1/checkouts`; live
+requests use `https://business.coinbase.com/api/v1/checkouts`. Provision the sandbox
+subscription with `sandbox = "true"`. Do not reuse a secret across environments:
+the integration does not rely on an independently signed sandbox-mode field.
 
-Create separate channel IDs and webhook subscriptions for test and live use.
-Test channels use `https://business.coinbase.com/sandbox/api/v1/checkouts`;
-live channels use `https://business.coinbase.com/api/v1/checkouts`. The sandbox
-accepts the same CDP API credentials, but its webhook subscription must include
-the label `sandbox = "true"`. Each channel needs its own subscription secret
-and callback URL, such as `/callbacks/8`. Coinbase does not document a signed
-payload field that independently identifies sandbox mode, so do not reuse a
-subscription secret across test and live channels.
+Subscribe to `checkout.payment.success`. Core requires `status = "COMPLETED"`,
+`currency = "USDC"` and the exact frozen amount. The webhook ID is the checkout ID;
+local event identity also includes the event type. The adapter accepts
+`X-Webhook-Signature` or the compatibility header `X-Hook0-Signature`; dual headers
+must agree, and repeated headers are rejected.
 
-Subscribe to `checkout.payment.success`. Only the signed event with
-`status = "COMPLETED"`, `currency = "USDC"` and the exact frozen amount can
-become payment proof. Coinbase's webhook `id` is the checkout ID; the local
-event identity also includes the event type. `X-Webhook-Signature` is the current
-signature header, and Coinbase also sends the deprecated `X-Hook0-Signature`.
-Matching dual headers are accepted; conflicting values or repeated headers are
-rejected. Payment returns and API status observations cannot credit a wallet.
-
-The provider accepts decimal amounts from `0.01` to `100000000`, with at most
-two fractional digits. The configured Core maximum can impose a lower limit.
-Checkout requests retain one UUIDv4 idempotency key for the original operation.
-Coinbase does not publish an idempotency retention duration in this API
-contract, so an ambiguous write is retained for reconciliation instead of
-automatically repeated after an assumed safe interval. Coinbase refunds and
-subscriptions are outside this wallet top-up adapter.
-
-This integration uses the current Business Checkouts API. The retired Coinbase
-Commerce Charges API is not used. Setup and protocol references:
-[CDP API authentication](https://docs.cdp.coinbase.com/coinbase-business/authentication-authorization/api-key-authentication),
-[create checkout](https://docs.cdp.coinbase.com/api-reference/business-api/rest-api/checkouts/create-checkout),
+The adapter accepts `0.01` through `100000000` with at most two fractional digits;
+Core's configured maximum may be lower. Checkout retains its original UUIDv4 key.
+Its replay window is zero, so an ambiguous write stays in reconciliation rather
+than being retried after an assumed provider retention period. This is the Business
+Checkouts integration; it does not use the older Commerce Charges API or dispatch
+Coinbase refunds and subscriptions. Setup references:
+[authentication](https://docs.cdp.coinbase.com/coinbase-business/authentication-authorization/api-key-authentication),
+[checkout](https://docs.cdp.coinbase.com/api-reference/business-api/rest-api/checkouts/create-checkout),
 [webhook events](https://docs.cdp.coinbase.com/coinbase-business/checkout-apis/webhooks),
-[signature verification](https://docs.cdp.coinbase.com/webhooks/verify-signatures)
-and [sandbox setup](https://docs.cdp.coinbase.com/coinbase-business/checkout-apis/sandbox).
+[signature verification](https://docs.cdp.coinbase.com/webhooks/verify-signatures) and
+[sandbox](https://docs.cdp.coinbase.com/coinbase-business/checkout-apis/sandbox).
 
-## Browser quote and confirmation
+## Browser and edge contract
 
-The native wallet uses a personal Core Session. Core derives the personal
-economic account; the browser cannot supply an account ID, conversion rate or
-credited amount. The server exposes only configured, enabled channels.
+The wallet uses a personal Core Session. Core derives the economic account; the
+browser cannot select an account ID, conversion rate or credited amount. Only
+configured, enabled channels are offered.
 
 | HTTP route | Purpose |
 | --- | --- |
-| `GET /api/user/payments/channels` | Read available channel IDs, providers, units and any fixed Creem amount. |
-| `POST /api/user/payments/quote` | Prepare an immutable Core intent from channel, currency, amount and original request key; no provider checkout or credit is created. |
-| `POST /api/user/payments/checkout` | Confirm the original order ID and exact quoted credit amount, then queue the provider checkout. |
-| `GET /api/user/payments/checkout/{top_id}` | Read the authenticated owner's checkout link and the exact order's current state. |
-| `GET /api/user/payments/orders/{top_id}` | Retain the older minimal status-only contract, without a checkout URL. |
+| `GET /api/user/payments/channels` | Available channels, settlement units and any fixed Creem amount. |
+| `POST /api/user/payments/quote` | Freeze the channel, amount and original request key in a Core intent; no provider checkout or wallet credit. |
+| `POST /api/user/payments/checkout` | Confirm the original order and exact credit quote, then queue checkout. |
+| `GET /api/user/payments/checkout/{top_id}` | Owner-authenticated checkout link and order state. |
+| `GET /api/user/payments/orders/{top_id}` | Minimal status without a checkout URL. |
 
-IDs and monetary values in the new browser contract are canonical decimal
-strings. The UI uses integer arithmetic and distinguishes the provider's paid
-state from Core's credited state. It displays the exact settlement currency and
-credit quote before confirmation; the gateway page is opened only on a user
-click. `checkout_method` explicitly selects a GET link or a POST form; the
-browser does not infer a method from the URL. A return-page URL is never
-evidence of payment.
+IDs and money use canonical decimal strings and integer arithmetic. The UI shows
+the exact currency and credit quote before confirmation and opens the gateway on a
+user click. `checkout_method` selects a GET link or POST form. Provider-paid and
+Core-credited states remain distinct; a return URL is never payment evidence.
 
-The all-site financial projection includes only native payments with a Core
-credit journal. It reports USD, CNY and EUR independently as cash currencies,
-and LDC under virtual units. Neither aggregation nor display converts LDC to
-USD or combines unlike settlement units.
+Save the original request key before the first write. Timeout, lost response or
+reauthentication must not create a replacement operation. Writes disable automatic
+authentication-refresh replay; status uses bounded GET polling. Only the matching
+Core-confirmed receipt displays completion. Wallet reads are documented in
+[wallet history](wallet-history.md).
 
-The browser saves the request and its original key before the first write. A
-timeout, lost response or reauthentication does not invent another operation.
-Writes disable automatic authentication-refresh replay. The user can recover
-or explicitly retry the saved operation, while status polling uses bounded GET
-requests. Only the matching Core-confirmed receipt can display completion.
+Route the whole `/api/user/payments/` prefix to Extensions ahead of Core's `/api/user/`,
+retaining the user's Bearer header. Provider callbacks use `/callbacks/{numeric_channel_id}`
+with protocol-specific GET/POST, exact query/body/signature bytes and no browser or
+service credentials. Apply request limits without sensitive query/body logging.
+See [edge compatibility](edge-cutover-compatibility.md).
 
-The edge must route the whole `/api/user/payments/` prefix to Extensions ahead
-of Core's `/api/user/` prefix, retaining the user's Bearer header. Callbacks
-instead use `/callbacks/{numeric_channel_id}`, accept provider-specific GET or
-POST, retain the exact original query/body/signature and remove browser/service
-credentials. Both families require appropriate request limits and no sensitive
-query/body logging. The repository's local edge harness checks the candidate
-route contract; it does not update a public TLS server block. See
-[edge compatibility](edge-cutover-compatibility.md).
+## Schema and implementation references
 
-## Database transition
+The installed component set comes from the binary's `schema-manifest`, not a count
+copied into this guide. New installation and existing-database upgrades follow
+[Core installation boundaries](core-migration.md#安装权限与结构升级).
+Gateway schema changes do not reprice old intents, import payments or enable channels.
 
-Fresh installation retains component 29, `payment-gateways`. The component
-keeps the original `payments.sql` bytes unchanged, replaces the Stripe-only
-provider/currency/rate constraints, adds unique provider transaction ownership
-across channels, and creates an immutable, owner-only upgrade receipt. It does
-not convert balances, reprice existing intents or import historical payments.
+Historical native databases may require the preserved `core-payment-gateways-v1`
+[exact 28 → 29 procedure](payment-gateways-upgrade.md), or the
+`core-coinbase-payments-v1` [exact 31 → 32 procedure](schema-coinbase-payments-upgrade.md).
+Those guides describe specific predecessors and executors, not the current schema
+size. A different predecessor needs its matching reviewed procedure; restart never upgrades it.
 
-An existing native Core database uses the explicit fixed procedure
-`core-payment-gateways-v1` through `upgrade-db`; see
-[the exact 28 → 29 upgrade contract](payment-gateways-upgrade.md). Updating
-source or restarting services does not upgrade a database. A different
-predecessor needs its matching reviewed procedure.
-
-Coinbase adds component 32, `coinbase-payments`, without editing previous schema
-components. Existing databases at the exact 31-component contract use the
-explicit `core-coinbase-payments-v1` procedure. The
-[Coinbase schema upgrade guide](schema-coinbase-payments-upgrade.md) records its
-predecessor, fingerprints and offline steps. The procedure expands the provider
-constraint; it does not alter balances or enable a channel.
-
-## Implementation references and validation limits
-
-The protocol implementations are in
-[`payments/providers.rs`](../services/core/src/payments/providers.rs) and the
-[Go payment module](../services/extensions/internal/modules/payments/README.md).
-The fixed product and callback formats follow the legacy source plus the
-[Linux DO Credit API](https://credit.linux.do/docs/api),
-[Creem checkout API](https://docs.creem.io/api-reference/endpoint/create-checkout),
-[official Waffo Go v2.1.0 SDK](https://github.com/waffo-com/waffo-go/tree/v2.1.0)
-and [official Pancake v0.17.0 SDK](https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.17.0).
-Pinned dependency attribution is retained in
-[THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md).
-
-The tests exercise original signed bytes, wrong amount/merchant/order rejection,
-duplicate proof and credit handling, native quote/confirmation and isolated
-PostgreSQL upgrades. Executed results are recorded in the
-[payment verification record](../services/extensions/internal/modules/payments/VERIFICATION.md).
-Unrun real-provider, browser, process-restart and refund scenarios remain
-unverified; the older Stripe acceptance record does not certify the new gateways.
+Protocol authority lives in [Core verification](../services/core/src/payments/providers.rs)
+and the [Go payment implementation](../services/extensions/internal/modules/payments/).
+Protocol references include [Linux DO Credit](https://credit.linux.do/docs/api),
+[Creem checkout](https://docs.creem.io/api-reference/endpoint/create-checkout),
+[Waffo Go v2.1.0](https://github.com/waffo-com/waffo-go/tree/v2.1.0) and
+[Pancake v0.17.0](https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.17.0).
+Dependency attribution remains in [THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md).
+Source capability and synthetic tests do not establish real merchant or production
+acceptance; candidate-specific evidence and remaining work are tracked in [project progress](progress.md).

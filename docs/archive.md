@@ -4,6 +4,23 @@
 
 历史命令和接口只适用于对应提交，不是本分支的安装、迁移或生产恢复步骤。旧部署工具、数据库转换、writer gate 和财务恢复流程不得据此重新启用；历史付款、退款和提货义务仍须保存原始证据，未知结果不能当作失败重放。
 
+## 2026-11-08 文档整理
+
+当前动态状态只维护在[新架构进度](progress.md)。[新旧架构审计](history/architecture-parity-audit-2026-11-08.md)保留为固定证据快照；旧任务表不再继续填写。以下原文保存在不可变提交中，删除当前副本不删除其来源、失败证据或有效产品要求。
+
+| 历史内容 | 固定原文 |
+| --- | --- |
+| 旧任务提示词与滚动核查 | [architecture-completion-prompts.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/architecture-completion-prompts.md) · [main-wip-parity-audit.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/main-wip-parity-audit.md) |
+| 旧配置、部署前与集成状态 | [frontend-configuration-status.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/frontend-configuration-status.md) · [predeployment-status.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/predeployment-status.md) · [integration-verification.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/integration-verification.md) |
+| 旧请求运维交付与联合验收叙事 | [request-operations-completion.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/request-operations-completion.md) · [microkernel-business-acceptance.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/microkernel-business-acceptance.md) |
+| 旧单体市场审核与 Pancake | [market-ai-review.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/market-ai-review.md) · [waffo-pancake.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/waffo-pancake.md) · [waffo-pancake-portal.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/waffo-pancake-portal.md) |
+| 2026-10 插件兼容快照 | [dsh-compatibility-2026-10-10.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/dsh-compatibility-2026-10-10.md) · [plugin-compatibility-2026-10-06.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/plugin-compatibility-2026-10-06.md) |
+| 专题指南的旧交付记录 | [nonpayment-completion.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/nonpayment-completion.md) · [wallet-history-read-handoff.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/wallet-history-read-handoff.md) · [extore-shop-binding-followup.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/extore-shop-binding-followup.md) |
+| 历史质量执行与失败记录 | [quality.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/quality.md) |
+
+供应商计费、钱包历史和 Extore 的稳定说明分别迁入 [model-billing.md](model-billing.md)、[wallet-history.md](wallet-history.md)、[extore.md](extore.md)。完整要求由[配方产品要求](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md)维护，历史实现不能自动变成新架构已完成。
+
+
 ## 审计与证据边界
 
 以下审计包含部分完成、受阻和未通过验收的项目。原始记录只证明对应基线和检查范围，不证明当前账本、真实业务兼容或生产部署通过。

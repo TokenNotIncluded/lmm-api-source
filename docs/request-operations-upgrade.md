@@ -62,5 +62,5 @@ lmm-core --config /absolute/installer.toml upgrade-db < /private/original-reques
 覆盖错误数据库/角色/哈希绑定与非预期 catalog 定义。
 
 PG 测试命令为 `cargo test --locked --offline --test request_operations_upgrade`，必须设置指向隔离
-PostgreSQL 的 `DATABASE_URL`。实际执行结果见[本轮交付记录](request-operations-completion.md)。
+PostgreSQL 的 `DATABASE_URL`。历史执行结果见[固定版本交付记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/request-operations-completion.md)。
 这些开发自测不构成生产升级或独立验收记录。此轮提交没有执行生产迁移、部署或站点开放。

@@ -127,15 +127,15 @@ under a fresh key to hide a rejected decision. New purchases need a new order ke
 
 ## Legacy Web and historical contracts
 
-The [Web client](../../../../web/src/features/store/api.ts) still requests the
+The [Web client](../../../../../apps/web/src/features/store/api.ts) still requests the
 old `/api/store` API. Its guest pickup/email, delivery templates, partial refunds,
 external gateways and analytics are not supplied by this module. Retained pages
 and tests do not establish backend integration or payment-provider acceptance.
-The [delivery parser](../../../../web/src/features/store/delivery-template.ts)
+The [delivery parser](../../../../../apps/web/src/features/store/delivery-template.ts)
 interprets only a valid v1 envelope matching the frozen order template; other
 contents remain literal text. This is a legacy Web contract, not a new delivery API.
 
-[Extore binding](../../../../../docs/extore-shop-binding-followup.md) stores
+[Extore integration](../../../../../docs/extore.md) stores
 encrypted long-lived connections under a seller-scoped Extore shop, synchronizes
 approved listings into the legacy merchant shop, and rejects local edits of
 upstream-managed products. Configure `store.extore_key_file` and

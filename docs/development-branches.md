@@ -1,43 +1,19 @@
-# 开发主线与传统分支
+# 开发主线与源码基线
 
-[文档目录](README.md) · [贡献指南](contributing.md)
+[文档目录](README.md) · [新架构进度](progress.md)
 
-当前实现仓库为 [`TokenNotIncluded/lmm-api-source`](https://github.com/TokenNotIncluded/lmm-api-source)，
-开发主分支和默认分支均为 `main`。配方主项目是
-[`TokenNotIncluded/lmm-api`](https://github.com/TokenNotIncluded/lmm-api)，其默认分支也是 `main`；
-它通过固定提交的子模块接入本仓库。旧单体历史保留在配方仓库的 `传统` 和 `traditional` 分支。
-源码、子模块指针、发布和部署是不同状态，分支调整不代表业务验收或生产切换完成。
+| 仓库 | 主线 | 用途 |
+| --- | --- | --- |
+| [lmm-api-source](https://github.com/TokenNotIncluded/lmm-api-source) | `main` | Rust Core、Go Extensions、Web 与集成工具 |
+| [lmm-api](https://github.com/TokenNotIncluded/lmm-api) | `main` | Recipkg 配方、产品要求与固定源码 gitlink |
+| [lmm](https://github.com/TokenNotIncluded/lmm) | 以子项目规则为准 | 客户端；本仓库 `apps/cli` 固定其提交 |
 
-## 2026-10-12 主线交接（历史记录）
+旧单体比较使用固定发布 [go-v0.2.118](https://github.com/TokenNotIncluded/lmm-api/releases/tag/go-v0.2.118)，源码提交 `cc52aa195c6f2a01d703a1a407be73c31b89867d`。不依赖可能已移除或改名的历史分支。
 
-当时原仓库的默认开发分支为 `wip/rust-core-go-extensions`，新贡献和开发 PR 以该分支为目标。
-这段交接记录保留当时的背景，不作为当前仓库分支选择的操作指令。
+继续使用现有工作区与 `main`，先检查当前版本和本地修改，保留其他任务的工作。不得强推、重置或清理他人改动。跨仓库修改先提交子项目，再更新父仓库 gitlink；源码提交、制品发布和生产部署分别记录。
 
-当时旧单体源码保存为 `traditional`，`main` 作为同一历史快照保留。两者冻结于：
-`3948a0a1ee1cefdd016a7aa45a11851545bb4b85`。
-当时的规则集 `Freeze traditional monolith development` 禁止更新、删除和
-非快进修改这两个分支，没有绕过角色。当前规则以仓库实际设置为准，不改写历史。
+旧问题需在当前实现中核对行为后修复。只改 PR 目标或主线名称不能证明移植完成；历史未通过、未运行和资金义务继续保留。
 
-现有本地工作区、功能分支、未推送修改、子模块指针不因默认分支改变而移动。
-旧工作区的 `main` 不自动转换为微服务源码，也不能以重新检出覆盖其他任务。
+[Extore 集成](extore.md)仍受明确限制：**不得合并或推送会自动部署的 Extore `main`，不得据此部署。** 继续该任务时先核对其分支、已有修改与两端候选版本。
 
-## 当时的 PR 与 Issue 交接
-
-指向旧 `main` 的开发 PR 改为指向微服务主线，保留原正文和历史证据；旧单体候选
-需要先移植到对应核心、扩展或 Web 路径，再做本地验收。只改 base 不会完成移植，
-大范围差异、冲突和旧代码回灌必须解决后才能合并。不得批量自动合并。
-
-原 #675 是 WIP → main 的集成 PR。主线交接后其合并目标已经冻结，不再用它把
-整个 WIP 合回传统分支；关闭仅表示开发交接，不表示 S11 集成、资金迁移或整站
-验收完成。原正文、验证记录及 A01–A10 的未完成责任保留。架构收尾仍按
-[现有任务入口](architecture-completion-prompts.md)推进，候选 PR 继续各自完成验收。
-
-所有未关闭 Issue/PR 的主线交接说明保留原问题和历史基线。旧 `main` 路径与测试
-作为历史证据，需在微服务源码中重新确认是否存在相同问题，不能机械移植旧权限、
-数据库或资金实现，也不能仅因主线切换关闭问题或宣称修复。
-
-## 未完成的跨仓库目标
-
-[Extore 商品同步交接](extore-shop-binding-followup.md)记录两端固定提交、工作区、
-子模块指针、剩余工作和历史失败。该目标尚未验收，禁止部署，尤其禁止合并或
-推送会自动部署的 Extore `main`。主线交接不改变这一限制。
+早期 WIP 交接与 PR 处置记录保存在[固定历史文档](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/development-branches.md)；它不定义当前操作流程。

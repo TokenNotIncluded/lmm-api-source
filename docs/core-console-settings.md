@@ -42,6 +42,7 @@ contract; do not change its identity v5 / 26-component contract to manufacture
 an identity v6 / 27-component upgrade. Existing-site migration, continuous
 write fencing and recovery need their own verified procedure.
 
-Actual source, input hashes, failed attempts and acceptance scope are recorded in
-the parent Recipkg project's `STATUS.md`. Router tests, actual Core HTTP tests,
-browser acceptance and existing-site upgrades are separate results.
+Historical source, input hashes, failed attempts and acceptance scope remain in
+the [fixed parent record](https://github.com/TokenNotIncluded/lmm-api/blob/8f11ef82ac3a20e33406f2cc7478b419e74bfbe6/STATUS.md).
+Current work is tracked only in [architecture progress](progress.md). Router tests,
+actual Core HTTP tests, browser acceptance and existing-site upgrades are separate results.

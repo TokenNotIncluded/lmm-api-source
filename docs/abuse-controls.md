@@ -1,6 +1,6 @@
 # 注册滥用、蜜罐与封禁通知
 
-[文档目录](README.md) · [架构](core-migration.md) · [业务验收](microkernel-business-acceptance.md)
+[文档目录](README.md) · [架构](core-migration.md) · [验收规则](quality.md) · [项目进度](progress.md)
 
 本文记录已确认的产品行为和接线要求。2026-10-15：蜜罐 Core 领域、模型、身份、
 管理 API 与受限运行权限已接入本分支源码，尚未部署。独立受影响层复合结果为

@@ -42,8 +42,8 @@ debt and review rules. Record actual commands, tested input and unverified items
 ## Delivery
 
 Use `main` in `TokenNotIncluded/lmm-api-source` for implementation work. The
-parent `TokenNotIncluded/lmm-api` repository owns the Recipkg recipes and keeps
-the monolith history in `传统` and `traditional`; see [branch policy](development-branches.md).
+parent `TokenNotIncluded/lmm-api` repository owns the Recipkg recipes. Legacy
+comparison uses the fixed `go-v0.2.118` release; see [branch policy](development-branches.md).
 Existing legacy PRs need porting, not just a base change. Reuse the existing
 workspace and branch for ongoing work. Preserve concurrent changes;
 never force-push. CLI changes go to its own repository first, then update the

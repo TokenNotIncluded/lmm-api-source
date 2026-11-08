@@ -13,7 +13,9 @@ correct, minimal change with targeted evidence, not more layers, more tests or
 more check runs; see [proportion and stopping](docs/agent-workflows.md#适度与停止).
 
 When asked to complete the project, keep implementing and independently verifying
-the repository's [full acceptance scope](docs/architecture-completion-prompts.md).
+the [product requirements](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md)
+and [production acceptance contract](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCTION_ACCEPTANCE.md).
+Track current work only in [architecture progress](docs/progress.md); do not revive retired task lists.
 Use parallel owners for independent work and freeze inputs for acceptance.
 Required failures, unrun checks and blocked capabilities remain incomplete;
 never claim 100% from source presence, test counts, a build or a deployment alone.
@@ -22,7 +24,8 @@ never claim 100% from source presence, test counts, a build or a deployment alon
 
 Use `main` in `TokenNotIncluded/lmm-api-source` for ongoing implementation work.
 The parent `TokenNotIncluded/lmm-api` repository owns Recipkg recipes. Historical
-monolith snapshots remain in the parent repository as `传统` and `traditional`; see [branch policy](docs/development-branches.md). Read its current
+monolith comparison uses the fixed `go-v0.2.118` release; see
+[branch policy](docs/development-branches.md). Read its current
 revision and local changes; preserve other work. Reuse the existing workspace
 and main branch, not a new dated branch or worktree for each fix. Never force-push.
 Inspect other PRs or branch history only when the task depends on them.
@@ -33,10 +36,11 @@ given. Ask only for a missing decision that tools cannot resolve.
 
 ## Pending cross-repository work
 
-[Extore shop binding](docs/extore-shop-binding-followup.md) is pushed but not
-accepted, merged or deployed. Preserve the recorded task workspaces and other
-contributors' edits. Do not deploy or merge/push Extore `main` (automatic deployment).
-Read that handoff before continuing product sync or updating its submodule pointer.
+[Extore integration](docs/extore.md) defines the two-sided authorization and sync
+contract. Current acceptance is tracked in [architecture progress](docs/progress.md).
+Preserve existing task workspaces and other contributors' edits. Do not deploy or
+merge/push Extore `main` (automatic deployment). Read the integration guide before
+continuing product sync or updating its submodule pointer.
 
 ## Find the work
 

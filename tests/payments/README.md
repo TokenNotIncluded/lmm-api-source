@@ -1,5 +1,9 @@
 # Local payment process recovery
 
+This guide preserves fixture contracts and historical runs bound to their frozen
+inputs. Those runs do not certify the current candidate; current implementation
+and acceptance work is tracked in [project progress](../../docs/progress.md).
+
 This explicit regression uses a fresh owned Docker PostgreSQL cluster, sealed
 Core and Go product binaries, a sealed Rust test executable, and the existing
 sealed Go payment test executable as a bootstrap only. No external request or
@@ -28,9 +32,15 @@ inode and startticks before and after readiness.
 
 The quick case alone does not prove exact loss of the Core network reply, full Stripe ingress,
 checkout/refund, double OS restart after 302-second expiry, or production rails.
-Core ReleaseRefund remains unavailable and must not free ambiguous holds.
+These credit-only fixtures leave refund permissions disabled. Core implements
+`ReleaseRefund`, requiring trusted failure evidence bound to the original
+registered dispatch; ambiguous holds must remain held. Native Stripe and Waffo
+Global refund capabilities are described in [payment gateways](../../docs/payment-gateways.md).
+The separate [refund fixtures](independent_a05/README.md) use synthetic provider
+transport and Go payment-module workers, not the actual Go main scheduler used
+by the credit-recovery cases above.
 
-The quick regression passed again independently in about 58.9 seconds. Actual Core and Go main
+The recorded quick regression passed independently in about 58.9 seconds. Actual Core and Go main
 processes were each killed and restarted; the original 30-second lease and job
 key remained unchanged. Core receipt protobuf, intent, Go receipt and the one
 credit journal were directly linked, including exact clearing -500000 and the
@@ -85,7 +95,7 @@ any later bootstrap replay. Exact receipt/intent/Go-job/journal association and
 clearing -500000 / original wallet +500000 legs remain mandatory; original
 payload replay leaves two proofs, two done inbox events and only one credit.
 
-The explicit expiry case passed independently in 332.577 seconds: 302.071 seconds
+The recorded expiry case passed independently in 332.577 seconds: 302.071 seconds
 of actual monotonic waiting, 62 consecutive observations (maximum gap 5.029
 seconds), and a minimum original signature age of 304 seconds. Independent HMAC
 verification confirmed all three original signatures and that the third event
@@ -142,7 +152,7 @@ optional `--reuse-build <previous-private-run>` must match the frozen committed
 Core/contracts/schema inputs; it still binds the current test and creates a
 fresh PostgreSQL fixture. Keep all previous failed runs and private receipts.
 
-The final independent run passed against Core commit
+The recorded final independent run passed against Core commit
 `5e8053e2c42536244c57e793bf048c3f9db98097`, using `--run-name run06` and an eligible
 prior `run05` archive for reuse. One real Rust test, both Go phases and the actual
 `app.Run` subprocess helper executed successfully without skips. The path used
@@ -166,7 +176,8 @@ Each run keeps `inputs.json`, `runner-result.json` and `result.json` with the
 source/binary bindings and observed scope. The final run verified stable full
 inputs, physical PostgreSQL identity and no remaining client backends before
 removing its own fresh fixture. Private logs and credentials must not be
-committed. Checkout, actual provider/webhook compatibility, complete refund/hold
-release recovery, browser/Caddy flows, sustained payment resource acceptance and
-server deployment remain open gates. `core_credit_confirmed` records only the
+committed. This status-read run does not cover checkout, actual provider/webhook
+compatibility, complete refund/hold release recovery, browser/Caddy flows,
+sustained payment resources or server deployment; their current status belongs
+in [project progress](../../docs/progress.md). `core_credit_confirmed` records only the
 original completed credit, never the current balance or spendable value.

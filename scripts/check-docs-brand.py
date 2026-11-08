@@ -161,11 +161,7 @@ def badge_urls(text: str) -> list[str]:
 
 
 def check_badges(root: Path) -> list[str]:
-    repo = "TokenNotIncluded/lmm-api"
-    expected = [
-        f"https://github.com/{repo}/actions/workflows/core-protocol.yml/badge.svg?branch=wip%2Frust-core-go-extensions",
-        "https://img.shields.io/badge/license-AGPL--3.0-blue",
-    ]
+    expected = ["https://img.shields.io/badge/license-AGPL--3.0-blue"]
     return [f"{name}: unexpected CI, component release, or license badges"
             for name in ("README.md", "README_EN.md")
             if badge_urls((root / name).read_text(encoding="utf-8")) != expected]

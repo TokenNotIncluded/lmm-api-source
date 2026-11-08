@@ -1,8 +1,9 @@
 # Audio non-streaming integration
 
-This initial slice is integrated in source commit
-`3f0e50c9a66f2fdf69d091c1bfb754bc12636ae0`. Its local tests and remaining
-scope are recorded in [integration verification](../../../../../docs/integration-verification.md).
+The initial non-streaming slice was integrated in source commit
+`3f0e50c9a66f2fdf69d091c1bfb754bc12636ae0`. Historical test results are preserved in
+[the integration record](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/integration-verification.md).
+Current follow-up work is tracked in [project progress](../../../../../docs/progress.md).
 The contract below describes the non-streaming entry; it does not claim that
 streaming, other audio endpoints or production acceptance are complete.
 

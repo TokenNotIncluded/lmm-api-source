@@ -1,6 +1,6 @@
 # 请求限速与 Auto 分组继承
 
-[文档目录](README.md) · [原生模型与计费交付](nonpayment-completion.md)
+[文档目录](README.md) · [供应商计费与原生用量](model-billing.md)
 
 Core 使用 PostgreSQL 保存请求限速策略、全局 Auto 顺序与窗口计数。同一用户的多个
 API Key 共用用户计数，同一分组的所有用户共用分组计数。管理员在现有

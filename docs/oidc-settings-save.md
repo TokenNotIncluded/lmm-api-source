@@ -1,5 +1,9 @@
 # Saving OAuth settings
 
+This document describes the Web form's save behavior. Backend provider availability
+and end-to-end acceptance are tracked in [architecture progress](progress.md);
+these form checks do not establish that generic OIDC login is implemented.
+
 Saving an unrelated login provider, or saving an unchanged form, does not fetch
 an unchanged OIDC discovery document. Disabling OIDC also skips discovery, even
 when its saved URL is invalid or its provider is unavailable.

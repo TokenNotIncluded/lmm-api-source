@@ -60,4 +60,4 @@ CPU、内存或主从身份采样；本机资源页继续使用独立的原生�
 后导入数据保留、账目不变、心跳过期、同名实例与权限拒绝。
 Web 自测位于
 [`system-info/api.test.tsx`](../apps/web/src/features/system-info/api.test.tsx)。
-实际执行结果见[本轮交付记录](request-operations-completion.md)。
+历史执行结果见[固定版本交付记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/request-operations-completion.md)。

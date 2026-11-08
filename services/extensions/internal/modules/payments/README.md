@@ -139,9 +139,15 @@ the signed failure to match the original registered dispatch and rejects a
 failure that cannot exclude another accepted pending/successful attempt.
 Timeout, missing callback, API error or unsigned provider success never releases
 funds. Lost hold responses use receipt lookup; background jobs never save user
-sessions. Scoped synthetic process tests cover credit and refund recovery;
-their exact source, scope and results are recorded in the parent STATUS.md and
-[independent fixtures](../../../../../tests/payments/independent_a05/README.md).
+sessions. The [main-process credit fixtures](../../../../../tests/payments/README.md)
+use actual Core and Go main processes; separate refund-recovery cases use actual
+Core and Go payment-module worker processes
+with synthetic provider transport. These are distinct execution scopes.
+Their frozen source, scope and results are recorded in the
+[historical parent status](https://github.com/TokenNotIncluded/lmm-api/blob/8f11ef82ac3a20e33406f2cc7478b419e74bfbe6/STATUS.md)
+and [independent fixtures](../../../../../tests/payments/independent_a05/README.md).
+Current implementation and acceptance work is tracked in
+[project progress](../../../../../docs/progress.md).
 
 Partial refunds have separate IDs and request keys. Local locked checks cap the
 cumulative requested amount; Rust enforces the authoritative cap and holds.
@@ -209,12 +215,14 @@ cannot. Coinbase automatic refunds and subscription purchases are not enabled.
 public key alone does not bind merchant-supplied metadata to a receiving
 account. Core independently inquires about the frozen order using its own
 provider credentials before persisting a new proof, then rechecks the intent
-inside the transaction. Go's own inquiry is still an observation.
+inside the transaction. Go's own inquiry is still an observation. Global supports
+full and partial refund dispatch and lookup; Core remains the authority for
+accepting proof and settling funds.
 
 **Waffo Pancake:** authenticated checkout through the pinned official SDK,
 separate from Global's protocol. Core verifies the original timestamped RSA
 notification and binds merchant, test/prod environment, store, product, order,
-currency and actual paid amount. Creem, Global and Pancake automatic refunds
+currency and actual paid amount. Creem and Pancake automatic refunds
 are not enabled by this top-up implementation.
 
 Provider connections require HTTPS, block redirects and proxy environment use,

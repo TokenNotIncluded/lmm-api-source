@@ -5,7 +5,8 @@
 [opening 模块](../scripts/legacy_financial_opening.py)。普通 `--apply` 仍明确拒绝；其他金融领域仍由 planner 保留和分类。
 
 当前真实 06 批次仍为 `BLOCKED`、`target_writes=0`：没有可用的完整零预留审阅材料和已审核 opening 输入，旧工具指纹也不能直接作为当前授权。
-隔离合成库的有限验收不代表真实历史资金、历史 MFA、生产迁移或[完整仓库验收](architecture-completion-prompts.md)完成。
+隔离合成库的有限验收不代表真实历史资金、历史 MFA、生产迁移或[完整产品验收](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md)完成。
+当前任务状态见[项目进度](progress.md)。
 
 可复现的合成验收入口是 [CLI 验收脚本](../scripts/test_legacy_financial_opening_cli.py)。
 它只创建新的本机 PostgreSQL 集群与合成用户，接受明确的冻结源码和对应 Core 二进制指纹，

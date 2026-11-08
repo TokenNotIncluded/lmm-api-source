@@ -8,8 +8,9 @@ component 45 with its upgrade receipt. No preseeded signing key or editor.
 `OptionsHttp::with_trust_policy_editor(service)` mounts the five routes and is
 connected to the validated startup configuration. The owner CLI, explicit
 44-to-45 upgrade, runtime grants and frontend are integrated. The option remains
-disabled by default. Current checks and outstanding acceptance are recorded in
-[integration verification](../../../../../docs/integration-verification.md).
+disabled by default. Historical check results are preserved in
+[the integration record](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/integration-verification.md).
+Current work is tracked in [project progress](../../../../../docs/progress.md).
 
 Core public API (export `pub mod trust_policy` from `options_http.rs`):
 

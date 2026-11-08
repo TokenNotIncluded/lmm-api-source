@@ -2,47 +2,40 @@
 
 [项目首页](../README.md) · [贡献指南](contributing.md)
 
-本目录以微服务分支为准：可执行程序只有 `lmm` 客户端、`lmm-core` 核心和 `lmm-extensions` 扩展；Web 是单独构建的静态文件。线上 Go 单体的历史说明不是新架构安装步骤。
+**当前进度只看[新架构进度](progress.md)。** 本目录提供稳定的设计、配置和验收方法；历史记录集中在[历史索引](archive.md)。源码开发主线是 `TokenNotIncluded/lmm-api-source/main`，配方仓库通过 gitlink 固定源码，见[分支规则](development-branches.md)。
 
-默认开发主线为 `wip/rust-core-go-extensions`；`main` 与 `traditional` 已冻结，
-见[分支交接规则](development-branches.md)。
-传统 main 的增量是否已移植，见[固定源码对齐核查](main-wip-parity-audit.md)。
-[Extore 商品同步](extore-shop-binding-followup.md)尚未验收，禁止部署。
+## 先看这些
 
-## 主要入口
-
-| 主题 | 文档 |
+| 目的 | 文档 |
 | --- | --- |
-| 架构、模块状态与剩余工作 | [架构与状态](core-migration.md) |
-| 非支付计费、RAG 接口与原生用量交付 | [行为、配置、验证与剩余项](nonpayment-completion.md) |
-| 第二轮请求执行、计费与运维补齐 | [8 项行为与验证记录](request-operations-completion.md) |
-| 用户/分组请求限速与全局 Auto 顺序 | [原生配置与继承合同](request-limits.md) |
-| 可续跑日志清理与多实例心跳 | [Core 运维接口](core-operations.md)、[固定 29 → 31 离线升级](request-operations-upgrade.md) |
-| 普通文本按次计费与 Anthropic/Gemini 模型列表 | [价格合同、恢复与分页](text-request-and-native-models.md) |
-| 注册滥用、蜜罐、独立限频与封禁通知 | [行为与接线范围](abuse-controls.md) |
-| 低频用户管理与批量预览 | [Python 管理客户端](admin-cli.md) |
-| 架构收尾的并行分工与串行验收 | [10 个并行任务与 1 个串行收尾提示词](architecture-completion-prompts.md) |
-| 新安装、服务隔离与日常启停 | [Docker 开发栈](../deployment/docker/README.md) |
-| 环境、命令与测试 | [开发指南](development.md)、[本地质量门禁](quality.md) |
-| TOML 配置、文件路径与升级保留规则 | [配置与文件路径](filesystem-layout.md) |
-| 可编辑协议与发布规则 | [用户、隐私、退款模板](legal/README.md) |
-| 独立分发包、校验与发布边界 | [打包与分发](release-architecture.md) |
-| 历史资料的使用范围 | [历史文档](archive.md) |
+| 确认剩余事项与关闭条件 | [新架构进度](progress.md) |
+| 理解三个程序与资金/权限边界 | [架构指南](core-migration.md) |
+| 配置工具链与隔离开发环境 | [开发指南](development.md)、[Docker 开发栈](../deployment/docker/README.md) |
+| 选择检查、保存证据与独立验收 | [工作指南](agent-workflows.md)、[质量指南](quality.md) |
+| 安装配置、文件所有权与打包 | [文件路径](filesystem-layout.md)、[发布架构](release-architecture.md) |
+| 理解完整产品要求 | [产品要求](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md)、[生产验收合同](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCTION_ACCEPTANCE.md) |
 
-## 详细设计
+## 业务与接口
 
-[核心身份](core-identity.md) · [跨进程接口](core-protocol.md) · [业务验收范围](microkernel-business-acceptance.md)
+| 领域 | 稳定指南 |
+| --- | --- |
+| 身份与跨进程授权 | [核心身份](core-identity.md)、[核心协议](core-protocol.md) |
+| 模型计费与用量 | [供应商计费与原生用量](model-billing.md)、[路由计费合同](../services/core/src/routing/README.md) |
+| 请求限制与模型目录 | [限速与 Auto](request-limits.md)、[按次计费与原生模型](text-request-and-native-models.md) |
+| 支付、金额与历史 | [支付网关](payment-gateways.md)、[金额合同](payment-money-contract.md)、[钱包历史导入](wallet-history.md)、[财务期初导入](legacy-financial-opening.md) |
+| 商店与 Extore | [商店模块](../services/extensions/internal/modules/store/README.md)、[Extore 集成](extore.md) |
+| 扩展、助手与工具 | [扩展宿主](../services/extensions/README.md)、[助手模块](../services/extensions/internal/modules/assistant/README.md) |
+| 滥用防护与管理 | [Abuse controls](abuse-controls.md)、[管理客户端](admin-cli.md)、[Core 运维](core-operations.md) |
+| 特定旧合同的离线升级 | [请求运维组件升级](request-operations-upgrade.md)；执行前核对适用前置版本 |
 
-[Rust 路由与计费合同](../services/core/src/routing/README.md)包含 [OpenAI 12 小时缓存写入计费（revision 4）](../services/core/src/routing/README.md#openai-twelve-hour-cache-writes-revision-4)的用量分区、示例价格、恢复和回退边界。
+## 界面、协议与协作
 
-[RT16 Markdown 隔离安全复现](../scripts/security/rt16/README.md)只验证组件，不能替代商品、客服、个人资料和助手的存储读写验收。
+[Web 设计](../apps/web/DESIGN.md) · [品牌](brand-design.md) · [Logo](../.github/assets/README.md) · [翻译术语](translation-glossary.md) · [产品背景](product.md)
 
-[部署研究结论与待接入项](deployment-research.md)保留已移除实验目录的有效结论与历史来源，不作为正式部署步骤。
+[用户/隐私/退款协议](legal/README.md) · [来源与归属](fork.md) · [安全报告](../.github/SECURITY.md) · [支持](SUPPORT.md) · [CLI 子项目](https://github.com/TokenNotIncluded/lmm#readme)
 
-Go 模块的接口与存储规则以各自源码目录为准：[扩展宿主](../services/extensions/README.md)、[助手](../services/extensions/internal/modules/assistant/README.md)。[CLI 子项目文档](https://github.com/TokenNotIncluded/lmm#readme)与服务端部署分开。
+[RT16 Markdown 安全复现](../scripts/security/rt16/README.md)只验证其组件范围；[部署研究](deployment-research.md)保留实验结论。二者不替代完整业务或部署验收。
 
-品牌与产品：[品牌设计](brand-design.md)、[产品记录](product.md)、[分支来源与归属](fork.md)。前端资料：[设计](../apps/web/DESIGN.md)、[Logo](../.github/assets/README.md)、[翻译术语](translation-glossary.md)。[安全报告](../.github/SECURITY.md)与[支持渠道](SUPPORT.md)不属于运行时用户协议。
+## 维护约定
 
-旧部署、OpenAPI、审计和已合并专题统一从[历史索引](archive.md)查找原文。它们不作为当前服务能力或测试通过的依据。
-
-维护规则：入口只描述当前可执行步骤；细节留在拥有该接口的模块中。删除实现后，删除生成依赖并将历史来源集中到 archive.md；不新增逐文件占位页。保留许可证、安全记录和仍有使用方的接口约定。
+每个事实只维护一处：进度在 `progress.md`，产品范围在配方要求，接口细节在拥有该接口的模块。删除过时专题时，将固定版本来源加入 `archive.md`，不新增占位页。保留许可证、事故、安全记录和仍在使用的合同；历史通过结论不自动适用于当前源码。
