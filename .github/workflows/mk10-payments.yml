@@ -1,6 +1,7 @@
 name: mk10-payment-safety
 on:
   pull_request:
+    branches: [main]
     paths:
       - 'services/extensions/internal/modules/payments/**'
       - 'services/extensions/internal/coreclient/payments.go'
@@ -8,7 +9,7 @@ on:
       - 'services/extensions/go.*'
       - '.github/workflows/mk10-payments.yml'
   push:
-    branches: ['wip/mk-10-payments']
+    branches: [main]
     paths:
       - 'services/extensions/internal/modules/payments/**'
       - 'services/extensions/internal/coreclient/payments.go'

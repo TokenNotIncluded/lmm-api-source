@@ -1,9 +1,12 @@
 name: MK-01 identity and teams
 on:
   push:
-    branches: [wip/mk-01-identity-teams]
+    branches: [main]
+    paths:
+      - services/core/**
+      - .github/workflows/mk-01-identity.yml
   pull_request:
-    branches: [wip/rust-core-go-extensions]
+    branches: [main]
     paths:
       - services/core/**
       - .github/workflows/mk-01-identity.yml

@@ -7,8 +7,8 @@ Real smoke (already-built, labelled linux/amd64 runtime only):
   bash scripts/smoke-runtime-image.sh extensions IMAGE PRIVATE_EVIDENCE_DIR
 Requirements for real smoke: local Docker daemon/CLI, Python3, bash, sha256sum;
 image must contain sh, curl, coreutils and the existing component entrypoint.
-Formal build/publication is exclusively manual microservice-images.yml, on WIP
-or an exact-SHA preview tag proven to be an ancestor of WIP.
+Formal build/publication is exclusively manual microservice-images.yml, on main
+or an exact-SHA preview tag proven to be an ancestor of main.
 """
 import hashlib
 import json
@@ -35,15 +35,15 @@ class SourceContracts(unittest.TestCase):
         cls.smoke = SMOKE.read_text()
         cls.build, cls.publish = cls.workflow.split('  publish:\n', 1)
 
-    def test_manual_only_and_wip_repository_guard(self):
+    def test_manual_only_and_source_repository_guard(self):
         self.assertRegex(self.workflow, r'^name: [^\n]+\non:\n  workflow_dispatch:\npermissions:')
         for trigger in ('workflow_call:', 'push:', 'pull_request:', 'schedule:'):
             self.assertNotIn(trigger, self.workflow)
-        self.assertIn("github.repository == 'TokenNotIncluded/lmm-api'", self.build)
-        self.assertIn("github.ref == 'refs/heads/wip/rust-core-go-extensions'", self.build)
+        self.assertIn("github.repository == 'TokenNotIncluded/lmm-api-source'", self.build)
+        self.assertIn("github.ref == 'refs/heads/main'", self.build)
         self.assertIn("startsWith(github.ref, 'refs/tags/microservice-preview-')", self.build)
         self.assertIn('test "$GITHUB_REF_NAME" = "microservice-preview-$GITHUB_SHA"', self.build)
-        self.assertIn('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/wip/rust-core-go-extensions', self.build)
+        self.assertIn('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main', self.build)
         self.assertIn('fetch-depth: 0', self.build)
         self.assertIn('ref: ${{ github.sha }}', self.build)
         self.assertIn('persist-credentials: false', self.workflow)

@@ -8,8 +8,8 @@ Compose 已拆开安装 owner 与运行时凭据，并提供[显式离线授权�
 
 ## GitHub Container Registry 预览镜像
 
-[手动发布入口](../../.github/workflows/microservice-images.yml)接受本仓库 WIP 分支的实际提交，
-或精确的 `microservice-preview-<完整提交>` 标签；标签提交必须已在 WIP 历史中。
+[手动发布入口](../../.github/workflows/microservice-images.yml)接受 `TokenNotIncluded/lmm-api-source` 的 `main` 实际提交，
+或精确的 `microservice-preview-<完整提交>` 标签；标签提交必须已在 `main` 历史中。
 并行开发时使用已校验提交的预览标签，避免发布过程中分支继续前进导致来源变化。
 Core 和 Go 各自构建现有运行镜像，首次支持 `linux/amd64`；两者均通过真实的非 root、无网络启动及许可证冒烟后，才发布同一组已测试字节：
 

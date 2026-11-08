@@ -1,9 +1,14 @@
 name: Assistant and promotions checks
 on:
   push:
-    branches: [wip/mk-09-assistant-promotions]
+    branches: [main]
+    paths:
+      - services/extensions/internal/modules/assistant/**
+      - services/extensions/internal/modules/promotions/**
+      - scripts/test-core-boundaries.py
+      - .github/workflows/mk-09-assistant-promotions.yml
   pull_request:
-    branches: [wip/rust-core-go-extensions]
+    branches: [main]
     paths:
       - services/extensions/internal/modules/assistant/**
       - services/extensions/internal/modules/promotions/**

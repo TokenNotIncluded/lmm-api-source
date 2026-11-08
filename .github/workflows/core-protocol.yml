@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   workflow_call:
   pull_request:
-    branches: [wip/rust-core-go-extensions]
+    branches: [main]
     paths:
       - .github/workflows/*.yml
       - services/core/**
@@ -15,7 +15,7 @@ on:
       - scripts/workflow-topology.test.mjs
       - .dockerignore
   push:
-    branches: [wip/rust-core-go-extensions]
+    branches: [main]
     paths:
       - .github/workflows/core-protocol.yml
       - .github/workflows/ci.yml

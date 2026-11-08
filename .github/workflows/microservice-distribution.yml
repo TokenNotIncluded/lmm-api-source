@@ -25,11 +25,16 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      source_revision: ${{ steps.source.outputs.revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
+      - name: Freeze the source used by all build jobs
+        id: source
+        run: echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Initialize the pinned CLI only
         run: git submodule update --init --depth 1 -- apps/cli
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
@@ -66,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ needs.contracts.outputs.source_revision }}
           persist-credentials: false
       - name: Initialize the pinned CLI only
         if: matrix.component == 'cli'
@@ -90,9 +95,11 @@ jobs:
           '
           if [[ "$COMPONENT" == extensions ]]; then
             docker run --rm --entrypoint /bin/sh lmm-preview-extensions -ec '
-              test -s /usr/share/lmm/legal/site.example.json
+              test -s /usr/share/lmm/legal/site.example.toml
               test "$(find /usr/share/lmm/legal/templates -name "*.md" | wc -l)" -eq 6
               test ! -e /usr/share/lmm/legal/site.json
+              test ! -e /usr/share/lmm/legal/site.toml
+              test ! -e /usr/share/lmm/legal/site.example.json
             '
           fi
       - name: Actual extension policy process checks

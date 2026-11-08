@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   workflow_call:
   pull_request:
-    branches: [wip/rust-core-go-extensions]
+    branches: [main]
     paths:
       - packaging/linux/**
       - packaging/distribution.json

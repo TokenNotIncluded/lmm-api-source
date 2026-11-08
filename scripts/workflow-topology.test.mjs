@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 const root = new URL('../', import.meta.url);
@@ -85,13 +88,13 @@ test('only the isolated microkernel checks may run automatically', () => {
     const events = [...block[1].matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
     if (file === 'core-protocol.yml') {
       assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request', 'push']);
-      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
-      assert.match(block[1], /branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
+      assert.match(block[1], /push:\n    branches: \[main\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else if (file === 'linux-packages.yml') {
       assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request']);
-      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|id-token: write|pull_request_target|gh release|environment: production/);
       assert.match(source, /packaging\/linux\/test_native\.py/);
@@ -104,7 +107,8 @@ test('only the isolated microkernel checks may run automatically', () => {
     } else if (file === 'mk10-payments.yml') {
       // Payment tests use disposable PostgreSQL, never a channel credential.
       assert.deepEqual(events, ['pull_request', 'push']);
-      assert.match(block[1], /branches: \['wip\/mk-10-payments'\]/);
+      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
+      assert.match(block[1], /push:\n    branches: \[main\]/);
       assert.match(block[1], /services\/extensions\/internal\/modules\/payments\/\*\*/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.match(source, /services:\n      postgres:/);
@@ -112,21 +116,37 @@ test('only the isolated microkernel checks may run automatically', () => {
     } else if (file === 'mk-09-assistant-promotions.yml') {
       // The merged MK-09 module retains isolated, read-only regression checks.
       assert.deepEqual(events, ['push', 'pull_request', 'workflow_dispatch']);
-      assert.match(block[1], /branches: \[wip\/mk-09-assistant-promotions\]/);
-      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(block[1], /push:\n    branches: \[main\]\n    paths:/);
+      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
       assert.match(block[1], /services\/extensions\/internal\/modules\/assistant\/\*\*/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else if (file === 'mk-01-identity.yml') {
-      // MK-01 runs read-only checks on its isolated branch and PRs.
+      // MK-01 uses disposable databases for changes to main and its PRs.
       assert.deepEqual(events, ['push', 'pull_request']);
-      assert.match(block[1], /branches: \[wip\/mk-01-identity-teams\]/);
-      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(block[1], /push:\n    branches: \[main\]\n    paths:/);
+      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else {
       assert.deepEqual(events, ['workflow_dispatch'], `${file}: no new automatic publication or deployment`);
     }
+    assert.doesNotMatch(source, /wip\/|github\.repository == 'TokenNotIncluded\/lmm-api'/);
+  }
+});
+
+test('distribution builds use the checked source and shipped TOML resources', () => {
+  const source = workflow('microservice-distribution');
+  const [contracts, build] = source.split('  build:\n');
+  assert.match(contracts, /source_revision: \$\{\{ steps\.source\.outputs\.revision \}\}/);
+  assert.match(contracts, /echo "revision=\$\(git rev-parse HEAD\)" >> "\$GITHUB_OUTPUT"/);
+  assert.match(build, /ref: \$\{\{ needs\.contracts\.outputs\.source_revision \}\}/);
+  assert.doesNotMatch(build, /ref: \$\{\{ inputs\.source_ref/);
+  const dockerfile = read('deployment/docker/extensions.Dockerfile');
+  const [, example] = dockerfile.match(/^COPY config\/legal\/(site\.example\.toml) /m);
+  assert.ok(build.includes(`test -s /usr/share/lmm/legal/${example}`));
+  for (const privateOrRetired of ['site.toml', 'site.json', 'site.example.json']) {
+    assert.ok(build.includes(`test ! -e /usr/share/lmm/legal/${privateOrRetired}`));
   }
 });
 
@@ -190,9 +210,64 @@ test('S11 snapshots are manual read-only sources, not automatic Git writers', ()
   assert.match(source, /on:\n  workflow_dispatch:/);
   assert.match(source, /permissions:\n  contents: read/);
   assert.match(source, /persist-credentials: false/);
+  assert.match(source, /github\.repository == 'TokenNotIncluded\/lmm-api-source' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(source, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(source, /git bundle create/);
-  assert.match(source, /refs\/s11\/development refs\/s11\/a09 refs\/s11\/a04 refs\/s11\/a10/);
-  assert.doesNotMatch(source, /contents: write|GH_TOKEN|github\.token|s11-rebase\.py|git push/);
+  assert.match(source, /git submodule update --init -- apps\/cli/);
+  assert.doesNotMatch(source, /contents: write|GH_TOKEN|github\.token|s11-rebase\.py|git push|refs\/pull\//);
+});
+
+test('S11 bundles restore the selected source and pinned CLI after main advances', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'lmm-snapshot-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const env = {
+    ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'file',
+    GIT_AUTHOR_NAME: 'Snapshot test', GIT_AUTHOR_EMAIL: 'snapshot@example.test',
+    GIT_COMMITTER_NAME: 'Snapshot test', GIT_COMMITTER_EMAIL: 'snapshot@example.test',
+  };
+  const run = (cwd, command, args, extraEnv = {}) => execFileSync(command, args, {
+    cwd, env: { ...env, ...extraEnv }, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
+  const git = (cwd, ...args) => run(cwd, 'git', args);
+  const commit = (cwd, text) => {
+    writeFileSync(join(cwd, 'README.md'), text);
+    git(cwd, 'add', '.');
+    git(cwd, 'commit', '-qm', text);
+    return git(cwd, 'rev-parse', 'HEAD');
+  };
+  const cli = join(directory, 'cli');
+  const source = join(directory, 'source');
+  for (const repo of [cli, source]) {
+    mkdirSync(repo);
+    git(repo, 'init', '-q', '-b', 'main');
+  }
+  const cliRevision = commit(cli, 'pinned CLI');
+  git(source, 'submodule', 'add', cli, 'apps/cli');
+  const revision = commit(source, 'selected source');
+  commit(cli, 'later CLI');
+  const laterRevision = commit(source, 'later source');
+  const checkout = join(directory, 'checkout');
+  git(directory, 'clone', '-q', '--no-hardlinks', source, checkout);
+  git(checkout, 'checkout', '-q', '--detach', revision);
+  const snapshot = workflow('s11-source-snapshot');
+  const init = snapshot.match(/        run: (git submodule update[^\n]+)/)[1];
+  const script = snapshot.match(/        run: \|\n([\s\S]*?)(?=      - uses:)/)[1]
+    .replace(/^          /gm, '');
+  run(checkout, 'bash', ['-e', '-c', init]);
+  const workflowEnv = { GITHUB_SHA: revision, GITHUB_REPOSITORY: 'TokenNotIncluded/lmm-api-source', RUNNER_TEMP: directory };
+  run(checkout, 'bash', ['-e', '-c', script], workflowEnv);
+  const output = join(directory, 's11-sources');
+  run(output, 'sha256sum', ['--check', 'SHA256SUMS']);
+  for (const [bundle, expected] of [['source', revision], ['cli', cliRevision]]) {
+    const restored = join(directory, `restored-${bundle}`);
+    git(directory, 'clone', '-q', join(output, `${bundle}.bundle`), restored);
+    assert.equal(git(restored, 'rev-parse', 'HEAD'), expected);
+  }
+  assert.equal(readFileSync(join(output, 'refs.txt'), 'utf8'),
+    `TokenNotIncluded/lmm-api-source ${revision}\n${cli} ${cliRevision}\n`);
+  assert.throws(() => run(checkout, 'bash', ['-e', '-c', script], { ...workflowEnv, GITHUB_SHA: laterRevision }));
+  git(join(checkout, 'apps/cli'), 'checkout', '-q', 'main');
+  assert.throws(() => run(checkout, 'bash', ['-e', '-c', script], workflowEnv));
 });
 
 test('independent check failures do not skip the Go host required by Rust tests', () => {
