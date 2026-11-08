@@ -18,18 +18,18 @@
 
 ## 首先解除的阻断
 
-边界检查在审计基线运行了 32 项，26 项通过、6 项失败；完整质量门禁在计划阶段被过期且仍为 open/critical 的 QD-001 阻断，`checks=[]`。工作流还存在旧仓库/分支和 JSON/TOML 示例失配。具体原始结果见[审计的工程交付与验证章节][audit]。
+审计基线的边界检查为 32 项、26 项通过、6 项失败；完整质量门禁在计划阶段被过期且仍为 open/critical 的 QD-001 阻断，`checks=[]`。这些原始记录保留在[固定审计][audit]，本轮修复与独立复验见下表及[原始证据][rel-evidence]。
 
-先处理 REL-01 与 REL-02，并为 CHECK-09 逐条补齐 QD-001 退出证据。不得通过只改指纹、延后期限、降级债务或手填通过记录消除阻断。
+REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真实镜像资源与启动验收。CHECK-09 仍需逐条补齐 QD-001 退出证据；不得通过只改指纹、延后期限、降级债务或手填通过记录消除阻断。
 
-2026-11-08 本轮实施：`rel01_boundaries` 负责 REL-01，`rel02_delivery` 负责 REL-02；候选基于 `bb2697e9216d67bf1f34705af570ed2d8eb5288d`，由整合方固定修复提交后独立验收。
+2026-11-08 固定候选为 [7fb02902][rel-candidate]，基于 `bb2697e9216d67bf1f34705af570ed2d8eb5288d`；开发分别由 `rel01_boundaries`、`rel02_delivery` 负责，`rel_acceptance` 独立审查并执行检查，验证前后工作树干净。真实 PostgreSQL、容器及资金业务验收未运行。
 
 ## 工程与交付
 
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
-| REL-01 | 静态边界合同与实现不一致：连接池计数、3 处权限正文指纹、Core schema 拒绝清单 | 待修复 | 审查池归属、关闭路径、GRANT、namespace 与安装权限；补遗漏的 directory_ads/referrals 及拒绝反例，再更新已审查指纹并通过边界检查。当前失败尚未证明发生越权。 |
-| REL-02 | 镜像、快照及协议工作流仍有旧仓库/WIP 绑定；分发检查 JSON、实际安装 TOML | 待修复 | 对齐当前源码仓库、main、配置文件和来源；验证实际采用的交付路径。迁仓时 Actions 有意关闭，是否启用须另行决定。 |
+| REL-01 | 静态边界合同已对齐：模块连接池、4 处已审查正文指纹及 Core schema 拒绝范围 | 已验收 | 2026-11-08，`rel_acceptance` 在 [7fb02902][rel-candidate] 独立核对池归属/关闭、GRANT、namespace 与安装权限，33 项边界检查通过；补齐 directory_ads/referrals 及拒绝反例。[原始证据][rel-evidence]。范围为静态源码合同，真实数据库权限验收仍按 CHECK 项执行。 |
+| REL-02 | 当前源码/main、TOML 与固定来源已对齐；真实镜像验收待补 | 待验收 | 修复 [15bc5748][rel02-fix]；独立拓扑 15、镜像合同/模拟编排 16、归档 fixture 14 项及 8 个工作流语法检查通过。还需用固定候选实际构建 Extensions runtime 镜像，执行镜像内资源检查和同镜像离线非 root 启动；当前环境无 Docker。[原始证据][rel-evidence]。Actions 启用仍须另行决定。 |
 | REL-03 | 当前产品组合的制品、安装升级与发布证据未闭合 | 待前置 | CHECK-09 关闭后，关联 Core、Extensions、CLI、Web 的来源、平台、摘要/签名、安装升级记录与 Release；发布和生产切换分别记录。 |
 
 ## 身份、模型与助手
@@ -108,3 +108,6 @@
 [audit]: https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/architecture-parity-audit-2026-11-08.md
 [acceptance]: https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCTION_ACCEPTANCE.md
 [payment-parity]: https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PAYMENT_PARITY.md
+[rel-candidate]: https://github.com/TokenNotIncluded/lmm-api-source/tree/7fb02902eefd21670840125c73bea539fab853ce
+[rel02-fix]: https://github.com/TokenNotIncluded/lmm-api-source/commit/15bc57486442a3a2deae538ba7105069c6dd9c81
+[rel-evidence]: https://drive.google.com/drive/folders/1c1MpzgGZ7yDk7F53b28aDeoOfx8h9zxy
