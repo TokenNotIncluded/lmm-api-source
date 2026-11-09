@@ -16,8 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { SettingsPage } from '../components/settings-page'
+import { useParams } from '@tanstack/react-router'
+
+import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { SiteSettings } from '../types'
+import { RSSFeedsSection } from './rss-feeds-section'
 import {
   SITE_DEFAULT_SECTION,
   getSiteSectionContent,
@@ -45,6 +48,16 @@ const defaultSiteSettings: SiteSettings = {
 }
 
 export function SiteSettings() {
+  const { section } = useParams({
+    from: '/_authenticated/system-settings/site/$section',
+  })
+  if (section === 'rss') {
+    return (
+      <SettingsPageFrame title='RSS'>
+        <RSSFeedsSection />
+      </SettingsPageFrame>
+    )
+  }
   return (
     <SettingsPage
       routePath='/_authenticated/system-settings/site/$section'

@@ -440,6 +440,15 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 	}
 
 	routes := []storeWebRoute{
+		{pattern: "GET /api/store/cart", action: "cart", page: true},
+		{pattern: "PUT /api/store/cart", action: "save_cart", bodyLimit: 4 << 10, requiredBody: true},
+		{pattern: "DELETE /api/store/cart", action: "clear_cart", bodyLimit: 1 << 10},
+		{pattern: "DELETE /api/store/cart/{id}", action: "delete_cart", bodyLimit: 1 << 10},
+		{pattern: "GET /api/store/favorites", action: "favorites", page: true},
+		{pattern: "PUT /api/store/favorites", action: "save_favorite", bodyLimit: 1 << 10, requiredBody: true},
+		{pattern: "DELETE /api/store/favorites", action: "clear_favorites", bodyLimit: 1 << 10},
+		{pattern: "DELETE /api/store/favorites/{id}", action: "delete_favorite", bodyLimit: 1 << 10},
+		{pattern: "POST /api/store/collections/cleanup", action: "cleanup_collections", bodyLimit: 1 << 10},
 		{pattern: "GET /api/store/products/{id}/promotions", action: "promotions", page: true},
 		{pattern: "POST /api/store/products/{id}/promotions", action: "save_promotion", bodyLimit: 8 << 10, requiredBody: true},
 		{pattern: "PUT /api/store/products/{id}/promotions/{child_id}", action: "save_promotion", bodyLimit: 8 << 10, requiredBody: true},

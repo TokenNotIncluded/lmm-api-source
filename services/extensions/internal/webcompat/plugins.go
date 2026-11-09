@@ -180,7 +180,7 @@ func webPluginName(path string) string {
 		return "assistant"
 	case strings.HasPrefix(path, "/api/user/payments/"):
 		return "payments"
-	case strings.HasPrefix(path, "/api/release-notes/") || strings.HasPrefix(path, "/api/scripts") || strings.HasPrefix(path, "/scripts"):
+	case strings.HasPrefix(path, "/api/release-notes/") || rssHTTPPath(path) || strings.HasPrefix(path, "/api/scripts") || strings.HasPrefix(path, "/scripts"):
 		return "operations"
 	case acquisition.Owns(path):
 		return "acquisition"

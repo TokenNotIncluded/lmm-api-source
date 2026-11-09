@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import { api } from '@/lib/api'
+import { api, type ApiRequestConfig } from '@/lib/api'
 
 export const RSS_MAX_FEEDS = 24
 
@@ -26,6 +26,46 @@ export type RSSFeedResult = {
   error?: string
 }
 
+export type RSSSettings = { revision: number; feeds: RSSFeedConfig[] }
+
+function readSettings(value: unknown): RSSSettings {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Invalid RSS settings response')
+  }
+  const data = value as RSSSettings
+  const feeds = parseRSSFeeds(JSON.stringify(data.feeds))
+  if (!Number.isSafeInteger(data.revision) || data.revision < 0 || !feeds) {
+    throw new Error('Invalid RSS settings response')
+  }
+  return { revision: data.revision, feeds }
+}
+
+export async function getRSSSettings(options: ApiRequestConfig) {
+  const response = await api.get<{ success: boolean; data: unknown }>(
+    '/api/rss/settings',
+    options
+  )
+  if (response.data.success !== true) {
+    throw new Error('Unable to load RSS settings')
+  }
+  return readSettings(response.data.data)
+}
+
+export async function saveRSSSettings(
+  settings: RSSSettings,
+  options: ApiRequestConfig
+) {
+  const response = await api.put<{ success: boolean; data: unknown }>(
+    '/api/rss/settings',
+    settings,
+    { ...options, skipAuthRefresh: true }
+  )
+  if (response.data.success !== true) {
+    throw new Error('Unable to save RSS settings')
+  }
+  return readSettings(response.data.data)
+}
+
 export function safeRSSFeedUrl(value: string): string | null {
   try {
     const parsed = new URL(value.trim())
@@ -37,6 +77,7 @@ export function safeRSSFeedUrl(value: string): string | null {
     ) {
       return null
     }
+    parsed.hash = ''
     return parsed.toString()
   } catch {
     return null
@@ -86,11 +127,18 @@ export function parseRSSFeeds(value: string): RSSFeedConfig[] | null {
   }
 }
 
-export async function getRSSFeeds(): Promise<RSSFeedResult[]> {
+export async function getRSSFeeds(
+  options?: ApiRequestConfig
+): Promise<RSSFeedResult[]> {
   const response = await api.get<{
     success: boolean
     data: { feeds: RSSFeedResult[] | null }
-  }>('/api/rss')
-  if (!response.data.success) throw new Error('Unable to load RSS feeds')
-  return response.data.data.feeds ?? []
+  }>('/api/rss', options)
+  if (response.data.success !== true) {
+    throw new Error('Unable to load RSS feeds')
+  }
+  if (!Array.isArray(response.data.data?.feeds)) {
+    throw new Error('Invalid RSS feed response')
+  }
+  return response.data.data.feeds
 }

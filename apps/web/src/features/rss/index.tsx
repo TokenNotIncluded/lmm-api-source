@@ -57,11 +57,21 @@ export function RSSReader() {
   const isOwner = useAuthStore(
     (state) => (state.auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
   )
+  const auth = useAuthStore((state) => state.auth)
   const [search, setSearch] = useState('')
   const [feedFilter, setFeedFilter] = useState('all')
   const query = useQuery({
-    queryKey: ['rss'],
-    queryFn: getRSSFeeds,
+    queryKey: ['rss', auth.user?.id, auth.session?.sid],
+    queryFn: ({ signal }) =>
+      getRSSFeeds({
+        signal,
+        authScope:
+          auth.user && auth.session
+            ? { userId: auth.user.id, sessionId: auth.session.sid }
+            : undefined,
+      }),
+    enabled: !!auth.user && !!auth.session,
+    retry: false,
     staleTime: 3 * 60_000,
   })
   const feeds = query.data ?? EMPTY_FEEDS

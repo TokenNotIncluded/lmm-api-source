@@ -23,6 +23,7 @@ import (
 // wrap the actual outer admission handler with OperationsGuard BEFORE any mux.
 // A registered handler cannot prevent ServeMux's pre-dispatch path redirects.
 func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.Service) {
+	registerRSS(mux, auth, s)
 	protected := func(admin bool, fn func(http.ResponseWriter, *http.Request, int64)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			actor, err := auth.Verify(r.Context(), r)
@@ -313,6 +314,10 @@ func operationsRespond(w http.ResponseWriter, value any, err error) {
 			code = 409
 			label = "OPERATIONS_CAPACITY"
 			message = "Publication capacity has been reached."
+		case errors.Is(err, operations.ErrConflict):
+			code = 409
+			label = "OPERATIONS_CONFIG_CHANGED"
+			message = "Settings changed. Reload before saving again."
 		case errors.Is(err, operations.ErrUnsupported):
 			code = 501
 			label = "SCRIPT_REPOSITORY_UNSUPPORTED"

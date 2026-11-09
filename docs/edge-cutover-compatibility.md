@@ -70,6 +70,10 @@ With `web_compat=true`, the Extensions Web handler owns these exact families:
 - `/api/tool-market*` and `/mcp/market`.
 - `/api/assistant/*` and `/api/assistant/services/*`.
 - `/api/release-notes/*`, `/api/scripts*`, and `/scripts/*`.
+- The exact `/api/rss` and `/api/rss/settings` paths. RSS reads require the
+  current browser identity; settings require an administrator for reads and a
+  superadministrator for writes. Preserve the browser's Bearer credential and
+  remove trusted-edge proof headers before proxying to Extensions.
 - Builtin wallet/bounty compatibility paths: `/api/wallet*`,
   `/api/wallet-transfer*`, and `/api/open-source-bounties*`.
 - Legal pages are only the exact GET/HEAD paths
@@ -125,7 +129,7 @@ its hash. Review the candidate against that frozen input:
 2. Confirm exact-prefix ownership for the route families above. In particular,
    split Core `/api/user/*`, `/api/oauth*`, `/api/status`, history and remote
    control from Extensions `/api/store/*`, `/api/tool-market*`, assistant,
-   scripts, wallet/bounty and payment paths. A broad `/api/` proxy is unsafe.
+   scripts, RSS, wallet/bounty and payment paths. A broad `/api/` proxy is unsafe.
    Keep the three legal-page locations and the tool-market OAuth callback ahead
    of generic API or SPA handling.
 3. Confirm `/internal/*`, `/extensions/v1/*`, private Unix sockets, and service

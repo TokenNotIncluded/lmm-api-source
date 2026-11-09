@@ -127,9 +127,7 @@ const SITE_SECTIONS = [
   {
     id: 'rss',
     titleKey: 'RSS',
-    build: (settings: SiteSettings) => (
-      <RSSFeedsSection initialValue={settings.RSSFeeds} />
-    ),
+    build: () => <RSSFeedsSection />,
   },
   {
     id: 'ai-directory-ads',

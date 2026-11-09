@@ -85,7 +85,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	})
 	return OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !builtinHTTPPath(r.URL.Path) && r.URL.Path != "/mcp/market" && r.URL.Path != "/mcp/market/" && !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && r.URL.Path != "/api/tool-market" && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") && !pluginHTTPPath(r.URL.Path) &&
-			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && r.URL.Path != "/api/scripts" &&
+			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && !rssHTTPPath(r.URL.Path) && r.URL.Path != "/api/scripts" &&
 			!strings.HasPrefix(r.URL.Path, "/api/scripts/") && !strings.HasPrefix(r.URL.Path, "/scripts/") &&
 			!(len(optional) == 1 && optional[0].Community != nil && community.Owns(r.URL.Path)) &&
 			!(len(optional) == 1 && optional[0].Acquisition != nil && acquisition.Owns(r.URL.Path)) {

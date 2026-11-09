@@ -1,8 +1,8 @@
 # Operations content
 
-This module owns persisted release publications and an installation-reviewed
-filesystem script snapshot. It does not access Core storage, run scripts, fetch
-repositories or manage repository credentials. Repository configuration and pull
+This module owns persisted release publications, RSS source configuration and an
+installation-reviewed filesystem script snapshot. It fetches configured public
+RSS/Atom feeds without Core storage access or script execution. Repository configuration and pull
 remain unsupported (HTTP 501 after fresh administrator authorization).
 
 ## Parent integration contract
@@ -17,7 +17,7 @@ remain unsupported (HTTP 501 after fresh administrator authorization).
 - `webcompat.RegisterOperations(mux, existingAuthenticator, service)` registers
   the exact Web routes: `/api/release-notes/latest`, `/api/release-notes/{id}/read`,
   `/api/release-notes/admin`, `/api/scripts`, `/api/scripts/{name}/raw`,
-  `/scripts/{name}` and the explicitly unsupported repository routes.
+  `/scripts/{name}`, `/api/rss`, `/api/rss/settings` and the explicitly unsupported repository routes.
   **Wrap the actual outer Web admission handler in
   `webcompat.OperationsGuard(handler)` before any shared ServeMux.** Registration
   alone cannot reject dot/double-slash traversal before ServeMux redirects.
@@ -49,9 +49,10 @@ The helper revokes PUBLIC database/schema rights and grants runtime only:
 - database CONNECT and operations schema USAGE;
 - SELECT on the owner-installed schema contract;
 - SELECT and INSERT on publications and read acknowledgements;
+- SELECT and UPDATE on the single RSS configuration row;
 - SELECT and USAGE on the publication ID sequence (not UPDATE/setval).
 
-No runtime DDL, database CREATE/TEMP, schema CREATE, table UPDATE/DELETE/TRUNCATE,
+No runtime DDL, database CREATE/TEMP, schema CREATE, release-table UPDATE or table DELETE/TRUNCATE,
 column grants or grant options are accepted. `Check(ctx, runtimePool)` verifies
 isolation, effective privileges and an owner-installed catalog fingerprint.
 Isolation excludes only the literal `pg_` system prefix, not lookalikes such as
@@ -136,6 +137,75 @@ at load; raw routes serve exact immutable bytes even if the filesystem changes.
 The module neither mutates source files nor counts fetches. Returned byte slices
 and catalogue slices are defensive copies. Refresh requires explicit reconstruction
 with a reviewed manifest; there is no automatic network or filesystem reload.
+
+## RSS reader and source settings
+
+The operations database installs schema version 2. `operations.New` checks the
+database contract before assembling the RSS reader. Script-only installations
+return 503 for RSS. The Web reader calls `GET /api/rss` with a current Core
+session. Disabled sources remain in settings and are never fetched or returned
+by the reader. The response contains feed ID/name/URL, bounded plain-text items,
+and stable error codes; supplier bodies and internal errors are excluded.
+
+`GET /api/rss/settings` requires platform level 5 or 6; `PUT` requires level 6.
+The body is `{ "revision": 0, "feeds": [] }`, with at most 24 sources using the
+existing `id`, `name`, `url`, `enabled` fields. A save atomically compares the
+revision, records the actor and returns the new revision. Concurrent or stale
+saves return 409. Unknown commit results are resolved by reading settings;
+the browser does not automatically replay writes. Settings queries and editor
+state are scoped to the current user/session, and the page reads this dedicated
+endpoint instead of the legacy `RSSFeeds` Core option.
+
+RSS 2.0, RDF and Atom are parsed with a 2 MiB decoded response limit and 50 items
+per feed. Relative article links are resolved against the final feed URL; unsafe
+link schemes and credentials are removed. Successful fetch sets are cached for
+three minutes and failures for one minute. Concurrent readers share one fetch
+for the same settings. At most six outbound requests run at once, each has a
+six-second limit and the complete batch has a ten-second limit. A caller can
+cancel while a bounded shared fetch finishes for other readers.
+
+Feed requests bypass environment proxies and resolve DNS at connection time.
+Every returned address must be public, and the socket uses a checked IP without
+another DNS lookup. Local, private, link-local, shared-address and mapped private
+destinations are rejected. Redirects are limited to three and pass the same URL
+and dial checks. HTTP failures, blocked sources, timeouts, malformed XML and
+oversized responses remain visible as feed errors.
+
+Fresh installs can use the explicit offline command:
+
+```sh
+lmm-extensions install-db --component operations \
+  --owner-url-file /var/lib/lmm/private/operations-installer.url \
+  --database lmm_operations_new --owner-role operations_owner \
+  --runtime-role operations_runtime
+```
+
+An existing version 1 operations database needs the explicit
+`upgrade-operations-db` command. Stop and drain the operations host, retain its
+backup, fence the runtime role with `NOLOGIN`, and use the independent installer
+connection and `NOLOGIN` owner role. The command rejects active database clients,
+prepared transactions, a changed catalog or a different original operation ID.
+It preserves publications, read receipts and their sequence, adds RSS settings,
+and saves an owner-only receipt in the same transaction. Keep the fence until
+the original outcome has been read back:
+
+```sh
+lmm-extensions upgrade-operations-db \
+  --owner-url-file /var/lib/lmm/private/operations-installer.url \
+  --database lmm_operations_existing --owner-role operations_owner \
+  --runtime-role operations_runtime --operation-id rss_upgrade_original_001
+lmm-extensions upgrade-operations-db \
+  --owner-url-file /var/lib/lmm/private/operations-installer.url \
+  --database lmm_operations_existing --owner-role operations_owner \
+  --runtime-role operations_runtime --operation-id rss_upgrade_original_001 --recover
+```
+
+Normal startup performs no installation or upgrade. The frozen v1 test fixture
+is retained in `testdata/schema_v1.sql`. RSS PostgreSQL tests use separate fresh
+`RSS_TEST_*`, `RSS_UPGRADE_TEST_*` and `RSS_HTTP_TEST_*` fixture DSNs; tests without
+these inputs report skips. HTTP fetch tests use real local HTTP connections with
+an explicitly test-owned transport, while production dial rejection is exercised
+separately.
 
 ## Local self-tests
 

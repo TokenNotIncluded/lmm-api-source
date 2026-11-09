@@ -17,29 +17,37 @@ OFFLINE_INSTALLER = "services/extensions/internal/freshinstall/install.go"
 OFFLINE_CLI = "services/extensions/internal/freshinstall/cli.go"
 OFFLINE_WALLET_CLI = "services/extensions/internal/walletupgrade/cli.go"
 OFFLINE_WALLET_UPGRADE = "services/extensions/internal/walletupgrade/upgrade.go"
+OFFLINE_OPERATIONS_CLI = "services/extensions/internal/freshinstall/operations_upgrade.go"
+OFFLINE_RSS_UPGRADE = "services/extensions/internal/modules/operations/rss_upgrade.go"
 OFFLINE_MAIN = "services/extensions/cmd/extensions/main.go"
 OFFLINE_SNAPSHOT = "services/extensions/internal/modules/toolmarket/install_snapshot.go"
 OFFLINE_TOKEN_SHA256 = {
+    # RSS v2 adds only a singleton SELECT/UPDATE configuration and an owner-only
+    # upgrade receipt. The CLI fences writers, validates the original v1
+    # catalogue and preserves the original operation's recovery identity.
+    'services/extensions/internal/modules/operations/rss_upgrade.go': '03235c6eb75545a69934a8109af2c95633d6af5e290ac9cf68cf568806fa23ec',
+    'services/extensions/internal/freshinstall/operations_upgrade.go': '970688ae49ee028216d4f3a4b0e3162ea71853380bb4a55ebe405ac1d0c85ab1',
     # Community/acquisition use compiled schemas and dedicated runtime grants;
     # URL, owner, empty-database and transaction checks remain in place.
-    'services/extensions/internal/freshinstall/install.go': '193ee052c24f3dcdc8e595f51773333383e0afd98c1823fdf617aa8e6f9ac032',
+    'services/extensions/internal/freshinstall/install.go': 'c5e00cb74f1929dc32f5267a1982092b0ebe7bd7e4bb0d35a8fa98263488cbd2',
     OFFLINE_WALLET_CLI: '87cf633970571aef5b7abc5b3788c30e6bc62c77b1799815faa845f4e9c1ded7',
     OFFLINE_WALLET_UPGRADE: '923244ef59326a37b79ee2bd7a00132a492cf6e8535854356a77f92f7d092aba',
-    'services/extensions/internal/freshinstall/cli.go': '6928c6961599dc62b44862897ddf6c2395679392fb2379acf4afdd901089edae',
-    'services/extensions/cmd/extensions/main.go': '398f43eef34ff0eebb343d6fa7b8d6763ae55797ee862f996b88374f5e36d878',
+    'services/extensions/internal/freshinstall/cli.go': '2729e5b8a551f13392fb02d458eb47168bd58fa97e74abaee8e38bda389623aa',
+    'services/extensions/cmd/extensions/main.go': 'b29e26c3e7c33a5fc926e6104c4d7f1db892a51a3c9db48a073ff6a789699e70',
     'services/extensions/internal/modules/toolmarket/install_snapshot.go': '8f6f852068a5891a490876eb8918a58008d3f80844144f84307ba78c36b56013',
 }
 STORE_READ_QUERIES = {'services/extensions/internal/modules/store/promotions.go': ('QueryContext', "`SELECT body->'legacy'->>'promotion_id',\nCOUNT(*) FILTER (WHERE body->>'state' NOT IN ('awaiting_payment','payment_pending')),\nCOUNT(*) FILTER (WHERE body->>'state' IN ('awaiting_payment','payment_pending'))\nFROM lmm_store.orders WHERE shop_id=$1 AND body->'legacy'->>'product_id'=$2\nAND COALESCE(body->'legacy'->>'promotion_id','')<>'' AND body->>'state' NOT IN ('cancelled','refunded')\nGROUP BY body->'legacy'->>'promotion_id'`"), 'services/extensions/internal/modules/store/purchase_limits.go': ('QueryRowContext', "`SELECT COALESCE(SUM((o.body->>'quantity')::bigint),0)\nFROM lmm_store.orders o JOIN lmm_store.variants v ON v.shop_id=o.shop_id AND v.id=o.body->>'variant_id'\nWHERE o.shop_id=$1 AND v.body->>'product_id'=$2 AND o.body->'buyer'->>'kind'=$3\nAND (o.body->'buyer'->>'id')::bigint=$4 AND o.body->>'state' NOT IN ('cancelled','refunded')`")}
 
 COMPOSITION_BUNDLE = "services/extensions/internal/composition/storage_bundle.go"
 BUNDLE_POLICY_TOKEN_SHA256 = "8202041b0b4b4374b82d80f0a0af1467cbeb1c4d0854e7908ed10d0d7ae1eb0a"
-STORAGE_TOKEN_SHA256 = "ae51d491e6c4d55dbcba8c9f5d368a74bf1cbe3a4d4ea23e8fc76ca051008c3d"
+STORAGE_TOKEN_SHA256 = "12f6d7a1ea8715f054ff5f3ba3477b173dfe487fc6f36accbdd7b1f2c9786741"
 COMPOSITION_STORAGE = "services/extensions/internal/composition/storage.go"
 COMPOSITION_PAYMENTS = "services/extensions/internal/composition/payments.go"
 COMPOSITION_ASSISTANT = "services/extensions/internal/composition/assistant.go"
 OPERATIONS_POSTGRES = "services/extensions/internal/modules/operations/postgres.go"
 OPERATIONS_RELEASES = "services/extensions/internal/modules/operations/releases.go"
 OPERATIONS_INJECTION = "services/extensions/internal/modules/operations/scripts.go"
+OPERATIONS_RSS = "services/extensions/internal/modules/operations/rss.go"
 MODULE_STORAGE_FILES = {
     "community": (
         "service.go", "acquisition_read.go", "directory.go", "directory_ad_payment.go",
@@ -141,6 +149,7 @@ COMPOSITION_STORAGE_GUARDS = (
     'add("lmm_operations.contract", "SELECT")',
     'add("lmm_operations.publications", "SELECT", "INSERT")',
     'add("lmm_operations.reads", "SELECT", "INSERT")',
+    'add("lmm_operations.rss_config", "SELECT", "UPDATE")',
     "has_sequence_privilege(current_user,to_regclass('lmm_operations.publication_id'),$1)",
     'return nil, errors.New("operations sequence grants unavailable")',
     'if failed {',
@@ -237,6 +246,7 @@ var err error
 if c.Releases != nil {
     s.Releases, err = NewPostgres(ctx, c.Releases)
     if err != nil { return nil, err }
+    s.RSS = newRSS(c.Releases)
 }
 if c.Scripts != nil {
     s.Scripts, err = LoadScripts(*c.Scripts)
@@ -275,7 +285,8 @@ OPERATIONS_CHECK_GUARDS = (
     "FROM pg_auth_members", "has_database_privilege(current_database(),'CREATE')",
     "has_database_privilege(current_database(),'TEMP')", "has_schema_privilege(oid,'CREATE')",
     "c.relrowsecurity OR c.relforcerowsecurity", "FROM pg_policy",
-    "'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'", "a.is_grantable OR a.privilege_type NOT IN",
+    "has_table_privilege($1,'UPDATE')=$3", "'DELETE,TRUNCATE,REFERENCES,TRIGGER'",
+    "a.is_grantable OR a.privilege_type NOT IN", "WHEN c.relname='rss_config' THEN 'UPDATE'",
     "aclexplode(a.attacl)", "has_sequence_privilege('lmm_operations.publication_id','USAGE')",
     "has_sequence_privilege('lmm_operations.publication_id','SELECT')",
     "NOT has_sequence_privilege('lmm_operations.publication_id','UPDATE')",
@@ -386,7 +397,7 @@ class CoreBoundaryTests(unittest.TestCase):
 
     def assert_offline_installation_boundary(self, path, text):
         imported = "github.com/TokenNotIncluded/lmm-api/extensions/internal/freshinstall"
-        if path not in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE):
+        if path not in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI):
             self.assertNotIn(imported, text, path)
             self.assertNotRegex(" ".join(go_tokens(text)), r"\bfreshinstall \.", path)
             for owner_entry in ('"install-db"', '"owner-url-file"', 'OwnerURLFile'):
@@ -398,10 +409,21 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertNotIn('"upgrade-wallet-db"', go_tokens(text), path)
         if path not in (OFFLINE_SNAPSHOT, OFFLINE_INSTALLER):
             self.assertNotIn("InitPostgresSnapshot", text, path)
+        # RSS installation is a separate, frozen owner entry point. None of
+        # these calls may be borrowed by normal startup or request handlers.
+        owner_calls = {
+            "RunOperationsUpgradeCLI": (OFFLINE_MAIN, OFFLINE_OPERATIONS_CLI),
+            "UpgradeRSS": (OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE),
+            "SealInstalledSchema": (OFFLINE_INSTALLER, OFFLINE_RSS_UPGRADE, OPERATIONS_POSTGRES),
+            '"upgrade-operations-db"': (OFFLINE_MAIN, OFFLINE_OPERATIONS_CLI),
+        }
+        for name, allowed in owner_calls.items():
+            if path not in allowed:
+                self.assertNotIn(name, go_tokens(text), path)
         if path in OFFLINE_TOKEN_SHA256:
             actual = hashlib.sha256(json.dumps(go_tokens(text), separators=(",", ":")).encode()).hexdigest()
             self.assertEqual(actual, OFFLINE_TOKEN_SHA256[path], path + ": offline owner body needs independent review")
-            if path in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE):
+            if path in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE):
                 return True
         return False
 
@@ -454,6 +476,7 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/store/promotions.go": "lmm_store.",
             "services/extensions/internal/modules/store/purchase_limits.go": "lmm_store.",
             "services/extensions/internal/modules/store/postgres_web.go": "lmm_store.",
+            "services/extensions/internal/modules/store/postgres_collections.go": "lmm_store.",
             "services/extensions/internal/modules/store/money_recovery_postgres.go": "lmm_store.",
             "services/extensions/internal/modules/support/postgres.go": "lmm_support.",
             "services/extensions/internal/modules/support/postgres_web.go": "lmm_support.",
@@ -479,6 +502,7 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
             OPERATIONS_POSTGRES: "lmm_operations.",
             OPERATIONS_RELEASES: "lmm_operations.",
+            OPERATIONS_RSS: "lmm_operations.",
         }
         stores.update({f"services/extensions/internal/modules/{module}/{name}": f"lmm_{module}."
                        for module, names in MODULE_STORAGE_FILES.items() for name in names})
@@ -504,6 +528,14 @@ class CoreBoundaryTests(unittest.TestCase):
             for schema in CORE_SCHEMAS + tuple(stores.values()):
                 self.assertNotIn(schema, text, path)
             return
+        if path == OPERATIONS_RSS:
+            self.assertEqual(re.findall(r"\.\s*(Query|QueryRow|Exec|QueryContext|QueryRowContext|ExecContext|Begin|BeginTx)\s*\(", text),
+                             ["QueryRowContext", "QueryRowContext"], path)
+            for query in (
+                "s.db.QueryRowContext(ctx, `SELECT revision,feeds FROM lmm_operations.rss_config WHERE singleton`)",
+                "s.db.QueryRowContext(ctx, `UPDATE lmm_operations.rss_config SET feeds=$1,revision=revision+1,updated_by=$2 WHERE singleton AND revision=$3 RETURNING revision`, string(raw), actor, settings.Revision)",
+            ):
+                self.token_index(tokens, query)
         if path == COMPOSITION_ASSISTANT:
             self.assert_assistant_composition(text)
             for schema in CORE_SCHEMAS + tuple(stores.values()):
@@ -713,7 +745,7 @@ class CoreBoundaryTests(unittest.TestCase):
     def assert_operations_postgres(self, text):
         tokens = self.assert_named_go_import(text, "github.com/lib/pq")
         self.assert_named_go_import(text, "database/sql")
-        self.assert_sql_selectors(tokens, ["DB", "DB", "DB"])
+        self.assert_sql_selectors(tokens, ["DB", "DB", "DB", "Tx"])
         # The existing default named pq import is allowed for the owner-only
         # quoting API. Blank/aliased imports and every connector API stay barred.
         owner = self.go_function_body(
@@ -733,6 +765,13 @@ class CoreBoundaryTests(unittest.TestCase):
         """))
         self.assertFalse(any(tokens[i:i + 2] == [".", "Close"] for i in range(len(tokens) - 1)))
         self.assert_no_close_declaration(tokens)
+        seal = self.go_function_body(text, "func SealInstalledSchema(ctx context.Context, tx *sql.Tx) error")
+        self.assertEqual(seal, go_tokens("""
+            var fingerprint string
+            if err := tx.QueryRowContext(ctx, fingerprintSQL).Scan(&fingerprint); err != nil { return err }
+            _, err := tx.ExecContext(ctx, "UPDATE lmm_operations.contract SET fingerprint=$1 WHERE version=2", fingerprint)
+            return err
+        """))
         check = self.go_function_body(text, "func Check(ctx context.Context, runtime *sql.DB) error")
         self.token_index(check, "runtime.QueryRowContext(ctx, isolatedSQL+")
         self.token_index(check, "runtime.QueryRowContext(ctx, fingerprintSQL).Scan(&actual)")
@@ -764,14 +803,14 @@ class CoreBoundaryTests(unittest.TestCase):
         availability = self.go_function_body(text, "func (s *Service) Availability() Availability")
         self.assertEqual(availability, go_tokens("""
             if s == nil { return Availability{} }
-            return Availability{s.Releases != nil, s.Scripts != nil, false}
+            return Availability{s.Releases != nil, s.Scripts != nil, false, s.RSS != nil}
         """))
         # Every pool-field access is in those two complete reviewed bodies;
         # another function cannot query, close, alias or export the injected pool.
         accesses = lambda scope: sum(scope[i:i + 2] == [".", "Releases"]
                                      for i in range(len(scope) - 1))
-        self.assertEqual(accesses(tokens), 4)
-        self.assertEqual(accesses(body) + accesses(availability), 4)
+        self.assertEqual(accesses(tokens), 5)
+        self.assertEqual(accesses(body) + accesses(availability), 5)
         self.assert_no_close_declaration(tokens)
 
     def assert_operations_storage(self, text):
@@ -823,6 +862,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 add("lmm_operations.contract", "SELECT")
                 add("lmm_operations.publications", "SELECT", "INSERT")
                 add("lmm_operations.reads", "SELECT", "INSERT")
+                add("lmm_operations.rss_config", "SELECT", "UPDATE")
             case "acquisition":
         """)
 
@@ -1005,7 +1045,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 self.assert_runtime_credentials(runtime, payments, startup.replace(old, new))
 
     def test_operations_adapters_borrow_and_keep_schema_boundaries(self):
-        paths = (OPERATIONS_POSTGRES, OPERATIONS_RELEASES, OPERATIONS_INJECTION)
+        paths = (OPERATIONS_POSTGRES, OPERATIONS_RELEASES, OPERATIONS_INJECTION, OPERATIONS_RSS)
         for path in paths:
             source = (ROOT / path).read_text()
             self.assert_extension_storage(path, source)
@@ -1056,6 +1096,34 @@ class CoreBoundaryTests(unittest.TestCase):
             with self.subTest(other_module=path), self.assertRaises(AssertionError):
                 self.assert_extension_storage(path, source + "\nSELECT * FROM lmm_operations.publications")
 
+    def test_rss_owner_upgrade_and_runtime_cas_remain_separate(self):
+        for path, mutations in (
+            (OFFLINE_OPERATIONS_CLI, (("f.NArg() != 0", "false"),
+                ("session_user<>$3", "true"), ("NOT rolcanlogin", "true"),
+                ("defer tx.Rollback()", ""), ("return ErrCommitUnknown", "return nil"))),
+            (OFFLINE_RSS_UPGRADE, (("NOT rolcanlogin", "true"),
+                ("actual != installed", "false"), ("if recoverOnly {", "if false {"),
+                ("operation_id=$1", "true"), ("installed_by=session_user", "true"),
+                ("GRANT SELECT,UPDATE ON lmm_operations.rss_config TO ", "GRANT ALL ON lmm_operations.rss_config TO "))),
+            (OPERATIONS_RSS, (("WHERE singleton AND revision=$3", "WHERE singleton"),
+                ("SELECT revision,feeds FROM lmm_operations.rss_config", "SELECT revision,feeds FROM lmm_operations.publications"))),
+        ):
+            source = (ROOT / path).read_text()
+            self.assert_extension_storage(path, source)
+            for old, new in mutations:
+                changed = source.replace(old, new, 1)
+                self.assertNotEqual(changed, source, (path, old))
+                with self.subTest(path=path, mutation=old), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, changed)
+        for path in ("services/extensions/internal/app/run.go", OPERATIONS_RSS,
+                     "services/extensions/internal/webcompat/rss.go"):
+            source = (ROOT / path).read_text()
+            for call in ("operations.UpgradeRSS(ctx, tx, role, id, false)",
+                         "operations.SealInstalledSchema(ctx, tx)",
+                         "freshinstall.RunOperationsUpgradeCLI(ctx, args, out)",
+                         'exec.Command("extensions", "upgrade-operations-db")'):
+                with self.subTest(path=path, call=call), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\nfunc unapproved() { " + call + " }")
     def test_operations_pool_is_guarded_and_owned_by_composition(self):
         runtime = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
         storage = (ROOT / COMPOSITION_STORAGE).read_text()

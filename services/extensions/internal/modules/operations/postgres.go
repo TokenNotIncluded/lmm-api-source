@@ -14,6 +14,9 @@ import (
 //go:embed schema.sql
 var schema string
 
+// Schema is the compiled fresh-install contract; runtime only checks it.
+var Schema = schema
+
 // NewPostgres checks and borrows the dedicated runtime pool supplied by the
 // composition boundary. The caller owns its lifetime, including on failure.
 // Initialize is an explicit offline owner operation and is never called here.
@@ -90,6 +93,7 @@ func Initialize(ctx context.Context, owner *sql.DB, runtimeRole string) error {
  GRANT USAGE ON SCHEMA lmm_operations TO ` + role + `;
  GRANT SELECT ON lmm_operations.contract TO ` + role + `;
  GRANT SELECT,INSERT ON lmm_operations.publications,lmm_operations.reads TO ` + role + `;
+ GRANT SELECT,UPDATE ON lmm_operations.rss_config TO ` + role + `;
  GRANT USAGE,SELECT ON SEQUENCE lmm_operations.publication_id TO ` + role + `;`
 	if _, err = tx.ExecContext(ctx, grants); err != nil {
 		return err
@@ -133,12 +137,12 @@ func Check(ctx context.Context, runtime *sql.DB) error {
 		return ErrUnavailable
 	}
 	var installed, actual string
-	if runtime.QueryRowContext(ctx, "SELECT fingerprint FROM lmm_operations.contract WHERE version=1").Scan(&installed) != nil || runtime.QueryRowContext(ctx, fingerprintSQL).Scan(&actual) != nil || installed != actual || len(actual) != 32 {
+	if runtime.QueryRowContext(ctx, "SELECT fingerprint FROM lmm_operations.contract WHERE version=2").Scan(&installed) != nil || runtime.QueryRowContext(ctx, fingerprintSQL).Scan(&actual) != nil || installed != actual || len(actual) != 32 {
 		return ErrUnavailable
 	}
-	for _, table := range []string{"contract", "publications", "reads"} {
+	for _, table := range []string{"contract", "publications", "reads", "rss_config"} {
 		var privileges bool
-		err = runtime.QueryRowContext(ctx, `SELECT has_table_privilege($1,'SELECT') AND has_table_privilege($1,'INSERT')=$2 AND NOT has_table_privilege($1,'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')`, "lmm_operations."+table, table != "contract").Scan(&privileges)
+		err = runtime.QueryRowContext(ctx, `SELECT has_table_privilege($1,'SELECT') AND has_table_privilege($1,'INSERT')=$2 AND has_table_privilege($1,'UPDATE')=$3 AND NOT has_table_privilege($1,'DELETE,TRUNCATE,REFERENCES,TRIGGER')`, "lmm_operations."+table, table == "publications" || table == "reads", table == "rss_config").Scan(&privileges)
 		if err != nil || !privileges {
 			return ErrUnavailable
 		}
@@ -148,7 +152,7 @@ func Check(ctx context.Context, runtime *sql.DB) error {
 	if runtime.QueryRowContext(ctx, `SELECT NOT EXISTS (
  SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,c.relowner))) a
  WHERE n.nspname='lmm_operations' AND a.grantee IN (0,(SELECT oid FROM pg_roles WHERE rolname=current_user))
- AND (a.is_grantable OR a.privilege_type NOT IN ('SELECT',CASE WHEN c.relname IN ('publications','reads') THEN 'INSERT' WHEN c.relkind='S' THEN 'USAGE' ELSE 'SELECT' END))
+ AND (a.is_grantable OR a.privilege_type NOT IN ('SELECT',CASE WHEN c.relname IN ('publications','reads') THEN 'INSERT' WHEN c.relname='rss_config' THEN 'UPDATE' WHEN c.relkind='S' THEN 'USAGE' ELSE 'SELECT' END))
  ) AND NOT EXISTS (
  SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(a.attacl) p
  WHERE n.nspname='lmm_operations' AND p.grantee IN (0,(SELECT oid FROM pg_roles WHERE rolname=current_user))
@@ -159,4 +163,14 @@ func Check(ctx context.Context, runtime *sql.DB) error {
 		return ErrUnavailable
 	}
 	return nil
+}
+
+// SealInstalledSchema is used only inside an explicit owner installation.
+func SealInstalledSchema(ctx context.Context, tx *sql.Tx) error {
+	var fingerprint string
+	if err := tx.QueryRowContext(ctx, fingerprintSQL).Scan(&fingerprint); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE lmm_operations.contract SET fingerprint=$1 WHERE version=2", fingerprint)
+	return err
 }

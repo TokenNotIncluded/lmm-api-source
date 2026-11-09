@@ -136,6 +136,17 @@ The [delivery parser](../../../../../apps/web/src/features/store/delivery-templa
 interprets only a valid v1 envelope matching the frozen order template; other
 contents remain literal text. This is a legacy Web contract, not a new delivery API.
 
+Account carts and favorites use `/api/store/cart`, `/api/store/favorites` and
+`POST /api/store/collections/cleanup`. Every request uses the current verified
+account; references contain no frozen price or reserved inventory. Cart PUT
+sets an absolute SKU quantity, so the browser's explicit guest-cart transfer can
+retry without adding the quantity twice. Lists resolve current visibility and
+availability. Paused products remain saved; privacy changes hide their content,
+and cleanup removes inaccessible products and disabled or missing variants.
+Existing store databases require the explicit
+[`006_account_collections.sql`](migrations/006_account_collections.sql) migration
+and its runtime grants before the updated host starts.
+
 [Extore integration](../../../../../docs/extore.md) stores
 encrypted long-lived connections under a seller-scoped Extore shop, synchronizes
 approved listings into the legacy merchant shop, and rejects local edits of

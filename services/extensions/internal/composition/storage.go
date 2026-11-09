@@ -249,8 +249,8 @@ func storageTables(component string) []storageTable {
 		for _, name := range []string{"shops", "products", "variants", "orders", "commands", "stock_movements", "money_operations", "stock_items", "product_likes", "placements", "extore_flows", "extore_connections", "extore_products"} {
 			add("lmm_store."+name, "SELECT", "INSERT", "UPDATE")
 		}
-		// Traffic retention removes expired day rows and dedupe receipts.
-		for _, name := range []string{"traffic_days", "traffic_receipts"} {
+		// Traffic retention and account collection removal require DELETE.
+		for _, name := range []string{"traffic_days", "traffic_receipts", "cart_items", "favorites"} {
 			add("lmm_store."+name, "SELECT", "INSERT", "UPDATE", "DELETE")
 		}
 	case "support":
@@ -268,6 +268,7 @@ func storageTables(component string) []storageTable {
 		add("lmm_operations.contract", "SELECT")
 		add("lmm_operations.publications", "SELECT", "INSERT")
 		add("lmm_operations.reads", "SELECT", "INSERT")
+		add("lmm_operations.rss_config", "SELECT", "UPDATE")
 	case "acquisition":
 		for _, name := range []string{"contract", "config", "attribution_policies", "cohort", "links", "visitors", "visits", "accounts", "consents", "self_reports", "correction_heads", "corrections", "costs", "first_payments", "activities", "activity_state", "activity_gaps"} {
 			add("lmm_acquisition."+name, "SELECT")

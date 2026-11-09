@@ -19,6 +19,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/bounties"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/toolmarket"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/wallet"
@@ -46,6 +47,13 @@ type plan struct {
 
 func compiled(component string) (plan, error) {
 	switch component {
+	case "operations":
+		return plan{prefix: "lmm_operations", schema: operations.Schema, namespaces: []string{"lmm_operations"}, grants: []string{
+			"GRANT SELECT ON lmm_operations.contract TO ",
+			"GRANT SELECT,INSERT ON lmm_operations.publications,lmm_operations.reads TO ",
+			"GRANT SELECT,UPDATE ON lmm_operations.rss_config TO ",
+			"GRANT SELECT,USAGE ON SEQUENCE lmm_operations.publication_id TO ",
+		}}, nil
 	case "acquisition":
 		return plan{prefix: "lmm_acquisition", schema: acquisition.Schema, namespaces: []string{"lmm_acquisition"}, grants: []string{
 			"GRANT USAGE ON SCHEMA lmm_acquisition TO ",
@@ -230,6 +238,11 @@ func Install(ctx context.Context, c Config) (Receipt, error) {
 	}
 	for _, g := range p.grants {
 		if _, e = tx.ExecContext(ctx, g+role); e != nil {
+			return reject()
+		}
+	}
+	if c.Component == "operations" {
+		if e = operations.SealInstalledSchema(ctx, tx); e != nil {
 			return reject()
 		}
 	}

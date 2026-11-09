@@ -497,6 +497,15 @@ type storeLegacyRouteCase struct {
 
 func storeLegacyRouteCases() []storeLegacyRouteCase {
 	return []storeLegacyRouteCase{
+		{method: "GET", path: "/api/store/cart?offset=2&limit=7", action: "cart", offset: 2, limit: 7},
+		{method: "PUT", path: "/api/store/cart", action: "save_cart", body: `{"product_id":"product-1","variant_id":"variant-1","quantity":5}`},
+		{method: "DELETE", path: "/api/store/cart", action: "clear_cart"},
+		{method: "DELETE", path: "/api/store/cart/cart-1", action: "delete_cart", id: "cart-1"},
+		{method: "GET", path: "/api/store/favorites", action: "favorites", limit: 30},
+		{method: "PUT", path: "/api/store/favorites", action: "save_favorite", body: `{"product_id":"product-1"}`},
+		{method: "DELETE", path: "/api/store/favorites", action: "clear_favorites"},
+		{method: "DELETE", path: "/api/store/favorites/product-1", action: "delete_favorite", id: "product-1"},
+		{method: "POST", path: "/api/store/collections/cleanup", action: "cleanup_collections", body: `{}`},
 		{method: "GET", path: "/api/store/my/terms", action: "my_terms"},
 		{method: "PUT", path: "/api/store/my/terms", action: "save_terms", body: `{"content":"Actual seller terms","expected_version":"v1"}`},
 		{method: "POST", path: "/api/store/disclaimer/accept", action: "accept_disclaimer", body: `{"version":"merchant-store-v1","accepted":true}`},
@@ -585,7 +594,7 @@ func TestStoreTransportLegacyAuthenticatesBeforeReadingBody(t *testing.T) {
 
 func TestStoreTransportListRejectsExpiredAndRevokedSessions(t *testing.T) {
 	for _, reason := range []string{"expired", "revoked"} {
-		for _, path := range []string{"/api/store/products", "/api/store/my/orders?role=buyer", "/api/store/my/orders?role=seller"} {
+		for _, path := range []string{"/api/store/products", "/api/store/cart", "/api/store/favorites", "/api/store/my/orders?role=buyer", "/api/store/my/orders?role=seller"} {
 			core := &authCore{fn: func(context.Context, string) (*pb.AuthorizeResponse, error) {
 				return nil, status.Error(codes.Unauthenticated, reason)
 			}}
@@ -652,7 +661,7 @@ func TestStoreTransportLegacyUsesMainBodyByteLimits(t *testing.T) {
 }
 
 func TestStoreTransportLegacyPaginationPermissionsAndSafeErrors(t *testing.T) {
-	for _, path := range []string{"/api/store/my/products?offset=100001", "/api/store/reviews?limit=101", "/api/store/my/orders?role=admin", "/api/store/my/orders?role=", "/api/store/my/orders?role=buyer&role=seller", "/api/store/orders/order-1?user_id=999", "/api/store/products/product-1/variants/variant.1/enabled"} {
+	for _, path := range []string{"/api/store/cart?user_id=999", "/api/store/favorites?offset=100001", "/api/store/my/products?offset=100001", "/api/store/reviews?limit=101", "/api/store/my/orders?role=admin", "/api/store/my/orders?role=", "/api/store/my/orders?role=buyer&role=seller", "/api/store/orders/order-1?user_id=999", "/api/store/products/product-1/variants/variant.1/enabled"} {
 		method := "GET"
 		if strings.Contains(path, "/enabled") {
 			method = "PUT"

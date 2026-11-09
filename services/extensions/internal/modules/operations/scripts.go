@@ -159,6 +159,7 @@ type Config struct {
 type Service struct {
 	Releases *Releases
 	Scripts  *Scripts
+	RSS      *RSS
 }
 
 // New assembles requested content only; any configured dependency failure fails
@@ -172,6 +173,7 @@ func New(ctx context.Context, c Config) (*Service, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.RSS = newRSS(c.Releases)
 	}
 	if c.Scripts != nil {
 		s.Scripts, err = LoadScripts(*c.Scripts)
@@ -186,11 +188,12 @@ type Availability struct {
 	ReleaseNotes     bool `json:"release_notes"`
 	ScriptCatalogue  bool `json:"script_catalogue"`
 	ScriptRepository bool `json:"script_repository"`
+	RSSReader        bool `json:"rss_reader"`
 }
 
 func (s *Service) Availability() Availability {
 	if s == nil {
 		return Availability{}
 	}
-	return Availability{s.Releases != nil, s.Scripts != nil, false}
+	return Availability{s.Releases != nil, s.Scripts != nil, false, s.RSS != nil}
 }
