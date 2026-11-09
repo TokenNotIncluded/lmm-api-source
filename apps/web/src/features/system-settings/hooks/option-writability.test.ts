@@ -57,3 +57,16 @@ test('navigation is writable only when the server advertises it', () => {
     undefined
   )
 })
+
+test('the exchange rate is writable only when the server advertises it', () => {
+  assert.equal(writableOptionKey(capabilities, 'USDExchangeRate'), undefined)
+  const currency = { ...capabilities, writable_keys: ['USDExchangeRate'] }
+  assert.equal(
+    writableOptionKey(currency, 'USDExchangeRate'),
+    'USDExchangeRate'
+  )
+  assert.equal(
+    writableOptionKey({ ...currency, read_only: true }, 'USDExchangeRate'),
+    undefined
+  )
+})

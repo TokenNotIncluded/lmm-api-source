@@ -49,7 +49,9 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
+import type { UsdExchangeRateQuote } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
+import { getSettingsErrorMessage } from '../utils/settings-error-message'
 
 const createPricingSchema = (t: (key: string) => string) =>
   z.object({
@@ -57,27 +59,19 @@ const createPricingSchema = (t: (key: string) => string) =>
       .number()
       .finite(t('Payment rate must be finite'))
       .min(0.0001, t('Exchange rate must be greater than 0')),
-    DisplayTokenStatEnabled: z.boolean(),
-    // Accepted only to read older settings; these fields are never editable or
-    // submitted by this form and cannot redefine credit or personal currency.
-    QuotaPerUnit: z.number(),
-    TopUpPlatformUnitsPerCNY: z.number(),
-    DisplayInCurrencyEnabled: z.boolean(),
-    general_setting: z.object({
-      quota_display_type: z.enum(['USD', 'CNY', 'TOKENS', 'CUSTOM']),
-      custom_currency_symbol: z.string().optional(),
-      custom_currency_code: z.string().optional(),
-      custom_currency_exchange_rate: z.number().optional(),
-    }),
+    DisplayTokenStatEnabled: z.boolean().optional(),
   })
 
 type PricingFormValues = z.infer<ReturnType<typeof createPricingSchema>>
-type PricingSectionProps = { defaultValues: PricingFormValues }
+type PricingSectionProps = { defaultValues: Partial<PricingFormValues> }
 
 export function PricingSection({ defaultValues }: PricingSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const [isSyncingExchangeRate, setIsSyncingExchangeRate] = useState(false)
+  const [quote, setQuote] = useState<UsdExchangeRateQuote>()
+  const tokenStatisticsAvailable =
+    defaultValues.DisplayTokenStatEnabled !== undefined
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
     useSettingsForm<PricingFormValues>({
       resolver: zodResolver(createPricingSchema(t)) as Resolver<
@@ -86,7 +80,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         PricingFormValues
       >,
       defaultValues,
-      agentFields: ['DisplayTokenStatEnabled'],
+      agentFields: tokenStatisticsAvailable ? ['DisplayTokenStatEnabled'] : [],
       onSubmit: async (_data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
           if (key !== 'USDExchangeRate' && key !== 'DisplayTokenStatEnabled') {
@@ -129,17 +123,16 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         shouldDirty: true,
         shouldValidate: true,
       })
+      setQuote(response.data)
       toast.success(
         t(
-          'Latest exchange rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.',
+          'Reference rate loaded: 1 USD = {{rate}} {{currency}}. Save changes to apply it.',
           { rate: rate.toString(), currency: 'CNY' }
         )
       )
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t('Failed to load exchange rate')
+        getSettingsErrorMessage(error, t('Failed to load exchange rate'))
       )
     } finally {
       setIsSyncingExchangeRate(false)
@@ -212,33 +205,47 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                   </div>
                   <FormDescription>
                     {t(
-                      'Used for CNY display and payments. Model prices are stored in real USD.'
+                      'Used for CNY display. Payment settlement rates are configured separately. Model prices are stored in real USD.'
                     )}
                   </FormDescription>
+                  {quote ? (
+                    <p className='text-muted-foreground text-sm' role='status'>
+                      {t(
+                        'Reference: 1 USD = {{rate}} CNY · {{provider}} · {{date}}',
+                        {
+                          rate: quote.rate,
+                          provider: quote.provider,
+                          date: quote.rate_date,
+                        }
+                      )}
+                    </p>
+                  ) : null}
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name='DisplayTokenStatEnabled'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Display Token Statistics')}</FormLabel>
-                    <FormDescription>
-                      {t('Show token usage statistics in the UI')}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
+            {tokenStatisticsAvailable ? (
+              <FormField
+                control={form.control}
+                name='DisplayTokenStatEnabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Display Token Statistics')}</FormLabel>
+                      <FormDescription>
+                        {t('Show token usage statistics in the UI')}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            ) : null}
           </SettingsForm>
         </Form>
       </SettingsSection>

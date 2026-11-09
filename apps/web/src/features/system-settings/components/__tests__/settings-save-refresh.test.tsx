@@ -45,6 +45,7 @@ const Shell = ({ children }: ShellProps) => <div>{children}</div>
 let activeTestSection = 'assistant'
 moduleMock.module('@tanstack/react-router', () => ({
   useParams: () => ({ section: activeTestSection }),
+  useBlocker: () => ({ status: 'idle' }),
 }))
 moduleMock.module('@/components/layout', () => ({
   SectionPageLayout: Object.assign(Shell, {
@@ -268,7 +269,11 @@ beforeEach(() => {
       values: body?.values,
     })
     assert.ok(
-      ['/api/option/', '/api/option/bulk'].includes(config.url ?? ''),
+      [
+        '/api/option/',
+        '/api/option/bulk',
+        '/api/option/exchange-rate?currency=CNY',
+      ].includes(config.url ?? ''),
       'the fixture must never perform an unexpected network request'
     )
     return method === 'get' ? read(config) : write(config)
@@ -649,4 +654,123 @@ test('native navigation capability mounts the real editor and saves retained ext
   )
   assert.equal(requests.filter((request) => request.method === 'put').length, 1)
   assert.equal(errors.length, 0)
+})
+
+test('native currency capability previews the dated quote and saves only on explicit submit', async () => {
+  activeTestSection = 'currency'
+  let savedRate = ''
+  read = async (config) =>
+    response(
+      config,
+      200,
+      config.url?.includes('exchange-rate')
+        ? {
+            success: true,
+            message: '',
+            data: {
+              base_currency: 'USD',
+              quote_currency: 'CNY',
+              rate: 7.2,
+              provider: 'Frankfurter',
+              rate_date: '2026-11-06',
+              fetched_at: '2026-11-09T00:00:00Z',
+            },
+          }
+        : {
+            success: true,
+            capabilities: {
+              read_only: false,
+              partial: true,
+              writable_keys: ['USDExchangeRate'],
+            },
+            data: [{ key: 'USDExchangeRate', value: savedRate }],
+          }
+    )
+  write = async (config) => {
+    assert.equal(config.method, 'put')
+    const body = JSON.parse(String(config.data))
+    assert.deepEqual(body, { key: 'USDExchangeRate', value: '7.2' })
+    savedRate = body.value
+    return response(config, 200, { success: true, saved: true })
+  }
+  await renderPage(false)
+  await until(
+    () => container.querySelector('input[name="USDExchangeRate"]') !== null,
+    'native currency editor renders'
+  )
+  const input = container.querySelector<HTMLInputElement>(
+    'input[name="USDExchangeRate"]'
+  )
+  assert.ok(input)
+  assert.equal(input.value, '', 'an unset rate stays unknown')
+  assert.equal(container.querySelector('[role="switch"]'), null)
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#credits-per-usd')?.value,
+    '500000'
+  )
+  const sync = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Sync USD exchange rate"]'
+  )
+  assert.ok(sync)
+  await act(async () => sync.click())
+  await until(
+    () => input.value === '7.2',
+    'the fetched rate becomes an unsaved draft'
+  )
+  assert.match(container.textContent ?? '', /Frankfurter · 2026-11-06/)
+  assert.equal(savedRate, '')
+  assert.ok(requests.every((request) => request.method === 'get'))
+  const form = container.querySelector('form')
+  assert.ok(form)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  await until(() => savedRate === '7.2', 'explicit save persists the rate')
+  assert.equal(requests.filter((request) => request.method === 'put').length, 1)
+  assert.equal(errors.length, 0)
+})
+
+test('a provider HTTP failure preserves the saved rate and shows its reason', async () => {
+  activeTestSection = 'currency'
+  read = async (config) => {
+    if (config.url?.includes('exchange-rate')) {
+      throw new AxiosError(
+        'Request failed with status code 502',
+        'ERR_BAD_RESPONSE',
+        config,
+        undefined,
+        response(config, 502, {
+          success: false,
+          message: 'Reference rate provider unavailable',
+        })
+      )
+    }
+    return response(config, 200, {
+      success: true,
+      capabilities: {
+        read_only: false,
+        partial: true,
+        writable_keys: ['USDExchangeRate'],
+      },
+      data: [{ key: 'USDExchangeRate', value: '7.1' }],
+    })
+  }
+  await renderPage(false)
+  await until(
+    () => container.querySelector('input[name="USDExchangeRate"]') !== null,
+    'native currency editor renders'
+  )
+  const sync = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Sync USD exchange rate"]'
+  )
+  assert.ok(sync)
+  await act(async () => sync.click())
+  await until(() => errors.length > 0, 'the provider error is shown')
+  assert.equal(errors[0]?.message, 'Reference rate provider unavailable')
+  assert.equal(
+    container.querySelector<HTMLInputElement>('input[name="USDExchangeRate"]')
+      ?.value,
+    '7.1'
+  )
+  assert.ok(requests.every((request) => request.method === 'get'))
 })

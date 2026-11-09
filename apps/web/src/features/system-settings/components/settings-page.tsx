@@ -164,6 +164,10 @@ const LimitedAnnouncementsSection = lazyNamedSection(
   () => import('../content/announcements-section'),
   'AnnouncementsSection'
 )
+const LimitedPricingSection = lazyNamedSection(
+  () => import('../general/pricing-section'),
+  'PricingSection'
+)
 
 function LimitedSettings({
   options,
@@ -203,7 +207,16 @@ function LimitedSettings({
     activeSection === 'announcements' &&
     announcementOption !== undefined &&
     writableOptionKey(capabilities, announcementOption.key) !== undefined
+  const exchangeRateOption = options.find(
+    (option) => option.key === 'USDExchangeRate'
+  )
+  const writableExchangeRate =
+    !readOnly &&
+    activeSection === 'currency' &&
+    exchangeRateOption !== undefined &&
+    writableOptionKey(capabilities, 'USDExchangeRate') === 'USDExchangeRate'
   const visibleOptions = options.filter((option) => {
+    if (writableExchangeRate && option.key === 'USDExchangeRate') return false
     if (writableNavigation && option.key === 'HeaderNavModules') return false
     if (writableNotice && option.key === 'Notice') return false
     if (
@@ -285,6 +298,16 @@ function LimitedSettings({
           })()}
           enabledWritable={false}
           data={announcementOption.value}
+        />
+      ) : null}
+      {writableExchangeRate && exchangeRateOption ? (
+        <LimitedPricingSection
+          defaultValues={{
+            USDExchangeRate:
+              exchangeRateOption.value === ''
+                ? undefined
+                : Number(exchangeRateOption.value),
+          }}
         />
       ) : null}
       <div className='flex justify-end'>

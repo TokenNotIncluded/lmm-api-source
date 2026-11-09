@@ -48,6 +48,7 @@ export const WRITABLE_SYSTEM_OPTION_KEYS = [
   'HeaderNavModules',
   'Announcements',
   'console_setting.announcements',
+  'USDExchangeRate',
 ] as const
 
 export type WritableSystemOptionKey =
@@ -88,6 +89,7 @@ export type UsdExchangeRateQuote = {
   quote_currency: string
   rate: number
   fetched_at: string
+  rate_date: string
   provider: string
 }
 

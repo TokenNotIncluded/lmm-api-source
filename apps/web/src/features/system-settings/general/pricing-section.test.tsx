@@ -99,7 +99,11 @@ function CurrencyProbe() {
   )
 }
 
-type PricingDefaults = ComponentProps<typeof PricingSection>['defaultValues']
+type PricingDefaults = ComponentProps<
+  typeof PricingSection
+>['defaultValues'] & {
+  TopUpPlatformUnitsPerCNY?: number
+}
 
 type ExchangeRatePayload = {
   success: true
@@ -109,6 +113,7 @@ type ExchangeRatePayload = {
     quote_currency: string
     rate: number
     fetched_at: string
+    rate_date: string
     provider: string
   }
 }
@@ -127,9 +132,9 @@ await i18n.use(initReactI18next).init({
 after(() => domWindow.close())
 
 function pricingDefaults(
-  displayType: PricingDefaults['general_setting']['quota_display_type'],
+  displayType: 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM',
   overrides: Partial<PricingDefaults> = {}
-): PricingDefaults {
+) {
   return {
     QuotaPerUnit: 500_000,
     USDExchangeRate: 7,
@@ -156,6 +161,7 @@ function exchangeRatePayload(currency: string, rate: number) {
         quote_currency: currency,
         rate,
         fetched_at: '2026-08-28T00:00:00Z',
+        rate_date: '2026-08-27',
         provider: 'test-provider',
       },
     } satisfies ExchangeRatePayload,
@@ -274,6 +280,10 @@ test('loads CNY 6.8, exposes loading state, and marks the form dirty', async () 
     assert.ok(input)
     assert.equal(input.value, '6.8')
     assert.match(
+      rendered.container.textContent ?? '',
+      /test-provider · 2026-08-27/
+    )
+    assert.match(
       rendered.titleStatusContainer.textContent ?? '',
       /Unsaved changes/
     )
@@ -315,6 +325,7 @@ test('saves only FX, preserving the immutable anchor and legacy settings', async
     assert.ok(exchangeRateInput)
     assert.ok(form)
     assert.equal(exchangeRateInput.value, '7.2')
+    assert.deepEqual(updates, [], 'fetching a quote must not save a setting')
     assert.equal(
       rendered.container.querySelector(
         'input[name="TopUpPlatformUnitsPerCNY"]'
