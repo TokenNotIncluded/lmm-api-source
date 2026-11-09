@@ -2,6 +2,7 @@
 //! Go supplies identifiers and current user text; never payer, price or history.
 pub(crate) mod agent;
 mod gift_execution;
+pub(crate) mod live;
 #[cfg(unix)]
 pub mod rpc;
 pub mod sponsor;
@@ -172,6 +173,7 @@ pub struct AssistantModel {
     capacity: usize,
     transport: crate::relay::provider_network::ProviderTransport,
     changed: Arc<tokio::sync::Notify>,
+    live: live::Registry,
 }
 struct ActiveGuard {
     permit: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -267,6 +269,7 @@ impl AssistantModel {
             capacity,
             transport: crate::relay::provider_network::ProviderTransport::new(capacity),
             changed: Arc::new(tokio::sync::Notify::new()),
+            live: live::Registry::new(capacity),
         })
     }
     pub(crate) fn gift_enabled(&self) -> bool {
@@ -549,6 +552,7 @@ impl AssistantModel {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        self.live.cancel(&live::Key::Personal(id.to_owned()));
         Ok(())
     }
     pub async fn reserve_text(

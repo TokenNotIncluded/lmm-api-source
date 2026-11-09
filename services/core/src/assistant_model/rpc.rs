@@ -53,6 +53,27 @@ fn status(e: Error) -> Status {
     }
 }
 impl AssistantRpc {
+    async fn output_subject(
+        &self,
+        session: &str,
+        target: &pb::AssistantOutputLookup,
+    ) -> Result<super::live::Subject, Status> {
+        match target.target.as_ref() {
+            Some(pb::assistant_output_lookup::Target::PersonalText(input)) => self
+                .service
+                .output_subject(session, &binding(Some(input.clone()))?)
+                .await
+                .map_err(status),
+            Some(pb::assistant_output_lookup::Target::AgentTurn(input)) => self
+                .agent
+                .as_ref()
+                .ok_or_else(|| Status::failed_precondition("agent execution unavailable"))?
+                .output_subject(session, &input.core_conversation_id, &input.client_turn_id)
+                .await
+                .map_err(status),
+            None => Err(Status::invalid_argument("missing assistant output target")),
+        }
+    }
     pub fn new(service: AssistantModel, token: &[u8], enabled: bool) -> Result<Self, Error> {
         if !(32..=256).contains(&token.len()) || !token.iter().all(u8::is_ascii_graphic) {
             return Err(Error::Invalid);
@@ -215,6 +236,105 @@ fn grant(g: super::Grant) -> pb::AssistantGrantReceipt {
 }
 #[tonic::async_trait]
 impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
+    type WatchAssistantOutputStream =
+        tokio_stream::wrappers::ReceiverStream<Result<pb::AssistantOutputEvent, Status>>;
+
+    async fn watch_assistant_output(
+        &self,
+        r: Request<pb::AssistantOutputLookup>,
+    ) -> Result<Response<Self::WatchAssistantOutputStream>, Status> {
+        let session = self.session(r.metadata())?;
+        let target = r.into_inner();
+        let subject = self.output_subject(&session, &target).await?;
+        let mut receiver = self.service.live.subscribe(&subject).map_err(status)?;
+        let (sender, output) = tokio::sync::mpsc::channel(1);
+        let service = self.clone();
+        tokio::spawn(async move {
+            let pump = async {
+                let mut sequence = 0;
+                loop {
+                    // Wait for downstream capacity before rechecking authority,
+                    // so backpressure cannot queue a stale authorized prefix.
+                    let permit = sender
+                        .reserve()
+                        .await
+                        .map_err(|_| Status::cancelled("observer disconnected"))?;
+                    if service.output_subject(&session, &target).await? != subject {
+                        return Err(Status::permission_denied(
+                            "assistant observation binding changed",
+                        ));
+                    }
+                    let snapshot = receiver.borrow_and_update().clone();
+                    if snapshot.sequence > sequence {
+                        sequence = snapshot.sequence;
+                        let phase = match snapshot.phase {
+                            super::live::Phase::Model => pb::AssistantOutputPhase::Model,
+                            super::live::Phase::Tool => pb::AssistantOutputPhase::Tool,
+                            super::live::Phase::End => pb::AssistantOutputPhase::End,
+                        };
+                        permit.send(Ok(pb::AssistantOutputEvent {
+                            target: Some(target.clone()),
+                            sequence,
+                            round: snapshot.round,
+                            text: snapshot.text,
+                            phase: phase as i32,
+                            owner_user_id: subject.owner_user_id,
+                            original_text_sha256: subject.text_sha256.clone(),
+                        }));
+                        if snapshot.phase == super::live::Phase::End {
+                            return Ok(());
+                        }
+                    } else {
+                        drop(permit);
+                    }
+                    tokio::select! {
+                        _ = sender.closed() => return Ok(()),
+                        changed = receiver.changed() => {
+                            if changed.is_err() {
+                                return Err(Status::data_loss("assistant worker ended without observation"));
+                            }
+                        },
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {},
+                    }
+                    // Coalesce actual prefixes without an unbounded event queue.
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+            };
+            let result = tokio::time::timeout(std::time::Duration::from_secs(300), pump).await;
+            let error = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error),
+                Err(_) => Some(Status::deadline_exceeded("assistant observation expired")),
+            };
+            if let Some(error) = error {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    sender.send(Err(error)),
+                )
+                .await;
+            }
+        });
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            output,
+        )))
+    }
+
+    async fn cancel_agent_turn(
+        &self,
+        r: Request<pb::AssistantAgentLookup>,
+    ) -> Result<Response<pb::AssistantAgentTurn>, Status> {
+        let session = self.session(r.metadata())?;
+        let agent = self
+            .agent
+            .as_ref()
+            .ok_or_else(|| Status::failed_precondition("agent execution unavailable"))?;
+        let input = r.into_inner();
+        let turn = agent
+            .cancel(&session, &input.core_conversation_id, &input.client_turn_id)
+            .await
+            .map_err(status)?;
+        Ok(Response::new(agent_turn(turn)?))
+    }
     async fn begin_conversation(
         &self,
         r: Request<pb::AssistantConversationKey>,

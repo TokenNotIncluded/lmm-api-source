@@ -301,7 +301,78 @@ impl AgentService {
         {
             return Err(Error::Forbidden);
         }
+        let revoked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id JOIN core_assistant.grants g ON g.id=q.assistant_grant_id WHERE r.turn_id=$1 AND g.revoked)")
+            .bind(t.try_get::<String,_>("id")?).fetch_one(&mut *c).await?;
+        if revoked {
+            return Err(Error::Forbidden);
+        }
         Ok(())
+    }
+    pub(crate) async fn output_subject(
+        &self,
+        session: &str,
+        conversation_id: &str,
+        client_turn_id: &str,
+    ) -> Result<super::super::live::Subject, Error> {
+        if !label(client_turn_id, 64) {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.base.begin().await?;
+        let turn = sqlx::query("SELECT * FROM core_assistant.agent_turns WHERE conversation_id=$1 AND client_turn_id=$2")
+            .bind(conversation_id).bind(client_turn_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        self.check_live_turn(&mut tx, session, &turn).await?;
+        let subject = super::super::live::Subject {
+            key: super::super::live::Key::Agent(turn.try_get("id")?),
+            owner_user_id: turn.try_get("owner_user_id")?,
+            text_sha256: turn.try_get("text_sha256")?,
+        };
+        tx.commit().await?;
+        Ok(subject)
+    }
+    pub(crate) async fn cancel(
+        &self,
+        session: &str,
+        conversation_id: &str,
+        client_turn_id: &str,
+    ) -> Result<TurnSnapshot, Error> {
+        if !label(client_turn_id, 64) {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.base.begin().await?;
+        let principal = actor(&mut tx, session).await?;
+        self.base
+            .lock_conversation(&mut tx, &principal, conversation_id)
+            .await?;
+        let turn = sqlx::query("SELECT * FROM core_assistant.agent_turns WHERE conversation_id=$1 AND client_turn_id=$2 FOR UPDATE")
+            .bind(conversation_id).bind(client_turn_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let turn_id: String = turn.try_get("id")?;
+        let phase: String = turn.try_get("phase")?;
+        // Terminal states are original receipts. Cancellation never manufactures
+        // a second settlement or changes an already completed answer.
+        if matches!(phase.as_str(), "new" | "model_running" | "tools_pending") {
+            if turn.try_get::<i64, _>("session_id")? != principal.credential_id {
+                return Err(Error::Forbidden);
+            }
+            sqlx::query("UPDATE core_assistant.grants g SET revoked=TRUE FROM core_charging.requests q JOIN core_assistant.agent_rounds r ON r.model_request_id=q.id WHERE r.turn_id=$1 AND g.id=q.assistant_grant_id AND NOT g.revoked")
+                .bind(&turn_id).execute(&mut *tx).await?;
+            sqlx::query("UPDATE core_assistant.agent_tool_operations SET state='cancelled' WHERE turn_id=$1 AND state='pending'")
+                .bind(&turn_id).execute(&mut *tx).await?;
+            // Preserve claimed/unknown tool recovery. Acknowledging the original
+            // domain receipt remains possible, but revoked grants prevent any
+            // new tool claim or model round afterwards.
+            let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=$1 AND q.state NOT IN ('settled','released')) OR EXISTS(SELECT FROM core_assistant.agent_tool_operations WHERE turn_id=$1 AND state IN ('claimed','unknown'))")
+                .bind(&turn_id).fetch_one(&mut *tx).await?;
+            if !active && matches!(phase.as_str(), "new" | "tools_pending") {
+                sqlx::query("UPDATE core_assistant.agent_turns SET phase='expired',revision=revision+1 WHERE id=$1")
+                    .bind(&turn_id).execute(&mut *tx).await?;
+            }
+        }
+        let result = self.snapshot(&mut tx, &turn_id).await?;
+        tx.commit().await?;
+        self.base
+            .live
+            .cancel(&super::super::live::Key::Agent(turn_id));
+        Ok(result)
     }
     async fn snapshot(&self, c: &mut PgConnection, turn_id: &str) -> Result<TurnSnapshot, Error> {
         let t=sqlx::query("SELECT t.*,coalesce((SELECT max(round) FROM core_assistant.agent_rounds WHERE turn_id=t.id),0) AS current_round,coalesce((SELECT sum(CASE WHEN q.state IN ('reserved','streaming','reconcile') THEN q.reserved ELSE 0 END) FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=t.id),0)::bigint AS model_held,coalesce((SELECT sum(q.settled) FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=t.id AND q.state='settled'),0)::bigint AS model_settled FROM core_assistant.agent_turns t WHERE t.id=$1").bind(turn_id).fetch_optional(&mut *c).await?.ok_or(Error::NotFound)?;

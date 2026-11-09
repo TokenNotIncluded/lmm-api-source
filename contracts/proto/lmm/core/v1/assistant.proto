@@ -13,11 +13,15 @@ service CoreAssistantModel {
   rpc LookupGrant(AssistantTurnKey) returns (AssistantGrantReceipt);
   rpc ReserveText(AssistantTextReservation) returns (AssistantOperationReceipt);
   rpc GetOperation(AssistantOperationBinding) returns (AssistantOperationReceipt);
+  // Observe an already authorized worker. This never reserves, starts or resumes
+  // a model call. END is observation completion, not a settlement receipt.
+  rpc WatchAssistantOutput(AssistantOutputLookup) returns (stream AssistantOutputEvent);
   rpc RevokeGrant(AssistantRevokeGrant) returns (AssistantRevokeReceipt);
   rpc GetNewUserGift(AssistantGiftRequest) returns (AssistantGiftStatus);
   rpc ClaimStoredNewUserGift(AssistantGiftRequest) returns (AssistantGiftClaim);
   rpc StartAgentTurn(AssistantAgentStart) returns (AssistantAgentTurn);
   rpc GetAgentTurn(AssistantAgentLookup) returns (AssistantAgentTurn);
+  rpc CancelAgentTurn(AssistantAgentLookup) returns (AssistantAgentTurn);
   rpc ClaimAgentTool(AssistantAgentClaim) returns (AssistantAgentClaimReceipt);
   rpc CompleteAgentTool(AssistantAgentComplete) returns (AssistantAgentResult);
   rpc PrepareAssistantToolConfirmation(PrepareAssistantToolConfirmationRequest) returns (AssistantToolConfirmation);
@@ -79,6 +83,29 @@ message AssistantOperationReceipt {
 }
 message AssistantRevokeGrant { string delegation_id = 1; }
 message AssistantRevokeReceipt { string delegation_id = 1; bool revoked = 2; }
+message AssistantOutputLookup {
+  oneof target {
+    AssistantOperationBinding personal_text = 1;
+    AssistantAgentLookup agent_turn = 2;
+  }
+}
+enum AssistantOutputPhase {
+  ASSISTANT_OUTPUT_PHASE_UNSPECIFIED = 0;
+  ASSISTANT_OUTPUT_PHASE_MODEL = 1;
+  ASSISTANT_OUTPUT_PHASE_TOOL = 2;
+  ASSISTANT_OUTPUT_PHASE_END = 3;
+}
+message AssistantOutputEvent {
+  AssistantOutputLookup target = 1;
+  // Increasing snapshots may coalesce under backpressure. Text is the actual
+  // upstream prefix of this round, never tool arguments or a stored final reply.
+  uint64 sequence = 2;
+  uint32 round = 3;
+  string text = 4;
+  AssistantOutputPhase phase = 5;
+  int64 owner_user_id = 6;
+  bytes original_text_sha256 = 7;
+}
 message AssistantGiftRequest {}
 enum AssistantGiftState {
   ASSISTANT_GIFT_STATE_UNSPECIFIED = 0;

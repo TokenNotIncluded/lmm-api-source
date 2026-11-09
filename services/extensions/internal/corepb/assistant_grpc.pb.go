@@ -25,11 +25,13 @@ const (
 	CoreAssistantModel_LookupGrant_FullMethodName                         = "/lmm.core.v1.CoreAssistantModel/LookupGrant"
 	CoreAssistantModel_ReserveText_FullMethodName                         = "/lmm.core.v1.CoreAssistantModel/ReserveText"
 	CoreAssistantModel_GetOperation_FullMethodName                        = "/lmm.core.v1.CoreAssistantModel/GetOperation"
+	CoreAssistantModel_WatchAssistantOutput_FullMethodName                = "/lmm.core.v1.CoreAssistantModel/WatchAssistantOutput"
 	CoreAssistantModel_RevokeGrant_FullMethodName                         = "/lmm.core.v1.CoreAssistantModel/RevokeGrant"
 	CoreAssistantModel_GetNewUserGift_FullMethodName                      = "/lmm.core.v1.CoreAssistantModel/GetNewUserGift"
 	CoreAssistantModel_ClaimStoredNewUserGift_FullMethodName              = "/lmm.core.v1.CoreAssistantModel/ClaimStoredNewUserGift"
 	CoreAssistantModel_StartAgentTurn_FullMethodName                      = "/lmm.core.v1.CoreAssistantModel/StartAgentTurn"
 	CoreAssistantModel_GetAgentTurn_FullMethodName                        = "/lmm.core.v1.CoreAssistantModel/GetAgentTurn"
+	CoreAssistantModel_CancelAgentTurn_FullMethodName                     = "/lmm.core.v1.CoreAssistantModel/CancelAgentTurn"
 	CoreAssistantModel_ClaimAgentTool_FullMethodName                      = "/lmm.core.v1.CoreAssistantModel/ClaimAgentTool"
 	CoreAssistantModel_CompleteAgentTool_FullMethodName                   = "/lmm.core.v1.CoreAssistantModel/CompleteAgentTool"
 	CoreAssistantModel_PrepareAssistantToolConfirmation_FullMethodName    = "/lmm.core.v1.CoreAssistantModel/PrepareAssistantToolConfirmation"
@@ -52,11 +54,15 @@ type CoreAssistantModelClient interface {
 	LookupGrant(ctx context.Context, in *AssistantTurnKey, opts ...grpc.CallOption) (*AssistantGrantReceipt, error)
 	ReserveText(ctx context.Context, in *AssistantTextReservation, opts ...grpc.CallOption) (*AssistantOperationReceipt, error)
 	GetOperation(ctx context.Context, in *AssistantOperationBinding, opts ...grpc.CallOption) (*AssistantOperationReceipt, error)
+	// Observe an already authorized worker. This never reserves, starts or resumes
+	// a model call. END is observation completion, not a settlement receipt.
+	WatchAssistantOutput(ctx context.Context, in *AssistantOutputLookup, opts ...grpc.CallOption) (grpc.ServerStreamingClient[AssistantOutputEvent], error)
 	RevokeGrant(ctx context.Context, in *AssistantRevokeGrant, opts ...grpc.CallOption) (*AssistantRevokeReceipt, error)
 	GetNewUserGift(ctx context.Context, in *AssistantGiftRequest, opts ...grpc.CallOption) (*AssistantGiftStatus, error)
 	ClaimStoredNewUserGift(ctx context.Context, in *AssistantGiftRequest, opts ...grpc.CallOption) (*AssistantGiftClaim, error)
 	StartAgentTurn(ctx context.Context, in *AssistantAgentStart, opts ...grpc.CallOption) (*AssistantAgentTurn, error)
 	GetAgentTurn(ctx context.Context, in *AssistantAgentLookup, opts ...grpc.CallOption) (*AssistantAgentTurn, error)
+	CancelAgentTurn(ctx context.Context, in *AssistantAgentLookup, opts ...grpc.CallOption) (*AssistantAgentTurn, error)
 	ClaimAgentTool(ctx context.Context, in *AssistantAgentClaim, opts ...grpc.CallOption) (*AssistantAgentClaimReceipt, error)
 	CompleteAgentTool(ctx context.Context, in *AssistantAgentComplete, opts ...grpc.CallOption) (*AssistantAgentResult, error)
 	PrepareAssistantToolConfirmation(ctx context.Context, in *PrepareAssistantToolConfirmationRequest, opts ...grpc.CallOption) (*AssistantToolConfirmation, error)
@@ -132,6 +138,25 @@ func (c *coreAssistantModelClient) GetOperation(ctx context.Context, in *Assista
 	return out, nil
 }
 
+func (c *coreAssistantModelClient) WatchAssistantOutput(ctx context.Context, in *AssistantOutputLookup, opts ...grpc.CallOption) (grpc.ServerStreamingClient[AssistantOutputEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CoreAssistantModel_ServiceDesc.Streams[0], CoreAssistantModel_WatchAssistantOutput_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[AssistantOutputLookup, AssistantOutputEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CoreAssistantModel_WatchAssistantOutputClient = grpc.ServerStreamingClient[AssistantOutputEvent]
+
 func (c *coreAssistantModelClient) RevokeGrant(ctx context.Context, in *AssistantRevokeGrant, opts ...grpc.CallOption) (*AssistantRevokeReceipt, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AssistantRevokeReceipt)
@@ -176,6 +201,16 @@ func (c *coreAssistantModelClient) GetAgentTurn(ctx context.Context, in *Assista
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AssistantAgentTurn)
 	err := c.cc.Invoke(ctx, CoreAssistantModel_GetAgentTurn_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreAssistantModelClient) CancelAgentTurn(ctx context.Context, in *AssistantAgentLookup, opts ...grpc.CallOption) (*AssistantAgentTurn, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AssistantAgentTurn)
+	err := c.cc.Invoke(ctx, CoreAssistantModel_CancelAgentTurn_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -247,11 +282,15 @@ type CoreAssistantModelServer interface {
 	LookupGrant(context.Context, *AssistantTurnKey) (*AssistantGrantReceipt, error)
 	ReserveText(context.Context, *AssistantTextReservation) (*AssistantOperationReceipt, error)
 	GetOperation(context.Context, *AssistantOperationBinding) (*AssistantOperationReceipt, error)
+	// Observe an already authorized worker. This never reserves, starts or resumes
+	// a model call. END is observation completion, not a settlement receipt.
+	WatchAssistantOutput(*AssistantOutputLookup, grpc.ServerStreamingServer[AssistantOutputEvent]) error
 	RevokeGrant(context.Context, *AssistantRevokeGrant) (*AssistantRevokeReceipt, error)
 	GetNewUserGift(context.Context, *AssistantGiftRequest) (*AssistantGiftStatus, error)
 	ClaimStoredNewUserGift(context.Context, *AssistantGiftRequest) (*AssistantGiftClaim, error)
 	StartAgentTurn(context.Context, *AssistantAgentStart) (*AssistantAgentTurn, error)
 	GetAgentTurn(context.Context, *AssistantAgentLookup) (*AssistantAgentTurn, error)
+	CancelAgentTurn(context.Context, *AssistantAgentLookup) (*AssistantAgentTurn, error)
 	ClaimAgentTool(context.Context, *AssistantAgentClaim) (*AssistantAgentClaimReceipt, error)
 	CompleteAgentTool(context.Context, *AssistantAgentComplete) (*AssistantAgentResult, error)
 	PrepareAssistantToolConfirmation(context.Context, *PrepareAssistantToolConfirmationRequest) (*AssistantToolConfirmation, error)
@@ -285,6 +324,9 @@ func (UnimplementedCoreAssistantModelServer) ReserveText(context.Context, *Assis
 func (UnimplementedCoreAssistantModelServer) GetOperation(context.Context, *AssistantOperationBinding) (*AssistantOperationReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOperation not implemented")
 }
+func (UnimplementedCoreAssistantModelServer) WatchAssistantOutput(*AssistantOutputLookup, grpc.ServerStreamingServer[AssistantOutputEvent]) error {
+	return status.Errorf(codes.Unimplemented, "method WatchAssistantOutput not implemented")
+}
 func (UnimplementedCoreAssistantModelServer) RevokeGrant(context.Context, *AssistantRevokeGrant) (*AssistantRevokeReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RevokeGrant not implemented")
 }
@@ -299,6 +341,9 @@ func (UnimplementedCoreAssistantModelServer) StartAgentTurn(context.Context, *As
 }
 func (UnimplementedCoreAssistantModelServer) GetAgentTurn(context.Context, *AssistantAgentLookup) (*AssistantAgentTurn, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAgentTurn not implemented")
+}
+func (UnimplementedCoreAssistantModelServer) CancelAgentTurn(context.Context, *AssistantAgentLookup) (*AssistantAgentTurn, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelAgentTurn not implemented")
 }
 func (UnimplementedCoreAssistantModelServer) ClaimAgentTool(context.Context, *AssistantAgentClaim) (*AssistantAgentClaimReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ClaimAgentTool not implemented")
@@ -444,6 +489,17 @@ func _CoreAssistantModel_GetOperation_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoreAssistantModel_WatchAssistantOutput_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(AssistantOutputLookup)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(CoreAssistantModelServer).WatchAssistantOutput(m, &grpc.GenericServerStream[AssistantOutputLookup, AssistantOutputEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CoreAssistantModel_WatchAssistantOutputServer = grpc.ServerStreamingServer[AssistantOutputEvent]
+
 func _CoreAssistantModel_RevokeGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AssistantRevokeGrant)
 	if err := dec(in); err != nil {
@@ -530,6 +586,24 @@ func _CoreAssistantModel_GetAgentTurn_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CoreAssistantModelServer).GetAgentTurn(ctx, req.(*AssistantAgentLookup))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreAssistantModel_CancelAgentTurn_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssistantAgentLookup)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreAssistantModelServer).CancelAgentTurn(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreAssistantModel_CancelAgentTurn_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreAssistantModelServer).CancelAgentTurn(ctx, req.(*AssistantAgentLookup))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -676,6 +750,10 @@ var CoreAssistantModel_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _CoreAssistantModel_GetAgentTurn_Handler,
 		},
 		{
+			MethodName: "CancelAgentTurn",
+			Handler:    _CoreAssistantModel_CancelAgentTurn_Handler,
+		},
+		{
 			MethodName: "ClaimAgentTool",
 			Handler:    _CoreAssistantModel_ClaimAgentTool_Handler,
 		},
@@ -696,6 +774,12 @@ var CoreAssistantModel_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _CoreAssistantModel_GetAssistantBusinessFacts_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchAssistantOutput",
+			Handler:       _CoreAssistantModel_WatchAssistantOutput_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "lmm/core/v1/assistant.proto",
 }

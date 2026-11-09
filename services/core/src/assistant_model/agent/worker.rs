@@ -452,7 +452,12 @@ impl AgentService {
             )
         {
             sqlx::query("UPDATE core_assistant.agent_tool_operations SET state='cancelled' WHERE turn_id=$1 AND state='pending'").bind(turn_id).execute(&mut *tx).await?;
-            if rejected {
+            let cancelled: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id JOIN core_assistant.grants g ON g.id=q.assistant_grant_id WHERE r.turn_id=$1 AND g.revoked)")
+                .bind(turn_id).fetch_one(&mut *tx).await?;
+            if cancelled {
+                sqlx::query("UPDATE core_assistant.agent_turns SET phase='expired',final_text=NULL,revision=revision+1 WHERE id=$1")
+                    .bind(turn_id).execute(&mut *tx).await?;
+            } else if rejected {
                 sqlx::query("UPDATE core_assistant.agent_turns SET phase='rejected',final_text=NULL,revision=revision+1 WHERE id=$1")
                     .bind(turn_id).execute(&mut *tx).await?;
             } else {

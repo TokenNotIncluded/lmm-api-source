@@ -128,6 +128,58 @@ func (AssistantOperationState) EnumDescriptor() ([]byte, []int) {
 	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{1}
 }
 
+type AssistantOutputPhase int32
+
+const (
+	AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_UNSPECIFIED AssistantOutputPhase = 0
+	AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_MODEL       AssistantOutputPhase = 1
+	AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_TOOL        AssistantOutputPhase = 2
+	AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_END         AssistantOutputPhase = 3
+)
+
+// Enum value maps for AssistantOutputPhase.
+var (
+	AssistantOutputPhase_name = map[int32]string{
+		0: "ASSISTANT_OUTPUT_PHASE_UNSPECIFIED",
+		1: "ASSISTANT_OUTPUT_PHASE_MODEL",
+		2: "ASSISTANT_OUTPUT_PHASE_TOOL",
+		3: "ASSISTANT_OUTPUT_PHASE_END",
+	}
+	AssistantOutputPhase_value = map[string]int32{
+		"ASSISTANT_OUTPUT_PHASE_UNSPECIFIED": 0,
+		"ASSISTANT_OUTPUT_PHASE_MODEL":       1,
+		"ASSISTANT_OUTPUT_PHASE_TOOL":        2,
+		"ASSISTANT_OUTPUT_PHASE_END":         3,
+	}
+)
+
+func (x AssistantOutputPhase) Enum() *AssistantOutputPhase {
+	p := new(AssistantOutputPhase)
+	*p = x
+	return p
+}
+
+func (x AssistantOutputPhase) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AssistantOutputPhase) Descriptor() protoreflect.EnumDescriptor {
+	return file_lmm_core_v1_assistant_proto_enumTypes[2].Descriptor()
+}
+
+func (AssistantOutputPhase) Type() protoreflect.EnumType {
+	return &file_lmm_core_v1_assistant_proto_enumTypes[2]
+}
+
+func (x AssistantOutputPhase) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AssistantOutputPhase.Descriptor instead.
+func (AssistantOutputPhase) EnumDescriptor() ([]byte, []int) {
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{2}
+}
+
 type AssistantGiftState int32
 
 const (
@@ -161,11 +213,11 @@ func (x AssistantGiftState) String() string {
 }
 
 func (AssistantGiftState) Descriptor() protoreflect.EnumDescriptor {
-	return file_lmm_core_v1_assistant_proto_enumTypes[2].Descriptor()
+	return file_lmm_core_v1_assistant_proto_enumTypes[3].Descriptor()
 }
 
 func (AssistantGiftState) Type() protoreflect.EnumType {
-	return &file_lmm_core_v1_assistant_proto_enumTypes[2]
+	return &file_lmm_core_v1_assistant_proto_enumTypes[3]
 }
 
 func (x AssistantGiftState) Number() protoreflect.EnumNumber {
@@ -174,7 +226,7 @@ func (x AssistantGiftState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AssistantGiftState.Descriptor instead.
 func (AssistantGiftState) EnumDescriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{2}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{3}
 }
 
 type AssistantAgentPhase int32
@@ -225,11 +277,11 @@ func (x AssistantAgentPhase) String() string {
 }
 
 func (AssistantAgentPhase) Descriptor() protoreflect.EnumDescriptor {
-	return file_lmm_core_v1_assistant_proto_enumTypes[3].Descriptor()
+	return file_lmm_core_v1_assistant_proto_enumTypes[4].Descriptor()
 }
 
 func (AssistantAgentPhase) Type() protoreflect.EnumType {
-	return &file_lmm_core_v1_assistant_proto_enumTypes[3]
+	return &file_lmm_core_v1_assistant_proto_enumTypes[4]
 }
 
 func (x AssistantAgentPhase) Number() protoreflect.EnumNumber {
@@ -238,7 +290,7 @@ func (x AssistantAgentPhase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AssistantAgentPhase.Descriptor instead.
 func (AssistantAgentPhase) EnumDescriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{3}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{4}
 }
 
 type AssistantAgentDomain int32
@@ -274,11 +326,11 @@ func (x AssistantAgentDomain) String() string {
 }
 
 func (AssistantAgentDomain) Descriptor() protoreflect.EnumDescriptor {
-	return file_lmm_core_v1_assistant_proto_enumTypes[4].Descriptor()
+	return file_lmm_core_v1_assistant_proto_enumTypes[5].Descriptor()
 }
 
 func (AssistantAgentDomain) Type() protoreflect.EnumType {
-	return &file_lmm_core_v1_assistant_proto_enumTypes[4]
+	return &file_lmm_core_v1_assistant_proto_enumTypes[5]
 }
 
 func (x AssistantAgentDomain) Number() protoreflect.EnumNumber {
@@ -287,7 +339,7 @@ func (x AssistantAgentDomain) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AssistantAgentDomain.Descriptor instead.
 func (AssistantAgentDomain) EnumDescriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{4}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{5}
 }
 
 type AssistantAgentClaimDisposition int32
@@ -323,11 +375,11 @@ func (x AssistantAgentClaimDisposition) String() string {
 }
 
 func (AssistantAgentClaimDisposition) Descriptor() protoreflect.EnumDescriptor {
-	return file_lmm_core_v1_assistant_proto_enumTypes[5].Descriptor()
+	return file_lmm_core_v1_assistant_proto_enumTypes[6].Descriptor()
 }
 
 func (AssistantAgentClaimDisposition) Type() protoreflect.EnumType {
-	return &file_lmm_core_v1_assistant_proto_enumTypes[5]
+	return &file_lmm_core_v1_assistant_proto_enumTypes[6]
 }
 
 func (x AssistantAgentClaimDisposition) Number() protoreflect.EnumNumber {
@@ -336,7 +388,7 @@ func (x AssistantAgentClaimDisposition) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AssistantAgentClaimDisposition.Descriptor instead.
 func (AssistantAgentClaimDisposition) EnumDescriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{5}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{6}
 }
 
 type AssistantAgentResultState int32
@@ -372,11 +424,11 @@ func (x AssistantAgentResultState) String() string {
 }
 
 func (AssistantAgentResultState) Descriptor() protoreflect.EnumDescriptor {
-	return file_lmm_core_v1_assistant_proto_enumTypes[6].Descriptor()
+	return file_lmm_core_v1_assistant_proto_enumTypes[7].Descriptor()
 }
 
 func (AssistantAgentResultState) Type() protoreflect.EnumType {
-	return &file_lmm_core_v1_assistant_proto_enumTypes[6]
+	return &file_lmm_core_v1_assistant_proto_enumTypes[7]
 }
 
 func (x AssistantAgentResultState) Number() protoreflect.EnumNumber {
@@ -385,7 +437,7 @@ func (x AssistantAgentResultState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AssistantAgentResultState.Descriptor instead.
 func (AssistantAgentResultState) EnumDescriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{6}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{7}
 }
 
 type GetAssistantBusinessFactsRequest struct {
@@ -1034,6 +1086,182 @@ func (x *AssistantRevokeReceipt) GetRevoked() bool {
 	return false
 }
 
+type AssistantOutputLookup struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Target:
+	//
+	//	*AssistantOutputLookup_PersonalText
+	//	*AssistantOutputLookup_AgentTurn
+	Target        isAssistantOutputLookup_Target `protobuf_oneof:"target"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssistantOutputLookup) Reset() {
+	*x = AssistantOutputLookup{}
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssistantOutputLookup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssistantOutputLookup) ProtoMessage() {}
+
+func (x *AssistantOutputLookup) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssistantOutputLookup.ProtoReflect.Descriptor instead.
+func (*AssistantOutputLookup) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AssistantOutputLookup) GetTarget() isAssistantOutputLookup_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *AssistantOutputLookup) GetPersonalText() *AssistantOperationBinding {
+	if x != nil {
+		if x, ok := x.Target.(*AssistantOutputLookup_PersonalText); ok {
+			return x.PersonalText
+		}
+	}
+	return nil
+}
+
+func (x *AssistantOutputLookup) GetAgentTurn() *AssistantAgentLookup {
+	if x != nil {
+		if x, ok := x.Target.(*AssistantOutputLookup_AgentTurn); ok {
+			return x.AgentTurn
+		}
+	}
+	return nil
+}
+
+type isAssistantOutputLookup_Target interface {
+	isAssistantOutputLookup_Target()
+}
+
+type AssistantOutputLookup_PersonalText struct {
+	PersonalText *AssistantOperationBinding `protobuf:"bytes,1,opt,name=personal_text,json=personalText,proto3,oneof"`
+}
+
+type AssistantOutputLookup_AgentTurn struct {
+	AgentTurn *AssistantAgentLookup `protobuf:"bytes,2,opt,name=agent_turn,json=agentTurn,proto3,oneof"`
+}
+
+func (*AssistantOutputLookup_PersonalText) isAssistantOutputLookup_Target() {}
+
+func (*AssistantOutputLookup_AgentTurn) isAssistantOutputLookup_Target() {}
+
+type AssistantOutputEvent struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Target *AssistantOutputLookup `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	// Increasing snapshots may coalesce under backpressure. Text is the actual
+	// upstream prefix of this round, never tool arguments or a stored final reply.
+	Sequence           uint64               `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Round              uint32               `protobuf:"varint,3,opt,name=round,proto3" json:"round,omitempty"`
+	Text               string               `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	Phase              AssistantOutputPhase `protobuf:"varint,5,opt,name=phase,proto3,enum=lmm.core.v1.AssistantOutputPhase" json:"phase,omitempty"`
+	OwnerUserId        int64                `protobuf:"varint,6,opt,name=owner_user_id,json=ownerUserId,proto3" json:"owner_user_id,omitempty"`
+	OriginalTextSha256 []byte               `protobuf:"bytes,7,opt,name=original_text_sha256,json=originalTextSha256,proto3" json:"original_text_sha256,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AssistantOutputEvent) Reset() {
+	*x = AssistantOutputEvent{}
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssistantOutputEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssistantOutputEvent) ProtoMessage() {}
+
+func (x *AssistantOutputEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssistantOutputEvent.ProtoReflect.Descriptor instead.
+func (*AssistantOutputEvent) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AssistantOutputEvent) GetTarget() *AssistantOutputLookup {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *AssistantOutputEvent) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *AssistantOutputEvent) GetRound() uint32 {
+	if x != nil {
+		return x.Round
+	}
+	return 0
+}
+
+func (x *AssistantOutputEvent) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *AssistantOutputEvent) GetPhase() AssistantOutputPhase {
+	if x != nil {
+		return x.Phase
+	}
+	return AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_UNSPECIFIED
+}
+
+func (x *AssistantOutputEvent) GetOwnerUserId() int64 {
+	if x != nil {
+		return x.OwnerUserId
+	}
+	return 0
+}
+
+func (x *AssistantOutputEvent) GetOriginalTextSha256() []byte {
+	if x != nil {
+		return x.OriginalTextSha256
+	}
+	return nil
+}
+
 type AssistantGiftRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1042,7 +1270,7 @@ type AssistantGiftRequest struct {
 
 func (x *AssistantGiftRequest) Reset() {
 	*x = AssistantGiftRequest{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[11]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1054,7 +1282,7 @@ func (x *AssistantGiftRequest) String() string {
 func (*AssistantGiftRequest) ProtoMessage() {}
 
 func (x *AssistantGiftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[11]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1067,7 +1295,7 @@ func (x *AssistantGiftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantGiftRequest.ProtoReflect.Descriptor instead.
 func (*AssistantGiftRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{11}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{13}
 }
 
 type AssistantGiftReceipt struct {
@@ -1088,7 +1316,7 @@ type AssistantGiftReceipt struct {
 
 func (x *AssistantGiftReceipt) Reset() {
 	*x = AssistantGiftReceipt{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[12]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1100,7 +1328,7 @@ func (x *AssistantGiftReceipt) String() string {
 func (*AssistantGiftReceipt) ProtoMessage() {}
 
 func (x *AssistantGiftReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[12]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1113,7 +1341,7 @@ func (x *AssistantGiftReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantGiftReceipt.ProtoReflect.Descriptor instead.
 func (*AssistantGiftReceipt) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{12}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AssistantGiftReceipt) GetGiftId() string {
@@ -1195,7 +1423,7 @@ type AssistantGiftStatus struct {
 
 func (x *AssistantGiftStatus) Reset() {
 	*x = AssistantGiftStatus{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[13]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1207,7 +1435,7 @@ func (x *AssistantGiftStatus) String() string {
 func (*AssistantGiftStatus) ProtoMessage() {}
 
 func (x *AssistantGiftStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[13]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1220,7 +1448,7 @@ func (x *AssistantGiftStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantGiftStatus.ProtoReflect.Descriptor instead.
 func (*AssistantGiftStatus) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{13}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AssistantGiftStatus) GetGift() *AssistantGiftReceipt {
@@ -1240,7 +1468,7 @@ type AssistantGiftClaim struct {
 
 func (x *AssistantGiftClaim) Reset() {
 	*x = AssistantGiftClaim{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[14]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1252,7 +1480,7 @@ func (x *AssistantGiftClaim) String() string {
 func (*AssistantGiftClaim) ProtoMessage() {}
 
 func (x *AssistantGiftClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[14]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1265,7 +1493,7 @@ func (x *AssistantGiftClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantGiftClaim.ProtoReflect.Descriptor instead.
 func (*AssistantGiftClaim) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{14}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AssistantGiftClaim) GetGift() *AssistantGiftReceipt {
@@ -1292,7 +1520,7 @@ type AssistantAgentLookup struct {
 
 func (x *AssistantAgentLookup) Reset() {
 	*x = AssistantAgentLookup{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[15]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1304,7 +1532,7 @@ func (x *AssistantAgentLookup) String() string {
 func (*AssistantAgentLookup) ProtoMessage() {}
 
 func (x *AssistantAgentLookup) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[15]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1317,7 +1545,7 @@ func (x *AssistantAgentLookup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentLookup.ProtoReflect.Descriptor instead.
 func (*AssistantAgentLookup) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{15}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AssistantAgentLookup) GetCoreConversationId() string {
@@ -1345,7 +1573,7 @@ type AssistantAgentStart struct {
 
 func (x *AssistantAgentStart) Reset() {
 	*x = AssistantAgentStart{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[16]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1357,7 +1585,7 @@ func (x *AssistantAgentStart) String() string {
 func (*AssistantAgentStart) ProtoMessage() {}
 
 func (x *AssistantAgentStart) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[16]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1370,7 +1598,7 @@ func (x *AssistantAgentStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentStart.ProtoReflect.Descriptor instead.
 func (*AssistantAgentStart) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{16}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AssistantAgentStart) GetCoreConversationId() string {
@@ -1414,7 +1642,7 @@ type AssistantAgentScope struct {
 
 func (x *AssistantAgentScope) Reset() {
 	*x = AssistantAgentScope{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[17]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +1654,7 @@ func (x *AssistantAgentScope) String() string {
 func (*AssistantAgentScope) ProtoMessage() {}
 
 func (x *AssistantAgentScope) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[17]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +1667,7 @@ func (x *AssistantAgentScope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentScope.ProtoReflect.Descriptor instead.
 func (*AssistantAgentScope) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{17}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AssistantAgentScope) GetToolName() string {
@@ -1542,7 +1770,7 @@ type AssistantAgentToolCall struct {
 
 func (x *AssistantAgentToolCall) Reset() {
 	*x = AssistantAgentToolCall{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[18]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1554,7 +1782,7 @@ func (x *AssistantAgentToolCall) String() string {
 func (*AssistantAgentToolCall) ProtoMessage() {}
 
 func (x *AssistantAgentToolCall) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[18]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1567,7 +1795,7 @@ func (x *AssistantAgentToolCall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentToolCall.ProtoReflect.Descriptor instead.
 func (*AssistantAgentToolCall) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{18}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AssistantAgentToolCall) GetToolOperationId() string {
@@ -1648,7 +1876,7 @@ type AssistantAgentTurn struct {
 
 func (x *AssistantAgentTurn) Reset() {
 	*x = AssistantAgentTurn{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[19]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1660,7 +1888,7 @@ func (x *AssistantAgentTurn) String() string {
 func (*AssistantAgentTurn) ProtoMessage() {}
 
 func (x *AssistantAgentTurn) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[19]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1673,7 +1901,7 @@ func (x *AssistantAgentTurn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentTurn.ProtoReflect.Descriptor instead.
 func (*AssistantAgentTurn) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{19}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AssistantAgentTurn) GetCoreConversationId() string {
@@ -1784,7 +2012,7 @@ type AssistantAgentClaim struct {
 
 func (x *AssistantAgentClaim) Reset() {
 	*x = AssistantAgentClaim{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[20]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1796,7 +2024,7 @@ func (x *AssistantAgentClaim) String() string {
 func (*AssistantAgentClaim) ProtoMessage() {}
 
 func (x *AssistantAgentClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[20]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1809,7 +2037,7 @@ func (x *AssistantAgentClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentClaim.ProtoReflect.Descriptor instead.
 func (*AssistantAgentClaim) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{20}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AssistantAgentClaim) GetToolOperationId() string {
@@ -1838,7 +2066,7 @@ type AssistantAgentClaimReceipt struct {
 
 func (x *AssistantAgentClaimReceipt) Reset() {
 	*x = AssistantAgentClaimReceipt{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[21]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1850,7 +2078,7 @@ func (x *AssistantAgentClaimReceipt) String() string {
 func (*AssistantAgentClaimReceipt) ProtoMessage() {}
 
 func (x *AssistantAgentClaimReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[21]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1863,7 +2091,7 @@ func (x *AssistantAgentClaimReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentClaimReceipt.ProtoReflect.Descriptor instead.
 func (*AssistantAgentClaimReceipt) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{21}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AssistantAgentClaimReceipt) GetCall() *AssistantAgentToolCall {
@@ -1908,7 +2136,7 @@ type AssistantAgentComplete struct {
 
 func (x *AssistantAgentComplete) Reset() {
 	*x = AssistantAgentComplete{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[22]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1920,7 +2148,7 @@ func (x *AssistantAgentComplete) String() string {
 func (*AssistantAgentComplete) ProtoMessage() {}
 
 func (x *AssistantAgentComplete) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[22]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1933,7 +2161,7 @@ func (x *AssistantAgentComplete) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentComplete.ProtoReflect.Descriptor instead.
 func (*AssistantAgentComplete) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{22}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AssistantAgentComplete) GetToolOperationId() string {
@@ -1991,7 +2219,7 @@ type AssistantAgentResult struct {
 
 func (x *AssistantAgentResult) Reset() {
 	*x = AssistantAgentResult{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[23]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2003,7 +2231,7 @@ func (x *AssistantAgentResult) String() string {
 func (*AssistantAgentResult) ProtoMessage() {}
 
 func (x *AssistantAgentResult) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[23]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2016,7 +2244,7 @@ func (x *AssistantAgentResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantAgentResult.ProtoReflect.Descriptor instead.
 func (*AssistantAgentResult) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{23}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AssistantAgentResult) GetToolOperationId() string {
@@ -2064,7 +2292,7 @@ type PrepareAssistantToolConfirmationRequest struct {
 
 func (x *PrepareAssistantToolConfirmationRequest) Reset() {
 	*x = PrepareAssistantToolConfirmationRequest{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[24]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2076,7 +2304,7 @@ func (x *PrepareAssistantToolConfirmationRequest) String() string {
 func (*PrepareAssistantToolConfirmationRequest) ProtoMessage() {}
 
 func (x *PrepareAssistantToolConfirmationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[24]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2089,7 +2317,7 @@ func (x *PrepareAssistantToolConfirmationRequest) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use PrepareAssistantToolConfirmationRequest.ProtoReflect.Descriptor instead.
 func (*PrepareAssistantToolConfirmationRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{24}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *PrepareAssistantToolConfirmationRequest) GetToolOperationId() string {
@@ -2116,7 +2344,7 @@ type GetAssistantToolConfirmationReceiptRequest struct {
 
 func (x *GetAssistantToolConfirmationReceiptRequest) Reset() {
 	*x = GetAssistantToolConfirmationReceiptRequest{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[25]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2128,7 +2356,7 @@ func (x *GetAssistantToolConfirmationReceiptRequest) String() string {
 func (*GetAssistantToolConfirmationReceiptRequest) ProtoMessage() {}
 
 func (x *GetAssistantToolConfirmationReceiptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[25]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2141,7 +2369,7 @@ func (x *GetAssistantToolConfirmationReceiptRequest) ProtoReflect() protoreflect
 
 // Deprecated: Use GetAssistantToolConfirmationReceiptRequest.ProtoReflect.Descriptor instead.
 func (*GetAssistantToolConfirmationReceiptRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{25}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetAssistantToolConfirmationReceiptRequest) GetToolOperationId() string {
@@ -2180,7 +2408,7 @@ type AssistantToolConfirmation struct {
 
 func (x *AssistantToolConfirmation) Reset() {
 	*x = AssistantToolConfirmation{}
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[26]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2192,7 +2420,7 @@ func (x *AssistantToolConfirmation) String() string {
 func (*AssistantToolConfirmation) ProtoMessage() {}
 
 func (x *AssistantToolConfirmation) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_assistant_proto_msgTypes[26]
+	mi := &file_lmm_core_v1_assistant_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2205,7 +2433,7 @@ func (x *AssistantToolConfirmation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssistantToolConfirmation.ProtoReflect.Descriptor instead.
 func (*AssistantToolConfirmation) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{26}
+	return file_lmm_core_v1_assistant_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *AssistantToolConfirmation) GetChallengeId() string {
@@ -2358,7 +2586,20 @@ const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"\rdelegation_id\x18\x01 \x01(\tR\fdelegationId\"W\n" +
 	"\x16AssistantRevokeReceipt\x12#\n" +
 	"\rdelegation_id\x18\x01 \x01(\tR\fdelegationId\x12\x18\n" +
-	"\arevoked\x18\x02 \x01(\bR\arevoked\"\x16\n" +
+	"\arevoked\x18\x02 \x01(\bR\arevoked\"\xb4\x01\n" +
+	"\x15AssistantOutputLookup\x12M\n" +
+	"\rpersonal_text\x18\x01 \x01(\v2&.lmm.core.v1.AssistantOperationBindingH\x00R\fpersonalText\x12B\n" +
+	"\n" +
+	"agent_turn\x18\x02 \x01(\v2!.lmm.core.v1.AssistantAgentLookupH\x00R\tagentTurnB\b\n" +
+	"\x06target\"\xa7\x02\n" +
+	"\x14AssistantOutputEvent\x12:\n" +
+	"\x06target\x18\x01 \x01(\v2\".lmm.core.v1.AssistantOutputLookupR\x06target\x12\x1a\n" +
+	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12\x14\n" +
+	"\x05round\x18\x03 \x01(\rR\x05round\x12\x12\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\x127\n" +
+	"\x05phase\x18\x05 \x01(\x0e2!.lmm.core.v1.AssistantOutputPhaseR\x05phase\x12\"\n" +
+	"\rowner_user_id\x18\x06 \x01(\x03R\vownerUserId\x120\n" +
+	"\x14original_text_sha256\x18\a \x01(\fR\x12originalTextSha256\"\x16\n" +
 	"\x14AssistantGiftRequest\"\xb6\x03\n" +
 	"\x14AssistantGiftReceipt\x12\x17\n" +
 	"\agift_id\x18\x01 \x01(\tR\x06giftId\x12\"\n" +
@@ -2483,7 +2724,12 @@ const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"#ASSISTANT_OPERATION_STATE_STREAMING\x10\x02\x12%\n" +
 	"!ASSISTANT_OPERATION_STATE_SETTLED\x10\x03\x12&\n" +
 	"\"ASSISTANT_OPERATION_STATE_RELEASED\x10\x04\x12%\n" +
-	"!ASSISTANT_OPERATION_STATE_UNKNOWN\x10\x05*~\n" +
+	"!ASSISTANT_OPERATION_STATE_UNKNOWN\x10\x05*\xa1\x01\n" +
+	"\x14AssistantOutputPhase\x12&\n" +
+	"\"ASSISTANT_OUTPUT_PHASE_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cASSISTANT_OUTPUT_PHASE_MODEL\x10\x01\x12\x1f\n" +
+	"\x1bASSISTANT_OUTPUT_PHASE_TOOL\x10\x02\x12\x1e\n" +
+	"\x1aASSISTANT_OUTPUT_PHASE_END\x10\x03*~\n" +
 	"\x12AssistantGiftState\x12$\n" +
 	" ASSISTANT_GIFT_STATE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cASSISTANT_GIFT_STATE_OFFERED\x10\x01\x12 \n" +
@@ -2508,7 +2754,7 @@ const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"\x19AssistantAgentResultState\x12&\n" +
 	"\"ASSISTANT_AGENT_RESULT_UNSPECIFIED\x10\x00\x12$\n" +
 	" ASSISTANT_AGENT_RESULT_COMPLETED\x10\x01\x12\"\n" +
-	"\x1eASSISTANT_AGENT_RESULT_UNKNOWN\x10\x022\xbb\f\n" +
+	"\x1eASSISTANT_AGENT_RESULT_UNKNOWN\x10\x022\xf3\r\n" +
 	"\x12CoreAssistantModel\x12e\n" +
 	"\x11BeginConversation\x12%.lmm.core.v1.AssistantConversationKey\x1a).lmm.core.v1.AssistantConversationReceipt\x12f\n" +
 	"\x12LookupConversation\x12%.lmm.core.v1.AssistantConversationKey\x1a).lmm.core.v1.AssistantConversationReceipt\x12O\n" +
@@ -2516,12 +2762,14 @@ const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"IssueGrant\x12\x1d.lmm.core.v1.AssistantTurnKey\x1a\".lmm.core.v1.AssistantGrantReceipt\x12P\n" +
 	"\vLookupGrant\x12\x1d.lmm.core.v1.AssistantTurnKey\x1a\".lmm.core.v1.AssistantGrantReceipt\x12\\\n" +
 	"\vReserveText\x12%.lmm.core.v1.AssistantTextReservation\x1a&.lmm.core.v1.AssistantOperationReceipt\x12^\n" +
-	"\fGetOperation\x12&.lmm.core.v1.AssistantOperationBinding\x1a&.lmm.core.v1.AssistantOperationReceipt\x12U\n" +
+	"\fGetOperation\x12&.lmm.core.v1.AssistantOperationBinding\x1a&.lmm.core.v1.AssistantOperationReceipt\x12_\n" +
+	"\x14WatchAssistantOutput\x12\".lmm.core.v1.AssistantOutputLookup\x1a!.lmm.core.v1.AssistantOutputEvent0\x01\x12U\n" +
 	"\vRevokeGrant\x12!.lmm.core.v1.AssistantRevokeGrant\x1a#.lmm.core.v1.AssistantRevokeReceipt\x12U\n" +
 	"\x0eGetNewUserGift\x12!.lmm.core.v1.AssistantGiftRequest\x1a .lmm.core.v1.AssistantGiftStatus\x12\\\n" +
 	"\x16ClaimStoredNewUserGift\x12!.lmm.core.v1.AssistantGiftRequest\x1a\x1f.lmm.core.v1.AssistantGiftClaim\x12S\n" +
 	"\x0eStartAgentTurn\x12 .lmm.core.v1.AssistantAgentStart\x1a\x1f.lmm.core.v1.AssistantAgentTurn\x12R\n" +
-	"\fGetAgentTurn\x12!.lmm.core.v1.AssistantAgentLookup\x1a\x1f.lmm.core.v1.AssistantAgentTurn\x12[\n" +
+	"\fGetAgentTurn\x12!.lmm.core.v1.AssistantAgentLookup\x1a\x1f.lmm.core.v1.AssistantAgentTurn\x12U\n" +
+	"\x0fCancelAgentTurn\x12!.lmm.core.v1.AssistantAgentLookup\x1a\x1f.lmm.core.v1.AssistantAgentTurn\x12[\n" +
 	"\x0eClaimAgentTool\x12 .lmm.core.v1.AssistantAgentClaim\x1a'.lmm.core.v1.AssistantAgentClaimReceipt\x12[\n" +
 	"\x11CompleteAgentTool\x12#.lmm.core.v1.AssistantAgentComplete\x1a!.lmm.core.v1.AssistantAgentResult\x12\x80\x01\n" +
 	" PrepareAssistantToolConfirmation\x124.lmm.core.v1.PrepareAssistantToolConfirmationRequest\x1a&.lmm.core.v1.AssistantToolConfirmation\x12\x86\x01\n" +
@@ -2540,99 +2788,110 @@ func file_lmm_core_v1_assistant_proto_rawDescGZIP() []byte {
 	return file_lmm_core_v1_assistant_proto_rawDescData
 }
 
-var file_lmm_core_v1_assistant_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_lmm_core_v1_assistant_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_lmm_core_v1_assistant_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_lmm_core_v1_assistant_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_lmm_core_v1_assistant_proto_goTypes = []any{
 	(AssistantBusinessFactKind)(0),                     // 0: lmm.core.v1.AssistantBusinessFactKind
 	(AssistantOperationState)(0),                       // 1: lmm.core.v1.AssistantOperationState
-	(AssistantGiftState)(0),                            // 2: lmm.core.v1.AssistantGiftState
-	(AssistantAgentPhase)(0),                           // 3: lmm.core.v1.AssistantAgentPhase
-	(AssistantAgentDomain)(0),                          // 4: lmm.core.v1.AssistantAgentDomain
-	(AssistantAgentClaimDisposition)(0),                // 5: lmm.core.v1.AssistantAgentClaimDisposition
-	(AssistantAgentResultState)(0),                     // 6: lmm.core.v1.AssistantAgentResultState
-	(*GetAssistantBusinessFactsRequest)(nil),           // 7: lmm.core.v1.GetAssistantBusinessFactsRequest
-	(*GetAssistantBusinessFactsResponse)(nil),          // 8: lmm.core.v1.GetAssistantBusinessFactsResponse
-	(*AssistantConversationKey)(nil),                   // 9: lmm.core.v1.AssistantConversationKey
-	(*AssistantConversationReceipt)(nil),               // 10: lmm.core.v1.AssistantConversationReceipt
-	(*AssistantTurnKey)(nil),                           // 11: lmm.core.v1.AssistantTurnKey
-	(*AssistantGrantReceipt)(nil),                      // 12: lmm.core.v1.AssistantGrantReceipt
-	(*AssistantOperationBinding)(nil),                  // 13: lmm.core.v1.AssistantOperationBinding
-	(*AssistantTextReservation)(nil),                   // 14: lmm.core.v1.AssistantTextReservation
-	(*AssistantOperationReceipt)(nil),                  // 15: lmm.core.v1.AssistantOperationReceipt
-	(*AssistantRevokeGrant)(nil),                       // 16: lmm.core.v1.AssistantRevokeGrant
-	(*AssistantRevokeReceipt)(nil),                     // 17: lmm.core.v1.AssistantRevokeReceipt
-	(*AssistantGiftRequest)(nil),                       // 18: lmm.core.v1.AssistantGiftRequest
-	(*AssistantGiftReceipt)(nil),                       // 19: lmm.core.v1.AssistantGiftReceipt
-	(*AssistantGiftStatus)(nil),                        // 20: lmm.core.v1.AssistantGiftStatus
-	(*AssistantGiftClaim)(nil),                         // 21: lmm.core.v1.AssistantGiftClaim
-	(*AssistantAgentLookup)(nil),                       // 22: lmm.core.v1.AssistantAgentLookup
-	(*AssistantAgentStart)(nil),                        // 23: lmm.core.v1.AssistantAgentStart
-	(*AssistantAgentScope)(nil),                        // 24: lmm.core.v1.AssistantAgentScope
-	(*AssistantAgentToolCall)(nil),                     // 25: lmm.core.v1.AssistantAgentToolCall
-	(*AssistantAgentTurn)(nil),                         // 26: lmm.core.v1.AssistantAgentTurn
-	(*AssistantAgentClaim)(nil),                        // 27: lmm.core.v1.AssistantAgentClaim
-	(*AssistantAgentClaimReceipt)(nil),                 // 28: lmm.core.v1.AssistantAgentClaimReceipt
-	(*AssistantAgentComplete)(nil),                     // 29: lmm.core.v1.AssistantAgentComplete
-	(*AssistantAgentResult)(nil),                       // 30: lmm.core.v1.AssistantAgentResult
-	(*PrepareAssistantToolConfirmationRequest)(nil),    // 31: lmm.core.v1.PrepareAssistantToolConfirmationRequest
-	(*GetAssistantToolConfirmationReceiptRequest)(nil), // 32: lmm.core.v1.GetAssistantToolConfirmationReceiptRequest
-	(*AssistantToolConfirmation)(nil),                  // 33: lmm.core.v1.AssistantToolConfirmation
+	(AssistantOutputPhase)(0),                          // 2: lmm.core.v1.AssistantOutputPhase
+	(AssistantGiftState)(0),                            // 3: lmm.core.v1.AssistantGiftState
+	(AssistantAgentPhase)(0),                           // 4: lmm.core.v1.AssistantAgentPhase
+	(AssistantAgentDomain)(0),                          // 5: lmm.core.v1.AssistantAgentDomain
+	(AssistantAgentClaimDisposition)(0),                // 6: lmm.core.v1.AssistantAgentClaimDisposition
+	(AssistantAgentResultState)(0),                     // 7: lmm.core.v1.AssistantAgentResultState
+	(*GetAssistantBusinessFactsRequest)(nil),           // 8: lmm.core.v1.GetAssistantBusinessFactsRequest
+	(*GetAssistantBusinessFactsResponse)(nil),          // 9: lmm.core.v1.GetAssistantBusinessFactsResponse
+	(*AssistantConversationKey)(nil),                   // 10: lmm.core.v1.AssistantConversationKey
+	(*AssistantConversationReceipt)(nil),               // 11: lmm.core.v1.AssistantConversationReceipt
+	(*AssistantTurnKey)(nil),                           // 12: lmm.core.v1.AssistantTurnKey
+	(*AssistantGrantReceipt)(nil),                      // 13: lmm.core.v1.AssistantGrantReceipt
+	(*AssistantOperationBinding)(nil),                  // 14: lmm.core.v1.AssistantOperationBinding
+	(*AssistantTextReservation)(nil),                   // 15: lmm.core.v1.AssistantTextReservation
+	(*AssistantOperationReceipt)(nil),                  // 16: lmm.core.v1.AssistantOperationReceipt
+	(*AssistantRevokeGrant)(nil),                       // 17: lmm.core.v1.AssistantRevokeGrant
+	(*AssistantRevokeReceipt)(nil),                     // 18: lmm.core.v1.AssistantRevokeReceipt
+	(*AssistantOutputLookup)(nil),                      // 19: lmm.core.v1.AssistantOutputLookup
+	(*AssistantOutputEvent)(nil),                       // 20: lmm.core.v1.AssistantOutputEvent
+	(*AssistantGiftRequest)(nil),                       // 21: lmm.core.v1.AssistantGiftRequest
+	(*AssistantGiftReceipt)(nil),                       // 22: lmm.core.v1.AssistantGiftReceipt
+	(*AssistantGiftStatus)(nil),                        // 23: lmm.core.v1.AssistantGiftStatus
+	(*AssistantGiftClaim)(nil),                         // 24: lmm.core.v1.AssistantGiftClaim
+	(*AssistantAgentLookup)(nil),                       // 25: lmm.core.v1.AssistantAgentLookup
+	(*AssistantAgentStart)(nil),                        // 26: lmm.core.v1.AssistantAgentStart
+	(*AssistantAgentScope)(nil),                        // 27: lmm.core.v1.AssistantAgentScope
+	(*AssistantAgentToolCall)(nil),                     // 28: lmm.core.v1.AssistantAgentToolCall
+	(*AssistantAgentTurn)(nil),                         // 29: lmm.core.v1.AssistantAgentTurn
+	(*AssistantAgentClaim)(nil),                        // 30: lmm.core.v1.AssistantAgentClaim
+	(*AssistantAgentClaimReceipt)(nil),                 // 31: lmm.core.v1.AssistantAgentClaimReceipt
+	(*AssistantAgentComplete)(nil),                     // 32: lmm.core.v1.AssistantAgentComplete
+	(*AssistantAgentResult)(nil),                       // 33: lmm.core.v1.AssistantAgentResult
+	(*PrepareAssistantToolConfirmationRequest)(nil),    // 34: lmm.core.v1.PrepareAssistantToolConfirmationRequest
+	(*GetAssistantToolConfirmationReceiptRequest)(nil), // 35: lmm.core.v1.GetAssistantToolConfirmationReceiptRequest
+	(*AssistantToolConfirmation)(nil),                  // 36: lmm.core.v1.AssistantToolConfirmation
 }
 var file_lmm_core_v1_assistant_proto_depIdxs = []int32{
 	0,  // 0: lmm.core.v1.GetAssistantBusinessFactsRequest.kind:type_name -> lmm.core.v1.AssistantBusinessFactKind
-	13, // 1: lmm.core.v1.AssistantTextReservation.binding:type_name -> lmm.core.v1.AssistantOperationBinding
-	13, // 2: lmm.core.v1.AssistantOperationReceipt.binding:type_name -> lmm.core.v1.AssistantOperationBinding
+	14, // 1: lmm.core.v1.AssistantTextReservation.binding:type_name -> lmm.core.v1.AssistantOperationBinding
+	14, // 2: lmm.core.v1.AssistantOperationReceipt.binding:type_name -> lmm.core.v1.AssistantOperationBinding
 	1,  // 3: lmm.core.v1.AssistantOperationReceipt.state:type_name -> lmm.core.v1.AssistantOperationState
-	19, // 4: lmm.core.v1.AssistantOperationReceipt.gift_receipt:type_name -> lmm.core.v1.AssistantGiftReceipt
-	2,  // 5: lmm.core.v1.AssistantGiftReceipt.state:type_name -> lmm.core.v1.AssistantGiftState
-	19, // 6: lmm.core.v1.AssistantGiftStatus.gift:type_name -> lmm.core.v1.AssistantGiftReceipt
-	19, // 7: lmm.core.v1.AssistantGiftClaim.gift:type_name -> lmm.core.v1.AssistantGiftReceipt
-	4,  // 8: lmm.core.v1.AssistantAgentScope.domain:type_name -> lmm.core.v1.AssistantAgentDomain
-	24, // 9: lmm.core.v1.AssistantAgentToolCall.scope:type_name -> lmm.core.v1.AssistantAgentScope
-	3,  // 10: lmm.core.v1.AssistantAgentTurn.phase:type_name -> lmm.core.v1.AssistantAgentPhase
-	25, // 11: lmm.core.v1.AssistantAgentTurn.pending_calls:type_name -> lmm.core.v1.AssistantAgentToolCall
-	25, // 12: lmm.core.v1.AssistantAgentClaimReceipt.call:type_name -> lmm.core.v1.AssistantAgentToolCall
-	5,  // 13: lmm.core.v1.AssistantAgentClaimReceipt.disposition:type_name -> lmm.core.v1.AssistantAgentClaimDisposition
-	30, // 14: lmm.core.v1.AssistantAgentClaimReceipt.accepted_result:type_name -> lmm.core.v1.AssistantAgentResult
-	6,  // 15: lmm.core.v1.AssistantAgentComplete.state:type_name -> lmm.core.v1.AssistantAgentResultState
-	6,  // 16: lmm.core.v1.AssistantAgentResult.state:type_name -> lmm.core.v1.AssistantAgentResultState
-	9,  // 17: lmm.core.v1.CoreAssistantModel.BeginConversation:input_type -> lmm.core.v1.AssistantConversationKey
-	9,  // 18: lmm.core.v1.CoreAssistantModel.LookupConversation:input_type -> lmm.core.v1.AssistantConversationKey
-	11, // 19: lmm.core.v1.CoreAssistantModel.IssueGrant:input_type -> lmm.core.v1.AssistantTurnKey
-	11, // 20: lmm.core.v1.CoreAssistantModel.LookupGrant:input_type -> lmm.core.v1.AssistantTurnKey
-	14, // 21: lmm.core.v1.CoreAssistantModel.ReserveText:input_type -> lmm.core.v1.AssistantTextReservation
-	13, // 22: lmm.core.v1.CoreAssistantModel.GetOperation:input_type -> lmm.core.v1.AssistantOperationBinding
-	16, // 23: lmm.core.v1.CoreAssistantModel.RevokeGrant:input_type -> lmm.core.v1.AssistantRevokeGrant
-	18, // 24: lmm.core.v1.CoreAssistantModel.GetNewUserGift:input_type -> lmm.core.v1.AssistantGiftRequest
-	18, // 25: lmm.core.v1.CoreAssistantModel.ClaimStoredNewUserGift:input_type -> lmm.core.v1.AssistantGiftRequest
-	23, // 26: lmm.core.v1.CoreAssistantModel.StartAgentTurn:input_type -> lmm.core.v1.AssistantAgentStart
-	22, // 27: lmm.core.v1.CoreAssistantModel.GetAgentTurn:input_type -> lmm.core.v1.AssistantAgentLookup
-	27, // 28: lmm.core.v1.CoreAssistantModel.ClaimAgentTool:input_type -> lmm.core.v1.AssistantAgentClaim
-	29, // 29: lmm.core.v1.CoreAssistantModel.CompleteAgentTool:input_type -> lmm.core.v1.AssistantAgentComplete
-	31, // 30: lmm.core.v1.CoreAssistantModel.PrepareAssistantToolConfirmation:input_type -> lmm.core.v1.PrepareAssistantToolConfirmationRequest
-	32, // 31: lmm.core.v1.CoreAssistantModel.GetAssistantToolConfirmationReceipt:input_type -> lmm.core.v1.GetAssistantToolConfirmationReceiptRequest
-	7,  // 32: lmm.core.v1.CoreAssistantModel.GetAssistantBusinessFacts:input_type -> lmm.core.v1.GetAssistantBusinessFactsRequest
-	10, // 33: lmm.core.v1.CoreAssistantModel.BeginConversation:output_type -> lmm.core.v1.AssistantConversationReceipt
-	10, // 34: lmm.core.v1.CoreAssistantModel.LookupConversation:output_type -> lmm.core.v1.AssistantConversationReceipt
-	12, // 35: lmm.core.v1.CoreAssistantModel.IssueGrant:output_type -> lmm.core.v1.AssistantGrantReceipt
-	12, // 36: lmm.core.v1.CoreAssistantModel.LookupGrant:output_type -> lmm.core.v1.AssistantGrantReceipt
-	15, // 37: lmm.core.v1.CoreAssistantModel.ReserveText:output_type -> lmm.core.v1.AssistantOperationReceipt
-	15, // 38: lmm.core.v1.CoreAssistantModel.GetOperation:output_type -> lmm.core.v1.AssistantOperationReceipt
-	17, // 39: lmm.core.v1.CoreAssistantModel.RevokeGrant:output_type -> lmm.core.v1.AssistantRevokeReceipt
-	20, // 40: lmm.core.v1.CoreAssistantModel.GetNewUserGift:output_type -> lmm.core.v1.AssistantGiftStatus
-	21, // 41: lmm.core.v1.CoreAssistantModel.ClaimStoredNewUserGift:output_type -> lmm.core.v1.AssistantGiftClaim
-	26, // 42: lmm.core.v1.CoreAssistantModel.StartAgentTurn:output_type -> lmm.core.v1.AssistantAgentTurn
-	26, // 43: lmm.core.v1.CoreAssistantModel.GetAgentTurn:output_type -> lmm.core.v1.AssistantAgentTurn
-	28, // 44: lmm.core.v1.CoreAssistantModel.ClaimAgentTool:output_type -> lmm.core.v1.AssistantAgentClaimReceipt
-	30, // 45: lmm.core.v1.CoreAssistantModel.CompleteAgentTool:output_type -> lmm.core.v1.AssistantAgentResult
-	33, // 46: lmm.core.v1.CoreAssistantModel.PrepareAssistantToolConfirmation:output_type -> lmm.core.v1.AssistantToolConfirmation
-	33, // 47: lmm.core.v1.CoreAssistantModel.GetAssistantToolConfirmationReceipt:output_type -> lmm.core.v1.AssistantToolConfirmation
-	8,  // 48: lmm.core.v1.CoreAssistantModel.GetAssistantBusinessFacts:output_type -> lmm.core.v1.GetAssistantBusinessFactsResponse
-	33, // [33:49] is the sub-list for method output_type
-	17, // [17:33] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	22, // 4: lmm.core.v1.AssistantOperationReceipt.gift_receipt:type_name -> lmm.core.v1.AssistantGiftReceipt
+	14, // 5: lmm.core.v1.AssistantOutputLookup.personal_text:type_name -> lmm.core.v1.AssistantOperationBinding
+	25, // 6: lmm.core.v1.AssistantOutputLookup.agent_turn:type_name -> lmm.core.v1.AssistantAgentLookup
+	19, // 7: lmm.core.v1.AssistantOutputEvent.target:type_name -> lmm.core.v1.AssistantOutputLookup
+	2,  // 8: lmm.core.v1.AssistantOutputEvent.phase:type_name -> lmm.core.v1.AssistantOutputPhase
+	3,  // 9: lmm.core.v1.AssistantGiftReceipt.state:type_name -> lmm.core.v1.AssistantGiftState
+	22, // 10: lmm.core.v1.AssistantGiftStatus.gift:type_name -> lmm.core.v1.AssistantGiftReceipt
+	22, // 11: lmm.core.v1.AssistantGiftClaim.gift:type_name -> lmm.core.v1.AssistantGiftReceipt
+	5,  // 12: lmm.core.v1.AssistantAgentScope.domain:type_name -> lmm.core.v1.AssistantAgentDomain
+	27, // 13: lmm.core.v1.AssistantAgentToolCall.scope:type_name -> lmm.core.v1.AssistantAgentScope
+	4,  // 14: lmm.core.v1.AssistantAgentTurn.phase:type_name -> lmm.core.v1.AssistantAgentPhase
+	28, // 15: lmm.core.v1.AssistantAgentTurn.pending_calls:type_name -> lmm.core.v1.AssistantAgentToolCall
+	28, // 16: lmm.core.v1.AssistantAgentClaimReceipt.call:type_name -> lmm.core.v1.AssistantAgentToolCall
+	6,  // 17: lmm.core.v1.AssistantAgentClaimReceipt.disposition:type_name -> lmm.core.v1.AssistantAgentClaimDisposition
+	33, // 18: lmm.core.v1.AssistantAgentClaimReceipt.accepted_result:type_name -> lmm.core.v1.AssistantAgentResult
+	7,  // 19: lmm.core.v1.AssistantAgentComplete.state:type_name -> lmm.core.v1.AssistantAgentResultState
+	7,  // 20: lmm.core.v1.AssistantAgentResult.state:type_name -> lmm.core.v1.AssistantAgentResultState
+	10, // 21: lmm.core.v1.CoreAssistantModel.BeginConversation:input_type -> lmm.core.v1.AssistantConversationKey
+	10, // 22: lmm.core.v1.CoreAssistantModel.LookupConversation:input_type -> lmm.core.v1.AssistantConversationKey
+	12, // 23: lmm.core.v1.CoreAssistantModel.IssueGrant:input_type -> lmm.core.v1.AssistantTurnKey
+	12, // 24: lmm.core.v1.CoreAssistantModel.LookupGrant:input_type -> lmm.core.v1.AssistantTurnKey
+	15, // 25: lmm.core.v1.CoreAssistantModel.ReserveText:input_type -> lmm.core.v1.AssistantTextReservation
+	14, // 26: lmm.core.v1.CoreAssistantModel.GetOperation:input_type -> lmm.core.v1.AssistantOperationBinding
+	19, // 27: lmm.core.v1.CoreAssistantModel.WatchAssistantOutput:input_type -> lmm.core.v1.AssistantOutputLookup
+	17, // 28: lmm.core.v1.CoreAssistantModel.RevokeGrant:input_type -> lmm.core.v1.AssistantRevokeGrant
+	21, // 29: lmm.core.v1.CoreAssistantModel.GetNewUserGift:input_type -> lmm.core.v1.AssistantGiftRequest
+	21, // 30: lmm.core.v1.CoreAssistantModel.ClaimStoredNewUserGift:input_type -> lmm.core.v1.AssistantGiftRequest
+	26, // 31: lmm.core.v1.CoreAssistantModel.StartAgentTurn:input_type -> lmm.core.v1.AssistantAgentStart
+	25, // 32: lmm.core.v1.CoreAssistantModel.GetAgentTurn:input_type -> lmm.core.v1.AssistantAgentLookup
+	25, // 33: lmm.core.v1.CoreAssistantModel.CancelAgentTurn:input_type -> lmm.core.v1.AssistantAgentLookup
+	30, // 34: lmm.core.v1.CoreAssistantModel.ClaimAgentTool:input_type -> lmm.core.v1.AssistantAgentClaim
+	32, // 35: lmm.core.v1.CoreAssistantModel.CompleteAgentTool:input_type -> lmm.core.v1.AssistantAgentComplete
+	34, // 36: lmm.core.v1.CoreAssistantModel.PrepareAssistantToolConfirmation:input_type -> lmm.core.v1.PrepareAssistantToolConfirmationRequest
+	35, // 37: lmm.core.v1.CoreAssistantModel.GetAssistantToolConfirmationReceipt:input_type -> lmm.core.v1.GetAssistantToolConfirmationReceiptRequest
+	8,  // 38: lmm.core.v1.CoreAssistantModel.GetAssistantBusinessFacts:input_type -> lmm.core.v1.GetAssistantBusinessFactsRequest
+	11, // 39: lmm.core.v1.CoreAssistantModel.BeginConversation:output_type -> lmm.core.v1.AssistantConversationReceipt
+	11, // 40: lmm.core.v1.CoreAssistantModel.LookupConversation:output_type -> lmm.core.v1.AssistantConversationReceipt
+	13, // 41: lmm.core.v1.CoreAssistantModel.IssueGrant:output_type -> lmm.core.v1.AssistantGrantReceipt
+	13, // 42: lmm.core.v1.CoreAssistantModel.LookupGrant:output_type -> lmm.core.v1.AssistantGrantReceipt
+	16, // 43: lmm.core.v1.CoreAssistantModel.ReserveText:output_type -> lmm.core.v1.AssistantOperationReceipt
+	16, // 44: lmm.core.v1.CoreAssistantModel.GetOperation:output_type -> lmm.core.v1.AssistantOperationReceipt
+	20, // 45: lmm.core.v1.CoreAssistantModel.WatchAssistantOutput:output_type -> lmm.core.v1.AssistantOutputEvent
+	18, // 46: lmm.core.v1.CoreAssistantModel.RevokeGrant:output_type -> lmm.core.v1.AssistantRevokeReceipt
+	23, // 47: lmm.core.v1.CoreAssistantModel.GetNewUserGift:output_type -> lmm.core.v1.AssistantGiftStatus
+	24, // 48: lmm.core.v1.CoreAssistantModel.ClaimStoredNewUserGift:output_type -> lmm.core.v1.AssistantGiftClaim
+	29, // 49: lmm.core.v1.CoreAssistantModel.StartAgentTurn:output_type -> lmm.core.v1.AssistantAgentTurn
+	29, // 50: lmm.core.v1.CoreAssistantModel.GetAgentTurn:output_type -> lmm.core.v1.AssistantAgentTurn
+	29, // 51: lmm.core.v1.CoreAssistantModel.CancelAgentTurn:output_type -> lmm.core.v1.AssistantAgentTurn
+	31, // 52: lmm.core.v1.CoreAssistantModel.ClaimAgentTool:output_type -> lmm.core.v1.AssistantAgentClaimReceipt
+	33, // 53: lmm.core.v1.CoreAssistantModel.CompleteAgentTool:output_type -> lmm.core.v1.AssistantAgentResult
+	36, // 54: lmm.core.v1.CoreAssistantModel.PrepareAssistantToolConfirmation:output_type -> lmm.core.v1.AssistantToolConfirmation
+	36, // 55: lmm.core.v1.CoreAssistantModel.GetAssistantToolConfirmationReceipt:output_type -> lmm.core.v1.AssistantToolConfirmation
+	9,  // 56: lmm.core.v1.CoreAssistantModel.GetAssistantBusinessFacts:output_type -> lmm.core.v1.GetAssistantBusinessFactsResponse
+	39, // [39:57] is the sub-list for method output_type
+	21, // [21:39] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_lmm_core_v1_assistant_proto_init() }
@@ -2641,15 +2900,19 @@ func file_lmm_core_v1_assistant_proto_init() {
 		return
 	}
 	file_lmm_core_v1_assistant_proto_msgTypes[8].OneofWrappers = []any{}
-	file_lmm_core_v1_assistant_proto_msgTypes[19].OneofWrappers = []any{}
+	file_lmm_core_v1_assistant_proto_msgTypes[11].OneofWrappers = []any{
+		(*AssistantOutputLookup_PersonalText)(nil),
+		(*AssistantOutputLookup_AgentTurn)(nil),
+	}
 	file_lmm_core_v1_assistant_proto_msgTypes[21].OneofWrappers = []any{}
+	file_lmm_core_v1_assistant_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmm_core_v1_assistant_proto_rawDesc), len(file_lmm_core_v1_assistant_proto_rawDesc)),
-			NumEnums:      7,
-			NumMessages:   27,
+			NumEnums:      8,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
