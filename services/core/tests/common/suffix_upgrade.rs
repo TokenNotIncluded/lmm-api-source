@@ -15,7 +15,9 @@ fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 fn target_count() -> usize {
-    if PROCEDURE == "core-navigation-options-v1" {
+    if PROCEDURE == "core-commerce-display-rate-v1" {
+        58
+    } else if PROCEDURE == "core-navigation-options-v1" {
         47
     } else if PROCEDURE == "core-channel-observations-v1" {
         46
@@ -229,6 +231,15 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     assert!(!sequences.is_empty());
     let before_functions: Vec<(i64,String)> = sqlx::query_as("SELECT p.oid::bigint,pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_' AND p.prokind IN ('f','p') ORDER BY p.oid")
         .fetch_all(&mut *conn).await.unwrap();
+    let replaced_functions: Vec<i64> = if PROCEDURE == "core-commerce-display-rate-v1" {
+        sqlx::query_scalar("SELECT oid::bigint FROM pg_proc WHERE oid IN ('core_billing.post_ledger(jsonb)'::regprocedure,'core_billing.ledger_check_journal()'::regprocedure) ORDER BY oid")
+            .fetch_all(&mut *conn).await.unwrap()
+    } else {
+        vec![]
+    };
+    if PROCEDURE == "core-commerce-display-rate-v1" {
+        assert_eq!(replaced_functions.len(), 2);
+    }
     let before_sequences = sequence_states(&mut conn, &sequences).await;
     let before_authority = exercised_authority(&mut conn).await;
     let actual_grants: (bool, bool, bool, bool) = sqlx::query_as(
@@ -287,9 +298,28 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     let after_functions: Vec<(i64,String)> = sqlx::query_as("SELECT oid::bigint,pg_get_functiondef(oid) FROM pg_proc WHERE oid::bigint=ANY($1) ORDER BY oid")
         .bind(function_ids).fetch_all(&mut inspect).await.unwrap();
     assert_eq!(
-        after_functions, before_functions,
+        after_functions
+            .iter()
+            .filter(|(id, _)| !replaced_functions.contains(id))
+            .collect::<Vec<_>>(),
+        before_functions
+            .iter()
+            .filter(|(id, _)| !replaced_functions.contains(id))
+            .collect::<Vec<_>>(),
         "frozen predecessor functions must not be replaced"
     );
+    for id in replaced_functions {
+        let before = before_functions.iter().find(|(old, _)| *old == id).unwrap();
+        let after = after_functions.iter().find(|(old, _)| *old == id).unwrap();
+        assert_ne!(
+            before.1, after.1,
+            "the declared ledger revision was not installed"
+        );
+    }
+    if PROCEDURE == "core-commerce-display-rate-v1" {
+        assert!(sqlx::query_scalar::<_, bool>("SELECT has_function_privilege($1,'core_console.write_display_exchange_rate(text)','EXECUTE')")
+            .bind(&r.roles.runtime).fetch_one(&mut inspect).await.unwrap());
+    }
     check_history(&mut inspect).await;
     let after_history: Vec<String> = sqlx::query_scalar("SELECT json_build_array('config',to_jsonb(v))::text FROM public.routing_config_versions v UNION ALL SELECT json_build_array('audit',to_jsonb(a))::text FROM core_identity.audit a ORDER BY 1")
         .fetch_all(&mut inspect).await.unwrap();

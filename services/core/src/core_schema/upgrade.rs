@@ -12,6 +12,7 @@ mod channel_accounting;
 mod channel_observations;
 mod channel_projection;
 mod coinbase_payments;
+mod commerce_display_rate;
 mod completion;
 mod finance;
 #[cfg(test)]
@@ -232,6 +233,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == commerce_display_rate::PROCEDURE {
+            return commerce_display_rate::validate(self);
+        }
         if self.procedure == channel_projection::PROCEDURE {
             return channel_projection::validate(self);
         }
@@ -320,6 +324,9 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == commerce_display_rate::PROCEDURE {
+            return commerce_display_rate::authorize_target();
+        }
         if self.procedure == channel_projection::PROCEDURE {
             return channel_projection::authorize_target();
         }
@@ -424,7 +431,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == navigation_options::PROCEDURE {
+    let result = if request.procedure == commerce_display_rate::PROCEDURE {
+        commerce_display_rate::connected(&mut connection, &request).await
+    } else if request.procedure == navigation_options::PROCEDURE {
         navigation_options::connected(&mut connection, &request).await
     } else if request.procedure == channel_observations::PROCEDURE {
         channel_observations::connected(&mut connection, &request).await

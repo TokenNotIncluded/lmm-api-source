@@ -373,7 +373,8 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     .unwrap();
     sqlx::raw_sql(&format!(
         "RESET ROLE; GRANT USAGE ON SCHEMA lmm_store TO {store_role}; \
-         GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA lmm_store TO {store_role};"
+         GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA lmm_store TO {store_role}; \
+         GRANT DELETE ON lmm_store.traffic_days,lmm_store.traffic_receipts,lmm_store.cart_items,lmm_store.favorites TO {store_role};"
     ))
     .execute(&store_owner)
     .await

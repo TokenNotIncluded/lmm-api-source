@@ -165,7 +165,6 @@ impl MoneyCommand {
             || !identifiers::variant_id(&self.order_snapshot.variant_id)
             || !self.buyer.is_valid()
             || !self.seller.is_valid()
-            || self.buyer == self.seller
             || self.order_snapshot.created_by <= 0
             || !matches!(self.kind.as_str(), "pay" | "settle" | "refund")
             || self.payment_ref.len() > 256

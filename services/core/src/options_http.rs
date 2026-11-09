@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
+mod exchange_rate;
 mod navigation;
 pub mod trust_policy;
 mod writes;
@@ -38,6 +39,7 @@ pub struct OptionsHttp {
     identity: IdentityStore,
     runtime: RuntimeOptions,
     trust_policy_editor: Option<trust_policy::Service>,
+    exchange_rates: exchange_rate::Reader,
 }
 
 impl OptionsHttp {
@@ -53,6 +55,7 @@ impl OptionsHttp {
             identity,
             runtime,
             trust_policy_editor: None,
+            exchange_rates: exchange_rate::Reader::new(),
         }
     }
 }
@@ -64,6 +67,7 @@ pub fn router(state: OptionsHttp) -> Router {
         .route("/api/option", get(read).put(writes::write))
         .route("/api/option/bulk", post(writes::bulk))
         .route("/api/option/validate", post(writes::validate))
+        .route("/api/option/exchange-rate", get(exchange_rate::read))
         .with_state(state);
     match editor {
         Some(editor) => routes.merge(trust_policy::http::router(editor)),
@@ -128,6 +132,16 @@ fn runtime_options(runtime: &RuntimeOptions) -> Vec<SystemOption> {
     // @context-fold end effective-public-runtime-options
 }
 
+/// This value controls CNY display only; no financial calculation consumes it.
+pub(crate) fn display_exchange_rate(raw: &str) -> Option<f64> {
+    if raw.len() > 32 || raw.trim() != raw {
+        return None;
+    }
+    serde_json::from_str::<f64>(raw)
+        .ok()
+        .filter(|value| value.is_finite() && (0.0001..=1e9).contains(value))
+}
+
 async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response {
     if let Err(error) = authorize(&state, &headers).await {
         return auth_error(error);
@@ -136,7 +150,7 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     // @context-fold begin runtime-settings-projection
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT key,value FROM core_console.options
-         WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules')
+         WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules','USDExchangeRate')
          ORDER BY key",
     )
     .fetch_all(&state.pool)
@@ -153,6 +167,16 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     };
     let mut data = runtime_options(&state.runtime);
     let stored: BTreeMap<_, _> = stored.into_iter().collect();
+    if stored
+        .get("USDExchangeRate")
+        .is_some_and(|value| display_exchange_rate(value).is_none())
+    {
+        return response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({"success":false,"code":"SYSTEM_OPTIONS_INVALID_STORED_RATE",
+                "message":"The stored display exchange rate is invalid"}),
+        );
+    }
     let notice = stored.get("Notice").cloned().unwrap_or_default();
     let announcements = stored
         .get("console_setting.announcements")
@@ -167,6 +191,10 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
             .unwrap_or_else(|| "{}".into()),
     });
     data.extend([
+        SystemOption {
+            key: "USDExchangeRate".into(),
+            value: stored.get("USDExchangeRate").cloned().unwrap_or_default(),
+        },
         SystemOption {
             key: "Notice".into(),
             value: notice,
@@ -184,12 +212,12 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         StatusCode::OK,
         json!({
             "success":true,
-            "message":"Only public navigation, notice and announcement content can be changed here.",
+            "message":"Public navigation, notices, announcements and the display exchange rate can be changed here.",
             "data":data,
             "capabilities":{
                 "read_only":false,
                 "partial":true,
-                "writable_keys":["Notice","Announcements","console_setting.announcements","HeaderNavModules"],
+                "writable_keys":["Notice","Announcements","console_setting.announcements","HeaderNavModules","USDExchangeRate"],
                 "model_price_locks":false,
                 "trust_level_benefits":state.trust_policy_editor.is_some()
             }
@@ -284,6 +312,7 @@ mod tests {
             ("GET", "/api/option/"),
             ("PUT", "/api/option/"),
             ("POST", "/api/option/bulk"),
+            ("GET", "/api/option/exchange-rate?currency=CNY"),
         ] {
             let (status, _) = call(&app, method, path, None).await;
             assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -311,7 +340,8 @@ mod tests {
                 "Notice",
                 "Announcements",
                 "console_setting.announcements",
-                "HeaderNavModules"
+                "HeaderNavModules",
+                "USDExchangeRate"
             ])
         );
         let (status, _) = call(&app, "PUT", "/api/option/", Some(&root.secret)).await;

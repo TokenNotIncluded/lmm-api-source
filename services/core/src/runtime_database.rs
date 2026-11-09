@@ -524,10 +524,12 @@ pub(crate) async fn check_connection(
             AND has_function_privilege('core_console.lock_public_options()','EXECUTE')
             AND has_function_privilege('core_console.write_public_option(text,text)','EXECUTE')
             AND has_function_privilege('core_console.write_navigation_option(text,text)','EXECUTE')
+            AND has_function_privilege('core_console.write_display_exchange_rate(text)','EXECUTE')
             AND NOT EXISTS(SELECT FROM pg_proc p
               WHERE p.oid IN ('core_console.lock_public_options()'::regprocedure,
                               'core_console.write_public_option(text,text)'::regprocedure,
-                              'core_console.write_navigation_option(text,text)'::regprocedure)
+                              'core_console.write_navigation_option(text,text)'::regprocedure,
+                              'core_console.write_display_exchange_rate(text)'::regprocedure)
                 AND (NOT p.prosecdef OR p.proowner<>(SELECT relowner FROM pg_class
                   WHERE oid='core_console.options'::regclass)))
         "#,

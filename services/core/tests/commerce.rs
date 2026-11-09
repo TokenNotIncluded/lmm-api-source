@@ -132,6 +132,108 @@ async fn balanced(pool: &PgPool) {
     assert_eq!(n, 0);
 }
 
+#[sqlx::test(migrations = false)]
+async fn self_purchase_reserves_full_price_and_replays_delivery_and_refund_without_credit(
+    pool: PgPool,
+) {
+    let f = fixture(&pool, 1_000_000).await;
+    let mut cmd = command(700, credit_price(500_000));
+    cmd.seller = cmd.buyer;
+    let wire = bytes(&cmd);
+    let (a, b) = tokio::join!(
+        f.store.execute(&f.buyer, &wire),
+        f.store.execute(&f.buyer, &wire),
+    );
+    let pay = a.unwrap();
+    assert_eq!(b.unwrap(), pay);
+    assert_eq!(pay.outcome, "succeeded");
+    let held = f.ledger.balance(f.buyer_id).await.unwrap();
+    assert_eq!(
+        (held.available_units, held.reserved_units),
+        (500_000, 500_000)
+    );
+    let settle = action(&cmd, "settle", &pay.reference, "");
+    let wire = bytes(&settle);
+    assert_eq!(
+        f.store.execute(&f.outsider, &wire).await,
+        Err(Error::Forbidden)
+    );
+    let (a, b) = tokio::join!(
+        f.store
+            .complete_delivery(&wire, &pay.command_hash, "self-purchase-delivery"),
+        f.store
+            .complete_delivery(&wire, &pay.command_hash, "self-purchase-delivery"),
+    );
+    let settled = a.unwrap();
+    assert_eq!(b.unwrap(), settled);
+    assert_eq!(settled.outcome, "succeeded");
+    let balance = f.ledger.balance(f.buyer_id).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (1_000_000, 0)
+    );
+    let state_before: serde_json::Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id) FROM core_billing.balance_state b",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let refund = action(&cmd, "refund", &pay.reference, &settled.reference);
+    let wire = bytes(&refund);
+    let (a, b) = tokio::join!(
+        f.store.execute(&f.buyer, &wire),
+        f.store.execute(&f.buyer, &wire),
+    );
+    let refunded = a.unwrap();
+    assert_eq!(b.unwrap(), refunded);
+    assert_eq!(refunded.outcome, "succeeded");
+    let state_after: serde_json::Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id) FROM core_billing.balance_state b",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(state_before, state_after);
+    assert_eq!(count(&pool, "core_commerce.operations").await, 3);
+    let audit: (i64, i64) = sqlx::query_as(
+        "SELECT count(*),sum(amount_units)::bigint FROM core_billing.ledger_journals WHERE kind='refund_commerce' AND payer_id=payee_id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audit, (1, 500_000));
+    let consumed: i64 = sqlx::query_scalar(
+        "SELECT sum(amount_credits-refunded)::bigint FROM core_charging.external_consumption",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(consumed, 0);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn self_purchase_with_less_than_full_price_is_rejected_without_reservation(pool: PgPool) {
+    let f = fixture(&pool, 499_999).await;
+    let mut cmd = command(701, credit_price(500_000));
+    cmd.seller = cmd.buyer;
+    let receipt = f.store.execute(&f.buyer, &bytes(&cmd)).await.unwrap();
+    assert_eq!(receipt.outcome, "rejected");
+    assert_eq!(receipt.rejection_code, "insufficient_funds");
+    let balance = f.ledger.balance(f.buyer_id).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (499_999, 0)
+    );
+    assert_eq!(count(&pool, "core_charging.external_consumption").await, 0);
+    let settle = action(&cmd, "settle", &receipt.reference, "");
+    assert_eq!(
+        f.store.execute(&f.buyer, &bytes(&settle)).await,
+        Err(Error::Conflict)
+    );
+    balanced(&pool).await;
+}
+
 #[test]
 fn exact_units_never_mix_credits_usd_or_float() {
     assert_eq!(credit_price(1).credits().unwrap(), 1);

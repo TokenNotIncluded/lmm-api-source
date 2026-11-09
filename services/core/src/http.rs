@@ -270,21 +270,27 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
         .expect("status data is a JSON object")
         .extend(extra);
     if state.capabilities.console {
-        let navigation: Result<Option<String>, _> = sqlx::query_scalar(
-            "SELECT value FROM core_console.options WHERE key='HeaderNavModules'",
+        let options: Result<Vec<(String, String)>, _> = sqlx::query_as(
+            "SELECT key,value FROM core_console.options WHERE key IN ('HeaderNavModules','USDExchangeRate')",
         )
-        .fetch_optional(&state.pool)
+        .fetch_all(&state.pool)
         .await;
-        match navigation {
-            Ok(value) => data["HeaderNavModules"] = json!(value.unwrap_or_else(|| "{}".into())),
-            Err(_) => {
-                return (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
-                    Json(json!({"success":false,"code":"PUBLIC_CONFIGURATION_UNAVAILABLE"})),
-                )
-                    .into_response();
-            }
+        let options = match options {
+            Ok(options) => options,
+            Err(_) => return public_configuration_unavailable(),
+        };
+        data["HeaderNavModules"] = json!(
+            options
+                .iter()
+                .find(|(key, _)| key == "HeaderNavModules")
+                .map_or("{}", |(_, value)| value.as_str())
+        );
+        if let Some((_, raw)) = options.iter().find(|(key, _)| key == "USDExchangeRate") {
+            let Some(rate) = crate::options_http::display_exchange_rate(raw) else {
+                return public_configuration_unavailable();
+            };
+            data["usd_exchange_rate"] = json!(rate);
+            data["cny_per_usd"] = json!(raw);
         }
     }
     let mut response = Json(json!({"success":true,"message":"","data":data})).into_response();
@@ -307,6 +313,15 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     // corresponding environment variables. The operator preflight binds those
     // values from the candidate manifest and runtime readback instead.
     response
+}
+
+fn public_configuration_unavailable() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Json(json!({"success":false,"code":"PUBLIC_CONFIGURATION_UNAVAILABLE"})),
+    )
+        .into_response()
 }
 
 async fn live() -> Json<Value> {

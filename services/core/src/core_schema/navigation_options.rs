@@ -1,6 +1,6 @@
 //! Current target binding never changes the separately frozen upgrade targets.
-//! Components after 47 (red packets, legacy history compat, legacy payments) are fresh-install
-//! only: no upgrade reaches them, so the pin lives in `fresh_target.json`.
+//! The Core56 -> Core58 procedure has its own frozen successor. This pin binds
+//! the complete current installation and never changes historical successors.
 use super::*;
 use serde::Deserialize;
 #[derive(Deserialize)]
@@ -14,7 +14,7 @@ fn target() -> Result<Target, IdentityError> {
         .map_err(|_| IdentityError::Storage)?;
     let mut bytes = serde_json::to_vec(&schema_manifest()).map_err(|_| IdentityError::Storage)?;
     bytes.push(b'\n');
-    if COMPONENTS.len() != 56 || target.manifest_sha256 != format!("{:x}", Sha256::digest(bytes)) {
+    if COMPONENTS.len() != 58 || target.manifest_sha256 != format!("{:x}", Sha256::digest(bytes)) {
         return Err(IdentityError::Storage);
     }
     Ok(target)

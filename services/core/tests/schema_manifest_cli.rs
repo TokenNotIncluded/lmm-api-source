@@ -38,8 +38,10 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     let expected = serde_json::to_value(lmm_core::core_schema::schema_manifest()).unwrap();
     assert_eq!(actual, expected);
     assert_eq!(actual["format_version"], 1);
-    assert_eq!(actual["components"].as_array().unwrap().len(), 56);
+    assert_eq!(actual["components"].as_array().unwrap().len(), 58);
     assert_eq!(actual["components"][55]["name"], "directory-ads");
+    assert_eq!(actual["components"][56]["name"], "commerce-self-purchase");
+    assert_eq!(actual["components"][57]["name"], "display-exchange-rate");
     assert_eq!(actual["components"][51]["name"], "affiliate-claims");
     assert_eq!(actual["components"][52]["name"], "referral-ledger-revision");
     assert_eq!(actual["components"][53]["name"], "legacy-referrals");
@@ -64,6 +66,14 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
         (
             54,
             include_bytes!("../schema/connection_history.sql").as_slice(),
+        ),
+        (
+            56,
+            include_bytes!("../schema/commerce_self_purchase.sql").as_slice(),
+        ),
+        (
+            57,
+            include_bytes!("../schema/display_exchange_rate.sql").as_slice(),
         ),
     ] {
         assert_eq!(

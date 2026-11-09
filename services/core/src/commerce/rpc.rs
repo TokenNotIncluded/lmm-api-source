@@ -89,6 +89,15 @@ impl CommerceRpc {
                 "commerce.delivery.complete.v1",
             ),
             (self.permissions.reconcile, "commerce.receipt.reconcile.v1"),
+            (
+                self.permissions.pay
+                    && self.permissions.settle
+                    && self.permissions.refund
+                    && self.permissions.read
+                    && self.permissions.complete_delivery
+                    && self.permissions.reconcile,
+                "commerce.self-purchase.v1",
+            ),
         ]
         .into_iter()
         .filter(|(enabled, _)| *enabled)

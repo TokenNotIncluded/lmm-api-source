@@ -1,5 +1,5 @@
-//! Only public content already consumed from core_console.options is writable.
-//! Host TOML, credentials, model policy and financial options are never setters.
+//! Public content and the display-only exchange rate are writable.
+//! Host TOML, credentials, model policy and payment rates are never setters.
 
 use super::*;
 
@@ -70,6 +70,7 @@ fn canonical(key: &str) -> Result<&str, Error> {
     match key {
         "Notice" => Ok("Notice"),
         "HeaderNavModules" => Ok("HeaderNavModules"),
+        "USDExchangeRate" => Ok("USDExchangeRate"),
         "Announcements" | "console_setting.announcements" => Ok("console_setting.announcements"),
         _ => Err(Error::Unsupported),
     }
@@ -100,6 +101,11 @@ fn validate_values(values: &BTreeMap<String, String>) -> Result<(), Error> {
         }
         if key == "HeaderNavModules" {
             navigation::validate(value).map_err(Error::Invalid)?;
+        }
+        if key == "USDExchangeRate" && display_exchange_rate(value).is_none() {
+            return Err(Error::Invalid(
+                "Display exchange rate must be a finite number between 0.0001 and 1000000000",
+            ));
         }
         if key != "console_setting.announcements" {
             continue;
@@ -174,7 +180,7 @@ async fn handle(state: OptionsHttp, headers: HeaderMap, body: Bytes, op: Operati
                 Error::Unsupported => (
                     StatusCode::CONFLICT,
                     "SYSTEM_OPTION_NOT_WRITABLE",
-                    "Only navigation, Notice and announcement content are writable; host configuration, secrets and unsupported options were not saved",
+                    "Only navigation, notices, announcements and the display exchange rate are writable; unsupported options were not saved",
                 ),
                 Error::Conflict => (
                     StatusCode::CONFLICT,
@@ -214,9 +220,10 @@ async fn apply(
             let single: Single = serde_json::from_slice(body)
                 .map_err(|_| Error::Invalid("Expected key and string value"))?;
             canonical(&single.key)?;
-            let value = single.value.as_str().ok_or(Error::Invalid(
-                "Public content options require string values",
-            ))?;
+            let value = single
+                .value
+                .as_str()
+                .ok_or(Error::Invalid("Options require string values"))?;
             Bulk {
                 values: BTreeMap::from([(single.key, value.to_owned())]),
                 expected_values: None,
@@ -243,7 +250,7 @@ async fn apply(
         .await?;
     let stored: BTreeMap<String, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT key,value,revision FROM core_console.options
-             WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules')",
+             WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules','USDExchangeRate')",
     )
     .fetch_all(&mut *tx)
     .await?
@@ -258,7 +265,7 @@ async fn apply(
                     .flatten()
             });
             let default = match key.as_str() {
-                "Notice" => "",
+                "Notice" | "USDExchangeRate" => "",
                 "HeaderNavModules" => "{}",
                 _ => "[]",
             };
@@ -282,15 +289,22 @@ async fn apply(
             if stored.get(*key).is_some_and(|(old, _)| old == &value) {
                 continue;
             }
-            let revision: i64 = sqlx::query_scalar(if *key == "HeaderNavModules" {
-                "SELECT core_console.write_navigation_option($1,$2)"
+            let revision: i64 = if *key == "USDExchangeRate" {
+                sqlx::query_scalar("SELECT core_console.write_display_exchange_rate($1)")
+                    .bind(&value)
+                    .fetch_one(&mut *tx)
+                    .await?
             } else {
-                "SELECT core_console.write_public_option($1,$2)"
-            })
-            .bind(key)
-            .bind(&value)
-            .fetch_one(&mut *tx)
-            .await?;
+                sqlx::query_scalar(if *key == "HeaderNavModules" {
+                    "SELECT core_console.write_navigation_option($1,$2)"
+                } else {
+                    "SELECT core_console.write_public_option($1,$2)"
+                })
+                .bind(key)
+                .bind(&value)
+                .fetch_one(&mut *tx)
+                .await?
+            };
             changes.push(json!({
                 "key":key,"before":stored.get(*key),"after":[value,revision]
             }));

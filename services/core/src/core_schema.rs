@@ -157,6 +157,14 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/connection_history.sql"),
     ),
     ("directory-ads", include_str!("../schema/directory_ads.sql")),
+    (
+        "commerce-self-purchase",
+        include_str!("../schema/commerce_self_purchase.sql"),
+    ),
+    (
+        "display-exchange-rate",
+        include_str!("../schema/display_exchange_rate.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

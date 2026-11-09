@@ -32,6 +32,7 @@ macro_rules! reject_suffix {
             "core-navigation-options-v1" => concat!("NAVIGATION_OPTIONS_", $code),
             "core-channel-observations-v1" => concat!("CHANNEL_OBSERVATIONS_", $code),
             "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
+            "core-commerce-display-rate-v1" => concat!("COMMERCE_DISPLAY_RATE_", $code),
             _ => concat!("CHANNEL_PROJECTION_", $code),
         })
     };
@@ -224,6 +225,16 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
                 .bind(Sha256::digest(ddl.as_bytes()).to_vec())
                 .execute(&mut *tx)
                 .await?;
+        }
+        if self.procedure == super::commerce_display_rate::PROCEDURE {
+            // Only this new closed options writer is granted. Existing table,
+            // sequence and function permissions remain covered by preservation.
+            sqlx::raw_sql(&format!(
+                "GRANT EXECUTE ON FUNCTION core_console.write_display_exchange_rate(text) TO {}",
+                quote(&r.roles.runtime)
+            ))
+            .execute(&mut *tx)
+            .await?;
         }
         // One explicit owner-only backfill, inside the existing migration fence
         // and transaction. Failure rolls back the new DDL as well as projection.

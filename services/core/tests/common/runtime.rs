@@ -280,7 +280,11 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             "core_promotions" => &["promotions"],
             "core_console" => &["notifications", "subscriptions", "promotions"],
             // account-security includes the narrow account-appeals grants.
-            "web_identity" => &["account-security", "wallet-topup-history", "affiliate-claims"],
+            "web_identity" => &[
+                "account-security",
+                "wallet-topup-history",
+                "affiliate-claims",
+            ],
             _ => &[],
         };
         for fragment in fragments {
@@ -292,10 +296,15 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             };
             let installed: bool = if *fragment == "affiliate-claims" {
                 sqlx::query_scalar("SELECT to_regclass('core_wallet.affiliate_claims') IS NOT NULL")
-                    .fetch_one(&self.owner).await.unwrap()
+                    .fetch_one(&self.owner)
+                    .await
+                    .unwrap()
             } else {
                 sqlx::query_scalar("SELECT to_regnamespace($1) IS NOT NULL")
-                    .bind(namespace).fetch_one(&self.owner).await.unwrap()
+                    .bind(namespace)
+                    .fetch_one(&self.owner)
+                    .await
+                    .unwrap()
             };
             if installed {
                 let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
@@ -335,6 +344,21 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
         if schema == "core_console" {
             sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT ON core_console.options,core_console.initialization,core_console.announcement_reads TO {0}; GRANT INSERT ON core_console.announcement_reads TO {0}; GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text),core_console.write_navigation_option(text,text) TO {0}",self.name))
                 .execute(&self.owner).await.unwrap();
+            let has_display_exchange_rate: bool = sqlx::query_scalar(
+                "SELECT to_regprocedure('core_console.write_display_exchange_rate(text)') IS NOT NULL",
+            )
+            .fetch_one(&self.owner)
+            .await
+            .unwrap();
+            if has_display_exchange_rate {
+                sqlx::raw_sql(&format!(
+                    "GRANT EXECUTE ON FUNCTION core_console.write_display_exchange_rate(text) TO {}",
+                    self.name
+                ))
+                .execute(&self.owner)
+                .await
+                .unwrap();
+            }
             return;
         }
         if schema == "core_model" {
@@ -344,8 +368,12 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
         }
         if schema == "core_payments" {
             let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
-                .split_once("\\if :enable_payments\n").unwrap().1
-                .split_once("\\endif").unwrap().0
+                .split_once("\\if :enable_payments\n")
+                .unwrap()
+                .1
+                .split_once("\\endif")
+                .unwrap()
+                .0
                 .replace(":\"runtime_role\"", &self.name);
             sqlx::raw_sql(&grants).execute(&self.owner).await.unwrap();
             return;
