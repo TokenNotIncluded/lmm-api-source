@@ -61,8 +61,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
+import { commerceScope } from '@/features/commerce/native-client'
+import { isNativeWallet } from '@/features/wallet/lib/wallet-projection'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   getAdminPlans,
@@ -72,6 +76,7 @@ import {
   deleteUserSubscription,
 } from '../../api'
 import { formatTimestamp } from '../../lib'
+import { NativeSubscriptionRecords } from '../../native-records'
 import type { PlanRecord, UserSubscriptionRecord } from '../../types'
 
 interface Props {
@@ -131,6 +136,42 @@ function SubscriptionStatusBadge(props: {
 }
 
 export function UserSubscriptionsDialog(props: Props) {
+  const auth = useAuthStore((state) => state.auth)
+  const { t } = useTranslation()
+  if (isNativeWallet(auth.user)) {
+    const scope = commerceScope()
+    return (
+      <Sheet open={props.open} onOpenChange={props.onOpenChange}>
+        <SheetContent className={sideDrawerContentClassName()}>
+          <SheetHeader className={sideDrawerHeaderClassName()}>
+            <SheetTitle>{t('Subscription records')}</SheetTitle>
+            <SheetDescription>
+              {props.user?.username || `#${props.user?.id ?? ''}`}
+            </SheetDescription>
+          </SheetHeader>
+          {props.open &&
+          props.user &&
+          scope &&
+          (auth.user?.role ?? 0) >= ROLE.ADMIN ? (
+            <div className='min-h-0 overflow-y-auto px-4 pb-4'>
+              <NativeSubscriptionRecords
+                key={`${scope.userId}:${scope.sessionId}:${props.user.id}:${auth.user?.role}`}
+                scope={scope}
+                userId={props.user.id}
+                onChanged={props.onSuccess}
+              />
+            </div>
+          ) : props.open ? (
+            <p className='p-4 text-sm'>{t('Access Forbidden')}</p>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    )
+  }
+  return <LegacyUserSubscriptionsDialog {...props} />
+}
+
+function LegacyUserSubscriptionsDialog(props: Props) {
   const { t } = useTranslation()
   const userId = props.user?.id ?? null
   const [loading, setLoading] = useState(props.open && userId !== null)

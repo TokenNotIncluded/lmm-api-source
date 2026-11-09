@@ -16,6 +16,8 @@ use lmm_core::{
 };
 use sqlx::PgPool;
 use std::sync::Arc;
+#[path = "subscriptions/admin.rs"]
+mod admin;
 #[path = "common/runtime.rs"]
 mod runtime;
 

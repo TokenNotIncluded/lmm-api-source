@@ -22,6 +22,7 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   commerceScope,
   CommerceFailure,
@@ -47,6 +48,7 @@ import {
   type NativePlan,
   type NativePlanTerms,
 } from "./native-api";
+import { NativeSubscriptionRecords } from "./native-records";
 
 const commandSchema = z.discriminatedUnion("kind", [
   z
@@ -75,21 +77,48 @@ const initial: NativePlanTerms = {
   enabled: false,
 };
 export function NativeSubscriptionAdmin() {
-  const auth = useAuthStore((state) => state.auth);
-  const scope = commerceScope();
-  const { t } = useTranslation();
-  if (!scope || (auth.user?.role ?? 0) < ROLE.SUPER_ADMIN) {
+  const auth = useAuthStore((state) => state.auth)
+  const scope = commerceScope()
+  const { t } = useTranslation()
+  if (!scope || (auth.user?.role ?? 0) < ROLE.ADMIN) {
     return (
       <Alert>
-        <AlertDescription>
-          {t("Only super administrators can manage financial policies.")}
-        </AlertDescription>
+        <AlertDescription>{t('Access Forbidden')}</AlertDescription>
       </Alert>
-    );
+    )
   }
+  const root = (auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
   return (
-    <PlanAdmin key={`${auth.user?.id}:${auth.session?.sid}`} scope={scope} />
-  );
+    <Tabs
+      key={`${auth.user?.id}:${auth.session?.sid}:${auth.user?.role}`}
+      defaultValue={root ? 'plans' : 'records'}
+      className='flex h-full min-h-0 flex-col gap-0'
+    >
+      <TabsList
+        variant='navigation'
+        aria-label={t('Subscriptions')}
+        className='mx-3 my-2 sm:mx-4'
+      >
+        {root && <TabsTrigger value='plans'>{t('Plans')}</TabsTrigger>}
+        <TabsTrigger value='records'>{t('Subscription records')}</TabsTrigger>
+      </TabsList>
+      {root && (
+        <TabsContent value='plans' className='min-h-0 flex-1'>
+          <PlanAdmin scope={scope} />
+        </TabsContent>
+      )}
+      <TabsContent value='records' className='min-h-0 flex-1'>
+        <SectionPageLayout>
+          <SectionPageLayout.Title>
+            {t('Subscription records')}
+          </SectionPageLayout.Title>
+          <SectionPageLayout.Content>
+            <NativeSubscriptionRecords scope={scope} />
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
+      </TabsContent>
+    </Tabs>
+  )
 }
 function PlanAdmin({ scope }: { scope: CommerceScope }) {
   const { t, i18n } = useTranslation();

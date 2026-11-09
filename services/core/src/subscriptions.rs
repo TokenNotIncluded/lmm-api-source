@@ -1,9 +1,14 @@
 //! Core subscription sales. A wallet charge and its immutable consumption grant
 //! commit together; renewals create new grants and never extend old streams.
+mod admin;
 mod http;
 #[cfg(test)]
 mod tests;
 mod types;
+pub use admin::{
+    AdminGrantInvalidation, AdminGrantRecord, AdminGrantRecords, AdminGrantRecordsQuery,
+    GrantInvalidationReceipt,
+};
 pub use http::router;
 pub use types::*;
 

@@ -1,7 +1,10 @@
 use super::*;
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, State, rejection::JsonRejection},
+    extract::{
+        DefaultBodyLimit, Path, Query, State,
+        rejection::{JsonRejection, QueryRejection},
+    },
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -51,6 +54,11 @@ pub fn router(pool: PgPool) -> Router {
             "/core/v1/subscriptions/admin/plans/{id}/archive",
             post(archive),
         )
+        .route("/core/v1/subscriptions/admin/records", get(admin_records))
+        .route(
+            "/core/v1/subscriptions/admin/grants/{id}/invalidate",
+            post(invalidate_grant),
+        )
         .route("/core/v1/subscriptions/quotes", post(quote))
         .route("/core/v1/subscriptions/quotes/{id}/confirm", post(confirm))
         .route("/core/v1/subscriptions/purchases", get(purchases))
@@ -90,6 +98,25 @@ async fn admin_plans(State(s): State<SubscriptionStore>, h: HeaderMap) -> Result
     Ok(Json(
         json!({"contract":CONTRACT,"plans":s.plans(bearer(&h)?,true).await?}),
     ))
+}
+async fn admin_records(
+    State(s): State<SubscriptionStore>,
+    h: HeaderMap,
+    q: std::result::Result<Query<AdminGrantRecordsQuery>, QueryRejection>,
+) -> Result<Json<AdminGrantRecords>> {
+    let secret = bearer(&h)?;
+    let Query(input) = q.map_err(|_| Error::Invalid)?;
+    Ok(Json(s.admin_records(secret, input).await?))
+}
+async fn invalidate_grant(
+    State(s): State<SubscriptionStore>,
+    Path(id): Path<i64>,
+    h: HeaderMap,
+    j: std::result::Result<Json<AdminGrantInvalidation>, JsonRejection>,
+) -> Result<Json<GrantInvalidationReceipt>> {
+    let secret = bearer(&h)?;
+    let Json(input) = j.map_err(|_| Error::Invalid)?;
+    Ok(Json(s.invalidate_grant(secret, id, input).await?))
 }
 async fn create(
     State(s): State<SubscriptionStore>,
