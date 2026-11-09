@@ -1168,7 +1168,9 @@ describe('assistant settings workspace', () => {
       assert.equal(optionReads, 2)
       assert.equal(search.getAttribute('aria-checked'), 'false')
       assert.equal(drawing.getAttribute('aria-checked'), 'false')
-      const alert = page.container.querySelector('[role="alert"]')
+      const alert = page.container.querySelector(
+        '[data-testid="assistant-tool-policy-notice"][role="alert"]'
+      )
       assert.ok(alert)
       assert.match(alert.textContent ?? '', /review/i)
       assert.ok(page.container.textContent?.includes('Unsaved changes'))
@@ -1261,7 +1263,7 @@ describe('assistant settings workspace', () => {
     }
   })
 
-  test('a save failure keeps the draft, while successful preset edits invalidate cached starters', async () => {
+  test('a save failure keeps the instruction draft and a confirmed legacy write refreshes status only', async () => {
     const restore = mockReads()
     const originalPost = api.post
     let failed = true
@@ -1283,10 +1285,10 @@ describe('assistant settings workspace', () => {
           .click()
       )
       const preset = page.container.querySelector<HTMLTextAreaElement>(
-        '[data-testid="assistant-conversation-starters-editor"] textarea'
+        'textarea[name="AssistantSystemPrompt"]'
       )!
       assert.ok(preset)
-      await edit(preset, 'Custom starter from settings')
+      await edit(preset, 'Updated assistant instructions')
       const form = page.container.querySelector('form')
       assert.ok(form)
       const save = () =>
@@ -1298,7 +1300,7 @@ describe('assistant settings workspace', () => {
           await flushEffects()
         })
       await save()
-      assert.equal(preset.value, 'Custom starter from settings')
+      assert.equal(preset.value, 'Updated assistant instructions')
       assert.ok(page.container.textContent?.includes('Unsaved changes'))
       assert.equal(
         page.queryClient.getQueryState(presetsKey)?.isInvalidated,
@@ -1308,7 +1310,7 @@ describe('assistant settings workspace', () => {
       await save()
       assert.equal(
         page.queryClient.getQueryState(presetsKey)?.isInvalidated,
-        true
+        false
       )
       assert.equal(
         page.queryClient.getQueryState(statusKey)?.isInvalidated,

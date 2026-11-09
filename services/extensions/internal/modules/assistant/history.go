@@ -240,9 +240,11 @@ func (s *HistoryService) Archive(ctx context.Context, token string, id int64, ar
 }
 
 func (s *HistoryService) PresetClick(ctx context.Context, id string) error {
-	if !IsBuiltinPromptPreset(id) {
+	if !promptPresetID.MatchString(id) {
 		return access.ErrNotFound
 	}
+	// The repository checks the current publication and increments its counter
+	// under the same configuration transaction lock.
 	return s.repo.ClickPreset(ctx, id)
 }
 

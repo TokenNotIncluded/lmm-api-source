@@ -34,6 +34,8 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   buildSettingsSearchIndex,
@@ -45,7 +47,11 @@ function useSettingsNavigation() {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (location) => location.pathname })
   const search = useLocation({ select: (location) => location.searchStr })
-  const index = useMemo(() => buildSettingsSearchIndex(t), [t])
+  const role = useAuthStore((state) => state.auth.user?.role ?? ROLE.GUEST)
+  const index = useMemo(
+    () => buildSettingsSearchIndex(t, undefined, role),
+    [t, role]
+  )
   const current = index.find((group) =>
     group.entries.some((entry) => entry.url === `${pathname}${search}`)
   )

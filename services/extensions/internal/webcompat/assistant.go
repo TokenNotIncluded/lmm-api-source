@@ -20,7 +20,14 @@ type AssistantHistory interface {
 	List(context.Context, string, int64, bool, int, string) (assistant.HistoryPage, error)
 	Detail(context.Context, string, int64, int) (assistant.HistoryDetail, error)
 	Archive(context.Context, string, int64, bool) (assistant.ArchiveResult, error)
+	Presets(context.Context, string) (assistant.PromptPresetSet, error)
+	CheckPreset(context.Context, string) error
 	PresetClick(context.Context, string) error
+}
+
+type AssistantPresetSettings interface {
+	PresetSettings(context.Context, string) (assistant.PromptPresetSettings, error)
+	UpdatePresetSettings(context.Context, string, string, int64) (assistant.PromptPresetSettings, error)
 }
 
 type AssistantGreeting interface {
@@ -84,10 +91,47 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			assistantRespond(w, nil, err)
 			return
 		}
-		assistantRespond(w, assistant.HistoryPresets(query.Get("language")), nil)
+		value, err := history.Presets(r.Context(), query.Get("language"))
+		assistantRespond(w, value, err)
 	}))
 	mux.HandleFunc("POST /api/assistant/pre-conversation-presets/{id}/click", public(func(w http.ResponseWriter, r *http.Request) {
 		assistantRespond(w, nil, history.PresetClick(r.Context(), r.PathValue("id")))
+	}))
+	presets, presetsAvailable := history.(AssistantPresetSettings)
+	mux.HandleFunc("GET /api/assistant/settings/pre-conversation-presets", protected(func(w http.ResponseWriter, r *http.Request, token string) {
+		if !presetsAvailable || access.Missing(presets) {
+			assistantRespond(w, nil, access.ErrUnavailable)
+			return
+		}
+		query, err := assistantQuery(r)
+		if err != nil || len(query) != 0 {
+			assistantRespond(w, nil, access.ErrInvalid)
+			return
+		}
+		value, err := presets.PresetSettings(r.Context(), token)
+		assistantRespond(w, value, err)
+	}))
+	mux.HandleFunc("PUT /api/assistant/settings/pre-conversation-presets", protected(func(w http.ResponseWriter, r *http.Request, token string) {
+		if !presetsAvailable || access.Missing(presets) {
+			assistantRespond(w, nil, access.ErrUnavailable)
+			return
+		}
+		query, err := assistantQuery(r)
+		if err != nil || len(query) != 0 {
+			assistantRespond(w, nil, access.ErrInvalid)
+			return
+		}
+		var body struct {
+			Configuration *string `json:"configuration"`
+			Revision      *int64  `json:"revision"`
+		}
+		// An escaped Unicode surrogate pair needs twelve bytes per character.
+		if err := supportDecode(w, r, assistant.MaxPromptPresetConfiguration*12+512, &body, "configuration", "revision"); err != nil || body.Configuration == nil || body.Revision == nil {
+			assistantRespond(w, nil, access.ErrInvalid)
+			return
+		}
+		value, err := presets.UpdatePresetSettings(r.Context(), token, *body.Configuration, *body.Revision)
+		assistantRespond(w, value, err)
 	}))
 	greeting, greetingAvailable := history.(AssistantGreeting)
 	mux.HandleFunc("GET /api/assistant/workspace/greeting", protected(func(w http.ResponseWriter, r *http.Request, token string) {
@@ -226,13 +270,21 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			assistantRespond(w, nil, access.ErrInvalid)
 			return
 		}
-		// Built-in preset IDs only identify editable starters. The submitted
-		// message remains user input; neither presets nor browser history grant
-		// authority or supply a system prompt. Custom presets still need a
-		// server-owned policy contract before they can change model behavior.
-		if (body.PresetID != "" && !assistant.IsBuiltinPromptPreset(body.PresetID)) || len(body.Messages) > 64 {
+		// Published preset IDs only identify editable starters. The submitted
+		// message remains user input; presets and browser history never select
+		// tools, funding, model policy or a system prompt.
+		if len(body.Messages) > 64 {
 			assistantRespond(w, nil, access.ErrInvalid)
 			return
+		}
+		if body.PresetID != "" {
+			if err := history.CheckPreset(r.Context(), body.PresetID); err != nil {
+				if errors.Is(err, access.ErrNotFound) {
+					err = access.ErrInvalid
+				}
+				assistantRespond(w, nil, err)
+				return
+			}
 		}
 		for _, message := range body.Messages {
 			if (message.Role != "user" && message.Role != "assistant") || len(message.Content) > 32768 {

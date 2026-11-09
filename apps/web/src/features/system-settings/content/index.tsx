@@ -16,13 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { SettingsPage } from '../components/settings-page'
+import { useParams } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
+
+import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import {
   normalizeAssistantSearchProvider,
   type ContentSettings,
   type SystemOption,
 } from '../types'
 import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
+import { ConversationStarterSettings } from './conversation-starter-settings'
 import {
   CONTENT_DEFAULT_SECTION,
   getContentSectionContent,
@@ -127,6 +131,22 @@ function resolveContentSettings(
 }
 
 export function ContentSettings() {
+  const { section } = useParams({
+    from: '/_authenticated/system-settings/content/$section',
+  })
+  const { t } = useTranslation()
+  if (section === 'assistant') {
+    return (
+      <SettingsPageFrame title={t('AI assistant settings')}>
+        <p className='text-muted-foreground mb-5 text-sm' role='status'>
+          {t(
+            'Only part of the settings is available. Missing settings are not displayed.'
+          )}
+        </p>
+        <ConversationStarterSettings />
+      </SettingsPageFrame>
+    )
+  }
   return (
     <SettingsPage
       routePath='/_authenticated/system-settings/content/$section'

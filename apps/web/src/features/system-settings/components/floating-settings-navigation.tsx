@@ -20,6 +20,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { useSidebar } from '@/components/ui/sidebar'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { mountSettingsScrubber } from '../utils/settings-scrubber'
 import {
@@ -41,7 +43,11 @@ export function FloatingSettingsNavigation() {
   const handle = useRef<HTMLButtonElement>(null)
   const sidebar = useRef({ open, setOpen, setOpenMobile })
   sidebar.current = { open, setOpen, setOpenMobile }
-  const index = useMemo(() => buildSettingsSearchIndex(t), [t])
+  const role = useAuthStore((state) => state.auth.user?.role ?? ROLE.GUEST)
+  const index = useMemo(
+    () => buildSettingsSearchIndex(t, undefined, role),
+    [t, role]
+  )
   const entries = useMemo(
     () => index.flatMap((group) => group.entries),
     [index]

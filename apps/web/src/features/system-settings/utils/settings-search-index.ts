@@ -8,8 +8,10 @@ License, or (at your option) any later version.
 */
 import type { TFunction } from 'i18next'
 
-import { SYSTEM_SETTINGS_VIEW } from '@/components/layout/config/system-settings.config'
+import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import type { NavGroup } from '@/components/layout/types'
+import { ROLE } from '@/lib/roles'
+import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
 
 /**
  * One jumpable destination inside `/system-settings/*`.
@@ -143,10 +145,6 @@ const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
   'operations/scripts': ['automation', 'custom code', 'tasks'],
 }
 
-function buildNavGroups(t: TFunction): NavGroup[] {
-  return SYSTEM_SETTINGS_VIEW.getNavGroups(t)
-}
-
 function sectionIdFromUrl(url: string): string | null {
   const query = url.split('?')[1]
   if (query) return new URLSearchParams(query).get('section')
@@ -161,36 +159,43 @@ function normalize(value: string) {
 /** Flatten the localized settings navigation into a searchable index. */
 export function buildSettingsSearchIndex(
   t: TFunction,
-  groups: NavGroup[] = buildNavGroups(t)
+  groups: NavGroup[] | undefined = undefined,
+  role: number = ROLE.SUPER_ADMIN
 ): SettingsSearchableGroup[] {
-  return groups.flatMap((group) =>
-    group.items.map((section) => {
-      const entries: SettingsSearchEntry[] = (section.items ?? []).flatMap(
-        (item) => {
-          if (!item.url) return []
-          const id = sectionIdFromUrl(item.url)
-          const category = item.url.split('/')[2]?.split('?')[0]
-          const synonyms =
-            (id ? SETTINGS_SYNONYMS[`${category}/${id}`] : undefined) ?? []
-          return [
-            {
-              group: section.title,
-              section: item.title,
-              url: item.url,
-              keywords: [section.title, item.title, ...synonyms].map(normalize),
-            },
-          ]
+  return (groups ?? getSystemSettingsNavGroups(t, role))
+    .flatMap((group) =>
+      group.items.map((section) => {
+        const entries: SettingsSearchEntry[] = (section.items ?? []).flatMap(
+          (item) => {
+            if (!item.url || !canReadSystemSettingsPath(role, item.url)) {
+              return []
+            }
+            const id = sectionIdFromUrl(item.url)
+            const category = item.url.split('/')[2]?.split('?')[0]
+            const synonyms =
+              (id ? SETTINGS_SYNONYMS[`${category}/${id}`] : undefined) ?? []
+            return [
+              {
+                group: section.title,
+                section: item.title,
+                url: item.url,
+                keywords: [section.title, item.title, ...synonyms].map(
+                  normalize
+                ),
+              },
+            ]
+          }
+        )
+        return {
+          group: section.title,
+          section: section.title,
+          url: entries[0]?.url ?? '',
+          keywords: [section.title].map(normalize),
+          entries,
         }
-      )
-      return {
-        group: section.title,
-        section: section.title,
-        url: entries[0]?.url ?? '',
-        keywords: [section.title].map(normalize),
-        entries,
-      }
-    })
-  )
+      })
+    )
+    .filter((group) => group.entries.length > 0)
 }
 
 function scoreEntry(entry: SettingsSearchEntry, query: string): number {

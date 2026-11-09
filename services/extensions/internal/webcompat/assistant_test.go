@@ -43,6 +43,15 @@ func (p *assistantPort) PresetClick(_ context.Context, id string) error {
 	p.click = id
 	return nil
 }
+func (p *assistantPort) Presets(_ context.Context, language string) (assistant.PromptPresetSet, error) {
+	return assistant.HistoryPresets(language), nil
+}
+func (p *assistantPort) CheckPreset(_ context.Context, id string) error {
+	if !assistant.IsBuiltinPromptPreset(id) {
+		return access.ErrNotFound
+	}
+	return nil
+}
 
 type assistantGreetingPort struct {
 	assistantPort
@@ -50,6 +59,25 @@ type assistantGreetingPort struct {
 	template string
 	revision int64
 	err      error
+}
+
+type assistantPresetSettingsPort struct {
+	assistantPort
+	configuration string
+	revision      int64
+	err           error
+}
+
+func (p *assistantPresetSettingsPort) PresetSettings(_ context.Context, token string) (assistant.PromptPresetSettings, error) {
+	p.calls++
+	p.token = token
+	return assistant.PromptPresetSettings{Configuration: p.configuration, Revision: p.revision, UpdatedAt: 123}, p.err
+}
+
+func (p *assistantPresetSettingsPort) UpdatePresetSettings(_ context.Context, token, configuration string, revision int64) (assistant.PromptPresetSettings, error) {
+	p.calls++
+	p.token, p.configuration, p.revision = token, configuration, revision
+	return assistant.PromptPresetSettings{Configuration: configuration, Revision: revision + 1, UpdatedAt: 123}, p.err
 }
 
 func (p *assistantGreetingPort) Greeting(_ context.Context, token string) (assistant.GreetingPreference, error) {
@@ -200,6 +228,61 @@ func TestAssistantGreetingWebMissingDependencyIsUnavailableNotEmptySuccess(t *te
 			if w.Code != 503 || !strings.Contains(w.Body.String(), `"success":false`) {
 				t.Fatal(method, w.Code, w.Body.String())
 			}
+		}
+	}
+}
+
+func TestAssistantPresetSettingsWebRejectsAmbiguousAndOwnerSuppliedBodies(t *testing.T) {
+	port := &assistantPresetSettingsPort{}
+	mux := http.NewServeMux()
+	RegisterAssistant(mux, newAuth(t, &authCore{}), port)
+	const path = "/api/assistant/settings/pre-conversation-presets"
+	for _, body := range []string{
+		`null`, `{}`, `[]`, `{"configuration":"[]"}`, `{"revision":0}`,
+		`{"configuration":null,"revision":0}`, `{"configuration":"[]","revision":null}`,
+		`{"configuration":"[]","revision":0.5}`,
+		`{"configuration":"[]","revision":0,"revision":1}`,
+		`{"Configuration":"[]","revision":0}`,
+		`{"configuration":"[]","revision":0,"owner":17}`,
+		`{"configuration":"[]","revision":0} {}`,
+	} {
+		w := assistantRequest(mux, "PUT", path, webToken, body)
+		if w.Code != 400 {
+			t.Fatal(body, w.Code, w.Body.String())
+		}
+	}
+	for _, method := range []string{"GET", "PUT"} {
+		for _, query := range []string{"?user_id=17", "?revision=1", "?bad=%ZZ"} {
+			w := assistantRequest(mux, method, path+query, webToken, `{"configuration":"[]","revision":0}`)
+			if w.Code != 400 {
+				t.Fatal(method, query, w.Code)
+			}
+		}
+		for _, token := range []string{"", hostToken, "lmmk_" + strings.Repeat("k", 43)} {
+			w := assistantRequest(mux, method, path, token, `{"configuration":"[]","revision":0}`)
+			if w.Code != 401 {
+				t.Fatal(method, token, w.Code)
+			}
+		}
+	}
+	if port.calls != 0 {
+		t.Fatal("invalid request reached settings domain", port.calls)
+	}
+	w := assistantRequest(mux, "PUT", path, webToken, `{"configuration":"[]","revision":3}`)
+	if w.Code != 200 || port.token != webToken || port.configuration != "[]" || port.revision != 3 || !strings.Contains(w.Body.String(), `"revision":4`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	port.err = access.ErrConflict
+	w = assistantRequest(mux, "PUT", path, webToken, `{"configuration":"","revision":3}`)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"success":false`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	for _, history := range []AssistantHistory{nil, &assistantPort{}} {
+		missing := http.NewServeMux()
+		RegisterAssistant(missing, newAuth(t, &authCore{}), history)
+		w := assistantRequest(missing, "GET", path, webToken, "")
+		if w.Code != 503 || strings.Contains(w.Body.String(), `"success":true`) {
+			t.Fatal(w.Code, w.Body.String())
 		}
 	}
 }

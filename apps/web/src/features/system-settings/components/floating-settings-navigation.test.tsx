@@ -59,6 +59,14 @@ const { SidebarProvider, SidebarTrigger, useSidebar } =
   await import('@/components/ui/sidebar')
 const { FloatingSettingsNavigation } =
   await import('./floating-settings-navigation')
+const { useAuthStore } = await import('@/stores/auth-store')
+const previousAuth = useAuthStore.getState().auth
+useAuthStore.setState({
+  auth: {
+    ...previousAuth,
+    user: { id: 901, username: 'synthetic-settings-root', role: 100 },
+  },
+})
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -67,6 +75,7 @@ await i18n.use(initReactI18next).init({
 })
 
 after(() => {
+  useAuthStore.setState({ auth: previousAuth })
   view.close()
   for (const key of globals) {
     const previous = previousGlobals.get(key)

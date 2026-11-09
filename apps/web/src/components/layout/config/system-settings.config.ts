@@ -34,6 +34,9 @@ import { getModelsSectionNavItems } from '@/features/system-settings/models/sect
 import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry.tsx'
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
 import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
+import { ROLE } from '@/lib/roles'
+import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
+import { useAuthStore } from '@/stores/auth-store'
 
 import type { NavGroup, SidebarView } from '../types'
 
@@ -44,8 +47,11 @@ import type { NavGroup, SidebarView } from '../types'
  * header already provides top-level context — the inner group label
  * scopes the items as "administration" actions.
  */
-export function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
-  return [
+export function getSystemSettingsNavGroups(
+  t: TFunction,
+  role: number = ROLE.SUPER_ADMIN
+): NavGroup[] {
+  const groups: NavGroup[] = [
     {
       id: 'system-administration',
       title: t('System Administration'),
@@ -88,6 +94,19 @@ export function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
       ],
     },
   ]
+  if (role === ROLE.SUPER_ADMIN) return groups
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.flatMap((section) => {
+        if (!section.items) return []
+        const items = section.items.filter(
+          (entry) => entry.url && canReadSystemSettingsPath(role, entry.url)
+        )
+        return items.length ? [{ ...section, items }] : []
+      }),
+    }))
+    .filter((group) => group.items.length)
 }
 
 /**
@@ -104,5 +123,9 @@ export const SYSTEM_SETTINGS_VIEW: SidebarView = {
     to: '/dashboard/overview',
     label: 'Back to Dashboard',
   },
-  getNavGroups: getSystemSettingsNavGroups,
+  getNavGroups: (t) =>
+    getSystemSettingsNavGroups(
+      t,
+      useAuthStore.getState().auth.user?.role ?? ROLE.GUEST
+    ),
 }

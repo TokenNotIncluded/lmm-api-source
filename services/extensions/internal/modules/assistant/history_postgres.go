@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/access"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/storage"
 )
 
 func historyError(err error) error {
@@ -208,18 +209,35 @@ func (p *Postgres) ArchiveHistory(ctx context.Context, userID, id int64, archive
 }
 
 func (p *Postgres) ClickPreset(ctx context.Context, id string) error {
-	if _, ok := requiredPromptPresetCopy[id]; !ok {
+	if !promptPresetID.MatchString(id) {
 		return access.ErrNotFound
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	result, err := p.db.ExecContext(ctx, `UPDATE lmm_assistant.preset_stats SET clicks=clicks+1 WHERE preset_id=$1 AND clicks<9007199254740991`, id)
-	if err != nil {
-		return access.ErrUnavailable
-	}
-	count, err := result.RowsAffected()
-	if err != nil || count != 1 {
-		return access.ErrLimit
-	}
-	return nil
+	return p.Within(ctx, promptPresetScope, func(tx storage.Tx) error {
+		settings, entries, err := readPromptPresetSettings(tx)
+		if err != nil {
+			return err
+		}
+		set := publishedPromptPresets(settings, entries, "")
+		for slot, entry := range set.Presets {
+			if entry.ID != id {
+				continue
+			}
+			if entry.Source == "custom" {
+				return clickCustomPromptPreset(tx, settings, slot, id)
+			}
+			// Preserve existing anonymous seed counters. Custom counters use at
+			// most twenty fixed preference slots and contain no visitor data.
+			pg := tx.(*postgresTx)
+			result, err := pg.tx.ExecContext(pg.ctx, `UPDATE lmm_assistant.preset_stats SET clicks=clicks+1 WHERE preset_id=$1 AND clicks<9007199254740991`, id)
+			if err != nil {
+				return access.ErrUnavailable
+			}
+			count, err := result.RowsAffected()
+			if err != nil || count != 1 {
+				return access.ErrLimit
+			}
+			return nil
+		}
+		return access.ErrNotFound
+	})
 }
