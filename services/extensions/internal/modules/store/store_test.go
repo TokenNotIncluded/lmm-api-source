@@ -76,6 +76,39 @@ func (t *memoryTx) List(kind, after string, limit int) ([]json.RawMessage, error
 	return out, nil
 }
 
+func (t *memoryTx) ListPublic(kind, after string, limit int) ([]json.RawMessage, error) {
+	rows, err := t.List(kind, after, len(t.data))
+	if err != nil {
+		return nil, err
+	}
+	out := []json.RawMessage{}
+	for _, raw := range rows {
+		var p Product
+		if kind == "variants" {
+			var variant Variant
+			if err := json.Unmarshal(raw, &variant); err != nil {
+				return nil, err
+			}
+			if err := t.Get("products", variant.ProductID, &p); err != nil {
+				return nil, err
+			}
+		} else if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, err
+		}
+		visible, err := productVisibleTo(LocatedProduct{Product: p}, 0)
+		if err != nil {
+			return nil, err
+		}
+		if visible {
+			out = append(out, raw)
+			if len(out) == limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 var sellerToken = strings.Repeat("s", 32)
 var buyerToken = strings.Repeat("b", 32)
 var otherToken = strings.Repeat("x", 32)
@@ -500,8 +533,8 @@ func TestHTTPValidationAndPrivateCatalog(t *testing.T) {
 	f.catalog(t, CatalogChange{Action: "product_status", ID: f.product.ID, Published: false, Key: "hide"}, &f.product)
 	listing, err := f.s.Browse(context.Background(), f.shop.ID, "", 1)
 	must(t, err)
-	if len(listing.Items) != 0 || listing.Next == "" {
-		t.Fatal("hidden page lost cursor")
+	if len(listing.Items) != 0 || listing.Next != "" {
+		t.Fatal("hidden records affected the public cursor")
 	}
 	variants, err := f.s.Variants(context.Background(), f.shop.ID, "", 10)
 	must(t, err)

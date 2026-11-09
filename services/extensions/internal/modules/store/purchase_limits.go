@@ -61,17 +61,22 @@ AND (o.body->'buyer'->>'id')::bigint=$4 AND o.body->>'state' NOT IN ('cancelled'
 }
 
 func (s *Service) ProductForBuyer(ctx context.Context, token string, user int64, id string) (map[string]any, error) {
-	view, err := s.PublicProduct(ctx, id)
-	if err != nil || user == 0 {
-		return view, err
+	if user < 0 {
+		return nil, ErrInvalid
 	}
 	buyer := Account{Kind: "personal", ID: user}
-	if _, err := s.check(ctx, token, buyer, Read); err != nil {
-		return nil, err
+	if user > 0 {
+		if _, err := s.check(ctx, token, buyer, Read); err != nil {
+			return nil, err
+		}
 	}
 	row, err := s.LocateProduct(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	view, err := s.publicLegacyViewFor(row, true, user)
+	if err != nil || user == 0 {
+		return view, err
 	}
 	err = s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
 		var product Product

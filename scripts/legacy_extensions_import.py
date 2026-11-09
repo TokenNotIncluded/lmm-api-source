@@ -284,7 +284,9 @@ def phase_store(ctx: Ctx) -> Plan:
         default_id = (meta.get(p["id"]) or {}).get("default_variant_id")
         if not default_id:
             fail(f"store_default_variant_missing:{p['id']}")
-        visibility = p["visibility"] or "public"
+        visibility = p["visibility"] or ("private" if p["test_mode"] else "public")
+        if visibility not in {"public", "registered", "private"}:
+            fail(f"store_invalid_visibility:{p['id']}")
         m = {"description": p["description"] or "", "image_urls": jlist(p["image_urls"]), "contact": p["contact"] or "",
              "links": [{"title": l.get("title", ""), "url": l.get("url", ""), "description": l.get("description", "")}
                        for l in jlist(p["links"])],

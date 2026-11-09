@@ -126,7 +126,14 @@ func nativeProductView(row LocatedProduct, public bool) (map[string]any, error) 
 }
 
 func publicView(row LocatedProduct) (map[string]any, error) {
-	if !row.Product.Published {
+	return publicViewFor(row, 0)
+}
+func publicViewFor(row LocatedProduct, viewer int64) (map[string]any, error) {
+	visible, err := productVisibleTo(row, viewer)
+	if err != nil {
+		return nil, err
+	}
+	if !visible {
 		return nil, ErrNotFound
 	}
 	if row.Owner.Kind != "personal" || row.Owner.ID <= 0 || row.Product.LegacyPublicVersion != 1 || len(row.Product.LegacyPublic) == 0 {
@@ -155,15 +162,7 @@ func publicView(row LocatedProduct) (map[string]any, error) {
 	if err != nil || units < 0 || units > legacySafeInteger {
 		return nil, ErrUnavailable
 	}
-	if raw, exists := value["visibility"]; exists {
-		visibility, ok := raw.(string)
-		if !ok {
-			return nil, ErrUnavailable
-		}
-		if visibility != "" && visibility != "public" {
-			return nil, ErrNotFound
-		}
-	}
+	value["visibility"], _ = productVisibility(row.Product)
 	if id, ok := value["id"].(string); !ok || id != row.Product.ID {
 		return nil, ErrUnavailable
 	}

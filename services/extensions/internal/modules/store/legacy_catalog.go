@@ -19,6 +19,7 @@ type CatalogueQuery struct {
 	Offset, Limit                             int
 	AutoDelivery, AIProcessing, GuestPurchase *bool
 	FundsReady                                bool
+	viewerID                                  int64
 }
 type LegacyRequest struct {
 	Action, ID, ChildID string
@@ -146,6 +147,24 @@ func (s *Service) PublicConfig(ctx context.Context) (map[string]any, error) {
 }
 
 func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
+	q.viewerID = 0
+	return s.catalogueQuery(ctx, q)
+}
+
+func (s *Service) CatalogueForViewer(ctx context.Context, token string, userID int64, q CatalogueQuery) ([]map[string]any, error) {
+	if userID < 0 {
+		return nil, ErrInvalid
+	}
+	if userID > 0 {
+		if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Read); err != nil {
+			return nil, err
+		}
+	}
+	q.viewerID = userID
+	return s.catalogueQuery(ctx, q)
+}
+
+func (s *Service) catalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
 	if q.Seller < 0 || q.Seller > 2147483647 || len(q.Text) > 200 || q.Offset < 0 || q.Offset > 100000 || !Page(q.Limit) || len(q.Tag) > 512 || len(q.CategoryID) > 128 {
 		return nil, ErrInvalid
 	}
@@ -163,7 +182,7 @@ func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([
 	}
 	idx, ok := s.repo.(legacyReadIndex)
 	if !ok {
-		if q.Sort == "comprehensive" && q.CategoryID == "" && q.Tag == "" && q.Stock == "" && q.AutoDelivery == nil && q.AIProcessing == nil && q.GuestPurchase == nil {
+		if q.viewerID == 0 && q.Sort == "comprehensive" && q.CategoryID == "" && q.Tag == "" && q.Stock == "" && q.AutoDelivery == nil && q.AIProcessing == nil && q.GuestPurchase == nil {
 			return s.PublicCatalogue(ctx, q.Seller, q.Text, q.Offset, q.Limit)
 		}
 		return nil, ErrUnavailable
@@ -175,7 +194,7 @@ func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([
 	}
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		v, err := s.publicLegacyView(row, true)
+		v, err := s.publicLegacyViewFor(row, true, q.viewerID)
 		if err != nil {
 			return nil, err
 		}
@@ -508,8 +527,8 @@ func validateLegacyInput(in LegacyProductInput) error {
 	if in.CategoryID != nil && *in.CategoryID != "" && !categoryID(*in.CategoryID) {
 		return ErrInvalid
 	}
-	if in.Visibility != nil && *in.Visibility != "public" {
-		return ErrUnavailable
+	if in.Visibility != nil && *in.Visibility != "public" && *in.Visibility != "registered" && *in.Visibility != "private" {
+		return ErrInvalid
 	}
 	if in.PurchaseLoginRequired != nil && !*in.PurchaseLoginRequired {
 		return ErrUnavailable
@@ -612,9 +631,23 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		if m.Links == nil {
 			m.Links = []LegacyLink{}
 		}
-		if in.TestMode != nil {
-			m.TestMode = *in.TestMode
+		if old != nil {
+			m.Visibility = effectiveVisibility(old.Visibility, old.TestMode)
 		}
+		if in.Visibility != nil {
+			m.Visibility = *in.Visibility
+		}
+		if in.TestMode != nil {
+			if in.Visibility != nil && *in.TestMode != (m.Visibility == "private") {
+				return ErrInvalid
+			}
+			if *in.TestMode {
+				m.Visibility = "private"
+			} else if m.Visibility == "private" {
+				m.Visibility = "public"
+			}
+		}
+		m.TestMode = m.Visibility == "private"
 		if old != nil {
 			m.CreatedAt = old.CreatedAt
 			m.SaleLimit = old.SaleLimit
@@ -820,18 +853,27 @@ func legacyVariantView(v Variant, defaultID string, ready bool) map[string]any {
 	return map[string]any{"id": v.ID, "product_id": v.ProductID, "name": v.Title, "price_quota": v.Price.Amount, "template": m.Template, "enabled": m.Enabled, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "is_default": v.ID == defaultID, "unlimited_supply": unlimited, "inventory_total": v.Stock, "inventory_available": available, "reserved_stock": v.Reserved, "sale_available": sale, "trading_paused": paused}
 }
 func legacyProductView(row LocatedProduct, public, ready bool) (map[string]any, error) {
+	return legacyProductViewFor(row, public, ready, 0)
+}
+func legacyProductViewFor(row LocatedProduct, public, ready bool, viewer int64) (map[string]any, error) {
 	p := row.Product
 	m := p.Legacy
 	if m == nil {
 		// Versioned snapshots keep their strict legacy validation. Native
 		// records have neither legacy metadata nor a legacy public snapshot.
 		if p.LegacyPublicVersion != 0 || len(p.LegacyPublic) != 0 && string(p.LegacyPublic) != "null" {
-			return publicView(row)
+			return publicViewFor(row, viewer)
 		}
 		return nativeProductView(row, public)
 	}
-	if public && (!p.Published || !m.Approved || m.Status != "published" || m.TestMode || m.Visibility != "public") {
-		return nil, ErrNotFound
+	if public {
+		visible, err := productVisibleTo(row, viewer)
+		if err != nil {
+			return nil, err
+		}
+		if !visible {
+			return nil, ErrNotFound
+		}
 	}
 	if len(row.Variants) == 0 {
 		return nil, ErrUnavailable
@@ -906,10 +948,13 @@ func legacyProductView(row LocatedProduct, public, ready bool) (map[string]any, 
 		reviewNote = ""
 		reviewer = 0
 	}
-	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "category_id": m.CategoryID, "title": p.Title, "description": m.Description, "image_urls": m.ImageURLs, "contact": m.Contact, "links": m.Links, "price_quota": price, "test_mode": m.TestMode, "visibility": m.Visibility, "purchase_login_required": m.PurchaseLoginRequired, "sale_limit": m.SaleLimit, "max_quantity_per_order": m.MaxQuantityPerOrder, "max_quantity_per_buyer": m.MaxQuantityPerBuyer, "template": m.Template, "delivery_strategy": m.DeliveryStrategy, "payment_methods": methods, "pickup_login_required": m.PickupLoginRequired, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "status": m.Status, "review_note": reviewNote, "reviewed_by": reviewer, "reviewed_at": m.ReviewedAt, "promotion_expires_at": 0, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "official": false, "unlimited_supply": unlimited, "available_stock": stock, "paid_quantity": claimed, "reserved_quantity": reserved, "sale_available": saleAvailable, "trading_paused": paused, "default_variant_id": m.DefaultVariantID, "variants": variants, "inventory_total": inventoryTotal, "inventory_available": stock, "price_min_quota": min, "price_max_quota": max, "display_tags": tags}, nil
+	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "category_id": m.CategoryID, "title": p.Title, "description": m.Description, "image_urls": m.ImageURLs, "contact": m.Contact, "links": m.Links, "price_quota": price, "test_mode": m.TestMode, "visibility": effectiveVisibility(m.Visibility, m.TestMode), "purchase_login_required": m.PurchaseLoginRequired, "sale_limit": m.SaleLimit, "max_quantity_per_order": m.MaxQuantityPerOrder, "max_quantity_per_buyer": m.MaxQuantityPerBuyer, "template": m.Template, "delivery_strategy": m.DeliveryStrategy, "payment_methods": methods, "pickup_login_required": m.PickupLoginRequired, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "status": m.Status, "review_note": reviewNote, "reviewed_by": reviewer, "reviewed_at": m.ReviewedAt, "promotion_expires_at": 0, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "official": false, "unlimited_supply": unlimited, "available_stock": stock, "paid_quantity": claimed, "reserved_quantity": reserved, "sale_available": saleAvailable, "trading_paused": paused, "default_variant_id": m.DefaultVariantID, "variants": variants, "inventory_total": inventoryTotal, "inventory_available": stock, "price_min_quota": min, "price_max_quota": max, "display_tags": tags}, nil
 }
 func (s *Service) publicLegacyView(row LocatedProduct, public bool) (map[string]any, error) {
-	view, err := legacyProductView(row, public, s.funds.Available())
+	return s.publicLegacyViewFor(row, public, 0)
+}
+func (s *Service) publicLegacyViewFor(row LocatedProduct, public bool, viewer int64) (map[string]any, error) {
+	view, err := legacyProductViewFor(row, public, s.funds.Available(), viewer)
 	if err == nil && view["record_kind"] == nil {
 		view["record_kind"] = "legacy"
 	}

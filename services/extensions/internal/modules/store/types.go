@@ -198,6 +198,8 @@ type Tx interface {
 	Get(string, string, any) error
 	Put(string, string, any) error
 	List(string, string, int) ([]json.RawMessage, error)
+	// ListPublic filters anonymous visibility before applying its limit (up to 101).
+	ListPublic(string, string, int) ([]json.RawMessage, error)
 }
 
 func ID(parts ...any) string {

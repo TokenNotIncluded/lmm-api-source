@@ -754,3 +754,7 @@ func TestStoreTransportPublicProductTermsUseOnlyVerifiedOrAnonymousActor(t *test
 		t.Fatal(rec.Code)
 	}
 }
+
+func (*storeReadOnlyTxFake) ListPublic(string, string, int) ([]json.RawMessage, error) {
+	return nil, store.ErrUnavailable
+}

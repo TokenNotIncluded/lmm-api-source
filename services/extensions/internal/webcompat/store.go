@@ -33,6 +33,9 @@ type storeDisclaimerService interface {
 type storeProductTermsService interface {
 	PublicProductTerms(context.Context, int64, string) (map[string]any, error)
 }
+type storeViewerCatalogueService interface {
+	CatalogueForViewer(context.Context, string, int64, store.CatalogueQuery) ([]map[string]any, error)
+}
 type storeCatalogueService interface {
 	PublicCatalogueQuery(context.Context, store.CatalogueQuery) ([]map[string]any, error)
 }
@@ -120,14 +123,16 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		value, err := port.PublicDisclaimer(r.Context(), actor)
 		Respond(w, value, err)
 	}))
-	mux.HandleFunc("GET /api/store/products", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
+	mux.HandleFunc("GET /api/store/products", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
 		query, err := storeCatalogueQuery(r)
 		if err != nil {
 			Respond(w, nil, err)
 			return
 		}
 		var items []map[string]any
-		if port, ok := service.(storeCatalogueService); ok {
+		if port, ok := service.(storeViewerCatalogueService); ok {
+			items, err = port.CatalogueForViewer(r.Context(), bearer(r), actor, query)
+		} else if port, ok := service.(storeCatalogueService); ok {
 			items, err = port.PublicCatalogueQuery(r.Context(), query)
 		} else {
 			if query.Sort != "comprehensive" || query.CategoryID != "" || query.Tag != "" || query.Stock != "" || query.AutoDelivery != nil || query.AIProcessing != nil || query.GuestPurchase != nil {

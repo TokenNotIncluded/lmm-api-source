@@ -188,8 +188,8 @@ func (s *Service) Catalog(ctx context.Context, token string, c CatalogChange) (j
 	return output, err
 }
 
-// Listing includes the last SCANNED ID, including hidden records, so filtering
-// cannot trap a client on an empty page. Never request more than 100 records.
+// Public listings count only visible records and use the last returned ID as
+// their cursor. One extra visible row determines whether another page exists.
 type Listing[T any] struct {
 	Items []T    `json:"items"`
 	Next  string `json:"next"`
@@ -205,9 +205,13 @@ func (s *Service) Browse(ctx context.Context, shopID, after string, limit int) (
 		if err := tx.Get("shops", shopID, &shop); err != nil {
 			return err
 		}
-		rows, err := tx.List("products", after, limit)
+		rows, err := tx.ListPublic("products", after, limit+1)
 		if err != nil {
 			return err
+		}
+		more := len(rows) > limit
+		if more {
+			rows = rows[:limit]
 		}
 		for _, b := range rows {
 			var p Product
@@ -215,14 +219,18 @@ func (s *Service) Browse(ctx context.Context, shopID, after string, limit int) (
 				return err
 			}
 			out.Next = p.ID
-			if p.Published {
+			visible, err := productVisibleTo(LocatedProduct{Product: p}, 0)
+			if err != nil {
+				return err
+			}
+			if visible {
 				// Private moderation and seller input are not part of a public
 				// service browse DTO, even when its caller holds the host token.
 				p.Legacy = nil
 				out.Items = append(out.Items, p)
 			}
 		}
-		if len(rows) < limit {
+		if !more {
 			out.Next = ""
 		}
 		return nil
@@ -244,9 +252,13 @@ func (s *Service) Variants(ctx context.Context, shopID, after string, limit int)
 		return out, ErrInvalid
 	}
 	err := s.repo.Within(ctx, shopID, func(tx Tx) error {
-		rows, err := tx.List("variants", after, limit)
+		rows, err := tx.ListPublic("variants", after, limit+1)
 		if err != nil {
 			return err
+		}
+		more := len(rows) > limit
+		if more {
+			rows = rows[:limit]
 		}
 		for _, b := range rows {
 			var v Variant
@@ -258,12 +270,16 @@ func (s *Service) Variants(ctx context.Context, shopID, after string, limit int)
 			if err = tx.Get("products", v.ProductID, &p); err != nil {
 				return err
 			}
-			if p.Published {
+			visible, err := productVisibleTo(LocatedProduct{Product: p}, 0)
+			if err != nil {
+				return err
+			}
+			if visible {
 				available := (!v.TrackStock || v.Stock > v.Reserved) && (v.Quota < 0 || v.Claimed < v.Quota)
 				out.Items = append(out.Items, VariantListing{v.ID, v.ProductID, v.Title, v.Price, available})
 			}
 		}
-		if len(rows) < limit {
+		if !more {
 			out.Next = ""
 		}
 		return nil

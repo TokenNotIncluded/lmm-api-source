@@ -35,7 +35,7 @@ func (s *Service) ProductLikes(ctx context.Context, productID string, userID int
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.publicLegacyView(row, true); err != nil {
+	if _, err = s.publicLegacyViewFor(row, true, userID); err != nil {
 		return nil, err
 	}
 	var count int64
@@ -71,7 +71,7 @@ func (s *Service) SetProductLike(ctx context.Context, token string, userID int64
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.publicLegacyView(row, true); err != nil {
+	if _, err = s.publicLegacyViewFor(row, true, userID); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC().Unix()

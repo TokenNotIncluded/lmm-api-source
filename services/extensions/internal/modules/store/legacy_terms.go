@@ -119,7 +119,7 @@ func (s *Service) PublicProductTerms(ctx context.Context, userID int64, id strin
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.publicLegacyView(row, true); err != nil {
+	if _, err = s.publicLegacyViewFor(row, true, userID); err != nil {
 		return nil, err
 	}
 	var out map[string]any

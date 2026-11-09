@@ -50,7 +50,8 @@ All money uses an integer `amount_minor` plus a three-letter uppercase currency.
 A price of zero must be explicitly configured; paid orders never become free.
 JSON input rejects unknown fields, extra documents and bodies larger than 64 KiB.
 IDs are server-derived. Lists accept `after` and `limit` (1..100), and return
-`items` plus `next`. A filtered empty page can still have a nonempty cursor.
+`items` plus `next`. Public lists filter visibility before pagination and return
+the last visible ID as the cursor only when another visible page exists.
 
 - `POST /catalog`: `CatalogChange`; actions `create_shop`, `create_product`,
   `create_variant`, `product_title`, `product_status`, `variant_details`,

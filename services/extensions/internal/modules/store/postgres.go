@@ -200,3 +200,31 @@ func (t *postgresTx) PutAll(kind string, ids []string, values []any) error {
 	_, err = t.tx.ExecContext(t.ctx, "INSERT INTO "+table+" (shop_id,id,body) SELECT $1,e->>'id',e->'body' FROM jsonb_array_elements($2::jsonb) e", t.shop, string(data))
 	return err
 }
+
+func (t *postgresTx) ListPublic(kind, after string, limit int) ([]json.RawMessage, error) {
+	if limit < 1 || limit > 101 {
+		return nil, ErrInvalid
+	}
+	from, item := "lmm_store.products p", "p"
+	if kind == "variants" {
+		from, item = "lmm_store.variants v JOIN lmm_store.products p ON p.shop_id=v.shop_id AND p.id=v.body->>'product_id'", "v"
+	} else if kind != "products" {
+		return nil, ErrInvalid
+	}
+	metadata := `(CASE WHEN jsonb_typeof(p.body->'legacy')='object' THEN p.body->'legacy' ELSE p.body->'legacy_public' END)`
+	visibility := `COALESCE(NULLIF(` + metadata + `->>'visibility',''),CASE WHEN COALESCE((` + metadata + `->>'test_mode')::boolean,false) THEN 'private' ELSE 'public' END)`
+	rows, err := t.tx.QueryContext(t.ctx, "SELECT "+item+".body FROM "+from+" WHERE "+item+".shop_id=$1 AND "+item+".id>$2 AND (p.body->>'published')::boolean AND (p.body->'legacy' IS NULL OR (COALESCE((p.body->'legacy'->>'approved')::boolean,false) AND p.body->'legacy'->>'status'='published')) AND "+visibility+"='public' ORDER BY "+item+".id LIMIT $3", t.shop, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []json.RawMessage{}
+	for rows.Next() {
+		var data []byte
+		if err = rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		out = append(out, json.RawMessage(append([]byte(nil), data...)))
+	}
+	return out, rows.Err()
+}

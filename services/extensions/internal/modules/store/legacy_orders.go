@@ -238,7 +238,7 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 		if err != nil {
 			return nil, err
 		}
-		if _, err = s.publicLegacyView(row, true); err != nil {
+		if _, err = s.publicLegacyViewFor(row, true, actor.ID); err != nil {
 			return nil, err
 		}
 		if row.Product.Legacy == nil {

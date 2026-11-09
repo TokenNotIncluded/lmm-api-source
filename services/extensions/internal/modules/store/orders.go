@@ -65,6 +65,13 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if !product.Published {
 			return ErrConflict
 		}
+		visible, err := productVisibleTo(LocatedProduct{Owner: shop.Owner, Product: product}, actor)
+		if err != nil {
+			return err
+		}
+		if !visible {
+			return ErrNotFound
+		}
 		if !v.Price.valid() {
 			return ErrInvalid
 		}
