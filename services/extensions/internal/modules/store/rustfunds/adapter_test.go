@@ -53,6 +53,26 @@ func command(price store.Price) store.MoneyCommand {
 
 var features = []string{"commerce.pay.v1", "commerce.settle.v1", "commerce.refund.v1", "commerce.receipt.read.v1", "commerce.delivery.complete.v1", "commerce.receipt.reconcile.v1"}
 
+func TestSelfPurchaseRequiresNegotiatedCoreCapability(t *testing.T) {
+	core := &coreStub{}
+	old, err := New(core, features)
+	if err != nil || old.SelfPurchaseAvailable() {
+		t.Fatal("older Core acquired self-purchase support", err)
+	}
+	c := command(store.Price{Amount: 500000, Unit: "credits"})
+	c.Buyer = c.Seller
+	if _, err := old.Execute(context.Background(), "seller", c); !errors.Is(err, store.ErrPaymentUnavailable) || core.execute != 0 {
+		t.Fatal("self-purchase reached a Core without the ledger capability", err, core.execute)
+	}
+	current, err := New(core, append(features, "commerce.self-purchase.v1"))
+	if err != nil || !current.SelfPurchaseAvailable() {
+		t.Fatal("negotiated capability unavailable", err)
+	}
+	if _, err := current.Execute(context.Background(), "seller", c); err != nil || core.execute != 1 {
+		t.Fatal("negotiated command was not forwarded", err, core.execute)
+	}
+}
+
 func TestExactFrozenMoneyAndUnknownRecovery(t *testing.T) {
 	core := &coreStub{}
 	a, err := New(core, features)

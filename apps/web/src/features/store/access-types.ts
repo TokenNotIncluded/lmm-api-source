@@ -18,6 +18,16 @@ export function storeAccessSupported(
 ) {
   return config?.store_access_supported === true
 }
+export function storeVisibilitySupported(
+  config?: {
+    store_visibility_supported?: unknown
+    store_access_supported?: unknown
+  } | null
+) {
+  return config && Object.hasOwn(config, 'store_visibility_supported')
+    ? config.store_visibility_supported === true
+    : storeAccessSupported(config)
+}
 export function storeTermsSupported(
   config?: {
     store_terms_supported?: unknown

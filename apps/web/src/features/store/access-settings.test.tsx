@@ -54,6 +54,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { StoreProductAccessSettings } = await import('./access-settings')
 const {
   storeAccessSupported,
+  storeVisibilitySupported,
   storeTermsSupported,
   storeVisibility,
   storePurchaseLoginRequired,
@@ -151,6 +152,24 @@ test('terms require literal true when advertised and inherit old access only whe
       storeTermsSupported({
         store_access_supported: true,
         store_terms_supported: value,
+      }),
+      false
+    )
+  }
+})
+test('visibility capability does not open guest access and requires literal true', () => {
+  const config = {
+    store_visibility_supported: true,
+    store_access_supported: false,
+  }
+  assert.equal(storeVisibilitySupported(config), true)
+  assert.equal(storeAccessSupported(config), false)
+  assert.equal(storeVisibilitySupported({ store_access_supported: true }), true)
+  for (const value of [false, null, undefined, 'true', 1]) {
+    assert.equal(
+      storeVisibilitySupported({
+        store_visibility_supported: value,
+        store_access_supported: true,
       }),
       false
     )

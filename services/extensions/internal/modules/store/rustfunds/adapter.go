@@ -19,6 +19,7 @@ type Adapter struct {
 	core           Core
 	completion     bool
 	reconciliation bool
+	selfPurchase   bool
 }
 
 func New(core Core, features []string) (*Adapter, error) {
@@ -34,14 +35,18 @@ func New(core Core, features []string) (*Adapter, error) {
 			return nil, store.ErrPaymentUnavailable
 		}
 	}
-	return &Adapter{core: core, completion: set["commerce.delivery.complete.v1"], reconciliation: set["commerce.receipt.reconcile.v1"]}, nil
+	return &Adapter{core: core, completion: set["commerce.delivery.complete.v1"], reconciliation: set["commerce.receipt.reconcile.v1"], selfPurchase: set["commerce.self-purchase.v1"]}, nil
 }
-func (a *Adapter) Available() bool { return a != nil && !store.Missing(a.core) }
+func (a *Adapter) Available() bool             { return a != nil && !store.Missing(a.core) }
+func (a *Adapter) SelfPurchaseAvailable() bool { return a.Available() && a.selfPurchase }
 func (a *Adapter) Supports(price store.Price) bool {
 	return price.Unit == "credits" && price.Currency == "" && price.Amount >= 0 || price.Unit == "" && price.Currency == "USD" && price.Amount >= 0 && price.Amount <= 9223372036854775807/5000
 }
 func (a *Adapter) DeliveryAvailable() bool { return a.Available() && a.completion }
 func (a *Adapter) command(c store.MoneyCommand) ([]byte, error) {
+	if c.Buyer == c.Seller && !a.SelfPurchaseAvailable() {
+		return nil, store.ErrPaymentUnavailable
+	}
 	if !a.Available() || !a.Supports(c.Total) || c.OrderSnapshot == nil || !a.Supports(c.OrderSnapshot.UnitPrice) || c.OrderSnapshot.Quantity <= 0 || c.OrderSnapshot.CreatedBy <= 0 {
 		return nil, store.ErrInvalid
 	}

@@ -226,6 +226,8 @@ export interface StoreConfig {
   promotion_quota: number
   product_test_mode_supported?: boolean
   store_access_supported?: boolean
+  store_visibility_supported?: boolean
+  store_self_purchase_supported?: boolean
   store_terms_supported?: boolean
   store_catalogue_supported?: boolean
   store_categories_supported?: boolean

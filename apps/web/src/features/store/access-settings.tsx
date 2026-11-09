@@ -30,10 +30,12 @@ import type { StoreAccessSettings, StoreVisibility } from './access-types'
 export function StoreProductAccessSettings({
   value,
   disabled = false,
+  guestSupported = true,
   onChange,
 }: {
   value: StoreAccessSettings
   disabled?: boolean
+  guestSupported?: boolean
   onChange: (value: StoreAccessSettings) => void
 }) {
   const { t } = useTranslation()
@@ -65,7 +67,7 @@ export function StoreProductAccessSettings({
                 onChange({
                   ...value,
                   visibility: visibility as StoreVisibility,
-                  ...(visibility !== 'public'
+                  ...(visibility !== 'public' || !guestSupported
                     ? { purchase_login_required: true }
                     : {}),
                 })
@@ -92,29 +94,31 @@ export function StoreProductAccessSettings({
             )}
           </RadioGroup>
         </Field>
-        <Field
-          orientation='horizontal'
-          data-disabled={disabled || requiresAccount}
-        >
-          <FieldContent>
-            <FieldLabel htmlFor='store-purchase-login'>
-              {t(copy.login)}
-            </FieldLabel>
-            <FieldDescription className='text-xs'>
-              {t(
-                requiresAccount
-                  ? copy[`${value.visibility}Help`]
-                  : copy.loginHelp
-              )}
-            </FieldDescription>
-          </FieldContent>
-          <Switch
-            id='store-purchase-login'
-            checked={requiresAccount || value.purchase_login_required}
-            disabled={disabled || requiresAccount}
-            onCheckedChange={setLogin}
-          />
-        </Field>
+        {guestSupported && (
+          <Field
+            orientation='horizontal'
+            data-disabled={disabled || requiresAccount}
+          >
+            <FieldContent>
+              <FieldLabel htmlFor='store-purchase-login'>
+                {t(copy.login)}
+              </FieldLabel>
+              <FieldDescription className='text-xs'>
+                {t(
+                  requiresAccount
+                    ? copy[`${value.visibility}Help`]
+                    : copy.loginHelp
+                )}
+              </FieldDescription>
+            </FieldContent>
+            <Switch
+              id='store-purchase-login'
+              checked={requiresAccount || value.purchase_login_required}
+              disabled={disabled || requiresAccount}
+              onCheckedChange={setLogin}
+            />
+          </Field>
+        )}
       </FieldGroup>
       <AlertDialog open={confirmGuest} onOpenChange={setConfirmGuest}>
         <AlertDialogContent>

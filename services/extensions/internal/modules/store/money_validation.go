@@ -34,7 +34,7 @@ func orderMoneyCommand(shopID string, o Order, kind string) MoneyCommand {
 
 func validateOrderCommand(shopID string, o Order, c MoneyCommand) error {
 	if !Text(shopID, 128) || !Text(o.ID, 128) || !Text(o.VariantID, 128) ||
-		!o.Buyer.Valid() || !o.Seller.Valid() || o.Buyer == o.Seller || o.CreatedBy <= 0 ||
+		!o.Buyer.Valid() || !o.Seller.Valid() || o.CreatedBy <= 0 ||
 		o.Quantity <= 0 || !o.UnitPrice.valid() || !o.Total.valid() ||
 		o.UnitPrice.Amount > math.MaxInt64/o.Quantity ||
 		o.UnitPrice.Currency != o.Total.Currency || o.UnitPrice.Unit != o.Total.Unit ||

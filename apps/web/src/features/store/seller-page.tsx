@@ -38,6 +38,7 @@ import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import { StoreProductAccessSettings } from './access-settings'
 import {
   storeTermsSupported,
+  storeVisibilitySupported,
   storeVisibility,
   storePurchaseLoginRequired,
 } from './access-types'
@@ -749,6 +750,7 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
           linkPresets={config.data?.product_link_presets}
           testModeSupported={config.data?.product_test_mode_supported === true}
           accessSupported={config.data?.store_access_supported === true}
+          visibilitySupported={storeVisibilitySupported(config.data)}
           categoriesSupported={config.data?.store_categories_supported === true}
           svgMediaSupported={config.data?.store_svg_media_supported === true}
           fixedContentSupported={config.data?.fixed_content_supported === true}
@@ -881,6 +883,7 @@ export function StoreProductEditor({
   linkPresets = [],
   testModeSupported = false,
   accessSupported = false,
+  visibilitySupported = accessSupported,
   categoriesSupported = false,
   svgMediaSupported = false,
   purchaseLimitsSupported = false,
@@ -895,6 +898,7 @@ export function StoreProductEditor({
   linkPresets?: StoreLinkPreset[]
   testModeSupported?: boolean
   accessSupported?: boolean
+  visibilitySupported?: boolean
   categoriesSupported?: boolean
   svgMediaSupported?: boolean
   purchaseLimitsSupported?: boolean
@@ -1022,9 +1026,11 @@ export function StoreProductEditor({
         }
       }
       if (categoriesSupported) body.category_id = draft.category_id ?? ''
-      if (accessSupported) {
+      if (visibilitySupported) {
         const visibility = storeVisibility(draft)
-        const loginRequired = storePurchaseLoginRequired(draft)
+        const loginRequired = accessSupported
+          ? storePurchaseLoginRequired(draft)
+          : true
         if (!loginRequired && draft.pickup_login_required) {
           throw new Error(t(accessCopy.pickupConflict))
         }
@@ -1592,8 +1598,9 @@ export function StoreProductEditor({
               </p>
             </fieldset>
           )}
-          {accessSupported && (
+          {visibilitySupported && (
             <StoreProductAccessSettings
+              guestSupported={accessSupported}
               value={{
                 visibility: storeVisibility(draft),
                 purchase_login_required: storePurchaseLoginRequired(draft),
@@ -1605,7 +1612,7 @@ export function StoreProductEditor({
               }
             />
           )}
-          {testModeSupported && !accessSupported && (
+          {testModeSupported && !visibilitySupported && (
             <div className='space-y-2 rounded-lg border p-4'>
               <label className='flex items-center justify-between gap-4 text-sm'>
                 <span>{t(testCopy.label)}</span>

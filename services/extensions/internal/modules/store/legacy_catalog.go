@@ -144,7 +144,7 @@ func (s *Service) PublicConfig(ctx context.Context) (map[string]any, error) {
 		redirect = s.extoreRedirect
 	}
 	_, collectionsSupported := s.repo.(collectionRepository)
-	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": collectionsSupported, "store_categories_supported": true, "store_likes_supported": true, "store_svg_media_supported": false, "extore_import_supported": s.ExtoreReady(), "extore_redirect_uri": redirect, "store_merchant_home_supported": false, "store_access_supported": false, "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "stock_items_supported": s.StockReady(), "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
+	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": collectionsSupported, "store_categories_supported": true, "store_likes_supported": true, "store_svg_media_supported": false, "extore_import_supported": s.ExtoreReady(), "extore_redirect_uri": redirect, "store_merchant_home_supported": false, "store_access_supported": false, "store_visibility_supported": true, "store_self_purchase_supported": s.selfPurchaseAvailable(), "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "stock_items_supported": s.StockReady(), "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
 }
 
 func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
@@ -305,7 +305,7 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		}
 		out := []map[string]any{}
 		for _, row := range rows {
-			v, err := s.publicLegacyView(row, false)
+			v, err := s.publicLegacyViewFor(row, false, actor.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -338,7 +338,7 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, ErrUnavailable
 	}
 	if r.Action == "draft_product" || r.Action == "preview_product" {
-		return s.publicLegacyView(row, false)
+		return s.publicLegacyViewFor(row, false, actor.ID)
 	}
 	if r.Action == "fixed_content" {
 		var content string
@@ -382,7 +382,7 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 			if terms == nil {
 				return ErrSellerTermsNotConfigured
 			}
-			if m.TestMode {
+			if effectiveVisibility(m.Visibility, m.TestMode) == "private" {
 				return ErrInvalid
 			}
 			if m.Status != "draft" && m.Status != "rejected" {
@@ -921,7 +921,11 @@ func legacyProductViewFor(row LocatedProduct, public, ready bool, viewer int64) 
 	if min < 0 {
 		min = price
 	}
-	paused := !tradable || !p.Published || m.TestMode || (m.SaleLimit != nil && quotaConsumed >= *m.SaleLimit)
+	purchaseReady, err := productPurchaseReady(row, Account{Kind: "personal", ID: viewer})
+	if err != nil {
+		return nil, err
+	}
+	paused := !tradable || !purchaseReady || (m.SaleLimit != nil && quotaConsumed >= *m.SaleLimit)
 	saleAvailable := stock
 	if unlimited {
 		saleAvailable = -1
@@ -957,7 +961,11 @@ func (s *Service) publicLegacyView(row LocatedProduct, public bool) (map[string]
 	return s.publicLegacyViewFor(row, public, 0)
 }
 func (s *Service) publicLegacyViewFor(row LocatedProduct, public bool, viewer int64) (map[string]any, error) {
-	view, err := legacyProductViewFor(row, public, s.funds.Available(), viewer)
+	ready := s.funds.Available()
+	if viewer > 0 && row.Owner == (Account{Kind: "personal", ID: viewer}) && !s.selfPurchaseAvailable() {
+		ready = false
+	}
+	view, err := legacyProductViewFor(row, public, ready, viewer)
 	if err == nil && view["record_kind"] == nil {
 		view["record_kind"] = "legacy"
 	}

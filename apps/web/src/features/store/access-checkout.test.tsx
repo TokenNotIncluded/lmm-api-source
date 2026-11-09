@@ -655,7 +655,7 @@ test('guest email verification preserves a leading-zero code and changing addres
   assert.equal(stored.includes('guest@example.test'), false)
   assert.equal(stored.includes(guestSession.token), false)
 })
-test('new access editor has one private mode and keeps the old registered purchase default in the saved body', async () => {
+test('visibility-only editor saves three-state access while guest purchases stay disabled', async () => {
   const { writes } = mockAccess()
   api.put = (async (url: string, body: Record<string, unknown>) => {
     writes.push({ url, body })
@@ -666,17 +666,14 @@ test('new access editor has one private mode and keeps the old registered purcha
       product={product}
       allowedMethods={['balance']}
       minimumPriceQuota={500000}
-      accessSupported
+      visibilitySupported
       testModeSupported
       onClose={() => undefined}
       onSaved={async () => undefined}
     />
   )
   assert.ok(document.getElementById('store-visibility-public'))
-  const login = document.getElementById(
-    'store-purchase-login'
-  ) as HTMLInputElement
-  assert.equal(login.checked, true)
+  assert.equal(document.getElementById('store-purchase-login'), null)
   await click(button('Save draft'))
   const update = writes.find(
     (write) => write.url === `/api/store/products/${product.id}`
@@ -1322,6 +1319,7 @@ test('removing available inventory requires exact variant and item confirmation;
         variants: [variant],
         default_variant_id: variant.id,
       }}
+      stockItemsSupported
       onClose={() => undefined}
       onSaved={async () => undefined}
     />

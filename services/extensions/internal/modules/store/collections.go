@@ -153,7 +153,11 @@ func (s *Service) collectionProduct(ctx context.Context, actor Account, ref coll
 		return view, "", nil
 	}
 	m := row.Product.Legacy
-	if m == nil || !row.Product.Published || m.Status != "published" || m.TestMode || !s.funds.Available() {
+	ready, err := productPurchaseReady(row, actor)
+	if err != nil {
+		return nil, "", err
+	}
+	if m == nil || !ready || !s.funds.Available() || row.Owner == actor && !s.selfPurchaseAvailable() {
 		return view, "unavailable", nil
 	}
 	for _, v := range row.Variants {

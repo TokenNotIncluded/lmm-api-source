@@ -51,8 +51,8 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if err := tx.Get("shops", p.ShopID, &shop); err != nil {
 			return err
 		}
-		if shop.Owner == p.Buyer {
-			return ErrForbidden
+		if shop.Owner == p.Buyer && !s.selfPurchaseAvailable() {
+			return ErrPaymentUnavailable
 		}
 		var v Variant
 		if err := tx.Get("variants", p.VariantID, &v); err != nil {
@@ -62,15 +62,19 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if err := tx.Get("products", v.ProductID, &product); err != nil {
 			return err
 		}
-		if !product.Published {
-			return ErrConflict
-		}
 		visible, err := productVisibleTo(LocatedProduct{Owner: shop.Owner, Product: product}, actor)
 		if err != nil {
 			return err
 		}
 		if !visible {
 			return ErrNotFound
+		}
+		ready, err := productPurchaseReady(LocatedProduct{Owner: shop.Owner, Product: product}, p.Buyer)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return ErrConflict
 		}
 		if !v.Price.valid() {
 			return ErrInvalid
@@ -80,7 +84,7 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		}
 		if product.Legacy != nil {
 			m := product.Legacy
-			if m.Status != "published" || !m.Approved || m.TestMode || v.Legacy == nil || !v.Legacy.Enabled || v.Price.Unit != "credits" {
+			if v.Legacy == nil || !v.Legacy.Enabled || v.Price.Unit != "credits" {
 				return ErrConflict
 			}
 			if m.PickupCodeRequired && protection == nil {

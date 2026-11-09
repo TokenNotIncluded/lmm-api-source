@@ -147,6 +147,23 @@ Existing store databases require the explicit
 [`006_account_collections.sql`](migrations/006_account_collections.sql) migration
 and its runtime grants before the updated host starts.
 
+The seller editor uses the separate `store_visibility_supported` capability for
+public, registered and private visibility. Guest checkout remains behind
+`store_access_supported`. Self-purchase requires Core's negotiated
+`commerce.self-purchase.v1` capability; an older Core leaves these purchases
+unavailable before stock reservation. Private owners may buy draft, pending or
+published products through the same terms, quantity, stock and delivery checks.
+Paused, rejected and deleted products cannot open a new order.
+
+At the current zero merchant fee, a self-purchase reserves the entire price and
+captures it back to the original wallet. Core records a full same-wallet refund
+against the original capture without issuing another credit or changing debt.
+The [Core56 to Core58 procedure](../../../../../docs/commerce-display-rate-upgrade.md)
+installs this closed ledger rule explicitly; ordinary transfers still reject
+self-transfer. The reproducible
+[PostgreSQL check](../../../../../scripts/test-commerce-self-purchase.py) covers
+the SQL upgrade, original funds and debt, exact replay and concurrent calls.
+
 [Extore integration](../../../../../docs/extore.md) stores
 encrypted long-lived connections under a seller-scoped Extore shop, synchronizes
 approved listings into the legacy merchant shop, and rejects local edits of

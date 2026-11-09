@@ -57,3 +57,34 @@ func productVisibleTo(row LocatedProduct, viewer int64) (bool, error) {
 	}
 	return visibility == "public" || visibility == "registered" && viewer > 0, nil
 }
+
+// Catalogue ownership permits a private preview. Checkout additionally requires
+// an active product state and the same economic buyer as its private owner.
+func productPurchaseReady(row LocatedProduct, buyer Account) (bool, error) {
+	visibility, err := productVisibility(row.Product)
+	if err != nil {
+		return false, err
+	}
+	if visibility == "private" {
+		if row.Owner != buyer {
+			return false, nil
+		}
+		if m := row.Product.Legacy; m != nil {
+			return m.Status == "draft" || m.Status == "pending" || m.Status == "published", nil
+		}
+	}
+	if !row.Product.Published {
+		return false, nil
+	}
+	if m := row.Product.Legacy; m != nil {
+		return m.Approved && m.Status == "published", nil
+	}
+	return true, nil
+}
+
+// Older Core versions can serve normal store payments but cannot safely settle
+// a same-wallet order. Require the negotiated, explicit ledger capability.
+func (s *Service) selfPurchaseAvailable() bool {
+	capability, ok := s.funds.(interface{ SelfPurchaseAvailable() bool })
+	return ok && capability.SelfPurchaseAvailable()
+}
