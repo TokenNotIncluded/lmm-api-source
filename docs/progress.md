@@ -42,7 +42,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | MODEL-03 | 独立 TTS/STT/translation 和双向 Realtime/WebSocket 未齐 | 待补齐 | 补连接、取消、回执、计费与断连恢复；当前 Chat audio 与模型 SSE 继续保留，不能据此关闭本项。 |
 | MODEL-04 | 视频、Kling/Jimeng、MJ、Suno 异步任务未形成完整闭环 | 待补齐 | 按任务族补提交、查询/回调、结果/remix、原操作恢复与唯一扣费。 |
 | MODEL-05 | 渠道 tag、多 key 轮换、Codex 运维和真实推理探测未齐 | 待补齐 | 补自动选择/失效/恢复与真实调用测试；现有渠道 CRUD、密钥库、价格发布和目录探测保留。 |
-| ASSIST-01 | 助手仍返回单次 JSON，缺真实 SSE 与自定义 preset | 待补齐 | 接通上游流式与浏览器流式、取消/恢复；补自定义 preset 的服务端策略和配置生效。多轮 agent 与工具执行已有。 |
+| ASSIST-01 | 自定义对话开场预设已持久化并接通管理入口；真实 SSE 仍缺失 | 待补齐 | 2026-11-09，`model_identity` 实现 [a0804b60][assistant-presets]，`root` 在冻结输入上独立验证真实 PostgreSQL/TCP 的发布、版本冲突、匿名计数和预设点击一致性；三个 Go 定向用例、webcompat 包、实际 TanStack 父/子路由八项用例及 Extensions 构建通过。L5 可读、L6 可写；预设只提供用户开场内容，不增加工具或资金权限。[原始记录][progress-evidence]。仍需接通上游与浏览器的真实 SSE、取消及恢复；完整 Web 类型检查和浏览器验收未通过，组件/路由测试不代替该证据。 |
 
 ## 订阅、支付与商店
 
@@ -55,7 +55,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | PAY-03 | Pancake catalog/pair/save、订阅映射与 customer portal 未接完整后台 | 待补齐 | 接当前配置和权限、秘密只写、server 绑定 customer/store/environment，并完成真实管理页面联动。 |
 | STORE-01 | 游客购买与邮件提货合同未齐 | 待补齐 | 补游客订单归属、邮箱验证、付款领取、邮件 outbox/重试；覆盖凭证混用、重放及退款后禁止领取。登录买家的提货码/链接已有。 |
 | STORE-02 | 商店按数量/金额的部分退款缺失 | 待补齐 | Core 与 Go 绑定原订单和每次退款身份；证明累计上限、库存/交付、卖家收入、外部回执及丢 ACK 恢复。 |
-| STORE-03 | 三态目录、详情与分页已补齐；卖家自购及管理页待完成 | 待补齐 | 2026-11-09，`commerce` 实现 [63db64bc](https://github.com/TokenNotIncluded/lmm-api-source/commit/63db64bc0124f0361f0f5a7facde72b0c904d46a)，`root` 独立复验真实 PostgreSQL 的三态可见性、分页前过滤、原生游标、伪造身份拒绝及旧 visibility/TestMode 优先级，两项通过。[原始记录][progress-evidence]。尚需补卖家自购的 Core 资金合同及页面操作，`store_access_supported` 保持关闭。 |
+| STORE-03 | 三态目录、管理页与显式卖家自购已实现；实际 Core RPC 和浏览器验收待补 | 待验收 | 2026-11-09，`commerce` 实现 [63db64bc](https://github.com/TokenNotIncluded/lmm-api-source/commit/63db64bc0124f0361f0f5a7facde72b0c904d46a)、[6d74cefd][core58] 与 [9b377046][store-self-purchase]。`root` 独立复验真实 PostgreSQL 的可见性/分页、56→58 原数据与权限保全、自购全额预留/结算/退款和八组并发原操作重放；订单/提货/退款用例使用合成资金回执，实际 Core 账本 SQL 另行验证，两者不冒充 RPC 闭环。页面八项可见性测试通过，checkout 全文件 31 项通过并发现一个旧库存 fixture 缺少能力参数，在旧基线复现后补足该输入，原断言定向复验通过。能力由 `commerce.self-purchase.v1` 明确协商，`store_access_supported` 继续关闭。[原始记录][progress-evidence]。新 Core 组合编译被 SIGKILL，实际进程资金链、全量 Web 类型检查和浏览器操作仍待验收。 |
 | STORE-04 | 账户购物车、收藏、清理和游客合并已接通；完整页面验收待补 | 待验收 | 2026-11-09，`commerce` 实现 [c45beffa][collections-rss]，`root` 独立复验真实 PostgreSQL 的账户隔离、绝对数量并发重放、重启读回、私有化隐藏、暂停保留及下架/变体清理；既有库离线迁移与精确 DML 权限用例通过。已有页面按 `max(server,guest)` 合并后发送绝对数量 PUT；能力已开放，不预占资金或库存。冻结 Extensions 构建通过。[原始记录][progress-evidence]。全量 Web 类型检查被 SIGKILL，浏览器操作与最终组合按 CHECK-06 继续验收。 |
 | REVIEW-01 | 市场 AI 自动审核缺配置、执行和结果历史 | 待补齐 | 恢复 off/assist/auto 与发布/拒绝边界，接审核设置和权限；保留现有人工审核与版本发布。 |
 
@@ -71,7 +71,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | APP-06 | 公开安全报告与 Moderation 后台未完成旧行为映射 | 待补齐 | 对照 native abuse，逐项补 policy/stats、审核队列/任务/统计和页面操作；已有策略、标记、审计继续保留。 |
 | APP-07 | RSS 抓取、缓存、设置保存与页面接线已实现；线上 edge 与浏览器验收待补 | 待验收 | 2026-11-09，`business_apps` 实现 [c45beffa][collections-rss]，`root` 独立复验真实 HTTP 抓取、RSS/Atom/RDF 投影、并发/缓存/错误与网络边界；三项真实 PostgreSQL 用例证明配置持久化、并发版本校验、v1→v2 离线升级及原操作恢复、HTTP 权限与禁用源不抓取。七项定向 Go race 测试、冻结 Extensions 构建及 34 项边界检查通过。配置仅授予 SELECT/UPDATE，普通启动不执行 DDL。[原始记录][progress-evidence]。全量 Web 类型检查被 SIGKILL；实际 Nginx 路由与浏览器验收仍需目标环境。 |
 | APP-08 | 价格变更 webhook 投递与重试后台未迁移 | 待补齐 | 补订阅接收人、outbox、签名 HTTPS、持久状态与幂等重试；现有站内通知另行验收。 |
-| APP-09 | 设置页美元汇率助手：补齐 Core 报价、展示汇率保存与页面接线 | 待补齐 | 2026-11-09 开始实施，源码基线 `4c7a29b9`；`app09_backend`、`app09_web` 分别负责实现，`app09_acceptance` 独立验收。补可信外部读取、校验、失败状态、手动保存及状态回读；保持历史账本与金额单位不变。 |
+| APP-09 | Core 报价读取、展示汇率保存及状态回读已补齐；实际进程与公网验收待补 | 待验收 | 2026-11-09，`business_apps` 实现 [6d74cefd][core58]，接已有 `33ba2e1` Web；`root` 独立验证真实受限 PostgreSQL 的专用 setter、输入边界、无直接表写/DDL、失败事务回滚及原始余额/账本逐行不变。现有页面七项定向用例通过，明确区分报价日期与下载时间。Core56→58 的实际 SQL 保留/权限验证通过；新组合 `cargo check --tests` 与 `--lib` 均被 SIGKILL，Rust HTTP/报价网络 fixture 未运行，Frankfurter 公网及浏览器验收未完成。[原始记录][progress-evidence]、[升级合同](commerce-display-rate-upgrade.md)。 |
 
 ## 客户端
 
@@ -114,3 +114,6 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 [progress-evidence]: https://drive.google.com/drive/folders/1WpvJDD0IDjB8p-qr14k9_lgP9aWZ2hMw
 [collections-rss]: https://github.com/TokenNotIncluded/lmm-api-source/commit/c45beffa4bb0aa4880f465788a6955708ae13ab6
 [vision-input]: https://github.com/TokenNotIncluded/lmm-api-source/commit/df9b3c9d7c767248f9060905e24dd5c4212b065e
+[core58]: https://github.com/TokenNotIncluded/lmm-api-source/commit/6d74cefd830e2805cfc4ac42e9558ca95a8cde9f
+[assistant-presets]: https://github.com/TokenNotIncluded/lmm-api-source/commit/a0804b601375914109ca1598f5d26e82c38af38e
+[store-self-purchase]: https://github.com/TokenNotIncluded/lmm-api-source/commit/9b377046b82b89367c21474505e8bfb577a1bdb8
