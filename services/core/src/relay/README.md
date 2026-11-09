@@ -1,19 +1,31 @@
-# Rust relay (MK-05)
+# Rust model relay
 
-Parent: #675. Work branch: `wip/mk-05-relay`. Base at start:
-`b83723cdac3f148140806b8025cb5360a2f6a26d`.
-
-This is an internal relay library, not an enabled public model API. Existing
-HTTP model endpoints and business readiness remain unavailable. No production
-billing adapter or task-04 routing adapter is supplied in this task. Do not
-open paid endpoints until those core-owned adapters pass integration tests.
+This Rust library owns protocol conversion, bounded provider transport and
+output checkpoints. `model_http::ModelGateway` supplies public authentication,
+frozen routing, durable reservations and ledger settlement. The configured
+host controls whether model traffic is enabled.
 
 ## Supported surface
 
-Clients: OpenAI Chat Completions and Responses. Upstreams: OpenAI Chat,
-OpenAI Responses, Anthropic Messages, and Gemini GenerateContent. Each pair
-supports JSON and SSE, one candidate, text, function tools and tool results.
-The HTTP tests exercise all 16 provider/client/output-mode combinations.
+Clients and upstreams include OpenAI Chat Completions, Responses, Anthropic
+Messages and Gemini GenerateContent. They support JSON and SSE, one candidate,
+text, function tools and tool results. Native Gemini input also binds its model
+and streaming operation from the HTTP path.
+
+User messages accept Chat `image_url`, Responses `input_image`, Anthropic
+`image` with URL/base64 sources, and Gemini `inlineData` images. Inline PNG,
+JPEG, GIF and WebP images convert between all four protocols within the existing
+request-body limit. Chat and Responses retain image `detail` values and the
+order of text/image blocks. Explicit `low`, `high` or `original` detail requires
+an OpenAI protocol route; a different target rejects that request.
+
+Core forwards HTTP(S) image references without fetching them. Chat, Responses
+and Anthropic accept these references; Gemini conversion requires inline image
+data because a plain URL supplies no trusted media type. Provider `file_id` and
+Gemini `fileData` references remain unsupported until file ownership is bound.
+External model reservations use the frozen supplier context bound, and final
+image input charges use supplier token counts rather than encoded image length.
+The exact Responses text counter rejects image input.
 
 The route selects the complete upstream operation URL and real model name.
 Gemini streaming needs `:streamGenerateContent?alt=sse`; JSON needs
@@ -34,7 +46,7 @@ Plain-text signatures use the Chat `content_details` extension or Responses item
 Opaque signatures remain provider-tagged metadata, not fabricated OpenAI
 reasoning tokens. They cannot be replayed to a different provider.
 
-This is deliberately not a universal lossless bridge. Images, audio, video,
+This is deliberately not a universal lossless bridge. Audio, video,
 multiple candidates, hosted/server tools, encrypted or stateful Responses
 history, unknown request fields, annotated Responses output, unsupported provider content blocks and
 unsupported finish reasons fail explicitly. Anthropic redacted-thinking blocks
@@ -43,7 +55,7 @@ initial complete identity are not supported. Multiple signed thinking blocks
 are returned as provider-tagged details; replay of those details is not yet a
 supported input. Provider-specific features must not be silently discarded.
 
-## Integration contract for tasks 03 and 04
+## Integration contract
 
 `RouteProvider::select` receives the verified actor/key context and normalized
 request. Return an immutable Rust-owned `Route`, including its price version,

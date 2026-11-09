@@ -624,6 +624,80 @@ fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
 }
 
 #[tokio::test]
+async fn vision_inputs_reach_four_upstreams_and_preserve_json_sse_usage() {
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+    let url = format!("data:image/png;base64,{png}");
+    for protocol in [
+        UpstreamProtocol::Chat,
+        UpstreamProtocol::Responses,
+        UpstreamProtocol::Anthropic,
+        UpstreamProtocol::Gemini,
+    ] {
+        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+            for stream in [false, true] {
+                let upstream = Upstream::start(if stream {
+                    Script::sse(streaming(protocol))
+                } else {
+                    Script::json(full(protocol))
+                })
+                .await;
+                let money = Arc::new(Money::default());
+                let limits = Limits::default();
+                let relay = relay(&upstream, protocol, limits.clone(), money.clone());
+                let mut body = input(client, stream);
+                match client {
+                    ClientProtocol::Chat => {
+                        body["messages"][0]["content"] = json!([
+                            {"type":"text", "text":"describe"}, {"type":"image_url", "image_url":{"url":url}}
+                        ])
+                    }
+                    ClientProtocol::Responses => {
+                        body["input"] = json!([{"role":"user", "content":[
+                            {"type":"input_text", "text":"describe"}, {"type":"input_image", "image_url":url}
+                        ]}])
+                    }
+                    _ => unreachable!(),
+                }
+                let request =
+                    Request::parse(client, &serde_json::to_vec(&body).unwrap(), &limits).unwrap();
+                let (head, output, done) = collect(relay.start(request, context()).unwrap()).await;
+                assert!(head.is_ok(), "{protocol:?} {client:?} {stream}: {head:?}");
+                assert!(
+                    done.error.is_none(),
+                    "{protocol:?} {client:?} {stream}: {:?}",
+                    done.error
+                );
+                assert_output(client, stream, &output);
+                assert_eq!(done.report.usage.input_tokens, Some(10));
+                assert_eq!(done.report.usage.output_tokens, Some(5));
+                assert_eq!(done.settlement, Settlement::Confirmed);
+                assert_eq!(money.reserves.load(Ordering::SeqCst), 1);
+                assert_eq!(money.finals.lock().unwrap().len(), 1);
+                let requests = upstream.observed.requests.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                let payload = &requests[0].1;
+                match protocol {
+                    UpstreamProtocol::Chat => assert_eq!(
+                        payload["messages"][0]["content"][1]["image_url"]["url"],
+                        url
+                    ),
+                    UpstreamProtocol::Responses => {
+                        assert_eq!(payload["input"][0]["content"][1]["image_url"], url)
+                    }
+                    UpstreamProtocol::Anthropic => {
+                        assert_eq!(payload["messages"][0]["content"][1]["source"]["data"], png)
+                    }
+                    UpstreamProtocol::Gemini => assert_eq!(
+                        payload["contents"][0]["parts"][1]["inlineData"]["data"],
+                        png
+                    ),
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn sixteen_protocol_streaming_and_json_round_trips_use_real_tcp() {
     for p in [
         UpstreamProtocol::Chat,

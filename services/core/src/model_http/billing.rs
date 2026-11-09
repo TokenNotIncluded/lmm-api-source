@@ -913,6 +913,7 @@ fn local_input_bound(request: &Request) -> Result<u64, RelayError> {
             add(16)?;
             match block {
                 InputBlock::Text(value) | InputBlock::Refusal(value) => add(value.len())?,
+                InputBlock::Image(image) => add(image.encoded_len())?,
                 InputBlock::Thinking { text, signature } => {
                     add(text.len())?;
                     if let Some((_, value)) = signature {

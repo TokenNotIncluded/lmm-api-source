@@ -1,4 +1,4 @@
-//! Native Gemini text/function client adapter. Routing and settlement remain host-owned.
+//! Native Gemini text/image/function adapter. Routing and settlement remain host-owned.
 //! Wire reference: googleapis/python-genai ddd7d821497afe97a392e599ccffd5dd5011e44c
 //! (Apache-2.0); independently implemented, no upstream source copied.
 use super::{
@@ -195,9 +195,10 @@ pub(crate) fn parse(
                     "thoughtSignature",
                     "functionCall",
                     "functionResponse",
+                    "inlineData",
                 ],
             )?;
-            let count = ["text", "functionCall", "functionResponse"]
+            let count = ["text", "functionCall", "functionResponse", "inlineData"]
                 .iter()
                 .filter(|k| p.get(**k).is_some())
                 .count();
@@ -235,6 +236,14 @@ pub(crate) fn parse(
                     }
                     messages.push(json!({"role":role,"content":text}));
                 }
+            } else if let Some(image) = p.get("inlineData") {
+                if role != "user" || thought || sig.is_some() {
+                    return Err(RelayError::Unsupported(
+                        "image input requires unsigned user content",
+                    ));
+                }
+                let image = super::ImageInput::gemini_inline(image)?;
+                messages.push(json!({"role":role,"content":[image.wire(UpstreamProtocol::Chat)?]}));
             } else if let Some(f) = p.get("functionCall") {
                 if role != "assistant" || thought {
                     return Err(RelayError::Invalid("function call requires model role"));

@@ -1,5 +1,5 @@
-//! Bounded, text/function-call request conversion. Unsupported inputs fail closed.
-use super::{ClientProtocol, Limits, RelayError, Route, UpstreamProtocol};
+//! Bounded text, image and function-call conversion. Unsupported inputs fail closed.
+use super::{ClientProtocol, ImageInput, Limits, RelayError, Route, UpstreamProtocol};
 use serde::{
     Deserialize,
     de::{MapAccess, Visitor},
@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug)]
 pub enum InputBlock {
     Text(String),
+    Image(ImageInput),
     Refusal(String),
     Thinking {
         text: String,
@@ -418,7 +419,11 @@ fn arguments(v: &Value, limit: usize) -> Result<String, RelayError> {
     }
     Ok(text)
 }
-fn text_blocks(v: &Value, assistant: bool) -> Result<Vec<InputBlock>, RelayError> {
+fn text_blocks(
+    v: &Value,
+    role: Role,
+    client: ClientProtocol,
+) -> Result<Vec<InputBlock>, RelayError> {
     if v.is_null() {
         return Ok(Vec::new());
     }
@@ -440,14 +445,18 @@ fn text_blocks(v: &Value, assistant: bool) -> Result<Vec<InputBlock>, RelayError
                 }
                 out.push(InputBlock::Text(string(&p["text"])?));
             }
-            Some("refusal") if assistant => {
+            Some("image_url") if role == Role::User && client == ClientProtocol::Chat => {
+                out.push(InputBlock::Image(ImageInput::openai(p, client)?));
+            }
+            Some("input_image") if role == Role::User && client == ClientProtocol::Responses => {
+                out.push(InputBlock::Image(ImageInput::openai(p, client)?));
+            }
+            Some("refusal") if role == Role::Assistant => {
                 keys(p, &["type", "refusal"])?;
                 out.push(InputBlock::Refusal(string(&p["refusal"])?));
             }
             _ => {
-                return Err(RelayError::Unsupported(
-                    "only text and function tools are supported",
-                ));
+                return Err(RelayError::Unsupported("unsupported message content block"));
             }
         }
     }
@@ -830,7 +839,7 @@ impl Request {
                         } else if m.get("provider_metadata").is_some() {
                             return Err(RelayError::Invalid("signature without reasoning content"));
                         }
-                        content.extend(text_blocks(&m["content"], role == Role::Assistant)?);
+                        content.extend(text_blocks(&m["content"], role, client)?);
                         if let Some(t) = m.get("refusal").filter(|v| !v.is_null()) {
                             if role != Role::Assistant {
                                 return Err(RelayError::Invalid("refusal requires assistant role"));
@@ -892,7 +901,7 @@ impl Request {
                                 }
                                 messages.push(Message {
                                     role,
-                                    content: text_blocks(&i["content"], role == Role::Assistant)?,
+                                    content: text_blocks(&i["content"], role, client)?,
                                 });
                             }
                             "function_call" => {
@@ -1308,13 +1317,25 @@ impl Request {
         let mut messages = Vec::new();
         for m in &self.messages {
             let mut v = json!({"role":m.role.name(),"content":Value::Null});
+            let has_images = m
+                .content
+                .iter()
+                .any(|block| matches!(block, InputBlock::Image(_)));
             let mut text = String::new();
+            let mut parts = Vec::new();
             let mut thoughts = String::new();
             let mut refusals = String::new();
             let mut calls = Vec::new();
             for b in &m.content {
                 match b {
-                    InputBlock::Text(s) => text.push_str(s),
+                    InputBlock::Text(s) => {
+                        if has_images {
+                            parts.push(json!({"type":"text", "text":s}));
+                        } else {
+                            text.push_str(s);
+                        }
+                    }
+                    InputBlock::Image(image) => parts.push(image.wire(UpstreamProtocol::Chat)?),
                     InputBlock::Refusal(s) => refusals.push_str(s),
                     InputBlock::Thinking { text, signature } => {
                         thoughts.push_str(text);
@@ -1341,7 +1362,9 @@ impl Request {
                     }
                 }
             }
-            if !text.is_empty() || m.role != Role::Assistant {
+            if has_images {
+                v["content"] = json!(parts);
+            } else if !text.is_empty() || m.role != Role::Assistant {
                 v["content"] = json!(text);
             }
             if !thoughts.is_empty() {
@@ -1384,9 +1407,26 @@ impl Request {
         }
         let mut input = Vec::new();
         for m in &self.messages {
+            if m.content
+                .iter()
+                .any(|block| matches!(block, InputBlock::Image(_)))
+            {
+                let content = m
+                    .content
+                    .iter()
+                    .map(|block| match block {
+                        InputBlock::Text(text) => Ok(json!({"type":"input_text", "text":text})),
+                        InputBlock::Image(image) => image.wire(UpstreamProtocol::Responses),
+                        _ => Err(RelayError::Unsupported("unsupported image message content")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                input.push(json!({"role":m.role.name(), "content":content}));
+                continue;
+            }
             for b in &m.content {
                 match b {
             InputBlock::Text(s) => input.push(json!({"role":m.role.name(),"content":[{"type":if m.role == Role::Assistant {"output_text"} else {"input_text"},"text":s}]})),
+            InputBlock::Image(_) => unreachable!("image messages converted above"),
             InputBlock::Refusal(s) => input.push(json!({"role":"assistant","content":[{"type":"refusal","refusal":s}]})),
             InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("Responses reasoning history requires native item identity")),
             InputBlock::ToolCall { id, name, arguments, signature } => {
@@ -1447,6 +1487,7 @@ impl Request {
             for b in &m.content {
                 content.push(match b {
                 InputBlock::Text(s) | InputBlock::Refusal(s) => json!({"type":"text","text":s}),
+                InputBlock::Image(image) => image.wire(UpstreamProtocol::Anthropic)?,
                 InputBlock::Thinking { text, signature: Some((UpstreamProtocol::Anthropic, s)) } => json!({"type":"thinking","thinking":text,"signature":s}),
                 InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("Anthropic thinking history needs its original signature")),
                 InputBlock::ToolCall { id, name, arguments, .. } => json!({"type":"tool_use","id":id,"name":name,"input":serde_json::from_str::<Value>(arguments).map_err(|_| RelayError::Invalid("invalid tool JSON"))?}),
@@ -1516,6 +1557,7 @@ impl Request {
             for b in &m.content {
                 parts.push(match b {
                 InputBlock::Text(s) | InputBlock::Refusal(s) => json!({"text":s}),
+                InputBlock::Image(image) => image.wire(UpstreamProtocol::Gemini)?,
                 InputBlock::Thinking { text, signature: Some((UpstreamProtocol::Gemini, s)) } => json!({"text":text,"thought":true,"thoughtSignature":s}),
                 InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("Gemini thinking history needs its original signature")),
                 InputBlock::ToolCall { id, name, arguments, signature } => {

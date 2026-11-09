@@ -1,4 +1,4 @@
-//! Bounded Anthropic Messages client adapter. No media, hosted tools or cache controls.
+//! Bounded Anthropic Messages client adapter. Hosted tools and cache controls fail closed.
 use super::request::{InputBlock, Message, Request, Role};
 use super::{
     BlockKind, ClientProtocol, Event, FinishReason, Limits, RelayError, UpstreamProtocol, Usage,
@@ -101,6 +101,9 @@ fn blocks(v: &Value, role: Role, limits: &Limits) -> Result<Vec<InputBlock>, Rel
             Some("text") => {
                 keys(p, &["type", "text"])?;
                 InputBlock::Text(string(&p["text"])?)
+            }
+            Some("image") if role == Role::User => {
+                InputBlock::Image(super::ImageInput::anthropic(p)?)
             }
             Some("thinking") if role == Role::Assistant => {
                 keys(p, &["type", "thinking", "signature"])?;

@@ -1115,6 +1115,68 @@ async fn authorization_group_and_insufficient_funds_reject_before_dispatch(pool:
 }
 
 #[sqlx::test(migrations = false)]
+async fn vision_request_settles_supplier_usage_once_and_rejects_changed_image(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let first = gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt);
+    let mut body = chat();
+    body["messages"][0]["content"] = json!([
+        {"type":"image_url", "image_url":{"url":"https://image.test/a.png"}}
+    ]);
+    let (status, output) = call(
+        &first,
+        Some(&key),
+        "/v1/chat/completions",
+        body.clone(),
+        Some("vision-one"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{output}");
+    assert_eq!(output["usage"]["prompt_tokens"], 10);
+    assert_eq!(output["usage"]["completion_tokens"], 20);
+    let second = gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt);
+    for url in ["https://image.test/a.png", "https://image.test/b.png"] {
+        body["messages"][0]["content"][0]["image_url"]["url"] = json!(url);
+        assert_eq!(
+            call(
+                &second,
+                Some(&key),
+                "/v1/chat/completions",
+                body.clone(),
+                Some("vision-one")
+            )
+            .await
+            .0,
+            StatusCode::CONFLICT
+        );
+    }
+    body["messages"][0]["content"][0]["image_url"]["url"] = json!("data:image/png;base64,!");
+    assert_eq!(
+        call(
+            &second,
+            Some(&key),
+            "/v1/chat/completions",
+            body,
+            Some("vision-invalid")
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    let balance = ledger.balance(account).await.unwrap();
+    assert_eq!((balance.available_units, balance.reserved_units), (951, 0));
+    let charge: (String, i64, i64, i64) = sqlx::query_as(
+        "SELECT state,settled,input_tokens,output_tokens FROM core_charging.requests",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(charge, ("settled".into(), 49, 10, 20));
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn idempotency_survives_gateway_reconstruction_and_changed_body(pool: PgPool) {
     let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
     let provider = Provider::start(true).await;
