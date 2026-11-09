@@ -55,7 +55,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | PAY-03 | Pancake catalog/pair/save、订阅映射与 customer portal 未接完整后台 | 待补齐 | 接当前配置和权限、秘密只写、server 绑定 customer/store/environment，并完成真实管理页面联动。 |
 | STORE-01 | 游客购买与邮件提货合同未齐 | 待补齐 | 补游客订单归属、邮箱验证、付款领取、邮件 outbox/重试；覆盖凭证混用、重放及退款后禁止领取。登录买家的提货码/链接已有。 |
 | STORE-02 | 商店按数量/金额的部分退款缺失 | 待补齐 | Core 与 Go 绑定原订单和每次退款身份；证明累计上限、库存/交付、卖家收入、外部回执及丢 ACK 恢复。 |
-| STORE-03 | 商品 public/registered/private 三态未对齐 | 待补齐 | 按身份过滤后再分页计数；覆盖查看/购买、旧 visibility/TestMode 迁移，禁止把受限商品降为公开。 |
+| STORE-03 | 三态目录、详情与分页已补齐；卖家自购及管理页待完成 | 待补齐 | 2026-11-09，`commerce` 实现 [63db64bc](https://github.com/TokenNotIncluded/lmm-api-source/commit/63db64bc0124f0361f0f5a7facde72b0c904d46a)，`root` 独立复验真实 PostgreSQL 的三态可见性、分页前过滤、原生游标、伪造身份拒绝及旧 visibility/TestMode 优先级，两项通过。[原始记录][progress-evidence]。尚需补卖家自购的 Core 资金合同及页面操作，`store_access_supported` 保持关闭。 |
 | STORE-04 | 账户级购物车与收藏未接服务端 | 待补齐 | 补账户隔离的持久化、下架/私有化/变体失效清理及游客合并策略，再开放能力；已有点赞与本地购物车分别保留。 |
 | REVIEW-01 | 市场 AI 自动审核缺配置、执行和结果历史 | 待补齐 | 恢复 off/assist/auto 与发布/拒绝边界，接审核设置和权限；保留现有人工审核与版本发布。 |
 
@@ -111,3 +111,5 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 [rel-candidate]: https://github.com/TokenNotIncluded/lmm-api-source/tree/7fb02902eefd21670840125c73bea539fab853ce
 [rel02-fix]: https://github.com/TokenNotIncluded/lmm-api-source/commit/15bc57486442a3a2deae538ba7105069c6dd9c81
 [rel-evidence]: https://drive.google.com/drive/folders/1c1MpzgGZ7yDk7F53b28aDeoOfx8h9zxy
+
+[progress-evidence]: https://drive.google.com/drive/folders/1WpvJDD0IDjB8p-qr14k9_lgP9aWZ2hMw
