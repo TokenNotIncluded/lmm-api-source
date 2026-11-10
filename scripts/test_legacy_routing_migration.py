@@ -277,6 +277,22 @@ class RoutingSemanticsTests(unittest.TestCase):
         rebind_channel(value)
         self.assertIn("special_channel_behavior_not_mapped", reasons(run_fixture(value)))
 
+    def test_reviewed_client_protocols_are_kept_per_target(self):
+        value = fixture()
+        context = value[3]["providers"]["channels"][0]["models"][0]
+        context["client_protocols"] = ["openai_responses", "openai_chat"]
+        result = run_fixture(value)
+        first, second = result["candidate"]["routing"]["routes"][0]["targets"]
+        self.assertEqual(first["client_protocols"], ["openai_chat", "openai_responses"])
+        self.assertNotIn("client_protocols", second)
+
+        for invalid in (None, [], ["openai_chat", "openai_chat"], ["unknown"], [[]]):
+            with self.subTest(invalid=invalid):
+                context["client_protocols"] = invalid
+                result = run_fixture(value)
+                self.assertIn("provider_client_protocols_invalid", reasons(result))
+                self.assertNotIn("candidate", result)
+
     def test_high_old_priority_maps_to_low_native_priority(self):
         result = run_fixture(fixture(priorities=(-5, 100)))
         self.assertEqual(result["status"], "candidate-requires-native-validation")

@@ -75,6 +75,7 @@ fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGa
                         priority: 0,
                         weight: 1,
                         speeds: vec![Speed::Standard],
+                        client_protocols: None,
                         payload: PayloadPolicy::Adapt,
                         timeout_ms: 5000,
                     }],

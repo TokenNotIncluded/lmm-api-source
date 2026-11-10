@@ -15,6 +15,8 @@ Optional JSON contracts have format_version=1, the scope below, and bindings
   {source_model, upstream_model, source_operations (e.g. ["chat.completions"]),
   max_input_tokens, max_output_tokens,
   missing_cached_tokens_is_zero, missing_cache_creation_tokens_is_zero;
+  optional client_protocols is the reviewed client-side allowlist for this
+  channel/model, independent of the upstream protocol and source_operations;
   Gemini additionally needs legacy_api_version="v1beta"}, and
   prices[] {group, model, kind=flat_tokens, source_options_sha256,
   contract_revision, rates={input,output,cache_read,cache_write,request},
@@ -65,6 +67,7 @@ LEGACY_RATIO_SOURCE = "cc52aa195c6f2a01d703a1a407be73c31b89867d"
 # payload contract; its special settings and suffix behavior remain refused.
 PROTOCOLS = {1: {"openai_chat", "openai_responses"}, 14: {"anthropic_messages"}, 24: {"gemini"},
              20: {"openai_chat"}, 48: {"openai_chat", "openai_responses"}, 62: {"system_one"}}
+TEXT_CLIENT_PROTOCOLS = frozenset().union(*PROTOCOLS.values())
 EMPTY = (None, "", "{}", "null")
 CHANNEL_FIELDS = {"id", "type", "key", "open_ai_organization", "test_model", "status", "name", "weight",
                   "created_time", "test_time", "response_time", "base_url", "other", "balance", "balance_updated_time",
@@ -925,6 +928,14 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         entry["reasons"].append("provider_model_context_missing_or_duplicate")
                     else:
                         context = contexts[0]
+                        if "client_protocols" in context:
+                            client_protocols = context["client_protocols"]
+                            if (type(client_protocols) is not list or not client_protocols
+                                    or any(type(p) is not str or p not in TEXT_CLIENT_PROTOCOLS for p in client_protocols)
+                                    or len(client_protocols) != len(set(client_protocols))):
+                                entry["reasons"].append("provider_client_protocols_invalid")
+                            else:
+                                entry["client_protocols"] = sorted(client_protocols)
                         allowed_operations = {"openai_chat": {"chat.completions"}, "openai_responses": {"responses"},
                                               "anthropic_messages": {"messages"}, "gemini": {"generateContent", "streamGenerateContent"},
                                               "system_one": {"systemone"}}
@@ -996,6 +1007,7 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                     next_target_id += 1
                     targets.append({"id": next_target_id, "upstream_id": cid, "upstream_model": model, "enabled": True,
                                     "priority": entry["native_priority"], "weight": entry["native_weight"], "speeds": ["standard"],
+                                    **({"client_protocols": entry["client_protocols"]} if "client_protocols" in entry else {}),
                                     "payload": ("legacy_openrouter_chat_usage_v1"
                                         if source_price.get("kind") == "legacy_ratio_decimal"
                                         and source_price.get("source_usage_contract") == LEGACY_FABLE_USAGE

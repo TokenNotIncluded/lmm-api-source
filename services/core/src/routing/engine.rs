@@ -181,6 +181,13 @@ impl Snapshot {
                     || !valid_model(&target.upstream_model)
                     || target_speeds.is_empty()
                     || target_speeds.len() != target.speeds.len()
+                    || target.client_protocols.as_ref().is_some_and(|protocols| {
+                        protocols.is_empty()
+                            || protocols
+                                .iter()
+                                .enumerate()
+                                .any(|(index, protocol)| protocols[..index].contains(protocol))
+                    })
                     || !target_speeds.is_subset(&unique_speeds)
                     || !(1..=3_600_000).contains(&target.timeout_ms)
                 {
@@ -468,6 +475,7 @@ impl Router {
             .iter()
             .filter(|target| {
                 target.available()
+                    && target.config.allows_client(request.protocol)
                     && target.config.speeds.contains(&speed)
                     && (target
                         .config

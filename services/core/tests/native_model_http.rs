@@ -160,6 +160,7 @@ fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> M
                 priority: 0,
                 weight: 1,
                 speeds: vec![Speed::Standard],
+                client_protocols: None,
                 payload: PayloadPolicy::Adapt,
                 timeout_ms: 5000,
             }],

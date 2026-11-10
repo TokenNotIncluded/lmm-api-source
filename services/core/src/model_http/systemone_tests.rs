@@ -240,6 +240,7 @@ fn gateway_with_prices(
                 priority: 0,
                 weight: 1,
                 speeds: vec![Speed::Standard],
+                client_protocols: None,
                 payload: PayloadPolicy::Adapt,
                 timeout_ms: 5000,
             }],

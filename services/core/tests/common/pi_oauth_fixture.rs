@@ -89,6 +89,7 @@ fn routes(
                         priority: 0,
                         weight: 1,
                         speeds: vec![Speed::Standard],
+                        client_protocols: None,
                         payload: policy,
                         timeout_ms: 5_000,
                     }],

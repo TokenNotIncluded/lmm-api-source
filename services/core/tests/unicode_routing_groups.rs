@@ -74,6 +74,7 @@ fn routing(provider: &Provider, group: &str) -> Arc<Router> {
                         priority: 0,
                         weight: 1,
                         speeds: vec![Speed::Standard],
+                        client_protocols: None,
                         payload: PayloadPolicy::Adapt,
                         timeout_ms: 5000,
                     }],

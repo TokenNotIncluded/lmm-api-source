@@ -48,6 +48,7 @@ fn fixture(version: u64) -> (RoutingConfig, PriceConfig) {
                     priority: 0,
                     weight: if id == 1 { 1 } else { 3 },
                     speeds: speeds.clone(),
+                    client_protocols: None,
                     payload: PayloadPolicy::Adapt,
                     timeout_ms: 30_000,
                 })
@@ -248,7 +249,7 @@ fn legacy_openai_attempt_policy_is_frozen_across_publication_and_retry() {
     assert_ne!(current.version(), first.version());
 
     let bytes =
-        br#"{"model":"model-a","messages":[{"role":"user","content":"hello"}],"speed":"fast"}"#;
+        br#"{"model":"model-a","messages":[{"role":"user","content":"hello"}],"speed":"standard"}"#;
     let request = crate::relay::Request::parse_deferred_openai(
         crate::relay::ClientProtocol::Chat,
         bytes,
@@ -1525,4 +1526,151 @@ fn catalog_document_keeps_exact_routing_price_snapshot_across_publication() {
     assert_eq!((first.routing.version, first.pricing.version), (1, 1));
     assert_eq!(first.routing.routes[0].targets[0].timeout_ms, 30_000);
     assert_eq!(first.pricing.rules[0].rates.input, 3_000_000);
+}
+
+#[test]
+fn client_protocols_restrict_before_priority_and_retry() {
+    for payload in [PayloadPolicy::Adapt, PayloadPolicy::Passthrough] {
+        let (mut config, prices) = fixture(1);
+        config.routes[0].targets[0].priority = 0;
+        config.routes[0].targets[0].payload = payload;
+        config.routes[0].targets[0].client_protocols = Some(vec![Protocol::AnthropicMessages]);
+        config.routes[0].targets[1].priority = 1;
+        let router = build(config, prices);
+        // The generic passthrough path must honor the restriction too.
+        let mut generic = router.route(request()).unwrap();
+        assert_eq!(generic.start().unwrap().target_id(), 2);
+        assert!(generic.retry(failure()).is_err());
+        let mut adapted = router.route_adapted(request()).unwrap();
+        assert_eq!(adapted.start().unwrap().target_id(), 2);
+        assert!(adapted.retry(failure()).is_err());
+        for affinity in [None, Some([7; 32])] {
+            let mut groups = router
+                .route_adapted_groups(
+                    "model-a",
+                    &["default".into()],
+                    Protocol::OpenAiChat,
+                    affinity,
+                )
+                .unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].start().unwrap().target_id(), 2);
+        }
+        if payload == PayloadPolicy::Adapt {
+            let mut allowed = router
+                .route_adapted(RouteRequest {
+                    protocol: Protocol::AnthropicMessages,
+                    ..request()
+                })
+                .unwrap();
+            assert_eq!(allowed.start().unwrap().target_id(), 1);
+        }
+    }
+}
+
+#[test]
+fn client_protocols_do_not_restrict_other_models() {
+    let (mut config, mut prices) = fixture(1);
+    let mut other = config.routes[0].clone();
+    other.id = 2;
+    other.model = "model-b".into();
+    for target in &mut other.targets {
+        target.id += 2;
+        target.upstream_model = "model-b".into();
+    }
+    config.routes.push(other);
+    let other_prices: Vec<_> = prices
+        .rules
+        .iter()
+        .cloned()
+        .map(|mut price| {
+            price.id += 3;
+            price.model = "model-b".into();
+            price
+        })
+        .collect();
+    prices.rules.extend(other_prices);
+    for target in &mut config.routes[0].targets {
+        target.client_protocols = Some(vec![Protocol::AnthropicMessages]);
+    }
+    let router = build(config, prices);
+    assert!(matches!(
+        router.route_adapted(request()),
+        Err(RoutingError::NoEligibleUpstream)
+    ));
+    let mut other = router
+        .route_adapted(RouteRequest {
+            model: "model-b",
+            ..request()
+        })
+        .unwrap();
+    assert!(matches!(other.start().unwrap().target_id(), 3 | 4));
+}
+
+#[test]
+fn client_protocols_empty_and_duplicate_lists_are_invalid() {
+    for invalid in [
+        vec![],
+        vec![Protocol::AnthropicMessages, Protocol::AnthropicMessages],
+    ] {
+        let (mut config, prices) = fixture(1);
+        config.routes[0].targets[0].client_protocols = Some(invalid);
+        assert!(matches!(
+            Router::new(config, Arc::new(PriceSnapshot::compile(prices).unwrap())),
+            Err(RoutingError::InvalidConfig("route target"))
+        ));
+    }
+}
+
+#[test]
+fn client_protocols_none_preserves_old_release_bytes_and_snapshot_retry() {
+    let (mut config, prices) = fixture(1);
+    config.routes[0].targets[0].priority = 0;
+    config.routes[0].targets[1].priority = 1;
+    let old = ReleaseDocument {
+        contract_version: 1,
+        routing: config,
+        pricing: prices,
+    }
+    .encode()
+    .unwrap();
+    assert!(
+        !std::str::from_utf8(&old)
+            .unwrap()
+            .contains("client_protocols")
+    );
+    let recovered = ReleaseDocument::decode(&old).unwrap();
+    assert_eq!(recovered.encode().unwrap(), old);
+    let router = recovered.into_router().unwrap();
+    let mut pinned = router.route_adapted(request()).unwrap();
+    let first = pinned.start().unwrap();
+    assert_eq!(first.target_id(), 1);
+
+    let (mut next, next_prices) = fixture(2);
+    for target in &mut next.routes[0].targets {
+        target.client_protocols = Some(vec![Protocol::AnthropicMessages]);
+    }
+    let restricted_bytes = ReleaseDocument {
+        contract_version: 1,
+        routing: next,
+        pricing: next_prices,
+    }
+    .encode()
+    .unwrap();
+    let restricted = ReleaseDocument::decode(&restricted_bytes).unwrap();
+    assert_eq!(restricted.encode().unwrap(), restricted_bytes);
+    router
+        .publish(
+            router.version().unwrap(),
+            restricted.routing,
+            Arc::new(PriceSnapshot::compile(restricted.pricing).unwrap()),
+        )
+        .unwrap();
+    assert!(matches!(
+        router.route_adapted(request()),
+        Err(RoutingError::NoEligibleUpstream)
+    ));
+    let retry = pinned.retry(failure()).unwrap();
+    assert_eq!(retry.target_id(), 2);
+    assert_eq!(retry.version(), first.version());
 }

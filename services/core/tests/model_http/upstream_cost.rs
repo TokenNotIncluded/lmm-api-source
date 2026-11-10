@@ -112,6 +112,7 @@ fn cost_routes(endpoint: &str, model: &str) -> Arc<lmm_core::routing::Router> {
                         priority: 0,
                         weight: 1,
                         speeds: vec![Speed::Standard],
+                        client_protocols: None,
                         payload: PayloadPolicy::Adapt,
                         timeout_ms: 5_000,
                     }],

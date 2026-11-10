@@ -241,8 +241,19 @@ pub struct RouteTarget {
     pub priority: u16,
     pub weight: u32,
     pub speeds: Vec<Speed>,
+    /// None preserves unrestricted client protocols from existing releases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_protocols: Option<Vec<Protocol>>,
     pub payload: PayloadPolicy,
     pub timeout_ms: u32,
+}
+
+impl RouteTarget {
+    pub(crate) fn allows_client(&self, protocol: Protocol) -> bool {
+        self.client_protocols
+            .as_ref()
+            .is_none_or(|protocols| protocols.contains(&protocol))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]

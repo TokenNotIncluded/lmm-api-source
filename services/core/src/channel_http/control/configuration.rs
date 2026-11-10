@@ -265,8 +265,18 @@ fn attach(
         .max()
         .unwrap_or(0);
     let mut seen = BTreeSet::new();
+    // Preserve routing policy when a channel edit replaces its targets.
+    let mut previous_client_protocols = BTreeMap::new();
     for route in &mut document.routing.routes {
-        route.targets.retain(|t| t.upstream_id != id);
+        route.targets.retain(|target| {
+            if target.upstream_id != id {
+                return true;
+            }
+            if let Some(protocols) = &target.client_protocols {
+                previous_client_protocols.insert(route.id, protocols.clone());
+            }
+            false
+        });
     }
     for attachment in attachments {
         if !seen.insert(attachment.route_id) {
@@ -290,12 +300,55 @@ fn attach(
             priority: attachment.priority,
             weight: attachment.weight,
             speeds: attachment.speeds,
+            client_protocols: previous_client_protocols.remove(&route.id),
             payload: attachment.payload,
             timeout_ms: attachment.timeout_ms,
         });
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[test]
+fn channel_attachment_edit_preserves_client_protocols() {
+    let mut document: ReleaseDocument = serde_json::from_value(json!({
+        "contract_version": 1,
+        "routing": {
+            "version": 1, "groups": [], "upstreams": [], "aliases": [],
+            "routes": [{
+                "id": 1, "model": "example", "group": "default", "enabled": true,
+                "speeds": ["standard"],
+                "failover": {"max_attempts": 1, "retry_on": [], "allow_replay_after_send": false},
+                "targets": [{
+                    "id": 5, "upstream_id": 2, "upstream_model": "before",
+                    "enabled": true, "priority": 0, "weight": 1,
+                    "speeds": ["standard"], "client_protocols": ["anthropic_messages"],
+                    "payload": "adapt", "timeout_ms": 5000
+                }]
+            }]
+        },
+        "pricing": {"version": 1, "rules": []}
+    }))
+    .unwrap();
+    let attachments = vec![Attachment {
+        route_id: 1,
+        upstream_model: "after".into(),
+        priority: 1,
+        weight: 1,
+        speeds: vec![Speed::Standard],
+        timeout_ms: 5000,
+        payload: PayloadPolicy::Adapt,
+    }];
+    attach(&mut document, 2, attachments).unwrap();
+
+    let [target] = document.routing.routes[0].targets.as_slice() else {
+        panic!("expected one replacement target");
+    };
+    assert_eq!(target.upstream_model, "after");
+    assert!(target.allows_client(Protocol::AnthropicMessages));
+    assert!(!target.allows_client(Protocol::OpenAiChat));
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct ChannelInput {

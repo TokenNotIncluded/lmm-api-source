@@ -222,6 +222,7 @@ fn build_gateway(pool: &PgPool, base: &str, key: i64, output_rate: u64) -> Model
                     priority: 0,
                     weight: 1,
                     speeds: vec![Speed::Standard],
+                    client_protocols: None,
                     payload: PayloadPolicy::Adapt,
                     timeout_ms: 10000,
                 }],

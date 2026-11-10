@@ -554,6 +554,7 @@ fn api_supported(
                 && t.weight > 0
                 && u.enabled
                 && t.speeds.contains(&Speed::Standard)
+                && t.allows_client(client)
                 && (t.payload.adapts(client, u.protocol)
                     || (u.protocol == client && t.upstream_model == name))
         })
@@ -781,6 +782,7 @@ mod tests {
                         priority: 0,
                         weight: 1,
                         speeds: vec![Speed::Standard],
+                        client_protocols: None,
                         payload: PayloadPolicy::Adapt,
                         timeout_ms: 5000,
                     }],
@@ -921,6 +923,38 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn client_protocols_public_metadata_matches_target_restrictions() {
+        for (restriction, apis) in [
+            (None, vec!["openai-completions", "openai-responses"]),
+            (
+                Some(vec![Protocol::OpenAiResponses]),
+                vec!["openai-responses"],
+            ),
+        ] {
+            let (mut config, prices) = fixture("model");
+            config.routes[0].targets[0].client_protocols = restriction;
+            let (router, surface) = surface(config, prices);
+            let value = serde_json::to_value(view(&surface)).unwrap();
+            assert_eq!(value["models"][0]["apis"], serde_json::json!(apis));
+            for (protocol, api) in [
+                (Protocol::OpenAiChat, "openai-completions"),
+                (Protocol::OpenAiResponses, "openai-responses"),
+            ] {
+                let callable = router
+                    .route_adapted(crate::routing::RouteRequest {
+                        model: "model",
+                        group: "synthetic",
+                        protocol,
+                        speed: None,
+                        replay: crate::routing::ReplayPermission::Denied,
+                    })
+                    .is_ok();
+                assert_eq!(callable, apis.contains(&api));
+            }
+        }
     }
 
     #[test]

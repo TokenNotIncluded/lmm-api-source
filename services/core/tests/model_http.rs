@@ -126,6 +126,7 @@ fn routes_with_payloads(
                             priority: index.try_into().unwrap(),
                             weight: 1,
                             speeds: vec![Speed::Standard],
+                            client_protocols: None,
                             payload,
                             timeout_ms: 5_000,
                         })
