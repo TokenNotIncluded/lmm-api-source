@@ -721,6 +721,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
         id: request_id.into(),
         fingerprint: [17; 32],
         price: ChargingPrice {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
