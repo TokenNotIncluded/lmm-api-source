@@ -5,7 +5,7 @@ use super::{
     honeypot_network::{self, NetworkTarget, PreparedConnection},
     responses_ws::PreparedCreate,
 };
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::{Client, Url};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
@@ -34,24 +34,47 @@ pub(crate) struct ResponsesConnection {
 }
 
 impl ResponsesConnection {
+    pub(crate) fn accepts(&self, route: &Route) -> bool {
+        self.usable
+            && self.opened_for.is_available()
+            && route.is_available()
+            && route.protocol == UpstreamProtocol::Responses
+            && route.id == self.opened_for.id
+            && route.model == self.opened_for.model
+            && route.endpoint == self.opened_for.endpoint
+            && route.credential == self.opened_for.credential
+    }
+
+    pub(crate) async fn receive(&mut self) -> Result<Option<Message>, RelayError> {
+        self.socket
+            .next()
+            .await
+            .transpose()
+            .map_err(|_| RelayError::UpstreamConnection)
+    }
+
     pub(crate) async fn send_prepared(
         &mut self,
         route: &Route,
         frame: &PreparedCreate,
     ) -> Result<(), RelayError> {
-        if !self.usable
-            || !self.opened_for.is_available()
-            || !route.is_available()
-            || route.protocol != UpstreamProtocol::Responses
-            || route.id != self.opened_for.id
-            || route.model != self.opened_for.model
-            || route.endpoint != self.opened_for.endpoint
-            || route.credential != self.opened_for.credential
-        {
-            return Err(RelayError::RouteUnavailable);
-        }
         let text = std::str::from_utf8(&frame.wire_bytes)
             .map_err(|_| RelayError::Invalid("invalid prepared WebSocket frame"))?;
+        self.send_text(route, text).await
+    }
+
+    pub(crate) async fn send_cancel(
+        &mut self,
+        route: &Route,
+        text: &str,
+    ) -> Result<(), RelayError> {
+        self.send_text(route, text).await
+    }
+
+    async fn send_text(&mut self, route: &Route, text: &str) -> Result<(), RelayError> {
+        if !self.accepts(route) {
+            return Err(RelayError::RouteUnavailable);
+        }
         // A failed or cancelled write may already have reached the provider.
         // Retire the socket so no later turn can reuse an ambiguous connection.
         self.usable = false;

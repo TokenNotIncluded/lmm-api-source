@@ -115,11 +115,13 @@ stream's intended lifetime, and preserve request/response cancellation while
 keeping bounded connect, header, body, and send-backpressure timeouts. Do not
 add a total response timeout that cuts a valid stream during normal operation.
 
-The current Core status explicitly advertises
-`backend_capabilities.responses_websocket=false`, and no public WebSocket route
-is assembled in this revision. A client probing a Responses WebSocket is not
-proof that an Upgrade proxy is required. Preserve an Upgrade block only for a
-separately verified legacy route.
+Core assembles `GET /v1/responses` for WebSocket Upgrade when the model gateway
+configuration explicitly sets `responses_websocket = true`. The HTTP POST route
+remains available. At the edge, preserve the Upgrade headers, Bearer credential,
+and trusted peer forwarding on this exact Core location. Keep proxy buffering
+off for the same path's streaming POST responses. The localhost edge harness
+checks the `101` response and a frame round trip separately from POST routing.
+The status capability and production edge still need verification for cutover.
 
 The remote-control relay is still a source/WIP contract and has no independent
 public OAuth plus edge acceptance in this revision. Keep that route out of a

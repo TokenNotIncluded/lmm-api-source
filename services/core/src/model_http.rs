@@ -25,6 +25,7 @@ mod native_http;
 mod native_models;
 pub mod pricing;
 mod provider_policy;
+mod responses_websocket;
 mod routing;
 #[cfg(test)]
 mod selected_bound_tests;
@@ -104,6 +105,7 @@ pub struct ModelGateway {
     relay: Relay,
     limits: Limits,
     local_streaming: bool,
+    responses_websocket: bool,
     honeypot: Option<HoneypotGateway>,
     legacy_keys: Option<Arc<legacy_keys::Aliases>>,
     catalog_surface: Arc<CatalogSurface>,
@@ -207,6 +209,7 @@ impl ModelGateway {
             native_http: native_host::Host::new(limits.max_in_flight.min(4)),
             limits,
             local_streaming: false,
+            responses_websocket: false,
             honeypot: None,
             legacy_keys: None,
             catalog_surface,
@@ -254,6 +257,11 @@ impl ModelGateway {
     /// This does not enable external suppliers or certify their token bounds.
     pub fn with_local_streaming(mut self) -> Self {
         self.local_streaming = true;
+        self
+    }
+
+    pub(crate) fn with_responses_websocket(mut self) -> Self {
+        self.responses_websocket = true;
         self
     }
 
@@ -380,11 +388,74 @@ impl ModelGateway {
                 .map(|_| ())
         }
     }
+    async fn authorize_model_plans(
+        &self,
+        principal: &ModelIdentity,
+        secret: &str,
+        peer: Option<IpAddr>,
+        plans: Vec<crate::routing::RoutePlan>,
+    ) -> Result<Vec<crate::routing::RoutePlan>, RelayError> {
+        let cross_group = if principal.key_id().is_some() {
+            match self.identity.api_key_cross_group_retry(secret).await {
+                Ok(allowed) => allowed,
+                Err(error) => return Err(identity_error(error)),
+            }
+        } else {
+            false
+        };
+        let mut authorized = Vec::new();
+        let mut authorization_denied = false;
+        for plan in plans {
+            if authorized
+                .first()
+                .is_some_and(|first: &crate::routing::RoutePlan| {
+                    first.canonical_model() != plan.canonical_model()
+                })
+            {
+                continue;
+            }
+            match self
+                .authorize_request(
+                    principal,
+                    secret,
+                    plan.canonical_model(),
+                    plan.group(),
+                    peer,
+                )
+                .await
+            {
+                Ok(()) => authorized.push(plan),
+                Err(IdentityError::Forbidden) => {
+                    authorization_denied = true;
+                    continue;
+                }
+                Err(error) => return Err(identity_error(error)),
+            }
+            if !cross_group {
+                break;
+            }
+        }
+        if authorized.is_empty() {
+            return Err(if authorization_denied {
+                RelayError::Forbidden
+            } else {
+                RelayError::RouteUnavailable
+            });
+        }
+        Ok(authorized)
+    }
+
     pub fn router(&self) -> Router {
+        let responses = post(responses);
+        let responses = if self.responses_websocket {
+            responses.get(responses_websocket::upgrade)
+        } else {
+            responses
+        };
         let router = Router::new()
             .route("/v1/models", get(models))
             .route("/v1/chat/completions", post(chat))
-            .route("/v1/responses", post(responses))
+            .route("/v1/responses", responses)
             .route("/v1/messages", post(native::messages))
             .route("/v1beta/models", get(native_models::gemini_list))
             .route(
@@ -910,56 +981,14 @@ async fn dispatch(
             RelayError::Unsupported("audio model cannot use text billing"),
         );
     }
-    let cross_group = if principal.key_id().is_some() {
-        match gateway.identity.api_key_cross_group_retry(&secret).await {
-            Ok(allowed) => allowed,
-            Err(error) => return native::error_response(client, identity_error(error)),
-        }
-    } else {
-        false
+    let authorized = match gateway
+        .authorize_model_plans(&principal, &secret, peer, plans)
+        .await
+    {
+        Ok(authorized) => authorized,
+        Err(error) => return native::error_response(client, error),
     };
-    let mut authorized = Vec::new();
-    let mut authorization_denied = false;
-    for plan in plans {
-        if authorized
-            .first()
-            .is_some_and(|first: &crate::routing::RoutePlan| {
-                first.canonical_model() != plan.canonical_model()
-            })
-        {
-            continue;
-        }
-        match gateway
-            .authorize_request(
-                &principal,
-                &secret,
-                plan.canonical_model(),
-                plan.group(),
-                peer,
-            )
-            .await
-        {
-            Ok(()) => authorized.push(plan),
-            Err(IdentityError::Forbidden) => {
-                authorization_denied = true;
-                continue;
-            }
-            Err(error) => return native::error_response(client, identity_error(error)),
-        }
-        if !cross_group {
-            break;
-        }
-    }
-    let Some(initial) = authorized.first() else {
-        return native::error_response(
-            client,
-            if authorization_denied {
-                RelayError::Forbidden
-            } else {
-                RelayError::RouteUnavailable
-            },
-        );
-    };
+    let initial = &authorized[0];
     let group = initial.group().to_owned();
     if request.stream && !gateway.local_streaming {
         return native::error_response(

@@ -2774,6 +2774,8 @@ struct ModelConfig {
     #[serde(default)]
     local_streaming: bool,
     #[serde(default)]
+    responses_websocket: bool,
+    #[serde(default)]
     // Each host contract carries its strict reservation profile; omission is context_max.
     external_models: Vec<crate::model_http::ExternalModelContext>,
     #[serde(default)]
@@ -3048,14 +3050,17 @@ fn model_gateway_with_origins(
     } else {
         gateway
     };
-    Ok((
-        if config.local_streaming {
-            gateway.with_local_streaming()
-        } else {
-            gateway
-        },
-        credential_origins,
-    ))
+    let gateway = if config.local_streaming {
+        gateway.with_local_streaming()
+    } else {
+        gateway
+    };
+    let gateway = if config.responses_websocket {
+        gateway.with_responses_websocket()
+    } else {
+        gateway
+    };
+    Ok((gateway, credential_origins))
 }
 
 // Host-only file identities and in-memory values; never expose these via HTTP,

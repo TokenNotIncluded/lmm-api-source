@@ -652,6 +652,311 @@ fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
 }
 
 #[sqlx::test(migrations = false)]
+async fn websocket_gateway_settles_each_turn_before_exposing_terminal(pool: PgPool) {
+    use axum::{
+        Router,
+        extract::ws::{Message, WebSocketUpgrade},
+        routing::get,
+    };
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::{Message as ClientMessage, client::IntoClientRequest};
+    use tower::ServiceExt;
+
+    let f = fixture(pool, 2_000_000).await;
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_base = format!("http://{}/v1", upstream.local_addr().unwrap());
+    let supplier = Router::new().route("/v1/responses", get(|ws: WebSocketUpgrade| async move {
+        ws.on_upgrade(|mut socket| async move {
+            for index in 1..=2 {
+                let Some(Ok(Message::Text(raw))) = socket.recv().await else { panic!("missing create"); };
+                let create: serde_json::Value = serde_json::from_str(raw.as_str()).unwrap();
+                assert_eq!(create["model"], "compat-2");
+                if index == 2 { assert_eq!(create["previous_response_id"], "resp_1"); }
+                let id = format!("resp_{index}");
+                for event in [
+                    json!({"type":"response.created","response":{"id":id,"status":"in_progress"}}),
+                    json!({"type":"response.completed","response":{"id":id,"status":"completed","usage":{"input_tokens":2,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}}),
+                ] {
+                    socket.send(Message::Text(event.to_string().into())).await.unwrap();
+                }
+            }
+        })
+    }));
+    let supplier_task = tokio::spawn(async move { axum::serve(upstream, supplier).await.unwrap() });
+    let g = compatibility_gateway(&f, &upstream_base, Protocol::OpenAiResponses);
+    let disabled = g
+        .router()
+        .oneshot(
+            axum::http::Request::get("/v1/responses")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        disabled.status(),
+        axum::http::StatusCode::METHOD_NOT_ALLOWED
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let endpoint = format!("ws://{address}/v1/responses");
+    let app = g.clone().with_responses_websocket().router();
+    let gateway_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut request = endpoint.into_client_request().unwrap();
+    request.headers_mut().insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", f.key)).unwrap(),
+    );
+    let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let (mut client, _) = tokio_tungstenite::client_async(request, stream)
+        .await
+        .unwrap();
+    for index in 1..=2 {
+        let mut create = json!({"type":"response.create","model":"compat-2","input":"hello","max_output_tokens":16});
+        if index == 2 {
+            create["previous_response_id"] = json!("resp_1");
+        }
+        client
+            .send(ClientMessage::Text(create.to_string().into()))
+            .await
+            .unwrap();
+        for expected in ["response.created", "response.completed"] {
+            let raw = tokio::time::timeout(Duration::from_secs(5), client.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .into_text()
+                .unwrap();
+            let event: serde_json::Value = serde_json::from_str(raw.as_str()).unwrap();
+            assert_eq!(event["type"], expected, "{event}");
+        }
+        assert_balance(&f, 2_000_000 - index * 2, 0).await;
+    }
+    let rotated = CredentialRef { id: 7, revision: 2 };
+    g.bridge
+        .credentials
+        .append(vec![UpstreamCredential {
+            reference: rotated,
+            secret: "synthetic-rotated-compatibility-key".into(),
+        }])
+        .unwrap();
+    let mut release = g.bridge.routing.catalog_document().unwrap();
+    release.routing.version += 1;
+    release.routing.upstreams[0].credential = rotated;
+    g.bridge
+        .routing
+        .publish(
+            g.bridge.routing.version().unwrap(),
+            release.routing,
+            Arc::new(PriceSnapshot::compile(release.pricing).unwrap()),
+        )
+        .unwrap();
+    client
+        .send(ClientMessage::Text(
+            json!({
+                "type":"response.create","model":"compat-2","input":"continue",
+                "previous_response_id":"resp_2","max_output_tokens":16
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let raw = tokio::time::timeout(Duration::from_secs(5), client.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    let event: serde_json::Value = serde_json::from_str(raw.as_str()).unwrap();
+    assert_eq!(event["error"]["code"], RelayError::RouteUnavailable.code());
+    assert_balance(&f, 1_999_996, 0).await;
+    drop(client);
+    assert_eq!(requests(&f.pool).await, 2);
+    gateway_task.abort();
+    supplier_task.abort();
+}
+
+#[sqlx::test(migrations = false)]
+async fn websocket_gateway_disconnect_settles_only_a_confirmed_provider_terminal(pool: PgPool) {
+    use axum::{
+        Router,
+        extract::ws::{Message, WebSocketUpgrade},
+        routing::get,
+    };
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::{Message as ClientMessage, client::IntoClientRequest};
+
+    let f = fixture(pool, 3_000_000).await;
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_base = format!("http://{}/v1", upstream.local_addr().unwrap());
+    let disconnected = Arc::new(tokio::sync::Semaphore::new(0));
+    let provider = Router::new().route("/v1/responses", get({
+        let disconnected = disconnected.clone();
+        move |ws: WebSocketUpgrade| async move {
+            ws.on_upgrade(move |mut socket| async move {
+                let Some(Ok(Message::Text(raw))) = socket.recv().await else { panic!("missing create"); };
+                let create: serde_json::Value = serde_json::from_str(raw.as_str()).unwrap();
+                let event = json!({"type":"response.created","response":{"id":"resp_disconnect","status":"in_progress"}});
+                socket.send(Message::Text(event.to_string().into())).await.unwrap();
+                disconnected.acquire().await.unwrap().forget();
+                if create["input"][0]["content"][0]["text"] == "complete" {
+                    let terminal = json!({"type":"response.completed","response":{"id":"resp_disconnect","status":"completed","usage":{"input_tokens":2,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}});
+                    socket.send(Message::Text(terminal.to_string().into())).await.unwrap();
+                }
+            })
+        }
+    }));
+    let supplier_task = tokio::spawn(async move { axum::serve(upstream, provider).await.unwrap() });
+    let g = compatibility_gateway(&f, &upstream_base, Protocol::OpenAiResponses);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = g.with_responses_websocket().router();
+    let gateway_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    for (input, expected) in [("complete", "settled"), ("unknown", "reconcile")] {
+        let mut upgrade = format!("ws://{address}/v1/responses")
+            .into_client_request()
+            .unwrap();
+        upgrade.headers_mut().insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", f.key)).unwrap(),
+        );
+        let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+        let (mut client, _) = tokio_tungstenite::client_async(upgrade, stream)
+            .await
+            .unwrap();
+        let create = json!({"type":"response.create","model":"compat-2","input":input,"max_output_tokens":16});
+        client
+            .send(ClientMessage::Text(create.to_string().into()))
+            .await
+            .unwrap();
+        let created = tokio::time::timeout(Duration::from_secs(5), client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(created.as_str()).unwrap()["type"],
+            "response.created"
+        );
+        let id: String =
+            sqlx::query_scalar("SELECT id FROM core_charging.requests WHERE state='streaming'")
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        drop(client);
+        disconnected.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let state: String =
+                    sqlx::query_scalar("SELECT state FROM core_charging.requests WHERE id=$1")
+                        .bind(&id)
+                        .fetch_one(&f.pool)
+                        .await
+                        .unwrap();
+                if state == expected {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    let retained: i64 = sqlx::query_scalar(
+        "SELECT reserved FROM core_charging.requests WHERE state='reconcile' AND settled=0",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert!(retained > 0);
+    assert_balance(&f, 2_999_998 - retained, retained).await;
+    gateway_task.abort();
+    supplier_task.abort();
+}
+
+#[sqlx::test(migrations = false)]
+async fn websocket_turn_authorization_rechecks_credentials_and_previous_response(pool: PgPool) {
+    use super::responses_websocket::Turn;
+    use relay::responses_ws::Create;
+
+    let f = fixture(pool, 2_000_000).await;
+    let g = compatibility_gateway(&f, "http://127.0.0.1:9/v1", Protocol::OpenAiResponses);
+    let create = Create::parse(
+        br#"{"type":"response.create","model":"compat-2","input":"hello","max_output_tokens":16,"event_id":"first"}"#,
+        g.limits.request_bytes,
+    ).unwrap();
+    let session = [9; 32];
+    let mut headers = HeaderMap::new();
+    assert!(matches!(
+        Turn::prepare(&g, &headers, None, &session, 1, &create, None, None).await,
+        Err(RelayError::Unauthorized)
+    ));
+    headers.insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", f.key)).unwrap(),
+    );
+    let turn = Turn::prepare(&g, &headers, None, &session, 1, &create, None, None)
+        .await
+        .unwrap();
+    let target = turn.target_id;
+    let reservation = turn.reserve(&create, &g.limits).await.unwrap();
+    turn.record_dispatch().await.unwrap();
+    turn.finalize(
+        &reservation,
+        &terminal(&reservation.id, &turn.route, usage(2)),
+    )
+    .await
+    .unwrap();
+    drop(turn);
+    assert!(g.bridge.active.lock().unwrap().is_empty());
+    assert!(matches!(
+        Turn::prepare(&g, &headers, None, &session, 2, &create, Some(target), None).await,
+        Err(RelayError::Conflict)
+    ));
+
+    let continuation = Create::parse(
+        br#"{"type":"response.create","model":"compat-2","input":[],"previous_response_id":"resp_first"}"#,
+        g.limits.request_bytes,
+    ).unwrap();
+    assert!(matches!(
+        Turn::prepare(
+            &g,
+            &headers,
+            None,
+            &session,
+            2,
+            &continuation,
+            Some(target),
+            Some("other")
+        )
+        .await,
+        Err(RelayError::Forbidden)
+    ));
+    let continued = Turn::prepare(
+        &g,
+        &headers,
+        None,
+        &session,
+        2,
+        &continuation,
+        Some(target),
+        Some("resp_first"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(continued.target_id, target);
+    drop(continued);
+    assert_eq!(requests(&f.pool).await, 1);
+    assert_balance(&f, 1_999_998, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn websocket_turn_reservation_binds_the_actual_frame(pool: PgPool) {
     use relay::responses_ws::Create;
 

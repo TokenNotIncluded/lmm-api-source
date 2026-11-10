@@ -368,6 +368,30 @@ impl Correlation {
         Ok(())
     }
 
+    pub(crate) fn authorize_cancel(&mut self, bytes: &[u8], limit: usize) -> Result<()> {
+        let Object(mut fields) = object(bytes, limit)?;
+        if identity(fields.remove("type").as_deref())?.as_deref() != Some("response.cancel") {
+            return Err(ProtocolError("expected response.cancel"));
+        }
+        let event_id = identity(fields.remove("event_id").as_deref())?;
+        let stream_id = identity(fields.remove("stream_id").as_deref())?;
+        let response_id = identity(fields.remove("response_id").as_deref())?;
+        let active = self
+            .active
+            .as_ref()
+            .ok_or(ProtocolError("no active response"))?;
+        if !fields.is_empty()
+            || stream_id.is_some() && stream_id != active.stream_id
+            || response_id.is_some() && response_id != active.response_id
+        {
+            return Err(ProtocolError("cancel does not match active response"));
+        }
+        if let Some(id) = event_id {
+            self.register_control(&id)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn attribute(&mut self, value: &Value) -> Result<Attribution> {
         let kind = value["type"]
             .as_str()

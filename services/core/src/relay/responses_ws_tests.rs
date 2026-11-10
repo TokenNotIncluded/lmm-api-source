@@ -219,6 +219,34 @@ fn cancel_errors_and_ambiguous_errors_cannot_borrow_turn_usage() {
 }
 
 #[test]
+fn cancel_control_binds_to_the_active_response_and_cannot_claim_its_usage() {
+    let mut state = Correlation::default();
+    let mut active = create("create");
+    active.stream_id = Some("s1".into());
+    state.begin(&active).unwrap();
+    state
+        .attribute(&json!({"type":"response.created","response":{"id":"active"}}))
+        .unwrap();
+    for raw in [
+        br#"{"type":"response.cancel","event_id":"c1","stream_id":"s2"}"#.as_slice(),
+        br#"{"type":"response.cancel","event_id":"c1","response_id":"foreign"}"#,
+        br#"{"type":"response.cancel","event_id":"c1","credential":"unexpected"}"#,
+    ] {
+        assert!(state.authorize_cancel(raw, 4096).is_err());
+    }
+    let cancel =
+        br#"{"type":"response.cancel","event_id":"c1","stream_id":"s1","response_id":"active"}"#;
+    state.authorize_cancel(cancel, 4096).unwrap();
+    assert!(state.authorize_cancel(cancel, 4096).is_err());
+    assert_eq!(
+        state
+            .attribute(&json!({"type":"error","error":{"event_id":"c1"}}))
+            .unwrap(),
+        Attribution::Control
+    );
+}
+
+#[test]
 fn session_retirement_is_bounded_without_id_eviction() {
     let mut state = Correlation::default();
     for n in 0..MAX_SESSION_TURNS {

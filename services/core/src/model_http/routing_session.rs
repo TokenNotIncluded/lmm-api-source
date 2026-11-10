@@ -119,7 +119,7 @@ impl Session {
 }
 
 impl Bridge {
-    pub(super) fn select_with_fallbacks(
+    pub(in crate::model_http) fn select_with_fallbacks(
         &self,
         context: &RequestContext,
         request: &Request,
