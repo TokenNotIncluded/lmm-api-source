@@ -4,8 +4,7 @@ This file summarizes direct third-party dependencies used by distributed builds 
 It is an engineering compliance artifact and should be kept with Docker images, standalone binaries, frontend bundles, and Electron installers.
 
 Scope: direct dependencies from `services/extensions/go.mod` and `apps/web/package.json`.
-The new Rust TOML parser from `services/core/Cargo.toml` is also recorded below;
-this addition is not a complete audit of all Rust or transitive dependencies.
+Selected Rust dependencies from `services/core/Cargo.toml` are also recorded below.
 Transitive dependencies should be audited before a final external release.
 
 ## Dependency Inventory
@@ -14,6 +13,9 @@ Transitive dependencies should be audited before a final external release.
 | ------------- | ------------- | ----------- | ------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
 | extensions | production | Go | `github.com/BurntSushi/toml` | `v1.6.0` | MIT |
 | core | production | Rust | `toml` | `1.1.6+spec-1.1.0` (manifest `=1.1.6`) | MIT OR Apache-2.0 |
+| core | production | Rust | `tiktoken-rs` | `0.12.0` | MIT |
+| core | production | Rust | `fancy-regex` | `0.19.2` | MIT |
+| core | adapted split patterns | Go | `github.com/tiktoken-go/tokenizer` | `v0.6.2` | MIT |
 | backend | production | Go | `github.com/Calcium-Ion/go-epay` | `v0.0.4` | Proprietary/Internal - owned by project maintainer |
 | backend | production | Go | `github.com/abema/go-mp4` | `v1.4.1` | MIT |
 | backend | test | Go | `github.com/alicebob/miniredis/v2` | `v2.38.0` | MIT |
@@ -1819,3 +1821,31 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 `````
+
+## tiktoken-go split patterns
+
+Core uses the split patterns from tiktoken-go/tokenizer v0.6.2.
+
+```text
+MIT License
+
+Copyright (c) 2023 tiktoken-go
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

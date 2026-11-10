@@ -4,6 +4,8 @@
 //! here. The host must separately bind the effective source options, source
 //! prompt estimator and selected group to its immutable prepared contract.
 
+pub(crate) mod openai_tokens;
+
 pub(crate) const SOURCE_REVISION: &str = "cc52aa195c6f2a01d703a1a407be73c31b89867d";
 pub(crate) const TIERED_DEFAULT_OUTPUT: u32 = 8192;
 

@@ -50,6 +50,9 @@ hyper-util = { version = "=0.1.21", features = ["server-auto", "server-graceful"
 ipnet = "=2.12.2"
 rand = "=0.8.6"
 regex = "=1.13.1"
+# Fixed legacy OpenAI precharge estimates use the original split pattern and BPE ranks.
+tiktoken-rs = "=0.12.0"
+fancy-regex = "=0.19.2"
 reqwest = { version = "=0.12.28", default-features = false, features = ["json", "stream", "rustls-tls", "http2", "multipart"] }
 ring = "=0.17.14"
 serde = { version = "1.0", features = ["derive"] }
