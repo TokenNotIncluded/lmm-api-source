@@ -31,7 +31,7 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS-}" ]]; then
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 fi
 set +e
-systemd-run --user --scope --unit="lmm-sub-rsa-$$" -p MemoryMax=1536M -p MemorySwapMax=0 -p CPUQuota=75% -- \
+systemd-run --user --scope --unit="lmm-sub-rsa-$$" -p MemoryMax=1024M -p MemorySwapMax=0 -p CPUQuota=100% -- \
   nice -n 19 ionice -c 3 unshare --user --map-current-user --net --mount --keep-caps \
   bash "$PWD/namespace-entry.sh" "$PWD" python -B "$PWD/runner.py" --execute 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}

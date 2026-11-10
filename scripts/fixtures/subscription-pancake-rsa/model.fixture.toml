@@ -1,0 +1,17 @@
+version=1
+input_token_ceiling=200
+lease_seconds=30
+timeout_seconds=3
+max_output_tokens=8
+local_streaming=true
+credentials=[{{reference={{id=7,revision=1}},secret_file={secret_file}}}]
+key_groups=[]
+[routing]
+version=1
+groups=[{{name='allowed',enabled=true}}]
+upstreams=[{{id=1,endpoint={endpoint},protocol='openai_chat',credential={{id=7,revision=1}},enabled=true}}]
+routes=[{{id=1,model='local-model',group='allowed',enabled=true,speeds=['standard'],targets=[{{id=1,upstream_id=1,upstream_model='provider-model',enabled=true,priority=0,weight=1,speeds=['standard'],payload='adapt',timeout_ms=5000}}],failover={{max_attempts=1,retry_on=[],allow_replay_after_send=false}}}}]
+aliases=[]
+[prices]
+version=1
+rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input=4000000,output=8000000,cache_read=500000,cache_write=0,request=0}},group_multiplier_ppm=1000000,speed_multiplier_ppm=1000000}}]

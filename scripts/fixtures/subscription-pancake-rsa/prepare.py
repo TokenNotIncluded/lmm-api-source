@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tomllib
 
 PACKAGE = Path(__file__).resolve().parent
 REPO = PACKAGE.parents[2]
@@ -47,6 +48,16 @@ def main():
         assert digest(path) == expected, (name, 'fixed binary drift')
         assert os.access(path, os.X_OK), (name, 'binary is not executable')
         artifacts[name] = {'path': str(path), 'sha256': expected}
+    provenance = {}
+    for name, reference in pins['provenance_files'].items():
+        path = Path.home()/reference['path']
+        assert digest(path) == reference['sha256'], (name, 'artifact provenance drift')
+        provenance[name] = {'path': str(path), 'sha256': reference['sha256']}
+    model = tomllib.loads((PACKAGE/'model.fixture.toml').read_text().format(
+        secret_file='"/private/synthetic-model.key"', endpoint='"http://127.0.0.1:12345/v1"'))
+    assert model['input_token_ceiling'] == 200 and model['lease_seconds'] == 30
+    assert model['prices']['rules'][0]['rates']['input'] == 4000000
+    assert model['prices']['rules'][0]['rates']['output'] == 8000000
     sql = {}
     for name, expected in pins['sql'].items():
         data = subprocess.check_output(
@@ -64,7 +75,7 @@ def main():
     assert parent.stat().st_uid == os.getuid(), 'output parent must be owned by current user'
     workspace = Path(tempfile.mkdtemp(prefix='run-', dir=parent))
     runtime = ('runner.py', 'namespace-entry.sh', 'host_integrity.py',
-               'hosts.fixture', 'nsswitch.fixture')
+               'hosts.fixture', 'nsswitch.fixture', 'model.fixture.toml')
     for name in runtime:
         shutil.copyfile(PACKAGE/name, workspace/name)
     for name, data in sql.items():
@@ -75,7 +86,9 @@ def main():
     freeze = {'status': 'PREPARED_REPO_ADAPTATION_NOT_EXECUTED',
               'owned_files': owned, 'artifacts': artifacts, 'limits': pins['limits'],
               'package_pins_sha256': digest(PACKAGE/'pins.json'),
-              'source_sql_revision': pins['sql_revision']}
+              'source_sql_revision': pins['sql_revision'],
+              'provenance_files': provenance, 'scope': pins['scope'],
+              'known_exclusions': pins['known_exclusions']}
     (workspace/'freeze.json').write_text(json.dumps(freeze, indent=2)+'\n')
     print(workspace)
 
