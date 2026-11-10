@@ -117,8 +117,16 @@ func profileShareModelColor(accent, muted string, index, count int) string {
 // An absent pricing proof is unknown, never zero. Use the Core-supplied
 // denominator and display FX without float conversion or a guessed rate.
 func profileShareModelQuota(quota int64, currency string, usage profileShareModelUsage) (string, error) {
-	if !usage.PricingAvailable || usage.CreditsPerUSD <= 0 || currency == "CREDIT" {
+	if !usage.PricingAvailable || usage.CreditsPerUSD <= 0 {
 		return "—", nil
+	}
+	if currency == "CREDIT" {
+		// Core net amounts already use the public credit_500k_usd unit.
+		// This is an integer display, not a fiat or legacy-quota conversion.
+		if usage.CreditsPerUSD != 500000 {
+			return "—", nil
+		}
+		return strconv.FormatInt(quota, 10) + " Credit", nil
 	}
 	amount := new(big.Rat).SetFrac(big.NewInt(quota), big.NewInt(usage.CreditsPerUSD))
 	if currency == "CNY" {

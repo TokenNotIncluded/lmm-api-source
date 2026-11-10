@@ -21,7 +21,7 @@ import (
 
 func profileLiveInt(n int64) *int64 { return &n }
 
-func TestProfileShareLiveLayoutsAndMoney(t *testing.T) {
+func TestProfileShareLiveLayouts(t *testing.T) {
 	for _, lang := range []string{"en", "zh", "zh-TW", "fr", "ja", "ru", "vi"} {
 		for _, layout := range []string{"profile", "badge", "models"} {
 			q := url.Values{"layout": {layout}, "lang": {lang}, "title": {"<script> & \"test\""}}
@@ -70,6 +70,9 @@ func TestProfileShareLiveLayoutsAndMoney(t *testing.T) {
 			t.Fatalf("invalid options accepted: %v", q)
 		}
 	}
+}
+
+func TestProfileShareLiveModelMoney(t *testing.T) {
 	usage := profileShareModelUsage{CreditsPerUSD: 500000, CNYPerUSD: "7.125", PricingAvailable: true}
 	if got, _ := profileShareModelQuota(500000, "USD", usage); got != "1.0000 USD" {
 		t.Fatal(got)
@@ -80,14 +83,33 @@ func TestProfileShareLiveLayoutsAndMoney(t *testing.T) {
 	if got, _ := profileShareModelQuota(1, "USD", usage); got != "0.000002 USD" {
 		t.Fatal(got)
 	}
+	for _, sample := range []struct {
+		raw  int64
+		want string
+	}{{0, "0 Credit"}, {500000, "500000 Credit"}, {9007199254740991, "9007199254740991 Credit"}} {
+		if got, _ := profileShareModelQuota(sample.raw, "CREDIT", usage); got != sample.want {
+			t.Fatalf("CREDIT changed integer %d: %s", sample.raw, got)
+		}
+	}
+	usage.CreditsPerUSD = 1000000
+	if got, _ := profileShareModelQuota(500000, "CREDIT", usage); got != "—" {
+		t.Fatal("different denominator treated as public Credit", got)
+	}
+	usage.CreditsPerUSD = 500000
 	usage.PricingAvailable = false
 	if got, _ := profileShareModelQuota(0, "USD", usage); got != "—" {
 		t.Fatalf("missing basis became zero: %s", got)
+	}
+	if got, _ := profileShareModelQuota(500000, "CREDIT", usage); got != "—" {
+		t.Fatal("unknown pricing treated as known Credit", got)
 	}
 	usage.PricingAvailable = true
 	usage.CNYPerUSD = "NaN"
 	if got, _ := profileShareModelQuota(1, "CNY", usage); got != "—" {
 		t.Fatal(got)
+	}
+	if got, _ := profileShareModelQuota(1, "CREDIT", usage); got != "1 Credit" {
+		t.Fatal("CREDIT incorrectly depends on FX", got)
 	}
 }
 
@@ -318,6 +340,18 @@ func TestProfileShareLiveHTTPMixedPricingKeepsUsage(t *testing.T) {
 			}
 			if known && (!strings.Contains(body, "Spend by model") || !strings.Contains(body, "2.0000 USD")) {
 				t.Fatal("known total lost")
+			}
+			credit := httptest.NewRecorder()
+			mux.ServeHTTP(credit, httptest.NewRequest("GET", "/api/share/profile/"+token+".svg?layout=models&currency=CREDIT&format=full", nil))
+			creditBody := credit.Body.String()
+			if credit.Code != 200 || !strings.Contains(creditBody, "500000 Credit") || strings.Contains(creditBody, " USD") || strings.Contains(creditBody, " CNY") {
+				t.Fatalf("public Credit incorrectly converted: %d %s", credit.Code, creditBody)
+			}
+			if known && !strings.Contains(creditBody, "1000000 Credit") {
+				t.Fatal("known credit total lost")
+			}
+			if !known && (!strings.Contains(creditBody, "Tokens by model") || strings.Contains(creditBody, ">0 Credit<")) {
+				t.Fatal("unknown credit total became zero/cost share")
 			}
 		})
 	}
