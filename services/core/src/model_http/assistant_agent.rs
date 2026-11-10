@@ -2,6 +2,8 @@
 //! authoritative usage boundary. Only Core-installed definitions enter payloads.
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "assistant_agent_stream.rs"]
+mod stream;
 
 pub(crate) struct PreparedAgent {
     inner: PreparedAssistant,
@@ -88,6 +90,8 @@ impl ModelGateway {
             inner.payload["tools"] = Value::Array(tools);
             inner.payload["parallel_tool_calls"] = json!(true);
         }
+        inner.payload["stream"] = json!(true);
+        inner.payload["stream_options"] = json!({"include_usage":true});
         let bytes =
             serde_json::to_vec(&inner.payload).map_err(|_| RelayError::Invalid("agent payload"))?;
         let local = inner
@@ -112,10 +116,11 @@ impl ModelGateway {
     pub(crate) async fn execute_agent(
         &self,
         prepared: PreparedAgent,
+        publish: impl FnMut(&str) -> Result<(), RelayError> + Send,
     ) -> Result<AgentObservation, RelayError> {
         let (bytes, value, usage) = tokio::time::timeout(
             self.limits.total_timeout,
-            self.fetch_assistant_inner(&prepared.inner),
+            self.fetch_agent_stream(&prepared.inner, publish),
         )
         .await
         .map_err(|_| RelayError::SettlementPending)??;

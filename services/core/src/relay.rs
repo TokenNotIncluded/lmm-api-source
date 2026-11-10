@@ -25,6 +25,9 @@ mod vision_tests;
 #[cfg(test)]
 pub(crate) use decode::usage as provider_usage;
 pub(crate) use decode::usage_with_cache_creation_mode as provider_usage_with_cache_creation_mode;
+pub(crate) use decode::Decoder as AssistantDecoder;
+pub(crate) use encode::Encoder as AssistantEncoder;
+pub(crate) use sse::Parser as AssistantSseParser;
 pub use input_count::CountObservation;
 pub use request::{FunctionTool, InputBlock, Message, Request, Role, ToolChoice};
 pub use types::*;

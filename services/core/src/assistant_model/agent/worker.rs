@@ -1,6 +1,6 @@
 //! Core-owned model rounds. Every outbound attempt follows its committed real
 //! Charging hold and worker claim; restart/status never replays a claimed round.
-use super::super::{ActiveGuard, Error, actor, at, random};
+use super::super::{ActiveGuard, Error, actor, at, live, random};
 use super::store::{AgentService, ToolScope};
 use crate::{
     billing::charging,
@@ -17,6 +17,8 @@ struct RoundWork {
     request_id: String,
     round_id: String,
     worker: [u8; 32],
+    subject: live::Subject,
+    round: u32,
 }
 impl AgentService {
     pub(super) fn kick(&self, session: &str, turn_id: &str) {
@@ -57,8 +59,41 @@ impl AgentService {
             let Some(work) = self.reserve_round(session, turn_id).await? else {
                 return Ok(());
             };
-            match self.base.gateway.execute_agent(work.prepared).await {
+            let live = match self.base.live.register(work.subject, work.round) {
+                Ok(live) => live,
+                Err(_) => {
+                    self.unknown_round(turn_id, &work.request_id, &work.round_id, &work.worker)
+                        .await?;
+                    return Ok(());
+                }
+            };
+            // Cancellation may commit before registration and miss its live
+            // signal. Recheck the durable grant after installing that signal;
+            // later cancellations reach this worker. Neither path redispatches.
+            let result = async {
+                self.check_model_authority(session, turn_id).await?;
+                tokio::select! {
+                    biased;
+                    _ = live.cancelled() => Err(Error::Forbidden),
+                    denied = async {
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            // Another Core process can commit cancellation or
+                            // Session revocation without this process's registry.
+                            if let Err(error) = self.check_model_authority(session, turn_id).await {
+                                break error;
+                            }
+                        }
+                    } => Err(denied),
+                    observed = self.base.gateway.execute_agent(work.prepared, |text| {
+                        live.text(text).map_err(|_| crate::relay::RelayError::Forbidden)
+                    }) => observed.map_err(|_| Error::Unavailable),
+                }
+            }
+            .await;
+            match result {
                 Ok(observation) => {
+                    let tools = matches!(&observation.answer, AgentAnswer::Tools(_));
                     if self
                         .settle_round(
                             session,
@@ -75,6 +110,9 @@ impl AgentService {
                             .await?;
                         return Ok(());
                     }
+                    if tools {
+                        live.tool();
+                    }
                 }
                 Err(_) => {
                     self.unknown_round(turn_id, &work.request_id, &work.round_id, &work.worker)
@@ -84,6 +122,16 @@ impl AgentService {
             }
         }
         self.stop_without_live_model(session, turn_id, false).await
+    }
+    async fn check_model_authority(&self, session: &str, turn_id: &str) -> Result<(), Error> {
+        let mut tx = self.base.begin().await?;
+        let turn = sqlx::query("SELECT * FROM core_assistant.agent_turns WHERE id=$1")
+            .bind(turn_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        self.check_live_turn(&mut tx, session, &turn).await?;
+        tx.commit().await?;
+        Ok(())
     }
     async fn reserve_round(
         &self,
@@ -206,6 +254,12 @@ impl AgentService {
             request_id,
             round_id,
             worker,
+            subject: live::Subject {
+                key: live::Key::Agent(turn_id.to_owned()),
+                owner_user_id: principal.user_id,
+                text_sha256: turn.try_get("text_sha256")?,
+            },
+            round: u32::try_from(next).map_err(|_| Error::Unavailable)?,
         }))
     }
     async fn context_messages(

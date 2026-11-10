@@ -98,7 +98,7 @@ fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGa
         }],
         BTreeMap::new(),
         Limits {
-            total_timeout: Duration::from_secs(2),
+            total_timeout: Duration::from_secs(4),
             hook_timeout: Duration::from_secs(1),
             ..Limits::default()
         },
@@ -129,10 +129,12 @@ async fn provider(tool: &str, missing_usage: bool) -> Provider {
     let tool = tool.to_owned();
     let app=axum::Router::new().route("/v1/chat/completions",axum::routing::post(move|axum::Json(request):axum::Json<Value>|{
   let counter=counter.clone();let observed=observed.clone();let tool=tool.clone();async move{
-   observed.lock().unwrap().push(request);let n=counter.fetch_add(1,Ordering::SeqCst);
+   let streaming=request["stream"]==true;observed.lock().unwrap().push(request);let n=counter.fetch_add(1,Ordering::SeqCst);
    let mut response=if n==0 {json!({"id":"real-synthetic-provider-1","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":tool,"arguments":if tool=="calculate_math" {" { \"expression\" : \"1+1\" } "}else{"{}"}}}]}}]})}else{json!({"id":"real-synthetic-provider-2","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"done after durable tool result"}}]})};
    if !missing_usage{response["usage"]=json!({"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}});}
-   axum::Json(response)
+   if streaming {
+    axum::response::IntoResponse::into_response(([(axum::http::header::CONTENT_TYPE,"text/event-stream")], response_sse(&response)))
+   } else { axum::response::IntoResponse::into_response(axum::Json(response)) }
   }
  }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -147,6 +149,30 @@ async fn provider(tool: &str, missing_usage: bool) -> Provider {
         task,
     }
 }
+fn response_sse(response: &Value) -> String {
+    let mut message = response["choices"][0]["message"].clone();
+    if let Some(calls) = message["tool_calls"].as_array_mut() {
+        for (index, call) in calls.iter_mut().enumerate() {
+            call["index"] = json!(index);
+        }
+    }
+    let mut wire = format!(
+        "data: {}\n\n",
+        json!({"id":response["id"],"choices":[{"index":0,"delta":message,"finish_reason":null}]})
+    );
+    wire += &format!(
+        "data: {}\n\n",
+        json!({"id":response["id"],"choices":[{"index":0,"delta":{},"finish_reason":response["choices"][0]["finish_reason"]}]})
+    );
+    if !response["usage"].is_null() {
+        wire += &format!(
+            "data: {}\n\n",
+            json!({"id":response["id"],"choices":[],"usage":response["usage"]})
+        );
+    }
+    wire + "data: [DONE]\n\n"
+}
+
 async fn setup(pool: &PgPool, tool: &str) -> (AgentService, String, i64, Provider) {
     let disk = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -940,3 +966,6 @@ mod frozen_provenance_tests {
         }
     }
 }
+
+#[path = "stream_tests.rs"]
+mod stream_tests;

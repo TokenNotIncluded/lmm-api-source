@@ -141,6 +141,7 @@ impl AssistantRpc {
         }
         if self.agent.is_some() {
             features.push("assistant.agent_turn.execute.v1".into());
+            features.push("assistant.agent_turn.stream.v1".into());
             features.extend(self.agent_features.clone());
         }
         features
