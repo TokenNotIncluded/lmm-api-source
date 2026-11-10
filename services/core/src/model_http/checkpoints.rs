@@ -391,8 +391,8 @@ impl Bridge {
         {
             return Err(RelayError::SettlementPending);
         }
-        let usage =
-            serde_json::to_value(checkpoint.usage.checkpoint_usage()).map_err(|_| RelayError::BillingUnavailable)?;
+        let usage = serde_json::to_value(checkpoint.usage.checkpoint_usage())
+            .map_err(|_| RelayError::BillingUnavailable)?;
         let sequence =
             i64::try_from(checkpoint.sequence).map_err(|_| RelayError::SettlementPending)?;
         let bytes =
@@ -537,7 +537,7 @@ mod a07_recovery_tests {
         for aggregate in [None, Some(3)] {
             let observed = Usage {
                 cache_creation_input_tokens: aggregate,
-                ..twelve
+                ..twelve.clone()
             };
             observed.validate().unwrap();
             for revision in [None, Some(1), Some(2), Some(3)] {
@@ -556,7 +556,7 @@ mod a07_recovery_tests {
                 ttl_30m_tokens: Some(3),
                 ttl_12h_tokens: Some(0),
             }),
-            ..twelve
+            ..twelve.clone()
         };
         short.validate().unwrap();
         for revision in [None, Some(1)] {

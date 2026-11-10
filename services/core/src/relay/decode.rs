@@ -412,7 +412,8 @@ impl Decoder {
     fn usage(&self, value: &Value) -> Result<Usage, RelayError> {
         if self.legacy_openrouter_usage {
             if self.protocol != UpstreamProtocol::Chat
-                || self.cache_creation_mode != Some(CacheCreationMode::GenericRemainderV1) {
+                || self.cache_creation_mode != Some(CacheCreationMode::GenericRemainderV1)
+            {
                 return Err(RelayError::Invalid("legacy OpenRouter usage contract"));
             }
             return super::legacy_openrouter_usage::project(value);
@@ -1757,8 +1758,14 @@ mod tests {
                 crate::relay::ClientProtocol::Responses,
             ),
         ] {
-            assert_eq!(usage(protocol, &expected.wire(client)), Ok(expected));
-            assert_eq!(usage(protocol, &openai_receipt(protocol)), Ok(expected));
+            assert_eq!(
+                usage(protocol, &expected.wire(client)),
+                Ok(expected.clone())
+            );
+            assert_eq!(
+                usage(protocol, &openai_receipt(protocol)),
+                Ok(expected.clone())
+            );
         }
     }
 
@@ -2512,7 +2519,7 @@ mod generic_creation_tests {
         let mut combined = Usage::default();
         for event in &events {
             if let Event::Usage(value) = event {
-                combined.merge(*value).unwrap();
+                combined.merge(value.clone()).unwrap();
             }
         }
         assert_eq!(combined.input_tokens, Some(37));

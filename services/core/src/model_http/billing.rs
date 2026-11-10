@@ -1071,7 +1071,7 @@ mod text_request_usage_tests {
             }),
             ..Default::default()
         };
-        let normalized = complete_text_request_usage(observed).unwrap();
+        let normalized = complete_text_request_usage(observed.clone()).unwrap();
         assert_eq!(
             (normalized.input, normalized.cached, normalized.output),
             (100, 10, 2)
@@ -1084,14 +1084,14 @@ mod text_request_usage_tests {
         assert!(
             complete_text_request_usage(crate::relay::Usage {
                 input_tokens: None,
-                ..observed
+                ..observed.clone()
             })
             .is_err()
         );
         assert!(
             complete_text_request_usage(crate::relay::Usage {
                 cache_creation_input_tokens: None,
-                ..observed
+                ..observed.clone()
             })
             .is_err()
         );
@@ -1559,9 +1559,11 @@ fn complete_generic_cache_usage(
     // Policy and source digest are frozen by dispatch. Projected counters use
     // the existing disjoint basis; recovery never reinterprets live config.
     if let Some(raw) = &observed.legacy_openrouter_raw {
-        if tariff.tariff.revision != 3 || tariff.input_semantics != InputSemantics::AnthropicText
+        if tariff.tariff.revision != 3
+            || tariff.input_semantics != InputSemantics::AnthropicText
             || crate::relay::legacy_openrouter_usage::project(raw)
-                .map_or(true, |projected| projected != observed) {
+                .map_or(true, |projected| projected != observed)
+        {
             return Err(RelayError::SettlementPending);
         }
     }
@@ -2521,7 +2523,8 @@ mod a07_billing_tests {
             ..Observed::default()
         };
         let usage =
-            complete_strict_cache_usage(observed, InputSemantics::AnthropicText, false).unwrap();
+            complete_strict_cache_usage(observed.clone(), InputSemantics::AnthropicText, false)
+                .unwrap();
         assert_eq!(
             usage.cache_creation,
             Some(charging::CacheCreationUsage {
@@ -2547,7 +2550,7 @@ mod a07_billing_tests {
                 complete_strict_cache_usage(
                     Observed {
                         cache_creation_details: Some(details),
-                        ..observed
+                        ..observed.clone()
                     },
                     InputSemantics::AnthropicText,
                     false
@@ -2562,10 +2565,14 @@ mod a07_billing_tests {
         );
         let aggregate_only = Observed {
             cache_creation_details: None,
-            ..observed
+            ..observed.clone()
         };
         assert_eq!(
-            complete_strict_cache_usage(aggregate_only, InputSemantics::AnthropicText, false),
+            complete_strict_cache_usage(
+                aggregate_only.clone(),
+                InputSemantics::AnthropicText,
+                false
+            ),
             Err(RelayError::SettlementPending)
         );
         assert!(
@@ -2574,10 +2581,10 @@ mod a07_billing_tests {
         let unknown = Observed {
             cache_creation_input_tokens: None,
             cache_creation_details: None,
-            ..observed
+            ..observed.clone()
         };
         assert_eq!(
-            complete_strict_cache_usage(unknown, InputSemantics::Inclusive, false),
+            complete_strict_cache_usage(unknown.clone(), InputSemantics::Inclusive, false),
             Err(RelayError::SettlementPending)
         );
         assert_eq!(

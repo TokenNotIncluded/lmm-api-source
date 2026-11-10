@@ -675,7 +675,7 @@ mod usage_tests {
             "prompt_tokens_details":{"cached_tokens":20}
         }));
         assert_eq!(
-            assistant_usage(&price(false), 100, 5, missing),
+            assistant_usage(&price(false), 100, 5, missing.clone()),
             Err(RelayError::SettlementPending)
         );
         assert_eq!(
@@ -766,7 +766,7 @@ mod usage_tests {
         });
         let generic = generic_price(false);
         let observed = assistant_provider_usage(&generic, &receipt).unwrap();
-        let usage = assistant_usage(&generic, 100, 5, observed).unwrap();
+        let usage = assistant_usage(&generic, 100, 5, observed.clone()).unwrap();
         assert_eq!(usage.cache_creation.unwrap().total, 70);
         assert_eq!(
             assistant_provider_usage(&price(false), &receipt),
@@ -777,7 +777,7 @@ mod usage_tests {
             Err(RelayError::Forbidden)
         );
         assert_eq!(
-            assistant_usage(&generic, 99, 5, observed),
+            assistant_usage(&generic, 99, 5, observed.clone()),
             Err(RelayError::SettlementPending)
         );
         assert_eq!(
@@ -795,7 +795,7 @@ mod usage_tests {
         let unknown = generic_price(false);
         let observed = assistant_provider_usage(&unknown, &missing).unwrap();
         assert_eq!(
-            assistant_usage(&unknown, 100, 5, observed),
+            assistant_usage(&unknown, 100, 5, observed.clone()),
             Err(RelayError::SettlementPending)
         );
         let contracted = generic_price(true);
@@ -849,7 +849,7 @@ mod usage_tests {
         }));
         for (input, output) in [(99, 5), (100, 4), (-1, 5)] {
             assert_eq!(
-                assistant_usage(&price(true), input, output, receipt),
+                assistant_usage(&price(true), input, output, receipt.clone()),
                 Err(RelayError::SettlementPending)
             );
         }

@@ -582,7 +582,9 @@ impl std::fmt::Debug for PrivateUsageEvidence {
 }
 impl std::ops::Deref for PrivateUsageEvidence {
     type Target = Value;
-    fn deref(&self) -> &Value { &self.0 }
+    fn deref(&self) -> &Value {
+        &self.0
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
@@ -640,8 +642,11 @@ impl Usage {
             return Ok(());
         }
         if self.legacy_openrouter_raw.is_some() {
-            return if next == Self::default() { Ok(()) }
-                else { Err(RelayError::Protocol("legacy usage contract changed")) };
+            return if next == Self::default() {
+                Ok(())
+            } else {
+                Err(RelayError::Protocol("legacy usage contract changed"))
+            };
         }
 
         if let Some(tool) = next.tool {
@@ -1602,7 +1607,10 @@ mod a07_usage_tests {
             },
         ] {
             let mut value = initial.clone();
-            assert!(matches!(value.merge(next.clone()), Err(RelayError::Protocol(_))));
+            assert!(matches!(
+                value.merge(next.clone()),
+                Err(RelayError::Protocol(_))
+            ));
             assert_eq!(value, initial);
         }
     }
@@ -1798,7 +1806,7 @@ mod openai_cache_write_tests {
             cache_creation_input_tokens: Some(5),
             ..Usage::default()
         };
-        let old_json = serde_json::to_value(old).unwrap();
+        let old_json = serde_json::to_value(&old).unwrap();
         assert!(old_json.get("openai_cache_write_details").is_none());
         assert_eq!(serde_json::from_value::<Usage>(old_json).unwrap(), old);
         let new = measured(Some(5), Some(2), Some(3));
@@ -2177,7 +2185,7 @@ mod generic_creation_tests {
             cache_creation_mode: None,
             ..generic.clone()
         };
-        for (initial, next) in [(generic, strict), (strict, generic)] {
+        for (initial, next) in [(generic.clone(), strict.clone()), (strict, generic.clone())] {
             let mut value = initial.clone();
             assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, initial);
@@ -2210,7 +2218,7 @@ mod generic_creation_tests {
     #[test]
     fn generic_mode_roundtrips_durably_and_never_enters_client_wire() {
         let value = measured(Some(37), Some(2), Some(3), Some(4));
-        let durable = serde_json::to_value(value).unwrap();
+        let durable = serde_json::to_value(&value).unwrap();
         assert_eq!(durable["cache_creation_mode"], "generic_remainder_v1");
         assert_eq!(
             serde_json::to_string(&Usage::default()).unwrap(),
@@ -2324,7 +2332,7 @@ mod generic_uncached_input_tests {
         assert_eq!(value.input_tokens, None);
         assert_eq!(value.cache_creation_input_tokens, None);
         assert_eq!(
-            serde_json::from_value::<Usage>(serde_json::to_value(value).unwrap()).unwrap(),
+            serde_json::from_value::<Usage>(serde_json::to_value(&value).unwrap()).unwrap(),
             value
         );
         for protocol in [ClientProtocol::Chat, ClientProtocol::Responses] {

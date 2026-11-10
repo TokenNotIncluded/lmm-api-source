@@ -822,7 +822,8 @@ async fn selected_bound_bad_terminal_and_unknown_usage_keep_original_hold(pool: 
         let original = receipt(&g, &id).await;
         assert_eq!((original.reserved, original.settled), (SMALL_INPUT, 0));
         let worker = g.bridge.active.lock().unwrap().get(&id).unwrap().worker;
-        let raw_usage = serde_json::to_value(observed).unwrap();
+        let raw_usage = serde_json::to_value(&observed).unwrap();
+        let finalize_only = observed == relay::Usage::default();
         let checkpoint = OutputCheckpoint {
             sequence: 1,
             packet_sha256: [3; 32],
@@ -830,11 +831,13 @@ async fn selected_bound_bad_terminal_and_unknown_usage_keep_original_hold(pool: 
             usage: observed,
             terminal_observed: true,
         };
-        let finalize_only = observed == relay::Usage::default();
         for _ in 0..2 {
             let result = if finalize_only {
                 g.bridge
-                    .finalize(&reservation, &terminal(&id, &route, observed))
+                    .finalize(
+                        &reservation,
+                        &terminal(&id, &route, checkpoint.usage.clone()),
+                    )
                     .await
             } else {
                 g.bridge.persist_output(&reservation, &checkpoint).await
@@ -905,7 +908,7 @@ async fn selected_bound_bad_terminal_and_unknown_usage_keep_original_hold(pool: 
         assert_eq!(checkpoint_rows(&f.pool, &id).await, 0);
         assert!(matches!(
             g.bridge
-                .finalize(&reservation, &terminal(&id, &route, observed))
+                .finalize(&reservation, &terminal(&id, &route, checkpoint.usage))
                 .await,
             Err(RelayError::SettlementPending)
         ));

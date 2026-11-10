@@ -1240,7 +1240,7 @@ fn invalid_usage_does_not_partially_replace_the_last_valid_snapshot() {
         output_tokens: Some(3),
         ..Usage::default()
     };
-    let mut current = before;
+    let mut current = before.clone();
     assert!(
         current
             .merge(Usage {
@@ -1255,7 +1255,7 @@ fn invalid_usage_does_not_partially_replace_the_last_valid_snapshot() {
         input_tokens: Some(u64::MAX),
         ..Usage::default()
     };
-    let mut current = before;
+    let mut current = before.clone();
     assert!(
         current
             .merge(Usage {
