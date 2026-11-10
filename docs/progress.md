@@ -49,7 +49,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
 | SUB-01 | 外部支付订阅缺口：EPay 一次购买及 Stripe/Creem/Pancake 的原支持生命周期 | 待补齐 | 按 provider 补产品快照、首购/周期 grant、失败、取消和原交易恢复；钱包充值与余额订阅分别验收。 |
-| SUB-02 | 订阅 reset voucher、绑定/失效/删除、管理记录与批量重置未齐 | 待补齐 | 补特权、审计、并发和额度语义，接通仍调用旧接口的页面；已有计划 CRUD 与余额购买/续期/退款保留。 |
+| SUB-02 | 管理记录与立即失效已实现；reset voucher、绑定/删除与批量重置仍未齐 | 待补齐 | 2026-11-10，`384f531` 新增 Core 管理记录、原生用户抽屉与 root 失效操作；`root` 自测后由 `Dirac` 独立在 PostgreSQL 18.6 复跑实际查询、过滤/分页、导入额度、8 次并发原操作恢复、唯一回执/审计与审计失败回滚，资金/消费/预留保全；页面四项定向自测通过。证据：`~/.cache/lmm-predeploy-validation/20261110-independent/report.md`。仅 SQL 与组件证据，Rust HTTP/会话权限/charging 进程及浏览器未验收；继续补 voucher、绑定/删除、批量重置及完整授权/额度语义。 |
 | PAY-01 | 商店仅接 balance/free，缺四类旧外部收款 | 待补齐 | 恢复 external:epay、external:waffo_pancake、platform:waffo_pancake、platform:linuxdo；分别证明卖家/平台收款、币种、库存交付、结算和恢复，保留 LDC 单位。 |
 | PAY-02 | Pancake 及外部商店退款未齐 | 待补齐 | 补原交易冻结、发送、查询/通知、失败释放、对账及卖家收入回冲；已有 Stripe/Waffo Global 退款与 Core ReleaseRefund 按现合同验收。 |
 | PAY-03 | Pancake catalog/pair/save、订阅映射与 customer portal 未接完整后台 | 待补齐 | 接当前配置和权限、秘密只写、server 绑定 customer/store/environment，并完成真实管理页面联动。 |
@@ -90,7 +90,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | CHECK-03 | 历史读取与导出 | 待验收 | 实际日志/用量/统计/财务的来源目标范围、时区、分页、筛选、unknown 金额、权限和导出字段逐项对照。 |
 | CHECK-04 | 支付、商店、客服及商业资金闭环 | 待验收 | 当前 Core + 实际 Go main + PostgreSQL；重复/乱序、撤权、并发消费退款、丢响应、双进程重启及配置变化后的旧订单。合成 provider 与真实支付商分别报告。 |
 | CHECK-05 | 模型、助手、MCP、工具与 HumanGrant | 待验收 | 所需协议的 JSON/SSE/usage/取消/重试/冻结价格；真实对话、赞助付款方、跨租户/撤权/额度反例、恶意工具输出与原操作恢复。 |
-| CHECK-06 | 全站页面、CLI 与跨仓库集成 | 待验收 | 按角色/语言/桌面与窄屏/错误状态执行，截图、请求与数据库回读绑定候选；实际管理弹窗、OAuth consent、广告与 Extore 两端授权/多规格/重复同步/撤销/隔离。Extore main 自动部署限制继续生效。 |
+| CHECK-06 | 全站页面、CLI 与跨仓库集成 | 待验收 | 2026-11-10，`b2e97f9` 修复 Extore 目录数组交叉类型与助手测试事件类型；`Dirac` 独立执行完整 Web 类型检查及逐文件组件测试（Extore 1 项、助手设置 8 项）通过，固定输入与限制见 `~/.cache/lmm-predeploy-validation/20261110-independent/report.md`。仍需按角色/语言/桌面与窄屏/错误状态执行，截图、请求与数据库回读绑定最终候选；实际管理弹窗、OAuth consent、广告与 Extore 两端授权/多规格/重复同步/撤销/隔离。Extore main 自动部署限制继续生效。 |
 | CHECK-07 | 安装、升级、备份恢复与切换 | 待验收 | 当前 schema 的 owner/runtime 分离、普通启动无 DDL、低权限拒绝；实际隔离恢复、writer fence/drain、死 holder CAS、有效写入保全与业务重启。 |
 | CHECK-08 | 资源、旧新版性能与稳定性 | 待验收 | 相同 CPU/内存、数据、功能和计费语义下的优化构建；完整成功率、吞吐、P95/P99、RSS/PSS、长稳、慢消费者和故障恢复；产品 cgroup 与整机预算分开。门槛见[质量指南](quality.md#独立业务与资源验收)。 |
 | CHECK-09 | 最终冻结组合与 QD-001 关闭 | 待前置 | 前置实现、迁移和验收全部关联同一源码/产物/配置/来源/目标；不同人员/agent 独立复验，逐条满足 QD-001 的真实 host/funds 条件，保留失败记录并确认无输入漂移。 |
