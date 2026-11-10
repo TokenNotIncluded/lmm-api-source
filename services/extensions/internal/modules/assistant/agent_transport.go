@@ -158,3 +158,37 @@ func (p *CoreAgentTurnPort) CompleteAgentTool(ctx context.Context, credential st
 	}
 	return out, err
 }
+
+var _ AgentOutputPort = (*CoreAgentTurnPort)(nil)
+
+func (p *CoreAgentTurnPort) StreamReady(ctx context.Context) error {
+	return personalTextRPCError(p.client.AgentStreamReady(ctx))
+}
+
+func (p *CoreAgentTurnPort) WatchAgentOutput(ctx context.Context, credential string, key AgentTurnKey, owner int64, digest []byte, consume func(AgentOutput) error) error {
+	if !validAgentKey(key) || consume == nil {
+		return access.ErrInvalid
+	}
+	target := &pb.AssistantOutputLookup{Target: &pb.AssistantOutputLookup_AgentTurn{AgentTurn: &pb.AssistantAgentLookup{CoreConversationId: key.CoreConversationID, ClientTurnId: key.ClientTurnID}}}
+	var downstream error
+	err := p.client.AssistantWatchOutput(ctx, credential, target, owner, digest, func(event *pb.AssistantOutputEvent) error {
+		phase := map[pb.AssistantOutputPhase]string{pb.AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_MODEL: "model", pb.AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_TOOL: "tool", pb.AssistantOutputPhase_ASSISTANT_OUTPUT_PHASE_END: "end"}[event.GetPhase()]
+		downstream = consume(AgentOutput{Sequence: event.GetSequence(), Round: event.GetRound(), Phase: phase, Text: event.GetText()})
+		return downstream
+	})
+	if downstream != nil {
+		return downstream
+	}
+	return personalTextRPCError(err)
+}
+
+func (p *CoreAgentTurnPort) CancelAgentTurn(ctx context.Context, credential string, key AgentTurnKey) (AgentTurnSnapshot, error) {
+	if !validAgentKey(key) {
+		return AgentTurnSnapshot{}, access.ErrInvalid
+	}
+	r, err := p.client.AssistantCancelAgentTurn(ctx, credential, &pb.AssistantAgentLookup{CoreConversationId: key.CoreConversationID, ClientTurnId: key.ClientTurnID})
+	if err != nil {
+		return AgentTurnSnapshot{}, personalTextRPCError(err)
+	}
+	return agentSnapshotFromRPC(key, r)
+}

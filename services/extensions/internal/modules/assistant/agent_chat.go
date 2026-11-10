@@ -85,10 +85,17 @@ func validAgentChatID(conversation int64, turn string) bool {
 }
 
 func (s *AgentChat) Chat(ctx context.Context, credential string, request PersonalChatRequest) (PersonalChatReply, error) {
+	return s.chat(ctx, credential, request, nil)
+}
+
+func (s *AgentChat) chat(ctx context.Context, credential string, request PersonalChatRequest, consume func(AgentOutput) error) (PersonalChatReply, error) {
 	if request.ConversationID < 0 || request.ConversationID > maxSafeHistoryID || !access.ID(request.ClientTurnID) || len(request.ClientTurnID) > 64 || !utf8.ValidString(request.Message) || len(request.Message) > 8192 || strings.TrimSpace(request.Message) == "" {
 		return PersonalChatReply{}, access.ErrInvalid
 	}
 	deadline := time.Now().Add(15 * time.Second)
+	if consume != nil {
+		deadline = time.Now().Add(300 * time.Second)
+	}
 	p, err := s.actor(ctx, credential)
 	if err != nil {
 		return PersonalChatReply{}, err
@@ -157,7 +164,7 @@ func (s *AgentChat) Chat(ctx context.Context, credential string, request Persona
 	if err != nil {
 		return PersonalChatReply{ConversationID: id, ClientTurnID: request.ClientTurnID, State: string(AgentTurnUnknown)}, agentRecoveryError(err)
 	}
-	return s.advance(ctx, credential, p, id, request.ClientTurnID, snap, false, deadline)
+	return s.advance(ctx, credential, p, id, request.ClientTurnID, snap, false, deadline, consume)
 }
 
 // Recover never starts a model turn or executes an extension effect. Completed
@@ -189,7 +196,7 @@ func (s *AgentChat) Recover(ctx context.Context, credential string, conversation
 	if err != nil {
 		return PersonalChatReply{}, agentRecoveryError(err)
 	}
-	return s.advance(ctx, credential, p, conversation, turn, snap, true, deadline)
+	return s.advance(ctx, credential, p, conversation, turn, snap, true, deadline, nil)
 }
 
 // Resume is an explicit continuation command for the original durable user
@@ -272,7 +279,7 @@ func (s *AgentChat) getAgentTurn(ctx context.Context, credential string, key Age
 	}
 }
 
-func (s *AgentChat) advance(ctx context.Context, credential string, p access.Principal, conversation int64, turn string, snap AgentTurnSnapshot, recoverOnly bool, deadline time.Time) (PersonalChatReply, error) {
+func (s *AgentChat) advance(ctx context.Context, credential string, p access.Principal, conversation int64, turn string, snap AgentTurnSnapshot, recoverOnly bool, deadline time.Time, consume func(AgentOutput) error) (PersonalChatReply, error) {
 	reply := PersonalChatReply{ConversationID: conversation, ClientTurnID: turn}
 	// One request is bounded even if Core or a tool keeps returning pending.
 	for step := 0; step < 512; step++ {
@@ -299,6 +306,23 @@ func (s *AgentChat) advance(ctx context.Context, credential string, p access.Pri
 			reply.State = "settled"
 			reply.Text = RedactAssistantHistoryContent(snap.FinalText)
 			return reply, nil
+		}
+		if consume != nil && snap.Phase == AgentTurnRunning {
+			err := s.watchSnapshot(ctx, credential, p, conversation, turn, stored, consume)
+			if err != nil {
+				return reply, err
+			}
+			// Observations are tentative. Only the original durable receipt can
+			// complete history or authorize the next tool round.
+			next, err := s.getAgentTurn(ctx, credential, snap.Key, deadline)
+			if err != nil {
+				return reply, agentRecoveryError(err)
+			}
+			if next.Revision == snap.Revision {
+				return reply, nil
+			}
+			snap = next
+			continue
 		}
 		if !recoverOnly && (snap.Phase == AgentTurnNew || snap.Phase == AgentTurnRunning) && time.Now().Before(deadline) {
 			timer := time.NewTimer(50 * time.Millisecond)

@@ -186,6 +186,13 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			value["agent"] = map[string]any{"enabled": true, "stream_enabled": false, "multi_round": true, "explicit_resume": true}
 			value["funding"] = map[string]any{"mode": "core_policy", "configured": true}
 		}
+		if err == nil {
+			if stream, ok := chat.(AssistantStream); ok && stream.StreamReady(r.Context()) == nil {
+				if agent, ok := value["agent"].(map[string]any); ok {
+					agent["stream_enabled"] = true
+				}
+			}
+		}
 		assistantRespond(w, value, err)
 	}))
 	mux.HandleFunc("GET /api/assistant/conversations", protected(func(w http.ResponseWriter, r *http.Request, token string) {
@@ -249,6 +256,7 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			assistantRespond(w, value, err)
 		}))
 	}
+	registerAssistantStreams(mux, chat, protected)
 	RegisterAssistantGifts(mux, auth, gifts)
 	mux.HandleFunc("POST /api/assistant/chat", protected(func(w http.ResponseWriter, r *http.Request, token string) {
 		if access.Missing(chat) {
@@ -291,6 +299,17 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 				assistantRespond(w, nil, access.ErrInvalid)
 				return
 			}
+		}
+		if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+			stream, ok := chat.(AssistantStream)
+			if !ok || access.Missing(stream) {
+				assistantRespond(w, nil, access.ErrUnavailable)
+				return
+			}
+			assistantSSE(w, r, func(consume func(assistant.AgentOutput) error) (assistant.PersonalChatReply, error) {
+				return stream.StreamChat(r.Context(), token, assistant.PersonalChatRequest{ConversationID: body.ConversationID, ClientTurnID: body.ClientTurnID, Message: body.Message}, consume)
+			})
+			return
 		}
 		reply, err := chat.Chat(r.Context(), token, assistant.PersonalChatRequest{ConversationID: body.ConversationID, ClientTurnID: body.ClientTurnID, Message: body.Message})
 		assistantChatRespond(w, reply, err)
@@ -355,6 +374,11 @@ func assistantChatRespond(w http.ResponseWriter, reply assistant.PersonalChatRep
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	body := assistantChatSuccessBody(reply)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func assistantChatSuccessBody(reply assistant.PersonalChatReply) map[string]any {
 	body := map[string]any{
 		"success":               true,
 		"choices":               []any{map[string]any{"message": map[string]string{"role": "assistant", "content": reply.Text}}},
@@ -363,7 +387,7 @@ func assistantChatRespond(w http.ResponseWriter, reply assistant.PersonalChatRep
 	if reply.Gift != nil {
 		body["lmm_assistant_gift"] = reply.Gift
 	}
-	_ = json.NewEncoder(w).Encode(body)
+	return body
 }
 
 func assistantConversationID(r *http.Request) (int64, error) {
