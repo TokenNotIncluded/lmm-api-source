@@ -631,6 +631,7 @@ pub(crate) async fn check_connection(
             AND has_column_privilege('core_charging.requests','image_usage','UPDATE')
             AND has_function_privilege('core_image.valid_output(jsonb)','EXECUTE')
             AND has_function_privilege('core_image.native_counter(jsonb,numeric)','EXECUTE')
+            AND has_function_privilege('core_image.native_reservation(jsonb,jsonb)','EXECUTE')
             AND has_function_privilege('core_image.valid_native_tokens(jsonb)','EXECUTE')
             AND has_function_privilege('core_image.valid_native_usage(jsonb)','EXECUTE')
             AND has_function_privilege('core_image.valid_image_usage(jsonb)','EXECUTE')

@@ -7,7 +7,8 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA core_image FROM PUBLIC;
 GRANT USAGE ON SCHEMA core_image TO image_native_fixture_runtime;
 GRANT EXECUTE ON FUNCTION core_image.native_counter(jsonb,numeric),
  core_image.valid_native_tokens(jsonb),core_image.valid_native_usage(jsonb),
- core_image.valid_image_usage(jsonb),core_image.valid_output(jsonb)
+ core_image.valid_image_usage(jsonb),core_image.valid_output(jsonb),
+ core_image.native_reservation(jsonb,jsonb)
  TO image_native_fixture_runtime;
 
 -- Reuse the exact real-table CHECK definitions, without claiming that isolated
@@ -34,6 +35,7 @@ DO $$
 DECLARE raw JSONB := '{"created":1,"data":[{"b64_json":"AQID"}],"background":"opaque","output_format":"png","quality":"high","size":"1024x1024","usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110,"input_tokens_details":{"cached_tokens":40,"text_tokens":40,"image_tokens":60,"cached_tokens_details":{"text_tokens":10,"image_tokens":30,"audio_tokens":0}}}}';
  tokens JSONB := '{"input":100,"input_text":40,"input_image":60,"cached":40,"cached_text":10,"cached_image":30,"output":10,"output_image":10,"output_image_source":"images_endpoint_total"}';
  receipt JSONB; legacy JSONB; changed JSONB; signature TEXT;
+ native_price JSONB := '{"rule":{"usd_micros_per_image":{"numerator":0,"denominator":1},"group_multiplier":{"numerator":1,"denominator":1},"count_basis":{"legacy_token_ratio":{"billing_price_key":"fixture","model_ratio":{"numerator":1,"denominator":1},"completion_ratio":{"numerator":1,"denominator":1},"cache_ratio":{"numerator":1,"denominator":1},"image_ratio":{"numerator":1,"denominator":1},"usd_multiplier":{"numerator":1,"denominator":1},"legacy_quota_per_unit":500000,"credits_per_usd":500000,"max_input_tokens":1,"max_output_tokens":1}}}}';
 BEGIN
  SELECT jsonb_build_object('output_images',1,'provider_receipt_sha256',jsonb_agg(1)) INTO legacy FROM generate_series(1,32);
  receipt:=legacy||jsonb_build_object('native_tokens',tokens);
@@ -91,13 +93,14 @@ BEGIN
  -- Each required helper is exercised through its real invoker call chain.
  FOREACH signature IN ARRAY ARRAY['core_image.native_counter(jsonb,numeric)',
   'core_image.valid_native_tokens(jsonb)','core_image.valid_native_usage(jsonb)',
-  'core_image.valid_image_usage(jsonb)'] LOOP
+  'core_image.valid_image_usage(jsonb)','core_image.native_reservation(jsonb,jsonb)'] LOOP
   EXECUTE 'REVOKE EXECUTE ON FUNCTION '||signature||' FROM image_native_fixture_runtime';
   BEGIN
    SET LOCAL ROLE image_native_fixture_runtime;
    INSERT INTO image_native_operation_probe(image_usage,output) VALUES(receipt,raw);
    INSERT INTO image_native_charge_probe(image_usage,price) VALUES(receipt,'{"image":{}}');
    PERFORM core_image.valid_image_usage(receipt); PERFORM core_image.valid_output(raw);
+   PERFORM core_image.native_reservation(native_price,NULL);
    RAISE EXCEPTION 'missing function privilege not enforced: %',signature;
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   RESET ROLE;
@@ -106,9 +109,10 @@ BEGIN
  SET LOCAL ROLE image_native_fixture_runtime;
  INSERT INTO image_native_operation_probe(image_usage,output) VALUES(receipt,raw);
  INSERT INTO image_native_charge_probe(image_usage,price) VALUES(receipt,'{"image":{}}');
- IF core_image.valid_image_usage(receipt) IS NOT TRUE OR core_image.valid_output(raw) IS NOT TRUE THEN
+ IF core_image.valid_image_usage(receipt) IS NOT TRUE OR core_image.valid_output(raw) IS NOT TRUE
+    OR core_image.native_reservation(native_price,NULL)<>3 THEN
   RAISE EXCEPTION 'restored runtime function grants failed'; END IF;
  RESET ROLE;
 END $$;
-SELECT 'image_native_usage: legacy/native/unknown/invalid/both_checks/four_privileges PASS' AS result;
+SELECT 'image_native_usage: legacy/native/unknown/invalid/both_checks/five_privileges PASS' AS result;
 ROLLBACK;

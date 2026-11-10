@@ -1105,6 +1105,7 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
     for function in [
         "valid_output(jsonb)",
         "native_counter(jsonb,numeric)",
+        "native_reservation(jsonb,jsonb)",
         "valid_native_tokens(jsonb)",
         "valid_native_usage(jsonb)",
         "valid_image_usage(jsonb)",

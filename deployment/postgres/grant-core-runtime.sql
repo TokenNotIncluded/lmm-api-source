@@ -501,6 +501,7 @@ GRANT SELECT,INSERT,UPDATE(state,confirmed_at,confirmation_digest,confirmation_s
 GRANT INSERT(image_operation_id),UPDATE(image_usage) ON core_charging.requests TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_image.valid_output(jsonb),
     core_image.native_counter(jsonb,numeric),
+    core_image.native_reservation(jsonb,jsonb),
     core_image.valid_native_tokens(jsonb),
     core_image.valid_native_usage(jsonb),
     core_image.valid_image_usage(jsonb),

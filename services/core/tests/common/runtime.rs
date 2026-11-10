@@ -458,7 +458,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
               GRANT USAGE ON SCHEMA core_image,core_tool_market TO {0};
               GRANT SELECT,INSERT,UPDATE(state,confirmed_at,confirmation_digest,confirmation_sid,charge_id,output,output_digest,image_usage,settled_credits) ON core_image.operations TO {0};
               GRANT INSERT(image_operation_id),UPDATE(image_usage) ON core_charging.requests TO {0};
-              GRANT EXECUTE ON FUNCTION core_image.valid_output(jsonb),core_image.native_counter(jsonb,numeric),core_image.valid_native_tokens(jsonb),core_image.valid_native_usage(jsonb),core_image.valid_image_usage(jsonb),core_tool_market.lock_builtin_context(text) TO {0};
+              GRANT EXECUTE ON FUNCTION core_image.valid_output(jsonb),core_image.native_counter(jsonb,numeric),core_image.native_reservation(jsonb,jsonb),core_image.valid_native_tokens(jsonb),core_image.valid_native_usage(jsonb),core_image.valid_image_usage(jsonb),core_tool_market.lock_builtin_context(text) TO {0};
               GRANT SELECT ON core_tool_market.credit_calls,core_tool_market.credit_consents,core_tool_market.credit_quotes,core_tool_market.credit_builtin_bindings TO {0};
             "#,
                 self.name
