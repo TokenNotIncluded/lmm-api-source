@@ -617,7 +617,7 @@ impl NativeEncoder {
                 if !self.started {
                     return Err(RelayError::Protocol("usage before Gemini start"));
                 }
-                self.usage.merge(*u)?;
+                self.usage.merge(u.clone())?;
             }
             Event::Images(_) => {
                 return Err(RelayError::Unsupported(

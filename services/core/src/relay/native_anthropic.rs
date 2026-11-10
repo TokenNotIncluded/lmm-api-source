@@ -667,7 +667,7 @@ impl NativeEncoder {
                 }
             }
             Event::Usage(u) => {
-                self.usage.merge(*u)?;
+                self.usage.merge(u.clone())?;
                 if self
                     .usage
                     .output_tokens

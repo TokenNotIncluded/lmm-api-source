@@ -488,7 +488,7 @@ async fn execute(
             .reservation_contract(&id)
             .await
             .map_err(billing::error)?;
-        let usage = billing::frozen_priced_usage(&contract, &frozen, observed)?;
+        let usage = billing::frozen_priced_usage(&contract, &frozen, observed.clone())?;
         gateway
             .bridge
             .persist_output(
