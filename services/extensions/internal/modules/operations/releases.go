@@ -17,7 +17,6 @@ var (
 	ErrUnavailable = errors.New("operations unavailable")
 	ErrNotFound    = errors.New("operations content not found")
 	ErrCapacity    = errors.New("operations publication capacity reached")
-	ErrUnsupported = errors.New("script repository management unsupported")
 )
 
 const MaxID int64 = 9007199254740991

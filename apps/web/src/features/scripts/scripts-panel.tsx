@@ -55,6 +55,7 @@ type ScriptResponse = {
   data?: ScriptMeta[] | { name: string; content: string }
 }
 type RepositoryConfig = {
+  revision: number
   repository_url: string
   branch: string
   github_key_set: boolean
@@ -444,6 +445,7 @@ export function ScriptsAdminSection() {
   const [draft, setDraft] = useState<{
     repositoryUrl: string
     branch: string
+    revision: number
   } | null>(null)
   const [githubKey, setGithubKey] = useState('')
   const [clearGithubKey, setClearGithubKey] = useState(false)
@@ -455,6 +457,7 @@ export function ScriptsAdminSection() {
     mutationFn: async () =>
       (
         await api.put<RepositoryResponse>('/api/scripts/repository', {
+          revision: draft?.revision ?? config?.revision,
           repository_url: repositoryUrl.trim(),
           branch: branch.trim(),
           github_key: githubKey.trim(),
@@ -468,6 +471,7 @@ export function ScriptsAdminSection() {
       }
       setGithubKey('')
       setClearGithubKey(false)
+      setDraft(null)
       await queryClient.invalidateQueries({ queryKey: ['scripts-repository'] })
       toast.success(t('Script repository settings saved'))
     },
@@ -528,7 +532,11 @@ export function ScriptsAdminSection() {
               id='scripts-repository-url'
               value={repositoryUrl}
               onChange={(event) =>
-                setDraft({ repositoryUrl: event.target.value, branch })
+                setDraft({
+                  repositoryUrl: event.target.value,
+                  branch,
+                  revision: draft?.revision ?? config?.revision ?? 0,
+                })
               }
               placeholder='https://github.com/owner/repository.git'
             />
@@ -539,7 +547,11 @@ export function ScriptsAdminSection() {
               id='scripts-repository-branch'
               value={branch}
               onChange={(event) =>
-                setDraft({ repositoryUrl, branch: event.target.value })
+                setDraft({
+                  repositoryUrl,
+                  branch: event.target.value,
+                  revision: draft?.revision ?? config?.revision ?? 0,
+                })
               }
               placeholder='main'
             />
@@ -579,7 +591,9 @@ export function ScriptsAdminSection() {
           <Button
             type='button'
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
+            disabled={
+              !config || saveMutation.isPending || pullMutation.isPending
+            }
           >
             <GitBranch className='me-2 size-4' />
             {saveMutation.isPending ? t('Saving...') : t('Save repository')}
@@ -588,7 +602,12 @@ export function ScriptsAdminSection() {
             type='button'
             variant='outline'
             onClick={() => pullMutation.mutate()}
-            disabled={!repositoryUrl.trim() || pullMutation.isPending}
+            disabled={
+              !config?.repository_url.trim() ||
+              !!draft ||
+              saveMutation.isPending ||
+              pullMutation.isPending
+            }
           >
             <RefreshCw
               className={`me-2 size-4 ${pullMutation.isPending ? 'animate-spin' : ''}`}

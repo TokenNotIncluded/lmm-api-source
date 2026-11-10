@@ -269,6 +269,7 @@ func storageTables(component string) []storageTable {
 		add("lmm_operations.publications", "SELECT", "INSERT")
 		add("lmm_operations.reads", "SELECT", "INSERT")
 		add("lmm_operations.rss_config", "SELECT", "UPDATE")
+		add("lmm_operations.script_repository", "SELECT", "UPDATE")
 	case "acquisition":
 		for _, name := range []string{"contract", "config", "attribution_policies", "cohort", "links", "visitors", "visits", "accounts", "consents", "self_reports", "correction_heads", "corrections", "costs", "first_payments", "activities", "activity_state", "activity_gaps"} {
 			add("lmm_acquisition."+name, "SELECT")

@@ -131,12 +131,21 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 			fn(w, r)
 		}
 	}
-	mux.HandleFunc("GET /api/scripts", public(func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/scripts", public(func(w http.ResponseWriter, r *http.Request) {
 		if s == nil {
 			operationsRespond(w, nil, operations.ErrUnavailable)
 			return
 		}
-		v, err := s.Scripts.List()
+		var v []operations.ScriptMeta
+		var err error
+		if s.Repository != nil {
+			v, err = s.Repository.List(r.Context())
+			if errors.Is(err, operations.ErrNoScriptSnapshot) {
+				v, err = s.Scripts.List()
+			}
+		} else {
+			v, err = s.Scripts.List()
+		}
 		operationsRespond(w, v, err)
 	}))
 	raw := public(func(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +153,16 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 			operationsRespond(w, nil, operations.ErrUnavailable)
 			return
 		}
-		data, err := s.Scripts.Raw(r.PathValue("name"))
+		var data []byte
+		var err error
+		if s.Repository != nil {
+			data, err = s.Repository.Raw(r.Context(), r.PathValue("name"))
+			if errors.Is(err, operations.ErrNoScriptSnapshot) {
+				data, err = s.Scripts.Raw(r.PathValue("name"))
+			}
+		} else {
+			data, err = s.Scripts.Raw(r.PathValue("name"))
+		}
 		if err != nil {
 			operationsRespond(w, nil, err)
 			return
@@ -158,12 +176,7 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 	})
 	mux.HandleFunc("GET /api/scripts/{name}/raw", raw)
 	mux.HandleFunc("GET /scripts/{name}", raw)
-	unsupported := protected(true, func(w http.ResponseWriter, _ *http.Request, _ int64) {
-		operationsRespond(w, nil, operations.ErrUnsupported)
-	})
-	mux.HandleFunc("GET /api/scripts/repository", unsupported)
-	mux.HandleFunc("PUT /api/scripts/repository", unsupported)
-	mux.HandleFunc("POST /api/scripts/repository/pull", unsupported)
+	registerScriptRepository(mux, auth, s)
 }
 
 // NewOperationsModule can be registered with modules.New. Its relative routes
@@ -318,10 +331,15 @@ func operationsRespond(w http.ResponseWriter, value any, err error) {
 			code = 409
 			label = "OPERATIONS_CONFIG_CHANGED"
 			message = "Settings changed. Reload before saving again."
-		case errors.Is(err, operations.ErrUnsupported):
+		case errors.Is(err, operations.ErrRepositoryFetch):
+			code = 502
+			label = "SCRIPT_REPOSITORY_FETCH_FAILED"
+			message = "Could not fetch a public GitHub script repository."
+		case errors.Is(err, operations.ErrRepositoryCredentials):
 			code = 501
-			label = "SCRIPT_REPOSITORY_UNSUPPORTED"
-			message = "Script repository configuration and pull are not supported."
+			label = "SCRIPT_REPOSITORY_CREDENTIALS_UNSUPPORTED"
+			message = "Private repository credentials are not supported."
+
 		}
 		body = map[string]any{"success": false, "code": label, "message": message}
 	}

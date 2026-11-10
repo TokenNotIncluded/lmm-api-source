@@ -93,7 +93,7 @@ func TestOperationsPublicScriptsAndUnavailable(t *testing.T) {
 	core.fn = func(context.Context, string) (*pb.AuthorizeResponse, error) { return actor, nil }
 	for _, tc := range [][2]string{{"GET", "/api/scripts/repository"}, {"PUT", "/api/scripts/repository"}, {"POST", "/api/scripts/repository/pull"}} {
 		w = operationsRequest(mux, tc[0], tc[1], "", webToken)
-		if w.Code != 501 || !strings.Contains(w.Body.String(), "SCRIPT_REPOSITORY_UNSUPPORTED") {
+		if w.Code != 503 || !strings.Contains(w.Body.String(), "OPERATIONS_UNAVAILABLE") {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
@@ -115,9 +115,7 @@ func TestOperationsFreshAdminAuthorizationAndModuleAdmission(t *testing.T) {
 			expected := 403
 			if level >= 5 {
 				expected = 503
-				if strings.Contains(tc[1], "repository") {
-					expected = 501
-				}
+
 			}
 			if w.Code != expected || core.calls != before+1 {
 				t.Fatalf("level %d %s: %d %s calls=%d", level, tc[1], w.Code, w.Body.String(), core.calls)

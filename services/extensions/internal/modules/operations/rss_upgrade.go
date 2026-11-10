@@ -111,5 +111,5 @@ ALTER TABLE lmm_operations.contract ADD CONSTRAINT contract_version_check CHECK 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO lmm_operations.schema_upgrades(version,operation_id,database_oid,installed_by) SELECT 2,$1,oid,session_user FROM pg_database WHERE datname=current_database()`, operation); err != nil {
 		return ErrUnavailable
 	}
-	return SealInstalledSchema(ctx, tx)
+	return sealInstalledSchemaVersion(ctx, tx, 2)
 }

@@ -1,7 +1,7 @@
 -- Fresh isolated operations database only; installed offline with owner authority.
 CREATE SCHEMA lmm_operations;
-CREATE TABLE lmm_operations.contract (version integer PRIMARY KEY CHECK (version=2), fingerprint text NOT NULL);
-INSERT INTO lmm_operations.contract VALUES (2,'');
+CREATE TABLE lmm_operations.contract (version integer PRIMARY KEY CHECK (version=3), fingerprint text NOT NULL);
+INSERT INTO lmm_operations.contract VALUES (3,'');
 CREATE SEQUENCE lmm_operations.publication_id MAXVALUE 9007199254740991;
 CREATE TABLE lmm_operations.publications (
  id bigint PRIMARY KEY DEFAULT nextval('lmm_operations.publication_id') CHECK (id BETWEEN 1 AND 9007199254740991),

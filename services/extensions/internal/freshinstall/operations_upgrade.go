@@ -13,12 +13,13 @@ import (
 	"github.com/lib/pq"
 )
 
-// RunOperationsUpgradeCLI is an explicit owner operation for the v1 RSS upgrade.
+// RunOperationsUpgradeCLI performs an explicit owner upgrade to the selected version.
 // Normal startup never reads owner credentials or invokes this code.
 func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
 	var c Config
 	var operation string
 	var recoverOnly bool
+	var targetVersion int
 	f := flag.NewFlagSet("upgrade-operations-db", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&c.OwnerURLFile, "owner-url-file", "", "private offline owner connection")
@@ -27,7 +28,8 @@ func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) 
 	f.StringVar(&c.RuntimeRole, "runtime-role", "", "fenced NOLOGIN runtime")
 	f.StringVar(&operation, "operation-id", "", "original stable operation ID")
 	f.BoolVar(&recoverOnly, "recover", false, "read original result without applying")
-	if f.Parse(args) != nil || f.NArg() != 0 {
+	f.IntVar(&targetVersion, "target-version", 2, "2 for RSS, 3 for script repository")
+	if f.Parse(args) != nil || f.NArg() != 0 || (targetVersion != 2 && targetVersion != 3) {
 		return ErrRejected
 	}
 	c.Component = "operations"
@@ -66,7 +68,12 @@ func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) 
 	if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+pq.QuoteIdentifier(c.OwnerRole)); err != nil {
 		return ErrRejected
 	}
-	if err := operations.UpgradeRSS(ctx, tx, c.RuntimeRole, operation, recoverOnly); err != nil {
+	if targetVersion == 3 {
+		err = operations.UpgradeScriptRepository(ctx, tx, c.RuntimeRole, operation, recoverOnly)
+	} else {
+		err = operations.UpgradeRSS(ctx, tx, c.RuntimeRole, operation, recoverOnly)
+	}
+	if err != nil {
 		return err
 	}
 	if !recoverOnly {
@@ -74,7 +81,7 @@ func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) 
 			return ErrCommitUnknown
 		}
 	}
-	if err := json.NewEncoder(out).Encode(map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": 2}); err != nil {
+	if err := json.NewEncoder(out).Encode(map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": targetVersion}); err != nil {
 		return ErrCommitUnknown
 	}
 	return nil

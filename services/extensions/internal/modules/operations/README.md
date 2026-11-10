@@ -1,9 +1,9 @@
 # Operations content
 
 This module owns persisted release publications, RSS source configuration and an
-installation-reviewed filesystem script snapshot. It fetches configured public
-RSS/Atom feeds without Core storage access or script execution. Repository configuration and pull
-remain unsupported (HTTP 501 after fresh administrator authorization).
+installation-reviewed filesystem script snapshot or an atomically imported public
+GitHub script repository. It fetches configured public RSS/Atom feeds and bounded
+GitHub archives without Core storage access or script execution.
 
 ## Parent integration contract
 
@@ -17,7 +17,7 @@ remain unsupported (HTTP 501 after fresh administrator authorization).
 - `webcompat.RegisterOperations(mux, existingAuthenticator, service)` registers
   the exact Web routes: `/api/release-notes/latest`, `/api/release-notes/{id}/read`,
   `/api/release-notes/admin`, `/api/scripts`, `/api/scripts/{name}/raw`,
-  `/scripts/{name}`, `/api/rss`, `/api/rss/settings` and the explicitly unsupported repository routes.
+  `/scripts/{name}`, `/api/rss`, `/api/rss/settings` and the repository settings/pull routes.
   **Wrap the actual outer Web admission handler in
   `webcompat.OperationsGuard(handler)` before any shared ServeMux.** Registration
   alone cannot reject dot/double-slash traversal before ServeMux redirects.
@@ -33,7 +33,7 @@ remain unsupported (HTTP 501 after fresh administrator authorization).
 - The parent owns shared selection, admission/draining, configuration, offline
   installer dispatch, proxy routing (including `/scripts/*`) and capability
   advertisement. `Service.Availability()` reports assembled components, not
-  live dependency health; `script_repository` is always false in this patch.
+  live dependency health; `script_repository` requires the checked operations pool.
   HTTP dependency outages return unsuccessful 503 responses, never empty data.
 
 ## Offline database installation
@@ -49,7 +49,7 @@ The helper revokes PUBLIC database/schema rights and grants runtime only:
 - database CONNECT and operations schema USAGE;
 - SELECT on the owner-installed schema contract;
 - SELECT and INSERT on publications and read acknowledgements;
-- SELECT and UPDATE on the single RSS configuration row;
+- SELECT and UPDATE on the RSS and script repository singleton rows;
 - SELECT and USAGE on the publication ID sequence (not UPDATE/setval).
 
 No runtime DDL, database CREATE/TEMP, schema CREATE, release-table UPDATE or table DELETE/TRUNCATE,
@@ -138,9 +138,41 @@ The module neither mutates source files nor counts fetches. Returned byte slices
 and catalogue slices are defensive copies. Refresh requires explicit reconstruction
 with a reviewed manifest; there is no automatic network or filesystem reload.
 
+## Public GitHub script repository
+
+An operations database enables `GET/PUT /api/scripts/repository` and
+`POST /api/scripts/repository/pull`. Every request checks a current Core session
+at platform level 5 or 6. Save accepts `revision`, `repository_url`, `branch`, an
+empty `github_key` and `clear_github_key: false`; stale versions return 409.
+Private credentials are explicitly unsupported (501), never stored or echoed.
+
+Only canonical public `https://github.com/owner/repository` URLs (optional `.git`)
+are accepted. Pull fetches one archive from `codeload.github.com` using the RSS
+client's public-address checks, DNS pinning, redirect checks and timeout. It runs
+no git command, filesystem extraction or script. Archives are limited to 16 MiB
+and 4096 entries; only valid root-level `.sh`, `.zsh` and `.ps1` regular files
+enter the existing 128-file, 256 KiB/file, 8 MiB snapshot contract. Invalid, empty,
+conflicting or failed pulls preserve the last complete snapshot.
+
+Fetching holds no database transaction. A single compare-and-swap UPDATE commits
+the entire snapshot and advances the configuration revision. Settings report
+`snapshot_repository_url`, `snapshot_branch` and `snapshot_pulled_at` separately
+from the current draft source; `last_pulled_at` is present only when they match.
+Public catalogue/raw routes read this persisted snapshot after import. Before the
+first import, an explicitly configured reviewed filesystem snapshot remains usable.
+A database failure is an error, not a reason to serve older filesystem content.
+
+For an existing v2 database, use the same offline owner/fenced-runtime procedure
+below with `--target-version 3` and its own stable operation ID. Read back that
+operation with `--recover --target-version 3` before reopening runtime access.
+The upgrade preserves publications, reads, sequence and RSS configuration. A v1
+database first completes and recovers its separate v2 RSS upgrade; the default
+`--target-version 2` retains that command's existing behavior. Normal startup
+performs neither upgrade. The frozen v2 fixture is `testdata/schema_v2.sql`.
+
 ## RSS reader and source settings
 
-The operations database installs schema version 2. `operations.New` checks the
+The operations database installs schema version 3. `operations.New` checks the
 database contract before assembling the RSS reader. Script-only installations
 return 503 for RSS. The Web reader calls `GET /api/rss` with a current Core
 session. Disabled sources remain in settings and are never fetched or returned

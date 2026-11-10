@@ -89,6 +89,7 @@ func TestPostgresOperationsCompositionStorageBoundary(t *testing.T) {
 	for _, grant := range []struct{ table, privilege string }{
 		{"contract", "SELECT"}, {"publications", "SELECT"}, {"publications", "INSERT"},
 		{"reads", "SELECT"}, {"reads", "INSERT"},
+		{"script_repository", "SELECT"}, {"script_repository", "UPDATE"},
 	} {
 		t.Run("reject missing "+grant.table+" "+grant.privilege, func(t *testing.T) {
 			exec("REVOKE " + grant.privilege + " ON lmm_operations." + grant.table + " FROM lmm_operations_boundary_runtime")
