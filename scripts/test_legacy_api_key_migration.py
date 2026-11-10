@@ -54,6 +54,62 @@ def inputs(tokens=None):
     return source, target
 
 
+def activated_inputs(tokens=None):
+    from test_legacy_admin_activation_lineage import fixture
+    source, target = inputs(tokens)
+    source["users"][0]["auth_version"] = 6
+    target["users"][0]["auth_version"] = 7
+    target[MODULE.LINEAGE.KEY] = [fixture()[0]]
+    return source, target
+
+
+class ActivationLineageTests(unittest.TestCase):
+    def test_proved_generation7_retains_raw6_and_live_key(self):
+        source, target = activated_inputs()
+        row = MODULE.plan_api_keys(source, target)["records"][0]
+        self.assertEqual(row["source_auth_version"], 6)
+        self.assertEqual(row["expected_target_auth_version"], 7)
+        self.assertEqual(row["target_auth_version"], 7)
+        self.assertEqual(row["source_group_authority"]["user_snapshot"]["auth_version"], 6)
+        self.assertNotIn("owner_auth_version_changed", row["blocked_reasons"])
+        self.assertFalse(row["revoked"])
+        self.assertTrue(row["enabled"])
+
+    def test_missing_proof_keeps_equality_guard(self):
+        source, target = activated_inputs()
+        del target[MODULE.LINEAGE.KEY]
+        row = MODULE.plan_api_keys(source, target)["records"][0]
+        self.assertIn("owner_auth_version_changed", row["blocked_reasons"])
+        self.assertEqual(row["expected_target_auth_version"], 6)
+
+    def test_source_disabled_current8_and_unconsumed_rejected(self):
+        for kind in ("disabled", "deleted", "version8", "unconsumed"):
+            source, target = activated_inputs()
+            if kind == "disabled":
+                source["users"][0]["status"] = 2
+            elif kind == "deleted":
+                source["users"][0]["deleted_at"] = "2026-01-01T00:00:00Z"
+            elif kind == "version8":
+                target["users"][0]["auth_version"] = 8
+            else:
+                target[MODULE.LINEAGE.KEY][0]["native_evidence"]["receipts"] = []
+            with self.subTest(kind=kind), self.assertRaises(MODULE.ProposalError):
+                MODULE.plan_api_keys(source, target)
+
+    def test_lineage_does_not_grant_dev_or_source_group_or_managed(self):
+        source, target = activated_inputs([token(group="default")])
+        source["users"][0]["group"] = "default"
+        target["users"][0]["routing_groups"].append("default")
+        target["users"][0]["developer_access_granted"] = False
+        row = MODULE.plan_api_keys(source, target)["records"][0]
+        self.assertIn("source_token_group_deprecated", row["blocked_reasons"])
+        self.assertIn("target_developer_grant_missing", row["blocked_reasons"])
+        source, target = activated_inputs([token(oauth_managed=True)])
+        row = MODULE.plan_api_keys(source, target)["records"][0]
+        self.assertFalse(row["source_ordinary_api_key"])
+        self.assertIn("managed_credential_requires_separate_migration", row["blocked_reasons"])
+
+
 class ProposalTests(unittest.TestCase):
     def test_source_explicit_gate_cannot_be_replaced_by_native_membership(self):
         for group, reason in (("default", "source_token_group_deprecated"),

@@ -24,6 +24,8 @@ import stat
 import sys
 from typing import Any
 
+import legacy_admin_activation_lineage as LINEAGE
+
 
 LEGACY_REVISION = "cc52aa195c6f2a01d703a1a407be73c31b89867d"
 MAX_I64 = 9223372036854775807
@@ -150,7 +152,8 @@ def id_map_bytes(rows: list[dict]) -> str:
 
 
 def target_mapping(target: dict, source_hash: str) -> tuple[dict, dict]:
-    fields(target, TARGET_FIELDS, "target_fields_unknown_or_missing")
+    require(type(target) is dict and set(target) in (TARGET_FIELDS, TARGET_FIELDS | {LINEAGE.KEY}),
+            "target_fields_unknown_or_missing")
     require(type(target["format_version"]) is int and target["format_version"] == 1,
             "target_version_unsupported")
     require(target["source_archive_sha256"] == source_hash, "target_source_hash_mismatch")
@@ -184,7 +187,23 @@ def target_mapping(target: dict, source_hash: str) -> tuple[dict, dict]:
         observed = users.get(row["target_user_id"])
         require(observed is not None and observed["personal_account_id"] == row["target_personal_account_id"],
                 "id_map_target_observation_mismatch")
+    activation_bindings(target)
     return mappings, users
+
+
+def activation_bindings(target: dict) -> dict:
+    try:
+        return LINEAGE.validate_bindings(target.get(LINEAGE.KEY, []), target["source_archive_sha256"],
+            target["source_target_id_map"], target["source_target_id_map_sha256"])
+    except LINEAGE.LineageError as error:
+        raise ProposalError(str(error)) from None
+
+
+def expected_auth_version(user: dict, observed: dict, binding: dict | None) -> int:
+    try:
+        return LINEAGE.expected_version(user, observed, binding)
+    except LINEAGE.LineageError as error:
+        raise ProposalError(str(error)) from None
 
 
 def validate_group_policy(policy: dict) -> dict:
@@ -257,6 +276,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
     integer(policy["max_token_auto_groups"], "policy_max_auto_groups_invalid", 1, 64)
     boolean(policy["user_model_rate_limit_enabled"], "policy_rate_limit_invalid")
     mappings, observed_users = target_mapping(target, source["source_archive_sha256"])
+    lineage = activation_bindings(target)
     users = {}
     for row in source["users"]:
         fields(row, USER_FIELDS, "user_fields_unknown_or_missing")
@@ -332,7 +352,9 @@ def plan_api_keys(source: dict, target: dict) -> dict:
         source_enabled = user["status"] == 1 and not deleted(user["deleted_at"])
         if not source_enabled and observed["active"]:
             blocked.append("source_owner_disabled_or_deleted_target_active")
-        if observed["auth_version"] != user["auth_version"]:
+        binding = lineage.get(mapping["target_user_id"])
+        expected_auth = expected_auth_version(user, observed, binding)
+        if observed["auth_version"] != expected_auth:
             blocked.append("owner_auth_version_changed")
         if not observed["developer_access_granted"]:
             blocked.append("target_developer_grant_missing")
@@ -380,6 +402,8 @@ def plan_api_keys(source: dict, target: dict) -> dict:
                   "target_user_id": mapping["target_user_id"],
                   "target_personal_account_id": mapping["target_personal_account_id"],
                   "target_auth_version": observed["auth_version"], "digest_sha256": digest,
+                  "source_auth_version": user["auth_version"], "expected_target_auth_version": expected_auth,
+                  "auth_version_binding_sha256": LINEAGE.digest(binding) if binding else None,
                   "name": name, "created_time": created, "accessed_time": accessed,
                   "source_status": status, "source_deleted": is_deleted,
                   "source_ordinary_api_key": ordinary,

@@ -28,6 +28,8 @@ from pathlib import Path
 import re
 import sys
 
+import legacy_admin_activation_lineage as LINEAGE
+
 
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("lmm_identity_import", ROOT / "scripts/migrate-legacy-snapshot.py")
@@ -277,9 +279,21 @@ def manifest_binding(contract: dict, target_contract: dict, target_identity: dic
     """Invalidate preserved replay material when source, tool or target changes."""
     return {"import_tool_sha256": IDENTITY.sha256_file(Path(__file__)),
             "import_contract_sha256": hashlib.sha256(canonical(contract).encode()).hexdigest(),
+            **({"admin_activation_lineage_tool_sha256": hashlib.sha256(Path(LINEAGE.__file__).read_bytes()).hexdigest()}
+               if target_contract.get(LINEAGE.KEY) else {}),
             "target_material_sha256": hashlib.sha256(canonical({
                 "contract": target_contract, "instance_identity": target_identity,
                 "connection": target_connection}).encode()).hexdigest()}
+
+
+def target_identity_facts(identity_proof: dict, target_contract: dict, target_identity: dict) -> list:
+    try:
+        for binding in target_contract.get(LINEAGE.KEY, []):
+            LINEAGE.require(binding["native_evidence"]["identity_import"]["migration_id"] ==
+                            target_contract["identity_import"]["migration_id"], "admin_activation_import_mismatch")
+        return LINEAGE.effective_console_facts(identity_proof, target_contract.get(LINEAGE.KEY, []), target_identity)
+    except LINEAGE.LineageError as error:
+        raise MappingError(str(error)) from None
 
 
 def build_import_sql(plan: dict, *, migration_id: str, target_contract: dict, manifest: dict,
@@ -344,7 +358,9 @@ def build_import_sql(plan: dict, *, migration_id: str, target_contract: dict, ma
     mapping_hash, source_hash = literal(plan["mapping_sha256"]), literal(plan["source_archive_sha256"])
     manifest_json, catalog = literal(canonical(manifest)), catalog_hash_sql(contract)
     components = literal(canonical(contract["component_fingerprints"]))
-    identity_facts = literal(canonical(identity_proof["facts"]))
+    admin_bindings = target_contract.get(LINEAGE.KEY, [])
+    effective_facts = target_identity_facts(identity_proof, target_contract, target_identity)
+    identity_facts = literal(canonical(effective_facts))
     identity_manifest = literal(canonical(identity_proof["manifest"]))
     identity_run_id = literal(reference["migration_id"])
     table_predicate = "c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'"
@@ -414,6 +430,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM core_migration.import_runs WHERE migration_id NOT IN ({run_id},{identity_run_id})) THEN
   RAISE EXCEPTION 'target belongs to another import';
  END IF;
+ {LINEAGE.guard_sql(admin_bindings)}
  IF (SELECT count(*) FROM core_identity.users)<>jsonb_array_length(identity_facts)
  OR (SELECT count(*) FROM core_identity.accounts)<>jsonb_array_length(identity_facts)
  OR (SELECT count(*) FROM core_identity.user_profiles)<>jsonb_array_length(identity_facts)

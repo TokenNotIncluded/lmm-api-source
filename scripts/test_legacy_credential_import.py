@@ -72,6 +72,92 @@ def material_fixture(**kwargs):
         snapshot=snapshot, runtime_roles=["synthetic_runtime"], source_files=files, encryption_key=bytes(range(32)))
 
 
+class ActivationLineageWriterTests(unittest.TestCase):
+    def records(self, source, target, **kwargs):
+        proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
+        return IMPORT._supported_rows(proposal, target, 201, **kwargs)
+
+    def test_writer_issues_generation7_not_source6_without_revoking_valid_key(self):
+        from test_legacy_api_key_migration import activated_inputs
+        source, target = activated_inputs()
+        row = self.records(source, target)[0]
+        self.assertEqual((row["source_auth_version"], row["target_auth_version"]), (6, 7))
+        self.assertFalse(row["revoked"])
+        self.assertTrue(row["enabled"])
+        self.assertNotIn("owner_auth_version_changed", row["blocked_reasons"])
+
+    def test_revoke_unsupported_cannot_hide_unproved_version_drift(self):
+        from test_legacy_api_key_migration import activated_inputs
+        source, target = activated_inputs()
+        del target[IMPORT.LINEAGE.KEY]
+        with self.assertRaisesRegex(IMPORT.Error, "credential_owner_auth_version_changed"):
+            self.records(source, target, revoke_unsupported=True)
+
+    def test_writer_recomputes_lineage_audit_and_keeps_source_denied_inert(self):
+        from test_legacy_api_key_migration import activated_inputs
+        source, target = activated_inputs()
+        proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
+        for field, value in (("expected_target_auth_version", 6), ("source_auth_version", 7),
+                             ("auth_version_binding_sha256", "0" * 64), ("target_auth_version", 6)):
+            bad = deepcopy(proposal)
+            bad["records"][0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(IMPORT.Error, "credential_owner_auth_version_changed"):
+                IMPORT._supported_rows(bad, target, 201)
+        source, target = activated_inputs([token(group="default")])
+        source["users"][0]["group"] = "default"
+        target["users"][0]["routing_groups"].append("default")
+        with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+            self.records(source, target)
+        row = self.records(source, target, revoke_unsupported=True)[0]
+        self.assertTrue(row["revoked"])
+        self.assertFalse(row["enabled"])
+        self.assertIn("source_token_group_deprecated", row["blocked_reasons"])
+
+    def test_sql_guard_keeps_existing_guards_and_adds_durable_recheck(self):
+        from test_legacy_api_key_migration import activated_inputs
+        from test_financial_import import trust_seed_fixture
+        _, target = activated_inputs()
+        material = {"target_projection": target, "target": {"trust_policy_seed": trust_seed_fixture()}}
+        with patch.object(IMPORT.FIN, "_guard", return_value="-- existing authority fences\n"):
+            sql = IMPORT._guard(material)
+        self.assertIn("-- existing authority fences", sql)
+        self.assertIn("admin_activation_durable_evidence_changed", sql)
+        self.assertIn("credential_authority_or_financial_opening_changed", sql)
+        self.assertIn("FOR SHARE OF u,a,p,l", sql)
+
+    def test_synthetic_eleven_valid_keys_remain_live_denied_and_managed_stay_inert(self):
+        from test_legacy_api_key_migration import activated_inputs
+        tokens = [token(id=17+i, key=SYNTHETIC_SECRET + str(i)) for i in range(11)]
+        tokens += [token(id=28, key=SYNTHETIC_SECRET + "denied", group="default"),
+                   token(id=29, key=SYNTHETIC_SECRET + "managed", oauth_managed=True)]
+        source, target = activated_inputs(tokens)
+        source["users"][0]["group"] = "default"
+        target["users"][0]["routing_groups"].append("default")
+        rows = self.records(source, target, revoke_unsupported=True)
+        self.assertEqual(sum(r["enabled"] and not r["revoked"] for r in rows), 11)
+        self.assertTrue(all(r["target_auth_version"] == 7 and r["source_auth_version"] == 6 for r in rows))
+        self.assertTrue(all(r["revoked"] and not r["enabled"] for r in rows[-2:]))
+        self.assertIn("source_token_group_deprecated", rows[-2]["blocked_reasons"])
+        self.assertIn("managed_credential_requires_separate_migration", rows[-1]["blocked_reasons"])
+
+    def test_before_activation_live_source_keys_cannot_be_revoked_while_owner_dormant(self):
+        from test_legacy_api_key_migration import activated_inputs
+        source, target = activated_inputs()
+        del target[IMPORT.LINEAGE.KEY]
+        target["users"][0].update(auth_version=6, active=False)
+        with self.assertRaisesRegex(IMPORT.Error, "credential_live_source_key_requires_complete_native_authority"):
+            self.records(source, target, revoke_unsupported=True)
+
+    def test_valid_root_keys_cannot_be_revoked_to_hide_missing_dev_or_routing(self):
+        from test_legacy_api_key_migration import activated_inputs
+        for field, value in (("developer_access_granted", False), ("routing_groups", [])):
+            source, target = activated_inputs()
+            target["users"][0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(IMPORT.Error,
+                    "credential_live_source_key_requires_complete_native_authority"):
+                self.records(source, target, revoke_unsupported=True)
+
+
 class ProducerTests(unittest.TestCase):
     def test_native_default_does_not_revive_source_explicit_default(self):
         source, target = inputs([token(group="default")])

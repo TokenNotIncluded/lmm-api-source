@@ -102,6 +102,96 @@ def build(plan=None, contract=None, target=None, identity=None, run="console-syn
                                    target_connection=connection)
 
 
+def activated_console_fixture():
+    from test_legacy_admin_activation_lineage import fixture
+    b, _, instance = fixture()
+    a = b["approved_apply_request"]["approval"]
+    raw = {"user_id": 37, "account_id": 8, "platform_role": "superadmin", "active": False, "auth_version": 6,
+           "password_login_allowed": False, "second_factor_required": False, "legacy_bcrypt_allowed": True,
+           "email_login_allowed": False, "developer_access_granted": True, "developer_access_revision": 1,
+           "password_hash_sha256": a["password_hash_sha256"]}
+    for key in ("username", "display_name", "email", "setting", "developer_access_source_reference"):
+        raw[key + "_sha256"] = "d" * 64
+    proof = {"source_archive_sha256": a["archive_sha256"], "manifest": b["native_evidence"]["identity_import"]["manifest"],
+        "manifest_sha256": "d" * 64, "mapping_sha256": a["a2_semantic_sha256"], "mapping_file_sha256": a["a2_file_sha256"],
+        "source_target_id_map_sha256": b["source_target_id_map_sha256"], "facts": [raw]}
+    target = {MODULE.LINEAGE.KEY: [b], "identity_import": {"migration_id": a["migration_id"]}}
+    return proof, target, instance
+
+
+class ActivationLineageConsoleTests(unittest.TestCase):
+    def test_only_native_activation_deltas_derive_from_original_a2(self):
+        proof, target, instance = activated_console_fixture()
+        original = deepcopy(proof)
+        effective = MODULE.target_identity_facts(proof, target, instance)
+        changed = {k for k in effective[0] if effective[0][k] != proof["facts"][0][k]}
+        self.assertEqual(changed, {"active", "auth_version", "password_login_allowed"})
+        self.assertEqual(proof, original)
+        self.assertEqual(proof["facts"][0]["auth_version"], 6)
+        self.assertEqual(effective[0]["auth_version"], 7)
+        self.assertTrue(effective[0]["active"])
+
+    def test_no_binding_preserves_original_full_row_expectations(self):
+        proof, _, instance = activated_console_fixture()
+        self.assertEqual(MODULE.target_identity_facts(proof, {}, instance), proof["facts"])
+
+    def test_bad_receipt_and_other_original_identity_changes_reject(self):
+        for kind in ("unconsumed", "wrong_map", "wrong_run", "wrong_a2", "source_disabled",
+                     "other_role", "other_mfa", "already_active", "original_version7", "current8"):
+            proof, target, instance = activated_console_fixture()
+            b = target[MODULE.LINEAGE.KEY][0]
+            if kind == "unconsumed":
+                b["native_evidence"]["receipts"] = []
+            elif kind == "wrong_map":
+                proof["source_target_id_map_sha256"] = "0" * 64
+            elif kind == "wrong_run":
+                target["identity_import"]["migration_id"] = "other-run"
+            elif kind == "wrong_a2":
+                proof["mapping_file_sha256"] = "0" * 64
+            elif kind == "source_disabled":
+                b["native_evidence"]["facts"]["source_enabled"] = False
+            elif kind == "other_role":
+                proof["facts"][0]["platform_role"] = "user"
+            elif kind == "other_mfa":
+                proof["facts"][0]["second_factor_required"] = True
+            elif kind == "already_active":
+                proof["facts"][0]["active"] = True
+            elif kind == "original_version7":
+                proof["facts"][0]["auth_version"] = 7
+            else:
+                b["native_evidence"]["current"]["auth_version"] = 8
+            with self.subTest(kind=kind), self.assertRaises(MODULE.MappingError):
+                MODULE.target_identity_facts(proof, target, instance)
+
+    def test_full_row_sql_keeps_other_fields_and_rechecks_native_evidence(self):
+        # This is a synthetic SQL-generation test, not a current schema capture
+        # or native/PG acceptance. Unchanged upgrade/seed guards use fixtures.
+        proof, target, instance = activated_console_fixture()
+        contract = {"identity_version": 65, "identity_fingerprint_sha256": "b" * 64,
+            "component_fingerprints": {}, "catalog_query": "SELECT 'synthetic-only'::text AS definition",
+            "catalog_query_sha256": "c" * 64, "oauth_catalog_query_sha256": "d" * 64,
+            "installer_contract_sha256": "e" * 64, "source_file_hashes": {}}
+        identity = {**synthetic_identity(), **instance}
+        target = {**contract, **target, "identity_import": MODULE.identity_reference(proof,
+            target["identity_import"]["migration_id"]), "trust_policy_seed": trust_seed_fixture(),
+            "catalog_fingerprint_sha256": "c" * 64, "initialized_core_seed_sha256": "f" * 64}
+        plan = mapped(reads=[read(user_id=37)])
+        connection = {"role": identity["role"], "login_role": identity["session_user"], "set_role": identity["role"]}
+        m = {**manifest(plan, proof), "identity_import": target["identity_import"],
+             **MODULE.manifest_binding(contract, target, identity, connection)}
+        with patch.object(H, "upgrade_receipts_guard_sql", return_value="false"), \
+                patch.object(H, "fresh_seed_hash_query", return_value="SELECT 'synthetic-seed'"):
+            sql = MODULE.build_import_sql(plan, migration_id="console-lineage-synthetic", target_contract=target,
+                manifest=m, contract=contract, target_identity=identity, identity_proof=proof, target_connection=connection)
+        self.assertIn('"auth_version":7', sql)
+        self.assertIn("admin_activation_durable_evidence_changed", sql)
+        self.assertIn("identity current facts proof mismatch", sql)
+        self.assertIn("u.platform_role,u.active,u.auth_version", sql)
+        self.assertIn("d.source_reference", sql)
+        self.assertNotIn("UPDATE core_identity.users", sql)
+        self.assertEqual(proof["facts"][0]["auth_version"], 6)
+
+
 class MapperTests(unittest.TestCase):
     def test_preserves_raw_text_setup_and_receipt_without_rehash(self):
         raw = ' [ {"id":2,"content":"<公告>&","extra":"x","mandatory":true,"publishDate":"2020-01-01T0:00:00,12345678999+24:60","ackRevision":" g1 "} ] '

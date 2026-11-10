@@ -21,6 +21,7 @@ import uuid
 
 import financial_import as FIN
 import legacy_api_key_migration as PROPOSAL
+import legacy_admin_activation_lineage as LINEAGE
 import legacy_key_quota_opening as QUOTA
 
 IDENTITY = FIN.IDENTITY
@@ -97,7 +98,7 @@ def alias_target(instance: dict) -> dict:
 
 def source_hashes() -> dict:
     names = ("legacy_credential_import.py", "legacy_api_key_migration.py",
-             "legacy_key_quota_opening.py", "financial_import.py", "migrate-legacy-financial.py",
+             "legacy_admin_activation_lineage.py", "legacy_key_quota_opening.py", "financial_import.py", "migrate-legacy-financial.py",
              "migrate-legacy-snapshot.py", "legacy_financial_preflight.py")
     result = {name: IDENTITY.sha256_file(Path(__file__).with_name(name)) for name in names}
     root = Path(__file__).resolve().parents[1]
@@ -224,6 +225,7 @@ def _next_id(state: dict, sequence: str, count: int) -> int:
 def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsupported: bool = False) -> list[dict]:
     observed = {row["user_id"]: row for row in target["users"]}
     mappings, _ = PROPOSAL.target_mapping(target, proposal["source_archive_sha256"])
+    lineage = PROPOSAL.activation_bindings(target)
     require(type(proposal.get("source_policy")) is dict, "credential_source_group_policy_invalid")
     try:
         policy = proposal["source_policy"]
@@ -248,6 +250,14 @@ def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsup
             raise Error("credential_source_group_audit_invalid") from None
         require(authority == expected and original["native_effective_group"] == expected["effective_group"],
                 "credential_source_group_audit_mismatch")
+        binding = lineage.get(original["target_user_id"])
+        source_user = authority["user_snapshot"]
+        expected_auth = PROPOSAL.expected_auth_version(source_user, observed[original["target_user_id"]], binding)
+        require(original.get("source_auth_version") == source_user["auth_version"]
+                and original.get("expected_target_auth_version") == expected_auth
+                and original.get("auth_version_binding_sha256") == (LINEAGE.digest(binding) if binding else None)
+                and original["target_auth_version"] == observed[original["target_user_id"]]["auth_version"] == expected_auth,
+                "credential_owner_auth_version_changed")
         if not expected["allowed"]:
             blocked.add(expected["denial_reason"])
         native_group = original["native_effective_group"]
@@ -262,6 +272,9 @@ def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsup
         # without activating the user, changing auth_version or granting access.
         if not original["source_owner_enabled"] and not observed[original["target_user_id"]]["active"]:
             blocked.discard("target_owner_inactive")
+        authority_blocked = blocked & {"target_owner_inactive", "target_developer_grant_missing", "target_routing_grant_missing"}
+        if original["source_ordinary_api_key"] and original["source_usable_at_snapshot"] and (binding or authority_blocked):
+            require(not blocked, "credential_live_source_key_requires_complete_native_authority")
         row = json.loads(canonical(original))
         row["blocked_reasons"] = sorted(set(original["blocked_reasons"]) | blocked)
         row["target_credential_id"] = first_id + offset
@@ -306,6 +319,10 @@ def prepare_material(source: dict, target_projection: dict, proposal: dict, revi
     validate_review(review, source, target_projection, proposal)
     require(type(migration_id) is str and IDENTITY.MIGRATION_ID.fullmatch(migration_id), "credential_migration_id_invalid")
     require(snapshot["native_users"] == target_projection["users"], "credential_target_projection_stale")
+    bindings = target_projection.get(LINEAGE.KEY, [])
+    LINEAGE.bind_instance(bindings, snapshot["instance"], snapshot["identity_import"])
+    require(snapshot.get("admin_activation_evidence", []) == [b["native_evidence"] for b in bindings],
+            "credential_activation_evidence_stale")
     state = snapshot["state"]
     first = _next_id(state, CHANGED_SEQUENCES[0], len(proposal["records"]))
     rows = _supported_rows(proposal, target_projection, first, revoke_unsupported=revoke_unsupported)
@@ -348,6 +365,8 @@ def validate_material(material: dict) -> None:
     require(type(material.get("migration_id")) is str and IDENTITY.MIGRATION_ID.fullmatch(material["migration_id"]),
             "credential_migration_id_invalid")
     require(material.get("tool_source_hashes") == source_hashes(), "credential_tool_source_changed")
+    LINEAGE.bind_instance(material["target_projection"].get(LINEAGE.KEY, []),
+                          material["target"]["instance"], material["identity_import"])
     for field in ("source_archive_sha256", "identity_map_sha256", "mapping_sha256"):
         FIN.checked_hash(material.get(field))
     rows = material["records"]
@@ -469,14 +488,14 @@ def native_users_sql() -> str:
  LEFT JOIN core_identity.developer_access d ON d.user_id=u.id"""
 
 
-def snapshot_sql(inventory: dict, migration_id: str) -> str:
+def snapshot_sql(inventory: dict, migration_id: str, admin_bindings=()) -> str:
     contract = IDENTITY.current_contract()
     return "\\set ON_ERROR_STOP on\nBEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL timezone='UTC';\nSELECT jsonb_build_object(" + \
         "'instance',(" + FIN.instance_sql() + "),'catalog_fingerprint_sha256',(" + IDENTITY.catalog_hash_sql(contract) + ")," + \
         "'ownership_sha256',(" + FIN.ownership_sql() + "),'component_fingerprints'," + \
         "(SELECT jsonb_object_agg(name,encode(fingerprint,'hex')) FROM core_meta.component_contract)," + \
         "'trust_policy_seed',(" + IDENTITY.trust_policy_seed_query() + "),'state',(" + FIN.state_sql(inventory, migration_id) + ")," + \
-        "'native_users',(" + native_users_sql() + "),'identity_import'," + \
+        "'admin_activation_evidence',(" + LINEAGE.evidence_array_sql(admin_bindings) + "),'native_users',(" + native_users_sql() + "),'identity_import'," + \
         "(SELECT to_jsonb(r) FROM core_migration.import_runs r WHERE manifest->>'scope'='identity-only'),'financial_import'," + \
         "(SELECT to_jsonb(r) FROM core_migration.import_runs r WHERE manifest->>'scope' IN (" + \
         literal(FIN.SCOPE) + "," + literal(FIN.ESCROW_SCOPE) + "))); COMMIT;\n"
@@ -522,7 +541,7 @@ def _sql_body(material: dict) -> str:
 
 
 def _guard(material: dict) -> str:
-    return FIN._guard(material) + f"""
+    return FIN._guard(material) + LINEAGE.guard_sql(material["target_projection"].get(LINEAGE.KEY, [])) + f"""
  IF ({native_users_sql()}) IS DISTINCT FROM m->'target_projection'->'users'
  OR (SELECT count(*) FROM core_migration.import_runs WHERE manifest->>'scope'='identity-only')<>1
  OR NOT EXISTS(SELECT 1 FROM core_migration.import_runs r WHERE to_jsonb(r)=m->'identity_import')
@@ -901,7 +920,7 @@ def main() -> int:
             code, raw = FIN.run_sql(connection, "BEGIN READ ONLY;" + FIN.inventory_sql() + ";COMMIT;",
                                     output, "lmm-credential-preview", readonly=True, label="inventory")
             require(code == 0, "credential_inventory_read_failed")
-            code, raw = FIN.run_sql(connection, snapshot_sql(json.loads(raw), args.migration_id), output,
+            code, raw = FIN.run_sql(connection, snapshot_sql(json.loads(raw), args.migration_id, inputs["target_projection"].get(LINEAGE.KEY, [])), output,
                                     "lmm-credential-preview", readonly=True, label="snapshot")
             require(code == 0, "credential_snapshot_read_failed")
             snapshot = json.loads(raw)
