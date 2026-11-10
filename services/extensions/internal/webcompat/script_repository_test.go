@@ -81,7 +81,7 @@ func TestScriptRepositoryHTTPPostgresSettingsAndFreshAuthority(t *testing.T) {
 	}
 	for _, bad := range []string{strings.Replace(body, `"github_key":""`, `"github_key":"never-echo-secret"`, 1), strings.Replace(body, `"clear_github_key":false`, `"clear_github_key":true`, 1)} {
 		w := operationsRequest(mux, "PUT", path, bad, webToken)
-		if w.Code != 501 || !strings.Contains(w.Body.String(), "SCRIPT_REPOSITORY_CREDENTIALS_UNSUPPORTED") || strings.Contains(w.Body.String(), "never-echo-secret") {
+		if w.Code != 403 || strings.Contains(w.Body.String(), "never-echo-secret") {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}

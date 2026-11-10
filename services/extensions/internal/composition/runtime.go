@@ -70,6 +70,7 @@ type Config struct {
 	UserReadTokenFile             string
 	UserReadSocket                string
 	Scripts                       *operations.ScriptConfig
+	ScriptRepositoryKeyFile       string
 }
 
 type Runtime struct {
@@ -194,7 +195,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		}
 	}()
 	if len(cfg.Selected) == 0 {
-		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
+		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" {
 			return nil, errors.New("operations configuration requires explicit module selection")
 		}
 		return r, nil
@@ -385,7 +386,16 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		if err != nil {
 			return nil, err
 		}
-	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
+		if cfg.ScriptRepositoryKeyFile != "" {
+			key, err := scriptRepositoryKey(cfg, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey)
+			if err != nil {
+				return nil, err
+			}
+			if err := r.Operations.Repository.WithCredentialKey(ctx, key); err != nil {
+				return nil, err
+			}
+		}
+	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" {
 		return nil, errors.New("operations configuration requires explicit module selection")
 	}
 	var adCore community.DirectoryAdCore

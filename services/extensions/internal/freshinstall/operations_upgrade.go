@@ -16,11 +16,23 @@ import (
 // RunOperationsUpgradeCLI performs an explicit owner upgrade to the selected version.
 // Normal startup never reads owner credentials or invokes this code.
 func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runOperationsUpgradeCLI(ctx, args, out, false)
+}
+
+func RunScriptRepositoryCredentialsUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runOperationsUpgradeCLI(ctx, args, out, true)
+}
+
+func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, credentials bool) error {
 	var c Config
 	var operation string
 	var recoverOnly bool
 	var targetVersion int
-	f := flag.NewFlagSet("upgrade-operations-db", flag.ContinueOnError)
+	command := "upgrade-operations-db"
+	if credentials {
+		command = "upgrade-script-repository-credentials"
+	}
+	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&c.OwnerURLFile, "owner-url-file", "", "private offline owner connection")
 	f.StringVar(&c.ExpectedDatabase, "database", "", "exact existing operations database")
@@ -28,8 +40,10 @@ func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) 
 	f.StringVar(&c.RuntimeRole, "runtime-role", "", "fenced NOLOGIN runtime")
 	f.StringVar(&operation, "operation-id", "", "original stable operation ID")
 	f.BoolVar(&recoverOnly, "recover", false, "read original result without applying")
-	f.IntVar(&targetVersion, "target-version", 2, "2 for RSS, 3 for script repository")
-	if f.Parse(args) != nil || f.NArg() != 0 || (targetVersion != 2 && targetVersion != 3) {
+	if !credentials {
+		f.IntVar(&targetVersion, "target-version", 2, "2 for RSS, 3 for script repository")
+	}
+	if f.Parse(args) != nil || f.NArg() != 0 || (!credentials && targetVersion != 2 && targetVersion != 3) {
 		return ErrRejected
 	}
 	c.Component = "operations"
@@ -68,7 +82,9 @@ func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) 
 	if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+pq.QuoteIdentifier(c.OwnerRole)); err != nil {
 		return ErrRejected
 	}
-	if targetVersion == 3 {
+	if credentials {
+		err = operations.UpgradeScriptRepositoryCredentials(ctx, tx, c.RuntimeRole, operation, recoverOnly)
+	} else if targetVersion == 3 {
 		err = operations.UpgradeScriptRepository(ctx, tx, c.RuntimeRole, operation, recoverOnly)
 	} else {
 		err = operations.UpgradeRSS(ctx, tx, c.RuntimeRole, operation, recoverOnly)
@@ -81,7 +97,12 @@ func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) 
 			return ErrCommitUnknown
 		}
 	}
-	if err := json.NewEncoder(out).Encode(map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": targetVersion}); err != nil {
+	receipt := map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": targetVersion}
+	if credentials {
+		receipt["version"] = 1
+		receipt["component"] = "script_repository_credentials"
+	}
+	if err := json.NewEncoder(out).Encode(receipt); err != nil {
 		return ErrCommitUnknown
 	}
 	return nil

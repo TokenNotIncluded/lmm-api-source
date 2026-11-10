@@ -2,8 +2,6 @@
 package webcompat
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
@@ -11,7 +9,7 @@ import (
 )
 
 func registerScriptRepository(mux *http.ServeMux, auth *Authenticator, service *operations.Service) {
-	handle := func(fn func(http.ResponseWriter, *http.Request, int64, *operations.ScriptRepository)) http.HandlerFunc {
+	handle := func(fn func(http.ResponseWriter, *http.Request, int64, int32, *operations.ScriptRepository)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			actor, err := auth.Verify(r.Context(), r)
 			if err != nil {
@@ -30,20 +28,18 @@ func registerScriptRepository(mux *http.ServeMux, auth *Authenticator, service *
 				operationsRespond(w, nil, operations.ErrUnavailable)
 				return
 			}
-			fn(w, r, actor.GetUserId(), service.Repository)
+			fn(w, r, actor.GetUserId(), actor.GetPlatformLevel(), service.Repository)
 		}
 	}
-	mux.HandleFunc("GET /api/scripts/repository", handle(func(w http.ResponseWriter, r *http.Request, _ int64, repository *operations.ScriptRepository) {
+	mux.HandleFunc("GET /api/scripts/repository", handle(func(w http.ResponseWriter, r *http.Request, _ int64, _ int32, repository *operations.ScriptRepository) {
 		settings, err := repository.Settings(r.Context())
 		operationsRespond(w, settings, err)
 	}))
-	mux.HandleFunc("PUT /api/scripts/repository", handle(func(w http.ResponseWriter, r *http.Request, actor int64, repository *operations.ScriptRepository) {
+	mux.HandleFunc("PUT /api/scripts/repository", handle(func(w http.ResponseWriter, r *http.Request, actor int64, level int32, repository *operations.ScriptRepository) {
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" && ct != "application/json; charset=utf-8" {
 			operationsRespond(w, nil, operations.ErrInvalid)
 			return
 		}
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-		decoder.DisallowUnknownFields()
 		var request struct {
 			Revision       *int64 `json:"revision"`
 			URL            string `json:"repository_url"`
@@ -51,23 +47,37 @@ func registerScriptRepository(mux *http.ServeMux, auth *Authenticator, service *
 			GitHubKey      string `json:"github_key"`
 			ClearGitHubKey bool   `json:"clear_github_key"`
 		}
-		if decoder.Decode(&request) != nil || request.Revision == nil || decoder.Decode(new(any)) != io.EOF {
+		if supportDecode(w, r, 8192, &request, "revision", "repository_url", "branch", "github_key", "clear_github_key") != nil || request.Revision == nil {
 			operationsRespond(w, nil, operations.ErrInvalid)
 			return
 		}
-		if request.GitHubKey != "" || request.ClearGitHubKey {
-			operationsRespond(w, nil, operations.ErrRepositoryCredentials)
+		current, err := repository.Settings(r.Context())
+		if err != nil {
+			operationsRespond(w, nil, err)
 			return
 		}
-		settings, err := repository.Save(r.Context(), actor, operations.ScriptRepositorySettings{Revision: *request.Revision, URL: request.URL, Branch: request.Branch})
+		if (request.GitHubKey != "" || request.ClearGitHubKey || current.GitHubKeySet) && level != 6 {
+			operationsRespond(w, nil, store.ErrForbidden)
+			return
+		}
+		settings, err := repository.SaveWithCredentials(r.Context(), actor, operations.ScriptRepositorySettings{Revision: *request.Revision, URL: request.URL, Branch: request.Branch}, request.GitHubKey, request.ClearGitHubKey)
 		operationsRespond(w, settings, err)
 	}))
-	mux.HandleFunc("POST /api/scripts/repository/pull", handle(func(w http.ResponseWriter, r *http.Request, actor int64, repository *operations.ScriptRepository) {
+	mux.HandleFunc("POST /api/scripts/repository/pull", handle(func(w http.ResponseWriter, r *http.Request, actor int64, level int32, repository *operations.ScriptRepository) {
 		if !operationsEmptyBody(w, r) {
 			operationsRespond(w, nil, operations.ErrInvalid)
 			return
 		}
-		settings, err := repository.Pull(r.Context(), actor)
+		current, err := repository.Settings(r.Context())
+		if err != nil {
+			operationsRespond(w, nil, err)
+			return
+		}
+		if current.GitHubKeySet && level != 6 {
+			operationsRespond(w, nil, store.ErrForbidden)
+			return
+		}
+		settings, err := repository.PullRevision(r.Context(), actor, current.Revision)
 		operationsRespond(w, settings, err)
 	}))
 }

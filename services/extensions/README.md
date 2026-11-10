@@ -111,6 +111,8 @@ database_url_file = "/absolute/private/operations-runtime.url"
 [scripts]
 root = "/absolute/reviewed-scripts"
 manifest = [{ name = "install.sh", sha256 = "REPLACE_WITH_REVIEWED_LOWERCASE_SHA256" }]
+# Optional private GitHub repository encryption key, after the explicit upgrade:
+# repository_key_file = "/absolute/private/script-repository.key"
 ```
 
 `manifest = []` means an explicitly reviewed empty catalogue; it still requires
@@ -122,9 +124,30 @@ escaped/traversal script aliases before any shared mux can redirect them.
 
 See the [operations contract](internal/modules/operations/README.md) for offline
 fresh-database initialization, authority, replay, isolation and snapshot bounds.
-This does not enable script execution, repository fetching or an existing-site
-schema upgrade. A missing component or dependency fails, never returns invented
-successful empty content.
+The reviewed local catalogue does not execute scripts. GitHub repository pulls
+are separate explicit authenticated operations. Normal startup never upgrades
+existing storage. A missing component or dependency fails, never returns
+invented successful empty content.
+
+Private GitHub credentials require a separate private file containing exactly
+32 raw key bytes and the existing operations v3 database's explicit credential
+extension. After draining writers and fencing their login/role access, run:
+
+```sh
+lmm-extensions upgrade-script-repository-credentials \
+  --owner-url-file /run/secrets/operations-installer-url \
+  --database lmm_operations --owner-role operations_owner \
+  --runtime-role operations_runtime --operation-id private-repository-v1
+```
+
+Use the same installer and operation ID with `--recover` to read the original
+receipt after a lost acknowledgement. Recovery does not install missing storage.
+Then configure `scripts.repository_key_file`; local `root`/`manifest` are not
+required when only the repository is used. Without a key, public repositories
+and saved snapshots remain readable; an encrypted private repository cannot be
+pulled. A wrong key fails decryption and preserves the last complete snapshot.
+An L6 user manages or clears the repository credential through its settings;
+the application never returns the stored credential.
 
 ## Offline wallet request-key schema upgrade
 

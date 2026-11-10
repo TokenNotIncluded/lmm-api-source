@@ -23,21 +23,63 @@ var ErrRepositoryFetch = errors.New("script repository fetch failed")
 // The RSS client supplies DNS pinning, redirect checks, no proxy and a timeout.
 // No git subprocess, filesystem extraction, script execution or caller URL fetch.
 func fetchScriptRepository(ctx context.Context, client *http.Client, settings ScriptRepositorySettings) (*Scripts, error) {
+	return fetchScriptRepositoryWithToken(ctx, client, settings, "")
+}
+
+func fetchScriptRepositoryWithToken(ctx context.Context, client *http.Client, settings ScriptRepositorySettings, token string) (*Scripts, error) {
 	settings, err := validateScriptRepository(settings)
 	if err != nil {
 		return nil, err
 	}
+	if settings.GitHubKeySet && token == "" {
+		return nil, ErrUnavailable
+	}
 	name := strings.TrimPrefix(settings.URL, "https://github.com/")
 	archiveURL := "https://codeload.github.com/" + name + "/zip/refs/heads/" + url.PathEscape(settings.Branch)
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	if token != "" {
+		if !validRepositoryToken(token) {
+			return nil, ErrInvalid
+		}
+		archiveURL = "https://api.github.com/repos/" + name + "/zipball/" + url.PathEscape(settings.Branch)
+	}
+	// Never let net/http forward a bearer token, cookies or signed download URLs
+	// through implicit redirects. Each allowed hop is constructed independently.
+	bounded := *client
+	bounded.Jar = nil
+	bounded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, archiveURL, nil)
 	if err != nil {
 		return nil, ErrInvalid
 	}
 	req.Header.Set("Accept", "application/zip")
 	req.Header.Set("User-Agent", "LMM API script repository")
-	response, err := client.Do(req)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	}
+	response, err := bounded.Do(req)
 	if err != nil {
 		return nil, ErrRepositoryFetch
+	}
+	if token != "" && (response.StatusCode == http.StatusFound || response.StatusCode == http.StatusTemporaryRedirect) {
+		location, parseErr := url.Parse(response.Header.Get("Location"))
+		response.Body.Close()
+		if parseErr != nil || !repositoryDownloadURL(location, name) || repositoryRedirectContainsCredential(location, token) {
+			return nil, ErrRepositoryFetch
+		}
+		download, err := http.NewRequestWithContext(ctx, http.MethodGet, location.String(), nil)
+		if err != nil {
+			return nil, ErrRepositoryFetch
+		}
+		download.Header.Set("Accept", "application/zip")
+		download.Header.Set("User-Agent", "LMM API script repository")
+		response, err = bounded.Do(download)
+		if err != nil {
+			return nil, ErrRepositoryFetch
+		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -54,6 +96,15 @@ func fetchScriptRepository(ctx context.Context, client *http.Client, settings Sc
 		return nil, ErrInvalid
 	}
 	return readScriptArchive(raw)
+}
+
+func repositoryDownloadURL(u *url.URL, name string) bool {
+	return u != nil && u.Scheme == "https" && u.Host == "codeload.github.com" && u.User == nil && u.Opaque == "" && u.Fragment == "" && len(u.String()) <= 4096 && path.Clean(u.Path) == u.Path && strings.HasPrefix(strings.ToLower(u.Path), "/"+strings.ToLower(name)+"/")
+}
+
+func repositoryRedirectContainsCredential(u *url.URL, token string) bool {
+	decoded, err := url.QueryUnescape(u.RawQuery)
+	return err != nil || strings.Contains(u.String(), token) || strings.Contains(u.Path, token) || strings.Contains(decoded, token)
 }
 
 func readScriptArchive(raw []byte) (*Scripts, error) {

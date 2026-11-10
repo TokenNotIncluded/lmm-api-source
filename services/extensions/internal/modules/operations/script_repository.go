@@ -3,6 +3,7 @@ package operations
 
 import (
 	"context"
+	"crypto/cipher"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,9 @@ import (
 // HTTP callers must freshly authorize administrators before invoking Settings,
 // Save or Pull, just as for RSS. List and Raw are public content projections.
 type ScriptRepository struct {
-	db     *sql.DB
-	client *http.Client
+	db          *sql.DB
+	client      *http.Client
+	credentials cipher.AEAD
 }
 
 func NewScriptRepository(db *sql.DB) *ScriptRepository {
@@ -52,7 +54,7 @@ func validateScriptRepository(settings ScriptRepositorySettings) (ScriptReposito
 		return ScriptRepositorySettings{}, ErrInvalid
 	}
 	name := strings.TrimSuffix(strings.TrimPrefix(u.Path, "/"), ".git")
-	if !repositoryPath.MatchString(name) || strings.HasSuffix(name, "/.") || strings.HasSuffix(name, "/..") || len(name) > 200 || !repositoryBranch.MatchString(settings.Branch) || strings.Contains(settings.Branch, "..") || settings.Revision < 0 || settings.Revision >= MaxID || settings.GitHubKeySet {
+	if !repositoryPath.MatchString(name) || strings.HasSuffix(name, "/.") || strings.HasSuffix(name, "/..") || len(name) > 200 || !repositoryBranch.MatchString(settings.Branch) || strings.Contains(settings.Branch, "..") || settings.Revision < 0 || settings.Revision >= MaxID {
 		return ScriptRepositorySettings{}, ErrInvalid
 	}
 	for _, part := range strings.Split(settings.Branch, "/") {
@@ -72,7 +74,7 @@ func (s *ScriptRepository) Settings(ctx context.Context) (ScriptRepositorySettin
 	defer cancel()
 	var settings ScriptRepositorySettings
 	var pulled sql.NullTime
-	err := s.db.QueryRowContext(ctx, `SELECT revision,repository_url,branch,snapshot_repository_url,snapshot_branch,snapshot_pulled_at FROM lmm_operations.script_repository WHERE singleton`).Scan(&settings.Revision, &settings.URL, &settings.Branch, &settings.SnapshotURL, &settings.SnapshotBranch, &pulled)
+	err := s.db.QueryRowContext(ctx, `SELECT revision,repository_url,branch,snapshot_repository_url,snapshot_branch,snapshot_pulled_at,coalesce(to_jsonb(r)->>'github_key_ciphertext','')<>'' FROM lmm_operations.script_repository r WHERE singleton`).Scan(&settings.Revision, &settings.URL, &settings.Branch, &settings.SnapshotURL, &settings.SnapshotBranch, &pulled, &settings.GitHubKeySet)
 	if err != nil {
 		return ScriptRepositorySettings{}, ErrUnavailable
 	}
@@ -86,20 +88,38 @@ func (s *ScriptRepository) Settings(ctx context.Context) (ScriptRepositorySettin
 }
 
 // Save requires the revision read by the administrator. Changing the source
-// retains the last complete snapshot until a new pull succeeds. No credentials
-// are stored by this public-GitHub-only slice.
+// retains the last complete snapshot until a new pull succeeds.
 func (s *ScriptRepository) Save(ctx context.Context, actor int64, settings ScriptRepositorySettings) (ScriptRepositorySettings, error) {
+	return s.SaveWithCredentials(ctx, actor, settings, "", false)
+}
+
+// Blank token preserves the stored credential. Replacement/clear and repository
+// settings share one CAS write; failures never discard the imported snapshot.
+func (s *ScriptRepository) SaveWithCredentials(ctx context.Context, actor int64, settings ScriptRepositorySettings, token string, clear bool) (ScriptRepositorySettings, error) {
 	if s == nil || s.db == nil {
 		return ScriptRepositorySettings{}, ErrUnavailable
 	}
 	settings, err := validateScriptRepository(settings)
-	if err != nil || !validID(actor) {
+	if err != nil || !validID(actor) || clear && token != "" {
 		return ScriptRepositorySettings{}, ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	var sealed string
+	if token != "" {
+		sealed, err = s.sealCredential(token)
+		if err != nil {
+			return ScriptRepositorySettings{}, err
+		}
+	}
+	query := `UPDATE lmm_operations.script_repository AS r SET repository_url=$1,branch=$2,revision=revision+1,updated_by=$3 WHERE singleton AND revision=$4 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at,coalesce(to_jsonb(r)->>'github_key_ciphertext','')<>''`
+	args := []any{settings.URL, settings.Branch, actor, settings.Revision}
+	if token != "" || clear {
+		query = `UPDATE lmm_operations.script_repository AS r SET repository_url=$1,branch=$2,revision=revision+1,updated_by=$3,github_key_ciphertext=$5 WHERE singleton AND revision=$4 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at,github_key_ciphertext<>''`
+		args = append(args, sealed)
+	}
 	var pulled sql.NullTime
-	err = s.db.QueryRowContext(ctx, `UPDATE lmm_operations.script_repository SET repository_url=$1,branch=$2,revision=revision+1,updated_by=$3 WHERE singleton AND revision=$4 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at`, settings.URL, settings.Branch, actor, settings.Revision).Scan(&settings.Revision, &settings.SnapshotURL, &settings.SnapshotBranch, &pulled)
+	err = s.db.QueryRowContext(ctx, query, args...).Scan(&settings.Revision, &settings.SnapshotURL, &settings.SnapshotBranch, &pulled, &settings.GitHubKeySet)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ScriptRepositorySettings{}, ErrConflict
 	}
@@ -117,12 +137,23 @@ func (s *ScriptRepository) Save(ctx context.Context, actor int64, settings Scrip
 }
 
 func (s *ScriptRepository) Pull(ctx context.Context, actor int64) (ScriptRepositorySettings, error) {
+	return s.pull(ctx, actor, nil)
+}
+
+// PullRevision binds the permission decision to the configuration actually fetched.
+func (s *ScriptRepository) PullRevision(ctx context.Context, actor, revision int64) (ScriptRepositorySettings, error) {
+	return s.pull(ctx, actor, &revision)
+}
+func (s *ScriptRepository) pull(ctx context.Context, actor int64, revision *int64) (ScriptRepositorySettings, error) {
 	if !validID(actor) {
 		return ScriptRepositorySettings{}, ErrInvalid
 	}
 	settings, err := s.Settings(ctx)
 	if err != nil {
 		return ScriptRepositorySettings{}, err
+	}
+	if revision != nil && settings.Revision != *revision {
+		return ScriptRepositorySettings{}, ErrConflict
 	}
 	settings, err = validateScriptRepository(settings)
 	if err != nil {
@@ -131,7 +162,11 @@ func (s *ScriptRepository) Pull(ctx context.Context, actor int64) (ScriptReposit
 	// No transaction or DB lock is held while fetching. The revision also
 	// advances on pull, preventing a slower concurrent fetch from replacing a
 	// newer completed pull or importing a superseded repository configuration.
-	snapshot, err := fetchScriptRepository(ctx, s.client, settings)
+	token, err := s.credential(ctx, settings.Revision)
+	if err != nil {
+		return ScriptRepositorySettings{}, err
+	}
+	snapshot, err := fetchScriptRepositoryWithToken(ctx, s.client, settings, token)
 	if err != nil {
 		return ScriptRepositorySettings{}, err
 	}

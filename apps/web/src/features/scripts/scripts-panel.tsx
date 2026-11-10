@@ -39,7 +39,9 @@ import { SettingsSection } from '@/features/system-settings/components/settings-
 import { BookmarkletInstall } from '@/features/test-key/bookmarklet-install'
 import { useApiBaseUrl } from '@/hooks/use-api-base-url'
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { commandFor, scriptUrl, type Platform } from './script-commands'
 
@@ -435,6 +437,9 @@ export function ConsoleScriptsPage() {
 
 export function ScriptsAdminSection() {
   const { t } = useTranslation()
+  const canManageKey = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   const queryClient = useQueryClient()
   const scripts = useScriptList()
   const repository = useQuery({
@@ -475,8 +480,7 @@ export function ScriptsAdminSection() {
       await queryClient.invalidateQueries({ queryKey: ['scripts-repository'] })
       toast.success(t('Script repository settings saved'))
     },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : t('Failed to save')),
+    onError: () => toast.error(t('Failed to save')),
   })
   const pullMutation = useMutation({
     mutationFn: async () =>
@@ -503,6 +507,14 @@ export function ScriptsAdminSection() {
     [scripts.data]
   )
   const configured = config
+  const privateReadOnly =
+    (!!configured?.github_key_set || !!githubKey || clearGithubKey) &&
+    !canManageKey
+  const markCredentialDraft = () =>
+    setDraft(
+      (current) =>
+        current ?? { repositoryUrl, branch, revision: config?.revision ?? 0 }
+    )
   const copyPublicLink = async () => {
     await navigator.clipboard.writeText(`${window.location.origin}/scripts`)
     setCopied(true)
@@ -568,7 +580,18 @@ export function ScriptsAdminSection() {
             id='scripts-github-key'
             type='password'
             value={githubKey}
-            onChange={(event) => setGithubKey(event.target.value)}
+            disabled={
+              !canManageKey ||
+              !config ||
+              privateReadOnly ||
+              saveMutation.isPending ||
+              pullMutation.isPending
+            }
+            onChange={(event) => {
+              markCredentialDraft()
+              setGithubKey(event.target.value)
+              setClearGithubKey(false)
+            }}
             placeholder={
               configured?.github_key_set
                 ? t('Key is configured; leave blank to keep it')
@@ -582,7 +605,17 @@ export function ScriptsAdminSection() {
             <input
               type='checkbox'
               checked={clearGithubKey}
-              onChange={(event) => setClearGithubKey(event.target.checked)}
+              disabled={
+                !canManageKey ||
+                !config ||
+                saveMutation.isPending ||
+                pullMutation.isPending
+              }
+              onChange={(event) => {
+                markCredentialDraft()
+                setClearGithubKey(event.target.checked)
+                if (event.target.checked) setGithubKey('')
+              }}
             />
             {t('Remove the stored GitHub key')}
           </label>
@@ -592,7 +625,10 @@ export function ScriptsAdminSection() {
             type='button'
             onClick={() => saveMutation.mutate()}
             disabled={
-              !config || saveMutation.isPending || pullMutation.isPending
+              !config ||
+              privateReadOnly ||
+              saveMutation.isPending ||
+              pullMutation.isPending
             }
           >
             <GitBranch className='me-2 size-4' />
@@ -604,6 +640,7 @@ export function ScriptsAdminSection() {
             onClick={() => pullMutation.mutate()}
             disabled={
               !config?.repository_url.trim() ||
+              privateReadOnly ||
               !!draft ||
               saveMutation.isPending ||
               pullMutation.isPending

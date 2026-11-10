@@ -78,8 +78,9 @@ type AssistantConfig struct {
 }
 
 type ScriptConfig struct {
-	Root     string           `toml:"root"`
-	Manifest []ReviewedScript `toml:"manifest"`
+	RepositoryKeyFile string           `toml:"repository_key_file"`
+	Root              string           `toml:"root"`
+	Manifest          []ReviewedScript `toml:"manifest"`
 }
 type ReviewedScript struct {
 	Name   string `toml:"name"`
@@ -151,7 +152,7 @@ func LoadConfig(path string) (GoConfig, error) {
 			"operations", "operations.database_name", "operations.database_url_file",
 			"community", "community.database_name", "community.database_url_file",
 			"acquisition", "acquisition.database_name", "acquisition.database_url_file",
-			"scripts", "scripts.root", "scripts.manifest", "scripts.manifest.name", "scripts.manifest.sha256":
+			"scripts", "scripts.root", "scripts.repository_key_file", "scripts.manifest", "scripts.manifest.name", "scripts.manifest.sha256":
 			continue
 		}
 		if !allowed[key.String()] {
@@ -173,7 +174,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root, cfg.Scripts.RepositoryKeyFile} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}
