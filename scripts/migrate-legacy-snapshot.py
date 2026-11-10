@@ -327,16 +327,16 @@ CORE54_CATALOG_SHA256 = "3a7ba0ed308f2c4ce9f80e422d5308ab8353d8f21cfb5a63575fbab
 
 
 CORE65_SEED_CONTRACT = "fresh65-identity6-complete-seeds-v1"
-# Fresh65 target only: reviewed f7 binary 106b74e2, actual native init/check,
+# Fresh65 target only: reviewed 26eb binary c0b4cdb8, actual native init/check,
 # exact catalog capture and baseline runtime check-db. These receipts do not
 # establish historical financial import, optional-capability ACLs or deployment.
 # No environment, plan, source receipt or CLI option may replace this review.
-REVIEWED_CORE65 = {'source_schema_revision': 'f7b400416b6b9e61f680b5f33c55a1cc4b6f1f21',
+REVIEWED_CORE65 = {'source_schema_revision': '26eb4aebfe63d9ed8181dc7a51c6fd7d831947a8',
  'compiled_manifest_sha256': '62c8f7e32b0c831dfea5a11311d94193d6625fc9f7e3564755971882c65cff3a',
  'fresh_catalog_sha256': 'f104ea5933f8b6bc28108bd005f1e61785765657d530fdab701bc2a8a41afaa6',
- 'capture_receipt_sha256': 'fa28c4872c3165ff0390d5be2fbbbe8f535222a48af420c02d85ef5ac30c1e1f',
- 'actual_init_receipt_sha256': 'd15c2f043d083d32853533a8ad7ed4c9f89bcb8e89422403afec9fc372d5660c',
- 'acl_receipt_sha256': '1df7f5634cbc0314103617c70c9cdfa8a4744d57e5a5f68f98ac0ef8f1941d8f',
+ 'capture_receipt_sha256': '34f22d24418c5c02faf2e7131de0a86f6177d55834d823eb57ca97d91be75f43',
+ 'actual_init_receipt_sha256': 'cee14c031f9c90c63c72e8d6f2b21fea9ba2040884a5bd3738e043f35fbab7d0',
+ 'acl_receipt_sha256': '092fcfbbcfca3b5be7ae1b5e58538e92c35ab273ae13664fed0d67484c8e78a6',
  'components': {'humangrant': ('include_str!("../schema/humangrant.sql")',
                                '7d9437a2ee485bc7491c76e755ca481a7a722c4ea9ae7322fe32ac5f8f0090bc'),
                 'identity': ('include_str!("../schema/identity.sql")',
@@ -476,7 +476,7 @@ REVIEWED_CORE65 = {'source_schema_revision': 'f7b400416b6b9e61f680b5f33c55a1cc4b
            'services/core/schema/subscription_stripe_grants.sql': '08ab9bf0c2d85a8f091f9b535872d1fefe4ee5c5c307921c296b6c613328bada',
            'services/core/src/admin/check_db.rs': '14a60d5a51bb5fa8b140d90a77176dbc56bb69deee7e8548b6162a462ea9df04',
            'services/core/src/billing/trust_pricing.rs': 'c4c5f47d372fde4e5f7afd854a7a4691ef1b31ff74c1695d4242f0ab5133312f',
-           'services/core/src/channel_http.rs': 'b85ef9b4e9eb5cc80a8fa3ba32a8c0d097d0469ee57d52c42c3dde1530170155',
+           'services/core/src/channel_http.rs': '06a9489ac79bc94285c89f45a79356814af238cc279007a0ad9d7c92e83215c5',
            'services/core/src/commerce.rs': '756d9e4ad0b88a4dc64c537e67b4ae650ba30ae4110d606a04f0a57b76daccfa',
            'services/core/src/core_schema.rs': '0514920db57e4a1e8b40e46bf789cb4a2f8623a299053c66866c6d20a1e59446',
            'services/core/src/core_schema/manifest.rs': 'a48d29c77e8bd92652c69785b3a82e2ae1995c52adcc3296f89a91ae911df6a5',
