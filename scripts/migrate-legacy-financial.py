@@ -1103,7 +1103,7 @@ def export_source(receipt: dict, output: Path):
     environment.update(IDENTITY.socket_connection(reader))
     environment.update(PGCONNECT_TIMEOUT="5", PGAPPNAME="lmm-offline-financial-planner", PGOPTIONS="-c default_transaction_read_only=on")
     with os.fdopen(os.open(raw_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w") as raw, os.fdopen(os.open(err_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w") as error:
-        result = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1"], input=sql, text=True, stdout=raw, stderr=error, env=environment, timeout=180, check=False)
+        result = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "FETCH_COUNT=100"], input=sql, text=True, stdout=raw, stderr=error, env=environment, timeout=180, check=False)
         raw.flush(); os.fsync(raw.fileno()); error.flush(); os.fsync(error.fileno())
     require(result.returncode == 0, "source_financial_export_failed")
     tables = read_frozen_export(raw_path, receipt, columns, baseline, selected, identity)

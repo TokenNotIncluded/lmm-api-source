@@ -621,6 +621,7 @@ class FinancialReaderTimezoneTests(unittest.TestCase):
             "tcp_connection": False, "read_only": "on", "datcollate": "C",
             "datctype": "C", "datcollversion": None}
         self.statements = []
+        self.export_argv = None
         source = {name: [] for name in MODULE.REQUIRED_TABLES}
         source["users"] = [{"id": 71, "quota": 17}]
         with tempfile.TemporaryDirectory() as directory:
@@ -661,6 +662,7 @@ class FinancialReaderTimezoneTests(unittest.TestCase):
                 if "capture_output" in options:
                     self.assertIn(MODULE.IDENTITY.IDENTITY_SQL, sql)
                     return subprocess.CompletedProcess(argv, 0, MODULE.canonical(observed) + "\n", "")
+                self.export_argv = argv
                 self.assertIn(MODULE.IDENTITY.IDENTITY_SQL.removesuffix(";").removeprefix("SELECT "), sql)
                 observed.update(export_changes or {})
                 tags = [{"kind": "identity", "row": observed},
@@ -683,6 +685,17 @@ class FinancialReaderTimezoneTests(unittest.TestCase):
 
     def test_same_instant_different_offsets_uses_utc_in_both_real_reader_queries(self):
         self.export_case()
+
+    def test_export_uses_bounded_psql_fetch_without_changing_sql_contract(self):
+        self.export_case()
+        self.assertEqual(self.export_argv, ["psql", "-X", "--no-password", "-qAt",
+                                          "-v", "ON_ERROR_STOP=1", "-v", "FETCH_COUNT=100"])
+        sql = self.statements[1]
+        self.assertTrue(sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n"))
+        self.assertIn("SET LOCAL timezone='UTC';\nSET LOCAL row_security=off;\n", sql)
+        self.assertTrue(sql.endswith("COMMIT;\n"))
+        self.assertNotIn("FETCH_COUNT", sql)
+        self.assertEqual(sql.count("ORDER BY row_to_json(r)::text;"), len(MODULE.REQUIRED_TABLES))
 
     def test_different_receipt_start_instant_still_rejects_before_export(self):
         with self.assertRaisesRegex(MODULE.MappingError, "instance_receipt_mismatch"):
