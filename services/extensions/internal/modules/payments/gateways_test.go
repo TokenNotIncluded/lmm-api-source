@@ -248,51 +248,70 @@ func TestWaffoRequestAndAcknowledgementUseOfficialRSASigning(t *testing.T) {
 }
 
 func TestPancakeSDKCheckoutBindsCoreIntentAndStableKey(t *testing.T) {
-	private, public := gatewayKey(t)
-	var checkouts, tokens atomic.Int64
-	httpClient := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		digest := sha256.Sum256(body)
-		canonical := "POST\n" + r.URL.Path + "\n" + r.Header.Get("X-Timestamp") + "\n" + base64.StdEncoding.EncodeToString(digest[:])
-		hash := sha256.Sum256([]byte(canonical))
-		sig, err := base64.StdEncoding.DecodeString(r.Header.Get("X-Signature"))
-		if err != nil || rsa.VerifyPKCS1v15(public, crypto.SHA256, hash[:], sig) != nil || r.Header.Get("X-Merchant-Id") != "MER_0123456789abcdefghijkl" || r.URL.Host != "api.waffo.ai" {
-			t.Fatal("official Pancake request signature/merchant differs")
-		}
-		var fields map[string]any
-		_ = json.Unmarshal(body, &fields)
-		switch r.URL.Path {
-		case "/v1/actions/auth/issue-session-token":
-			tokens.Add(1)
-			if fields["buyerIdentity"] != "lmm-user-7" || fields["productId"] != "PROD_0123456789abcdefghijkl" || r.Header.Get("X-Idempotency-Key") != "" {
-				t.Fatal("bad customer session binding", fields)
+	for _, tc := range []struct{ name, returnURL string }{{"omitted", ""}, {"https", "https://example.com/paid"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			private, public := gatewayKey(t)
+			var checkouts, tokens atomic.Int64
+			httpClient := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				digest := sha256.Sum256(body)
+				canonical := "POST\n" + r.URL.Path + "\n" + r.Header.Get("X-Timestamp") + "\n" + base64.StdEncoding.EncodeToString(digest[:])
+				hash := sha256.Sum256([]byte(canonical))
+				sig, err := base64.StdEncoding.DecodeString(r.Header.Get("X-Signature"))
+				if err != nil || rsa.VerifyPKCS1v15(public, crypto.SHA256, hash[:], sig) != nil || r.Header.Get("X-Merchant-Id") != "MER_0123456789abcdefghijkl" || r.URL.Host != "api.waffo.ai" {
+					t.Fatal("official Pancake request signature/merchant differs")
+				}
+				var fields map[string]any
+				_ = json.Unmarshal(body, &fields)
+				switch r.URL.Path {
+				case "/v1/actions/auth/issue-session-token":
+					tokens.Add(1)
+					if fields["buyerIdentity"] != "lmm-user-7" || fields["productId"] != "PROD_0123456789abcdefghijkl" || r.Header.Get("X-Idempotency-Key") != "" {
+						t.Fatal("bad customer session binding", fields)
+					}
+					return response(`{"data":{"token":"synthetic_token","expiresAt":"2026-10-30T01:00:00Z"}}`), nil
+				case "/v1/actions/checkout/create-session":
+					checkouts.Add(1)
+					if got, present := fields["successUrl"]; tc.returnURL == "" && present || tc.returnURL != "" && got != tc.returnURL {
+						t.Fatal("optional return URL changed or empty URL was sent")
+					}
+					price, _ := fields["priceSnapshot"].(map[string]any)
+					metadata, _ := fields["metadata"].(map[string]any)
+					billing, _ := fields["billingDetail"].(map[string]any)
+					if fields["orderMerchantExternalId"] != "top_1" || price["amount"] != "10.00" || fields["currency"] != "USD" || metadata["lmm_product_id"] != "PROD_0123456789abcdefghijkl" || metadata["lmm_core_intent_id"] != "1" || billing["country"] != "CN" || r.Header.Get("X-Idempotency-Key") != "gateway_checkout_key_001" {
+						t.Fatal("Pancake checkout changed frozen price or order", fields)
+					}
+					return response(`{"data":{"sessionId":"CHK_fixture","checkoutUrl":"https://pancake.waffo.ai/store/test/checkout/CHK_fixture","expiresAt":"2026-10-30T01:00:00Z"}}`), nil
+				default:
+					t.Fatal("unexpected SDK request", r.URL.Path)
+					return nil, ErrInvalid
+				}
+			})}
+			p, err := newPancake(PancakeConfig{Channel: Channel{ID: 4, Provider: "waffo_pancake", Merchant: "MER_0123456789abcdefghijkl", Environment: "test", Currency: "USD", Enabled: true},
+				PrivateKey: private, StoreID: "STO_0123456789abcdefghijkl", ProductID: "PROD_0123456789abcdefghijkl", ReturnURL: tc.returnURL, CheckoutRegion: "china", CheckoutLanguage: "zh-Hans", TaxCategory: "saas"}, httpClient)
+			if err != nil {
+				t.Fatal(err)
 			}
-			return response(`{"data":{"token":"synthetic_token","expiresAt":"2026-10-30T01:00:00Z"}}`), nil
-		case "/v1/actions/checkout/create-session":
-			checkouts.Add(1)
-			price, _ := fields["priceSnapshot"].(map[string]any)
-			metadata, _ := fields["metadata"].(map[string]any)
-			billing, _ := fields["billingDetail"].(map[string]any)
-			if fields["orderMerchantExternalId"] != "top_1" || price["amount"] != "10.00" || fields["currency"] != "USD" || metadata["lmm_product_id"] != "PROD_0123456789abcdefghijkl" || metadata["lmm_core_intent_id"] != "1" || billing["country"] != "CN" || r.Header.Get("X-Idempotency-Key") != "gateway_checkout_key_001" {
-				t.Fatal("Pancake checkout changed frozen price or order", fields)
+			checkout, err := p.Checkout(context.Background(), gatewayOrder(p.Channel()), "gateway_checkout_key_001")
+			if err != nil || checkout.ID != "CHK_fixture" || checkouts.Load() != 1 || tokens.Load() != 1 || !strings.HasSuffix(checkout.URL, "#token=synthetic_token") {
+				t.Fatal(checkout, err, checkouts.Load(), tokens.Load())
 			}
-			return response(`{"data":{"sessionId":"CHK_fixture","checkoutUrl":"https://pancake.waffo.ai/store/test/checkout/CHK_fixture","expiresAt":"2026-10-30T01:00:00Z"}}`), nil
-		default:
-			t.Fatal("unexpected SDK request", r.URL.Path)
-			return nil, ErrInvalid
-		}
-	})}
-	p, err := newPancake(PancakeConfig{Channel: Channel{ID: 4, Provider: "waffo_pancake", Merchant: "MER_0123456789abcdefghijkl", Environment: "test", Currency: "USD", Enabled: true},
-		PrivateKey: private, StoreID: "STO_0123456789abcdefghijkl", ProductID: "PROD_0123456789abcdefghijkl", ReturnURL: "https://example.com/paid", CheckoutRegion: "china", CheckoutLanguage: "zh-Hans", TaxCategory: "saas"}, httpClient)
-	if err != nil {
-		t.Fatal(err)
+		})
 	}
-	checkout, err := p.Checkout(context.Background(), gatewayOrder(p.Channel()), "gateway_checkout_key_001")
-	if err != nil || checkout.ID != "CHK_fixture" || checkouts.Load() != 1 || tokens.Load() != 1 || !strings.HasSuffix(checkout.URL, "#token=synthetic_token") {
-		t.Fatal(checkout, err, checkouts.Load(), tokens.Load())
+}
+
+func TestPancakeRejectsUnsafeReturnURL(t *testing.T) {
+	private, _ := gatewayKey(t)
+	for _, returnURL := range []string{" ", "http://example.com/paid", "https://127.0.0.1/paid", "https://localhost/paid", "https://user:pass@example.com/paid", "https://example.com:444/paid", "https:example.com/paid"} {
+		t.Run(returnURL, func(t *testing.T) {
+			_, err := newPancake(PancakeConfig{Channel: Channel{ID: 4, Provider: "waffo_pancake", Merchant: "MER_0123456789abcdefghijkl", Environment: "test", Currency: "USD", Enabled: true}, PrivateKey: private, StoreID: "STO_0123456789abcdefghijkl", ProductID: "PROD_0123456789abcdefghijkl", ReturnURL: returnURL, TaxCategory: "saas"}, &http.Client{})
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatal("unsafe nonempty return URL accepted", err)
+			}
+		})
 	}
 }
 

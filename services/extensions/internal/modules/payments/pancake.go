@@ -37,8 +37,10 @@ func newPancake(cfg PancakeConfig, httpClient *http.Client) (*Pancake, error) {
 	if cfg.CheckoutRegion != "" && cfg.CheckoutRegion != "global" && cfg.CheckoutRegion != "china" {
 		return nil, ErrInvalid
 	}
-	if _, err := secureURL(cfg.ReturnURL); err != nil {
-		return nil, err
+	if cfg.ReturnURL != "" {
+		if _, err := secureURL(cfg.ReturnURL); err != nil {
+			return nil, err
+		}
 	}
 	switch pancake.TaxCategory(cfg.TaxCategory) {
 	case pancake.TaxCategoryDigitalGoods, pancake.TaxCategorySaaS, pancake.TaxCategorySoftware,
@@ -82,10 +84,13 @@ func (p *Pancake) Checkout(ctx context.Context, o Order, key string) (Checkout, 
 		CreateCheckoutSessionParams: pancake.CreateCheckoutSessionParams{
 			ProductID: p.cfg.ProductID, Currency: p.cfg.Channel.Currency,
 			PriceSnapshot:           &pancake.PriceSnapshot{Amount: decimalMinor(o.Intent.AmountMinor), TaxCategory: pancake.TaxCategory(p.cfg.TaxCategory)},
-			OrderMerchantExternalID: &o.ID, SuccessURL: &p.cfg.ReturnURL, ExpiresInSeconds: &expires,
+			OrderMerchantExternalID: &o.ID, ExpiresInSeconds: &expires,
 			Metadata: map[string]string{"lmm_product_id": p.cfg.ProductID, "lmm_order_id": o.ID, "lmm_core_intent_id": strconv.FormatInt(o.Intent.ID, 10), "lmm_merchant": o.Intent.Merchant},
 		},
 		BuyerIdentity: "lmm-user-" + strconv.FormatInt(o.Intent.CreatedBy, 10),
+	}
+	if p.cfg.ReturnURL != "" {
+		params.SuccessURL = &p.cfg.ReturnURL
 	}
 	if p.cfg.CheckoutRegion == "china" {
 		params.BillingDetail = &pancake.BillingDetail{Country: "CN", IsBusiness: false}
