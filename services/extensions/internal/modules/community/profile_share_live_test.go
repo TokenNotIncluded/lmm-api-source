@@ -403,3 +403,106 @@ func TestProfileShareLiveHTTPAllNativeLayouts(t *testing.T) {
 		t.Fatalf("alltime never read from Core: %d", allTime.Load())
 	}
 }
+
+func TestProfileShareLiveSourcesConcurrent(t *testing.T) {
+	testProfileShareLiveSourceGates(t, false)
+}
+
+func TestProfileShareLiveSourcesCancellation(t *testing.T) {
+	testProfileShareLiveSourceGates(t, true)
+}
+
+func testProfileShareLiveSourceGates(t *testing.T, cancelRequest bool) {
+	t.Helper()
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	coreEntered, cursorEntered := make(chan context.Context, 1), make(chan context.Context, 1)
+	coreCanceled, cursorCanceled := make(chan struct{}), make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	finishReads := func() { releaseOnce.Do(func() { close(release) }) }
+	gate := func(entered chan<- context.Context, canceled chan struct{}, body, contentType string) profileLiveRoundTrip {
+		return func(r *http.Request) (*http.Response, error) {
+			entered <- r.Context()
+			select {
+			case <-r.Context().Done():
+				close(canceled)
+				return nil, r.Context().Err()
+			case <-release:
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {contentType}, "Cache-Control": {"no-store"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+			}
+		}
+	}
+	core := &CoreRead{token: "synthetic-profile-share-purpose-token", client: &http.Client{Timeout: 12 * time.Second, Transport: gate(coreEntered, coreCanceled, `{"user_id":52,"active":true,"credits_per_usd":500000,"model_count":0,"totals":{"tokens":1234,"requests":7,"credits":null}}`, "application/json")}}
+	previousClient := profileShareHTTPClient
+	profileShareHTTPClient = &http.Client{Timeout: 4 * time.Second, Transport: gate(cursorEntered, cursorCanceled, profileLiveCursorHTML, "text/html")}
+	profileCursorCache.Lock()
+	previousCache := profileCursorCache.Entries
+	profileCursorCache.Entries = make(map[string]profileCursorCacheEntry)
+	profileCursorCache.Unlock()
+	done := make(chan struct{})
+	var rows []aggregateSource
+	t.Cleanup(func() {
+		cancel()
+		finishReads()
+		// Collect all workers before restoring global test resources.
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("source resolver did not finish during cleanup")
+			return
+		}
+		profileShareHTTPClient = previousClient
+		profileCursorCache.Lock()
+		profileCursorCache.Entries = previousCache
+		profileCursorCache.Unlock()
+	})
+	s := &Service{core: core}
+	share := &profileShare{UserID: 52, AggregateUsageEnabled: true, LinkedProfiles: []LinkedProfile{{Provider: "cursor", URL: "https://cursor.com/@profile-fixture", Label: "Public Cursor"}}}
+	go func() {
+		rows = s.resolveProfileShareSources(ctx, share, "all", now)
+		close(done)
+	}()
+	await := func(ch <-chan struct{}, message string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(2 * time.Second):
+			t.Fatal(message)
+		}
+	}
+	var coreContext context.Context
+	select {
+	case coreContext = <-coreEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Core did not start")
+	}
+	// Inspect the client's local transport context; HTTP servers cannot see
+	// the originating client's deadline. No real five-second wait is needed.
+	if deadline, ok := coreContext.Deadline(); !ok || time.Until(deadline) <= 5*time.Second {
+		t.Fatal("Core was given the shared five-second provider deadline")
+	}
+	select {
+	case <-cursorEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Cursor did not start while Core was still blocked")
+	}
+	if cancelRequest {
+		cancel()
+		await(coreCanceled, "Core did not observe original request cancellation")
+		await(cursorCanceled, "Cursor did not observe original request cancellation")
+	} else {
+		finishReads()
+	}
+	await(done, "source resolver did not finish")
+	if len(rows) != 2 || rows[1].Label != "Public Cursor" {
+		t.Fatalf("source order or label changed: %#v", rows)
+	}
+	if cancelRequest {
+		if rows[0].Status != "unavailable" || rows[1].Status != "unavailable" || rows[0].Tokens != nil || rows[1].Tokens != nil {
+			t.Fatalf("cancellation became successful or zero-valued usage: %#v", rows)
+		}
+	} else if rows[0].Status != "live" || rows[0].Tokens == nil || *rows[0].Tokens != 1234 || rows[1].Status != "live" || rows[1].Tokens == nil || *rows[1].Tokens <= 0 || rows[1].Source != "public_ssr" || rows[1].Period != "reported" {
+		t.Fatalf("independent source results lost: %#v", rows)
+	}
+}

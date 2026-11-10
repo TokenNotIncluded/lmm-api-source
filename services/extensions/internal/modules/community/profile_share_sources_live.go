@@ -55,20 +55,12 @@ func (s *Service) resolveProfileShareSources(ctx context.Context, share *profile
 	if !share.AggregateUsageEnabled {
 		return rows
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	start := profileSharePeriodStart(period, now)
 	native := &rows[0]
 	if start > 0 {
 		native.PeriodStart = time.Unix(start, 0).UTC().Format(time.RFC3339)
 	}
 	native.PeriodEnd = now.UTC().Format(time.RFC3339)
-	usage, err := s.core.profileShareUsage(ctx, share.UserID, start, now.Unix(), 0, 0)
-	if err == nil && usage.Active {
-		native.Status, native.Reason = "live", ""
-		native.Tokens, native.Requests = &usage.Totals.Tokens, &usage.Totals.Requests
-		native.ObservedAt = now.UTC().Format(time.RFC3339)
-	}
 	var wg sync.WaitGroup
 	for i, p := range share.LinkedProfiles {
 		if p.Provider != "cursor" || p.Snapshot != nil {
@@ -81,6 +73,14 @@ func (s *Service) resolveProfileShareSources(ctx context.Context, share *profile
 			row.Label = rows[index].Label
 			rows[index] = row
 		}(i+1, p)
+	}
+	// Start external reads before Core so each client keeps its own budget.
+	// The original request context still cancels all reads together.
+	usage, err := s.core.profileShareUsage(ctx, share.UserID, start, now.Unix(), 0, 0)
+	if err == nil && usage.Active {
+		native.Status, native.Reason = "live", ""
+		native.Tokens, native.Requests = &usage.Totals.Tokens, &usage.Totals.Requests
+		native.ObservedAt = now.UTC().Format(time.RFC3339)
 	}
 	wg.Wait()
 	return rows
