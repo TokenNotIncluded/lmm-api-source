@@ -1529,6 +1529,31 @@ fn catalog_document_keeps_exact_routing_price_snapshot_across_publication() {
 }
 
 #[test]
+fn responses_websocket_selects_native_target_before_priority_and_keeps_pin() {
+    let (mut config, prices) = fixture(1);
+    config.upstreams[1].protocol = Protocol::OpenAiResponses;
+    config.routes[0].targets[0].priority = 0;
+    config.routes[0].targets[1].priority = 1;
+    config.routes[0].failover.max_attempts = 1;
+    let router = build(config, prices);
+    let groups = ["default".to_owned()];
+    for pinned in [None, Some(2)] {
+        let mut plans = router
+            .route_responses_ws_groups("model-a", &groups, Some([5; 32]), pinned)
+            .unwrap();
+        let selected = plans[0].start().unwrap();
+        assert_eq!(selected.target_id(), 2);
+        assert_eq!(selected.protocol(), Protocol::OpenAiResponses);
+    }
+    assert!(
+        router
+            .route_responses_ws_groups("model-a", &groups, None, Some(1))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn client_protocols_restrict_before_priority_and_retry() {
     for payload in [PayloadPolicy::Adapt, PayloadPolicy::Passthrough] {
         let (mut config, prices) = fixture(1);

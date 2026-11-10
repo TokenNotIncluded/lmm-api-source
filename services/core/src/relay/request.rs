@@ -571,6 +571,33 @@ impl Request {
         body: &[u8],
         limits: &Limits,
     ) -> Result<Self, RelayError> {
+        Self::parse_deferred_openai_mode(client, body, limits, false, false)
+    }
+
+    /// Only the admitted native WS envelope may supply these stateful facts.
+    /// This does not synthesize history/tool calls to satisfy HTTP validation.
+    pub(crate) fn parse_responses_ws(
+        body: &[u8],
+        limits: &Limits,
+        has_previous_response: bool,
+        generate: Option<bool>,
+    ) -> Result<Self, RelayError> {
+        Self::parse_deferred_openai_mode(
+            ClientProtocol::Responses,
+            body,
+            limits,
+            has_previous_response || generate == Some(false),
+            has_previous_response,
+        )
+    }
+
+    fn parse_deferred_openai_mode(
+        client: ClientProtocol,
+        body: &[u8],
+        limits: &Limits,
+        allow_empty_input: bool,
+        allow_previous_tool_result: bool,
+    ) -> Result<Self, RelayError> {
         if !matches!(client, ClientProtocol::Chat | ClientProtocol::Responses) {
             return Self::parse(client, body, limits);
         }
@@ -613,7 +640,13 @@ impl Request {
         }
         let bytes =
             serde_json::to_vec(&fields).map_err(|_| RelayError::Invalid("invalid request body"))?;
-        let mut request = Self::parse(client, &bytes, limits)?;
+        let mut request = Self::parse_mode(
+            client,
+            &bytes,
+            limits,
+            allow_empty_input,
+            allow_previous_tool_result,
+        )?;
         request.compatibility = compatibility;
         // The compatibility parser re-encodes fields; capture only after its
         // original duplicate/depth checks, from the original ordered schemas.
@@ -622,6 +655,16 @@ impl Request {
     }
 
     pub fn parse(client: ClientProtocol, body: &[u8], limits: &Limits) -> Result<Self, RelayError> {
+        Self::parse_mode(client, body, limits, false, false)
+    }
+
+    fn parse_mode(
+        client: ClientProtocol,
+        body: &[u8],
+        limits: &Limits,
+        allow_empty_input: bool,
+        allow_previous_tool_result: bool,
+    ) -> Result<Self, RelayError> {
         limits.validate()?;
         if client == ClientProtocol::Anthropic {
             let mut request = super::native_anthropic::parse(body, limits)?;
@@ -954,10 +997,15 @@ impl Request {
                         content: vec![InputBlock::Text(s.into())],
                     });
                 } else {
-                    for i in input
-                        .as_array()
-                        .ok_or(RelayError::Invalid("input must be a string or array"))?
-                    {
+                    let empty = Vec::new();
+                    let items = if allow_empty_input && v.get("input").is_none() {
+                        &empty
+                    } else {
+                        input
+                            .as_array()
+                            .ok_or(RelayError::Invalid("input must be a string or array"))?
+                    };
+                    for i in items {
                         let kind = match i.get("type") {
                             None => "message",
                             Some(kind) => kind
@@ -1014,7 +1062,7 @@ impl Request {
                 }
             }
         }
-        if messages.is_empty() || messages.len() > 1024 {
+        if (messages.is_empty() && !allow_empty_input) || messages.len() > 1024 {
             return Err(RelayError::Limit("message count"));
         }
         let mut calls = BTreeSet::new();
@@ -1028,7 +1076,8 @@ impl Request {
                         return Err(RelayError::Invalid("duplicate call ID"));
                     }
                     InputBlock::ToolResult { id, .. }
-                        if !calls.contains(id) || !results.insert(id) =>
+                        if (!calls.contains(id) && !allow_previous_tool_result)
+                            || !results.insert(id) =>
                     {
                         return Err(RelayError::Invalid("orphan or duplicate tool result"));
                     }
@@ -1934,6 +1983,62 @@ impl Request {
             v["tools"] = json!([{"googleSearch":{}}]);
         }
         Ok(v)
+    }
+}
+
+#[cfg(test)]
+mod responses_ws_parse_tests {
+    use super::*;
+
+    fn body(input: Option<Value>) -> Vec<u8> {
+        let mut v = json!({"model":"m","max_output_tokens":32});
+        if let Some(input) = input {
+            v["input"] = input;
+        }
+        serde_json::to_vec(&v).unwrap()
+    }
+
+    #[test]
+    fn warmup_and_previous_state_allow_empty_input_only_in_ws() {
+        let limits = Limits::default();
+        for input in [None, Some(json!([]))] {
+            let bytes = body(input);
+            assert!(Request::parse(ClientProtocol::Responses, &bytes, &limits).is_err());
+            assert!(
+                Request::parse_deferred_openai(ClientProtocol::Responses, &bytes, &limits).is_err()
+            );
+            assert!(Request::parse_responses_ws(&bytes, &limits, false, None).is_err());
+            let warmup = Request::parse_responses_ws(&bytes, &limits, false, Some(false)).unwrap();
+            assert!(warmup.messages.is_empty());
+            let continuation = Request::parse_responses_ws(&bytes, &limits, true, None).unwrap();
+            assert!(continuation.messages.is_empty());
+        }
+        assert!(
+            Request::parse_responses_ws(&body(Some(Value::Null)), &limits, true, Some(false))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn previous_turn_tool_result_keeps_duplicate_and_http_rejection() {
+        let limits = Limits::default();
+        let item = json!({"type":"function_call_output","call_id":"old-call","output":"ok"});
+        let bytes = body(Some(json!([item.clone()])));
+        assert!(Request::parse(ClientProtocol::Responses, &bytes, &limits).is_err());
+        assert!(Request::parse_responses_ws(&bytes, &limits, false, Some(false)).is_err());
+        let continued = Request::parse_responses_ws(&bytes, &limits, true, None).unwrap();
+        assert!(
+            matches!(&continued.messages[0].content[0], InputBlock::ToolResult {id,..} if id == "old-call")
+        );
+        assert!(
+            Request::parse_responses_ws(
+                &body(Some(json!([item.clone(), item]))),
+                &limits,
+                true,
+                None
+            )
+            .is_err()
+        );
     }
 }
 

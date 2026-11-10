@@ -652,6 +652,98 @@ fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
 }
 
 #[sqlx::test(migrations = false)]
+async fn websocket_turn_reservation_binds_the_actual_frame(pool: PgPool) {
+    use relay::responses_ws::Create;
+
+    let f = fixture(pool, 2_000_000).await;
+    let g = compatibility_gateway(&f, "http://127.0.0.1:9/v1", Protocol::OpenAiResponses);
+    let (context, _) = admit(&g, &f, "ws-selected-wire", "compat-2", 16).await;
+    let create = Create::parse(
+        br#"{"type":"response.create","model":"compat-2","input":"hello","max_output_tokens":16,"stream_id":"s1"}"#,
+        g.limits.request_bytes,
+    )
+    .unwrap();
+    let request =
+        relay::Request::parse_responses_ws(&create.request_json, &g.limits, false, None).unwrap();
+    let plans = g
+        .bridge
+        .routing
+        .route_responses_ws_groups(&request.model, &["allowed".into()], None, None)
+        .unwrap();
+    g.bridge
+        .active
+        .lock()
+        .unwrap()
+        .get_mut(&context.request_id)
+        .unwrap()
+        .route_plan = Some(super::routing::Pending::Planned(plans));
+    let route = g.bridge.select(&context, &request).await.unwrap();
+    let frame = create
+        .prepare_selected(&request, &route, &g.limits)
+        .unwrap();
+    let other = Create::parse(
+        br#"{"type":"response.create","model":"compat-2","input":"hello","max_output_tokens":16,"stream_id":"s2"}"#,
+        g.limits.request_bytes,
+    )
+    .unwrap();
+    assert!(matches!(
+        g.bridge
+            .reserve_responses_ws(&context, &route, &request, &other, &frame, &g.limits)
+            .await,
+        Err(RelayError::Conflict)
+    ));
+    assert_eq!(requests(&f.pool).await, 0);
+    let reserved = g
+        .bridge
+        .reserve_responses_ws(&context, &route, &request, &create, &frame, &g.limits)
+        .await
+        .unwrap();
+    let proof: serde_json::Value = sqlx::query_scalar(
+        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id=$2",
+    )
+    .bind(&reserved.id)
+    .bind(charging::contract::EVENT_ID)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        proof["wire_sha256"],
+        charging::contract::hex_digest(&frame.wire_sha256)
+    );
+    assert_eq!(
+        proof["binding"]["projection_revision"],
+        "responses-ws-context-max-v1"
+    );
+    let other_frame = other.prepare_selected(&request, &route, &g.limits).unwrap();
+    assert!(matches!(
+        g.bridge
+            .dispatching(&context, &route, &other_frame.wire_bytes)
+            .await,
+        Err(RelayError::Conflict)
+    ));
+    for _ in 0..2 {
+        g.bridge
+            .dispatching(&context, &route, &frame.wire_bytes)
+            .await
+            .unwrap();
+    }
+    let dispatches: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id LIKE 'route-dispatch:%'",
+    )
+    .bind(&reserved.id)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(dispatches, 1);
+    g.bridge
+        .finalize(&reserved, &terminal(&reserved.id, &route, usage(2)))
+        .await
+        .unwrap();
+    assert_eq!(receipt(&g, &reserved.id).await.settled, 2);
+    assert_balance(&f, 1_999_998, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn selected_bound_mixed_external_models_reserve_their_own_caps(pool: PgPool) {
     let f = fixture(pool, 2_000_000).await;
     let g = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));

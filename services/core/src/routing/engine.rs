@@ -257,6 +257,12 @@ pub struct Router {
     active: RwLock<Arc<Snapshot>>,
 }
 
+#[derive(Clone, Copy)]
+enum RouteTransport {
+    Http { allow_passthrough: bool },
+    ResponsesWebSocket { pinned_target: Option<u64> },
+}
+
 impl Router {
     pub fn new(config: RoutingConfig, prices: Arc<PriceSnapshot>) -> Result<Self, RoutingError> {
         Ok(Self {
@@ -380,6 +386,41 @@ impl Router {
         protocol: Protocol,
         affinity: Option<[u8; 32]>,
     ) -> Result<Vec<RoutePlan>, RoutingError> {
+        self.route_groups(
+            model,
+            groups,
+            protocol,
+            affinity,
+            RouteTransport::Http {
+                allow_passthrough: false,
+            },
+        )
+    }
+
+    pub(crate) fn route_responses_ws_groups(
+        &self,
+        model: &str,
+        groups: &[String],
+        affinity: Option<[u8; 32]>,
+        pinned_target: Option<u64>,
+    ) -> Result<Vec<RoutePlan>, RoutingError> {
+        self.route_groups(
+            model,
+            groups,
+            Protocol::OpenAiResponses,
+            affinity,
+            RouteTransport::ResponsesWebSocket { pinned_target },
+        )
+    }
+
+    fn route_groups(
+        &self,
+        model: &str,
+        groups: &[String],
+        protocol: Protocol,
+        affinity: Option<[u8; 32]>,
+        transport: RouteTransport,
+    ) -> Result<Vec<RoutePlan>, RoutingError> {
         let snapshot = self.snapshot()?;
         let mut plans = Vec::new();
         for group in groups {
@@ -398,9 +439,14 @@ impl Router {
                 digest.update([0]);
                 digest.update(group.as_bytes());
                 let mut rng = rand::rngs::StdRng::from_seed(digest.finalize().into());
-                Self::route_in_snapshot(snapshot.clone(), request, &mut rng, false)
+                Self::route_in_snapshot(snapshot.clone(), request, &mut rng, transport)
             } else {
-                Self::route_in_snapshot(snapshot.clone(), request, &mut rand::thread_rng(), false)
+                Self::route_in_snapshot(
+                    snapshot.clone(),
+                    request,
+                    &mut rand::thread_rng(),
+                    transport,
+                )
             };
             match plan {
                 Ok(plan) => plans.push(plan),
@@ -427,14 +473,19 @@ impl Router {
         rng: &mut R,
         allow_passthrough: bool,
     ) -> Result<RoutePlan, RoutingError> {
-        Self::route_in_snapshot(self.snapshot()?, request, rng, allow_passthrough)
+        Self::route_in_snapshot(
+            self.snapshot()?,
+            request,
+            rng,
+            RouteTransport::Http { allow_passthrough },
+        )
     }
 
     fn route_in_snapshot<R: Rng + ?Sized>(
         snapshot: Arc<Snapshot>,
         request: RouteRequest<'_>,
         rng: &mut R,
-        allow_passthrough: bool,
+        transport: RouteTransport,
     ) -> Result<RoutePlan, RoutingError> {
         if !valid_group(request.group) {
             return Err(RoutingError::InvalidRequest);
@@ -475,14 +526,25 @@ impl Router {
             .iter()
             .filter(|target| {
                 target.available()
+                    && match transport {
+                        RouteTransport::Http { .. } => true,
+                        RouteTransport::ResponsesWebSocket { pinned_target } => {
+                            target.upstream.config.protocol == Protocol::OpenAiResponses
+                                && pinned_target.is_none_or(|id| target.config.id == id)
+                        }
+                    }
                     && target.config.allows_client(request.protocol)
                     && target.config.speeds.contains(&speed)
                     && (target
                         .config
                         .payload
                         .adapts(request.protocol, target.upstream.config.protocol)
-                        || (allow_passthrough
-                            && target.upstream.config.protocol == request.protocol
+                        || (matches!(
+                            transport,
+                            RouteTransport::Http {
+                                allow_passthrough: true
+                            }
+                        ) && target.upstream.config.protocol == request.protocol
                             && target.config.upstream_model == request.model))
             })
             .cloned()

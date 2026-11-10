@@ -502,6 +502,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn responses_websocket_shares_relay_capacity_and_drain() {
+        let endpoint = "https://provider.invalid/v1/responses";
+        let limits = Limits {
+            max_in_flight: 1,
+            ..Limits::default()
+        };
+        let (relay, _) = relay(endpoint, UpstreamProtocol::Responses, limits.clone(), None);
+        let session = relay.admit_responses_ws().unwrap();
+        assert_eq!(relay.active_requests(), 1);
+        let request = Request::parse(
+            ClientProtocol::Responses,
+            br#"{"model":"model","input":"hello"}"#,
+            &limits,
+        )
+        .unwrap();
+        assert!(matches!(
+            relay.start(request, context()),
+            Err(RelayError::Busy)
+        ));
+
+        let draining = relay.clone();
+        let drain = tokio::spawn(async move { draining.drain(Duration::ZERO).await });
+        timeout(Duration::from_secs(1), session.cancelled())
+            .await
+            .unwrap();
+        assert!(matches!(
+            relay.admit_responses_ws(),
+            Err(RelayError::Draining)
+        ));
+        assert!(matches!(
+            session
+                .upgrade(&route(endpoint, UpstreamProtocol::Responses))
+                .await,
+            Err(RelayError::Cancelled)
+        ));
+        drop(session);
+        let result = drain.await.unwrap();
+        assert_eq!((result.cancelled, result.remaining), (1, 0));
+    }
+
+    #[tokio::test]
     async fn reserve_wait_emits_ping_before_business_frames_and_settles_completed() {
         let (release_tx, release_rx) = oneshot::channel();
         let url = serve(anthropic_sse(), None).await;

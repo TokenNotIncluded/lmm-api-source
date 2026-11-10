@@ -3,13 +3,13 @@
 //! This module does not register public routes or change readiness. Integration
 //! must supply real core routing and durable billing adapters before enabling it.
 mod decode;
-pub(crate) mod legacy_openrouter_usage;
 mod encode;
 mod gemini_schema;
 pub(crate) mod honeypot;
 pub(crate) mod honeypot_network;
 pub(crate) mod input_count;
 mod keepalive;
+pub(crate) mod legacy_openrouter_usage;
 mod native;
 pub(crate) mod native_anthropic;
 pub(crate) mod native_gemini;
@@ -17,6 +17,7 @@ pub(crate) mod native_gemini;
 mod openrouter_tests;
 pub(crate) mod provider_network;
 mod request;
+pub(crate) mod responses_ws;
 mod schema_order;
 mod sse;
 #[cfg(test)]
@@ -25,9 +26,9 @@ mod standard_only_tests;
 mod tests;
 mod types;
 mod vision;
-mod zconv_request;
 #[cfg(test)]
 mod vision_tests;
+mod zconv_request;
 pub(crate) use decode::Decoder as AssistantDecoder;
 #[cfg(test)]
 pub(crate) use decode::usage as provider_usage;
@@ -170,6 +171,30 @@ impl Drop for Active {
         self.inner.changed.notify_waiters();
     }
 }
+
+/// The WebSocket owner keeps this lease until its last turn has finalized.
+pub(crate) struct ResponsesSession {
+    active: Active,
+    cancel: Cancellation,
+}
+
+impl ResponsesSession {
+    pub(crate) async fn cancelled(&self) {
+        self.cancel.cancelled().await;
+    }
+
+    pub(crate) async fn upgrade(
+        &self,
+        route: &Route,
+    ) -> Result<provider_network::ResponsesConnection, RelayError> {
+        tokio::select! {
+            biased;
+            () = self.cancelled() => Err(RelayError::Cancelled),
+            result = self.active.inner.provider_transport.upgrade_responses(route, &self.active.inner.limits) => result,
+        }
+    }
+}
+
 impl Relay {
     pub fn new(
         router: Arc<dyn RouteProvider>,
@@ -194,10 +219,7 @@ impl Relay {
             }),
         })
     }
-    /// Call Request::parse before this method. No permissive billing adapter is
-    /// provided; admission cannot send any upstream bytes before reserve succeeds.
-    pub fn start(&self, request: Request, context: RequestContext) -> Result<Session, RelayError> {
-        context.validate()?;
+    fn register(&self) -> Result<(Active, Cancellation), RelayError> {
         let permit = self
             .inner
             .permits
@@ -222,11 +244,26 @@ impl Relay {
             registry.active.insert(id, cancel.clone());
             id
         };
-        let active = Active {
-            inner: self.inner.clone(),
-            id,
-            _permit: permit,
-        };
+        Ok((
+            Active {
+                inner: self.inner.clone(),
+                id,
+                _permit: permit,
+            },
+            cancel,
+        ))
+    }
+
+    pub(crate) fn admit_responses_ws(&self) -> Result<ResponsesSession, RelayError> {
+        let (active, cancel) = self.register()?;
+        Ok(ResponsesSession { active, cancel })
+    }
+
+    /// Call Request::parse before this method. No permissive billing adapter is
+    /// provided; admission cannot send any upstream bytes before reserve succeeds.
+    pub fn start(&self, request: Request, context: RequestContext) -> Result<Session, RelayError> {
+        context.validate()?;
+        let (active, cancel) = self.register()?;
         let (sender, receiver) = mpsc::channel(self.inner.limits.queue_chunks);
         let (head_tx, head) = oneshot::channel();
         let (done_tx, completion) = oneshot::channel();
@@ -960,8 +997,11 @@ impl Worker {
             route.protocol,
             &self.inner.limits,
             route.cache_creation_mode,
-        ).with_legacy_openrouter_usage(matches!(route.payload_policy,
-            crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1));
+        )
+        .with_legacy_openrouter_usage(matches!(
+            route.payload_policy,
+            crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
+        ));
         if self.request.stream {
             self.stop_keepalive().await?;
             self.send_head()?;

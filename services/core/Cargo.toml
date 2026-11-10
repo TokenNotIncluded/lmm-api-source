@@ -38,7 +38,10 @@ num-bigint = "=0.4.8"
 num-rational = "=0.4.2"
 # Required S256 primitive, upstream MIT OR Apache-2.0; durable grants are Core-owned.
 oxide-auth = { git = "https://github.com/197g/oxide-auth", rev = "0e3ef86d924aa5546dc3275d1d7269ea63edfaf1" }
-axum = { version = "=0.8.9", features = ["multipart"] }
+axum = { version = "=0.8.9", features = ["multipart", "ws"] }
+# WS framing only: TLS and DNS stay in the existing pinned reqwest transport.
+tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 http-body = "=1.1.0"
 http-body-util = "=0.1.5"
 # Existing locked MIT dependencies; native HTTP parsing and graceful connections.
