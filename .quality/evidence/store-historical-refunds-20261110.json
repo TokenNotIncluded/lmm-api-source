@@ -1,0 +1,57 @@
+{
+  "artifact_sha256": {
+    "core": {
+      "builder_receipt_sha256": "6f58e8ed63d686e409293b6db5408bfe16efd0deb9fe4bf63b7cc422c5e282a6",
+      "sha256": "40fd783f627679f2f391525993f5df4921f379e579adf5a973a5091fb0d3b02c",
+      "source_manifest_sha256": "90e0e3a8a6af7aa0380fb700748c6a1276db81f4f569b2e0790f81b190bf58cb"
+    },
+    "go": {
+      "builder_receipt_sha256": "40b6ae7bfd2dd9f71bb7a1e62628b29814eb290f84932b918c9a7de66493c0f0",
+      "sha256": "f769f8096eff499166a1cb9e5d60b204e5ad281f4621fbf3a2cfcab38b529ae6",
+      "source_manifest_sha256": "0559112ad999c343a1883788375bb41bf2976b0ca7a1ba85ab7c6d89cab8d671"
+    }
+  },
+  "cached_evidence_sha256": {
+    "ack-recovered.json": "5d3235fbba6c00650d8e2b02bbcbbf2200839fdde212268ffee5539e5f981c5c",
+    "artifacts.json": "02b73b114bcf4a64137431bb8ec917d51c49e286178fb07a335b11a76c2b179c",
+    "asserted-scope.json": "11e389a273c86856871c2a3cb8593443f6e359b106543794aa9597e4f2a06fb3",
+    "final-financial-state.json": "5aeb16cd8abcdcb0be699691326d40026adb2fb94632d11c335e88105ad0af12",
+    "harness.source.py": "c5d08f62a7e30292eff050d641ac763473ef2ea4615e3c92d6fc876acc68393a",
+    "historical_refund_cases.source.py": "deb5e446df1f3babf500126b3537e0828c050233c73690f2b2d9d33c8006b492",
+    "initial.json": "8f455c0b7bbb3af0dd1f6f93f8d5b2bb6fb0b57ca597a0a3f835a634f7423f85",
+    "lost-ack.json": "324ac918c34ab8ea3ef747fd9eceabd0affac89d7baa63afb97344aded14eb72",
+    "native-check-db.result.json": "0909a030522059ea4556884b06f4d43c91548b6201f1ffca031cf46c64358c57",
+    "native-init.result.json": "6dd1eaa48f0f5a394cc732476458cf6ea53335caf0fb87af312bb9ad2c0558be",
+    "result.json": "650fff205cd1b06ca1f412ce48c609ef65d33285dd86c3ba7cb6a592476afc17",
+    "root-independent-review.json": "a43a9977218c6e4bd7cfd20c2a167d2e9919c052ef1b3872a3780e9476a9719a",
+    "unknown-no-core-receipt.json": "67896720ea7d6ff4e0be560b3c626ae3315e71dcbc52d16416bd76767613cb78"
+  },
+  "cached_failure_sha256": {
+    "failure.txt": "cefe78ef71e286cb5015738114d92acb225e7ff872c7e27b44360710f34fa339",
+    "fixture-fix-receipt.json": "d2c89a152cb51b54e72126d2472194d8dae5d9490ee2129ba08f507350353010"
+  },
+  "repo_source_sha256": {
+    "tests/commerce/historical_refund_cases.py": "deb5e446df1f3babf500126b3537e0828c050233c73690f2b2d9d33c8006b492",
+    "tests/commerce/historical_refund_process.py": "5073dae6d33820358de09022d1de1c341cfd9274d2a46bd6a4ffcae308fa9c2b"
+  },
+  "reused_support_sha256": {
+    "tests/architecture_completion/build_lease.py": "25a49dba3ca58ddd838637d04659215a4df0ea5917e6ca65aa10f71b4f34c792",
+    "tests/architecture_completion/pg_fixture.py": "ce6163b2b1b1a3f70f664ec912d1e3195785ff0357fad97e1e007869d10498e1",
+    "tests/commerce/resource_group.py": "e69cad61118bfcfb85ec12035ec6ced41a31f210c1a93b0b4f3e140571289411",
+    "tests/commerce/verify_process.py": "335f30f6a68904cec4367eef3a058a097ed31c936edd6127c592d56e8d6791e1"
+  },
+  "scope": {
+    "cached_execution": "once02 PASS: real Core main + Go host + isolated PG; two synthetic paid-source full refunds and two historical-refunded reads",
+    "cases": "byte-identical to cached actual-PG-tested historical_refund_cases.source.py",
+    "cleanup": "owned Core/Go reaped and owned PG removed after once02; no production access",
+    "go_provenance": "source bytes match component 6fcf501; embedded older revision with modified=true; local integration input, not clean release",
+    "limits": "synthetic owner-issued opening/migration receipts only; not complete financial_import admission, private four-order migration, target stock-key provisioning, final combined candidate, production acceptance or debt closure",
+    "lost_ack": "actual Core refund commits before injected Go local done-ACK loss; normal readonly worker recovers original command; Core snapshot remains equal; completed replay has no new effect",
+    "money": "zero global ledger sum; no native orders; two refund receipts/operations and exactly two refund journals; no native Pay or topup fabrication",
+    "permissions": "runtime owner-import/direct-write denied and source-binding/cap negatives; historical read auth enforced; source-refunded read creates no money operation",
+    "previous_failure": "once01 fixture setup/JSON-parse FAIL retained; no refund execution; web_compat/raw-response capture/nice fix retained separately",
+    "repo_adapter": "AST parsed only; no repo-adapted PG/HTTP execution; cached runner bytes differ from this adapter",
+    "runtime_authority": "native init-db/check-db passed for configured commerce+events; does not establish disabled-feature baseline guard correctness",
+    "unknown": "seller liquidity failure rolls back all Core effects; GET/worker do not dispatch, including after existing-funds transfer; original seller explicitly retries same command/key"
+  }
+}
