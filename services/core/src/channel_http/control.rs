@@ -118,6 +118,52 @@ impl PublicationChange {
     }
 }
 impl ManagedChannels {
+    /// Validate the configured bootstrap release without querying PostgreSQL,
+    /// starting workers, or publishing a release. Initialize `crate::config`
+    /// first and pass a lazy pool; no credential secrets are returned.
+    ///
+    /// The three documents are the arguments to `routing_control_publish`.
+    /// Their SHA256 values cover each document's compact `serde_json` bytes.
+    /// This internal operator material must only be written to private files.
+    ///
+    /// # Errors
+    /// Rejects missing model configuration, unsafe credentials, or any release
+    /// rejected by the same executable-binding validation used for publication.
+    pub fn bootstrap_publication(pool: PgPool) -> Result<Value, ManagementError> {
+        let (_abuse, gateway) =
+            crate::config::models_and_abuse(pool.clone()).map_err(|_| ManagementError::Invalid)?;
+        let gateway = gateway.ok_or(ManagementError::Invalid)?;
+        let mut management = Self::from_router(pool, gateway.dashboard_routing())?;
+        let bindings = Bindings {
+            contexts: gateway.channel_contexts(),
+            ..Bindings::default()
+        };
+        management.gateway = Some(gateway);
+        management.validate_bindings(&management.bootstrap, &bindings, &BTreeSet::new())?;
+        let routing = serde_json::to_value(&management.bootstrap.routing)
+            .map_err(|_| ManagementError::Invalid)?;
+        let prices = serde_json::to_value(&management.bootstrap.pricing)
+            .map_err(|_| ManagementError::Invalid)?;
+        let bindings = serde_json::to_value(&bindings).map_err(|_| ManagementError::Invalid)?;
+        let digest = |document: &Value| -> Result<String, ManagementError> {
+            let bytes = serde_json::to_vec(document).map_err(|_| ManagementError::Invalid)?;
+            Ok(format!("{:x}", Sha256::digest(bytes)))
+        };
+        Ok(json!({
+            "format_version": 1,
+            "scope": "validated-bootstrap-publication-v1",
+            "document_sha256": {
+                "routing": digest(&routing)?,
+                "prices": digest(&prices)?,
+                "bindings": digest(&bindings)?,
+            },
+            "routing": routing,
+            "prices": prices,
+            "bindings": bindings,
+            "publication_performed": false,
+        }))
+    }
+
     /// Called by the host before it exposes routes. This reads existing state;
     /// it never initializes a database or creates a publication at startup.
     pub async fn recover(pool: PgPool, gateway: ModelGateway) -> Result<Self, ManagementError> {
