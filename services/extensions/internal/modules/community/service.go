@@ -101,7 +101,7 @@ func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
 	mux.HandleFunc("GET /api/user/self/profile-share", h.getProfileShare)
 	mux.HandleFunc("POST /api/user/self/profile-share", h.enableProfileShare)
 	mux.HandleFunc("DELETE /api/user/self/profile-share", h.disableProfileShare)
-	mux.HandleFunc("GET /api/share/profile/{token}", h.profileShareSVG)
+	mux.HandleFunc("GET /api/share/profile/{token}", h.profileShareLiveSVG)
 
 	mux.HandleFunc("GET /api/user/self/onboarding/todo", h.onboardingTodo)
 	mux.HandleFunc("PATCH /api/user/self/onboarding/todo", h.onboardingTodo)

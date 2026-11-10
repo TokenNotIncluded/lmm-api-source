@@ -145,9 +145,9 @@ func (c *CoreRead) UserRankings(ctx context.Context, start, end int64, limit int
 }
 
 type CoreUsageTotals struct {
-	Tokens   int64 `json:"tokens"`
-	Requests int64 `json:"requests"`
-	Credits  int64 `json:"credits"`
+	Tokens   int64  `json:"tokens"`
+	Requests int64  `json:"requests"`
+	Credits  *int64 `json:"credits"`
 }
 type CoreUsageBucket struct {
 	Bucket   int64 `json:"bucket"`
@@ -158,20 +158,22 @@ type CoreModelUsage struct {
 	ModelName string `json:"model_name"`
 	Tokens    int64  `json:"tokens"`
 	Requests  int64  `json:"requests"`
-	Credits   int64  `json:"credits"`
+	Credits   *int64 `json:"credits"`
 }
 type CoreUserUsage struct {
-	UserID        int64             `json:"user_id"`
-	Active        bool              `json:"active"`
-	Name          string            `json:"name"`
-	Username      string            `json:"username"`
-	PlatformRole  string            `json:"platform_role"`
-	Totals        CoreUsageTotals   `json:"totals"`
-	ModelCount    int64             `json:"model_count"`
-	Buckets       []CoreUsageBucket `json:"buckets"`
-	Models        []CoreModelUsage  `json:"models"`
-	CreditsPerUSD int64             `json:"credits_per_usd"`
-	HistorySource string            `json:"history_source"`
+	UserID           int64             `json:"user_id"`
+	Active           bool              `json:"active"`
+	Name             string            `json:"name"`
+	Username         string            `json:"username"`
+	PlatformRole     string            `json:"platform_role"`
+	Totals           CoreUsageTotals   `json:"totals"`
+	ModelCount       int64             `json:"model_count"`
+	Buckets          []CoreUsageBucket `json:"buckets"`
+	Models           []CoreModelUsage  `json:"models"`
+	CreditsPerUSD    int64             `json:"credits_per_usd"`
+	HistorySource    string            `json:"history_source"`
+	PricingAvailable *bool             `json:"pricing_available"`
+	CNYPerUSD        *string           `json:"cny_per_usd"`
 }
 
 func (c *CoreRead) UserUsage(ctx context.Context, userID, start, end, bucket int64, modelLimit int) (CoreUserUsage, error) {

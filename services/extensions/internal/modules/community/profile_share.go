@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -254,18 +253,6 @@ func (s *Service) loadShare(r *http.Request, query string, arg any) (*profileSha
 	return &sh, nil
 }
 
-func (h *handlers) shareState(w http.ResponseWriter, share *profileShare) {
-	if share == nil {
-		respond(w, map[string]any{"enabled": false}, nil)
-		return
-	}
-	respond(w, map[string]any{
-		"enabled": true, "model_usage_enabled": share.ModelUsageEnabled, "aggregate_usage_enabled": share.AggregateUsageEnabled,
-		"linked_profiles": share.LinkedProfiles, "aggregate_sources": h.s.aggregateSources(share, "30d"),
-		"token": share.Token, "url": h.s.origin + "/api/share/profile/" + share.Token + ".svg",
-	}, nil)
-}
-
 func (h *handlers) getProfileShare(w http.ResponseWriter, r *http.Request) {
 	actor, err := h.user(r)
 	if err != nil {
@@ -277,7 +264,7 @@ func (h *handlers) getProfileShare(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, errUnavailable)
 		return
 	}
-	h.shareState(w, share)
+	h.profileShareLiveState(w, r, share)
 }
 
 // POST enables sharing (idempotently) and applies only the supplied settings.
@@ -327,7 +314,7 @@ func (h *handlers) enableProfileShare(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, errUnavailable)
 		return
 	}
-	h.shareState(w, share)
+	h.profileShareLiveState(w, r, share)
 }
 
 func nullableJSON(b []byte) any {
@@ -348,45 +335,5 @@ func (h *handlers) disableProfileShare(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, errUnavailable)
 		return
 	}
-	h.shareState(w, nil)
-}
-
-// GET /api/share/profile/{token}.svg is public. The aggregate layout renders
-// owner snapshots; layouts built from native LMM usage need a Core read.
-func (h *handlers) profileShareSVG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	token, ok := strings.CutSuffix(r.PathValue("token"), ".svg")
-	if !ok || !profileShareToken.MatchString(token) {
-		http.NotFound(w, r)
-		return
-	}
-	if len(r.URL.RawQuery) > 2048 {
-		respond(w, nil, &apiError{http.StatusBadRequest, "PROFILE_SHARE_INVALID", "SVG options are too long"})
-		return
-	}
-	query := r.URL.Query()
-	if query.Get("layout") != "aggregate" {
-		respond(w, nil, &apiError{http.StatusServiceUnavailable, "PROFILE_SHARE_USAGE_UNAVAILABLE", "Usage cards require a Core usage read that is not available yet"})
-		return
-	}
-	options, err := parseAggregateSVGOptions(query)
-	if err != nil {
-		respond(w, nil, &apiError{http.StatusBadRequest, "PROFILE_SHARE_INVALID", err.Error()})
-		return
-	}
-	share, err := h.s.loadShare(r, "token=$1", token)
-	if err != nil {
-		respond(w, nil, errUnavailable)
-		return
-	}
-	if share == nil || !share.AggregateUsageEnabled {
-		http.NotFound(w, r)
-		return
-	}
-	svg := renderAggregateSVG(options, h.s.aggregateSources(share, options.Period))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-	_, _ = fmt.Fprint(w, svg)
+	h.profileShareLiveState(w, r, nil)
 }
