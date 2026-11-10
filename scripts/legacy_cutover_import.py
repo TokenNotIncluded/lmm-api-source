@@ -37,7 +37,20 @@ OAUTH_ISSUERS = {
     "linux_do_id": "https://connect.linux.do",
     "discord_id": "https://discord.com",
 }
-CUSTOM_OAUTH_ISSUERS = {"google": "https://accounts.google.com"}
+# The production custom Google provider is projected into Core59's native
+# Google identity domain ONLY after checking its actual source configuration.
+# A slug alone is not evidence of the authority that issued a subject.
+GOOGLE_SOURCE_CONTRACT = {
+    "slug": "google",
+    "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_endpoint": "https://oauth2.googleapis.com/token",
+    "user_info_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+    "well_known": "https://accounts.google.com/.well-known/openid-configuration",
+    "user_id_field": "sub",
+    "username_field": "email",
+    "display_name_field": "name",
+    "email_field": "email",
+}
 PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES + ("referrals",)
 
 
@@ -80,8 +93,12 @@ def load_source(src: Db, schema: str) -> dict:
     return {
         "users": q("SELECT * FROM users ORDER BY id"),
         "two_fas": q("SELECT user_id,is_enabled,deleted_at FROM two_fas ORDER BY id"),
-        "oauth_bindings": q("SELECT b.user_id,b.provider_user_id,p.slug FROM user_oauth_bindings b "
-                            "JOIN custom_oauth_providers p ON p.id=b.provider_id ORDER BY b.id"),
+        # Do not JOIN away orphaned bindings or read provider client secrets.
+        "oauth_bindings": q("SELECT id,user_id,provider_id,provider_user_id FROM user_oauth_bindings ORDER BY id"),
+        "oauth_providers": q("SELECT id,name,slug,enabled,client_id,authorization_endpoint,token_endpoint,"
+                             "user_info_endpoint,scopes,well_known,user_id_field,username_field,"
+                             "display_name_field,email_field,auth_style,access_policy "
+                             "FROM custom_oauth_providers ORDER BY id"),
         "options": {r["key"]: r["value"] for r in q("SELECT key,value FROM options")},
         **KEYS.load_source(q),
     }
@@ -151,8 +168,82 @@ BEGIN
 END $registration_times$;"""
 
 
+def identity_oauth_rows(data: dict) -> list[tuple[str, str, int, str]]:
+    """Validate source provenance/ownership before emitting any identity SQL.
+
+    Core59 subjects have a 255-byte protocol limit. Reject unsupported input
+    rather than truncating, trimming, relinking by email, or ignoring conflicts.
+    The phase targets an empty identity store; ordinary INSERT also makes any
+    unexpected target collision fail the surrounding SERIALIZABLE transaction.
+    """
+    rows, owners = [], {}
+    user_ids = {u["id"] for u in data["users"]}
+
+    def add(issuer, subject, user, counter):
+        if (not isinstance(subject, str) or not subject or subject != subject.strip()
+                or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in subject)):
+            fail("oauth_subject_invalid")
+        try:
+            size = len(subject.encode("utf-8"))
+        except UnicodeError:
+            fail("oauth_subject_invalid")
+        if size > 255:
+            fail("oauth_subject_too_long")
+        key = (issuer, subject)
+        if key in owners:
+            fail("oauth_subject_owner_collision" if owners[key] != user else "oauth_subject_duplicate")
+        owners[key] = user
+        rows.append((issuer, subject, user, counter))
+
+    for user in data["users"]:
+        for column, issuer in OAUTH_ISSUERS.items():
+            subject = user.get(column)
+            if subject is not None and subject != "":
+                add(issuer, subject, user["id"], "oauth_" + column)
+
+    bindings = data["oauth_bindings"]
+    if bindings and "oauth_providers" not in data:
+        fail("oauth_provider_source_missing")
+    providers = {}
+    for provider in data.get("oauth_providers", []):
+        identifier = provider.get("id")
+        if type(identifier) is not int or not 0 < identifier <= (1 << 63) - 1:
+            fail("oauth_provider_source_invalid")
+        if identifier in providers:
+            fail("oauth_provider_source_duplicate")
+        providers[identifier] = provider
+    binding_ids = set()
+    for binding in bindings:
+        identifier = binding.get("id")
+        if type(identifier) is not int or identifier <= 0 or identifier in binding_ids:
+            fail("oauth_binding_source_invalid")
+        binding_ids.add(identifier)
+        provider_id, user = binding.get("provider_id"), binding.get("user_id")
+        if type(provider_id) is not int or provider_id not in providers:
+            fail("oauth_binding_provider_missing")
+        if type(user) is not int or user not in user_ids:
+            fail("oauth_binding_user_missing")
+        provider = providers[provider_id]
+        if any(provider.get(key) != value for key, value in GOOGLE_SOURCE_CONTRACT.items()):
+            fail("google_provider_source_contract_mismatch")
+        client = provider.get("client_id")
+        scopes = provider.get("scopes")
+        policy = provider.get("access_policy")
+        if (provider.get("enabled") is not True
+                or type(provider.get("auth_style")) is not int or provider["auth_style"] != 0
+                or not isinstance(client, str) or not client or client != client.strip()
+                or len(client.encode("utf-8")) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in client)
+                or not isinstance(scopes, str) or len(scopes.split()) != 3
+                or set(scopes.split()) != {"openid", "profile", "email"}
+                or policy is not None and (not isinstance(policy, str) or policy.strip())):
+            fail("google_provider_source_contract_mismatch")
+        add("https://accounts.google.com", binding.get("provider_user_id"), user, "oauth_google")
+    return rows
+
+
 def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
     users = data["users"]
+    oauth_rows = identity_oauth_rows(data)
     mfa = {r["user_id"] for r in data["two_fas"] if r["is_enabled"] and not r["deleted_at"]}
     usable = json.loads(data["options"].get("UserUsableGroups") or "{}")
     sql, stats, logins, emails = [], Counter(), {}, {}
@@ -211,12 +302,6 @@ def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
             sql.append("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) "
                        f"VALUES({uid},{lit(group)},TRUE,"
                        f"{lit('legacy:UserUsableGroups' if group in usable else 'legacy:user_group')});")
-        for column, issuer in OAUTH_ISSUERS.items():
-            subject = (u.get(column) or "").strip()
-            if subject:
-                sql.append("INSERT INTO core_identity.oauth_identities(issuer,subject,user_id) "
-                           f"VALUES({lit(issuer)},{lit(subject[:255])},{uid}) ON CONFLICT DO NOTHING;")
-                stats["oauth_" + column] += 1
         if uid in mfa:
             stats["second_factor_required"] += 1
     for login, uid in logins.items():
@@ -231,14 +316,10 @@ def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
             sql.append("INSERT INTO core_identity.email_addresses(email_key,user_id,state,email_version) "
                        f"VALUES({lit(email)},NULL,'conflict',0);")
             stats["email_conflict"] += 1
-    for b in data["oauth_bindings"]:
-        issuer = CUSTOM_OAUTH_ISSUERS.get(b["slug"])
-        if issuer is None:
-            stats["oauth_unsupported_provider"] += 1
-            continue
+    for issuer, subject, user, counter in oauth_rows:
         sql.append("INSERT INTO core_identity.oauth_identities(issuer,subject,user_id) "
-                   f"VALUES({lit(issuer)},{lit(b['provider_user_id'][:255])},{b['user_id']}) ON CONFLICT DO NOTHING;")
-        stats["oauth_" + b["slug"]] += 1
+                   f"VALUES({lit(issuer)},{lit(subject)},{user});")
+        stats[counter] += 1
     sql.append(registration_time_receipt_sql(users, archive_sha))
     top = max(u["id"] for u in users)
     sql.append(f"SELECT setval(pg_get_serial_sequence('core_identity.users','id'),{top});")

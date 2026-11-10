@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Offline identity-only import from an owned, immutable PostgreSQL snapshot.
+"""Offline identity import from an owned, immutable PostgreSQL snapshot.
 
 Run through mise. Dry-run is the default. Receipts describe local Unix sockets;
 this tool never connects over TCP, creates a schema, or imports funds, sessions,
-API keys, OAuth links, passkeys, or second-factor secrets. Private artifacts must
+API keys, passkeys, or second-factor secrets. The default identity phase does not
+import OAuth links. Explicit --phase oauth continues the original identity import
+with verified existing-user OAuth/Telegram bindings and a separate immutable receipt.
+Private artifacts must
 stay below ~/.local/state/lmm-api. See --help for the explicit target receipt contract.
 
 For a NOLOGIN target owner, connection.role is the effective owner, and the
@@ -11,7 +14,8 @@ explicit pair login_role/set_role names the actual LOGIN member and that same
 owner. Startup PGOPTIONS performs the role switch; both session_user and the
 effective owner are checked. Source readers cannot provide either field.
 
-Replay is strict and only valid before console or other business imports. An
+Default identity replay is only valid before console or other business imports.
+OAuth continuation never reruns that empty-target writer or modifies funds. An
 unconfirmed commit keeps its original migration ID and exact private materials.
 A missing registry row does not prove rollback while the original session may
 still run: wait for that session to end and fence with advisory lock 741803121
@@ -304,7 +308,7 @@ REVIEWED_RUST_FILES_59 = {**REVIEWED_RUST_FILES_58,
     'services/core/src/subscriptions.rs': '20aae5ae2ed732046d743e71fc48539c23c4fe98957c6d4703f8af55b09984ba',
     'services/core/src/core_schema/navigation_options.rs': '21ed3c7d16b32cd1574cc5ab9f58b61d1746a61b0f4b33ddde5c48616a9a337c',
     'services/core/src/core_schema/upgrade/fresh_target.json': '7c30919004e82bf032a92598e6b359eb3dd246d210804343d74606efa0f43b96',
-    'services/core/src/subscriptions/external_epay.rs': '8d6d855a038e467b2f3944c5bd1b60be2269215b03f9a6b8e3f2f9df4dda38cd',
+    'services/core/src/subscriptions/external_epay.rs': 'd2155a62715e8d447adfcb868eb96849c75ae7e4783df937467559274f433428',
     'services/core/schema/subscription_epay_grants.sql': 'bde1bbf563e1e8a4321cc2f3a5df48ef2d984de194c9fc6d2fec9b0aefda4e19',
 }
 CORE_SEED_CONTRACT = CORE59_SEED_CONTRACT
@@ -1098,7 +1102,7 @@ def verify_instance(identity: dict, connection: dict, expected: dict, *, source:
             require(identity.get("server_instance_nonce") == expected["server_instance_nonce"], "target_instance_nonce_mismatch")
 
 
-def export_source(receipt: dict, output: Path) -> tuple[dict, list[dict], list[dict], bool]:
+def export_source(receipt: dict, output: Path, *, oauth: bool = False) -> tuple[dict, list[dict], list[dict], bool]:
     require(receipt.get("status") == "snapshot-restored-baseline-verified-frozen-and-classified", "source_receipt_status_invalid")
     archive = receipt.get("archive", {})
     archive_path = private_backup_path(Path(archive.get("path", "")))
@@ -1113,10 +1117,15 @@ def export_source(receipt: dict, output: Path) -> tuple[dict, list[dict], list[d
     require(len(baselines) == 1, "source_row_baseline_missing")
     baseline_path = private_backup_path(baselines[0])
     baseline_users = []
+    oauth_baselines = {name: [] for name in ("custom_oauth_providers", "user_oauth_bindings")}
     for line in baseline_path.read_text().splitlines():
         if not line.startswith("{"):
             continue  # psql transaction status lines are not metadata rows.
         row = json.loads(line)
+        if oauth:
+            for table in oauth_baselines:
+                if row.get("table") in (table, schema + "." + table):
+                    oauth_baselines[table].append(row.get("row_count"))
         if row.get("table") in ("users", schema + ".users"):
             baseline_users.append(row.get("row_count"))
     require(len(baseline_users) == 1 and type(baseline_users[0]) is int and baseline_users[0] >= 0, "source_row_baseline_invalid")
@@ -1137,10 +1146,17 @@ SELECT json_build_object('kind','second_factor','row',json_build_object('user_id
 SELECT json_build_object('kind','password_policy','row',json_build_object('key',key,'value',value)) FROM "{schema}".options WHERE key='PasswordLoginEnabled';
 COMMIT;
 """
+    if oauth:
+        import legacy_snapshot_oauth as oauth_phase
+        sql = sql.removesuffix("COMMIT;\n") + oauth_phase.export_queries(schema) + "COMMIT;\n"
+        write_private(output, "offline-oauth-reader-grants.sql", oauth_phase.reader_grants(schema, reader["role"]))
     raw = psql(reader, sql, readonly=True, private_dir=output, label="source-export")
     write_private(output, "source-identity-export.private.jsonl", raw)
     users, factors, policies, counts = [], [], [], []
     identities, schemas = 0, 0
+    oauth_rows = {"providers": [], "bindings": []}
+    oauth_counts = {name: [] for name in oauth_baselines}
+    oauth_reader = []
     for line in raw.splitlines():
         tagged = json.loads(line)
         kind, row = tagged["kind"], tagged["row"]
@@ -1151,6 +1167,12 @@ COMMIT;
         elif kind == "schema_identity":
             schemas += 1
             require(row.get("schema") == schema and row.get("schema_owner") == expected.get("schema_owner"), "source_schema_owner_mismatch")
+        elif oauth and kind == "oauth_reader":
+            oauth_reader.append(row)
+        elif oauth and kind in ("oauth_provider", "oauth_binding"):
+            oauth_rows["providers" if kind == "oauth_provider" else "bindings"].append(row)
+        elif oauth and kind in ("custom_oauth_providers_count", "user_oauth_bindings_count"):
+            oauth_counts[kind.removesuffix("_count")].append(row)
         elif kind == "user_count":
             counts.append(row)
         elif kind == "user":
@@ -1163,6 +1185,12 @@ COMMIT;
                             "policy_unknown": type(row["is_enabled"]) is not bool})
     require(identities == 1 and schemas == 1 and counts == [len(users)], "source_export_completeness_mismatch")
     require(counts == baseline_users, "source_snapshot_baseline_mismatch")
+    if oauth:
+        require(oauth_reader == [True], "oauth_reader_client_secret_readable")
+        for table, rows in zip(oauth_counts, (oauth_rows["providers"], oauth_rows["bindings"])):
+            require(oauth_counts[table] == [len(rows)] == oauth_baselines[table]
+                    and type(oauth_counts[table][0]) is int, "oauth_source_baseline_mismatch")
+        write_private(output, "source-oauth-export.private.json", canonical(oauth_rows) + "\n")
     require(len(policies) <= 1, "duplicate_global_password_policy")
     password_enabled = not policies or policies[0]["value"] == "true"
     write_private(output, "source-instance.private.json", canonical(identity) + "\n")
@@ -1609,8 +1637,13 @@ def main() -> int:
     parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned reviewed fresh receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
     parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/.local/state/lmm-api; must not already exist")
     parser.add_argument("--migration-id", required=True)
-    parser.add_argument("--apply", action="store_true", help="Explicitly execute the private SQL plan against the matching empty initialized target")
+    parser.add_argument("--apply", action="store_true", help="Execute the matching phase plan: identity requires an empty initialized target; oauth requires the exact original identity receipt")
     parser.add_argument("--confirm-source-sha256", help="Required on apply; exact immutable archive SHA256")
+    parser.add_argument("--phase", choices=("identity", "oauth"), default="identity",
+                        help="OAuth is a separate owner transaction after the original identity import; no funds writes")
+    parser.add_argument("--identity-mapping", type=Path, help="OAuth: original identity-mapping.private.json, unchanged")
+    parser.add_argument("--identity-manifest", type=Path, help="OAuth: original manifest.private.json, unchanged")
+    parser.add_argument("--identity-migration-id", help="OAuth: original committed identity operation; --migration-id is a new immutable OAuth operation")
     args = parser.parse_args()
     output = None
     apply_attempted = False
@@ -1623,7 +1656,10 @@ def main() -> int:
         args.output.mkdir(mode=0o700)
         output = private_backup_path(args.output, directory=True)
         source = load_receipt(args.source_receipt)
-        source_identity, users, factors, password_enabled = export_source(source, output)
+        source_identity, users, factors, password_enabled = export_source(source, output, oauth=args.phase == "oauth")
+        if args.phase == "oauth":
+            import legacy_snapshot_oauth as oauth_phase
+            return oauth_phase.run_cli(sys.modules[__name__], args, output, source, source_identity, users)
         source_hash = source["archive"]["sha256"]
         plan = map_identity(users, factors, source_sha256=source_hash, password_login_enabled=password_enabled)
         mapping_document = canonical(plan) + "\n"

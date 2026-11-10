@@ -237,18 +237,34 @@ class Schema58PostgresTests(unittest.TestCase):
         self.sql("CREATE ROLE profile_reader LOGIN NOINHERIT; ALTER ROLE profile_reader"
                  " SET default_transaction_read_only=on; GRANT CONNECT ON DATABASE profile_restored TO profile_reader;",
                  database="postgres", owner=False)
-        self.sql("REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO profile_reader;"
-                 "GRANT SELECT ON ALL TABLES IN SCHEMA public TO profile_reader;",
-                 database="profile_restored", owner=False)
+        import legacy_snapshot_oauth as oauth_phase
+        reader_grants = "REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO profile_reader;"
+        for table in sorted(source):
+            if table == "custom_oauth_providers":
+                reader_grants += 'GRANT SELECT (' + ','.join(oauth_phase.PROVIDER_COLUMNS) + ') ON public.custom_oauth_providers TO profile_reader;'
+            elif table == "user_oauth_bindings":
+                reader_grants += 'GRANT SELECT (' + ','.join(oauth_phase.BINDING_COLUMNS) + ') ON public.user_oauth_bindings TO profile_reader;'
+            else:
+                # Financial/API-key tests still require the complete original rows.
+                reader_grants += 'GRANT SELECT ON public."' + table + '" TO profile_reader;'
+        self.sql(reader_grants, database="profile_restored", owner=False)
         reader_command = ["psql", "-X", "-w", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "profile_reader"]
         def read(sql):
             return json.loads(self.run_command(reader_command, sql="BEGIN READ ONLY;SET LOCAL row_security=off;"
                               + sql + ";COMMIT;", database="profile_restored"))
+        def reader_projection(name):
+            columns = ','.join(oauth_phase.PROVIDER_COLUMNS) if name == "custom_oauth_providers" else '*'
+            return '(SELECT ' + columns + ' FROM public."' + name + '") r'
+        if "custom_oauth_providers" in source:
+            self.assertTrue(read("SELECT to_json(NOT has_column_privilege(current_user,"
+                                 "'public.custom_oauth_providers','client_secret','SELECT'))"))
         actual_rows = read("SELECT jsonb_build_object(" + ','.join(I.sql_literal(name) +
-            ',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text),\'[]\'::jsonb) FROM public."'
-            + name + '" r)' for name in sorted(source)) + ')')
+            ',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text),\'[]\'::jsonb) FROM '
+            + reader_projection(name) + ')' for name in sorted(source)) + ')')
         self.assertEqual({k: sorted(v, key=F.canonical) for k, v in actual_rows.items()},
-                         {k: sorted(v, key=F.canonical) for k, v in source.items()})
+                         {k: sorted([{field: value for field, value in row.items()
+                                      if k != "custom_oauth_providers" or field in oauth_phase.PROVIDER_COLUMNS}
+                                     for row in v], key=F.canonical) for k, v in source.items()})
         audit = read("""SELECT jsonb_build_object(
  'no_role_write_authority',(SELECT NOT(rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)
                           AND NOT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=pg_roles.oid)
@@ -265,7 +281,7 @@ class Schema58PostgresTests(unittest.TestCase):
  'readback_users',(SELECT count(*) FROM public.users))""")
         self.assertEqual(audit, {"no_role_write_authority": True, "no_application_write": True,
             "no_schema_create": True, "no_security_definer_execute": True,
-            "row_security_off": True, "read_only": True, "readback_users": 3})
+            "row_security_off": True, "read_only": True, "readback_users": len(source["users"])})
         self.run_command(reader_command, sql="BEGIN READ WRITE; UPDATE public.users SET quota=quota+1; ROLLBACK;",
                          database="profile_restored", error="permission denied for table users")
         self.run_command(reader_command, sql="SET ROLE profile_admin;", database="profile_restored",
@@ -299,7 +315,7 @@ class Schema58PostgresTests(unittest.TestCase):
             "database": "profile_restored", "role": "profile_reader", "pgpass_file": str(pgpass),
             "verified_no_application_write_privileges": audit["no_application_write"] and audit["no_role_write_authority"] and audit["no_schema_create"],
             "verified_no_security_definer_application_function_execute": audit["no_security_definer_execute"],
-            "row_security_off_guard_verified": audit["row_security_off"] and audit["read_only"] and audit["readback_users"] == 3}
+            "row_security_off_guard_verified": audit["row_security_off"] and audit["read_only"] and audit["readback_users"] == len(source["users"])}
         receipt = {"status": "snapshot-restored-baseline-verified-frozen-and-classified", "started_utc": started,
             "archive": {"path": str(dump), "sha256": I.sha256_file(dump)}, "source": {"schema": "public"},
             "readonly_reader": reader, "source_instance_identity": {**identity, "listen_addresses": "", "schema_owner": schema_owner},
