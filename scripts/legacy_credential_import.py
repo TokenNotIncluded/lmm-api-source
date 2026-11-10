@@ -223,9 +223,36 @@ def _next_id(state: dict, sequence: str, count: int) -> int:
 
 def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsupported: bool = False) -> list[dict]:
     observed = {row["user_id"]: row for row in target["users"]}
+    mappings, _ = PROPOSAL.target_mapping(target, proposal["source_archive_sha256"])
+    require(type(proposal.get("source_policy")) is dict, "credential_source_group_policy_invalid")
+    try:
+        policy = proposal["source_policy"]
+        PROPOSAL.validate_group_policy(policy)
+        require(proposal["policy_sha256"] == PROPOSAL.sha256(policy), "credential_source_policy_hash_mismatch")
+    except PROPOSAL.ProposalError:
+        raise Error("credential_source_group_policy_invalid") from None
     rows = []
     for offset, original in enumerate(proposal["records"]):
         blocked = set(original["blocked_reasons"]) - {"recoverable_secret_encryption_required"}
+        authority = original.get("source_group_authority")
+        require(type(authority) is dict and type(authority.get("user_snapshot")) is dict,
+                "credential_source_group_audit_invalid")
+        mapping = mappings[original["source_user_id"]]
+        require(original["target_user_id"] == mapping["target_user_id"]
+                and original["target_personal_account_id"] == mapping["target_personal_account_id"],
+                "credential_source_group_mapping_mismatch")
+        try:
+            expected = PROPOSAL.group_authority_record(policy, authority["user_snapshot"],
+                mapping, original["group"]["value"])
+        except PROPOSAL.ProposalError:
+            raise Error("credential_source_group_audit_invalid") from None
+        require(authority == expected and original["native_effective_group"] == expected["effective_group"],
+                "credential_source_group_audit_mismatch")
+        if not expected["allowed"]:
+            blocked.add(expected["denial_reason"])
+        native_group = original["native_effective_group"]
+        if native_group != "auto" and native_group not in observed[original["target_user_id"]]["routing_groups"]:
+            blocked.add("target_routing_grant_missing")
         # Apply the same reviewed origin boundary as the mapper. Retain the raw
         # label in the record/material; this does not grant any other authority.
         if (original["creation_source"] not in PROPOSAL.AUDIT_ONLY_CREATION_SOURCES
@@ -236,6 +263,7 @@ def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsup
         if not original["source_owner_enabled"] and not observed[original["target_user_id"]]["active"]:
             blocked.discard("target_owner_inactive")
         row = json.loads(canonical(original))
+        row["blocked_reasons"] = sorted(set(original["blocked_reasons"]) | blocked)
         row["target_credential_id"] = first_id + offset
         row["encrypted_secret_hex"] = None
         status, expiry = row["source_status"], row["expiry"]
@@ -253,8 +281,8 @@ def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsup
             row["one_time_reveal"] = True
             if not (1 <= len(row["name"].strip()) <= 128):
                 row["name"] = f"revoked-legacy-key-{row['source_token_id']}"
-            if not (1 <= len(row["group"]["value"]) <= 64) or row["group"]["value"] == "auto":
-                row["group"]["value"] = "default"
+            if not (1 <= len(row["native_effective_group"]) <= 64) or row["native_effective_group"] == "auto":
+                row["native_effective_group"] = "default"
             row["auto_groups"]["values"] = []
             row["cross_group_retry"] = False
             row["model_limits_enabled"] = False
@@ -480,7 +508,7 @@ def _sql_body(material: dict) -> str:
  INSERT INTO core_identity.api_key_settings(credential_id,name,enabled,one_time_reveal,encrypted_secret,
  model_limits_enabled,model_limits,allow_ips,group_name,auto_groups,cross_group_retry,account_balance_read,accessed_at)
  VALUES({cid},{literal(row['name'])},FALSE,{once},{encrypted},FALSE,{array(row['model_limits'])},
- {array(row['allow_ips'])}::inet[],{literal(row['group']['value'])},{array(row['auto_groups']['values'])},
+ {array(row['allow_ips'])}::inet[],{literal(row['native_effective_group'])},{array(row['auto_groups']['values'])},
  {'TRUE' if row['cross_group_retry'] else 'FALSE'},{'TRUE' if row['account_balance_read'] else 'FALSE'},{access});
  INSERT INTO core_identity.key_funding_rules(credential_id,position,payer_account_id) VALUES({cid},0,{aid});
  INSERT INTO core_charging.budgets(id,scope,key_id,issuer_user_id,period,limit_credits,unlimited,display_limit_credits)
@@ -530,7 +558,7 @@ def _readback_sql(material: dict) -> str:
  AND s.name={literal(row['name'])} AND s.enabled={'TRUE' if row['enabled'] else 'FALSE'}
  AND s.one_time_reveal={'TRUE' if row['one_time_reveal'] else 'FALSE'} AND s.encrypted_secret IS NOT DISTINCT FROM {encrypted}
  AND NOT s.model_limits_enabled AND s.model_limits={array(row['model_limits'])} AND s.allow_ips={array(row['allow_ips'])}::inet[]
- AND s.group_name={literal(row['group']['value'])} AND s.auto_groups={array(row['auto_groups']['values'])}
+ AND s.group_name={literal(row['native_effective_group'])} AND s.auto_groups={array(row['auto_groups']['values'])}
  AND s.cross_group_retry={'TRUE' if row['cross_group_retry'] else 'FALSE'}
  AND s.account_balance_read={'TRUE' if row['account_balance_read'] else 'FALSE'} AND s.accessed_at IS NOT DISTINCT FROM {accessed})
  OR (SELECT count(*) FROM core_identity.key_funding_rules WHERE credential_id={cid})<>1

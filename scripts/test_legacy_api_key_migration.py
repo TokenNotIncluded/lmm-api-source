@@ -41,7 +41,10 @@ def inputs(tokens=None):
               "users": [{"id": 37, "status": 1, "deleted_at": None, "auth_version": 5,
                          "group": "paid", "billing_preference": "wallet_first"}],
               "policy": {"auto_groups": ["paid", "backup"], "max_token_auto_groups": 4,
-                         "user_model_rate_limit_enabled": False}}
+                         "user_model_rate_limit_enabled": False, "source_options_sha256": "e" * 64,
+                         "group_authority": {"user_usable_groups": {"paid": "Paid", "backup": "Backup", "auto": "Auto"},
+                                             "special_usable_groups": {}, "group_ratios": {"paid": 1, "backup": 1},
+                                             "group_group_ratios": {}}}}
     target = {"format_version": 1, "source_archive_sha256": "a" * 64,
               "source_target_id_map": mapping,
               "source_target_id_map_sha256": hashlib.sha256(MODULE.id_map_bytes(mapping).encode()).hexdigest(),
@@ -52,6 +55,59 @@ def inputs(tokens=None):
 
 
 class ProposalTests(unittest.TestCase):
+    def test_source_explicit_gate_cannot_be_replaced_by_native_membership(self):
+        for group, reason in (("default", "source_token_group_deprecated"),
+                              ("retired", "source_token_group_not_usable"),
+                              ("auto", "source_token_group_not_usable")):
+            with self.subTest(group=group):
+                source, target = inputs([token(group=group)])
+                source["users"][0]["group"] = "default"
+                del source["policy"]["group_authority"]["user_usable_groups"]["auto"]
+                if group != "auto":  # Native membership stores concrete groups only.
+                    target["users"][0]["routing_groups"].append(group)
+                row = MODULE.plan_api_keys(source, target)["records"][0]
+                self.assertIn(reason, row["blocked_reasons"])
+                self.assertFalse(row["source_group_authority"]["allowed"])
+                self.assertFalse(row["source_usable_at_snapshot"])
+                self.assertEqual(row["group"]["value"], group)
+                self.assertEqual(row["native_effective_group"], group)
+
+    def test_default_snapshot_binds_raw_policy_user_and_distinct_account_mapping(self):
+        source, target = inputs([token(group="")])
+        source["users"][0]["group"] = "default"
+        target["users"][0]["routing_groups"].append("default")
+        row = MODULE.plan_api_keys(source, target)["records"][0]
+        audit = row["source_group_authority"]
+        self.assertEqual(row["group"]["value"], "")
+        self.assertEqual(row["native_effective_group"], "default")
+        self.assertEqual(row["blocked_reasons"], [])
+        self.assertEqual(audit["user_snapshot"], source["users"][0])
+        self.assertEqual(audit["user_snapshot_sha256"], MODULE.sha256(source["users"][0]))
+        self.assertEqual(audit["mapping_sha256"], MODULE.sha256(target["source_target_id_map"][0]))
+        self.assertEqual(audit["policy_sha256"], MODULE.sha256(source["policy"]))
+        self.assertEqual(audit["default_ratio_basis"], {"kind": "cc52_missing_group_ratio_fallback", "value": 1,
+            "source_revision": MODULE.LEGACY_REVISION, "producer_sha256": MODULE.GROUP_RATIO_SOURCE_SHA256})
+        target["users"][0]["routing_groups"].remove("default")
+        row = MODULE.plan_api_keys(source, target)["records"][0]
+        self.assertTrue(row["source_group_authority"]["allowed"])
+        self.assertIn("target_routing_grant_missing", row["blocked_reasons"])
+
+    def test_missing_or_unreviewed_source_group_policy_never_defaults_to_authorized(self):
+        for mutate in (lambda p: p.pop("group_authority"),
+                       lambda p: p.pop("source_options_sha256"),
+                       lambda p: p["group_authority"].pop("group_ratios"),
+                       lambda p: p["group_authority"].update(unknown={}),
+                       lambda p: p["group_authority"].update(special_usable_groups={"paid": {"+:other": "Other"}}),
+                       lambda p: p["group_authority"].update(group_group_ratios={"paid": {"paid": 0.5}})):
+            source, target = inputs()
+            mutate(source["policy"])
+            with self.assertRaises(MODULE.ProposalError):
+                MODULE.plan_api_keys(source, target)
+        source, target = inputs([token(group="")])
+        source["users"][0]["group"] = "unknown-source-group"
+        with self.assertRaisesRegex(MODULE.ProposalError, "source_user_group_not_reviewed"):
+            MODULE.plan_api_keys(source, target)
+
     def test_reviewed_ordinary_origins_preserve_raw_label_and_creation_time(self):
         for origin in (None, "", "manual", "assistant", "drawing_mcp"):
             with self.subTest(origin=origin):
@@ -141,7 +197,7 @@ class ProposalTests(unittest.TestCase):
         self.assertEqual(never["source_epoch"], -1)
         self.assertEqual(never["native_exclusive_epoch"], MODULE.NEVER)
 
-    def test_dynamic_group_and_empty_auto_are_not_silently_frozen(self):
+    def test_empty_group_is_audited_snapshot_while_dynamic_auto_remains_blocked(self):
         for raw in (None, "", "[]", "null"):
             result = MODULE.plan_api_keys(*inputs([token(group="auto", auto_groups=raw)]))
             row = result["records"][0]
@@ -151,7 +207,10 @@ class ProposalTests(unittest.TestCase):
             self.assertEqual(result["status"], "blocked")
         row = MODULE.plan_api_keys(*inputs([token(group="")]))["records"][0]
         self.assertEqual(row["group"], {"mode": "dynamic_user", "value": ""})
-        self.assertIn("dynamic_user_group_requires_adapter", row["blocked_reasons"])
+        self.assertEqual(row["native_effective_group"], "paid")
+        self.assertEqual(row["source_group_authority"]["default_ratio_basis"],
+                         {"kind": "source_group_ratio", "value": 1})
+        self.assertEqual(row["blocked_reasons"], [])
 
     def test_invalid_auto_json_preserves_deny_all_instead_of_granting_global_auto(self):
         row = MODULE.plan_api_keys(*inputs([token(group="auto", auto_groups="not-json")]))["records"][0]
@@ -228,7 +287,10 @@ class ProposalTests(unittest.TestCase):
     def test_source_projection_is_bound_to_actual_export_columns_rows_and_runtime(self):
         source, _ = inputs()
         tables = {"tokens": source["tokens"], "users": [{**source["users"][0], "setting": '{"billing_preference":"wallet_first"}'}],
-                  "options": []}
+                  "options": [{"key": key, "value": json.dumps(source["policy"]["group_authority"][name])}
+                              for name, key in (("user_usable_groups", "UserUsableGroups"),
+                                                ("special_usable_groups", "group_ratio_setting.group_special_usable_group"),
+                                                ("group_ratios", "GroupRatio"), ("group_group_ratios", "GroupGroupRatio"))]}
         del tables["users"][0]["billing_preference"]
         proof = {"source_archive_sha256": "a" * 64, "source_export_sha256": "c" * 64,
                  "source_column_schema": {"tokens": [{"column_name": name} for name in sorted(MODULE.TOKEN_FIELDS)], "users": [], "options": []},
@@ -245,7 +307,13 @@ class ProposalTests(unittest.TestCase):
                                                                runtime_observation=observed, provenance=provenance)
         self.assertNotEqual(MODULE.sha256(changed_time), MODULE.sha256(receipt))
         self.assertEqual(result["source_export_sha256"], "c" * 64)
-        self.assertEqual(receipt["source_row_counts"], {"tokens": 1, "users": 1, "options": 0})
+        self.assertEqual(receipt["source_row_counts"], {"tokens": 1, "users": 1, "options": 4})
+        self.assertEqual(result["policy"]["group_authority"], source["policy"]["group_authority"])
+        self.assertEqual(result["policy"]["source_options_sha256"], MODULE.sha256(tables["options"]))
+        incomplete = {**tables, "options": tables["options"][:-1]}
+        with self.assertRaisesRegex(MODULE.ProposalError, "source_group_options_incomplete"):
+            MODULE.source_projection_from_export(incomplete, proof, snapshot_at=1000,
+                                                 runtime_observation=observed, provenance=provenance)
         observed["source_revision"] = "unreviewed"
         with self.assertRaisesRegex(MODULE.ProposalError, "legacy_runtime_source_binding_invalid"):
             MODULE.source_projection_from_export(tables, proof, snapshot_at=1000,

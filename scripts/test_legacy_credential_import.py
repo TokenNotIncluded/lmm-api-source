@@ -73,6 +73,59 @@ def material_fixture(**kwargs):
 
 
 class ProducerTests(unittest.TestCase):
+    def test_native_default_does_not_revive_source_explicit_default(self):
+        source, target = inputs([token(group="default")])
+        source["users"][0]["group"] = "default"
+        target["users"][0]["routing_groups"].append("default")
+        proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
+        self.assertIn("source_token_group_deprecated", proposal["records"][0]["blocked_reasons"])
+        # The writer independently rebuilds source denial after reason removal.
+        proposal["records"][0]["blocked_reasons"] = []
+        with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+            IMPORT._supported_rows(proposal, target, 201)
+        row = IMPORT._supported_rows(proposal, target, 201, revoke_unsupported=True)[0]
+        self.assertTrue(row["revoked"])
+        self.assertFalse(row["enabled"])
+        self.assertIn("source_token_group_deprecated", row["blocked_reasons"])
+        self.assertFalse(row["source_group_authority"]["allowed"])
+
+    def test_default_snapshot_sql_uses_native_group_without_overwriting_raw_group(self):
+        source, target, _, review, snapshot, files = fixture(changes={"group": ""})
+        source["users"][0]["group"] = "default"
+        target["users"][0]["routing_groups"].append("default")
+        proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
+        review.update(source_input_sha256=IMPORT.PROPOSAL.sha256(source),
+                      target_input_sha256=IMPORT.PROPOSAL.sha256(target), proposal_sha256=proposal["proposal_sha256"])
+        material = IMPORT.prepare_material(source, target, proposal, review, migration_id="synthetic-default-snapshot",
+            snapshot=snapshot, runtime_roles=["synthetic_runtime"], source_files=files)
+        row = material["records"][0]
+        self.assertEqual(row["group"], {"mode": "dynamic_user", "value": ""})
+        self.assertEqual(row["native_effective_group"], "default")
+        self.assertFalse(row["revoked"])
+        self.assertTrue(row["enabled"])
+        sql = IMPORT.build_apply_sql(material)
+        self.assertIn("s.group_name='default'", sql)
+        self.assertIn("::inet[],'default',ARRAY[", sql)
+        self.assertNotIn("INSERT INTO core_identity.user_routing_groups", sql)
+        self.assertNotIn("UPDATE core_identity.users", sql)
+
+    def test_writer_rejects_source_group_audit_and_native_group_tampering(self):
+        _, target, proposal, _, _, _ = fixture(changes={"group": ""})
+        for field, value in (("policy_sha256", "0" * 64), ("user_snapshot_sha256", "0" * 64),
+                             ("mapping_sha256", "0" * 64), ("raw_group", "paid"), ("allowed", False)):
+            bad = deepcopy(proposal)
+            bad["records"][0]["source_group_authority"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(IMPORT.Error, "credential_source_group_audit_mismatch"):
+                IMPORT._supported_rows(bad, target, 201)
+        bad = deepcopy(proposal)
+        bad["records"][0]["native_effective_group"] = "backup"
+        with self.assertRaisesRegex(IMPORT.Error, "credential_source_group_audit_mismatch"):
+            IMPORT._supported_rows(bad, target, 201)
+        bad = deepcopy(proposal)
+        bad["source_policy"]["group_authority"]["user_usable_groups"]["retired"] = "Retired"
+        with self.assertRaisesRegex(IMPORT.Error, "credential_source_policy_hash_mismatch"):
+            IMPORT._supported_rows(bad, target, 201)
+
     def test_reviewed_origins_preserve_audit_time_and_distinct_owner_mapping(self):
         for origin in ("assistant", "drawing_mcp"):
             with self.subTest(origin=origin):
@@ -92,7 +145,7 @@ class ProducerTests(unittest.TestCase):
 
     def test_reviewed_origins_leave_independent_authority_and_state_guards(self):
         for origin in ("assistant", "drawing_mcp"):
-            for changes in ({"oauth_managed": True}, {"group": ""}, {"group": "auto"},
+            for changes in ({"oauth_managed": True}, {"group": "retired"}, {"group": "auto"},
                             {"model_limits_enabled": True, "model_limits": "model-a"}):
                 with self.subTest(origin=origin, changes=changes):
                     with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
@@ -224,8 +277,8 @@ class ProducerTests(unittest.TestCase):
             IMPORT.prepare_material(source, target, proposal, review, migration_id="synthetic-import",
                 snapshot=snapshot, runtime_roles=["synthetic_runtime"], source_files=files)
 
-    def test_managed_dynamic_and_unproven_matching_reject_whole_batch(self):
-        for changes in ({"oauth_managed": True}, {"group": ""}, {"group": "auto"},
+    def test_managed_retired_auto_and_unproven_matching_reject_whole_batch(self):
+        for changes in ({"oauth_managed": True}, {"group": "retired"}, {"group": "auto"},
                         {"model_limits_enabled": True, "model_limits": "model-a"},
                         {"creation_source": "assistant_runtime"}):
             with self.subTest(changes=changes), self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
@@ -669,7 +722,7 @@ class ProducerTests(unittest.TestCase):
         source, _ = inputs([
             token(),
             token(id=18, key=managed_secret, oauth_managed=True, one_time_reveal=False),
-            token(id=19, key="SyntheticDynamicGroupKeyBytes01234567890", group=""),
+            token(id=19, key="SyntheticRetiredGroupKeyBytes01234567890", group="retired"),
         ])
         proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
         review = fixture()[3]
@@ -690,7 +743,7 @@ class ProducerTests(unittest.TestCase):
             self.assertFalse(material["records"][idx]["enabled"])
             self.assertTrue(material["records"][idx]["one_time_reveal"])
             self.assertIsNone(material["records"][idx]["encrypted_secret_hex"])
-            self.assertEqual(material["records"][idx]["group"]["value"], "paid" if idx == 1 else "default")
+            self.assertEqual(material["records"][idx]["group"]["value"], "paid" if idx == 1 else "retired")
         sql = IMPORT.build_apply_sql(material)
         self.assertIn("to_timestamp(1000)", sql)
         receipt_bytes = (IMPORT.canonical(material["credential_receipt"]) + "\n").encode()

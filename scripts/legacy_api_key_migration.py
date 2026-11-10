@@ -16,6 +16,7 @@ import hashlib
 import importlib.util
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -43,7 +44,11 @@ TARGET_FIELDS = {"format_version", "source_archive_sha256", "source_target_id_ma
 TARGET_USER_FIELDS = {"user_id", "personal_account_id", "auth_version", "active",
                       "developer_access_granted", "routing_groups"}
 MAP_FIELDS = {"source_user_id", "target_user_id", "target_personal_account_id"}
-POLICY_FIELDS = {"auto_groups", "max_token_auto_groups", "user_model_rate_limit_enabled"}
+POLICY_FIELDS = {"auto_groups", "max_token_auto_groups", "user_model_rate_limit_enabled",
+                 "source_options_sha256", "group_authority"}
+GROUP_AUTHORITY_FIELDS = {"user_usable_groups", "special_usable_groups", "group_ratios", "group_group_ratios"}
+# cc52 setting/ratio_setting/group_ratio.go::GetGroupRatio: absent key returns 1.
+GROUP_RATIO_SOURCE_SHA256 = "3b06f894e47d37cd5e01ab133c3e51796d499852cab883c02566ae136cf9bacb"
 CREATION_SOURCES = {None, "", "manual", "system", "drawing_mcp", "assistant",
                     "assistant_runtime", "red_packet_cover"}
 # Reviewed cc52 ordinary bearer origins: preserve these as migration audit
@@ -182,6 +187,60 @@ def target_mapping(target: dict, source_hash: str) -> tuple[dict, dict]:
     return mappings, users
 
 
+def validate_group_policy(policy: dict) -> dict:
+    fields(policy, POLICY_FIELDS, "policy_fields_unknown_or_missing")
+    require(type(policy["source_options_sha256"]) is str and HEX.fullmatch(policy["source_options_sha256"]),
+            "source_group_options_hash_invalid")
+    authority = policy["group_authority"]
+    fields(authority, GROUP_AUTHORITY_FIELDS, "source_group_authority_fields_invalid")
+    for name in GROUP_AUTHORITY_FIELDS:
+        require(type(authority[name]) is dict, "source_group_authority_map_invalid")
+    for group, description in authority["user_usable_groups"].items():
+        text(group, "source_usable_group_invalid", 64, empty=False)
+        require(type(description) is str, "source_usable_description_invalid")
+    for group, ratio in authority["group_ratios"].items():
+        text(group, "source_ratio_group_invalid", 64, empty=False)
+        require(type(ratio) in (int, float) and math.isfinite(ratio) and ratio >= 0,
+                "source_group_ratio_invalid")
+    # Actual first-launch source has both maps empty. Do not approximate an
+    # unreviewed per-user permission/price override with the global policy.
+    require(not authority["special_usable_groups"] and not authority["group_group_ratios"],
+            "source_group_overrides_not_supported")
+    return authority
+
+
+def group_authority_record(policy: dict, user: dict, mapping: dict, raw_group: str) -> dict:
+    authority = validate_group_policy(policy)
+    fields(user, USER_FIELDS, "source_group_user_snapshot_invalid")
+    fields(mapping, MAP_FIELDS, "source_group_mapping_invalid")
+    integer(user["id"], "source_group_user_id_invalid", 1)
+    integer(user["auth_version"], "source_group_user_auth_version_invalid", 1)
+    require(type(user["status"]) is int and user["status"] in (1, 2), "source_group_user_status_invalid")
+    deleted(user["deleted_at"])
+    require(user["id"] == mapping["source_user_id"], "source_group_mapping_owner_mismatch")
+    text(raw_group, "source_token_group_invalid", 64)
+    source_group = text(user["group"], "source_user_group_invalid", 64, empty=False)
+    ratios = authority["group_ratios"]
+    require(source_group in ratios or source_group == "default", "source_user_group_not_reviewed")
+    usable = set(authority["user_usable_groups"])
+    usable.add(source_group)  # GetUserUsableGroups adds the account group last.
+    denial = None
+    if raw_group and raw_group not in usable:
+        denial = "source_token_group_not_usable"
+    elif raw_group and raw_group != "auto" and raw_group not in ratios:
+        denial = "source_token_group_deprecated"
+    effective = raw_group or source_group
+    basis = None
+    if not raw_group:
+        basis = ({"kind": "source_group_ratio", "value": ratios[effective]} if effective in ratios else
+                 {"kind": "cc52_missing_group_ratio_fallback", "value": 1,
+                  "source_revision": LEGACY_REVISION, "producer_sha256": GROUP_RATIO_SOURCE_SHA256})
+    return {"raw_group": raw_group, "source_user_group": source_group, "effective_group": effective,
+            "allowed": denial is None, "denial_reason": denial, "policy_sha256": sha256(policy),
+            "user_snapshot": dict(user), "user_snapshot_sha256": sha256(user),
+            "mapping_sha256": sha256(mapping), "default_ratio_basis": basis}
+
+
 def plan_api_keys(source: dict, target: dict) -> dict:
     """Return a deterministic proposal, never a ready/apply/activation receipt."""
     fields(source, SOURCE_FIELDS, "source_fields_unknown_or_missing")
@@ -193,7 +252,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
     now = integer(source["snapshot_at"], "snapshot_time_invalid", 0, NEVER - 1)
     require(type(source["tokens"]) is list and type(source["users"]) is list, "source_rows_invalid")
     policy = source["policy"]
-    fields(policy, POLICY_FIELDS, "policy_fields_unknown_or_missing")
+    validate_group_policy(policy)
     groups(policy["auto_groups"], "policy_auto_groups_invalid", 64)
     integer(policy["max_token_auto_groups"], "policy_max_auto_groups_invalid", 1, 64)
     boolean(policy["user_model_rate_limit_enabled"], "policy_rate_limit_invalid")
@@ -207,6 +266,8 @@ def plan_api_keys(source: dict, target: dict) -> dict:
         deleted(row["deleted_at"])
         integer(row["auth_version"], "source_auth_version_invalid", 1)
         text(row["group"], "source_user_group_invalid", 64, empty=False)
+        require(row["group"] in policy["group_authority"]["group_ratios"] or row["group"] == "default",
+                "source_user_group_not_reviewed")
         require(row["billing_preference"] is None or (type(row["billing_preference"]) is str
                 and row["billing_preference"] in PREFERENCES | {""}),
                 "billing_preference_unknown")
@@ -281,8 +342,9 @@ def plan_api_keys(source: dict, target: dict) -> dict:
             blocked.append("model_limits_native_shape_unsupported")
         if token["model_limits_enabled"]:
             blocked.append("model_name_matching_requires_adapter")
-        if selected == "":
-            blocked.append("dynamic_user_group_requires_adapter")
+        source_group = group_authority_record(policy, user, mapping, selected)
+        if not source_group["allowed"]:
+            blocked.append(source_group["denial_reason"])
         try:
             auto = [] if auto_raw == "" else json.loads(auto_raw)
         except (ValueError, RecursionError):
@@ -297,7 +359,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
                 auto = []
             candidates = groups(auto, "token_auto_groups_shape_invalid", 64)
             auto_mode = "dynamic_global" if not candidates else "ordered_snapshot"
-        effective_group = selected or user["group"]
+        effective_group = source_group["effective_group"]
         if effective_group == "auto":
             if auto_mode == "dynamic_global":
                 blocked.append("dynamic_global_auto_groups_requires_adapter")
@@ -312,7 +374,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
                 blocked.append("inactive_auto_settings_require_metadata_adapter")
         if any(group not in observed["routing_groups"] for group in required_groups):
             blocked.append("target_routing_grant_missing")
-        usable = ordinary and status == 1 and not is_deleted and source_enabled and (expiry == -1 or expiry >= now) and (token["unlimited_quota"] or remaining > 0)
+        usable = ordinary and source_group["allowed"] and status == 1 and not is_deleted and source_enabled and (expiry == -1 or expiry >= now) and (token["unlimited_quota"] or remaining > 0)
         preference = user["billing_preference"] or "subscription_first"
         record = {"source_token_id": sid, "source_user_id": uid,
                   "target_user_id": mapping["target_user_id"],
@@ -335,6 +397,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
                   "one_time_reveal": token["one_time_reveal"], "account_balance_read": token["account_balance_read"],
                   "model_limits_enabled": token["model_limits_enabled"], "model_limits": models,
                   "allow_ips": ips, "group": {"mode": "explicit" if selected else "dynamic_user", "value": selected},
+                  "native_effective_group": effective_group, "source_group_authority": source_group,
                   "auto_groups": {"mode": auto_mode, "values": candidates},
                   "source_auto_groups_sql_null": auto_sql_null,
                   "cross_group_retry": token["cross_group_retry"], "creation_source": token["creation_source"],
@@ -349,7 +412,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
               "source_export_sha256": source["source_export_sha256"],
               "source_projection_sha256": source["source_projection_sha256"],
               "target_input_sha256": sha256(target), "source_target_id_map_sha256": target["source_target_id_map_sha256"],
-              "snapshot_at": now, "policy_sha256": sha256(policy), "records": records,
+              "snapshot_at": now, "policy_sha256": sha256(policy), "source_policy": policy, "records": records,
               "required_before_apply": ["reviewed_wire_compatibility", "frozen_source_or_verified_delta",
                                         "independent_real_database_acceptance", "funding_and_routing_reconciliation",
                                         "credit_unit_and_basis_review", "source_group_authority_reconciliation"],
@@ -416,6 +479,18 @@ def source_projection_from_export(tables: dict, proof: dict, *, snapshot_at: int
     except (ValueError, TypeError, RecursionError):
         raise ProposalError("source_auto_group_policy_unsupported") from None
     defaults = [name for name in ("AutoGroups", "MaxTokenAutoGroups", "ModelRequestRateLimitEnabled") if name not in options]
+    option_fields = {"user_usable_groups": "UserUsableGroups",
+                     "special_usable_groups": "group_ratio_setting.group_special_usable_group",
+                     "group_ratios": "GroupRatio", "group_group_ratios": "GroupGroupRatio"}
+    require(all(name in options for name in option_fields.values()), "source_group_options_incomplete")
+    try:
+        authority = {name: json.loads(options[key], object_pairs_hook=unique_object)
+                     for name, key in option_fields.items()}
+        if "group_ratio_setting.group_ratio" in options:
+            require(json.loads(options["group_ratio_setting.group_ratio"], object_pairs_hook=unique_object)
+                    == authority["group_ratios"], "source_group_ratio_alias_conflict")
+    except (ValueError, TypeError, RecursionError):
+        raise ProposalError("source_group_options_invalid") from None
     users = []
     for row in tables["users"]:
         require(USER_FIELDS - {"billing_preference"} <= set(row) and "setting" in row,
@@ -432,13 +507,17 @@ def source_projection_from_export(tables: dict, proof: dict, *, snapshot_at: int
               "source_export_sha256": proof["source_export_sha256"], "snapshot_at": snapshot_at,
               "tokens": tables["tokens"], "users": users,
               "policy": {"auto_groups": [] if auto is None else auto, "max_token_auto_groups": maximum,
+                         "source_options_sha256": sha256(tables["options"]), "group_authority": authority,
                          "user_model_rate_limit_enabled": options.get("ModelRequestRateLimitEnabled", "false") == "true"}}
+    validate_group_policy(source["policy"])
     receipt = {"format_version": 1, "scope": "legacy-api-key-source-projection", **provenance,
                "snapshot_at": snapshot_at,
                "source_revision": LEGACY_REVISION, "source_archive_sha256": proof["source_archive_sha256"],
                "source_export_sha256": proof["source_export_sha256"], "source_schema_sha256": source["source_schema_sha256"],
                "source_instance_sha256": sha256(proof["source_instance"]), "metadata_hashes": proof["metadata_hashes"],
                "source_token_columns": sorted(token_columns), "source_user_projection_fields": sorted(USER_FIELDS),
+               "source_options_sha256": source["policy"]["source_options_sha256"],
+               "group_authority_sha256": sha256(authority),
                "policy_compiled_defaults_used": defaults, "source_queries_this_run": 0,
                "source_row_counts": {name: len(tables[name]) for name in ("tokens", "users", "options")}}
     source["source_projection_sha256"] = sha256(receipt)
