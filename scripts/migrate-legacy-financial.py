@@ -1032,7 +1032,9 @@ def export_source(receipt: dict, output: Path):
     columns, baseline, metadata_hashes, primary_keys, column_schema = metadata(receipt)
     selected = sorted(table for table in columns if table_families(table) or FINANCIAL_NAME.search(table))
     require(REQUIRED_TABLES <= set(selected), "required_financial_source_table_missing")
-    identity = parse_json(IDENTITY.psql(reader, "BEGIN READ ONLY;\n" + IDENTITY.IDENTITY_SQL + "\nCOMMIT;", readonly=True, private_dir=output, label="source-preflight"))
+    # IDENTITY_SQL renders the server start time with ::text. Pin both reader
+    # sessions to UTC before capturing it; keep the complete identity comparison.
+    identity = parse_json(IDENTITY.psql(reader, "BEGIN READ ONLY;\nSET LOCAL timezone='UTC';\n" + IDENTITY.IDENTITY_SQL + "\nCOMMIT;", readonly=True, private_dir=output, label="source-preflight"))
     IDENTITY.verify_instance(identity, reader, receipt.get("source_instance_identity", {}), source=True)
     sql = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSET LOCAL timezone='UTC';\nSET LOCAL row_security=off;\n"
     sql += "SELECT json_build_object('kind','identity','row',(" + IDENTITY.IDENTITY_SQL.removesuffix(";").removeprefix("SELECT ") + "));\n"

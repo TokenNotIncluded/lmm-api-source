@@ -1,6 +1,7 @@
 """Synthetic financial facts: no real rows, credentials or database access."""
 
 import copy
+from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
 import importlib.util
@@ -8,6 +9,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -599,6 +601,105 @@ class SourceEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(MODULE.MappingError, "source_export_hash_mismatch"):
                     MODULE.reuse_frozen_export(receipt, proof_path, output)
                 psql.assert_not_called()
+
+
+class FinancialReaderTimezoneTests(unittest.TestCase):
+    """Real exporter/parser/instance checks; only libpq transport is substituted.
+
+    The simulated server defaults to +08. Each query renders the timestamp in
+    its own session timezone, so a UTC fixture alone cannot hide the bug.
+    No PostgreSQL process or production connection is used by these unit tests.
+    """
+
+    def export_case(self, *, receipt_start=None, export_changes=None):
+        start = "2026-11-10 18:41:17.807585+08"
+        identity = {"database": "fixture_restored", "role": "fixture_reader",
+            "session_user": "fixture_reader", "effective_role_can_login": True,
+            "database_oid": 16389, "database_owner": "fixture_owner",
+            "server_version_num": "180006", "postmaster_started_at": start,
+            "server_instance_nonce": "synthetic-instance-one", "port": 65431,
+            "tcp_connection": False, "read_only": "on", "datcollate": "C",
+            "datctype": "C", "datcollversion": None}
+        self.statements = []
+        source = {name: [] for name in MODULE.REQUIRED_TABLES}
+        source["users"] = [{"id": 71, "quota": 17}]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            archive = output / "synthetic.dump"
+            archive.write_bytes(b"synthetic unit fixture; not a PostgreSQL archive")
+            columns = [{"schema": "legacy", "table_name": name, "column_name": field,
+                        "type": "bigint", "not_null": False}
+                       for name in sorted(source) for field in (source[name][0] if source[name] else {"id": 0})]
+            catalog = output / "native-catalog-metadata.jsonl"
+            catalog.write_text("\n".join(MODULE.canonical(piece) for piece in ({}, {}, columns, [], [], [], [])) + "\n")
+            baseline = output / "native-table-row-count-baseline.jsonl"
+            baseline.write_text("\n".join(MODULE.canonical({"table": name, "row_count": len(rows)})
+                                         for name, rows in sorted(source.items())) + "\n")
+            reader = {"database": "fixture_restored", "role": "fixture_reader", "port": 65431,
+                "verified_no_application_write_privileges": True,
+                "verified_no_security_definer_application_function_execute": True,
+                "row_security_off_guard_verified": True}
+            receipt = {"status": "snapshot-restored-baseline-verified-frozen-and-classified",
+                "archive": {"path": str(archive), "sha256": MODULE.IDENTITY.sha256_file(archive)},
+                "readonly_reader": reader, "source": {"schema": "legacy"},
+                "private_metadata_files": [str(catalog), str(baseline)],
+                "source_instance_identity": {**identity, "listen_addresses": "", "schema_owner": "fixture_owner",
+                    "postmaster_started_at": receipt_start or start}}
+
+            def transport(argv, **options):
+                self.assertEqual(argv[0], "psql")
+                sql = options["input"]
+                self.statements.append(sql)
+                self.assertIn("READ ONLY", sql)
+                self.assertIn("default_transaction_read_only=on", options["env"]["PGOPTIONS"])
+                observed = dict(identity)
+                # Model PostgreSQL ::text rendering, independently for each
+                # connection. The unpatched preflight retains the +08 default.
+                if "SET LOCAL timezone='UTC';" in sql:
+                    self.assertLess(sql.index("SET LOCAL timezone='UTC';"), sql.index("SELECT "))
+                    observed["postmaster_started_at"] = datetime.fromisoformat(start).astimezone(timezone.utc).isoformat(sep=" ")
+                if "capture_output" in options:
+                    self.assertIn(MODULE.IDENTITY.IDENTITY_SQL, sql)
+                    return subprocess.CompletedProcess(argv, 0, MODULE.canonical(observed) + "\n", "")
+                self.assertIn(MODULE.IDENTITY.IDENTITY_SQL.removesuffix(";").removeprefix("SELECT "), sql)
+                observed.update(export_changes or {})
+                tags = [{"kind": "identity", "row": observed},
+                        {"kind": "schema", "row": {"schema": "legacy", "schema_owner": "fixture_owner"}}]
+                tags.extend({"kind": "row", "table": name, "row": row}
+                            for name, rows in sorted(source.items()) for row in rows)
+                options["stdout"].write("".join(MODULE.canonical(tag) + "\n" for tag in tags))
+                return subprocess.CompletedProcess(argv, 0)
+
+            with patch.object(MODULE.IDENTITY, "private_backup_path", side_effect=lambda path: path), \
+                 patch.object(MODULE.IDENTITY, "socket_connection", return_value={}), \
+                 patch.object(MODULE.subprocess, "run", side_effect=transport):
+                rows, proof = MODULE.export_source(receipt, output)
+            self.assertEqual(rows, source)
+            self.assertEqual(proof["source_instance"], {**identity,
+                "postmaster_started_at": "2026-11-10 10:41:17.807585+00:00"})
+            self.assertEqual(json.loads((output / "source-export-proof.private.json").read_text()), proof)
+            self.assertEqual(len(self.statements), 2)
+            return proof
+
+    def test_same_instant_different_offsets_uses_utc_in_both_real_reader_queries(self):
+        self.export_case()
+
+    def test_different_receipt_start_instant_still_rejects_before_export(self):
+        with self.assertRaisesRegex(MODULE.MappingError, "instance_receipt_mismatch"):
+            self.export_case(receipt_start="2026-11-10 10:41:18.807585+00")
+        self.assertEqual(len(self.statements), 1)
+
+    def test_restart_between_preflight_and_export_is_rejected(self):
+        with self.assertRaisesRegex(MODULE.MappingError, "instance_receipt_mismatch"):
+            self.export_case(export_changes={"postmaster_started_at": "2026-11-10 10:41:18.807585+00"})
+        self.assertEqual(len(self.statements), 2)
+
+    def test_full_identity_comparison_still_rejects_other_field_changes(self):
+        for change in ({"server_instance_nonce": "synthetic-instance-two"},
+                       {"database_owner": "different_owner"}, {"session_user": "different_login"}):
+            with self.subTest(change=change), self.assertRaisesRegex(MODULE.MappingError, "source_instance_changed_during_export"):
+                self.export_case(export_changes=change)
+            self.assertEqual(len(self.statements), 2)
 
 
 class RefundLineageTests(unittest.TestCase):
