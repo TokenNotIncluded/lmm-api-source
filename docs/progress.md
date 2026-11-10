@@ -93,7 +93,7 @@ REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选
 | CHECK-06 | 全站页面、CLI 与跨仓库集成 | 待验收 | 2026-11-10，`b2e97f9` 修复 Extore 目录数组交叉类型与助手测试事件类型；`Dirac` 独立执行完整 Web 类型检查及逐文件组件测试（Extore 1 项、助手设置 8 项）通过，固定输入与限制见 `~/.cache/lmm-predeploy-validation/20261110-independent/report.md`。仍需按角色/语言/桌面与窄屏/错误状态执行，截图、请求与数据库回读绑定最终候选；实际管理弹窗、OAuth consent、广告与 Extore 两端授权/多规格/重复同步/撤销/隔离。Extore main 自动部署限制继续生效。 |
 | CHECK-07 | 安装、升级、备份恢复与切换 | 待验收 | 当前 schema 的 owner/runtime 分离、普通启动无 DDL、低权限拒绝；实际隔离恢复、writer fence/drain、死 holder CAS、有效写入保全与业务重启。 |
 | CHECK-08 | 资源、旧新版性能与稳定性 | 待验收 | 相同 CPU/内存、数据、功能和计费语义下的优化构建；完整成功率、吞吐、P95/P99、RSS/PSS、长稳、慢消费者和故障恢复；产品 cgroup 与整机预算分开。门槛见[质量指南](quality.md#独立业务与资源验收)。 |
-| CHECK-09 | 最终冻结组合与 QD-001 关闭 | 待前置 | 前置实现、迁移和验收全部关联同一源码/产物/配置/来源/目标；不同人员/agent 独立复验，逐条满足 QD-001 的真实 host/funds 条件，保留失败记录并确认无输入漂移。2026-11-10，`Peirce` 在固定初始 Core59 二进制与 `ec3210a` Go 主机产物上独立执行同一订单双 HTTP settle；两请求实际锁等待重叠，均返回相同成功回执，唯一 capture/settle operation 与余额、账本平衡回读通过。[组件证据](../.quality/evidence/qd001-same-order-settlement-20261110.md) 保留前两次 fixture/清理失败及来源漂移范围；初始组件不含后续 SUB/APP 改动，最终冻结组合仍须复验，QD-001 保持 open/critical。 |
+| CHECK-09 | 最终冻结组合与 QD-001 关闭 | 待前置 | 前置实现、迁移和验收全部关联同一源码/产物/配置/来源/目标；不同人员/agent 独立复验，逐条满足 QD-001 的真实 host/funds 条件，保留失败记录并确认无输入漂移。2026-11-10，`Peirce` 在固定初始 Core59 二进制与 `ec3210a` Go 主机产物上独立执行同一订单双 HTTP settle；两请求实际锁等待重叠，均返回相同成功回执，唯一 capture/settle operation 与余额、账本平衡回读通过。[组件证据](../.quality/evidence/qd001-same-order-settlement-20261110.md) 保留前两次 fixture/清理失败及来源漂移范围；随后固定 Core `7f6a…` / Go `b68c…` 实际进程组合通过权限拒绝、唯一结算、原操作重放及真实退款已提交但 Go 回执持久化失败后的只读恢复；[资金恢复增量证据](../.quality/evidence/qd001-funds-recovery-20261110.md) 保留首次源码漂移拒绝与冻结快照修正。组件不含后续 SUB/APP 改动，最终冻结组合仍须复验，QD-001 保持 open/critical。 |
 
 ## 维护约定
 
