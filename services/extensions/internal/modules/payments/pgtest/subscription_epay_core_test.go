@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type subscriptionCoreFixture struct{ Socket, RestrictedSocket, Token, DatabaseURL, DatabaseName, FirstOrder, SecondOrder, ThirdOrder, RawFirst, RawSecond, RawThird string }
+type subscriptionCoreFixture struct{ Socket, RestrictedSocket, ReassignedSocket, Token, DatabaseURL, DatabaseName, FirstOrder, SecondOrder, ThirdOrder, FourthOrder, RawFirst, RawSecond, RawThird, RawFourth string }
 type interruptedSubscriptionCore struct {
 	p.SubscriptionCore
 	mu        sync.Mutex
@@ -103,13 +103,13 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 	}
 	server := httptest.NewServer(service.Handler())
 	defer server.Close()
-	send := func(raw string) int {
-		r, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/callbacks/7", strings.NewReader(raw))
+	sendTo := func(target *httptest.Server, raw string) int {
+		r, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL+"/callbacks/7", strings.NewReader(raw))
 		if err != nil {
 			t.Fatal(err)
 		}
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := server.Client().Do(r)
+		resp, err := target.Client().Do(r)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -117,6 +117,7 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 		_ = resp.Body.Close()
 		return resp.StatusCode
 	}
+	send := func(raw string) int { return sendTo(server, raw) }
 	forged := func(order, transaction string) string {
 		return url.Values{"pid": {"1001"}, "type": {"alipay"}, "out_trade_no": {order}, "trade_no": {transaction}, "money": {"1.25"}, "trade_status": {"TRADE_SUCCESS"}, "sign_type": {"MD5"}, "sign": {strings.Repeat("00", 16)}}.Encode()
 	}
@@ -217,8 +218,39 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 	if err = db.QueryRowContext(ctx, `SELECT state FROM payment_subscription_inbox WHERE order_id=$1`, f.ThirdOrder).Scan(&thirdState); err != nil || thirdState != "granted" {
 		t.Fatalf("restored permission failed recovery: %q %v", thirdState, err)
 	}
+	// The same configured channel ID is temporarily a valid Stripe channel in
+	// actual Core. This is not evidence that the original EPay callback is bad.
+	reassignedCore, err := coreclient.New(f.ReassignedSocket, []byte(f.Token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reassignedCore.Close()
+	reassignedService, err := p.NewEPaySubscriptions(reassignedCore, store, []*p.EPay{adapter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reassignedHTTP := httptest.NewServer(reassignedService.Handler())
+	defer reassignedHTTP.Close()
+	if sendTo(reassignedHTTP, f.RawFourth) == http.StatusOK {
+		t.Fatal("temporarily reassigned provider acknowledged payment")
+	}
+	var fourthState string
+	if err = db.QueryRowContext(ctx, `SELECT state FROM payment_subscription_inbox WHERE order_id=$1`, f.FourthOrder).Scan(&fourthState); err != nil || fourthState != "pending" {
+		t.Fatalf("provider configuration drift rejected original proof: %q %v", fourthState, err)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE payment_subscription_inbox SET next_attempt=clock_timestamp()-interval '10 seconds' WHERE order_id=$1`, f.FourthOrder); err != nil {
+		t.Fatal(err)
+	}
+	// Restore the EPay-configured Core over the SAME durable inbox. No second
+	// callback is sent: the original persisted evidence must grant exactly once.
+	if err = service.Recover(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT state FROM payment_subscription_inbox WHERE order_id=$1`, f.FourthOrder).Scan(&fourthState); err != nil || fourthState != "granted" {
+		t.Fatalf("restored EPay configuration failed recovery: %q %v", fourthState, err)
+	}
 	if send(f.RawFirst) != 200 {
 		t.Fatal("actual original replay failed")
 	}
-	t.Log("actual TCP callbacks + Rust Core signature/RPC + isolated PG: forged unknown and same-event inputs rejected, evidence retained, limit1 fairness, COMMIT/lost-ACK/reopen recovery; permission disabled/restored without provider redelivery; final grants checked by Rust")
+	t.Log("actual TCP callbacks + Rust Core signature/RPC + isolated PG: forged unknown and same-event inputs rejected, evidence retained, limit1 fairness, COMMIT/lost-ACK/reopen recovery; permission and provider configuration restored without provider redelivery; final grants checked by Rust")
 }

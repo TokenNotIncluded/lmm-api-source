@@ -169,10 +169,25 @@ impl SubscriptionStore {
         Ok(p.clone())
     }
     pub async fn epay_prices(&self, secret: &str, plan_id: i64) -> Result<Vec<ExternalPrice>> {
+        self.epay_price_list(secret, plan_id, false).await
+    }
+    pub async fn admin_epay_prices(
+        &self,
+        secret: &str,
+        plan_id: i64,
+    ) -> Result<Vec<ExternalPrice>> {
+        self.epay_price_list(secret, plan_id, true).await
+    }
+    async fn epay_price_list(
+        &self,
+        secret: &str,
+        plan_id: i64,
+        admin: bool,
+    ) -> Result<Vec<ExternalPrice>> {
         let mut tx = self.begin().await?;
-        actor(&mut tx, secret, false).await?;
-        let rows=sqlx::query("SELECT e.* FROM core_subscriptions.external_prices e JOIN core_subscriptions.plans p ON p.id=e.plan_id AND p.revision=e.plan_revision JOIN core_subscriptions.plan_revisions r ON r.plan_id=p.id AND r.revision=p.revision WHERE p.id=$1 AND NOT p.archived AND (r.terms->>'enabled')::boolean ORDER BY channel_id")
-            .bind(plan_id).fetch_all(&mut *tx).await?;
+        actor(&mut tx, secret, admin).await?;
+        let rows=sqlx::query("SELECT e.* FROM core_subscriptions.external_prices e JOIN core_subscriptions.plans p ON p.id=e.plan_id AND p.revision=e.plan_revision JOIN core_subscriptions.plan_revisions r ON r.plan_id=p.id AND r.revision=p.revision WHERE p.id=$1 AND ($2 OR (NOT p.archived AND (r.terms->>'enabled')::boolean)) ORDER BY channel_id")
+            .bind(plan_id).bind(admin).fetch_all(&mut *tx).await?;
         let result = rows
             .into_iter()
             .map(|r| {

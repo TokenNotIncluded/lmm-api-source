@@ -501,6 +501,12 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
         .await
         .unwrap();
     let (raw3, _) = signed(&third.order_id, "joint-permission-transaction", "1.25");
+    let fourth = prepare(&f, "joint_epay_provider_order").await;
+    f.store
+        .confirm_epay_purchase(&f.payments, &f.user, &fourth.order_id)
+        .await
+        .unwrap();
+    let (raw4, _) = signed(&fourth.order_id, "joint-provider-transaction", "1.25");
     let dir = PathBuf::from(format!("/tmp/sub01-joint-{:016x}", rand::random::<u64>()));
     fs::create_dir(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
@@ -549,6 +555,44 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
     .with_epay_subscriptions(restricted_rpc);
     let (restricted_stop, restricted_rx) = tokio::sync::watch::channel(false);
     let restricted_serving = tokio::spawn(restricted_server.serve(restricted_rx));
+    // The constructor accepts this Stripe channel at the same ID. New EPay
+    // purchases remain invalid, but an existing frozen obligation is retryable.
+    let reassigned_payments = PaymentsStore::new(
+        pool.clone(),
+        vec![Channel::stripe_test(
+            7,
+            "acct_sub01_reassigned".into(),
+            "whsec_sub01_reassigned_test_secret".into(),
+            10000,
+        )],
+    )
+    .unwrap();
+    assert!(matches!(
+        reassigned_payments.subscription_channel(7),
+        Err(crate::payments::Error::Invalid)
+    ));
+    let reassigned_socket = dir.join("reassigned.sock");
+    let reassigned_rpc = epay_rpc::EPaySubscriptionsRpc::new(
+        f.store.clone(),
+        reassigned_payments,
+        token,
+        epay_rpc::Permissions {
+            user_orders: true,
+            proof_ingress: true,
+            proof_read: true,
+            grant: true,
+        },
+    )
+    .unwrap();
+    let reassigned_server = crate::internal_rpc::RpcServer::bind(
+        &reassigned_socket,
+        b"reassigned-transport-synthetic-token-123",
+        None,
+    )
+    .unwrap()
+    .with_epay_subscriptions(reassigned_rpc);
+    let (reassigned_stop, reassigned_rx) = tokio::sync::watch::channel(false);
+    let reassigned_serving = tokio::spawn(reassigned_server.serve(reassigned_rx));
     let go_db = format!("sub01_joint_{:016x}_test", rand::random::<u64>());
     sqlx::query(&format!("CREATE DATABASE {go_db}"))
         .execute(&pool)
@@ -562,7 +606,7 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
         .to_url_lossy()
         .to_string();
     let fixture_path = dir.join("fixture.json");
-    fs::write(&fixture_path,serde_json::to_vec(&json!({"Socket":socket,"Token":std::str::from_utf8(token).unwrap(),"DatabaseURL":go_url,"DatabaseName":go_db,"FirstOrder":first.order_id,"SecondOrder":second.order_id,"RawFirst":String::from_utf8(raw1).unwrap(),"RawSecond":String::from_utf8(raw2).unwrap(),"RestrictedSocket":restricted_socket,"ThirdOrder":third.order_id,"RawThird":String::from_utf8(raw3).unwrap()})).unwrap()).unwrap();
+    fs::write(&fixture_path,serde_json::to_vec(&json!({"Socket":socket,"Token":std::str::from_utf8(token).unwrap(),"DatabaseURL":go_url,"DatabaseName":go_db,"FirstOrder":first.order_id,"SecondOrder":second.order_id,"RawFirst":String::from_utf8(raw1).unwrap(),"RawSecond":String::from_utf8(raw2).unwrap(),"RestrictedSocket":restricted_socket,"ThirdOrder":third.order_id,"RawThird":String::from_utf8(raw3).unwrap(),"ReassignedSocket":reassigned_socket,"FourthOrder":fourth.order_id,"RawFourth":String::from_utf8(raw4).unwrap()})).unwrap()).unwrap();
     fs::set_permissions(&fixture_path, fs::Permissions::from_mode(0o600)).unwrap();
     let mut command = std::process::Command::new("mise");
     command
@@ -571,6 +615,7 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
             "--",
             "go",
             "test",
+            "-p=1",
             "-run",
             "^TestSubscriptionEPayCoreTCPPoisoningRecovery$",
             "-count=1",
@@ -582,6 +627,7 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
                 .join("../extensions/internal/modules/payments/pgtest"),
         )
         .env("SUB01_CORE_FIXTURE", &fixture_path)
+        .env("GOMAXPROCS", "1")
         .env(
             "GOCACHE",
             PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/lmm-api-go-current"),
@@ -594,6 +640,8 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
     serving.await.unwrap().unwrap();
     restricted_stop.send(true).unwrap();
     restricted_serving.await.unwrap().unwrap();
+    reassigned_stop.send(true).unwrap();
+    reassigned_serving.await.unwrap().unwrap();
     sqlx::query(&format!("DROP DATABASE {go_db}"))
         .execute(&pool)
         .await
@@ -607,5 +655,116 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
     );
     println!("{}", String::from_utf8_lossy(&output.stdout));
     let (proofs,grants,journals):(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_subscriptions.external_proofs),(SELECT count(*) FROM core_subscriptions.external_grants),(SELECT count(*) FROM core_billing.ledger_journals)").fetch_one(&pool).await.unwrap();
-    assert_eq!((proofs, grants, journals), (3, 3, 0));
+    assert_eq!((proofs, grants, journals), (4, 4, 0));
+    let fourth_grants: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_subscriptions.external_grants WHERE order_id=$1",
+    )
+    .bind(&fourth.order_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(fourth_grants, 1);
+}
+
+#[sqlx::test(migrations = false)]
+async fn admin_epay_price_get_is_root_only_and_reads_current_disabled_revision(pool: PgPool) {
+    let f = fixture(&pool, 0).await;
+    let mut disabled = f.plan.terms.clone();
+    disabled.enabled = false;
+    let revised = f
+        .store
+        .save_plan(
+            &f.admin,
+            Some(f.plan.id),
+            SavePlan {
+                operation_key: "disable_epay_plan_01".into(),
+                expected_revision: Some(1),
+                terms: disabled,
+            },
+        )
+        .await
+        .unwrap();
+    f.store
+        .save_epay_price(
+            &f.payments,
+            &f.admin,
+            "set_disabled_price_01",
+            &ExternalPrice {
+                plan_id: f.plan.id,
+                plan_revision: revised.revision,
+                channel_id: 7,
+                currency: "CNY".into(),
+                amount_minor: "250".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = epay_price_router(f.store.clone(), f.payments.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let client = reqwest::Client::new();
+    let admin_url = format!(
+        "http://{address}/core/v1/subscriptions/admin/plans/{}/epay-prices",
+        f.plan.id
+    );
+    let public_url = format!(
+        "http://{address}/core/v1/subscriptions/plans/{}/epay-prices",
+        f.plan.id
+    );
+    let no_session = client.get(&admin_url).send().await.unwrap();
+    assert_eq!(no_session.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let ordinary = client
+        .get(&admin_url)
+        .bearer_auth(&f.user)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ordinary.status(), reqwest::StatusCode::FORBIDDEN);
+    let response = client
+        .get(&admin_url)
+        .bearer_auth(&f.admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["prices"].as_array().unwrap().len(), 1);
+    assert_eq!(body["prices"][0]["plan_revision"], revised.revision);
+    assert_eq!(body["prices"][0]["amount_minor"], "250");
+    let public: Value = client
+        .get(&public_url)
+        .bearer_auth(&f.user)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(public, json!({"prices":[]}));
+    f.store
+        .archive_plan(
+            &f.admin,
+            f.plan.id,
+            ArchivePlan {
+                operation_key: "archive_epay_plan_01".into(),
+                expected_revision: revised.revision,
+            },
+        )
+        .await
+        .unwrap();
+    let archived: Value = client
+        .get(&admin_url)
+        .bearer_auth(&f.admin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(archived, body);
+    server.abort();
 }

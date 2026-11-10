@@ -7,6 +7,7 @@ pub mod http;
 pub use connections::{ConnectionMilestone, ConnectionMilestones};
 mod payment_totals;
 mod payments;
+mod user_usage;
 pub use payment_totals::{CashCurrency, CashPaymentTotals, CashPaymentUser, CashPeriodRequest};
 pub use payments::{FirstCashPayment, FirstCashPayments};
 
@@ -147,7 +148,8 @@ pub struct UserUsageRequest {
 pub struct UsageTotals {
     pub tokens: i64,
     pub requests: i64,
-    pub credits: i64,
+    /// None when any selected record lacks a proven historical price.
+    pub credits: Option<i64>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UsageBucket {
@@ -160,7 +162,8 @@ pub struct ModelUsage {
     pub model_name: String,
     pub tokens: i64,
     pub requests: i64,
-    pub credits: i64,
+    /// None when any selected record lacks a proven historical price.
+    pub credits: Option<i64>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserUsage {
@@ -174,6 +177,9 @@ pub struct UserUsage {
     pub buckets: Vec<UsageBucket>,
     pub models: Vec<ModelUsage>,
     pub credits_per_usd: i64,
+    pub pricing_available: bool,
+    /// Current display-only CNY/USD option; never a historical settlement rate.
+    pub cny_per_usd: Option<String>,
     pub history_source: String,
 }
 
@@ -310,6 +316,9 @@ impl CommunityRead {
         sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.setting,d.granted,k.group_name,k.auto_groups,k.enabled,c.kind,c.revoked_at,c.expires_at FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id LEFT JOIN core_identity.developer_access d ON d.user_id=u.id JOIN core_identity.credentials c ON c.user_id=u.id JOIN core_identity.api_key_settings k ON k.credential_id=c.id WHERE FALSE")
             .fetch_all(&mut *tx)
             .await?;
+        sqlx::query("SELECT value FROM core_console.options WHERE key='USDExchangeRate' AND FALSE")
+            .fetch_all(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(Self {
             pool,
@@ -443,101 +452,6 @@ impl CommunityRead {
         candidates.truncate(r.limit as usize);
         out.users = candidates;
         Ok(out)
-    }
-
-    /// One user's totals, optional buckets and top models (profile cards).
-    pub async fn user_usage(&self, r: &UserUsageRequest) -> Result<UserUsage> {
-        Window {
-            start: r.start,
-            end: r.end,
-            bucket_seconds: r.bucket_seconds,
-        }
-        .validate()?;
-        if r.user_id <= 0 || !(0..=12).contains(&r.model_limit) {
-            return Err(Error::Invalid);
-        }
-        let mut tx = self.snapshot().await?;
-        let user = sqlx::query("SELECT u.active, u.platform_role, p.username, coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE u.id=$1")
-            .bind(r.user_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-        let (active, name, username, platform_role) = match user {
-            Some(row) => (
-                row.try_get("active")?,
-                row.try_get("name")?,
-                row.try_get("username")?,
-                row.try_get("platform_role")?,
-            ),
-            None => (false, String::new(), String::new(), String::new()),
-        };
-        let scoped = format!("SELECT * FROM ({}) u WHERE u.user_id=$3", self.usage);
-        let totals = sqlx::query(&format!(
-            "SELECT coalesce(sum(tokens),0)::bigint AS tokens, coalesce(sum(requests),0)::bigint AS requests, coalesce(sum(credits),0)::bigint AS credits,
-              count(DISTINCT coalesce(nullif(model,''),'unknown'))::bigint AS models FROM ({scoped}) s"
-        ))
-        .bind(r.start)
-        .bind(r.end)
-        .bind(r.user_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        let mut buckets = Vec::new();
-        if r.bucket_seconds > 0 {
-            for row in sqlx::query(&format!(
-                "SELECT (at/$4)*$4 AS bucket, sum(tokens)::bigint AS tokens, sum(requests)::bigint AS requests FROM ({scoped}) s GROUP BY 1 ORDER BY 1 LIMIT 1000"
-            ))
-            .bind(r.start)
-            .bind(r.end)
-            .bind(r.user_id)
-            .bind(r.bucket_seconds)
-            .fetch_all(&mut *tx)
-            .await?
-            {
-                buckets.push(UsageBucket {
-                    bucket: row.try_get("bucket")?,
-                    tokens: safe(row.try_get("tokens")?)?,
-                    requests: safe(row.try_get("requests")?)?,
-                });
-            }
-        }
-        let mut models = Vec::new();
-        if r.model_limit > 0 {
-            for row in sqlx::query(&format!(
-                "SELECT coalesce(nullif(model,''),'unknown') AS model, sum(tokens)::bigint AS tokens, sum(requests)::bigint AS requests, sum(credits)::bigint AS credits
-                 FROM ({scoped}) s GROUP BY 1 ORDER BY credits DESC, tokens DESC, requests DESC, model LIMIT $4"
-            ))
-            .bind(r.start)
-            .bind(r.end)
-            .bind(r.user_id)
-            .bind(r.model_limit)
-            .fetch_all(&mut *tx)
-            .await?
-            {
-                models.push(ModelUsage {
-                    model_name: row.try_get("model")?,
-                    tokens: safe(row.try_get("tokens")?)?,
-                    requests: safe(row.try_get("requests")?)?,
-                    credits: safe(row.try_get("credits")?)?,
-                });
-            }
-        }
-        tx.commit().await?;
-        Ok(UserUsage {
-            user_id: r.user_id,
-            active,
-            name,
-            username,
-            platform_role,
-            totals: UsageTotals {
-                tokens: safe(totals.try_get("tokens")?)?,
-                requests: safe(totals.try_get("requests")?)?,
-                credits: safe(totals.try_get("credits")?)?,
-            },
-            model_count: totals.try_get("models")?,
-            buckets,
-            models,
-            credits_per_usd: crate::billing::CREDITS_PER_USD,
-            history_source: self.history_source.into(),
-        })
     }
 
     /// Public names and onboarding facts for a bounded set of users.

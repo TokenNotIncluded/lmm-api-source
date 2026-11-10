@@ -206,7 +206,7 @@ pub fn epay_price_router(
         )
         .route(
             "/core/v1/subscriptions/admin/plans/{id}/epay-prices",
-            post(save_epay_price),
+            get(admin_epay_prices).post(save_epay_price),
         )
         .layer(DefaultBodyLimit::max(16 * 1024))
         .with_state(EPayPriceState { store, payments })
@@ -217,6 +217,17 @@ async fn epay_prices(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse> {
     let prices = s.store.epay_prices(bearer(&h)?, id).await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({"prices":prices})),
+    ))
+}
+async fn admin_epay_prices(
+    State(s): State<EPayPriceState>,
+    h: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse> {
+    let prices = s.store.admin_epay_prices(bearer(&h)?, id).await?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
         Json(json!({"prices":prices})),

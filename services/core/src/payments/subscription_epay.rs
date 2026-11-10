@@ -47,7 +47,15 @@ impl PaymentsStore {
         })
     }
     pub(crate) fn bound_subscription_channel(&self, binding: &Binding) -> Result<Channel> {
-        let mut c = self.subscription_channel(binding.channel_id)?.clone();
+        // A frozen obligation must survive a temporarily reassigned provider or
+        // unsupported currency. This is configuration drift, not invalid proof.
+        let mut c = self
+            .subscription_channel(binding.channel_id)
+            .map_err(|e| match e {
+                Error::Invalid => Error::Conflict,
+                other => other,
+            })?
+            .clone();
         // A channel ID cannot be reassigned to a different financial namespace.
         if c.merchant != binding.merchant
             || c.environment != binding.environment
