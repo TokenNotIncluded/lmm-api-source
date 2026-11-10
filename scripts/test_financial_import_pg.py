@@ -1,7 +1,7 @@
 """Real PostgreSQL opening/replay/rollback tests; no images or tools downloaded.
 
-LMM_FINANCIAL_PG_TEST=1 uses a network-isolated Docker PostgreSQL18 and reviewed
-Core49 DDL (synthetic SQL fixture, NOT compiled init-db acceptance).
+LMM_FINANCIAL_PG_TEST=1 uses a network-isolated Docker PostgreSQL18 and the
+current reviewed DDL (synthetic SQL fixture, NOT compiled init-db acceptance).
 LMM_FINANCIAL_PG_FIXTURE_RECEIPT selects a resource-owner Unix-only PG18 receipt
 with an already init-db-created empty Core template and matching verified binary
 and schema-manifest. That mode clones only into its random owned test databases.
@@ -129,10 +129,26 @@ def synthetic_upgrade_receipt_sql(table):
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_reviewed_ddl_includes_current49_metadata_and_oauth_contract(self):
+    def test_reviewed_channel_fixture_accepts_only_exact_source_variants(self):
+        relative = "services/core/src/channel_http.rs"
+        source = (ROOT / relative).read_bytes()
+        pins = F.IDENTITY.reviewed_files(ROOT)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            file = root / relative
+            file.parent.mkdir(parents=True)
+            with patch.object(F.IDENTITY, "reviewed_files", return_value=pins):
+                for fixture in (source, source.replace(b"                    client_protocols: None,\n", b"")):
+                    file.write_bytes(fixture)
+                    self.assertEqual(F.IDENTITY._reviewed_rust(root, relative).encode(), fixture)
+                file.write_bytes(source.replace(b"channel_vault.sql", b"channel_control.sql"))
+                with self.assertRaisesRegex(F.IDENTITY.MappingError, "component_rust_source_fingerprint_mismatch"):
+                    F.IDENTITY._reviewed_rust(root, relative)
+
+    def test_reviewed_ddl_includes_current_metadata_and_oauth_contract(self):
         contract = F.IDENTITY.current_contract()
         ddl = reviewed_fixture_ddl(contract)
-        self.assertEqual(len(contract["component_fingerprints"]), 49)
+        self.assertEqual(list(contract["component_fingerprints"]), list(F.IDENTITY.reviewed_components(F.IDENTITY.ROOT)))
         self.assertIn("VALUES(6,decode(", ddl)
         self.assertIn("CREATE TABLE core_meta.schema_upgrades", ddl)
         self.assertIn("CREATE TABLE core_meta.component_upgrades", ddl)
@@ -249,7 +265,7 @@ class PostgreSQLTests(unittest.TestCase):
         contract = F.IDENTITY.current_contract()
         identity = self.query(F.IDENTITY.IDENTITY_SQL)
         target = {**contract, "catalog_fingerprint_sha256": self.query(F.IDENTITY.catalog_hash_sql(contract)),
-            "allow_initialized_core_seed": True, "initialized_core_seed_contract": F.IDENTITY.CORE_SEED_CONTRACT,
+            "allow_initialized_core_seed": True, "initialized_core_seed_contract": F.IDENTITY.reviewed_profile(),
             "initialized_core_seed_sha256": self.query(F.IDENTITY.fresh_seed_hash_query()),
             "trust_policy_seed": self.query(F.IDENTITY.trust_policy_seed_query())}
         sql = F.IDENTITY.build_import_sql(self.source["identity_plan"], migration_id="synthetic-identity",
