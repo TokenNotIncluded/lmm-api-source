@@ -3,6 +3,7 @@
 //! This module does not register public routes or change readiness. Integration
 //! must supply real core routing and durable billing adapters before enabling it.
 mod decode;
+pub(crate) mod legacy_openrouter_usage;
 mod encode;
 mod gemini_schema;
 pub(crate) mod honeypot;
@@ -959,7 +960,8 @@ impl Worker {
             route.protocol,
             &self.inner.limits,
             route.cache_creation_mode,
-        );
+        ).with_legacy_openrouter_usage(matches!(route.payload_policy,
+            crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1));
         if self.request.stream {
             self.stop_keepalive().await?;
             self.send_head()?;

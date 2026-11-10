@@ -585,7 +585,7 @@ async fn execute(
         }
         // The reviewed official System One usage has no discounted cache field.
         observed.usage.cached_input_tokens = Some(0);
-        let usage = billing::complete_usage(observed.usage, false)?;
+        let usage = billing::complete_usage(observed.usage.clone(), false)?;
         gateway
             .bridge
             .persist_output(

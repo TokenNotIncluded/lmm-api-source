@@ -571,9 +571,27 @@ impl OpenAiCacheWriteDetails {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
+/// Retained only in private immutable evidence; Debug must never log contents.
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, Serialize)]
+#[serde(transparent)]
+pub(crate) struct PrivateUsageEvidence(pub(crate) Value);
+impl std::fmt::Debug for PrivateUsageEvidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[private provider usage]")
+    }
+}
+impl std::ops::Deref for PrivateUsageEvidence {
+    type Target = Value;
+    fn deref(&self) -> &Value { &self.0 }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Usage {
+    /// Exact provider usage object before the explicitly bound old DTO projection.
+    /// Omission preserves historical native JSON and replay bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) legacy_openrouter_raw: Option<Box<PrivateUsageEvidence>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<crate::billing::tool_price::ToolUsage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -600,7 +618,32 @@ pub struct Usage {
     pub reasoning_output_tokens: Option<u64>,
 }
 impl Usage {
+    /// Raw provider evidence belongs in the existing immutable observation
+    /// event, not the compact (2 KiB) normalized recovery checkpoint.
+    pub(crate) fn checkpoint_usage(&self) -> Self {
+        let mut normalized = self.clone();
+        normalized.legacy_openrouter_raw = None;
+        normalized
+    }
+
     pub(crate) fn merge(&mut self, next: Self) -> Result<(), RelayError> {
+        // Fixed cc52 OaiStreamHandler keeps the last authoritative usage object.
+        // Newly arriving cache/semantic fields can lower the projected uncached
+        // bucket without decreasing the source prompt. Only this explicit
+        // private witness permits replacement; native monotonic checks remain.
+        if next.legacy_openrouter_raw.is_some() {
+            if self.legacy_openrouter_raw.is_none() && *self != Self::default() {
+                return Err(RelayError::Protocol("legacy usage contract changed"));
+            }
+            next.validate()?;
+            *self = next;
+            return Ok(());
+        }
+        if self.legacy_openrouter_raw.is_some() {
+            return if next == Self::default() { Ok(()) }
+                else { Err(RelayError::Protocol("legacy usage contract changed")) };
+        }
+
         if let Some(tool) = next.tool {
             if self.tool.is_some_and(|old| old != tool) {
                 return Err(RelayError::Protocol("conflicting tool receipt"));
@@ -627,7 +670,10 @@ impl Usage {
             }
             Ok(())
         }
-        let mut combined = *self;
+        let mut combined = self.clone();
+        if next.legacy_openrouter_raw.is_some() {
+            combined.legacy_openrouter_raw = next.legacy_openrouter_raw.clone();
+        }
         if let Some(requests) = next.google_search_grounded_requests {
             if self
                 .google_search_grounded_requests
@@ -760,7 +806,10 @@ impl Usage {
         }
         self.validate()?;
         next.validate()?;
-        let mut combined = *self;
+        let mut combined = self.clone();
+        if next.legacy_openrouter_raw.is_some() {
+            combined.legacy_openrouter_raw = next.legacy_openrouter_raw.clone();
+        }
         combined.cache_creation_mode = self.cache_creation_mode.or(next.cache_creation_mode);
         let input_advanced = advances(self.input_tokens, next.input_tokens);
         let uncached_advanced = advances(self.uncached_input_tokens, next.uncached_input_tokens);
@@ -1331,8 +1380,8 @@ mod a07_usage_tests {
                 ..Usage::default()
             },
         ] {
-            let before = value;
-            assert!(value.merge(next).is_err());
+            let before = value.clone();
+            assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, before);
         }
         value
@@ -1380,7 +1429,7 @@ mod a07_usage_tests {
                 cache_creation_input_tokens: Some(0),
                 ..Usage::default()
             };
-            let before = value;
+            let before = value.clone();
             assert!(matches!(
                 value.merge(Usage {
                     input_tokens: Some(100),
@@ -1474,14 +1523,14 @@ mod a07_usage_tests {
                 ..Usage::default()
             },
         ] {
-            let mut value = initial;
+            let mut value = initial.clone();
             assert!(
-                matches!(value.merge(next), Err(RelayError::Protocol(_))),
+                matches!(value.merge(next.clone()), Err(RelayError::Protocol(_))),
                 "{next:?}"
             );
             assert_eq!(value, initial);
         }
-        let mut value = initial;
+        let mut value = initial.clone();
         value
             .merge(Usage {
                 input_tokens: Some(101),
@@ -1516,7 +1565,7 @@ mod a07_usage_tests {
             ..Usage::default()
         };
         for total in [None, Some(7)] {
-            let mut value = initial;
+            let mut value = initial.clone();
             assert!(
                 value
                     .merge(Usage {
@@ -1552,8 +1601,8 @@ mod a07_usage_tests {
                 ..Usage::default()
             },
         ] {
-            let mut value = initial;
-            assert!(matches!(value.merge(next), Err(RelayError::Protocol(_))));
+            let mut value = initial.clone();
+            assert!(matches!(value.merge(next.clone()), Err(RelayError::Protocol(_))));
             assert_eq!(value, initial);
         }
     }
@@ -1565,7 +1614,7 @@ mod a07_usage_tests {
             output_tokens: Some(3),
             ..Usage::default()
         };
-        let before = value;
+        let before = value.clone();
         assert!(matches!(
             value.merge(Usage {
                 input_tokens: Some(4),
@@ -1590,7 +1639,7 @@ mod a07_usage_tests {
             .unwrap();
         assert_eq!(value.input_tokens, None);
         assert_eq!(value.output_tokens, None);
-        let before = value;
+        let before = value.clone();
         assert!(
             value
                 .merge(Usage {
@@ -1620,7 +1669,7 @@ mod a07_usage_tests {
             cached_input_tokens: Some(6),
             ..Usage::default()
         };
-        let before = value;
+        let before = value.clone();
         assert!(
             value
                 .merge(Usage {
@@ -1646,7 +1695,7 @@ mod a07_usage_tests {
             cached_input_tokens: Some(u64::MAX),
             ..Usage::default()
         };
-        let before = value;
+        let before = value.clone();
         assert!(
             value
                 .merge(Usage {
@@ -1674,11 +1723,12 @@ mod a07_usage_tests {
             cache_creation_details: None,
             cache_creation_mode: None,
             openai_cache_write_details: None,
+            legacy_openrouter_raw: None,
             reasoning_output_tokens: Some(0),
         };
         let mut value = Usage::default();
-        value.merge(zero).unwrap();
-        value.merge(zero).unwrap();
+        value.merge(zero.clone()).unwrap();
+        value.merge(zero.clone()).unwrap();
         value.merge(Usage::default()).unwrap();
         assert_eq!(value, zero);
     }
@@ -1689,7 +1739,7 @@ mod a07_usage_tests {
             input_tokens: Some(2),
             ..Usage::default()
         };
-        let before = value;
+        let before = value.clone();
         for next in [
             Usage {
                 input_tokens: Some(1),
@@ -1700,7 +1750,7 @@ mod a07_usage_tests {
                 ..Usage::default()
             },
         ] {
-            assert!(value.merge(next).is_err());
+            assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, before);
         }
     }
@@ -1771,7 +1821,7 @@ mod openai_cache_write_tests {
             measured(None, None, Some(3)),
             measured(Some(0), Some(0), Some(0)),
         ] {
-            let before = value;
+            let before = value.clone();
             assert!(value.validate().is_ok());
             assert_eq!(value, before);
         }
@@ -1810,8 +1860,8 @@ mod openai_cache_write_tests {
     fn cumulative_merges_preserve_unknown_zero_and_repeated_observations() {
         let first = measured(Some(5), None, Some(3));
         let mut value = Usage::default();
-        value.merge(first).unwrap();
-        value.merge(first).unwrap();
+        value.merge(first.clone()).unwrap();
+        value.merge(first.clone()).unwrap();
         value.merge(Usage::default()).unwrap();
         assert_eq!(value, first);
         value.merge(measured(Some(6), None, Some(4))).unwrap();
@@ -1843,7 +1893,7 @@ mod openai_cache_write_tests {
                 Usage {
                     cache_creation_input_tokens: Some(6),
                     openai_cache_write_details: None,
-                    ..initial
+                    ..initial.clone()
                 },
                 measured(Some(6), None, Some(4)),
                 measured(Some(6), Some(3), None),
@@ -1853,18 +1903,18 @@ mod openai_cache_write_tests {
                 Usage {
                     input_tokens: Some(101),
                     openai_cache_write_details: None,
-                    ..initial
+                    ..initial.clone()
                 },
             ] {
                 let next = Usage {
                     cache_creation_mode: mode,
-                    ..next
+                    ..next.clone()
                 };
-                let mut value = initial;
-                assert!(value.merge(next).is_err(), "{next:?}");
+                let mut value = initial.clone();
+                assert!(value.merge(next.clone()).is_err(), "{next:?}");
                 assert_eq!(value, initial, "a rejected observation must be atomic");
             }
-            let mut value = initial;
+            let mut value = initial.clone();
             value
                 .merge(Usage {
                     cache_creation_mode: mode,
@@ -1883,8 +1933,8 @@ mod openai_cache_write_tests {
             measured(None, None, Some(4)),
             measured(Some(6), None, Some(5)),
         ] {
-            let mut value = initial;
-            assert!(value.merge(next).is_err());
+            let mut value = initial.clone();
+            assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, initial);
         }
     }
@@ -1954,7 +2004,7 @@ mod generic_creation_tests {
         assert!(
             Usage {
                 input_tokens: Some(26),
-                ..value
+                ..value.clone()
             }
             .validate()
             .is_err()
@@ -1962,7 +2012,7 @@ mod generic_creation_tests {
         assert!(
             Usage {
                 cache_creation_mode: None,
-                ..value
+                ..value.clone()
             }
             .validate()
             .is_err()
@@ -1994,7 +2044,7 @@ mod generic_creation_tests {
     #[test]
     fn generic_raw_decrease_cannot_hide_behind_unchanged_effective_total() {
         let mut value = measured(Some(100), Some(5), Some(10), Some(0));
-        let before = value;
+        let before = value.clone();
         assert!(
             value
                 .merge(measured(Some(100), Some(4), Some(10), Some(0)))
@@ -2046,11 +2096,11 @@ mod generic_creation_tests {
             measured(Some(101), None, Some(3), Some(5)),
             measured(Some(101), Some(8), Some(1), Some(7)),
         ] {
-            let mut value = initial;
-            assert!(value.merge(next).is_err(), "{next:?}");
+            let mut value = initial.clone();
+            assert!(value.merge(next.clone()).is_err(), "{next:?}");
             assert_eq!(value, initial);
         }
-        let mut value = initial;
+        let mut value = initial.clone();
         value
             .merge(measured(Some(101), Some(8), Some(2), Some(6)))
             .unwrap();
@@ -2060,7 +2110,7 @@ mod generic_creation_tests {
     #[test]
     fn generic_effective_growth_needs_fresh_inclusive_input() {
         let initial = measured(Some(100), Some(2), Some(3), Some(4));
-        let mut value = initial;
+        let mut value = initial.clone();
         assert!(
             value
                 .merge(measured(None, Some(2), Some(3), Some(5)))
@@ -2080,7 +2130,7 @@ mod generic_creation_tests {
     fn generic_new_input_cannot_reuse_old_zero_creation() {
         for input in [None, Some(0)] {
             let initial = measured(input, Some(0), None, None);
-            let mut value = initial;
+            let mut value = initial.clone();
             assert!(
                 value
                     .merge(Usage {
@@ -2125,15 +2175,15 @@ mod generic_creation_tests {
         let generic = measured(Some(100), Some(10), None, None);
         let strict = Usage {
             cache_creation_mode: None,
-            ..generic
+            ..generic.clone()
         };
         for (initial, next) in [(generic, strict), (strict, generic)] {
-            let mut value = initial;
-            assert!(value.merge(next).is_err());
+            let mut value = initial.clone();
+            assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, initial);
         }
         let mut value = Usage::default();
-        value.merge(generic).unwrap();
+        value.merge(generic.clone()).unwrap();
         assert_eq!(value, generic);
     }
 
@@ -2151,8 +2201,8 @@ mod generic_creation_tests {
                 ..measured(None, None, None, None)
             },
         ] {
-            let mut value = initial;
-            assert!(value.merge(next).is_err());
+            let mut value = initial.clone();
+            assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, initial);
         }
     }
@@ -2204,23 +2254,23 @@ mod generic_uncached_input_tests {
     #[test]
     fn generic_read_growth_needs_current_raw_input_and_ttl_evidence() {
         let before = initial();
-        let mut value = before;
+        let mut value = before.clone();
         let next = Usage {
             input_tokens: None,
             uncached_input_tokens: None,
             cached_input_tokens: Some(30),
             output_tokens: Some(1),
-            ..before
+            ..before.clone()
         };
-        assert!(value.merge(next).is_err());
+        assert!(value.merge(next.clone()).is_err());
         assert_eq!(value, before);
         let next = Usage {
             input_tokens: Some(110),
             cached_input_tokens: Some(30),
             output_tokens: Some(1),
-            ..before
+            ..before.clone()
         };
-        value.merge(next).unwrap();
+        value.merge(next.clone()).unwrap();
         assert_eq!(value.uncached_input_tokens, Some(70));
         assert_eq!(value.input_tokens, Some(110));
     }
@@ -2232,23 +2282,23 @@ mod generic_uncached_input_tests {
             Usage {
                 input_tokens: Some(99),
                 uncached_input_tokens: Some(69),
-                ..before
+                ..before.clone()
             },
             Usage {
                 input_tokens: None,
                 uncached_input_tokens: Some(71),
                 cache_creation_input_tokens: None,
-                ..before
+                ..before.clone()
             },
             Usage {
                 input_tokens: Some(101),
                 uncached_input_tokens: Some(71),
                 cache_creation_details: None,
-                ..before
+                ..before.clone()
             },
         ] {
-            let mut value = before;
-            assert!(value.merge(next).is_err());
+            let mut value = before.clone();
+            assert!(value.merge(next.clone()).is_err());
             assert_eq!(value, before);
         }
     }
@@ -2262,7 +2312,7 @@ mod generic_uncached_input_tests {
             ..Usage::default()
         };
         let mut value = Usage::default();
-        value.merge(first).unwrap();
+        value.merge(first.clone()).unwrap();
         value
             .merge(Usage {
                 output_tokens: Some(1),
@@ -2299,7 +2349,7 @@ mod generic_uncached_input_tests {
         assert!(
             Usage {
                 input_tokens: Some(101),
-                ..before
+                ..before.clone()
             }
             .validate()
             .is_err()
@@ -2307,7 +2357,7 @@ mod generic_uncached_input_tests {
         assert!(
             Usage {
                 cache_creation_mode: None,
-                ..before
+                ..before.clone()
             }
             .validate()
             .is_err()
@@ -2316,7 +2366,7 @@ mod generic_uncached_input_tests {
             Usage {
                 input_tokens: None,
                 uncached_input_tokens: Some(u64::MAX),
-                ..before
+                ..before.clone()
             }
             .validate()
             .is_err()

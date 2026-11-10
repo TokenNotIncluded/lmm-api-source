@@ -791,5 +791,66 @@ class LegacyRatioDecimalTests(unittest.TestCase):
         self.assertEqual(tomllib.loads("config = " + R.toml_value(result["candidate"]))["config"], result["candidate"])
 
 
+class LegacyFableUsageTests(unittest.TestCase):
+    def fixture(self):
+        p, options = LegacyRatioDecimalTests().fixture("anthropic/claude-fable-5.1", "5", "5", ".025")
+        p["prices"][0]["source_usage_contract"] = R.LEGACY_FABLE_USAGE
+        return p, options
+
+    def test_reviewed_fable_compiles_exact_rev3_and_digest_binds_usage(self):
+        p, options = self.fixture()
+        result, origin = R.legacy_ratio_decimal(p["prices"][0],p,"OpenRouter",p["prices"][0]["model"],options,R.LEGACY_RATIO_SOURCE,20)
+        tariff = result["tiered"]
+        self.assertEqual((tariff["revision"], tariff["uses_cache_write"], tariff["uses_cache_write_1h"]), (3,True,True))
+        self.assertEqual(tariff["tiers"][0]["rates"]["cache_write"], {"numerator":25,"denominator":2})
+        self.assertEqual(tariff["tiers"][0]["rates"]["cache_write_1h"], {"numerator":20,"denominator":1})
+        self.assertEqual(origin["payload_policy"], "legacy_openrouter_chat_usage_v1")
+        self.assertEqual(origin["source_mode"], "ratio")
+        self.assertEqual(origin["cost_inference"], "cc52_custom_ModelRatio_not_in_default_map")
+        self.assertEqual(R.F.digest(origin), tariff["source_digest"])
+        changed=copy.deepcopy(origin);changed["source_usage_contract"]="other"
+        self.assertNotEqual(R.F.digest(changed), tariff["source_digest"])
+
+    def test_default_native_ordinary_and_unreviewed_model_do_not_activate(self):
+        p, options = self.fixture();p["prices"][0]["source_usage_contract"]="ordinary-inclusive-no-cache-write-v1"
+        with self.assertRaises(R.MappingError): LegacyRatioDecimalTests().quote(p,options)
+        p, options = LegacyRatioDecimalTests().fixture("claude-unused-opus", "5", "5", ".025")
+        p["prices"][0]["source_usage_contract"] = R.LEGACY_FABLE_USAGE
+        with self.assertRaises(R.MappingError): LegacyRatioDecimalTests().quote(p,options)
+        p, options = self.fixture();p["protocol"]="anthropic_messages"
+        with self.assertRaises(R.MappingError): LegacyRatioDecimalTests().quote(p,options)
+
+    def test_creation_ratio_and_source_mutation_fail_closed(self):
+        for value in ["0", "1", "2", "bad", True]:
+            p, options = self.fixture();options.append({"key":"CreateCacheRatio","value":{p["prices"][0]["model"]:value}})
+            p["prices"][0]["source_options_sha256"] = R.F.digest(options)
+            with self.subTest(value=value), self.assertRaises(R.MappingError): LegacyRatioDecimalTests().quote(p,options)
+        p, options = self.fixture();options.append({"key":"CreateCacheRatio","value":{p["prices"][0]["model"]:"1.25"}})
+        with self.assertRaises(R.MappingError): LegacyRatioDecimalTests().quote(p,options)
+
+    def test_plan_freezes_explicit_payload_and_ratio_provenance(self):
+        value = fixture(weights=(0,), priorities=(10,));tables, _, _, contracts = value
+        p, options = self.fixture();model=p["prices"][0]["model"]
+        for row in options:
+            if row["key"]=="GroupRatio":row["value"]={"原组/一":"1.2"}
+        tables["options"]=options
+        for row in tables["channels"]:row.update(type=20,models=model)
+        for row in tables["abilities"]:row["model"]=model
+        contracts["runtime"]["source_revision"]=R.LEGACY_RATIO_SOURCE
+        rebind_channel(value,tables["channels"][0]["id"])
+        provider=contracts["providers"]["channels"][0]
+        provider.update({key:val for key,val in p.items() if key not in ("models","source_channel_sha256")})
+        provider["models"][0].update(source_model=model,upstream_model=model)
+        provider["prices"][0].update(group="原组/一",source_options_sha256=R.F.digest(options))
+        result=run_fixture(value)
+        self.assertEqual(result["status"],"candidate-requires-native-validation",result.get("blockers"))
+        target=result["candidate"]["routing"]["routes"][0]["targets"][0]
+        self.assertEqual(target["payload"],"legacy_openrouter_chat_usage_v1")
+        compilation=result["ability_assessments"][0]["pricing_compilation"]
+        self.assertNotIn("source_expression",compilation)
+        self.assertEqual(compilation["source_ratio"]["source_usage_contract"],R.LEGACY_FABLE_USAGE)
+        self.assertEqual(compilation["source_ratio"]["source_mode"],"ratio")
+
+
 if __name__ == "__main__":
     unittest.main()

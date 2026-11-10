@@ -65,7 +65,7 @@ impl Encoder {
         if let Some(native) = &self.native {
             return native.usage();
         }
-        self.usage
+        self.usage.clone()
     }
     pub fn finish_reason(&self) -> Option<FinishReason> {
         if let Some(native) = &self.native {

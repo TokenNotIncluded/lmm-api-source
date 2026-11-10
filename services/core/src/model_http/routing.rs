@@ -307,6 +307,10 @@ impl Bridge {
                 "cache lifetime controls require a reviewed twelve-hour tariff",
             ));
         }
+        if attempt.payload_policy() == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
+            && !price.tiered.as_ref().is_some_and(|t| t.tariff.revision == 3) {
+            return Err(RelayError::Unsupported("legacy OpenRouter usage requires decimal revision3"));
+        }
         if let Some(tariff) = &mut price.tiered {
             if tariff.tariff.revision == 4
                 && !matches!(
@@ -318,7 +322,13 @@ impl Bridge {
                     "twelve-hour cache pricing requires an OpenAI protocol route",
                 ));
             }
-            tariff.input_semantics = if attempt.protocol() == Protocol::AnthropicMessages {
+            tariff.input_semantics = if attempt.payload_policy()
+                == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1 {
+                if attempt.protocol() != Protocol::OpenAiChat || tariff.tariff.revision != 3 {
+                    return Err(RelayError::Unsupported("legacy OpenRouter usage requires decimal revision3"));
+                }
+                crate::routing::InputSemantics::AnthropicText
+            } else if attempt.protocol() == Protocol::AnthropicMessages {
                 crate::routing::InputSemantics::AnthropicText
             } else {
                 crate::routing::InputSemantics::Inclusive

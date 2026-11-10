@@ -578,7 +578,7 @@ impl Billing for Bridge {
                         &reservation.id,
                         &worker,
                         &selected.route_id,
-                        report.usage,
+                        report.usage.clone(),
                         input_ceiling,
                         output_ceiling,
                     )
@@ -666,10 +666,10 @@ impl Billing for Bridge {
                         contract
                             .check_usage(
                                 &frozen,
-                                frozen_priced_usage(&contract, &frozen, report.usage)?,
+                                frozen_priced_usage(&contract, &frozen, report.usage.clone())?,
                             )
                             .map_err(|_| RelayError::SettlementPending)?;
-                        let usage = frozen_priced_usage(&contract, &frozen, report.usage)?;
+                        let usage = frozen_priced_usage(&contract, &frozen, report.usage.clone())?;
                         if usage.upstream_cost_atto_usd.is_none() {
                             return Err(RelayError::SettlementPending);
                         }
@@ -681,7 +681,7 @@ impl Billing for Bridge {
                         }
                         (usage, Outcome::Completed)
                     } else {
-                        let usage = frozen_priced_usage(&contract, &frozen, report.usage)?;
+                        let usage = frozen_priced_usage(&contract, &frozen, report.usage.clone())?;
                         // This input is either the original inclusive receipt
                         // or a checked reconstruction from actual Anthropic P
                         // and the original frozen absence-zero contract.
@@ -884,7 +884,7 @@ impl Billing for Bridge {
                     report.upstream_status.unwrap_or(0),
                     report.provider_complete,
                     stage,
-                    report.usage,
+                    report.usage.clone(),
                     selected.input_token_ceiling,
                     output_ceiling,
                 );
@@ -964,7 +964,7 @@ pub(super) fn frozen_priced_usage(
     mut observed: crate::relay::Usage,
 ) -> Result<Usage, RelayError> {
     // @context-fold begin frozen-priced-usage
-    validate_frozen_observation(contract, charge, observed)?;
+    validate_frozen_observation(contract, charge, &observed)?;
     let grounding = if charge.price.grounding.is_some() {
         let usage = grounding_price::GroundingUsage {
             grounded_requests: observed
@@ -1017,7 +1017,7 @@ pub(super) fn frozen_priced_usage(
 /// receipt still retains the supplier's real, complete input/output totals.
 /// Missing aggregate cache writes are never reconstructed from partial TTLs.
 fn complete_text_request_usage(observed: crate::relay::Usage) -> Result<Usage, RelayError> {
-    let mut usage = complete_usage(observed, true)?;
+    let mut usage = complete_usage(observed.clone(), true)?;
     let integer = |value: u64| i64::try_from(value).map_err(|_| RelayError::SettlementPending);
     usage.upstream_cost_atto_usd = None;
     usage.cache_creation = match observed.cache_creation_input_tokens {
@@ -1108,7 +1108,7 @@ mod text_request_usage_tests {
 pub(super) fn validate_frozen_observation(
     contract: &charging::contract::ReservationContract,
     charge: &charging::Charge,
-    observed: crate::relay::Usage,
+    observed: &crate::relay::Usage,
 ) -> Result<(), RelayError> {
     // @context-fold begin frozen-observation-bounds
     contract
@@ -1284,7 +1284,7 @@ pub(super) fn complete_tiered_usage(
             tariff.input_semantics,
             tariff.missing_cache_creation_is_zero,
         ),
-        None => complete_usage(observed, false),
+        None => complete_usage(observed.clone(), false),
     }
 }
 
@@ -1407,7 +1407,7 @@ mod openai_cache_billing_tests {
             )
             .unwrap();
             let tariff = price();
-            let usage = complete_tiered_usage(observation, &tariff).unwrap();
+            let usage = complete_tiered_usage(observation.clone(), &tariff).unwrap();
             assert_eq!(usage.cache_creation.unwrap().twelve_hour, Some(4000));
             let bytes = serde_json::to_vec(&usage).unwrap();
             let restored: Usage = serde_json::from_slice(&bytes).unwrap();
@@ -1454,7 +1454,7 @@ mod openai_cache_billing_tests {
             ..Default::default()
         };
         assert_eq!(
-            complete_tiered_usage(observed, &price()),
+            complete_tiered_usage(observed.clone(), &price()),
             Err(RelayError::SettlementPending)
         );
         observed.openai_cache_write_details = Some(OpenAiCacheWriteDetails {
@@ -1462,7 +1462,7 @@ mod openai_cache_billing_tests {
             ttl_12h_tokens: None,
         });
         assert_eq!(
-            complete_tiered_usage(observed, &price()),
+            complete_tiered_usage(observed.clone(), &price()),
             Err(RelayError::SettlementPending)
         );
         observed
@@ -1471,7 +1471,7 @@ mod openai_cache_billing_tests {
             .unwrap()
             .ttl_12h_tokens = Some(0);
         assert_eq!(
-            complete_tiered_usage(observed, &price())
+            complete_tiered_usage(observed.clone(), &price())
                 .unwrap()
                 .cache_creation
                 .unwrap()
@@ -1482,7 +1482,7 @@ mod openai_cache_billing_tests {
         let mut tariff = price();
         tariff.missing_cache_creation_is_zero = true;
         assert_eq!(
-            complete_tiered_usage(observed, &tariff),
+            complete_tiered_usage(observed.clone(), &tariff),
             Err(RelayError::SettlementPending)
         );
     }
@@ -1518,7 +1518,7 @@ mod openai_cache_billing_tests {
             assert!(tariff.validate().is_ok());
             assert!(observed.validate().is_ok());
             assert_eq!(
-                complete_tiered_usage(observed, &tariff),
+                complete_tiered_usage(observed.clone(), &tariff),
                 Err(RelayError::SettlementPending)
             );
         }
@@ -1532,7 +1532,7 @@ mod openai_cache_billing_tests {
             ..Default::default()
         };
         assert_eq!(
-            complete_usage(unpriced, false),
+            complete_usage(unpriced.clone(), false),
             Err(RelayError::SettlementPending)
         );
         assert_eq!(
@@ -1556,6 +1556,15 @@ fn complete_generic_cache_usage(
         return Err(RelayError::SettlementPending);
     }
     let integer = |value: u64| i64::try_from(value).map_err(|_| RelayError::SettlementPending);
+    // Policy and source digest are frozen by dispatch. Projected counters use
+    // the existing disjoint basis; recovery never reinterprets live config.
+    if let Some(raw) = &observed.legacy_openrouter_raw {
+        if tariff.tariff.revision != 3 || tariff.input_semantics != InputSemantics::AnthropicText
+            || crate::relay::legacy_openrouter_usage::project(raw)
+                .map_or(true, |projected| projected != observed) {
+            return Err(RelayError::SettlementPending);
+        }
+    }
     let details = observed.cache_creation_details;
     let five = details.and_then(|value| value.ephemeral_5m_input_tokens);
     let hour = details.and_then(|value| value.ephemeral_1h_input_tokens);
@@ -2181,7 +2190,7 @@ mod a07_billing_tests {
             },
         ] {
             assert_eq!(
-                complete_usage(observed, false),
+                complete_usage(observed.clone(), false),
                 Err(RelayError::SettlementPending)
             );
         }
@@ -2238,7 +2247,7 @@ mod a07_billing_tests {
             ..Observed::default()
         };
         assert_eq!(
-            complete_usage(observed, false),
+            complete_usage(observed.clone(), false),
             Err(RelayError::SettlementPending)
         );
     }
@@ -2259,7 +2268,7 @@ mod a07_billing_tests {
             ..Observed::default()
         };
         assert_eq!(
-            complete_usage(observed, false),
+            complete_usage(observed.clone(), false),
             Ok(Usage {
                 tool: None,
                 text_request: None,
@@ -2406,7 +2415,7 @@ mod a07_billing_tests {
             "cache_creation_input_tokens":2,
             "cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}
         }));
-        let usage = complete_tiered_usage(observed, &tariff).unwrap();
+        let usage = complete_tiered_usage(observed.clone(), &tariff).unwrap();
         assert_eq!(usage.input, 37);
         assert_eq!(
             usage.cache_creation.unwrap(),
@@ -2423,7 +2432,7 @@ mod a07_billing_tests {
             "input_tokens":10,"output_tokens":1,"cache_read_input_tokens":20,
             "cache_creation_input_tokens":50
         }));
-        let usage = complete_tiered_usage(aggregate_only, &tariff).unwrap();
+        let usage = complete_tiered_usage(aggregate_only.clone(), &tariff).unwrap();
         assert_eq!(usage.input, 80);
         assert_eq!(usage.cache_creation.unwrap().five_minute, None);
         assert_eq!(usage.cache_creation.unwrap().one_hour, None);
@@ -2439,11 +2448,11 @@ mod a07_billing_tests {
         assert_eq!(absent.input_tokens, None);
         assert_eq!(absent.uncached_input_tokens, Some(10));
         assert_eq!(
-            complete_tiered_usage(absent, &tariff),
+            complete_tiered_usage(absent.clone(), &tariff),
             Err(RelayError::SettlementPending)
         );
         tariff.missing_cache_creation_is_zero = true;
-        let usage = complete_tiered_usage(absent, &tariff).unwrap();
+        let usage = complete_tiered_usage(absent.clone(), &tariff).unwrap();
         assert_eq!(usage.input, 30);
         assert_eq!(
             usage.cache_creation.unwrap(),
@@ -2465,7 +2474,7 @@ mod a07_billing_tests {
                 "input_tokens":10,"output_tokens":1,"cache_read_input_tokens":20,"cache_creation":details
             }));
             assert_eq!(
-                complete_tiered_usage(observed, &tariff),
+                complete_tiered_usage(observed.clone(), &tariff),
                 Err(RelayError::SettlementPending)
             );
         }
@@ -2479,19 +2488,19 @@ mod a07_billing_tests {
                 .unwrap();
         let mut tariff = generic_frozen_tariff();
         assert_eq!(
-            complete_tiered_usage(strict, &tariff),
+            complete_tiered_usage(strict.clone(), &tariff),
             Err(RelayError::SettlementPending)
         );
         let generic = generic_anthropic(receipt);
-        assert!(complete_tiered_usage(generic, &tariff).is_ok());
+        assert!(complete_tiered_usage(generic.clone(), &tariff).is_ok());
         tariff.tariff.revision = 2;
         tariff.cache_creation_mode = None;
         assert_eq!(
-            complete_tiered_usage(generic, &tariff),
+            complete_tiered_usage(generic.clone(), &tariff),
             Err(RelayError::SettlementPending)
         );
         assert_eq!(
-            complete_usage(generic, false),
+            complete_usage(generic.clone(), false),
             Err(RelayError::SettlementPending)
         );
     }
@@ -2548,7 +2557,7 @@ mod a07_billing_tests {
             );
         }
         assert_eq!(
-            complete_usage(observed, false),
+            complete_usage(observed.clone(), false),
             Err(RelayError::SettlementPending)
         );
         let aggregate_only = Observed {

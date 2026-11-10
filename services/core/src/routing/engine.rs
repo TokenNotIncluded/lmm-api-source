@@ -199,7 +199,7 @@ impl Snapshot {
                         "legacy OpenAI payload protocol",
                     ));
                 }
-                if target.payload == PayloadPolicy::OpenRouter
+                if target.payload.openrouter_chat()
                     && upstream.config.protocol != Protocol::OpenAiChat
                 {
                     return Err(RoutingError::InvalidConfig("OpenRouter payload protocol"));

@@ -442,7 +442,7 @@ impl NativeEncoder {
         }
     }
     pub fn usage(&self) -> Usage {
-        self.usage
+        self.usage.clone()
     }
     pub fn finish_reason(&self) -> Option<FinishReason> {
         self.finish

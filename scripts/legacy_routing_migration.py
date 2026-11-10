@@ -394,13 +394,22 @@ def compile_token_expression(expression, *, non_audio=False):
             "uses_cache_write_1h": uses_hour, "uses_cache_write_12h": uses_twelve, "tiers": tiers}
 
 
-def legacy_ratio_source(provider, group, model, options, source_revision, channel_type):
+LEGACY_FABLE_USAGE = "cc52-openrouter-chat-fable-usage-v1"
+# The fixed default ModelRatio map has no entry for this reviewed source name;
+# cc52 service/quota.go::hasCustomModelRatio therefore disables cost inference.
+# This allowlist proves that branch; it NEVER implicitly activates the policy.
+LEGACY_FABLE_CUSTOM_MODELS = {"anthropic/claude-fable-5.1"}
+
+
+def legacy_ratio_source(provider, group, model, options, source_revision, channel_type, *, legacy_usage=False):
     """Fixed ordinary inclusive OpenRouter source domain, not model-name inference."""
     require(source_revision == LEGACY_RATIO_SOURCE, "rounding_source_revision_unproven")
     require(channel_type == 20 and provider.get("protocol") == "openai_chat"
             and provider.get("adapter_contract") == "openrouter-chat-v1"
             and provider.get("non_audio_contract") == "openrouter-chat-non-audio-v1"
-            and provider.get("audio_rules") == [] and "claude" not in model.lower(),
+            and provider.get("audio_rules") == []
+            and ((legacy_usage and model in LEGACY_FABLE_CUSTOM_MODELS)
+                 or (not legacy_usage and "claude" not in model.lower())),
             "rounding_provider_semantics_unsupported")
     require(type(options) is list, "rounding_source_options_missing")
     source = {row["key"]: row.get("value") for row in options}
@@ -439,7 +448,7 @@ def legacy_ratio_source(provider, group, model, options, source_revision, channe
             "rounding_operation_unsupported")
     context = contexts[0]
     upper = (number(context.get("max_input_tokens"), "rounding_input_bound_missing", 1, 16_000_000)
-             * max(mr, mr * cache)
+             * max(mr, mr * cache, mr * 2 if legacy_usage else mr)
              + number(context.get("max_output_tokens"), "rounding_output_bound_missing", 1, 65_536)
              * mr * cr) * group_ratio
     # Do not claim parity for Go's int32 saturation; this admitted domain cannot reach it.
@@ -480,7 +489,7 @@ def legacy_ratio_decimal(price, provider, group, model, options, source_revision
             and re.fullmatch(r"[a-f0-9]{64}", price["ratio_oracle_sha256"]),
             "ratio_decimal_source_unproven")
     require(text_reference(price.get("contract_revision"))
-            and price.get("source_usage_contract") == "ordinary-inclusive-no-cache-write-v1"
+            and price.get("source_usage_contract") in ("ordinary-inclusive-no-cache-write-v1", LEGACY_FABLE_USAGE)
             and set(price) <= {"group", "model", "kind", "contract_revision", "source_options_sha256",
                 "group_multiplier_ppm", "speed_multiplier_ppm", "ratio_source_revision",
                 "ratio_oracle_sha256", "source_usage_contract"},
@@ -490,8 +499,21 @@ def legacy_ratio_decimal(price, provider, group, model, options, source_revision
     require(type(provider.get("source_channel_sha256")) is str
             and re.fullmatch(r"[a-f0-9]{64}", provider["source_channel_sha256"]),
             "ratio_decimal_channel_unbound")
+    legacy_usage = price["source_usage_contract"] == LEGACY_FABLE_USAGE
     mr, cr, cache, group_ratio, context, cache_default = legacy_ratio_source(
-        provider, group, model, options, source_revision, channel_type)
+        provider, group, model, options, source_revision, channel_type, legacy_usage=legacy_usage)
+    creation = Fraction(0)
+    if legacy_usage:
+        source = {row["key"]: row.get("value") for row in options}
+        creation_map = source.get("CreateCacheRatio", {})
+        creation_map = F.parse_json(creation_map) if type(creation_map) is str else creation_map
+        require(type(creation_map) is dict, "ratio_decimal_creation_ratio_invalid")
+        try:
+            creation = Fraction(str(creation_map.get(model, "1.25")))
+        except (ValueError, ZeroDivisionError):
+            raise MappingError("ratio_decimal_creation_ratio_invalid") from None
+        # Deliberately only the reviewed 5m=1.25, 1h=2 ratio, not arbitrary fees.
+        require(creation == Fraction(5, 4), "ratio_decimal_creation_ratio_unsupported")
     require(mr > 0 and cr > 0 and cache > 0, "ratio_decimal_positive_domain_required")
     group_ppm = number(price.get("group_multiplier_ppm"), "price_multiplier_invalid", 0, 1_000_000_000)
     speed_ppm = number(price.get("speed_multiplier_ppm"), "price_multiplier_invalid", 1, 1_000_000_000)
@@ -499,7 +521,8 @@ def legacy_ratio_decimal(price, provider, group, model, options, source_revision
             "rounding_source_rate_mismatch")
     rates = {}
     for key, value in {"input": 2 * mr, "output": 2 * mr * cr,
-                       "cache_read": 2 * mr * cache, "cache_write": Fraction(0)}.items():
+                       "cache_read": 2 * mr * cache, "cache_write": 2 * mr * creation,
+                       **({"cache_write_1h": 2 * mr * creation * Fraction(8, 5)} if legacy_usage else {})}.items():
         require(value.numerator <= 2**64 - 1 and value.denominator <= 10**18,
                 "ratio_decimal_rate_out_of_range")
         rates[key] = {"numerator": value.numerator, "denominator": value.denominator}
@@ -513,9 +536,15 @@ def legacy_ratio_decimal(price, provider, group, model, options, source_revision
         "adapter_contract": provider["adapter_contract"], "non_audio_contract": provider["non_audio_contract"],
         "source_operations": context["source_operations"],
         "max_input_tokens": context["max_input_tokens"], "max_output_tokens": context["max_output_tokens"]}
+    if legacy_usage:
+        origin.update(payload_policy="legacy_openrouter_chat_usage_v1",
+            input_basis="projected-disjoint-sum", creation_ratio=str(creation),
+            creation_ratio_1h=str(creation * Fraction(8, 5)),
+            cost_inference="cc52_custom_ModelRatio_not_in_default_map",
+            counter_projection="cc52-DTO-alias-TTL-semantic-priority-v1")
     return {"billing_mode": "tiered_decimal",
-        "tiered": {"revision": 1, "source_digest": F.digest(origin), "uses_cache_read": True,
-            "uses_cache_write": False, "uses_cache_write_1h": False, "uses_cache_write_12h": False,
+        "tiered": {"revision": 3 if legacy_usage else 1, "source_digest": F.digest(origin), "uses_cache_read": True,
+            "uses_cache_write": legacy_usage, "uses_cache_write_1h": legacy_usage, "uses_cache_write_12h": False,
             "tiers": [{"rates": rates}]},
         "rates": {k: 0 for k in ("input", "output", "cache_read", "cache_write", "request")},
         "group_multiplier_ppm": group_ppm, "speed_multiplier_ppm": speed_ppm}, origin
@@ -935,7 +964,10 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                     next_target_id += 1
                     targets.append({"id": next_target_id, "upstream_id": cid, "upstream_model": model, "enabled": True,
                                     "priority": entry["native_priority"], "weight": entry["native_weight"], "speeds": ["standard"],
-                                    "payload": "open_router" if channel.get("type") == 20 else "adapt",
+                                    "payload": ("legacy_openrouter_chat_usage_v1"
+                                        if source_price.get("kind") == "legacy_ratio_decimal"
+                                        and source_price.get("source_usage_contract") == LEGACY_FABLE_USAGE
+                                        else "open_router" if channel.get("type") == 20 else "adapt"),
                                     "timeout_ms": limits["timeout_seconds"] * 1000})
                 for reason in sorted(set(entry["reasons"])):
                     block(reason, group=group, model=model, channel_id=cid)

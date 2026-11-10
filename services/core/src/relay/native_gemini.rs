@@ -466,7 +466,7 @@ impl NativeEncoder {
         }
     }
     pub(crate) fn usage(&self) -> Usage {
-        self.usage
+        self.usage.clone()
     }
     pub(crate) fn finish_reason(&self) -> Option<FinishReason> {
         self.finish

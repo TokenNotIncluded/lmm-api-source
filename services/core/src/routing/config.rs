@@ -170,6 +170,9 @@ pub enum PayloadPolicy {
     Adapt,
     /// Explicit legacy type-20 OpenRouter Chat adapter.
     OpenRouter,
+    /// Fixed cc52 type20 Chat usage projection, owner-selected with its decimal tariff.
+    #[serde(rename = "legacy_openrouter_chat_usage_v1")]
+    LegacyOpenRouterChatUsageV1,
     /// Explicit type-1 OpenAI HTTP filtering. Unset flags remove only these fields.
     LegacyOpenai {
         #[serde(default)]
@@ -186,12 +189,16 @@ pub enum PayloadPolicy {
 }
 
 impl PayloadPolicy {
+    pub(crate) fn openrouter_chat(self) -> bool {
+        matches!(self, Self::OpenRouter | Self::LegacyOpenRouterChatUsageV1)
+    }
+
     /// Compatibility is an adapter only within the selected OpenAI wire protocol.
     pub(crate) fn adapts(self, client: Protocol, upstream: Protocol) -> bool {
         match self {
             Self::Adapt => !(client.dedicated() || upstream.dedicated()) || client == upstream,
             Self::Passthrough => false,
-            Self::OpenRouter => client == Protocol::OpenAiChat && upstream == Protocol::OpenAiChat,
+            Self::OpenRouter | Self::LegacyOpenRouterChatUsageV1 => client == Protocol::OpenAiChat && upstream == Protocol::OpenAiChat,
             Self::LegacyOpenai { .. } => {
                 client == upstream
                     && matches!(client, Protocol::OpenAiChat | Protocol::OpenAiResponses)

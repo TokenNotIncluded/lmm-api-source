@@ -1178,7 +1178,7 @@ impl Request {
 
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
         use crate::routing::PayloadPolicy;
-        if route.payload_policy == PayloadPolicy::OpenRouter {
+        if route.payload_policy.openrouter_chat() {
             if !self.compatibility.is_empty() {
                 return Err(RelayError::Unsupported(
                     "legacy OpenAI fields are not OpenRouter controls",

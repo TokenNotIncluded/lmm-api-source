@@ -53,7 +53,7 @@ fn next_recovery_page(rows: &[CompletedStream], limit: usize) -> Option<String> 
 /// Reject a known billable dimension before either partial or terminal output
 /// becomes durable. A missing aggregate does not erase a known positive subset.
 fn validate_cache_write_dimensions(
-    usage: crate::relay::Usage,
+    usage: &crate::relay::Usage,
     price: &charging::Price,
 ) -> Result<(), RelayError> {
     price
@@ -353,7 +353,7 @@ impl Bridge {
                 &reservation.id,
                 &worker,
                 &selected.route_id,
-                checkpoint.usage,
+                checkpoint.usage.clone(),
                 input_ceiling,
                 output_ceiling,
             )
@@ -363,13 +363,13 @@ impl Bridge {
         if frozen.price != selected.price {
             return Err(RelayError::SettlementPending);
         }
-        validate_cache_write_dimensions(checkpoint.usage, &frozen.price)?;
-        super::billing::validate_frozen_observation(&contract, &frozen, checkpoint.usage)?;
+        validate_cache_write_dimensions(&checkpoint.usage, &frozen.price)?;
+        super::billing::validate_frozen_observation(&contract, &frozen, &checkpoint.usage)?;
         let normalized = if checkpoint.terminal_observed {
             Some(super::billing::frozen_priced_usage(
                 &contract,
                 &frozen,
-                checkpoint.usage,
+                checkpoint.usage.clone(),
             )?)
         } else {
             None
@@ -392,7 +392,7 @@ impl Bridge {
             return Err(RelayError::SettlementPending);
         }
         let usage =
-            serde_json::to_value(checkpoint.usage).map_err(|_| RelayError::BillingUnavailable)?;
+            serde_json::to_value(checkpoint.usage.checkpoint_usage()).map_err(|_| RelayError::BillingUnavailable)?;
         let sequence =
             i64::try_from(checkpoint.sequence).map_err(|_| RelayError::SettlementPending)?;
         let bytes =
@@ -543,13 +543,13 @@ mod a07_recovery_tests {
             for revision in [None, Some(1), Some(2), Some(3)] {
                 assert!(
                     matches!(
-                        validate_cache_write_dimensions(observed, &dimension_price(revision)),
+                        validate_cache_write_dimensions(&observed, &dimension_price(revision)),
                         Err(RelayError::SettlementPending)
                     ),
                     "{revision:?}: {observed:?}"
                 );
             }
-            assert!(validate_cache_write_dimensions(observed, &dimension_price(Some(4))).is_ok());
+            assert!(validate_cache_write_dimensions(&observed, &dimension_price(Some(4))).is_ok());
         }
         let short = Usage {
             openai_cache_write_details: Some(OpenAiCacheWriteDetails {
@@ -560,13 +560,13 @@ mod a07_recovery_tests {
         };
         short.validate().unwrap();
         for revision in [None, Some(1)] {
-            assert!(validate_cache_write_dimensions(short, &dimension_price(revision)).is_err());
+            assert!(validate_cache_write_dimensions(&short, &dimension_price(revision)).is_err());
         }
         // Supported partial dimensions may await their total; terminal
         // normalization separately requires a complete authoritative receipt.
         for revision in [2, 3, 4] {
             assert!(
-                validate_cache_write_dimensions(short, &dimension_price(Some(revision))).is_ok()
+                validate_cache_write_dimensions(&short, &dimension_price(Some(revision))).is_ok()
             );
         }
         let anthropic = Usage {
@@ -578,10 +578,10 @@ mod a07_recovery_tests {
             ..twelve
         };
         anthropic.validate().unwrap();
-        assert!(validate_cache_write_dimensions(anthropic, &dimension_price(Some(4))).is_err());
+        assert!(validate_cache_write_dimensions(&anthropic, &dimension_price(Some(4))).is_err());
         for revision in [None, Some(1), Some(2), Some(3), Some(4)] {
             assert!(
-                validate_cache_write_dimensions(Usage::default(), &dimension_price(revision))
+                validate_cache_write_dimensions(&Usage::default(), &dimension_price(revision))
                     .is_ok()
             );
         }
@@ -601,7 +601,7 @@ mod a07_recovery_tests {
         }))
         .unwrap();
         observed.validate().unwrap();
-        assert!(validate_cache_write_dimensions(observed, &price).is_ok());
+        assert!(validate_cache_write_dimensions(&observed, &price).is_ok());
         let usage =
             recovery_priced_usage(serde_json::to_value(observed).unwrap(), 1, &price).unwrap();
         assert_eq!(price.cost(usage).unwrap(), 500_000);

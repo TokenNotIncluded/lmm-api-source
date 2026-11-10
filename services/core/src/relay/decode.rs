@@ -20,6 +20,7 @@ struct Slot {
 pub(crate) struct Decoder {
     protocol: UpstreamProtocol,
     cache_creation_mode: Option<CacheCreationMode>,
+    legacy_openrouter_usage: bool,
     started: bool,
     source_id: Option<String>,
     done: bool,
@@ -388,6 +389,7 @@ impl Decoder {
         Self {
             protocol,
             cache_creation_mode,
+            legacy_openrouter_usage: false,
             started: false,
             source_id: None,
             done: false,
@@ -402,7 +404,19 @@ impl Decoder {
         }
     }
 
+    pub(crate) fn with_legacy_openrouter_usage(mut self, enabled: bool) -> Self {
+        self.legacy_openrouter_usage = enabled;
+        self
+    }
+
     fn usage(&self, value: &Value) -> Result<Usage, RelayError> {
+        if self.legacy_openrouter_usage {
+            if self.protocol != UpstreamProtocol::Chat
+                || self.cache_creation_mode != Some(CacheCreationMode::GenericRemainderV1) {
+                return Err(RelayError::Invalid("legacy OpenRouter usage contract"));
+            }
+            return super::legacy_openrouter_usage::project(value);
+        }
         usage_with_cache_creation_mode(self.protocol, value, self.cache_creation_mode)
     }
     pub fn is_done(&self) -> bool {
@@ -1329,7 +1343,7 @@ mod tests {
                 .unwrap()
             {
                 if let Event::Usage(value) = event {
-                    observed.merge(value).unwrap();
+                    observed.merge(value.clone()).unwrap();
                 }
             }
         }
@@ -1733,6 +1747,7 @@ mod tests {
             cache_creation_details: None,
             openai_cache_write_details: None,
             cache_creation_mode: None,
+            legacy_openrouter_raw: None,
             reasoning_output_tokens: Some(1),
         };
         for (protocol, client) in [
@@ -2272,7 +2287,7 @@ mod openai_cache_write_tests {
                 let mut combined = Usage::default();
                 for event in events {
                     if let Event::Usage(value) = event {
-                        combined.merge(value).unwrap();
+                        combined.merge(value.clone()).unwrap();
                     }
                 }
                 assert_eq!(combined, expected);
