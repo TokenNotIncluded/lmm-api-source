@@ -3,9 +3,11 @@ import { api } from '@/lib/api'
 
 import { STORE_ACCESS_COPY } from './access-copy'
 import type { StoreCatalogueProduct } from './catalogue-types'
+import type {
+  ExtoreAuthorization,
+  ExtoreCatalog,
+} from './extore-import-protocol'
 import type { ExtoreConnections } from './extore-sync'
-import type { ExtoreCatalog } from './extore-import-protocol'
-import type { ExtoreAuthorization } from './extore-import-protocol'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
@@ -167,12 +169,10 @@ async function allStoreCategories(admin = false): Promise<StoreCategoryList> {
 }
 export const storeApi = {
   extoreConnections: () =>
-    unwrap<ExtoreConnections>(
-      api.get(`${root}/extore/connections`, options)
-    ),
+    unwrap<ExtoreConnections>(api.get(`${root}/extore/connections`, options)),
   extoreConnectionCatalog: (id: string) =>
     unwrap<
-      ExtoreCatalog & {
+      Omit<ExtoreCatalog, 'products'> & {
         products: (ExtoreCatalog['products'][number] & {
           card_summary?: { total?: number; states?: Record<string, number> }
         })[]

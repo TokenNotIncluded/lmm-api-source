@@ -348,7 +348,7 @@ async function edit(container: HTMLElement, value: string) {
       dom.HTMLInputElement.prototype,
       'value'
     )?.set?.call(field(container), value)
-    field(container).dispatchEvent(new dom.Event('input', { bubbles: true }))
+    field(container).dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 async function click(container: HTMLElement, label: string) {
