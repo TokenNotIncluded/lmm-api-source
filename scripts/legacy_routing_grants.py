@@ -2,7 +2,7 @@
 """Prepare source-bound routing-group grants for a stopped, isolated Core target.
 
 This emits private psql scripts and a read-only outcome probe; it never connects or applies.
-It copies only each user's original group and source enabled/deleted state. It
+It copies each user's proven usable groups and source enabled/deleted state. It
 does not activate users, routes, credentials, providers or financial capabilities.
 Requires both frozen identity and financial exports. Plan hashes are integrity
 checks, not signatures; the supplied exports remain the independently preserved
@@ -93,7 +93,7 @@ def source_records(plan, manifest, mapping_bytes, export_bytes, financial_bytes)
     parse_lines = lambda raw: [FIN.PLANNER.parse_json(line) for line in raw.decode("utf-8").splitlines() if line]
     require(FIN.sha(financial_bytes) == bindings["source_export_sha256"],
             "routing_financial_export_hash_mismatch")
-    financial_users, financial_framing = {}, {"identity": 0, "schema": 0}
+    financial_users, financial_framing, source_options = {}, {"identity": 0, "schema": 0}, []
     for line in io.BytesIO(financial_bytes):
         if not line.strip():
             continue
@@ -111,6 +111,8 @@ def source_records(plan, manifest, mapping_bytes, export_bytes, financial_bytes)
                 uid = FIN.PLANNER.integer(row.get("id"), "routing_financial_user_invalid", minimum=1)
                 require(uid not in financial_users, "routing_financial_user_duplicate")
                 financial_users[uid] = row
+            elif tagged["table"] == "options":
+                source_options.append(row)
     require(financial_framing == {"identity": 1, "schema": 1}, "routing_financial_export_framing_invalid")
     mapped = parse_lines(mapping_bytes)
     require(all(type(row) is dict and set(row) == {"source_user_id", "target_user_id", "target_personal_account_id"}
@@ -151,8 +153,13 @@ def source_records(plan, manifest, mapping_bytes, export_bytes, financial_bytes)
     require(framing == {"identity": 1, "schema_identity": 1} and counts == [len(users)]
             and users and set(users) == set(identities) == set(financial_users), "routing_identity_coverage_mismatch")
     planned = plan.get("user_group_plan")
-    require(type(planned) is list and len(planned) == len(users), "routing_user_group_coverage_mismatch")
-    wanted = [users[uid] for uid in sorted(users)]
+    try:
+        memberships = ROUTING.source_user_group_memberships(financial_users, source_options)
+    except ROUTING.MappingError as exc:
+        raise Error(str(exc)) from None
+    wanted = [{k: v for k, v in row.items() if k not in {"source_row_sha256", "source_user_utc_sha256"}}
+              for row in memberships]
+    require(type(planned) is list and len(planned) == len(wanted), "routing_user_group_coverage_mismatch")
     require(all(type(row) is dict and set(row) in (set(wanted[0]) | {"source_row_sha256"},
                 set(wanted[0]) | {"source_row_sha256", "source_user_utc_sha256"}) for row in planned),
             "routing_user_group_plan_shape_invalid")
@@ -249,11 +256,14 @@ def validate_material(material):
                 and row["platform_role"] in {"user", "admin", "superadmin"} for row in native),
             "routing_target_identity_changed")
     rows = material["records"]
-    require(type(rows) is list and all(type(row) is dict for row in rows) and [r.get("user_id") for r in rows] == sorted(identities)
+    require(type(rows) is list and all(type(row) is dict for row in rows)
             and all(type(row) is dict and set(row) == {"user_id", "group_name", "enabled", "source_reference"}
                 and type(row["user_id"]) is int and ROUTING.label(row["group_name"]) and type(row["enabled"]) is bool
                 and row["source_reference"] == "legacy.users/" + str(row["user_id"]) for row in rows)
             and material["mapping_sha256"] == FIN.digest(rows), "routing_grant_rows_invalid")
+    pairs = [(row["user_id"], row["group_name"]) for row in rows]
+    require(pairs == sorted(set(pairs)) and {row["user_id"] for row in rows} == set(identities),
+            "routing_grant_rows_invalid")
     state = material["before_state"]
     require(type(state) is dict and set(state) == {"inventory", "tables", "sequences"}
             and type(state["tables"]) is dict and type(state["sequences"]) is dict,

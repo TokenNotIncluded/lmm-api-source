@@ -41,7 +41,9 @@ def fixture():
     source_instance = {"database": "synthetic_source", "role": "synthetic_reader", "database_oid": "99",
         "postmaster_started_at": "2026-01-01T00:00:00+00:00", "server_version_num": "180000",
         "port": 5433, "tcp_connection": False, "read_only": "on"}
-    financial_bytes = encode([{"kind": "identity", "row": source_instance},
+    options = [{"key": "UserUsableGroups", "value": "{}"}]
+    financial_bytes = encode([*({"kind": "row", "table": "options", "row": row} for row in options),
+        {"kind": "identity", "row": source_instance},
         {"kind": "schema", "row": {"schema": "public", "schema_owner": "synthetic_owner"}},
         *({"kind": "row", "table": "users", "row": row} for row in users)])
     manifest = {"format_version": 2, "scope": "identity-only", "source_archive_sha256": archive_hash,
@@ -54,7 +56,7 @@ def fixture():
             "enabled": row["status"] == 1 and row["deleted_at"] is None,
             "source_reference": "legacy.users/" + str(row["id"]), "source_row_sha256": G.FIN.digest(row)} for row in users]}
     plan["plan_sha256"] = G.FIN.digest(plan)
-    tables = sorted(set(G.FIN.CHANGED_TABLES) | set(G.FIN.FRESH_EMPTY_TABLES) |
+    tables = sorted(set(G.FIN.CHANGED_TABLES) | set(G.FIN.fresh_empty_tables()) |
         {G.TABLE, "core_migration.import_runs", "core_identity.users", "core_identity.accounts", "core_trust_pricing.policies"})
     sequences = sorted(G.FIN.CHANGED_SEQUENCES)
     state = {"inventory": {"tables": tables, "sequences": sequences},
@@ -78,10 +80,12 @@ def fixture():
     data = {"routing_plan": (G.FIN.canonical(plan) + "\n").encode(), "identity_manifest": (G.FIN.canonical(manifest) + "\n").encode(),
             "identity_map": mapping_bytes, "source_identity_export": export_bytes, "source_financial_export": financial_bytes}
     columns = [{"schema": "public", "table_name": "users", "column_name": key} for key in users[0]]
+    columns += [{"schema": "public", "table_name": "options", "column_name": key} for key in options[0]]
     catalog = root / "native-catalog-metadata.jsonl"
     catalog.write_bytes(encode([[], [], columns, [], [], [], []]))
     baseline = root / "native-table-row-count-baseline.jsonl"
-    baseline.write_bytes(encode([{"table": "users", "row_count": len(users)}]))
+    baseline.write_bytes(encode([{"table": "users", "row_count": len(users)},
+                                {"table": "options", "row_count": len(options)}]))
     for path in (catalog, baseline):
         path.chmod(0o600)
     receipt = {"status": "snapshot-restored-baseline-verified-frozen-and-classified",
@@ -92,7 +96,7 @@ def fixture():
     proof = {"source_archive_sha256": archive_hash, "source_export_sha256": G.FIN.sha(financial_bytes),
         "metadata_hashes": {path.name: G.FIN.sha(path.read_bytes()) for path in (catalog, baseline)},
         "source_column_coverage_exact": True, "source_row_baseline_exact": True,
-        "selected_table_counts": {"users": len(users)}, "source_instance": source_instance}
+        "selected_table_counts": {"users": len(users), "options": len(options)}, "source_instance": source_instance}
     data.update(source_receipt=(G.FIN.canonical(receipt) + "\n").encode(),
                 export_proof=(G.FIN.canonical(proof) + "\n").encode())
     filenames = {"source_financial_export": "source-financial-export.private.jsonl"}
@@ -118,6 +122,58 @@ def prepare(value=None):
                 patch.object(G.ROUTING.F.IDENTITY, "BACKUP_ROOT", Path(tempfile.gettempdir())):
         return G.prepare_material(plan, manifest, mapping, exported, data["source_financial_export"], migration_id="synthetic-routing-grants",
             snapshot=snapshot, runtime_roles=["synthetic_runtime"], source_files=files)
+
+
+class SourceGroupRecordsTests(unittest.TestCase):
+    def material_inputs(self):
+        users = [{"id": 17, "group": "default", "status": 1, "deleted_at": None},
+                 {"id": 81, "group": "default", "status": 2, "deleted_at": None}]
+        encode = lambda rows: ("\n".join(G.FIN.canonical(row) for row in rows) + "\n").encode()
+        mapping = encode([{"source_user_id": row["id"], "target_user_id": row["id"],
+                           "target_personal_account_id": row["id"] + 1000} for row in users])
+        exported = encode([{"kind": "identity", "row": {}}, {"kind": "schema_identity", "row": {}},
+            {"kind": "user_count", "row": 2}, *({"kind": "user", "row": row} for row in users)])
+        financial = encode([{"kind": "identity", "row": {}}, {"kind": "schema", "row": {}},
+            {"kind": "row", "table": "options", "row": {"key": "UserUsableGroups", "value": '{"route-a":"A"}'}},
+            *({"kind": "row", "table": "users", "row": row} for row in users)])
+        manifest = {"format_version": 2, "scope": "identity-only", "source_archive_sha256": "a" * 64,
+            "source_export_sha256": G.FIN.sha(exported), "source_target_id_map_sha256": G.FIN.sha(mapping),
+            "mapping_sha256": "e" * 64}
+        planned = [{"user_id": row["id"], "group_name": group, "enabled": row["status"] == 1,
+                    "source_reference": "legacy.users/" + str(row["id"]),
+                    "source_row_sha256": G.FIN.digest(row)} for row in users for group in ("default", "route-a")]
+        plan = {"format_version": 1, "scope": "legacy-routing-offline-plan",
+                "bindings": {"source_archive_sha256": "a" * 64, "source_export_sha256": G.FIN.sha(financial),
+                             "identity_map_file_sha256": G.FIN.sha(mapping)}, "user_group_plan": planned}
+        plan["plan_sha256"] = G.FIN.digest(plan)
+        return plan, manifest, mapping, exported, financial
+
+    def test_exact_multigroup_source_policy_uses_user_ids_and_preserves_disabled(self):
+        records, identities, _ = G.source_records(*self.material_inputs())
+        self.assertEqual([(r["user_id"], r["group_name"]) for r in records],
+                         [(17, "default"), (17, "route-a"), (81, "default"), (81, "route-a")])
+        self.assertEqual(identities, {17: 1017, 81: 1081})
+        self.assertEqual([r["enabled"] for r in records], [True, True, False, False])
+
+    def test_resealed_plan_cannot_alias_retired_group_or_grant_account_id(self):
+        for update in ({"group_name": "retired"}, {"user_id": 1017}, {"enabled": False}):
+            values = self.material_inputs()
+            plan = values[0]
+            plan["user_group_plan"][0].update(update)
+            plan.pop("plan_sha256")
+            plan["plan_sha256"] = G.FIN.digest(plan)
+            with self.subTest(update=update), self.assertRaises(G.Error):
+                G.source_records(*values)
+
+    def test_resealed_source_policy_cannot_omit_proven_groups(self):
+        values = list(self.material_inputs())
+        values[-1] = values[-1].replace(b'route-a', b'route-b')
+        self.assertNotEqual(values[-1], self.material_inputs()[-1])
+        values[0]["bindings"]["source_export_sha256"] = G.FIN.sha(values[-1])
+        values[0].pop("plan_sha256")
+        values[0]["plan_sha256"] = G.FIN.digest(values[0])
+        with self.assertRaises(G.Error):
+            G.source_records(*values)
 
 
 class SourceTests(unittest.TestCase):
@@ -207,12 +263,14 @@ class SourceTests(unittest.TestCase):
             with self.subTest(field=field):
                 value = fixture()
                 rows = [json.loads(line) for line in value[-1]["source_financial_export"].splitlines()]
-                rows[2]["row"][field] = changed
+                financial_user = next(tag["row"] for tag in rows
+                                      if tag["kind"] == "row" and tag["table"] == "users")
+                financial_user[field] = changed
                 raw = ("\n".join(G.FIN.canonical(row) for row in rows) + "\n").encode()
                 value[-1]["source_financial_export"] = raw
                 value[0]["bindings"]["source_export_sha256"] = G.FIN.sha(raw)
-                value[0]["user_group_plan"][0].update(source_row_sha256=G.FIN.digest(rows[2]["row"]),
-                    source_user_utc_sha256=G.ROUTING.user_binding_hash(rows[2]["row"]))
+                value[0]["user_group_plan"][0].update(source_row_sha256=G.FIN.digest(financial_user),
+                    source_user_utc_sha256=G.ROUTING.user_binding_hash(financial_user))
                 value[0].pop("plan_sha256")
                 value[0]["plan_sha256"] = G.FIN.digest(value[0])
                 with self.assertRaisesRegex(G.Error, "routing_financial_identity_user_disagrees"):
@@ -220,7 +278,8 @@ class SourceTests(unittest.TestCase):
 
     def test_financial_user_coverage_and_framing_are_required(self):
         for mutate in (lambda rows: rows.pop(), lambda rows: rows.append(deepcopy(rows[-1])),
-                       lambda rows: rows.pop(0), lambda rows: rows.append(deepcopy(rows[0]))):
+                       lambda rows: rows.remove(next(tag for tag in rows if tag["kind"] == "identity")),
+                       lambda rows: rows.append(deepcopy(next(tag for tag in rows if tag["kind"] == "identity")))):
             value = fixture()
             rows = [json.loads(line) for line in value[-1]["source_financial_export"].splitlines()]
             mutate(rows)

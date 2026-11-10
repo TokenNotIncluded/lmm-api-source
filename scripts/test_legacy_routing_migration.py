@@ -18,7 +18,8 @@ def fixture(weights=(0, 0), priorities=(10, 10), memory=True):
     bindings = {"source_archive_sha256": "a" * 64, "source_export_sha256": "b" * 64,
                 "identity_map_file_sha256": "c" * 64}
     tables = {"users": [{"id": 71, "group": "原组/一", "status": 1, "deleted_at": None,
-                         "email": "synthetic-private@example.invalid"}], "channels": [], "abilities": [], "options": []}
+                         "email": "synthetic-private@example.invalid"}], "channels": [], "abilities": [],
+              "options": [{"key": "UserUsableGroups", "value": "{}"}]}
     for cid, (weight, priority) in enumerate(zip(weights, priorities), 1):
         tables["channels"].append({"id": cid, "type": 1, "key": "synthetic-secret-" + str(cid),
             "base_url": "https://provider.example", "status": 1, "group": "原组/一", "models": "example-model",
@@ -109,6 +110,46 @@ def rebind_channel(value, cid=1):
 
 
 class RoutingSemanticsTests(unittest.TestCase):
+    def test_source_memberships_preserve_global_groups_and_inherited_default(self):
+        users = {17: {"id": 17, "group": "default", "status": 1, "deleted_at": None},
+                 81: {"id": 81, "group": "default", "status": 2, "deleted_at": None}}
+        usable = {"group-" + str(i): "源分组" for i in range(16)}
+        options = [{"key": "UserUsableGroups", "value": json.dumps(usable)},
+                   {"key": "group_ratio_setting.group_special_usable_group", "value": "{}"}]
+        rows = R.source_user_group_memberships(users, options)
+        self.assertEqual(len(rows), 34)
+        for uid in users:
+            selected = [row for row in rows if row["user_id"] == uid]
+            self.assertEqual({row["group_name"] for row in selected}, set(usable) | {"default"})
+            self.assertTrue(all(row["enabled"] is (uid == 17) for row in selected))
+            self.assertTrue(all(row["source_row_sha256"] == R.F.digest(users[uid]) for row in selected))
+        # A historical explicit group outside this authority is never aliased.
+        self.assertNotIn("retired-explicit-group", {row["group_name"] for row in rows})
+
+    def test_source_memberships_refuse_auto_and_unmapped_special_authority(self):
+        users = {17: {"id": 17, "group": "default", "status": 1, "deleted_at": None}}
+        for options in ([{"key": "UserUsableGroups", "value": '{"auto":"Auto"}'}],
+                        [{"key": "UserUsableGroups", "value": "{}"},
+                         {"key": "group_ratio_setting.group_special_usable_group",
+                          "value": '{"default":{"+:extra":"extra"}}'}]):
+            with self.subTest(options=options), self.assertRaises(R.MappingError):
+                R.source_user_group_memberships(users, options)
+
+    def test_source_compiled_defaults_and_deleted_memberships_are_explicit(self):
+        user = {"id": 17, "group": "own", "status": 1, "deleted_at": "2026-01-01T00:00:00Z"}
+        rows = R.source_user_group_memberships({17: user}, [])
+        self.assertEqual([row["group_name"] for row in rows], ["default", "own", "vip"])
+        self.assertTrue(all(row["enabled"] is False for row in rows))
+
+    def test_bootstrap_registers_inherited_default_even_without_source_abilities(self):
+        value = fixture()
+        value[0]["users"][0]["group"] = "default"
+        result = run_fixture(value)
+        self.assertIn("default", {row["name"] for row in result["candidate"]["routing"]["groups"]})
+        self.assertFalse(any(row["group"] == "default" for row in result["candidate"]["routing"]["routes"]))
+        self.assertEqual(result["source_group_policy"]["missing_group_ratio_fallback"], 1)
+        self.assertTrue(result["source_group_policy"]["membership_is_not_explicit_token_admission"])
+
     def test_image_sidecar_preserves_native_source_and_declared_total_bounds(self):
         value = image_fixture()
         result = run_fixture(value)

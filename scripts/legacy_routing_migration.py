@@ -90,6 +90,47 @@ def user_binding_hash(user):
     return F.digest(normalized)
 
 
+def source_user_group_memberships(users, options):
+    """Pinned cc52 GetUserUsableGroups, not the explicit Token.Group gate.
+
+    Membership also preserves the account group inherited by an empty token
+    group. Key admission must independently check the old explicit-group gate;
+    native membership alone must never revive a source-denied explicit group.
+    Nonempty special-group policies remain unsupported rather than guessed.
+    """
+    values = {}
+    for option in options:
+        require(type(option) is dict and type(option.get("key")) is str
+                and option["key"] not in values, "routing_option_key_duplicate_or_invalid")
+        values[option["key"]] = option.get("value")
+    raw = values.get("UserUsableGroups")
+    # These are the actual setting/user_usable_group.go compiled defaults.
+    usable = {"default": "默认分组", "vip": "vip分组"} if raw is None else (
+        F.parse_json(raw) if type(raw) is str else raw)
+    require(type(usable) is dict and all(label(name) and type(description) is str
+            for name, description in usable.items()), "source_user_usable_groups_invalid")
+    for key, value in values.items():
+        if re.search(r"special.*usable.*group", key, re.I):
+            parsed = F.parse_json(value) if type(value) is str and value not in EMPTY else value
+            require(parsed in EMPTY or parsed == {}, "source_special_user_groups_not_mapped")
+    memberships = []
+    for uid, user in sorted(users.items()):
+        group = user.get("group")
+        require(label(group), "source_user_group_invalid")
+        require(type(user.get("status")) is int and user["status"] in (1, 2)
+                and "deleted_at" in user, "source_user_state_missing")
+        if user["deleted_at"] is not None:
+            require(type(user["deleted_at"]) is str and 10 <= len(user["deleted_at"]) <= 40,
+                    "source_user_deleted_at_invalid")
+            datetime.fromisoformat(user["deleted_at"].replace("Z", "+00:00"))
+        for allowed in sorted(set(usable) | {group}):
+            memberships.append({"user_id": uid, "group_name": allowed,
+                "enabled": user["status"] == 1 and user["deleted_at"] is None,
+                "source_reference": "legacy.users/" + str(uid),
+                "source_row_sha256": F.digest(user), "source_user_utc_sha256": user_binding_hash(user)})
+    return memberships
+
+
 def number(value, code, minimum=1, maximum=MAX_ID):
     return F.integer(value, code, minimum=minimum, maximum=maximum)
 
@@ -777,21 +818,12 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         "legacy_expression_options_invalid")
             else:
                 block("legacy_expression_pricing_not_compiled")
-        if re.search(r"usablegroup|special.*group|groupgroupratio", option["key"], re.I) and option.get("value") not in EMPTY + ("[]",):
+        if (option["key"] != "UserUsableGroups"
+                and re.search(r"usablegroup|special.*group|groupgroupratio", option["key"], re.I)
+                and option.get("value") not in EMPTY + ("[]",)):
             block("cross_group_policy_not_mapped")
     options_hash = F.digest(tables["options"])
-    memberships = []
-    for uid, user in sorted(users.items()):
-        group = user.get("group")
-        require(label(group), "source_user_group_invalid")
-        require(type(user.get("status")) is int and user["status"] in (1, 2) and "deleted_at" in user, "source_user_state_missing")
-        if user["deleted_at"] is not None:
-            require(type(user["deleted_at"]) is str and 10 <= len(user["deleted_at"]) <= 40, "source_user_deleted_at_invalid")
-            datetime.fromisoformat(user["deleted_at"].replace("Z", "+00:00"))
-        memberships.append({"user_id": uid, "group_name": group,
-                            "enabled": user["status"] == 1 and user["deleted_at"] is None,
-                            "source_reference": "legacy.users/" + str(uid), "source_row_sha256": F.digest(user),
-                            "source_user_utc_sha256": user_binding_hash(user)})
+    memberships = source_user_group_memberships(users, tables["options"])
     ability_groups, seen = defaultdict(list), set()
     assessments = []
     require(type(tables["abilities"]) is list, "routing_source_abilities_invalid")
@@ -985,7 +1017,16 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
               "approval": False, "source_queries_this_run": 0, "source_options_sha256": options_hash,
               "input_contracts_sha256": {"runtime": F.digest(runtime), "providers": F.digest(providers), "credentials": F.digest(credentials)},
               "source_table_counts_sha256": F.digest(source_counts),
-              "user_group_plan": memberships, "ability_assessments": assessments, "blockers": blockers,
+              "user_group_plan": memberships,
+              "source_group_policy": {"source_revision": LEGACY_RATIO_SOURCE,
+                  "source_options_sha256": options_hash,
+                  "membership_is_not_explicit_token_admission": True,
+                  "missing_group_ratio_fallback": 1,
+                  "missing_group_ratio_fallback_source": LEGACY_RATIO_SOURCE + ":setting/ratio_setting/group_ratio.go:GetGroupRatio",
+                  "inherited_default_strategy": "freeze-at-import",
+                  "source_user_groups": [{"user_id": uid, "group": user["group"]}
+                                         for uid, user in sorted(users.items())]},
+              "ability_assessments": assessments, "blockers": blockers,
               "unverified": ["supplied-contract-truth", "price-equivalence", "source-runtime-evidence-truth", "native-config-validation",
                              "legacy-operation-surface", "parameter-semantics-equivalence",
                              "secret-installation", "native-key-authority-and-settings", "wallet-and-provider-reconciliation", "target-state"],
@@ -993,7 +1034,8 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                          "enabled_source_abilities": sum(a["source_enabled"] for a in assessments), "blockers": len(blockers)}}
     if not blockers:
         result["candidate"] = {"version": 1, "routing": {"version": 1,
-            "groups": [{"name": g, "enabled": True} for g in sorted({g for g, _ in ability_groups})],
+            "groups": [{"name": g, "enabled": True} for g in sorted(
+                {g for g, _ in ability_groups} | {row["group_name"] for row in memberships})],
             "upstreams": list(upstreams.values()), "routes": routes, "aliases": []}, "prices": {"version": 1, "rules": prices},
             "credentials": list(secret_refs.values()), "key_groups": [], "external_models": list(external_models.values()),
             "local_streaming": runtime["streaming_enabled"], **limits}
