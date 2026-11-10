@@ -1910,6 +1910,10 @@ pub fn assistant_tools_browser_router(pool: sqlx::PgPool) -> io::Result<Option<a
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct PaymentPermissions {
+    subscription_epay_user_orders: bool,
+    subscription_epay_proof_ingress: bool,
+    subscription_epay_proof_read: bool,
+    subscription_epay_grant: bool,
     prepare: bool,
     credit_evidence: bool,
     refund_user: bool,
@@ -2138,6 +2142,7 @@ fn rpc_configuration(
 #[cfg(unix)]
 pub struct FinancialRpcs {
     pub payments: Option<crate::payments::rpc::PaymentsRpc>,
+    pub epay_subscriptions: Option<crate::subscriptions::epay_rpc::EPaySubscriptionsRpc>,
     pub commerce: Option<crate::commerce::rpc::CommerceRpc>,
     pub directory_ads: Option<crate::directory_ads::rpc::DirectoryAdsRpc>,
 }
@@ -2187,6 +2192,7 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
         if rpc.features().is_empty() {return Err(invalid_config("advertisement RPC requires explicit permissions"));}
         Some(rpc)
     } else {None};
+    let mut epay_subscriptions = None;
     let payments = if let Some((document, token)) = payments {
         let config: PaymentConfig = parse_document(&document)
             .map_err(|_| invalid_config("invalid payment configuration"))?;
@@ -2201,12 +2207,25 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
             proof_ingress: p.proof_ingress,
             proof_read: p.proof_read,
         };
-        let store =
-            crate::payments::PaymentsStore::new(bounded_database_pool(url, 2).await?, channels)
-                .map_err(|_| invalid_config("invalid payment channel configuration"))?;
+        let pool = bounded_database_pool(url, 2).await?;
+        let store = crate::payments::PaymentsStore::new(pool.clone(), channels)
+            .map_err(|_| invalid_config("invalid payment channel configuration"))?;
+        let subscription_permissions = crate::subscriptions::epay_rpc::Permissions {
+            user_orders: p.subscription_epay_user_orders,
+            proof_ingress: p.subscription_epay_proof_ingress,
+            proof_read: p.subscription_epay_proof_read,
+            grant: p.subscription_epay_grant,
+        };
+        if subscription_permissions.user_orders || subscription_permissions.proof_ingress
+            || subscription_permissions.proof_read || subscription_permissions.grant {
+            epay_subscriptions = Some(crate::subscriptions::epay_rpc::EPaySubscriptionsRpc::new(
+                crate::subscriptions::SubscriptionStore::new(pool), store.clone(), &token,
+                subscription_permissions,
+            ).map_err(|_| invalid_config("invalid EPay subscription RPC configuration"))?);
+        }
         let rpc = crate::payments::rpc::PaymentsRpc::new(store, &token, permissions)
             .map_err(|_| invalid_config("invalid payment RPC configuration"))?;
-        if rpc.features().is_empty() {
+        if rpc.features().is_empty() && epay_subscriptions.is_none() {
             return Err(invalid_config(
                 "payment RPC requires explicit service permissions",
             ));
@@ -2246,7 +2265,7 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
     } else {
         None
     };
-    Ok(FinancialRpcs { payments, commerce, directory_ads })
+    Ok(FinancialRpcs { payments, epay_subscriptions, commerce, directory_ads })
 }
 
 /// Secret/configuration files must be private regular files. Errors deliberately

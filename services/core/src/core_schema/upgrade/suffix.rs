@@ -2,7 +2,7 @@
 //! Original rows, sequence states, ownership and ACLs must survive unchanged.
 use super::{
     finance::{data_hash, object_ids, permissions},
-    request_operations::preservation::data,
+    request_operations::preservation::data_projected,
     *,
 };
 use std::collections::BTreeSet;
@@ -33,6 +33,7 @@ macro_rules! reject_suffix {
             "core-channel-observations-v1" => concat!("CHANNEL_OBSERVATIONS_", $code),
             "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
             "core-commerce-display-rate-v1" => concat!("COMMERCE_DISPLAY_RATE_", $code),
+            "core-subscription-epay-v1" => concat!("SUBSCRIPTION_EPAY_", $code),
             _ => concat!("CHANNEL_PROJECTION_", $code),
         })
     };
@@ -217,7 +218,8 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             }
         }
         let sequences:Vec<String>=sqlx::query_scalar("SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_' AND c.relkind='S' ORDER BY n.nspname COLLATE \"C\",c.relname COLLATE \"C\"").fetch_all(&mut *tx).await?;
-        let old_data = data(&mut tx, &tables, &sequences).await?;
+        let subscription = self.procedure == super::subscription_epay::PROCEDURE;
+        let old_data = data_projected(&mut tx, &tables, &sequences, subscription).await?;
         for (name, ddl) in &COMPONENTS[self.predecessor_count..self.target_count] {
             sqlx::raw_sql(ddl).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES($1,$2)")
@@ -236,6 +238,14 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             .execute(&mut *tx)
             .await?;
         }
+        if subscription {
+            let unexpected: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_payments.provider_identifiers WHERE subscription_order_id IS NOT NULL)")
+                .fetch_one(&mut *tx).await?;
+            if unexpected {
+                return Err(reject_suffix!(self, "PREDECESSOR_DATA_CHANGED"));
+            }
+            super::subscription_epay::grant_runtime(&mut tx, &r.roles.runtime).await?;
+        }
         // One explicit owner-only backfill, inside the existing migration fence
         // and transaction. Failure rolls back the new DDL as well as projection.
         if self.predecessor_count < 44 {
@@ -243,8 +253,9 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         }
         let catalog = fingerprint(&definitions(&mut tx).await?);
         if hex(&catalog) != target.catalog_sha256
-            || preserved_permissions(&mut tx, &rels, &types, &keys).await? != old_permissions
-            || data(&mut tx, &tables, &sequences).await? != old_data
+            || preserved_permissions(&mut tx, &rels, &types, &keys, subscription).await?
+                != old_permissions
+            || data_projected(&mut tx, &tables, &sequences, subscription).await? != old_data
         {
             return Err(reject_suffix!(self, "PRESERVATION_OR_TARGET_MISMATCH"));
         }
@@ -296,9 +307,28 @@ async fn preserved_permissions(
     rels: &[i64],
     types: &[i64],
     keys: &BTreeSet<String>,
+    subscription: bool,
 ) -> Result<Vec<String>, UpgradeError> {
+    let added_column: Option<i16> = if subscription {
+        Some(sqlx::query_scalar("SELECT attnum FROM pg_attribute WHERE attrelid='core_payments.provider_identifiers'::regclass AND attname='subscription_order_id' AND NOT attisdropped AND attacl IS NULL")
+            .fetch_optional(&mut *c).await?.ok_or_else(||reject("SUBSCRIPTION_EPAY_COLUMN_ACL_CHANGED"))?)
+    } else {
+        None
+    };
     let mut result = Vec::new();
     for fact in permissions(c, rels, types).await? {
+        if let Some(number) = added_column {
+            let v: serde_json::Value =
+                serde_json::from_str(&fact).map_err(|_| UpgradeError::Storage)?;
+            if v[0] == "column"
+                && v[1] == "core_payments"
+                && v[2] == "provider_identifiers"
+                && v[3] == number
+                && v[4].is_null()
+            {
+                continue;
+            }
+        }
         if permission_key(&fact)?.is_none_or(|key| keys.contains(&key)) {
             result.push(fact);
         }

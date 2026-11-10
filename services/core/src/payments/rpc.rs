@@ -26,7 +26,7 @@ pub struct PaymentsRpc {
     permissions: Permissions,
     slots: Arc<Semaphore>,
 }
-fn single<'a>(metadata: &'a MetadataMap, name: &'static str) -> Result<&'a str, Status> {
+pub(crate) fn single<'a>(metadata: &'a MetadataMap, name: &'static str) -> Result<&'a str, Status> {
     let mut values = metadata.get_all(name).iter();
     let value = values
         .next()
@@ -105,7 +105,7 @@ impl PaymentsRpc {
             slots: Arc::new(Semaphore::new(8)),
         })
     }
-    fn check(&self, metadata: &MetadataMap, allowed: bool) -> Result<(), Status> {
+    pub(crate) fn check(&self, metadata: &MetadataMap, allowed: bool) -> Result<(), Status> {
         let token = single(metadata, "authorization")?
             .strip_prefix("Bearer ")
             .ok_or_else(|| Status::unauthenticated("invalid service credential"))?;

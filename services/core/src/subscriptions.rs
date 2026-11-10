@@ -1,6 +1,11 @@
 //! Core subscription sales. A wallet charge and its immutable consumption grant
 //! commit together; renewals create new grants and never extend old streams.
 mod admin;
+pub mod epay_rpc;
+mod external_epay;
+#[cfg(test)]
+mod external_epay_tests;
+pub use external_epay::*;
 mod http;
 #[cfg(test)]
 mod tests;
@@ -9,7 +14,7 @@ pub use admin::{
     AdminGrantInvalidation, AdminGrantRecord, AdminGrantRecords, AdminGrantRecordsQuery,
     GrantInvalidationReceipt,
 };
-pub use http::router;
+pub use http::{epay_price_router, router};
 pub use types::*;
 
 use crate::{
@@ -100,6 +105,11 @@ async fn lock(c: &mut PgConnection, actor: i64) -> Result<()> {
     .execute(c)
     .await?;
     Ok(())
+}
+// Both payment directions use this count under the same actor advisory lock.
+async fn purchase_count(c: &mut PgConnection, user: i64, plan: i64) -> Result<i64> {
+    Ok(sqlx::query_scalar("SELECT (SELECT count(*) FROM core_subscriptions.purchases p JOIN core_subscriptions.quotes q ON q.id=p.quote_id WHERE p.actor_user_id=$1 AND q.plan_id=$2 AND p.refund_journal_id IS NULL)+(SELECT count(*) FROM core_subscriptions.external_orders WHERE actor_user_id=$1 AND plan_id=$2 AND confirmed_at IS NOT NULL)")
+        .bind(user).bind(plan).fetch_one(c).await?)
 }
 async fn now(c: &mut PgConnection) -> Result<i64> {
     Ok(
@@ -429,8 +439,7 @@ impl SubscriptionStore {
             }
         }
         if q.plan.terms.max_purchases_per_user > 0 {
-            let n:i64=sqlx::query_scalar("SELECT count(*) FROM core_subscriptions.purchases p JOIN core_subscriptions.quotes q ON q.id=p.quote_id WHERE p.actor_user_id=$1 AND q.plan_id=$2 AND p.refund_journal_id IS NULL")
-                .bind(a.user_id).bind(q.plan.id).fetch_one(&mut *tx).await?;
+            let n = purchase_count(&mut tx, a.user_id, q.plan.id).await?;
             if n >= q.plan.terms.max_purchases_per_user {
                 return Err(Error::Conflict);
             }

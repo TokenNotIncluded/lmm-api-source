@@ -1,13 +1,14 @@
 //! Core-owned payment intents and independently verified provider transitions.
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
-mod identifiers;
+pub(crate) mod identifiers;
 mod legacy;
 mod legacy_pancake;
 mod legacy_store;
 mod providers;
 pub mod rpc;
 mod stripe;
+pub(crate) mod subscription_epay;
 pub(crate) mod waffo;
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
 pub use legacy_pancake::{FrozenPancakeQuote, VerifiedLegacyPancake, verify_legacy_pancake};

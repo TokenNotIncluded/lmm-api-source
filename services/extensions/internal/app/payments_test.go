@@ -162,6 +162,44 @@ func TestPaymentIngressPreservesOtherProviderProtocols(t *testing.T) {
 	}
 }
 
+func TestSubscriptionCallbackRoutesRemainSeparate(t *testing.T) {
+	host := paymentIngressHost(t)
+	walletCalls, subscriptionCalls := 0, 0
+	wallet := mountPaymentCallbacks(host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		walletCalls++
+		w.WriteHeader(http.StatusNoContent)
+	}), host)
+	ingress := mountPaymentCallbacksAt(host, "/callbacks/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		subscriptionCalls++
+		if r.URL.Path != "/callbacks/2" || r.URL.RawQuery != "out_trade_no=sub_fixture&sign=fixture" || r.Header.Get("Authorization") != "" || r.Header.Get("X-LMM-User-Credential") != "" {
+			t.Fatal("subscription callback envelope or credential isolation changed")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), wallet)
+	for _, tc := range []struct {
+		path string
+		code int
+	}{
+		{"/callbacks/subscriptions/2?out_trade_no=sub_fixture&sign=fixture", 204},
+		{"/callbacks/2", 204},
+		{"/callbacks/subscriptions/02", 404},
+		{"/callbacks/subscriptions/2/orders", 404},
+		{"/callbacks/subscriptions/%32", 404},
+	} {
+		r := paymentCallbackRequest("GET", tc.path)
+		r.Header.Set("Authorization", "Bearer synthetic_callback_host_credential")
+		r.Header.Set("X-LMM-User-Credential", "synthetic_callback_user_credential")
+		w := paymentCallbackRecorder()
+		ingress.ServeHTTP(w, r)
+		if w.Code != tc.code {
+			t.Fatalf("%s: %d", tc.path, w.Code)
+		}
+	}
+	if walletCalls != 1 || subscriptionCalls != 1 {
+		t.Fatalf("wallet=%d subscription=%d", walletCalls, subscriptionCalls)
+	}
+}
+
 func TestCoinbaseIngressPreservesBothSignatureHeadersAndBoundsEach(t *testing.T) {
 	host := paymentIngressHost(t)
 	called := 0

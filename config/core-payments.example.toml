@@ -14,6 +14,12 @@ proof_ingress = true
 proof_read = true
 refund_user = false
 refund_evidence = false
+# EPay subscription purchases use separate permissions and immutable per-plan
+# currency/minor-unit prices. They do not use credits_per_minor or credit wallets.
+subscription_epay_user_orders = false
+subscription_epay_proof_ingress = false
+subscription_epay_proof_read = false
+subscription_epay_grant = false
 
 [[channels]]
 id = 1

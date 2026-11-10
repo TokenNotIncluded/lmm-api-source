@@ -1,0 +1,6 @@
+{
+  "base_schema_sha256": "2c8575958e00b43ead3040dff527b0758c229dbe91278eaa552fe2e7a9cf8409",
+  "subscription_schema_sha256": "819faf495ef46f761970779fc2ff6012f499b0b1e399a22a9bf293f9df3741a6",
+  "predecessor_catalog_sha256": "977089660bc5f87d7fecafb3a6639a0400036f956599e74cca5a07c0d6a68ede",
+  "successor_catalog_sha256": "e65a59ef3bee637dda7da9bbe401425fb40b524ff7ff25bde9c5ef90055f001a"
+}

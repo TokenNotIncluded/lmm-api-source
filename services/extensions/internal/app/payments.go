@@ -64,17 +64,21 @@ type callbackAdmission interface{ Acquire() (func(), bool) }
 // and rejected/unknown callbacks never receive a successful acknowledgement.
 // @mark extensions.admission role=consumer
 func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next http.Handler) http.Handler {
+	return mountPaymentCallbacksAt(host, "/callbacks/", callbacks, next)
+}
+
+func mountPaymentCallbacksAt(host callbackAdmission, prefix string, callbacks http.Handler, next http.Handler) http.Handler {
 	active := make(chan struct{}, modules.MaxInFlightPerModule)
 	var mu sync.Mutex
 	window := time.Now()
 	count := 0
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/callbacks/") {
+		if !strings.HasPrefix(r.URL.Path, prefix) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		channel := strings.TrimPrefix(r.URL.Path, "/callbacks/")
+		channel := strings.TrimPrefix(r.URL.Path, prefix)
 		id, err := strconv.ParseInt(channel, 10, 64)
 		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != channel || r.URL.EscapedPath() != r.URL.Path {
 			callbackFailure(w, http.StatusNotFound, "payment_callback_not_found")
@@ -165,6 +169,8 @@ func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next 
 		}
 		defer controller.SetReadDeadline(time.Time{})
 		r = r.Clone(bounded)
+		r.URL.Path = "/callbacks/" + channel
+		r.URL.RawPath = ""
 		r.Header.Del("Authorization")
 		r.Header.Del("X-LMM-User-Credential")
 		r.Header.Del("Cookie")

@@ -17,6 +17,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "upgrade-payments-subscriptions-db" {
+		if err := freshinstall.RunPaymentsSubscriptionUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "upgrade-operations-db" {
 		if err := freshinstall.RunOperationsUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			log.Fatal(err)

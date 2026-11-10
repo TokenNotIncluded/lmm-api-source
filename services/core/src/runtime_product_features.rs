@@ -24,6 +24,10 @@ WITH expected_schemas(name) AS (
       ('core_subscriptions','quotes',true),
       ('core_subscriptions','purchases',true),
       ('core_subscriptions','refund_quotes',true),
+      ('core_subscriptions','external_prices',true),
+      ('core_subscriptions','external_orders',true),
+      ('core_subscriptions','external_proofs',true),
+      ('core_subscriptions','external_grants',true),
       ('core_promotions','secrets',false),
       ('core_promotions','campaigns',true),
       ('core_promotions','commands',true),
@@ -45,6 +49,8 @@ WITH expected_schemas(name) AS (
       ('core_subscriptions','purchases','canceled_at'),
       ('core_subscriptions','purchases','refund_journal_id'),
       ('core_subscriptions','refund_quotes','result'),
+      ('core_subscriptions','external_orders','confirmed_at'),
+      ('core_subscriptions','external_orders','canceled_at'),
       ('core_promotions','campaigns','revision'),
       ('core_promotions','campaigns','title'),
       ('core_promotions','campaigns','budget_units'),
@@ -127,7 +133,11 @@ SELECT (
             ELSE false END)
     OR EXISTS(
         SELECT FROM pg_catalog.pg_proc p JOIN namespaces n ON n.oid=p.pronamespace
-        WHERE pg_catalog.has_function_privilege(p.oid,'EXECUTE'))
+        WHERE pg_catalog.has_function_privilege(p.oid,'EXECUTE')
+          AND NOT (n.nspname='core_subscriptions' AND (
+            (p.proname='apply_epay_grant' AND pg_catalog.oidvectortypes(p.proargtypes)='text, text, text') OR
+            (p.proname='external_ends_at' AND pg_catalog.oidvectortypes(p.proargtypes)='jsonb, bigint')
+          )))
 ) AS unsafe_privileges,
 (
     NOT EXISTS(
@@ -156,6 +166,10 @@ SELECT (
         LEFT JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
             AND c.relname=e.name AND c.relkind='S'
         WHERE NOT COALESCE(pg_catalog.has_sequence_privilege(c.oid,'USAGE'),false))
+    AND (SELECT count(*)=2 FROM pg_catalog.pg_proc p JOIN namespaces n ON n.oid=p.pronamespace
+        WHERE n.nspname='core_subscriptions' AND pg_catalog.has_function_privilege(p.oid,'EXECUTE')
+        AND ((p.proname='apply_epay_grant' AND pg_catalog.oidvectortypes(p.proargtypes)='text, text, text')
+          OR (p.proname='external_ends_at' AND pg_catalog.oidvectortypes(p.proargtypes)='jsonb, bigint')))
 ) AS complete
 "#,
     )

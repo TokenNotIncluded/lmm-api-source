@@ -669,3 +669,338 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "lmm/core/v1/payments.proto",
 }
+
+const (
+	CoreSubscriptionPayments_PrepareEPayPurchase_FullMethodName         = "/lmm.core.v1.CoreSubscriptionPayments/PrepareEPayPurchase"
+	CoreSubscriptionPayments_ConfirmEPayPurchase_FullMethodName         = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmEPayPurchase"
+	CoreSubscriptionPayments_ReadEPayPurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/ReadEPayPurchase"
+	CoreSubscriptionPayments_CancelEPayPurchase_FullMethodName          = "/lmm.core.v1.CoreSubscriptionPayments/CancelEPayPurchase"
+	CoreSubscriptionPayments_AcceptEPaySubscriptionProof_FullMethodName = "/lmm.core.v1.CoreSubscriptionPayments/AcceptEPaySubscriptionProof"
+	CoreSubscriptionPayments_GetEPaySubscriptionProof_FullMethodName    = "/lmm.core.v1.CoreSubscriptionPayments/GetEPaySubscriptionProof"
+	CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_FullMethodName  = "/lmm.core.v1.CoreSubscriptionPayments/ApplyEPaySubscriptionGrant"
+)
+
+// CoreSubscriptionPaymentsClient is the client API for CoreSubscriptionPayments service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Separate entitlement contract. No CreditTopup or caller-selected account/price.
+type CoreSubscriptionPaymentsClient interface {
+	PrepareEPayPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
+	ConfirmEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPayCheckout, error)
+	ReadEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
+	CancelEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
+	AcceptEPaySubscriptionProof(ctx context.Context, in *AcceptEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*EPaySubscriptionProof, error)
+	GetEPaySubscriptionProof(ctx context.Context, in *GetEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*EPaySubscriptionProof, error)
+	ApplyEPaySubscriptionGrant(ctx context.Context, in *ApplyEPaySubscriptionGrantRequest, opts ...grpc.CallOption) (*EPaySubscriptionGrant, error)
+}
+
+type coreSubscriptionPaymentsClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCoreSubscriptionPaymentsClient(cc grpc.ClientConnInterface) CoreSubscriptionPaymentsClient {
+	return &coreSubscriptionPaymentsClient{cc}
+}
+
+func (c *coreSubscriptionPaymentsClient) PrepareEPayPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_PrepareEPayPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ConfirmEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPayCheckout, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPayCheckout)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ConfirmEPayPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ReadEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ReadEPayPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) CancelEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_CancelEPayPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) AcceptEPaySubscriptionProof(ctx context.Context, in *AcceptEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*EPaySubscriptionProof, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionProof)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_AcceptEPaySubscriptionProof_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) GetEPaySubscriptionProof(ctx context.Context, in *GetEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*EPaySubscriptionProof, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionProof)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_GetEPaySubscriptionProof_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ApplyEPaySubscriptionGrant(ctx context.Context, in *ApplyEPaySubscriptionGrantRequest, opts ...grpc.CallOption) (*EPaySubscriptionGrant, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionGrant)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CoreSubscriptionPaymentsServer is the server API for CoreSubscriptionPayments service.
+// All implementations must embed UnimplementedCoreSubscriptionPaymentsServer
+// for forward compatibility.
+//
+// Separate entitlement contract. No CreditTopup or caller-selected account/price.
+type CoreSubscriptionPaymentsServer interface {
+	PrepareEPayPurchase(context.Context, *PrepareEPayPurchaseRequest) (*EPaySubscriptionOrder, error)
+	ConfirmEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPayCheckout, error)
+	ReadEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPaySubscriptionOrder, error)
+	CancelEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPaySubscriptionOrder, error)
+	AcceptEPaySubscriptionProof(context.Context, *AcceptEPaySubscriptionProofRequest) (*EPaySubscriptionProof, error)
+	GetEPaySubscriptionProof(context.Context, *GetEPaySubscriptionProofRequest) (*EPaySubscriptionProof, error)
+	ApplyEPaySubscriptionGrant(context.Context, *ApplyEPaySubscriptionGrantRequest) (*EPaySubscriptionGrant, error)
+	mustEmbedUnimplementedCoreSubscriptionPaymentsServer()
+}
+
+// UnimplementedCoreSubscriptionPaymentsServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCoreSubscriptionPaymentsServer struct{}
+
+func (UnimplementedCoreSubscriptionPaymentsServer) PrepareEPayPurchase(context.Context, *PrepareEPayPurchaseRequest) (*EPaySubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareEPayPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ConfirmEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPayCheckout, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmEPayPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ReadEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPaySubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadEPayPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) CancelEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPaySubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelEPayPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) AcceptEPaySubscriptionProof(context.Context, *AcceptEPaySubscriptionProofRequest) (*EPaySubscriptionProof, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptEPaySubscriptionProof not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) GetEPaySubscriptionProof(context.Context, *GetEPaySubscriptionProofRequest) (*EPaySubscriptionProof, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEPaySubscriptionProof not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ApplyEPaySubscriptionGrant(context.Context, *ApplyEPaySubscriptionGrantRequest) (*EPaySubscriptionGrant, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyEPaySubscriptionGrant not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) mustEmbedUnimplementedCoreSubscriptionPaymentsServer() {
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) testEmbeddedByValue() {}
+
+// UnsafeCoreSubscriptionPaymentsServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CoreSubscriptionPaymentsServer will
+// result in compilation errors.
+type UnsafeCoreSubscriptionPaymentsServer interface {
+	mustEmbedUnimplementedCoreSubscriptionPaymentsServer()
+}
+
+func RegisterCoreSubscriptionPaymentsServer(s grpc.ServiceRegistrar, srv CoreSubscriptionPaymentsServer) {
+	// If the following call pancis, it indicates UnimplementedCoreSubscriptionPaymentsServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CoreSubscriptionPayments_ServiceDesc, srv)
+}
+
+func _CoreSubscriptionPayments_PrepareEPayPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareEPayPurchaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).PrepareEPayPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_PrepareEPayPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).PrepareEPayPurchase(ctx, req.(*PrepareEPayPurchaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ConfirmEPayPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmEPayPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ConfirmEPayPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmEPayPurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ReadEPayPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ReadEPayPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ReadEPayPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ReadEPayPurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_CancelEPayPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).CancelEPayPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_CancelEPayPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).CancelEPayPurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_AcceptEPaySubscriptionProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptEPaySubscriptionProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptEPaySubscriptionProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_AcceptEPaySubscriptionProof_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptEPaySubscriptionProof(ctx, req.(*AcceptEPaySubscriptionProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_GetEPaySubscriptionProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEPaySubscriptionProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).GetEPaySubscriptionProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_GetEPaySubscriptionProof_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).GetEPaySubscriptionProof(ctx, req.(*GetEPaySubscriptionProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyEPaySubscriptionGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ApplyEPaySubscriptionGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ApplyEPaySubscriptionGrant(ctx, req.(*ApplyEPaySubscriptionGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// CoreSubscriptionPayments_ServiceDesc is the grpc.ServiceDesc for CoreSubscriptionPayments service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CoreSubscriptionPayments_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "lmm.core.v1.CoreSubscriptionPayments",
+	HandlerType: (*CoreSubscriptionPaymentsServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PrepareEPayPurchase",
+			Handler:    _CoreSubscriptionPayments_PrepareEPayPurchase_Handler,
+		},
+		{
+			MethodName: "ConfirmEPayPurchase",
+			Handler:    _CoreSubscriptionPayments_ConfirmEPayPurchase_Handler,
+		},
+		{
+			MethodName: "ReadEPayPurchase",
+			Handler:    _CoreSubscriptionPayments_ReadEPayPurchase_Handler,
+		},
+		{
+			MethodName: "CancelEPayPurchase",
+			Handler:    _CoreSubscriptionPayments_CancelEPayPurchase_Handler,
+		},
+		{
+			MethodName: "AcceptEPaySubscriptionProof",
+			Handler:    _CoreSubscriptionPayments_AcceptEPaySubscriptionProof_Handler,
+		},
+		{
+			MethodName: "GetEPaySubscriptionProof",
+			Handler:    _CoreSubscriptionPayments_GetEPaySubscriptionProof_Handler,
+		},
+		{
+			MethodName: "ApplyEPaySubscriptionGrant",
+			Handler:    _CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "lmm/core/v1/payments.proto",
+}

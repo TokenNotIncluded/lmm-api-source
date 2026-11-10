@@ -21,6 +21,7 @@ mod ledger;
 mod navigation_options;
 mod payment_gateways;
 mod request_operations;
+mod subscription_epay;
 mod suffix;
 mod trust_policy;
 
@@ -233,6 +234,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == subscription_epay::PROCEDURE {
+            return subscription_epay::validate(self);
+        }
         if self.procedure == commerce_display_rate::PROCEDURE {
             return commerce_display_rate::validate(self);
         }
@@ -324,6 +328,9 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == subscription_epay::PROCEDURE {
+            return subscription_epay::authorize_target();
+        }
         if self.procedure == commerce_display_rate::PROCEDURE {
             return commerce_display_rate::authorize_target();
         }
@@ -431,7 +438,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == commerce_display_rate::PROCEDURE {
+    let result = if request.procedure == subscription_epay::PROCEDURE {
+        subscription_epay::connected(&mut connection, &request).await
+    } else if request.procedure == commerce_display_rate::PROCEDURE {
         commerce_display_rate::connected(&mut connection, &request).await
     } else if request.procedure == navigation_options::PROCEDURE {
         navigation_options::connected(&mut connection, &request).await

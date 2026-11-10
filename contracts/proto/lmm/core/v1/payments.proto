@@ -196,3 +196,71 @@ message LegacyPaymentReceipt {
   int64 journal_id = 5;
   string rejection_code = 6;
 }
+
+// Separate entitlement contract. No CreditTopup or caller-selected account/price.
+service CoreSubscriptionPayments {
+  rpc PrepareEPayPurchase(PrepareEPayPurchaseRequest) returns (EPaySubscriptionOrder);
+  rpc ConfirmEPayPurchase(EPaySubscriptionOrderRequest) returns (EPayCheckout);
+  rpc ReadEPayPurchase(EPaySubscriptionOrderRequest) returns (EPaySubscriptionOrder);
+  rpc CancelEPayPurchase(EPaySubscriptionOrderRequest) returns (EPaySubscriptionOrder);
+  rpc AcceptEPaySubscriptionProof(AcceptEPaySubscriptionProofRequest) returns (EPaySubscriptionProof);
+  rpc GetEPaySubscriptionProof(GetEPaySubscriptionProofRequest) returns (EPaySubscriptionProof);
+  rpc ApplyEPaySubscriptionGrant(ApplyEPaySubscriptionGrantRequest) returns (EPaySubscriptionGrant);
+}
+message PrepareEPayPurchaseRequest {
+  MutationContext mutation = 1;
+  int64 plan_id = 2;
+  int64 payment_channel_id = 3;
+}
+message EPaySubscriptionOrderRequest { string order_id = 1; }
+message EPaySubscriptionOrder {
+  string order_id = 1;
+  int64 account_id = 2;
+  int64 plan_id = 3;
+  int64 plan_revision = 4;
+  int64 payment_channel_id = 5;
+  string currency = 6;
+  string amount_minor = 7;
+  int64 expires_at_unix = 8;
+  optional int64 confirmed_at_unix = 9;
+  optional int64 canceled_at_unix = 10;
+  string proof_id = 11;
+  optional int64 subscription_id = 12;
+  optional int64 granted_at_unix = 13;
+  optional int64 ends_at_unix = 14;
+  // Exact frozen Core Plan JSON, credits remain decimal strings.
+  bytes plan_json = 15;
+  // Read-only reconstruction from the confirmed frozen binding; absent when unavailable.
+  EPayCheckout checkout = 16;
+}
+message AcceptEPaySubscriptionProofRequest {
+  string order_id = 1;
+  bytes signed_payload = 2;
+  bytes signature = 3;
+}
+message GetEPaySubscriptionProofRequest {
+  string order_id = 1;
+  string provider_event_id = 2;
+  bytes payload_sha256 = 3;
+}
+message EPaySubscriptionProof {
+  string proof_id = 1;
+  string order_id = 2;
+  string provider_event_id = 3;
+  string provider_transaction = 4;
+  bytes payload_sha256 = 5;
+  int64 accepted_at_unix = 6;
+}
+message ApplyEPaySubscriptionGrantRequest {
+  string order_id = 1;
+  string proof_id = 2;
+  string operation_key = 3;
+}
+message EPaySubscriptionGrant {
+  string order_id = 1;
+  string proof_id = 2;
+  string operation_key = 3;
+  int64 subscription_id = 4;
+  int64 granted_at_unix = 5;
+  int64 ends_at_unix = 6;
+}

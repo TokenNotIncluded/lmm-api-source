@@ -165,6 +165,7 @@ const COMPONENTS: &[(&str, &str)] = &[
         "display-exchange-rate",
         include_str!("../schema/display_exchange_rate.sql"),
     ),
+    ("subscription-epay", crate::subscriptions::EPAY_SCHEMA),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

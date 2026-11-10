@@ -40,6 +40,16 @@ pub(in crate::core_schema::upgrade) async fn data(
     tables: &[String],
     sequences: &[String],
 ) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
+    data_projected(c, tables, sequences, false).await
+}
+
+// Core58 -> Core59 adds only this nullable subject column to predecessor rows.
+pub(in crate::core_schema::upgrade) async fn data_projected(
+    c: &mut PgConnection,
+    tables: &[String],
+    sequences: &[String],
+    subscription_subject: bool,
+) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
     let mut result = BTreeMap::new();
     for table in tables {
         if matches!(
@@ -49,7 +59,12 @@ pub(in crate::core_schema::upgrade) async fn data(
             continue;
         }
         // Table identifiers came from the pinned catalog, formatted by %I.
-        sqlx::query(&format!("DECLARE request_operations_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(h,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) h FROM {table} t) q GROUP BY h ORDER BY h"))
+        let row = if subscription_subject && table == "core_payments.provider_identifiers" {
+            "(to_jsonb(t)-'subscription_order_id')"
+        } else {
+            "to_jsonb(t)"
+        };
+        sqlx::query(&format!("DECLARE request_operations_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(h,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to({row}::text,'UTF8')) h FROM {table} t) q GROUP BY h ORDER BY h"))
             .execute(&mut *c).await?;
         let mut hash = Sha256::new();
         loop {

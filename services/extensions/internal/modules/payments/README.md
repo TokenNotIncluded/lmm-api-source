@@ -197,6 +197,53 @@ exact amount must match. Go-side credentialed lookup and automatic refund
 dispatch are unavailable on this Core-owned profile. The old key-bearing
 `NewEPay` constructor remains for existing package fixtures, not host assembly.
 
+EPay subscription purchases have a separate Core RPC and order namespace. The
+four `subscription_epay_*` permissions in the Core payment configuration govern
+user orders, proof ingress, proof reads and grants independently. A plan revision
+has an explicit channel/currency/minor-unit price; wallet conversion settings
+are not subscription prices. Browser prepare/read/confirm/cancel routes live at
+`/api/user/payments/subscriptions/orders`; the authenticated module equivalent
+is `/extensions/v1/payments/subscriptions/orders`. Confirm and cancel append
+`/{order_id}/confirm` and `/{order_id}/cancel`; reads append `/{order_id}`.
+Preparation uses the original `Idempotency-Key`; confirmation remains a separate
+user action after reviewing the frozen order. Reads do not dispatch checkout.
+
+Core derives a subscription callback from the configured EPay callback ending
+in `/callbacks/{channel}` by replacing that suffix with
+`/callbacks/subscriptions/{channel}`, preserving any deployment path prefix.
+The derived URL is frozen in the original order. Route both callback families
+to Extensions with the existing ingress limits; do not route subscription
+callbacks into wallet settlement. Provider redirects are not payment receipts.
+An issued checkout remains a payment obligation after cancellation, so a valid
+late callback can still grant its original entitlement exactly once.
+
+The dedicated payment database also needs `payment_subscription_inbox`, with
+runtime SELECT/INSERT/UPDATE and no DELETE or DDL. Fresh installation includes
+it explicitly; an existing database requires its reviewed offline upgrade.
+Normal startup only checks storage and never installs missing tables. Runtime
+recovery shares host admission and shutdown with wallet payment recovery.
+
+For an existing dedicated payments database, drain its writers and fence the
+owner/runtime roles as NOLOGIN, including other login roles with CONNECT or SET
+ROLE access. Use the private installer login to run the explicit command:
+
+```sh
+lmm-extensions upgrade-payments-subscriptions-db \
+  --owner-url-file /run/secrets/payments-installer-url \
+  --database lmm_payments --owner-role payments_owner \
+  --runtime-role payments_runtime
+```
+
+The command requires PostgreSQL 18, the exact predecessor catalog and no other
+database sessions. It preserves existing orders, events and their ACLs and
+prints the durable upgrade receipt. After an uncertain command result, use the
+same arguments with `--recover` to read the original committed receipt; absent
+receipts are rejected without installation. Normal startup cannot run this
+command or read its installer credential. This is an extension-storage upgrade,
+not the migration or activation procedure for an existing monolithic site.
+Current implementation and acceptance evidence are tracked in
+[architecture progress](../../../../../docs/progress.md).
+
 **Creem:** one-time, inclusive-tax, fixed-price products in USD/CNY/EUR. Go checks
 the live product against the quote before checkout; Core verifies original HMAC
 evidence, environment, product, merchant metadata, order and exact amount.

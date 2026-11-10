@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,7 +224,36 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 		return errors.New("payment storage contract unavailable")
 	}
 	r.Payments, err = payments.New(repo, bridge, adapters...)
+	if err != nil {
+		return err
+	}
+	var epay []*payments.EPay
+	for _, adapter := range adapters {
+		if channel, ok := adapter.(*payments.EPay); ok {
+			epay = append(epay, channel)
+		}
+	}
+	if len(epay) > 0 {
+		r.SubscriptionPayments, err = payments.NewEPaySubscriptions(r.PaymentClient, repo, epay)
+	}
 	return err
+}
+
+// Keep subscription orders behind the same host authentication and admission
+// as wallet payments, while Core independently authorizes each current user.
+type paymentModule struct {
+	wallet        *payments.Service
+	subscriptions *payments.EPaySubscriptions
+}
+
+func (paymentModule) Name() string { return "payments" }
+func (m paymentModule) Handler() http.Handler {
+	mux := http.NewServeMux()
+	if m.subscriptions != nil {
+		mux.Handle("/subscriptions/", http.StripPrefix("/subscriptions", m.subscriptions.Handler()))
+	}
+	mux.Handle("/", m.wallet.Handler())
+	return mux
 }
 
 func loadedPaymentHostCredential(credentials [][]byte) bool {

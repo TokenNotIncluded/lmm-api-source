@@ -657,6 +657,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                     server = server.with_assistant(assistant);
                 }
                 let financial = config::financial_rpcs(url, &token).await?;
+                if let Some(subscriptions) = financial.epay_subscriptions {
+                    if console_enabled { app = app.merge(subscriptions.price_router()); }
+                    server = server.with_epay_subscriptions(subscriptions);
+                }
                 if let Some(payments) = financial.payments {
                     server = server.with_payments(payments);
                     capabilities.payments = true;

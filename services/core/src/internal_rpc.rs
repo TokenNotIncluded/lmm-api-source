@@ -362,6 +362,7 @@ pub struct RpcServer {
     guard: SocketGuard,
     control: Control,
     payments: Option<crate::payments::rpc::PaymentsRpc>,
+    epay_subscriptions: Option<crate::subscriptions::epay_rpc::EPaySubscriptionsRpc>,
     commerce: Option<crate::commerce::rpc::CommerceRpc>,
     directory_ads: Option<crate::directory_ads::rpc::DirectoryAdsRpc>,
     assistant: Option<crate::assistant_model::rpc::AssistantRpc>,
@@ -449,6 +450,7 @@ impl RpcServer {
             guard,
             control,
             payments: None,
+            epay_subscriptions: None,
             commerce: None,
             directory_ads: None,
             assistant: None,
@@ -475,6 +477,11 @@ impl RpcServer {
         self.payments = Some(payments);
         self
     }
+    pub fn with_epay_subscriptions(mut self, subscriptions: crate::subscriptions::epay_rpc::EPaySubscriptionsRpc) -> Self {
+        self.control.commerce_features.extend(subscriptions.features());
+        self.epay_subscriptions = Some(subscriptions);
+        self
+    }
     pub fn with_commerce(mut self, commerce: crate::commerce::rpc::CommerceRpc) -> Self {
         self.control.commerce_features.extend(commerce.features());
         self.commerce = Some(commerce);
@@ -499,6 +506,7 @@ impl RpcServer {
             guard: _guard,
             control,
             payments,
+            epay_subscriptions,
             commerce,
             directory_ads,
             assistant,
@@ -531,6 +539,11 @@ impl RpcServer {
                     .max_decoding_message_size(MAX_MESSAGE)
                     .max_encoding_message_size(MAX_MESSAGE),
             )
+            .add_optional_service(epay_subscriptions.map(|subscriptions| {
+                pb::core_subscription_payments_server::CoreSubscriptionPaymentsServer::new(subscriptions)
+                    .max_decoding_message_size(MAX_MESSAGE)
+                    .max_encoding_message_size(MAX_MESSAGE)
+            }))
             .add_optional_service(payments.map(|payments| {
                 pb::core_payments_server::CorePaymentsServer::new(payments)
                     .max_decoding_message_size(MAX_MESSAGE)

@@ -189,3 +189,58 @@ async fn refund(
 ) -> Result<Json<Receipt>> {
     Ok(Json(s.refund(bearer(&h)?, &id).await?))
 }
+
+#[derive(Clone)]
+struct EPayPriceState {
+    store: SubscriptionStore,
+    payments: crate::payments::PaymentsStore,
+}
+pub fn epay_price_router(
+    store: SubscriptionStore,
+    payments: crate::payments::PaymentsStore,
+) -> Router {
+    Router::new()
+        .route(
+            "/core/v1/subscriptions/plans/{id}/epay-prices",
+            get(epay_prices),
+        )
+        .route(
+            "/core/v1/subscriptions/admin/plans/{id}/epay-prices",
+            post(save_epay_price),
+        )
+        .layer(DefaultBodyLimit::max(16 * 1024))
+        .with_state(EPayPriceState { store, payments })
+}
+async fn epay_prices(
+    State(s): State<EPayPriceState>,
+    h: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse> {
+    let prices = s.store.epay_prices(bearer(&h)?, id).await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({"prices":prices})),
+    ))
+}
+async fn save_epay_price(
+    State(s): State<EPayPriceState>,
+    h: HeaderMap,
+    Path(id): Path<i64>,
+    body: std::result::Result<Json<SaveEPayPrice>, JsonRejection>,
+) -> Result<impl IntoResponse> {
+    let Json(body) = body.map_err(|_| Error::Invalid)?;
+    if body.price.plan_id != id {
+        return Err(Error::Invalid);
+    }
+    let price = s
+        .store
+        .save_epay_price(&s.payments, bearer(&h)?, &body.operation_key, &body.price)
+        .await?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(price)))
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SaveEPayPrice {
+    operation_key: String,
+    price: ExternalPrice,
+}

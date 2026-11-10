@@ -297,6 +297,7 @@ func storageTables(component string) []storageTable {
 		add("public.payment_storage_guard", "SELECT")
 		add("public.payment_orders", "SELECT", "INSERT", "UPDATE")
 		add("public.payment_events", "SELECT", "INSERT", "UPDATE")
+		add("public.payment_subscription_inbox", "SELECT", "INSERT", "UPDATE")
 	}
 	return tables
 }

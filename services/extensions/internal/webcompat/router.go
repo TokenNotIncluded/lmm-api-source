@@ -16,18 +16,19 @@ import (
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
 type AdditionalServices struct {
-	Builtins          BuiltinHTTP
-	ToolMarketMCP     http.Handler
-	Assistant         AssistantHistory
-	AssistantChat     AssistantChat
-	AssistantServices http.Handler
-	ToolMarket        ToolMarketService
-	Operations        *operations.Service
-	Payments          PaymentStatusReader
-	PaymentCheckout   PaymentCheckoutService
-	Plugins           PluginController
-	Community         *community.Service
-	Acquisition       *acquisition.Service
+	Builtins             BuiltinHTTP
+	ToolMarketMCP        http.Handler
+	Assistant            AssistantHistory
+	AssistantChat        AssistantChat
+	AssistantServices    http.Handler
+	ToolMarket           ToolMarketService
+	Operations           *operations.Service
+	Payments             PaymentStatusReader
+	PaymentCheckout      PaymentCheckoutService
+	SubscriptionPayments http.Handler
+	Plugins              PluginController
+	Community            *community.Service
+	Acquisition          *acquisition.Service
 }
 
 // @mark extensions.admission role=consumer
@@ -47,6 +48,18 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		operationsService = optional[0].Operations
 		paymentReader = optional[0].Payments
 		paymentCheckout = optional[0].PaymentCheckout
+		if !store.Missing(optional[0].SubscriptionPayments) {
+			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", optional[0].SubscriptionPayments)
+			mux.Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, err := auth.Verify(r.Context(), r); err != nil {
+					Respond(w, nil, err)
+					return
+				}
+				request := r.Clone(r.Context())
+				request.Header.Set("X-LMM-User-Credential", strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+				subscriptions.ServeHTTP(w, request)
+			}))
+		}
 		if !store.Missing(optional[0].Assistant) {
 			RegisterAssistant(mux, auth, optional[0].Assistant, optional[0].AssistantChat)
 		}

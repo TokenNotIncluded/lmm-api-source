@@ -269,7 +269,7 @@ async fn wallet_purchase_renewal_cancellation_and_unused_refund_are_atomic(pool:
 
 #[sqlx::test]
 async fn stale_quotes_and_insufficient_funds_never_create_entitlements(pool: PgPool) {
-    let f = fixture(&pool, false).await;
+    let f = fixture(&pool, true).await;
     let plan = f
         .store
         .save_plan(&f.admin, None, create("create_stale_plan_01"))

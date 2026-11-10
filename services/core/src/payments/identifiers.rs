@@ -3,12 +3,13 @@ use sqlx::PgConnection;
 
 use super::{Channel, Error, Result, stripe, valid_id};
 
-pub(super) enum Subject<'a> {
+pub(crate) enum Subject<'a> {
     Native(i64),
+    Subscription(&'a str),
     Legacy(&'a str),
 }
 
-pub(super) async fn claim(
+pub(crate) async fn claim(
     connection: &mut PgConnection,
     channel: &Channel,
     subject: Subject<'_>,
@@ -16,9 +17,25 @@ pub(super) async fn claim(
 ) -> Result<()> {
     identifiers.sort_unstable();
     identifiers.dedup();
+    if let Subject::Subscription(id) = subject {
+        for (kind, identifier) in identifiers {
+            if !matches!(kind, "event" | "order" | "payment") || !valid_id(identifier) {
+                return Err(Error::Invalid);
+            }
+            sqlx::query("INSERT INTO core_payments.provider_identifiers(provider,merchant,environment,kind,identifier,subscription_order_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+                .bind(&channel.provider).bind(&channel.merchant).bind(&channel.environment).bind(kind).bind(identifier).bind(id).execute(&mut *connection).await?;
+            let owns:bool=sqlx::query_scalar("SELECT subscription_order_id IS NOT DISTINCT FROM $6 FROM core_payments.provider_identifiers WHERE provider=$1 AND merchant=$2 AND environment=$3 AND kind=$4 AND identifier=$5")
+                .bind(&channel.provider).bind(&channel.merchant).bind(&channel.environment).bind(kind).bind(identifier).bind(id).fetch_one(&mut *connection).await?;
+            if !owns {
+                return Err(Error::Conflict);
+            }
+        }
+        return Ok(());
+    }
     let (native, legacy) = match subject {
         Subject::Native(id) => (Some(id), None),
         Subject::Legacy(id) => (None, Some(id)),
+        Subject::Subscription(_) => unreachable!(),
     };
     for (kind, identifier) in identifiers {
         if !matches!(kind, "event" | "order" | "payment") || !valid_id(identifier) {

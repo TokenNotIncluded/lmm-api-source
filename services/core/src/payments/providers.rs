@@ -337,7 +337,7 @@ pub(super) fn epay_checkout(channel: &Channel, order: &str, amount: i64) -> Resu
     ))
 }
 
-fn verify_epay(
+pub(super) fn verify_epay(
     payload: &[u8],
     signature: &[u8],
     c: &Channel,
