@@ -372,11 +372,26 @@ def build_opening_counter_payloads(plan: dict, opening: dict) -> dict:
 # @mark migration.financial-rights role=implementation
 def reject_known_key_secrets(result, tokens):
     """Keep known bearers out of derived plans, including copied metadata."""
-    secrets = [row["key"] for row in tokens]
+    secrets_by_length = {}
+    for row in tokens:
+        secret = row["key"]
+        secrets_by_length.setdefault(len(secret), set()).add(secret)
+
+    def contains_secret(value):
+        for length, secrets in secrets_by_length.items():
+            windows = len(value) - length + 1
+            if windows <= 0:
+                continue
+            if len(secrets) <= windows:
+                if any(secret in value for secret in secrets):
+                    return True
+            elif any(value[start:start + length] in secrets for start in range(windows)):
+                return True
+        return False
 
     def visit(value):
         if type(value) is str:
-            require(not any(secret in value for secret in secrets), "reconciliation_key_secret_in_output")
+            require(not contains_secret(value), "reconciliation_key_secret_in_output")
         elif type(value) is dict:
             for key, child in value.items():
                 visit(key)
