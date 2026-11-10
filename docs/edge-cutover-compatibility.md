@@ -30,6 +30,14 @@ configured:
   `/core/v1/authz/*`.
 - Legacy browser identity: `/api/user/*`, `/api/token*`, and
   `/api/oauth/{google,github,linuxdo,discord,telegram}*`.
+- Federated login catalog and begin/finish: `/api/oauth/federated/*`.
+  Provider administration belongs to Core at the exact
+  `/api/custom-oauth-provider` path and its `/api/custom-oauth-provider/`
+  descendants, plus `/api/user/federated-providers`. Existing
+  `/api/user/account-links/*` binding routes also stay on Core. Preserve browser
+  Authorization, cookies, query and JSON bodies; overwrite trusted-edge headers
+  at the proxy. Do not route these to the old Go OAuth implementation or match
+  unrelated paths merely beginning with `custom-oauth-provider`.
 - OAuth: `/.well-known/oauth-authorization-server`, `/api/oauth2/*`, and the
   optional market OAuth routes under `/api/oauth2/market/*`.
 - Model and protocol routes: `/v1/models`, `/v1/chat/completions`,

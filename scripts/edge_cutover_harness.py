@@ -92,6 +92,9 @@ class BackendHandler(BaseHTTPRequestHandler):
             query = self.path.split("?", 1)[1] if "?" in self.path else ""
             self._reply(200, json.dumps({"service": "core", "query": query}).encode())
             return
+        if self.path.split("?", 1)[0] == "/api/custom-oauth-provider" or self.path.startswith("/api/custom-oauth-provider/"):
+            self._reply(200, b'{"service":"core","route":"provider-administration"}')
+            return
         if self.path.startswith("/api/user/"):
             self._reply(200, b'{"service":"core","route":"identity"}')
             return
@@ -105,6 +108,11 @@ class BackendHandler(BaseHTTPRequestHandler):
         size = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(size)
         self._record("POST", body)
+        if getattr(self.server, "role", "unknown") == "core" and (
+                self.path.startswith("/api/oauth/federated/")
+                or self.path.startswith("/api/user/account-links/")):
+            self._reply(200, b'{"service":"core"}')
+            return
         if getattr(self.server, "role", "unknown") == "extensions" and (
                 self.path.startswith("/callbacks/")
                 or self.path in {"/api/user/payments/quote", "/api/user/payments/checkout"}):
@@ -173,6 +181,8 @@ def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: in
         "location ^~ /api/remote-control/v1/pi/ { proxy_buffering off; proxy_read_timeout 30s; proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/oauth { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/user/ { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
+        "location = /api/custom-oauth-provider { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
+        "location ^~ /api/custom-oauth-provider/ { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/store/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
         "location ^~ /api/user/auth/store-claim/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_set_header Authorization \"\"; proxy_pass http://fixture_extensions; }\n"
         "location ^~ /api/user/payments/ { proxy_set_header X-LMM-Edge-Proof \"\"; proxy_set_header X-LMM-Edge-Client-IP \"\"; proxy_pass http://fixture_extensions; }\n"
@@ -262,6 +272,21 @@ def run_harness() -> dict[str, object]:
             status, _, body = _request(edge_port, "GET", "/api/oauth/google?state=fixture&code=opaque")
             assert (status, json.loads(body)["service"]) == (200, "core")
             assert json.loads(body)["query"] == "state=fixture&code=opaque"
+            for path in ("/api/oauth/federated/providers", "/api/custom-oauth-provider", "/api/custom-oauth-provider/7", "/api/user/federated-providers"):
+                status, _, body = _request(edge_port, "GET", path, headers={"Authorization": "Bearer fixture-user-session", "X-LMM-Edge-Proof": "untrusted"})
+                assert (status, json.loads(body)["service"]) == (200, "core")
+                assert core.seen[-1]["path"] == path
+                assert core.seen[-1]["headers"]["authorization"] == "Bearer fixture-user-session"
+                assert core.seen[-1]["headers"]["x-lmm-edge-proof"] == "fixture-proof"
+            for path in ("/api/oauth/federated/7/finish", "/api/user/account-links/federated:7/finish"):
+                payload = b'{"code":"opaque+code","state":"original-state"}'
+                status, _, body = _request(edge_port, "POST", path, payload, {"Content-Type": "application/json", "Cookie": "fixture-binding=opaque", "Authorization": "Bearer fixture-user-session"})
+                assert (status, json.loads(body)["service"]) == (200, "core")
+                assert core.seen[-1]["body"] == payload.decode()
+                assert core.seen[-1]["headers"]["cookie"] == "fixture-binding=opaque"
+                assert core.seen[-1]["headers"]["authorization"] == "Bearer fixture-user-session"
+            status, _, body = _request(edge_port, "GET", "/api/custom-oauth-provider-unknown")
+            assert status == 404 and b"fixture-spa" not in body
             status, headers, body = _request(edge_port, "GET", "/internal/access-ip-policy")
             assert status == 404 and b"fixture-spa" not in body
             status, headers, body = _request(edge_port, "GET", "/extensions/v1/private")
@@ -276,7 +301,7 @@ def run_harness() -> dict[str, object]:
             assert status == 200 and headers.get("content-type", "").startswith("text/event-stream")
             assert body == b"data: first\n\n", (headers, body)
             assert elapsed < 0.15, f"SSE first chunk was buffered ({elapsed:.3f}s)"
-            return {"status": "PASS", "nginx_test": True, "checks": 17, "listen": "127.0.0.1"}
+            return {"status": "PASS", "nginx_test": True, "checks": 20, "listen": "127.0.0.1"}
     finally:
         if nginx_process is not None and nginx_process.poll() is None:
             nginx_process.terminate()
