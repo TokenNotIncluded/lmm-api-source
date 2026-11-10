@@ -59,8 +59,8 @@ def mapped(rows, factors=None, source_sha256=SOURCE_SHA256, **options):
 
 
 def target_contract(**options):
-    return {**MODULE.current_contract(), "catalog_fingerprint_sha256": MODULE.CORE58_CATALOG_SHA256,
-            "allow_initialized_core_seed": True, "initialized_core_seed_contract": MODULE.CORE_SEED_CONTRACT,
+    return {**MODULE.current_contract(), "catalog_fingerprint_sha256": MODULE.current_contract()["fresh_catalog_sha256"],
+            "allow_initialized_core_seed": True, "initialized_core_seed_contract": MODULE.reviewed_profile(),
             "initialized_core_seed_sha256": "d" * 64,
             "trust_policy_seed": {
                 "singleton": True, "revision": 1, "spec": deepcopy(MODULE.DEFAULT_TRUST_POLICY),
@@ -72,7 +72,7 @@ def target_contract(**options):
 def manifest_for(plan, **changes):
     return {"format_version": 2, "scope": "identity-only", "source_archive_sha256": SOURCE_SHA256,
             "identity_contract": MODULE.identity_contract(), "developer_access_policy": MODULE.DEVELOPER_POLICY,
-            "initialized_core_seed_contract": MODULE.CORE_SEED_CONTRACT, "source_export_sha256": "d" * 64,
+            "initialized_core_seed_contract": MODULE.reviewed_profile(), "source_export_sha256": "d" * 64,
             "import_tool_sha256": MODULE.sha256_file(SCRIPT),
             "import_contract_sha256": hashlib.sha256(MODULE.canonical(MODULE.current_contract()).encode()).hexdigest(),
             "source_baseline_proof_sha256": "e" * 64, "source_target_id_map_sha256": hashlib.sha256(MODULE.id_map_bytes(plan["records"]).encode()).hexdigest(),
@@ -652,6 +652,63 @@ class IdentityContractTests(unittest.TestCase):
         self.assertIn("core_billing.post_ledger(jsonb)", guard)
         self.assertEqual(MODULE.profile_acl_guard_sql({"component_fingerprints": MODULE.REVIEWED_COMPONENTS_56}), "FALSE")
 
+    def test_core59_fences_are_profile_specific(self):
+        contract = deepcopy(MODULE.current_contract())
+        contract["component_fingerprints"]["subscription-epay"] = "0" * 64
+        self.assertIn("core_meta.subscription_epay_upgrades", MODULE.upgrade_receipt_tables(contract))
+        self.assertEqual(set(MODULE.fresh_business_tables(contract)), {
+            "core_subscriptions.external_prices", "core_subscriptions.external_orders",
+            "core_subscriptions.external_proofs", "core_subscriptions.external_grants"})
+        self.assertEqual(MODULE.fresh_business_tables(
+            {"component_fingerprints": MODULE.REVIEWED_COMPONENTS_58}), ())
+        guard = MODULE.profile_acl_guard_sql(contract)
+        self.assertIn("subscription_epay_upgrades", guard)
+        self.assertIn("t.attname='subscription_order_id'", guard)
+        self.assertIn("t.attacl IS NOT NULL", guard)
+        self.assertIn("core_subscriptions.apply_epay_grant(text,text,text)", guard)
+        seed_query = MODULE.fresh_seed_hash_query(MODULE.CORE59_SEED_CONTRACT)
+        for table in (*MODULE.fresh_business_tables(contract), "core_meta.subscription_epay_upgrades"):
+            self.assertIn(table, seed_query)
+            self.assertNotIn(table, MODULE.fresh_seed_hash_query(MODULE.CORE58_SEED_CONTRACT))
+
+    def test_candidate59_epay_export_and_constant_are_checked(self):
+        # A small synthetic assembly tests the resolver, not profile admission.
+        # The test pins only this synthetic resolver fixture, not a source profile.
+        alias = "crate::subscriptions::EPAY_SCHEMA"
+        expression = 'include_str!("../../schema/subscription_epay.sql")'
+        assembly = 'const COMPONENTS: &[(&str, &str)] = &[("subscription-epay",' + alias + ')];'
+        wrapper = "mod external_epay;\npub use external_epay::*;\n"
+        producer = 'pub const EPAY_SCHEMA: &str = ' + expression + ';\n'
+        paths = {"services/core/src/core_schema.rs": assembly,
+                 "services/core/src/subscriptions.rs": wrapper,
+                 "services/core/src/subscriptions/external_epay.rs": producer}
+        ddl = b"-- synthetic candidate resolver fixture\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, source in paths.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            schema = root / "services/core/schema/subscription_epay.sql"
+            schema.parent.mkdir(parents=True)
+            schema.write_bytes(ddl)
+            components = {"subscription-epay": (alias, hashlib.sha256(ddl).hexdigest())}
+            def resolve():
+                pins = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in paths}
+                with patch.object(MODULE, "reviewed_files", return_value=pins), \
+                        patch.object(MODULE, "reviewed_components", return_value=components):
+                    return MODULE.component_schemas(root)
+            self.assertEqual(resolve(), {"subscription-epay": ddl})
+            for bad in (wrapper.replace("mod external_epay;", "mod missing;"),
+                        wrapper.replace("pub use external_epay::*;", "pub use missing::*;")):
+                (root / "services/core/src/subscriptions.rs").write_text(bad)
+                with self.subTest(wrapper=bad), self.assertRaisesRegex(MODULE.MappingError, "component_alias_not_reviewed"):
+                    resolve()
+            (root / "services/core/src/subscriptions.rs").write_text(wrapper)
+            (root / "services/core/src/subscriptions/external_epay.rs").write_text(producer.replace("subscription_epay.sql", "subscriptions.sql"))
+            with self.assertRaisesRegex(MODULE.MappingError, "component_constant_not_reviewed"):
+                resolve()
+
     def test_core59_or_unreviewed_suffix_cannot_reuse_core58_profile(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -767,7 +824,7 @@ class IdentityContractTests(unittest.TestCase):
 
     def test_assembled_contract_includes_commerce_abuse_and_history(self):
         contract = MODULE.current_contract()
-        self.assertEqual(set(contract["component_fingerprints"]), MODULE.CORE_COMPONENTS)
+        self.assertEqual(set(contract["component_fingerprints"]), set(MODULE.reviewed_components(MODULE.ROOT)))
         for name in ("commerce", "abuse", "history"):
             self.assertEqual(contract["component_fingerprints"][name],
                 hashlib.sha256((MODULE.ROOT / "services/core/schema" / (name + ".sql")).read_bytes()).hexdigest())
@@ -827,6 +884,74 @@ class IdentityContractTests(unittest.TestCase):
                         MODULE.identity_contract()
 
 
+class Core59ProfileTests(unittest.TestCase):
+    """Run against git-archive 3579ac7 with only the owned importer overlay."""
+
+    def test_committed_manifest_catalog_and_acl_inputs_are_bound(self):
+        c = MODULE.current_contract()
+        self.assertEqual(c["import_profile"], MODULE.CORE59_SEED_CONTRACT)
+        self.assertEqual(c["source_schema_revision"], MODULE.CORE59_SCHEMA_REVISION)
+        self.assertEqual(c["source_schema_revision"], "3579ac71f112894e034d1c489ebb80bd4934b9f9")
+        self.assertEqual(len(c["component_fingerprints"]), 59)
+        self.assertEqual(c["identity_version"], 6)
+        self.assertEqual(c["compiled_manifest_sha256"], MODULE.CORE59_MANIFEST_SHA256)
+        self.assertEqual(c["fresh_catalog_sha256"], MODULE.CORE59_CATALOG_SHA256)
+        self.assertEqual(c["seed_query_sha256"], hashlib.sha256(MODULE.fresh_seed_hash_query().encode()).hexdigest())
+        for path, digest in MODULE.REVIEWED_RUST_FILES_59.items():
+            self.assertEqual(c["source_file_hashes"][path], digest, path)
+        self.assertEqual(set(c["component_fingerprints"]), set(MODULE.REVIEWED_COMPONENTS_59))
+
+    def test_each_new_producer_schema_and_runtime_acl_byte_drift_is_rejected(self):
+        paths = [path for path, pin in MODULE.REVIEWED_RUST_FILES_59.items()
+                 if MODULE.REVIEWED_RUST_FILES_58.get(path) != pin]
+        paths.append("services/core/schema/subscription_epay.sql")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
+            shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
+            for relative in paths:
+                path = root / relative
+                original = path.read_bytes()
+                with self.subTest(path=relative), self.assertRaises(MODULE.MappingError):
+                    path.write_bytes(original + b"\n")
+                    MODULE.current_contract(root)
+                path.write_bytes(original)
+
+    def test_caller_cannot_relabel58_profile_catalog_manifest_or_seed(self):
+        plan = mapped([user()])
+        manifest = manifest_for(plan)
+        for key, value in (("import_profile", MODULE.CORE58_SEED_CONTRACT),
+                           ("source_schema_revision", MODULE.CORE58_SCHEMA_REVISION),
+                           ("compiled_manifest_sha256", MODULE.CORE58_MANIFEST_SHA256),
+                           ("fresh_catalog_sha256", MODULE.CORE58_CATALOG_SHA256),
+                           ("seed_query_sha256", "0" * 64)):
+            with self.subTest(key=key), self.assertRaisesRegex(MODULE.MappingError, "target_assembled_contract_invalid"):
+                MODULE.build_import_sql(plan, migration_id="profile59-refuse", source_sha256=SOURCE_SHA256,
+                    manifest=manifest, target_contract=target_contract(**{key: value}), target_identity={})
+        with self.assertRaisesRegex(MODULE.MappingError, "target_fresh_catalog_mismatch"):
+            MODULE.build_import_sql(plan, migration_id="profile59-refuse", source_sha256=SOURCE_SHA256,
+                manifest=manifest, target_contract=target_contract(catalog_fingerprint_sha256=MODULE.CORE58_CATALOG_SHA256),
+                target_identity={})
+
+    def test_identity_sql_binds59_seed_acl_receipt_and_whole_provider_rows(self):
+        plan = mapped([user()])
+        sql = MODULE.build_import_sql(plan, migration_id="profile59-identity", source_sha256=SOURCE_SHA256,
+            manifest=manifest_for(plan), target_contract=target_contract(), target_identity=target_identity())
+        for relation in (*MODULE.fresh_business_tables(MODULE.current_contract()),
+                         "core_meta.subscription_epay_upgrades"):
+            self.assertIn(relation, sql)
+        self.assertIn("t.attname='subscription_order_id'", sql)
+        self.assertIn("t.attacl IS NOT NULL", sql)
+        self.assertIn(MODULE.CORE59_CATALOG_SHA256, sql)
+        self.assertIn("core_subscriptions.apply_epay_grant(text,text,text)", sql)
+        self.assertIn("FROM core_payments.provider_identifiers t", MODULE.fresh_seed_hash_query())
+        self.assertNotIn("to_jsonb(t)-", MODULE.fresh_seed_hash_query())
+        with self.assertRaisesRegex(MODULE.MappingError, "target_seed_contract_invalid"):
+            MODULE.build_import_sql(plan, migration_id="profile59-identity", source_sha256=SOURCE_SHA256,
+                manifest=manifest_for(plan), target_contract=target_contract(
+                    initialized_core_seed_contract=MODULE.CORE58_SEED_CONTRACT), target_identity=target_identity())
+
+
 class ImportSqlTests(unittest.TestCase):
     def sql(self, rows=None, **changes):
         plan = mapped(rows if rows is not None else [user()])
@@ -852,7 +977,7 @@ class ImportSqlTests(unittest.TestCase):
         self.assertIn("pg_has_role(session_user,current_user,'MEMBER')", sql)
 
     def test_fresh49_trust_seed_all_fields_and_dynamic_snapshot_are_bound(self):
-        contract = target_contract(allow_initialized_core_seed=True, initialized_core_seed_contract=MODULE.CORE_SEED_CONTRACT)
+        contract = target_contract(allow_initialized_core_seed=True, initialized_core_seed_contract=MODULE.reviewed_profile())
         for field, value in (("singleton", False), ("revision", 2), ("source_digest", "f" * 64),
                              ("source_cutoff", False), ("native_user_floor", 2), ("native_since", "2026-10-12")):
             changed = deepcopy(contract)
@@ -1079,7 +1204,7 @@ class ImportSqlTests(unittest.TestCase):
         self.assertIn("'password_logins','developer_access'", body)
 
     def test_opted_in_core_seed_is_validated_and_read_back_without_writes(self):
-        contract = target_contract(allow_initialized_core_seed=True, initialized_core_seed_contract=MODULE.CORE_SEED_CONTRACT)
+        contract = target_contract(allow_initialized_core_seed=True, initialized_core_seed_contract=MODULE.reviewed_profile())
         sql, _ = self.sql(target_contract=contract)
         _, body, _, _ = do_block(sql)
         code = without_literals_and_comments(body)
@@ -1455,7 +1580,7 @@ class SourceExportGuardTests(unittest.TestCase):
         self.assertEqual(manifest["scope"], "identity-only")
         self.assertEqual(manifest["identity_contract"], MODULE.identity_contract())
         self.assertEqual(manifest["developer_access_policy"], MODULE.DEVELOPER_POLICY)
-        self.assertEqual(manifest["initialized_core_seed_contract"], MODULE.CORE_SEED_CONTRACT)
+        self.assertEqual(manifest["initialized_core_seed_contract"], MODULE.reviewed_profile())
         self.assertEqual(manifest["source_export_sha256"], MODULE.sha256_file(output / "source-identity-export.private.jsonl"))
         self.assertFalse((output / "identity-import.private.sql").exists())
         self.assertTrue(all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in output.iterdir()))
@@ -1683,7 +1808,7 @@ class RealIdentityTransactionTests(unittest.TestCase):
                         "fixture_core_init_proof_missing")
         contract = receipt.get("contract", {})
         self.assertTrue(contract.get("allow_initialized_core_seed") is True, "fixture_seed_permission_missing")
-        self.assertTrue(contract.get("initialized_core_seed_contract") == MODULE.CORE_SEED_CONTRACT, "fixture_seed_contract_mismatch")
+        self.assertTrue(contract.get("initialized_core_seed_contract") == MODULE.reviewed_profile(), "fixture_seed_contract_mismatch")
         self.assertTrue(all(contract.get(key) == value for key, value in MODULE.identity_contract().items()), "fixture_identity_contract_mismatch")
         output_parent = MODULE.private_backup_path(Path(receipt.get("private_output_parent", "")), directory=True)
         private_dir = Path(tempfile.mkdtemp(prefix="identity-transaction-test-", dir=output_parent))

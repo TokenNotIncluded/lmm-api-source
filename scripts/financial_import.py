@@ -66,11 +66,23 @@ CHANGED_SEQUENCES = (
 )
 
 
+
+def reviewed_source_contract(contract: dict) -> dict:
+    # Preserve historical material bytes. Core59 additionally seals its explicit
+    # reviewed profile, compiled manifest/catalog and complete seed-query domain.
+    fields = CONTRACT_FIELDS + (("import_profile", "source_schema_revision",
+        "compiled_manifest_sha256", "fresh_catalog_sha256", "seed_query_sha256")
+        if contract.get("import_profile") == IDENTITY.CORE59_SEED_CONTRACT else ())
+    return {key: contract[key] for key in fields}
+
+
 def fresh_empty_tables() -> tuple[str, ...]:
     # Preserve the historical base list; bind suffix receipts to the exact
     # reviewed assembly so older fixture contracts do not acquire absent tables.
+    contract = IDENTITY.current_contract()
     return tuple(dict.fromkeys((*FRESH_EMPTY_TABLES,
-        *IDENTITY.upgrade_receipt_tables(IDENTITY.current_contract()))))
+        *IDENTITY.upgrade_receipt_tables(contract),
+        *IDENTITY.fresh_business_tables(contract))))
 
 
 def canonical(value) -> str:
@@ -419,11 +431,14 @@ def prepare_material(plan: dict, *, migration_id: str, identities: dict,
             "target_contains_other_source")
     contract = IDENTITY.current_contract()
     require(all(target_contract.get(key) == contract[key] for key in
-                CONTRACT_FIELDS),
+                reviewed_source_contract(contract)),
             "target_contract_mismatch")
     require(snapshot["component_fingerprints"] == contract["component_fingerprints"]
             and snapshot["catalog_fingerprint_sha256"] == target_contract.get("catalog_fingerprint_sha256"),
             "target_catalog_mismatch")
+    if contract.get("import_profile") == IDENTITY.CORE59_SEED_CONTRACT:
+        require(snapshot["catalog_fingerprint_sha256"] == contract["fresh_catalog_sha256"],
+                "target_fresh_catalog_mismatch")
     IDENTITY.validate_trust_policy_seed(snapshot.get("trust_policy_seed"))
     require(snapshot["trust_policy_seed"] == target_contract.get("trust_policy_seed"), "target_trust_policy_seed_mismatch")
     opening = PLANNER.build_opening_payloads(plan, migration_id=migration_id,
@@ -439,7 +454,7 @@ def prepare_material(plan: dict, *, migration_id: str, identities: dict,
         "reservation_evidence_sha256": opening["reservation_review_evidence_sha256"],
         "opening": opening["payloads"], "counters": counters["payloads"],
         "target": {**{key: snapshot[key] for key in ("instance", "catalog_fingerprint_sha256", "ownership_sha256", "component_fingerprints", "trust_policy_seed")},
-                   "source_contract": {key: contract[key] for key in CONTRACT_FIELDS}},
+                   "source_contract": reviewed_source_contract(contract)},
         "before_state": snapshot["state"], "runtime_roles": runtime_roles,
         "tool_source_hashes": source_hashes(escrow=composed),
     }
@@ -494,7 +509,10 @@ def validate_material(material: dict) -> None:
     require(target["component_fingerprints"] == IDENTITY.current_contract()["component_fingerprints"],
             "component_source_changed")
     contract = IDENTITY.current_contract()
-    require(target.get("source_contract") == {key: contract[key] for key in CONTRACT_FIELDS}, "source_contract_changed")
+    require(target.get("source_contract") == reviewed_source_contract(contract), "source_contract_changed")
+    if contract.get("import_profile") == IDENTITY.CORE59_SEED_CONTRACT:
+        require(target.get("catalog_fingerprint_sha256") == contract["fresh_catalog_sha256"],
+                "target_fresh_catalog_mismatch")
     IDENTITY.validate_trust_policy_seed(target.get("trust_policy_seed"))
     roles = material.get("runtime_roles")
     require(type(roles) is list and roles and all(type(role) is str and IDENTITY.IDENTIFIER.fullmatch(role)

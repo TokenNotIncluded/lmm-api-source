@@ -127,6 +127,7 @@ REVIEWED_SCHEMA_ALIASES = {
     'crate::identity::ACCOUNT_LINKS_SCHEMA': ('services/core/src/identity/browser/account_links.rs', 'ACCOUNT_LINKS_SCHEMA', 'include_str!("../../../schema/account_links.sql")'),
     'crate::identity::ACCOUNT_APPEALS_SCHEMA': ('services/core/src/identity/browser/account_appeals.rs', 'ACCOUNT_APPEALS_SCHEMA', 'include_str!("../../../schema/account_appeals.sql")'),
     'crate::subscriptions::SCHEMA': ('services/core/src/subscriptions.rs', 'SCHEMA', 'include_str!("../schema/subscriptions.sql")'),
+    'crate::subscriptions::EPAY_SCHEMA': ('services/core/src/subscriptions/external_epay.rs', 'EPAY_SCHEMA', 'include_str!("../../schema/subscription_epay.sql")'),
     'crate::promotions::SCHEMA': ('services/core/src/promotions.rs', 'SCHEMA', 'include_str!("../schema/promotions.sql")'),
     'crate::promotions::red_packets::SCHEMA': ('services/core/src/promotions/red_packets.rs', 'SCHEMA', 'include_str!("../../schema/red_packets.sql")'),
 }
@@ -273,9 +274,10 @@ REVIEWED_RUST_FILES_56 = {**REVIEWED_RUST_FILES_55,
 CORE56_SCHEMA_REVISION = 'e22175daf23382a2188ee69233c85ba015d104b2'
 CORE56_MANIFEST_SHA256 = 'f2340fb850e81f168ababe0301d80bd85769b235a8c5b5abb91f0bcd7429624e'
 CORE56_CATALOG_SHA256 = '46cbd8e0a9e9bb6c55cb899558b40fa8c8df1affa2e366cbbde733a8527bda43'
-# Reviewed committed Core58 assembly. The SQL fixture checks below do not claim
-# actual Core59 init-db/catalog/ACL acceptance; Core59 remains unreviewed.
+# Historical Core58 remains independently pinned below.
 CORE58_SEED_CONTRACT = "fresh58-identity6-complete-seeds-v1"
+# Core59 admission below requires its exact reviewed committed assembly.
+CORE59_SEED_CONTRACT = "fresh59-identity6-complete-seeds-v1"
 CORE_SEED_CONTRACT = CORE58_SEED_CONTRACT
 REVIEWED_COMPONENTS_58 = {**REVIEWED_COMPONENTS_56,
     "commerce-self-purchase": ('include_str!("../schema/commerce_self_purchase.sql")', 'fae185c575e3b82e634523a95d3453e0c86c4f21f28719f885ac53631c8986e0'),
@@ -288,7 +290,26 @@ REVIEWED_RUST_FILES_58 = {**REVIEWED_RUST_FILES_56,
 CORE58_SCHEMA_REVISION = "2a0c7bd380f58a553dc903d399255821c1a65d0f"
 CORE58_MANIFEST_SHA256 = "02a013915ad4b77dd4cd4006ff62c07653e474afe690b6927892c10168ab400a"
 CORE58_CATALOG_SHA256 = "e4ca2e9475c7513fbc551dcc78fdfed2f5f792ce98961620c329dbf74836b55b"
-CORE_COMPONENTS = frozenset(REVIEWED_COMPONENTS_58)
+# Core59 source is the committed SUB component at 3579ac7. The initial and
+# final actual service binaries produced this same manifest/catalog. The full
+# EPAY_SCHEMA producer changed only checkout recovery/error mapping before this
+# commit; its committed whole-file hash is reviewed here, never a wildcard.
+CORE59_SCHEMA_REVISION = "3579ac71f112894e034d1c489ebb80bd4934b9f9"
+CORE59_MANIFEST_SHA256 = "cd54e4a35500c482ad0385b625edefc160e5dfdeb554b2e0038c00ff81df320c"
+CORE59_CATALOG_SHA256 = "38df997ce287e5bfe31b05a50cc1c7a831189b719e3690b7127a3d6080ad5640"
+REVIEWED_COMPONENTS_59 = {**REVIEWED_COMPONENTS_58,
+    "subscription-epay": ('crate::subscriptions::EPAY_SCHEMA', '1314709e7c357f20c92ba0ced5190eddba820045dc020ce8e0f86d4662f981c7')}
+REVIEWED_RUST_FILES_59 = {**REVIEWED_RUST_FILES_58,
+    'services/core/src/core_schema.rs': 'e1e5d8595f6abf93bd11817a7fdfa82dec25828d313c265fd94a90bf81c05a8a',
+    'services/core/src/subscriptions.rs': '20aae5ae2ed732046d743e71fc48539c23c4fe98957c6d4703f8af55b09984ba',
+    'services/core/src/core_schema/navigation_options.rs': '21ed3c7d16b32cd1574cc5ab9f58b61d1746a61b0f4b33ddde5c48616a9a337c',
+    'services/core/src/core_schema/upgrade/fresh_target.json': '7c30919004e82bf032a92598e6b359eb3dd246d210804343d74606efa0f43b96',
+    'services/core/src/subscriptions/external_epay.rs': '8d6d855a038e467b2f3944c5bd1b60be2269215b03f9a6b8e3f2f9df4dda38cd',
+    'services/core/schema/subscription_epay_grants.sql': 'bde1bbf563e1e8a4321cc2f3a5df48ef2d984de194c9fc6d2fec9b0aefda4e19',
+}
+CORE_SEED_CONTRACT = CORE59_SEED_CONTRACT
+CORE_COMPONENTS = frozenset(REVIEWED_COMPONENTS_59)
+
 CORE55_SCHEMA_REVISION = "a49db97b8acea8118531426280ebbab9d24f991e"
 CORE55_MANIFEST_SHA256 = "0a05869e5391a5cc2d8da2c329c7992a98dfef4b1cb38c8903c408099c91c9e0"
 CORE55_CATALOG_SHA256 = "5376f90af7a78aeb501c4d976d799033a6a88346f28a57b3e5853a3e0e442207"
@@ -301,6 +322,8 @@ def reviewed_profile(root: Path | None = None) -> str:
     """An exact reviewed assembly selects a profile; no arbitrary suffixes."""
     root = ROOT if root is None else Path(root)
     digest = sha256_file(root / "services/core/src/core_schema.rs")
+    if digest == REVIEWED_RUST_FILES_59["services/core/src/core_schema.rs"]:
+        return CORE59_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_58["services/core/src/core_schema.rs"]:
         return CORE58_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_56["services/core/src/core_schema.rs"]:
@@ -317,13 +340,13 @@ def reviewed_profile(root: Path | None = None) -> str:
 def reviewed_components(root: Path) -> dict:
     return {CORE49_SEED_CONTRACT: REVIEWED_COMPONENTS, CORE54_SEED_CONTRACT: REVIEWED_COMPONENTS_54,
             CORE55_SEED_CONTRACT: REVIEWED_COMPONENTS_55, CORE56_SEED_CONTRACT: REVIEWED_COMPONENTS_56,
-            CORE58_SEED_CONTRACT: REVIEWED_COMPONENTS_58}[reviewed_profile(root)]
+            CORE58_SEED_CONTRACT: REVIEWED_COMPONENTS_58, CORE59_SEED_CONTRACT: REVIEWED_COMPONENTS_59}[reviewed_profile(root)]
 
 
 def reviewed_files(root: Path) -> dict:
     return {CORE49_SEED_CONTRACT: REVIEWED_RUST_FILES, CORE54_SEED_CONTRACT: REVIEWED_RUST_FILES_54,
             CORE55_SEED_CONTRACT: REVIEWED_RUST_FILES_55, CORE56_SEED_CONTRACT: REVIEWED_RUST_FILES_56,
-            CORE58_SEED_CONTRACT: REVIEWED_RUST_FILES_58}[reviewed_profile(root)]
+            CORE58_SEED_CONTRACT: REVIEWED_RUST_FILES_58, CORE59_SEED_CONTRACT: REVIEWED_RUST_FILES_59}[reviewed_profile(root)]
 
 
 def _reviewed_rust(root: Path, relative: str) -> str:
@@ -382,6 +405,11 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
                 identity = _reviewed_rust(root, "services/core/src/identity.rs")
                 aliases = re.findall(r"pub(?:\(crate\))?\s+use\s+([^;]*?)\s+as\s+TELEGRAM_AUTH_SCHEMA\s*;", identity)
                 require(aliases == ["telegram::SCHEMA"], "component_alias_not_reviewed")
+            if name == "subscription-epay":
+                subscriptions = _reviewed_rust(root, "services/core/src/subscriptions.rs")
+                require(re.findall(r"^mod external_epay;$", subscriptions, re.M) == ["mod external_epay;"]
+                        and re.findall(r"^pub use external_epay::\*;$", subscriptions, re.M)
+                        == ["pub use external_epay::*;"], "component_alias_not_reviewed")
         data = _component_bytes(root, expression, source_path)
         require(hashlib.sha256(data).hexdigest() == expected_digest, "component_source_fingerprint_mismatch")
         components[name] = data
@@ -434,11 +462,12 @@ def current_contract(root: Path | None = None) -> dict:
             "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
         revision, manifest_pin, catalog_pin = ((CORE54_SCHEMA_REVISION, CORE54_MANIFEST_SHA256, CORE54_CATALOG_SHA256)
             if profile == CORE54_SEED_CONTRACT else (CORE55_SCHEMA_REVISION, CORE55_MANIFEST_SHA256, CORE55_CATALOG_SHA256)
             if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256)
-            if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256))
+            if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256)
+            if profile == CORE58_SEED_CONTRACT else (CORE59_SCHEMA_REVISION, CORE59_MANIFEST_SHA256, CORE59_CATALOG_SHA256))
         # Match serde_json::to_vec(schema_manifest()) plus the CLI's final LF.
         # Both producing Rust and fresh_target.json are independently pinned.
         manifest = {"format_version": 1, "scope": "compiled-core-schema-contract",
@@ -564,8 +593,19 @@ UPGRADE_RECEIPT_TABLES = (
 def upgrade_receipt_tables(contract: dict) -> tuple[str, ...]:
     # Historical fixtures have no suffix receipt table. Never reference an absent
     # table there; never exclude a newer receipt from the fresh-target fence.
-    return UPGRADE_RECEIPT_TABLES + (("core_meta.commerce_display_rate_upgrades",)
+    return (UPGRADE_RECEIPT_TABLES + (("core_meta.commerce_display_rate_upgrades",)
         if "commerce-self-purchase" in contract["component_fingerprints"] else ())
+        + (("core_meta.subscription_epay_upgrades",)
+        if "subscription-epay" in contract["component_fingerprints"] else ()))
+
+
+def fresh_business_tables(contract: dict) -> tuple[str, ...]:
+    # These rights are never inferred from legacy balances or identity mappings.
+    # This fence alone does not authorize a profile: current_contract requires
+    # the complete reviewed source assembly, manifest and catalog pins.
+    return (("core_subscriptions.external_prices", "core_subscriptions.external_orders",
+             "core_subscriptions.external_proofs", "core_subscriptions.external_grants")
+            if "subscription-epay" in contract["component_fingerprints"] else ())
 
 
 def upgrade_receipts_guard_sql(contract: dict | None = None) -> str:
@@ -574,7 +614,7 @@ def upgrade_receipts_guard_sql(contract: dict | None = None) -> str:
 
 
 def profile_acl_guard_sql(contract: dict) -> str:
-    """The Core58 receipt is owner-only, including column ACLs.
+    """Suffix receipts are owner-only, including column ACLs.
 
     CREATE OR REPLACE preserves post_ledger ACLs; the display writer explicitly
     revokes PUBLIC. Their SECURITY DEFINER bodies/search paths remain catalog
@@ -582,7 +622,7 @@ def profile_acl_guard_sql(contract: dict) -> str:
     """
     if "commerce-self-purchase" not in contract["component_fingerprints"]:
         return "FALSE"
-    return """EXISTS(SELECT 1 FROM pg_class c,
+    guard = """EXISTS(SELECT 1 FROM pg_class c,
  LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
  WHERE c.oid='core_meta.commerce_display_rate_upgrades'::regclass AND a.grantee<>c.relowner)
  OR EXISTS(SELECT 1 FROM pg_attribute t JOIN pg_class c ON c.oid=t.attrelid,
@@ -592,10 +632,29 @@ def profile_acl_guard_sql(contract: dict) -> str:
  LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
  WHERE p.oid IN ('core_billing.post_ledger(jsonb)'::regprocedure,
  'core_console.write_display_exchange_rate(text)'::regprocedure) AND a.grantee=0)"""
+    if "subscription-epay" in contract["component_fingerprints"]:
+        guard += """
+ OR EXISTS(SELECT 1 FROM pg_class c,
+ LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+ WHERE c.oid='core_meta.subscription_epay_upgrades'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_attribute t JOIN pg_class c ON c.oid=t.attrelid,
+ LATERAL aclexplode(t.attacl) a
+ WHERE c.oid='core_meta.subscription_epay_upgrades'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_attribute t
+ WHERE t.attrelid='core_payments.provider_identifiers'::regclass
+ AND t.attname='subscription_order_id' AND NOT t.attisdropped AND t.attacl IS NOT NULL)
+ OR EXISTS(SELECT 1 FROM pg_proc p,
+ LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+ WHERE p.oid IN ('core_subscriptions.guard_external_order()'::regprocedure,
+ 'core_subscriptions.check_external_grant()'::regprocedure,
+ 'core_subscriptions.external_ends_at(jsonb,bigint)'::regprocedure,
+ 'core_subscriptions.apply_epay_grant(text,text,text)'::regprocedure) AND a.grantee=0)"""
+    return guard
 
 
-def fresh_seed_hash_query(profile: str = CORE58_SEED_CONTRACT) -> str:
+def fresh_seed_hash_query(profile: str | None = None) -> str:
     """Bind all seed fields in UTC, including the physical sequence row fields."""
+    profile = reviewed_profile() if profile is None else profile
     relations = {
         "ledger_accounts": ("core_billing.ledger_accounts", "id"),
         "balance_state": ("core_billing.balance_state", "ledger_account_id"),
@@ -614,8 +673,8 @@ def fresh_seed_hash_query(profile: str = CORE58_SEED_CONTRACT) -> str:
         "promotion_secret": ("core_promotions.secrets", "singleton"),
         "channel_projection_state": ("core_channels.projection_state", "singleton"),
     }
-    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT), "seed_profile_not_reviewed")
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
+    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT), "seed_profile_not_reviewed")
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
         # 50--54 add no seed rights: all twelve tables must remain empty.
         # Their whole rows and both new physical sequences are still hashed.
         relations.update({
@@ -634,14 +693,22 @@ def fresh_seed_hash_query(profile: str = CORE58_SEED_CONTRACT) -> str:
             "referral_event_journals": ("core_referrals.event_journals", "event_id"),
             "referral_events_sequence": ("core_referrals.events_id_seq", "last_value"),
         })
-    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
+    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
         relations["connection_snapshot"] = ("core_history.connection_snapshot", "singleton")
-    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
+    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
         relations.update({"directory_ad_quotes": ("core_directory_ads.quotes", "id"),
                           "directory_ad_payments": ("core_directory_ads.payments", "id"),
                           "directory_ad_refunds": ("core_directory_ads.refunds", "principal,request_id")})
-    if profile == CORE58_SEED_CONTRACT:
+    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
         relations["commerce_display_rate_upgrades"] = ("core_meta.commerce_display_rate_upgrades", "upgrade_id")
+    if profile == CORE59_SEED_CONTRACT:
+        relations.update({
+            "subscription_epay_upgrades": ("core_meta.subscription_epay_upgrades", "upgrade_id"),
+            "external_prices": ("core_subscriptions.external_prices", "plan_id,plan_revision,channel_id"),
+            "external_orders": ("core_subscriptions.external_orders", "id"),
+            "external_proofs": ("core_subscriptions.external_proofs", "id"),
+            "external_grants": ("core_subscriptions.external_grants", "order_id"),
+        })
     fields = []
     for key, (relation, order) in relations.items():
         # PostgreSQL sequences have no composite row type for to_jsonb(t).
@@ -686,7 +753,7 @@ def validate_import_material(plan: dict, source_sha256: str, manifest: dict) -> 
     require(isinstance(manifest, dict) and manifest.get("format_version") == 2 and type(manifest.get("format_version")) is int
             and manifest.get("scope") == "identity-only" and manifest.get("source_archive_sha256") == source_sha256
             and manifest.get("identity_contract") == identity_contract() and manifest.get("developer_access_policy") == DEVELOPER_POLICY
-            and manifest.get("initialized_core_seed_contract") == CORE_SEED_CONTRACT
+            and manifest.get("initialized_core_seed_contract") == reviewed_profile()
             and manifest.get("import_tool_sha256") == sha256_file(Path(__file__).resolve())
             and manifest.get("import_contract_sha256") == hashlib.sha256(canonical(current_contract()).encode()).hexdigest()
             and manifest.get("mapping_sha256") == plan["mapping_sha256"] and manifest.get("summary") == plan.get("summary")
@@ -1131,7 +1198,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         require(target_contract.get(key) == contract.get(key), "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
-    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
+    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
         require(catalog_hash == contract["fresh_catalog_sha256"], "target_fresh_catalog_mismatch")
     validate_import_material(plan, source_sha256, manifest)
     require(isinstance(target_identity, dict), "target_identity_incomplete")
@@ -1183,7 +1250,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
     require(allow_core_seed and "allow_initialized_zero_ledger_seed" not in target_contract,
             "target_fresh49_seed_contract_required")
     if allow_core_seed:
-        require(target_contract.get("initialized_core_seed_contract") == CORE_SEED_CONTRACT, "target_seed_contract_invalid")
+        require(target_contract.get("initialized_core_seed_contract") == reviewed_profile(), "target_seed_contract_invalid")
         require(isinstance(target_contract.get("initialized_core_seed_sha256"), str)
                 and HEX.fullmatch(target_contract["initialized_core_seed_sha256"]) is not None,
                 "target_seed_hash_required")
@@ -1565,7 +1632,7 @@ def main() -> int:
         id_map_path = write_private(output, "source-target-id-map.private.jsonl", id_map_bytes(plan["records"]))
         manifest = {"format_version": 2, "scope": "identity-only", "source_archive_sha256": source_hash,
                     "identity_contract": expected_contract, "developer_access_policy": DEVELOPER_POLICY,
-                    "initialized_core_seed_contract": CORE_SEED_CONTRACT,
+                    "initialized_core_seed_contract": reviewed_profile(),
                     "import_tool_sha256": sha256_file(Path(__file__).resolve()),
                     "import_contract_sha256": hashlib.sha256(canonical(current_contract()).encode()).hexdigest(),
                     "source_export_sha256": sha256_file(output / "source-identity-export.private.jsonl"),

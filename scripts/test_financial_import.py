@@ -30,7 +30,7 @@ def source_fixture():
     manifest = {"format_version": 2, "scope": "identity-only", "source_archive_sha256": archive_hash,
         "mapping_sha256": identity_plan["mapping_sha256"], "source_target_id_map_sha256": F.sha(id_map.encode()),
         "identity_contract": F.IDENTITY.identity_contract(), "developer_access_policy": F.IDENTITY.DEVELOPER_POLICY,
-        "initialized_core_seed_contract": F.IDENTITY.CORE_SEED_CONTRACT,
+        "initialized_core_seed_contract": F.IDENTITY.reviewed_profile(),
         "source_export_sha256": "e" * 64, "source_baseline_proof_sha256": "f" * 64,
         "summary": identity_plan["summary"],
         "import_tool_sha256": F.IDENTITY.sha256_file(Path(F.IDENTITY.__file__)),
@@ -79,7 +79,9 @@ def snapshot_fixture(source):
             "database_oid": "12345", "system_identifier": "7777777", "listen_addresses": "",
             "postmaster_started_at": "2026-10-01 00:00:00+00", "server_instance_nonce": "synthetic-instance",
             "server_version_num": "180000", "port": 5432, "tcp_connection": False},
-        "catalog_fingerprint_sha256": "a" * 64, "ownership_sha256": "b" * 64,
+        "catalog_fingerprint_sha256": (F.IDENTITY.current_contract()["fresh_catalog_sha256"]
+            if F.IDENTITY.reviewed_profile() == F.IDENTITY.CORE59_SEED_CONTRACT else "a" * 64),
+        "ownership_sha256": "b" * 64,
         "component_fingerprints": F.IDENTITY.current_contract()["component_fingerprints"],
         "trust_policy_seed": trust_seed_fixture()}
 
@@ -379,6 +381,53 @@ class MaterialTests(unittest.TestCase):
         inventory["tables"].remove("core_meta.commerce_display_rate_upgrades")
         with self.assertRaisesRegex(F.Error, "incomplete_inventory"):
             F.validate_inventory(inventory)
+
+    def test_reviewed59_material_keeps_source_catalog_and_acl_guards(self):
+        material = material_fixture()
+        contract = F.IDENTITY.current_contract()
+        self.assertEqual(contract["import_profile"], F.IDENTITY.CORE59_SEED_CONTRACT)
+        self.assertEqual(material["target"]["source_contract"]["source_schema_revision"],
+                         F.IDENTITY.CORE59_SCHEMA_REVISION)
+        sql = F.build_apply_sql(material)
+        self.assertIn("core_meta.subscription_epay_upgrades", sql)
+        self.assertIn("t.attname='subscription_order_id'", sql)
+        self.assertIn("core_subscriptions.apply_epay_grant(text,text,text)", sql)
+        for name in F.IDENTITY.fresh_business_tables(contract):
+            self.assertIn(name, material["before_state"]["inventory"]["tables"])
+            self.assertIn(name, sql)
+        changed = copy.deepcopy(material)
+        changed["target"]["source_contract"]["import_profile"] = F.IDENTITY.CORE58_SEED_CONTRACT
+        with self.assertRaisesRegex(F.Error, "source_contract_changed"):
+            F.build_apply_sql(changed)
+
+    def test_reviewed59_catalog_cannot_be_owner_relabelled(self):
+        changed = copy.deepcopy(self.material)
+        changed["target"]["catalog_fingerprint_sha256"] = F.IDENTITY.CORE58_CATALOG_SHA256
+        with self.assertRaisesRegex(F.Error, "target_fresh_catalog_mismatch"):
+            F.build_apply_sql(changed)
+        source = source_fixture()
+        snapshot = snapshot_fixture(source)
+        snapshot["catalog_fingerprint_sha256"] = F.IDENTITY.CORE58_CATALOG_SHA256
+        with self.assertRaisesRegex(F.Error, "target_fresh_catalog_mismatch"):
+            material_fixture(source=source, snapshot=snapshot)
+
+    def test_candidate59_new_rights_and_receipt_cannot_be_present_or_omitted(self):
+        # Exercise the financial validation boundary, not source-profile approval.
+        contract = copy.deepcopy(F.IDENTITY.current_contract())
+        contract["component_fingerprints"]["subscription-epay"] = "0" * 64
+        names = (*F.IDENTITY.fresh_business_tables(contract), "core_meta.subscription_epay_upgrades")
+        with patch.object(F.IDENTITY, "current_contract", return_value=contract):
+            material = material_fixture()
+            for name in names:
+                inventory = copy.deepcopy(material["before_state"]["inventory"])
+                inventory["tables"].remove(name)
+                with self.subTest(missing=name), self.assertRaisesRegex(F.Error, "incomplete_inventory"):
+                    F.validate_inventory(inventory)
+                changed = copy.deepcopy(material)
+                changed["before_state"]["tables"][name] = {"rows": 1, "sha256": "0" * 64}
+                with self.subTest(populated=name), self.assertRaisesRegex(
+                        F.Error, "fresh49_business_or_upgrade_records_not_empty"):
+                    F.build_apply_sql(changed)
 
     def test_trust_seed_requires_owner_capture_and_exact_default_fields(self):
         material = copy.deepcopy(self.material)
