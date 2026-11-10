@@ -71,6 +71,7 @@ type Config struct {
 	UserReadSocket                string
 	Scripts                       *operations.ScriptConfig
 	ScriptRepositoryKeyFile       string
+	IoNetKeyFile                  string
 }
 
 type Runtime struct {
@@ -199,7 +200,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		}
 	}()
 	if len(cfg.Selected) == 0 {
-		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" {
+		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" || cfg.IoNetKeyFile != "" {
 			return nil, errors.New("operations configuration requires explicit module selection")
 		}
 		return r, nil
@@ -399,7 +400,17 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 		}
-	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" {
+		if cfg.IoNetKeyFile != "" {
+			key, err := ioNetKey(cfg, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey)
+			if err != nil {
+				return nil, err
+			}
+			if err := r.Operations.IoNet.WithCredentialKey(ctx, key); err != nil {
+				return nil, err
+			}
+		}
+
+	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" || cfg.IoNetKeyFile != "" {
 		return nil, errors.New("operations configuration requires explicit module selection")
 	}
 	var adCore community.DirectoryAdCore

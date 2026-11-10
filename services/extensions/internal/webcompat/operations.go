@@ -111,7 +111,7 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Also reject decoded aliases when these handlers are registered on
 			// a mux directly. Pre-dispatch redirects require the outer guard.
-			if !operationsCanonicalScriptURL(r) {
+			if !operationsCanonicalScriptURL(r) || !ioNetCanonicalURL(r) {
 				operationsRespond(w, nil, operations.ErrInvalid)
 				return
 			}
@@ -177,6 +177,7 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 	mux.HandleFunc("GET /api/scripts/{name}/raw", raw)
 	mux.HandleFunc("GET /scripts/{name}", raw)
 	registerScriptRepository(mux, auth, s)
+	registerIoNet(mux, auth, s)
 }
 
 // NewOperationsModule can be registered with modules.New. Its relative routes

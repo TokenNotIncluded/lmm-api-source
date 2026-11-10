@@ -31,7 +31,9 @@ import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { NativeRoutingManagement } from '@/features/channels/components/native-routing-management'
 import { useChannelOps } from '@/features/channels/use-channel-ops'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
+import { ROLE } from '@/lib/roles'
 import { getServerErrorMessage } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
@@ -70,6 +72,9 @@ function ModelsContent() {
 
   // Deployment create dialog state
   const [createDeploymentOpen, setCreateDeploymentOpen] = useState(false)
+  const canManageDeployments = useAuthStore(
+    (s) => s.auth.user?.role === ROLE.SUPER_ADMIN
+  )
 
   // keep context state in sync (for components that rely on it)
   useEffect(() => {
@@ -98,7 +103,11 @@ function ModelsContent() {
           {activeSection === 'metadata' ? (
             <ModelsPrimaryButtons />
           ) : (
-            <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
+            <Button
+              disabled={!canManageDeployments}
+              onClick={() => setCreateDeploymentOpen(true)}
+              size='sm'
+            >
               <Plus className='h-4 w-4' />
               {t('Create deployment')}
             </Button>

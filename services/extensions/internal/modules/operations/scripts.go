@@ -161,6 +161,7 @@ type Service struct {
 	Scripts    *Scripts
 	RSS        *RSS
 	Repository *ScriptRepository
+	IoNet      *IoNet
 }
 
 // New assembles requested content only; any configured dependency failure fails
@@ -176,6 +177,13 @@ func New(ctx context.Context, c Config) (*Service, error) {
 		}
 		s.RSS = newRSS(c.Releases)
 		s.Repository = NewScriptRepository(c.Releases)
+		var ionet bool
+		if c.Releases.QueryRowContext(ctx, `SELECT to_regclass('lmm_operations.ionet_config') IS NOT NULL`).Scan(&ionet) != nil {
+			return nil, ErrUnavailable
+		}
+		if ionet {
+			s.IoNet = NewIoNet(c.Releases)
+		}
 	}
 	if c.Scripts != nil {
 		s.Scripts, err = LoadScripts(*c.Scripts)

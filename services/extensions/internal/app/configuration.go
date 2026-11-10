@@ -31,6 +31,7 @@ type GoConfig struct {
 	Acquisition      DatabaseConfig         `toml:"acquisition"`
 	Payments         PaymentsConfig         `toml:"payments"`
 	Scripts          ScriptConfig           `toml:"scripts"`
+	IoNet            IoNetConfig            `toml:"ionet"`
 }
 type HostConfig struct {
 	LocalHTTP       bool     `toml:"local_http"`
@@ -77,6 +78,9 @@ type AssistantConfig struct {
 	AgentRequired   bool   `toml:"agent_required"`
 }
 
+type IoNetConfig struct {
+	KeyFile string `toml:"key_file"`
+}
 type ScriptConfig struct {
 	RepositoryKeyFile string           `toml:"repository_key_file"`
 	Root              string           `toml:"root"`
@@ -149,7 +153,7 @@ func LoadConfig(path string) (GoConfig, error) {
 		}
 		switch key.String() {
 		case "core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
-			"operations", "operations.database_name", "operations.database_url_file",
+			"operations", "operations.database_name", "operations.database_url_file", "ionet", "ionet.key_file",
 			"community", "community.database_name", "community.database_url_file",
 			"acquisition", "acquisition.database_name", "acquisition.database_url_file",
 			"scripts", "scripts.root", "scripts.repository_key_file", "scripts.manifest", "scripts.manifest.name", "scripts.manifest.sha256":
@@ -174,7 +178,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root, cfg.Scripts.RepositoryKeyFile} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root, cfg.Scripts.RepositoryKeyFile, cfg.IoNet.KeyFile} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}

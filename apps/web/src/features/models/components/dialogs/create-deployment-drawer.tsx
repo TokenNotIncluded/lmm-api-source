@@ -242,7 +242,8 @@ export function CreateDeploymentDrawer({
     nameCheckData?.success === true ? nameCheckData?.data?.available : undefined
 
   const createMutation = useMutation({
-    mutationFn: async (values: FormValues) => {
+    mutationFn: async () => {
+      const values = form.getValues()
       const env =
         values.env_json && values.env_json.trim()
           ? (JSON.parse(values.env_json) as Record<string, unknown>)
@@ -395,9 +396,7 @@ export function CreateDeploymentDrawer({
         <Form {...form}>
           <form
             id='deployment-form'
-            onSubmit={form.handleSubmit((values) =>
-              createMutation.mutate(values)
-            )}
+            onSubmit={form.handleSubmit(() => createMutation.mutate())}
             className={sideDrawerFormClassName()}
           >
             {/* Basic Configuration */}

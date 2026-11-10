@@ -17,7 +17,7 @@ var baseSchema string
 //go:embed script_repository_schema.sql
 var scriptRepositorySchema string
 
-var schema = baseSchema + "\n" + scriptRepositorySchema
+var schema = baseSchema + "\n" + scriptRepositorySchema + "\n" + IoNetSchema
 
 // Schema is the compiled fresh-install contract; runtime only checks it.
 var Schema = schema
@@ -98,7 +98,8 @@ func Initialize(ctx context.Context, owner *sql.DB, runtimeRole string) error {
  GRANT USAGE ON SCHEMA lmm_operations TO ` + role + `;
  GRANT SELECT ON lmm_operations.contract TO ` + role + `;
  GRANT SELECT,INSERT ON lmm_operations.publications,lmm_operations.reads TO ` + role + `;
- GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository TO ` + role + `;
+ GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository,lmm_operations.ionet_config TO ` + role + `;
+ GRANT SELECT,INSERT,UPDATE ON lmm_operations.ionet_operations TO ` + role + `;
  GRANT USAGE,SELECT ON SEQUENCE lmm_operations.publication_id TO ` + role + `;`
 	if _, err = tx.ExecContext(ctx, grants); err != nil {
 		return err
@@ -145,9 +146,17 @@ func Check(ctx context.Context, runtime *sql.DB) error {
 	if runtime.QueryRowContext(ctx, "SELECT fingerprint FROM lmm_operations.contract WHERE version=3").Scan(&installed) != nil || runtime.QueryRowContext(ctx, fingerprintSQL).Scan(&actual) != nil || installed != actual || len(actual) != 32 {
 		return ErrUnavailable
 	}
-	for _, table := range []string{"contract", "publications", "reads", "rss_config", "script_repository"} {
+	tables := []string{"contract", "publications", "reads", "rss_config", "script_repository"}
+	var ionet bool
+	if runtime.QueryRowContext(ctx, `SELECT to_regclass('lmm_operations.ionet_config') IS NOT NULL`).Scan(&ionet) != nil {
+		return ErrUnavailable
+	}
+	if ionet {
+		tables = append(tables, "ionet_config", "ionet_operations")
+	}
+	for _, table := range tables {
 		var privileges bool
-		err = runtime.QueryRowContext(ctx, `SELECT has_table_privilege($1,'SELECT') AND has_table_privilege($1,'INSERT')=$2 AND has_table_privilege($1,'UPDATE')=$3 AND NOT has_table_privilege($1,'DELETE,TRUNCATE,REFERENCES,TRIGGER')`, "lmm_operations."+table, table == "publications" || table == "reads", table == "rss_config" || table == "script_repository").Scan(&privileges)
+		err = runtime.QueryRowContext(ctx, `SELECT has_table_privilege($1,'SELECT') AND has_table_privilege($1,'INSERT')=$2 AND has_table_privilege($1,'UPDATE')=$3 AND NOT has_table_privilege($1,'DELETE,TRUNCATE,REFERENCES,TRIGGER')`, "lmm_operations."+table, table == "publications" || table == "reads" || table == "ionet_operations", table == "rss_config" || table == "script_repository" || table == "ionet_config" || table == "ionet_operations").Scan(&privileges)
 		if err != nil || !privileges {
 			return ErrUnavailable
 		}
@@ -157,7 +166,7 @@ func Check(ctx context.Context, runtime *sql.DB) error {
 	if runtime.QueryRowContext(ctx, `SELECT NOT EXISTS (
  SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,c.relowner))) a
  WHERE n.nspname='lmm_operations' AND a.grantee IN (0,(SELECT oid FROM pg_roles WHERE rolname=current_user))
- AND (a.is_grantable OR a.privilege_type NOT IN ('SELECT',CASE WHEN c.relname IN ('publications','reads') THEN 'INSERT' WHEN c.relname IN ('rss_config','script_repository') THEN 'UPDATE' WHEN c.relkind='S' THEN 'USAGE' ELSE 'SELECT' END))
+ AND (a.is_grantable OR a.privilege_type NOT IN ('SELECT',CASE WHEN c.relname IN ('publications','reads','ionet_operations') THEN 'INSERT' WHEN c.relname IN ('rss_config','script_repository','ionet_config') THEN 'UPDATE' WHEN c.relkind='S' THEN 'USAGE' ELSE 'SELECT' END,CASE WHEN c.relname='ionet_operations' THEN 'UPDATE' ELSE 'SELECT' END))
  ) AND NOT EXISTS (
  SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(a.attacl) p
  WHERE n.nspname='lmm_operations' AND p.grantee IN (0,(SELECT oid FROM pg_roles WHERE rolname=current_user))

@@ -35,6 +35,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "upgrade-ionet" {
+		if err := freshinstall.RunIoNetUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "install-db" {
 		if err := freshinstall.RunCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			log.Fatal(err)

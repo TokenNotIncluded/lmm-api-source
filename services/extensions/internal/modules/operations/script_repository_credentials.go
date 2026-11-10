@@ -5,13 +5,9 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"database/sql"
 	_ "embed"
-	"encoding/base64"
 	"errors"
-	"io"
-	"strings"
 	"time"
 )
 
@@ -62,26 +58,16 @@ func (s *ScriptRepository) sealCredential(token string) (string, error) {
 	if !validRepositoryToken(token) {
 		return "", ErrInvalid
 	}
-	nonce := make([]byte, s.credentials.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", ErrUnavailable
-	}
-	return "v1:" + base64.RawURLEncoding.EncodeToString(s.credentials.Seal(nonce, nonce, []byte(token), []byte(scriptCredentialAAD))), nil
+	return sealCredentialPurpose(s.credentials, scriptCredentialAAD, []byte(token))
 }
 func (s *ScriptRepository) openCredential(sealed string) (string, error) {
-	if s.credentials == nil || !strings.HasPrefix(sealed, "v1:") {
-		return "", ErrUnavailable
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(sealed, "v1:"))
-	if err != nil || len(raw) < s.credentials.NonceSize() {
-		return "", ErrUnavailable
-	}
-	plain, err := s.credentials.Open(nil, raw[:s.credentials.NonceSize()], raw[s.credentials.NonceSize():], []byte(scriptCredentialAAD))
+	plain, err := openCredentialPurpose(s.credentials, scriptCredentialAAD, sealed)
 	if err != nil || !validRepositoryToken(string(plain)) {
 		return "", ErrUnavailable
 	}
 	return string(plain), nil
 }
+
 func (s *ScriptRepository) credential(ctx context.Context, revision int64) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

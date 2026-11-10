@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+import { ioNetMutation } from './ionet-api'
 import type {
   GetModelsParams,
   GetModelsResponse,
@@ -419,8 +420,7 @@ export async function getDeploymentContainerDetails(
 export async function deleteDeployment(
   id: string | number
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await api.delete(`/api/deployments/${id}`)
-  return res.data
+  return ioNetMutation('delete', `/api/deployments/${id}`)
 }
 
 /**
@@ -550,8 +550,7 @@ export async function createDeployment(data: {
   message?: string
   data?: Record<string, unknown>
 }> {
-  const res = await api.post('/api/deployments/', data)
-  return res.data
+  return ioNetMutation('post', '/api/deployments/', data)
 }
 
 /**
@@ -579,8 +578,7 @@ export async function updateDeployment(
   if (data.traffic_port === null) {
     delete payload.traffic_port
   }
-  const res = await api.put(`/api/deployments/${id}`, payload)
-  return res.data
+  return ioNetMutation('put', `/api/deployments/${id}`, payload)
 }
 
 /**
@@ -594,8 +592,7 @@ export async function updateDeploymentName(
   message?: string
   data?: Record<string, unknown>
 }> {
-  const res = await api.put(`/api/deployments/${id}/name`, { name })
-  return res.data
+  return ioNetMutation('put', `/api/deployments/${id}/name`, { name })
 }
 
 /**
@@ -609,10 +606,9 @@ export async function extendDeployment(
   message?: string
   data?: Record<string, unknown>
 }> {
-  const res = await api.post(`/api/deployments/${id}/extend`, {
+  return ioNetMutation('post', `/api/deployments/${id}/extend`, {
     duration_hours: durationHours,
   })
-  return res.data
 }
 
 /**

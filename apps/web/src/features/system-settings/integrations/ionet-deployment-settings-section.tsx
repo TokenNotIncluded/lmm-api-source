@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -38,8 +38,15 @@ import {
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { testDeploymentConnectionWithKey } from '@/features/models/api'
+import { clearConnectionCache } from '@/features/models/hooks/use-model-deployment-settings'
+import {
+  readIoNetSettings,
+  saveIoNetSettings,
+} from '@/features/models/ionet-api'
 import { openExternalUrl } from '@/lib/external-navigation'
+import { ROLE } from '@/lib/roles'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   SettingsForm,
@@ -48,7 +55,6 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
 
 const schema = z.object({
   enabled: z.boolean(),
@@ -58,22 +64,21 @@ const schema = z.object({
 // NOTE: react-hook-form resolver uses the schema input type
 type Values = z.input<typeof schema>
 
-export function IoNetDeploymentSettingsSection({
-  defaultValues,
-}: {
-  defaultValues: {
-    enabled: boolean
-    apiKey: string
-  }
+export function IoNetDeploymentSettingsSection(_props: {
+  defaultValues: { enabled: boolean; apiKey: string }
 }) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-
+  const auth = useAuthStore((state) => state.auth)
+  const canManage = auth.user?.role === ROLE.SUPER_ADMIN
+  const [revision, setRevision] = useState<number | null>(null)
+  const [configured, setConfigured] = useState(false)
+  const [clearKey, setClearKey] = useState(false)
+  const [saving, setSaving] = useState(false)
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
-      enabled: defaultValues.enabled,
-      apiKey: defaultValues.apiKey ?? '',
+      enabled: false,
+      apiKey: '',
     },
   })
 
@@ -86,33 +91,46 @@ export function IoNetDeploymentSettingsSection({
     error: string | null
   }>({ loading: false, ok: null, error: null })
 
+  useEffect(() => {
+    const controller = new AbortController()
+    setRevision(null)
+    setClearKey(false)
+    setConfigured(false)
+    form.reset({ enabled: false, apiKey: '' })
+    void readIoNetSettings(controller.signal)
+      .then((settings) => {
+        if (controller.signal.aborted) return
+        setRevision(settings.revision)
+        setConfigured(settings.configured)
+        form.reset({ enabled: settings.enabled, apiKey: '' })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          toast.error(t('Failed to load settings'))
+      })
+    return () => controller.abort()
+  }, [auth.user?.id, auth.user?.role, auth.session?.sid, form, t])
   async function onSubmit(values: Values) {
-    const updates: Array<{ key: string; value: string }> = []
-
-    if (values.enabled !== defaultValues.enabled) {
-      updates.push({
-        key: 'model_deployment.ionet.enabled',
-        value: String(values.enabled),
+    if (!canManage || revision === null) return
+    setSaving(true)
+    try {
+      const settings = await saveIoNetSettings({
+        revision,
+        enabled: values.enabled,
+        api_key: values.apiKey?.trim() || '',
+        clear_api_key: clearKey,
       })
+      setRevision(settings.revision)
+      setConfigured(settings.configured)
+      setClearKey(false)
+      form.reset({ enabled: settings.enabled, apiKey: '' })
+      clearConnectionCache()
+      toast.success(t('Saved successfully'))
+    } catch {
+      toast.error(t('Failed to save'))
+    } finally {
+      setSaving(false)
     }
-
-    if ((values.apiKey || '') !== (defaultValues.apiKey || '')) {
-      updates.push({
-        key: 'model_deployment.ionet.api_key',
-        value: String(values.apiKey || ''),
-      })
-    }
-
-    if (updates.length === 0) {
-      toast.info(t('No changes to save'))
-      return
-    }
-
-    for (const update of updates) {
-      await updateOption.mutateAsync(update)
-    }
-
-    form.reset(values)
   }
 
   const handleTestConnection = async () => {
@@ -144,8 +162,10 @@ export function IoNetDeploymentSettingsSection({
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)} autoComplete='off'>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending || isSubmitting}
-            isSaveDisabled={!isDirty}
+            isSaving={saving || isSubmitting}
+            isSaveDisabled={
+              !canManage || revision === null || (!isDirty && !clearKey)
+            }
             saveLabel='Save io.net settings'
           />
           <FormField
@@ -163,13 +183,32 @@ export function IoNetDeploymentSettingsSection({
                   <Switch
                     checked={field.value}
                     onCheckedChange={(v) => field.onChange(v)}
-                    disabled={updateOption.isPending || isSubmitting}
+                    disabled={
+                      !canManage || revision === null || saving || isSubmitting
+                    }
                   />
                 </FormControl>
               </SettingsSwitchItem>
             )}
           />
 
+          {configured ? (
+            <label className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={clearKey}
+                disabled={!canManage || revision === null || saving}
+                onChange={(event) => {
+                  setClearKey(event.target.checked)
+                  if (event.target.checked) {
+                    form.setValue('apiKey', '', { shouldDirty: true })
+                    form.setValue('enabled', false, { shouldDirty: true })
+                  }
+                }}
+              />
+              {t('Clear')} {t('io.net API Key')}
+            </label>
+          ) : null}
           {enabled ? (
             <>
               <FormField
@@ -182,7 +221,13 @@ export function IoNetDeploymentSettingsSection({
                       <FormControl>
                         <Input
                           type='password'
-                          placeholder={t('Enter API Key')}
+                          placeholder={
+                            configured
+                              ? t('Key is configured; leave blank to keep it')
+                              : t('Enter API Key')
+                          }
+                          disabled={!canManage || revision === null || saving}
+                          onInput={() => setClearKey(false)}
                           autoComplete='off'
                           {...field}
                         />
@@ -191,7 +236,7 @@ export function IoNetDeploymentSettingsSection({
                         type='button'
                         variant='secondary'
                         onClick={handleTestConnection}
-                        disabled={testState.loading || updateOption.isPending}
+                        disabled={testState.loading || saving}
                         className='shrink-0'
                       >
                         {testState.loading ? (

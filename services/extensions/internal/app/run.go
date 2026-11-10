@@ -90,7 +90,7 @@ func Run() error {
 		StoreExtoreRedirectURI:    cfg.Store.ExtoreRedirectURI,
 		Support:                   composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
-		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts, ScriptRepositoryKeyFile: cfg.Scripts.RepositoryKeyFile,
+		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts, ScriptRepositoryKeyFile: cfg.Scripts.RepositoryKeyFile, IoNetKeyFile: cfg.IoNet.KeyFile,
 		UserReadTokenFile: cfg.Core.UserReadTokenFile,
 		UserReadSocket:    cfg.Core.UserReadSocket,
 		Acquisition:       composition.StorageConfig{Component: "acquisition", URLFile: cfg.Acquisition.DatabaseURLFile, Database: cfg.Acquisition.DatabaseName},

@@ -30,6 +30,8 @@ import {
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu'
 import { formatTimestampToDate } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getDeploymentStatusConfig } from '../constants'
 import {
@@ -48,6 +50,7 @@ export function useDeploymentsColumns(opts: {
 }): ColumnDef<Deployment>[] {
   const { t } = useTranslation()
   const STATUS = getDeploymentStatusConfig(t)
+  const canManage = useAuthStore((s) => s.auth.user?.role === ROLE.SUPER_ADMIN)
 
   return [
     {
@@ -272,19 +275,28 @@ export function useDeploymentsColumns(opts: {
                   <Info size={16} />
                 </DropdownMenuShortcut>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => opts.onUpdateConfig(id)}>
+              <DropdownMenuItem
+                disabled={!canManage}
+                onClick={() => opts.onUpdateConfig(id)}
+              >
                 {t('Update configuration')}
                 <DropdownMenuShortcut>
                   <Settings2 size={16} />
                 </DropdownMenuShortcut>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => opts.onExtend(id)}>
+              <DropdownMenuItem
+                disabled={!canManage}
+                onClick={() => opts.onExtend(id)}
+              >
                 {t('Extend deployment')}
                 <DropdownMenuShortcut>
                   <Timer size={16} />
                 </DropdownMenuShortcut>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => opts.onRename(id, currentName)}>
+              <DropdownMenuItem
+                disabled={!canManage}
+                onClick={() => opts.onRename(id, currentName)}
+              >
                 {t('Rename deployment')}
                 <DropdownMenuShortcut>
                   <Pencil size={16} />
@@ -292,6 +304,7 @@ export function useDeploymentsColumns(opts: {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
+                disabled={!canManage}
                 onClick={() => opts.onDelete(row.original)}
                 className='text-destructive focus:text-destructive'
               >

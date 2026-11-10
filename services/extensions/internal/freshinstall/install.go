@@ -51,7 +51,8 @@ func compiled(component string) (plan, error) {
 		return plan{prefix: "lmm_operations", schema: operations.Schema, namespaces: []string{"lmm_operations"}, grants: []string{
 			"GRANT SELECT ON lmm_operations.contract TO ",
 			"GRANT SELECT,INSERT ON lmm_operations.publications,lmm_operations.reads TO ",
-			"GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository TO ",
+			"GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository,lmm_operations.ionet_config TO ",
+			"GRANT SELECT,INSERT,UPDATE ON lmm_operations.ionet_operations TO ",
 			"GRANT SELECT,USAGE ON SEQUENCE lmm_operations.publication_id TO ",
 		}}, nil
 	case "acquisition":

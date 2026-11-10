@@ -137,6 +137,19 @@ func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundl
 	}
 	// Keep each privilege separate (PostgreSQL comma lists mean OR), while
 	// batching checks to fit the bounded startup even over a TCP connection.
+	// io.net is an optional installed addon. Existing public operations sites
+	// remain usable before the explicit offline upgrade; partial addons fail closed.
+	if c.Component == "operations" {
+		var config, journal bool
+		if err := db.QueryRowContext(bounded, `SELECT to_regclass('lmm_operations.ionet_config') IS NOT NULL,to_regclass('lmm_operations.ionet_operations') IS NOT NULL`).Scan(&config, &journal); err != nil || config != journal {
+			return nil, errors.New("io.net storage addon incomplete")
+		}
+		if !config {
+			policy.tables = slices.DeleteFunc(slices.Clone(policy.tables), func(table storageTable) bool {
+				return table.name == "lmm_operations.ionet_config" || table.name == "lmm_operations.ionet_operations"
+			})
+		}
+	}
 	for _, check := range []struct {
 		tables   []storageTable
 		function string
@@ -270,6 +283,8 @@ func storageTables(component string) []storageTable {
 		add("lmm_operations.reads", "SELECT", "INSERT")
 		add("lmm_operations.rss_config", "SELECT", "UPDATE")
 		add("lmm_operations.script_repository", "SELECT", "UPDATE")
+		add("lmm_operations.ionet_config", "SELECT", "UPDATE")
+		add("lmm_operations.ionet_operations", "SELECT", "INSERT", "UPDATE")
 	case "acquisition":
 		for _, name := range []string{"contract", "config", "attribution_policies", "cohort", "links", "visitors", "visits", "accounts", "consents", "self_reports", "correction_heads", "corrections", "costs", "first_payments", "activities", "activity_state", "activity_gaps"} {
 			add("lmm_acquisition."+name, "SELECT")

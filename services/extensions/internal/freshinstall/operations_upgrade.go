@@ -16,19 +16,35 @@ import (
 // RunOperationsUpgradeCLI performs an explicit owner upgrade to the selected version.
 // Normal startup never reads owner credentials or invokes this code.
 func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
-	return runOperationsUpgradeCLI(ctx, args, out, false)
+	return runOperationsUpgradeCLI(ctx, args, out, upgradeOperationsBase)
 }
 
 func RunScriptRepositoryCredentialsUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
-	return runOperationsUpgradeCLI(ctx, args, out, true)
+	return runOperationsUpgradeCLI(ctx, args, out, upgradeScriptCredentials)
 }
 
-func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, credentials bool) error {
+type operationsUpgradeMode uint8
+
+const (
+	upgradeOperationsBase operationsUpgradeMode = iota
+	upgradeScriptCredentials
+	upgradeIoNet
+)
+
+func RunIoNetUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runOperationsUpgradeCLI(ctx, args, out, upgradeIoNet)
+}
+func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, mode operationsUpgradeMode) error {
+	credentials := mode == upgradeScriptCredentials
+	ionet := mode == upgradeIoNet
 	var c Config
 	var operation string
 	var recoverOnly bool
 	var targetVersion int
 	command := "upgrade-operations-db"
+	if ionet {
+		command = "upgrade-ionet"
+	}
 	if credentials {
 		command = "upgrade-script-repository-credentials"
 	}
@@ -40,10 +56,10 @@ func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, 
 	f.StringVar(&c.RuntimeRole, "runtime-role", "", "fenced NOLOGIN runtime")
 	f.StringVar(&operation, "operation-id", "", "original stable operation ID")
 	f.BoolVar(&recoverOnly, "recover", false, "read original result without applying")
-	if !credentials {
+	if !credentials && !ionet {
 		f.IntVar(&targetVersion, "target-version", 2, "2 for RSS, 3 for script repository")
 	}
-	if f.Parse(args) != nil || f.NArg() != 0 || (!credentials && targetVersion != 2 && targetVersion != 3) {
+	if f.Parse(args) != nil || f.NArg() != 0 || (!credentials && !ionet && targetVersion != 2 && targetVersion != 3) {
 		return ErrRejected
 	}
 	c.Component = "operations"
@@ -82,7 +98,9 @@ func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, 
 	if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+pq.QuoteIdentifier(c.OwnerRole)); err != nil {
 		return ErrRejected
 	}
-	if credentials {
+	if ionet {
+		err = operations.UpgradeIoNet(ctx, tx, c.RuntimeRole, operation, recoverOnly)
+	} else if credentials {
 		err = operations.UpgradeScriptRepositoryCredentials(ctx, tx, c.RuntimeRole, operation, recoverOnly)
 	} else if targetVersion == 3 {
 		err = operations.UpgradeScriptRepository(ctx, tx, c.RuntimeRole, operation, recoverOnly)
@@ -98,6 +116,10 @@ func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, 
 		}
 	}
 	receipt := map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": targetVersion}
+	if ionet {
+		receipt["version"] = 1
+		receipt["component"] = "ionet"
+	}
 	if credentials {
 		receipt["version"] = 1
 		receipt["component"] = "script_repository_credentials"

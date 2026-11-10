@@ -33,6 +33,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import { IoNetRecoveryPanel } from './ionet-recovery-panel'
+
 type LoadingPhase = 'idle' | 'settings' | 'connection' | 'done'
 type StepStatus = 'pending' | 'loading' | 'done'
 
@@ -94,7 +96,7 @@ function LoadingStep({
   )
 }
 
-export function DeploymentAccessGuard({
+function DeploymentAccessState({
   children,
   loading,
   loadingPhase = 'settings',
@@ -202,4 +204,15 @@ export function DeploymentAccessGuard({
   }
 
   return <>{children}</>
+}
+
+export function DeploymentAccessGuard(
+  props: Parameters<typeof DeploymentAccessState>[0]
+) {
+  return (
+    <>
+      <IoNetRecoveryPanel />
+      <DeploymentAccessState {...props} />
+    </>
+  )
 }
