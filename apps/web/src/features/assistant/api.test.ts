@@ -974,7 +974,7 @@ describe('assistant chat retry policy', () => {
     }
   })
 
-  test('stopping during retry backoff prevents another request and visible reset', async () => {
+  test('stream HTTP failures do not enter POST retry backoff', async () => {
     const originalFetch = globalThis.fetch
     const controller = new AbortController()
     let calls = 0
@@ -1003,7 +1003,7 @@ describe('assistant chat retry policy', () => {
           },
           controller.signal
         ),
-        isAssistantRequestAborted
+        /temporarily unavailable/
       )
       assert.equal(calls, 1)
       assert.equal(resets, 0)
@@ -1077,45 +1077,24 @@ describe('assistant chat retry policy', () => {
     }
   })
 
-  test('retries HTTP rate limits with the same conversation and question', async () => {
+  test('does not replay streaming POST even with a rate-limit retry grant', async () => {
     const originalFetch = globalThis.fetch
-    const requests: Array<{ body: unknown; attempt: string | null }> = []
-    globalThis.fetch = (async (_input, init) => {
-      requests.push({
-        body: JSON.parse(String(init?.body)),
-        attempt: new Headers(init?.headers).get('X-LMM-Assistant-Attempt'),
-      })
-      return requests.length === 1
-        ? Response.json(
-            { message: 'rate limited', retryable: true },
-            { status: 429 }
-          )
-        : Response.json({
-            choices: [{ message: { content: 'Windows setup instructions' } }],
-          })
-    }) as typeof globalThis.fetch
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      return Response.json(
+        { message: 'rate limited', retryable: true },
+        { status: 429 }
+      )
+    }
     try {
-      const reply = await sendAssistantMessage(
-        'What about Windows?',
-        [
-          { role: 'user', content: 'How do I configure my client?' },
-          { role: 'assistant', content: 'Which operating system?' },
-        ],
-        42,
-        undefined,
-        { onDelta: () => undefined }
+      await assert.rejects(
+        sendAssistantMessage('hello', [], 42, undefined, {
+          onDelta: () => undefined,
+        }),
+        /rate limited/
       )
-      assert.equal(reply.content, 'Windows setup instructions')
-      assert.equal(requests.length, 2)
-      assert.deepEqual(
-        requests.map(({ attempt }) => attempt),
-        ['1', '2']
-      )
-      assert.deepEqual(requests[1].body, requests[0].body)
-      assert.equal(
-        (requests[1].body as { conversation_id: number }).conversation_id,
-        42
-      )
+      assert.equal(calls, 1)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1124,7 +1103,7 @@ describe('assistant chat retry policy', () => {
   test('consumes assistant SSE deltas before the final response', async () => {
     const originalFetch = globalThis.fetch
     const chunks = [
-      'event: ready\ndata: {"type":"ready"}\n\n',
+      'event: ready\ndata: {"conversation_id":9,"client_turn_id":"turn"}\n\n',
       'event: delta\ndata: {"content":"实时"}\n\n',
       'event: delta\ndata: {"content":"输出"}\n\n',
       'event: done\ndata: {"choices":[{"message":{"content":"实时输出"}}],"lmm_assistant_history":{"conversation_id":9}}\n\n',

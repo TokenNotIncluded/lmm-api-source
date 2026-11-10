@@ -14,6 +14,20 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { z } from 'zod'
+
+export const assistantTurnIdentitySchema = z.object({
+  conversation_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  client_turn_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/),
+})
+export type AssistantTurnIdentity = z.infer<typeof assistantTurnIdentitySchema>
+
+export function parseAssistantTurnIdentity(
+  value: unknown
+): AssistantTurnIdentity {
+  return assistantTurnIdentitySchema.parse(value)
+}
+
 // The server owns the SSE envelope. Consume it directly: the old second
 // UIMessage stream had an independent lifetime but no independent consumer UI.
 export function isRetryableAssistantStatus(status: number): boolean {
@@ -110,6 +124,7 @@ export async function withAssistantDeadline<T>(
 
 type AssistantStreamPayload = Record<string, unknown>
 type StreamHandlers = {
+  onReady?: (turn: AssistantTurnIdentity) => void
   onDelta?: (content: string) => void
   onReset?: () => void
   onProgress?: (progress: AssistantProgress) => void
@@ -117,6 +132,7 @@ type StreamHandlers = {
 type StreamOptions = {
   signal?: AbortSignal
   timeoutMs?: number
+  expectedTurn?: { client_turn_id: string; conversation_id?: number }
   idleTimeoutMs?: number
 }
 
@@ -146,6 +162,21 @@ export async function consumeAssistantAISDKStream(
       let eventSize = 0
       let result: AssistantStreamPayload | undefined
       let activitySeen = false
+      let ready: AssistantTurnIdentity | undefined
+      const verifyTurn = (value: unknown) => {
+        const turn = assistantTurnIdentitySchema.safeParse(value)
+        const expected = ready ?? options.expectedTurn
+        if (
+          !turn.success ||
+          (expected &&
+            (turn.data.client_turn_id !== expected.client_turn_id ||
+              (expected.conversation_id !== undefined &&
+                turn.data.conversation_id !== expected.conversation_id)))
+        ) {
+          throw protocolError('Assistant returned a different turn receipt')
+        }
+        return turn.data
+      }
       let idleTimer: ReturnType<typeof setTimeout> | undefined
       let rejectStopped: (error: Error) => void = () => undefined
       const stopped = new Promise<never>((_resolve, reject) => {
@@ -204,9 +235,25 @@ export async function consumeAssistantAISDKStream(
             !activitySeen && payload.retryable === true
           )
         }
+        if (event === 'ready') {
+          ready = verifyTurn(payload)
+          activitySeen = true
+          handlers.onReady?.(ready)
+          return
+        }
         if (event === 'done') {
+          if (options.expectedTurn) verifyTurn(payload.lmm_assistant_history)
           result = payload
           return
+        }
+        if (
+          options.expectedTurn &&
+          !ready &&
+          ['replace', 'delta', 'progress'].includes(event)
+        ) {
+          throw protocolError(
+            'Assistant stream output preceded its turn receipt'
+          )
         }
         if (event === 'progress') {
           if (

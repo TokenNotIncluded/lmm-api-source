@@ -19,69 +19,49 @@ import { test } from 'node:test'
 
 import { api } from '@/lib/api'
 
-import { sendAssistantMessage } from './api'
+import { AssistantTurnContinuationError, sendAssistantMessage } from './api'
 
-test('the existing streaming entry point resumes JSON turns with an empty command', async () => {
-  const calls: Array<{
-    url: string
-    method: string | undefined
-    body: BodyInit | null | undefined
-  }> = []
-  const original = Object.getOwnPropertyDescriptor(globalThis, 'fetch')
-  assert.ok(original)
-  Object.defineProperty(globalThis, 'fetch', {
-    ...original,
-    value: async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: String(input), method: init?.method, body: init?.body })
-      return calls.length === 1
-        ? Response.json(
-            {
-              success: false,
-              code: 'ASSISTANT_OPERATION_PENDING',
-              data: {
-                conversation_id: 42,
-                client_turn_id: 'original-turn',
-                state: 'tools_pending',
-              },
-            },
-            { status: 202 }
-          )
-        : Response.json({
-            success: true,
-            choices: [{ message: { content: 'Original persisted answer' } }],
-            lmm_assistant_history: {
-              conversation_id: 42,
-              client_turn_id: 'original-turn',
-            },
-          })
-    },
-  })
-  try {
-    const reply = await sendAssistantMessage(
-      'Original message',
-      [],
-      undefined,
-      undefined,
-      { onDelta: () => undefined },
-      undefined,
-      false,
-      'original-turn'
+test('streaming pending receipts stop without resuming model or tools', async () => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return Response.json(
+      {
+        success: false,
+        code: 'ASSISTANT_OPERATION_PENDING',
+        data: {
+          conversation_id: 42,
+          client_turn_id: 'original-turn',
+          state: 'tools_pending',
+        },
+      },
+      { status: 202 }
     )
-    assert.equal(reply.content, 'Original persisted answer')
-    assert.equal(reply.conversationId, 42)
-    assert.equal(calls.length, 2)
-    assert.equal(calls[0]?.url, '/api/assistant/chat')
-    assert.deepEqual(calls[1], {
-      url: '/api/assistant/conversations/42/turns/original-turn/resume',
-      method: 'POST',
-      body: '{}',
-    })
+  }
+  try {
+    await assert.rejects(
+      sendAssistantMessage(
+        'Original',
+        [],
+        undefined,
+        undefined,
+        { onDelta: () => undefined },
+        undefined,
+        false,
+        'original-turn'
+      ),
+      (error) =>
+        error instanceof AssistantTurnContinuationError &&
+        error.conversationId === 42
+    )
+    assert.equal(calls, 1)
   } finally {
-    Object.defineProperty(globalThis, 'fetch', original)
+    globalThis.fetch = original
   }
 })
 
-for (const transport of ['json', 'stream'] as const) {
+for (const transport of ['json'] as const) {
   test(`${transport} starter submission preserves edits and only reads pending PersonalText turns`, async () => {
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch')
@@ -139,7 +119,7 @@ for (const transport of ['json', 'stream'] as const) {
         [],
         undefined,
         'getting_started',
-        transport === 'stream' ? { onDelta: () => undefined } : undefined,
+        undefined,
         undefined,
         false,
         'starter-turn'

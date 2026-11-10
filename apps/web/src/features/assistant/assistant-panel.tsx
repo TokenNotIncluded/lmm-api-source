@@ -120,6 +120,12 @@ import {
   isAssistantTurnUnavailable,
   recordAssistantPreConversationPresetClick,
   sendAssistantMessage,
+  observeAssistantTurn,
+  lookupAssistantTurn,
+  recoverAssistantConversation,
+  AssistantTurnReleasedError,
+  AssistantSubmissionRejectedError,
+  AssistantTurnTerminalError,
   type AssistantPreConversationPreset,
   type AssistantConversationHistoryItem,
   type AssistantConversationHistoryDetail,
@@ -225,6 +231,9 @@ type AssistantAction =
         | 'usage'
     }
 
+type AssistantTurnIdentity =
+  import('./assistant-ai-stream').AssistantTurnIdentity
+
 type ConversationEntry = {
   id: string
   role: 'user' | 'assistant' | 'human'
@@ -239,6 +248,9 @@ type ConversationEntry = {
   notice?: boolean
   streaming?: boolean
   animateToCloud?: boolean
+  pendingTurn?: AssistantTurnIdentity
+  pendingCreation?: boolean
+  pending?: boolean
   interrupted?: boolean
   retry?: {
     message: string
@@ -401,7 +413,9 @@ function AssistantFlowResponse(props: {
   flow: { current: L0TextFlow | null }
 }) {
   const answerRef = useRef<HTMLDivElement>(null)
-  const [formatted, setFormatted] = useState(!props.entry.streaming)
+  const [formatted, setFormatted] = useState(
+    !props.entry.streaming && !props.entry.pending
+  )
   const tail = visualTokenTail(props.entry.content)
   const prefix = props.entry.content.slice(0, tail[0]?.index ?? 0)
 
@@ -411,7 +425,7 @@ function AssistantFlowResponse(props: {
   }, [formatted, props.entry.content, props.entry.streaming, props.flow])
 
   useEffect(() => {
-    if (props.entry.streaming) {
+    if (props.entry.streaming || props.entry.pending) {
       setFormatted(false)
       return
     }
@@ -421,13 +435,13 @@ function AssistantFlowResponse(props: {
       setFormatted(true)
     }, L0_ARRIVAL_DURATION + 40)
     return () => window.clearTimeout(timer)
-  }, [formatted, props.entry.streaming, props.flow])
+  }, [formatted, props.entry.streaming, props.entry.pending, props.flow])
 
-  if (formatted || props.entry.content.includes('```openui')) {
+  if (formatted) {
     return (
       <Response
         className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
-        final={!props.entry.streaming}
+        final={!props.entry.streaming && !props.entry.pending}
       >
         {props.entry.content}
       </Response>
@@ -914,6 +928,7 @@ function AssistantPromptComposer(props: {
   onRetry: () => void
   onCopy: () => void
   onShare: () => void
+  pending: boolean
   onStop: () => void
   onSubmit: (message: { text?: string }) => void | Promise<void>
 }) {
@@ -965,7 +980,10 @@ function AssistantPromptComposer(props: {
             aria-describedby={describedBy}
             aria-invalid={hasText ? validation.invalid : undefined}
             disabled={
-              props.sending || props.terminated || props.routeUnavailable
+              props.sending ||
+              props.pending ||
+              props.terminated ||
+              props.routeUnavailable
             }
             className='max-h-24 min-h-10 sm:max-h-32 sm:min-h-12'
           />
@@ -979,8 +997,10 @@ function AssistantPromptComposer(props: {
             variant='ghost'
             size='icon-sm'
             className='text-muted-foreground hover:text-foreground size-11 sm:size-7'
-            aria-label={t('Retry the last message')}
-            title={t('Retry the last message')}
+            aria-label={
+              props.pending ? t('Resume') : t('Retry the last message')
+            }
+            title={props.pending ? t('Resume') : t('Retry the last message')}
             data-testid='assistant-retry-last'
             disabled={!props.canRetry || props.sending}
             onClick={props.onRetry}
@@ -1007,7 +1027,10 @@ function AssistantPromptComposer(props: {
             <PromptInputSubmit
               status='ready'
               disabled={
-                props.terminated || props.routeUnavailable || validation.invalid
+                props.pending ||
+                props.terminated ||
+                props.routeUnavailable ||
+                validation.invalid
               }
               size='icon-sm'
               aria-label={t('Send')}
@@ -1283,9 +1306,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const [selectedPreConversationPresetId, setSelectedPreConversationPresetId] =
     useState<string | null>(null)
   const [conversationRestricted, setConversationRestricted] = useState(false)
+  const [conversationCancelled, setConversationCancelled] = useState(false)
   const [sending, setSending] = useState(false)
   const [agentStep, setAgentStep] = useState(0)
   const assistantAbortControllerRef = useRef<AbortController | null>(null)
+  const stopReplyRef = useRef<(() => void) | null>(null)
   const submittedAutoSendIdRef = useRef<string | undefined>(undefined)
   const [accountDisableDraft, setAccountDisableDraft] =
     useState<AssistantAccountDisableAction | null>(null)
@@ -1589,6 +1614,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     setConversationId(null)
     setSelectedPreConversationPresetId(null)
     setConversationRestricted(false)
+    setConversationCancelled(false)
     clearToolState()
     setHistoryView(null)
     openedTargetRef.current = undefined
@@ -1630,6 +1656,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       setConversationId(detail.conversation.id)
       setSelectedPreConversationPresetId(null)
       setConversationRestricted(Boolean(detail.conversation.restricted_at))
+      setConversationCancelled(false)
       clearToolState()
       setHistoryView(null)
     },
@@ -1700,7 +1727,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     history: AssistantChatMessage[],
     presetId?: string,
     replay = false,
-    clientTurnId = nanoid()
+    clientTurnId = `turn-${nanoid()}`,
+    recovery?: {
+      turn?: AssistantTurnIdentity
+      pendingCreation?: boolean
+      cancel: boolean
+      content: string
+    }
   ) => {
     if (
       assistantAbortControllerRef.current ||
@@ -1711,19 +1744,44 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     }
     setSending(true)
     setAgentStep(0)
-    const abortController = new AbortController()
+    let abortController = new AbortController()
     assistantAbortControllerRef.current = abortController
+    const generation = conversationGenerationRef.current
+    const requestUserId = authUser?.id
+    const requestSessionId = authSessionId
     const isCurrentRequest = () =>
+      mountedRef.current &&
+      conversationGenerationRef.current === generation &&
+      useAuthStore.getState().auth.user?.id === requestUserId &&
+      useAuthStore.getState().auth.session?.sid === requestSessionId &&
       assistantAbortControllerRef.current === abortController
+    const streaming =
+      recovery !== undefined || statusQuery.data?.agent?.stream_enabled === true
+    let turn =
+      recovery?.turn ??
+      (streaming && conversationId
+        ? { conversation_id: conversationId, client_turn_id: clientTurnId }
+        : undefined)
+    let cancelRequested = false
+    let pendingCreation = recovery?.pendingCreation ?? false
+    stopReplyRef.current = () => {
+      cancelRequested = true
+      abortController.abort()
+    }
     const streamingEntryId = nanoid()
-    let streamedContent = ''
+    let streamedContent = recovery?.content ?? ''
     let streamFrame: number | null = null
     const displayRedactionNotice = t(
       'Sensitive details are hidden until confirmation and remain visible only to you.'
     )
     setEntries((current) => [
       ...current,
-      { id: streamingEntryId, role: 'assistant', content: '', streaming: true },
+      {
+        id: streamingEntryId,
+        role: 'assistant',
+        content: streamedContent,
+        streaming: true,
+      },
     ])
     const renderStreamedContent = () => {
       if (!isCurrentRequest()) return
@@ -1746,38 +1804,111 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         renderStreamedContent()
       })
     }
+    const handlers = {
+      onReady: (identity: AssistantTurnIdentity) => {
+        if (!isCurrentRequest() || abortController.signal.aborted) return
+        turn = identity
+        pendingCreation = false
+        setConversationId(identity.conversation_id)
+      },
+      onProgress: ({ step }: { step: number }) => {
+        if (isCurrentRequest() && !abortController.signal.aborted) {
+          setAgentStep(step)
+        }
+      },
+      onDelta: (delta: string) => {
+        if (!isCurrentRequest() || abortController.signal.aborted) return
+        streamedContent += delta
+        scheduleStreamRender()
+      },
+      onReset: () => {
+        if (!isCurrentRequest() || abortController.signal.aborted) return
+        if (streamFrame !== null) {
+          window.cancelAnimationFrame(streamFrame)
+          streamFrame = null
+        }
+        assistantTextFlowRef.current?.clearResponses()
+        streamedContent = ''
+        renderStreamedContent()
+      },
+    }
+    const resolveOriginalTurn = async (cancel: boolean) => {
+      if (!turn || pendingCreation) {
+        const mapping = await lookupAssistantTurn(
+          clientTurnId,
+          abortController.signal
+        )
+        if (!isCurrentRequest()) throw new DOMException('Aborted', 'AbortError')
+        if (turn && turn.conversation_id !== mapping.conversation_id) {
+          throw new Error('Assistant returned a different turn receipt')
+        }
+        turn = mapping
+        pendingCreation = mapping.phase === 'creation_inflight'
+        setConversationId(mapping.conversation_id)
+        if (pendingCreation && !cancel) {
+          const recovered = await recoverAssistantConversation(
+            turn,
+            abortController.signal
+          )
+          if (!isCurrentRequest()) {
+            throw new DOMException('Aborted', 'AbortError')
+          }
+          if (recovered.conversation_id !== turn.conversation_id) {
+            throw new Error('Assistant returned a different turn receipt')
+          }
+          pendingCreation = recovered.phase === 'creation_inflight'
+        }
+        if (pendingCreation && !cancel) {
+          throw new AssistantTurnContinuationError(
+            turn.conversation_id,
+            clientTurnId,
+            'ASSISTANT_OPERATION_PENDING'
+          )
+        }
+      }
+      return turn
+    }
     try {
-      const reply = await sendAssistantMessage(
-        message,
-        history,
-        conversationId ?? undefined,
-        presetId,
-        {
-          onProgress: ({ step }) => {
-            if (isCurrentRequest() && !abortController.signal.aborted) {
-              setAgentStep(step)
-            }
-          },
-          onDelta: (delta) => {
-            if (!isCurrentRequest() || abortController.signal.aborted) return
-            streamedContent += delta
-            scheduleStreamRender()
-          },
-          onReset: () => {
-            if (!isCurrentRequest() || abortController.signal.aborted) return
-            if (streamFrame !== null) {
-              window.cancelAnimationFrame(streamFrame)
-              streamFrame = null
-            }
-            assistantTextFlowRef.current?.clearResponses()
-            streamedContent = ''
-            renderStreamedContent()
-          },
-        },
-        abortController.signal,
-        replay,
-        clientTurnId
-      )
+      const reply = await (async () => {
+        try {
+          if (recovery) {
+            return await observeAssistantTurn(
+              await resolveOriginalTurn(recovery.cancel),
+              handlers,
+              abortController.signal,
+              recovery.cancel
+            )
+          }
+          return await sendAssistantMessage(
+            message,
+            history,
+            conversationId ?? undefined,
+            presetId,
+            streaming ? handlers : undefined,
+            abortController.signal,
+            replay,
+            clientTurnId
+          )
+        } catch (error) {
+          if (
+            !cancelRequested ||
+            !streaming ||
+            !isCurrentRequest() ||
+            error instanceof AssistantSubmissionRejectedError ||
+            error instanceof AssistantTurnTerminalError
+          ) {
+            throw error
+          }
+          abortController = new AbortController()
+          assistantAbortControllerRef.current = abortController
+          return observeAssistantTurn(
+            await resolveOriginalTurn(true),
+            handlers,
+            abortController.signal,
+            true
+          )
+        }
+      })()
       if (!isCurrentRequest()) return
       abortController.signal.throwIfAborted()
       if (streamFrame !== null) {
@@ -1963,6 +2094,55 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       ).catch(() => undefined)
     } catch (error) {
       if (!isCurrentRequest()) return
+      if (error instanceof AssistantTurnReleasedError) {
+        if (error.beforeStart) setConversationCancelled(true)
+        setEntries((current) =>
+          current.map((entry) =>
+            entry.id === streamingEntryId
+              ? { ...entry, content: '', streaming: false, interrupted: true }
+              : entry
+          )
+        )
+        return
+      }
+      if (
+        streaming &&
+        !(error instanceof AssistantSubmissionRejectedError) &&
+        !(error instanceof AssistantTurnTerminalError)
+      ) {
+        if (error instanceof AssistantTurnContinuationError) {
+          turn = {
+            conversation_id: error.conversationId,
+            client_turn_id: error.clientTurnId,
+          }
+          setConversationId(error.conversationId)
+        }
+        if (streamFrame !== null) {
+          window.cancelAnimationFrame(streamFrame)
+          streamFrame = null
+        }
+        const content = redactAssistantMessageForDisplay(
+          streamedContent,
+          displayRedactionNotice
+        ).content
+        setEntries((current) =>
+          current.map((entry) =>
+            entry.id === streamingEntryId
+              ? {
+                  ...entry,
+                  content,
+                  streaming: false,
+                  interrupted: true,
+                  pending: true,
+                  pendingTurn: turn,
+                  pendingCreation,
+                  retry: { message, history, presetId, clientTurnId },
+                }
+              : entry
+          )
+        )
+        return
+      }
       const humanSupportPending =
         error instanceof AssistantTurnContinuationError &&
         error.code === 'ASSISTANT_HUMAN_SUPPORT_PENDING'
@@ -2027,7 +2207,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           : assistantFailureMessage(error, t),
         error: !humanSupportPending,
         retry:
-          isAssistantTurnUnavailable(error) || humanSupportPending
+          isAssistantTurnUnavailable(error) ||
+          humanSupportPending ||
+          error instanceof AssistantTurnTerminalError ||
+          error instanceof AssistantSubmissionRejectedError
             ? undefined
             : { message, history, presetId, clientTurnId },
         action: errorAction,
@@ -2040,6 +2223,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       if (streamFrame !== null) window.cancelAnimationFrame(streamFrame)
       if (assistantAbortControllerRef.current === abortController) {
         assistantAbortControllerRef.current = null
+        stopReplyRef.current = null
         setSending(false)
       }
     }
@@ -2078,6 +2262,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     }
     if (
       assistantAbortControllerRef.current ||
+      entries.some((entry) => entry.pending) ||
+      conversationCancelled ||
       conversationRestricted ||
       support.busy ||
       assistantRouteUnavailable
@@ -2177,7 +2363,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     props.onAutoSendConsumed,
   ])
 
-  const retryMessage = async (entry: ConversationEntry) => {
+  const retryMessage = async (entry: ConversationEntry, cancel = false) => {
     if (
       !entry.retry ||
       support.aiPaused ||
@@ -2193,7 +2379,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       entry.retry.history,
       entry.retry.presetId,
       true,
-      entry.retry.clientTurnId
+      entry.retry.clientTurnId,
+      entry.pending
+        ? {
+            turn: entry.pendingTurn,
+            pendingCreation: entry.pendingCreation,
+            cancel,
+            content: entry.content,
+          }
+        : undefined
     )
   }
 
@@ -2428,7 +2622,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                             className='text-muted-foreground text-xs'
                             role='status'
                           >
-                            {t('Response stopped.')}
+                            {entry.pending
+                              ? t('Pending')
+                              : t('Response stopped.')}
                           </p>
                         ) : null}
                         {entry.tools?.length ? (
@@ -2482,7 +2678,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                                   data-icon='inline-start'
                                   aria-hidden='true'
                                 />
-                                {t('Retry')}
+                                {entry.pending ? t('Resume') : t('Retry')}
+                              </Button>
+                            ) : null}
+                            {entry.pending ? (
+                              <Button
+                                type='button'
+                                variant='outline'
+                                disabled={sending || conversationRestricted}
+                                onClick={() => void retryMessage(entry, true)}
+                              >
+                                {t('Cancel')}
                               </Button>
                             ) : null}
                             {entry.action ? (
@@ -2837,9 +3043,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   footerStatus={
                     support.aiPaused
                       ? t('Human technical support')
-                      : conversationRestricted
-                        ? t('Conversation ended by safety policy')
-                        : assistantFooterStatus
+                      : conversationCancelled
+                        ? t('Response stopped.')
+                        : conversationRestricted
+                          ? t('Conversation ended by safety policy')
+                          : assistantFooterStatus
                   }
                   placeholder={
                     support.aiPaused
@@ -2847,8 +3055,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       : assistantPromptPlaceholder
                   }
                   restricted={accountAccessState === 'restricted'}
-                  terminated={conversationRestricted && !authUser}
+                  terminated={
+                    conversationCancelled ||
+                    (conversationRestricted && !authUser)
+                  }
                   routeUnavailable={assistantRouteUnavailable && !authUser}
+                  pending={entries.some((entry) => entry.pending === true)}
                   sending={sending || support.busy}
                   canRetry={
                     entries.some((entry) => entry.retry !== undefined) &&
@@ -2872,7 +3084,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   onShare={() => {
                     void handleShareConversation()
                   }}
-                  onStop={() => assistantAbortControllerRef.current?.abort()}
+                  onStop={() => stopReplyRef.current?.()}
                   onSubmit={submitMessage}
                 />
               </PromptInputProvider>

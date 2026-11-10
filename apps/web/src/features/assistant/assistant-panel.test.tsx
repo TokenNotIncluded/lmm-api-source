@@ -528,6 +528,7 @@ describe('AssistantPanel', () => {
         })) as typeof api.post
       const rendered = await renderPanel()
       const reply = (content: string, id: number) => ({
+        headers: {},
         data: {
           choices: [{ message: { content } }],
           lmm_assistant_history: { conversation_id: id },
@@ -602,13 +603,18 @@ describe('AssistantPanel', () => {
   test('waiting play stays outside the live conversation and returns focus to the arriving answer', async () => {
     const panelFetch = globalThis.fetch
     let output: ReadableStreamDefaultController<Uint8Array> | undefined
+    let streamTurn = ''
     api.get = (async () => ({
-      data: { success: true, data: assistantStatus },
+      data: {
+        success: true,
+        data: { ...assistantStatus, agent: { stream_enabled: true } },
+      },
     })) as typeof api.get
     globalThis.fetch = (async (
       _input: RequestInfo | URL,
       init?: RequestInit
     ) => {
+      streamTurn = JSON.parse(String(init?.body)).client_turn_id
       return new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -650,7 +656,7 @@ describe('AssistantPanel', () => {
       await act(async () => {
         requireValue(output).enqueue(
           new TextEncoder().encode(
-            'event: delta\ndata: {"content":"A response is arriving."}\n\n'
+            `event: ready\ndata: ${JSON.stringify({ conversation_id: 42, client_turn_id: streamTurn })}\n\nevent: replace\ndata: {"content":"A response is arriving."}\n\n`
           )
         )
         await flushEffects()
@@ -673,82 +679,700 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('keeps a stopped partial answer and retries without duplicating the question', async () => {
-    const panelFetch = globalThis.fetch
-    const posted: unknown[] = []
-    api.get = (async () => ({
-      data: { success: true, data: assistantStatus },
-    })) as typeof api.get
-    globalThis.fetch = (async (
-      _input: RequestInfo | URL,
-      init?: RequestInit
-    ) => {
-      posted.push(JSON.parse(String(init?.body)))
-      if (posted.length > 1) {
+  for (const end of ['disconnect', 'stop'] as const) {
+    test(`SSE ${end} stays pending and recovers only the original turn`, async () => {
+      const panelFetch = globalThis.fetch
+      const calls: Array<{
+        url: string
+        method?: string
+        body?: BodyInit | null
+      }> = []
+      let turn = ''
+      let output: ReadableStreamDefaultController<Uint8Array> | undefined
+      api.get = (async () => ({
+        data: {
+          success: true,
+          data: {
+            ...assistantStatus,
+            agent: { stream_enabled: true },
+          },
+        },
+      })) as typeof api.get
+      globalThis.fetch = async (input, init) => {
+        calls.push({
+          url: String(input),
+          method: init?.method,
+          body: init?.body,
+        })
+        if (String(input) === '/api/assistant/chat') {
+          turn = JSON.parse(String(init?.body)).client_turn_id
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                output = controller
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `event: ready\ndata: ${JSON.stringify({ conversation_id: 42, client_turn_id: turn })}\n\nevent: replace\ndata: {"content":"Partial answer"}\n\n`
+                  )
+                )
+              },
+            }),
+            { headers: { 'content-type': 'text/event-stream' } }
+          )
+        }
+        if (String(input).endsWith('/cancel')) {
+          return Response.json(
+            {
+              success: false,
+              code: 'ASSISTANT_OPERATION_PENDING',
+              data: {
+                conversation_id: 42,
+                client_turn_id: turn,
+                state: 'unknown',
+              },
+            },
+            { status: 202 }
+          )
+        }
         return new Response(
-          JSON.stringify({
-            choices: [{ message: { content: 'Complete answer' } }],
-          }),
-          {
-            headers: { 'content-type': 'application/json' },
-          }
+          `event: ready\ndata: ${JSON.stringify({ conversation_id: 42, client_turn_id: turn })}\n\nevent: replace\ndata: {"content":"Recovered prefix"}\n\nevent: done\ndata: ${JSON.stringify({ choices: [{ message: { content: 'Complete answer' } }], lmm_assistant_history: { conversation_id: 42, client_turn_id: turn } })}\n\n`,
+          { headers: { 'content-type': 'text/event-stream' } }
         )
       }
-      const body = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(
-            new TextEncoder().encode(
-              'event: delta\ndata: {"content":"Partial answer"}\n\n'
+      const rendered = await renderPanel()
+      try {
+        await setTextareaValue(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+          'Help diagnose this request'
+        )
+        await act(async () => {
+          findButton('Send').click()
+          await flushEffects()
+        })
+        await act(async () => {
+          if (end === 'stop') {
+            requireValue(
+              document.querySelector<HTMLButtonElement>(
+                'button[aria-label="Stop"]'
+              )
+            ).click()
+          } else requireValue(output).close()
+          await flushEffects()
+        })
+        assert.match(document.body.textContent ?? '', /Partial answer/)
+        assert.match(document.body.textContent ?? '', /Pending/)
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Response stopped\./
+        )
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          true
+        )
+        if (end === 'disconnect') {
+          await act(async () => {
+            findButton('Cancel').click()
+            await flushEffects()
+          })
+          assert.match(document.body.textContent ?? '', /Pending/)
+          assert.match(document.body.textContent ?? '', /Partial answer/)
+        }
+        assert.equal(
+          calls[1]?.url,
+          `/api/assistant/conversations/42/turns/${turn}/cancel`
+        )
+        assert.equal(calls[1]?.method, 'POST')
+        assert.equal(calls[1]?.body, '{}')
+        await act(async () => {
+          findButton('Resume').click()
+          await flushEffects()
+        })
+        assert.equal(
+          calls[2]?.url,
+          `/api/assistant/conversations/42/turns/${turn}/output`
+        )
+        assert.equal(calls[2]?.method, 'GET')
+        assert.equal(calls[2]?.body, undefined)
+        assert.equal(
+          calls.filter((call) => call.url === '/api/assistant/chat').length,
+          1
+        )
+        assert.match(document.body.textContent ?? '', /Complete answer/)
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Partial answer|Recovered prefix|Pending/
+        )
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          false
+        )
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+        globalThis.fetch = panelFetch
+      }
+    })
+  }
+
+  for (const status of [400, 401, 403]) {
+    test(`initial HTTP ${status} rejection unlocks the composer without fabricating pending`, async () => {
+      const panelFetch = globalThis.fetch
+      const submitted: Array<{ client_turn_id: string }> = []
+      api.get = (async () => ({
+        data: {
+          success: true,
+          data: { ...assistantStatus, agent: { stream_enabled: true } },
+        },
+      })) as typeof api.get
+      globalThis.fetch = async (_input, init) => {
+        submitted.push(JSON.parse(String(init?.body)))
+        return submitted.length === 1
+          ? Response.json(
+              {
+                success: false,
+                message: 'Rejected',
+                code: 'ASSISTANT_FORBIDDEN',
+              },
+              { status }
             )
+          : Response.json({
+              choices: [{ message: { content: 'New accepted answer' } }],
+              lmm_assistant_history: {
+                conversation_id: 42,
+                client_turn_id: submitted[1]?.client_turn_id,
+              },
+            })
+      }
+      const rendered = await renderPanel()
+      const send = async (text: string) => {
+        await setTextareaValue(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+          text
+        )
+        await act(async () => {
+          findButton('Send').click()
+          await flushEffects()
+        })
+      }
+      try {
+        await send('First question')
+        assert.equal(submitted.length, 1)
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Pending|Response stopped\./
+        )
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          false
+        )
+        assert.equal(
+          document.querySelector('button[aria-label="Resume"]'),
+          null
+        )
+        await send('Changed valid question')
+        assert.equal(submitted.length, 2)
+        assert.notEqual(
+          submitted[0]?.client_turn_id,
+          submitted[1]?.client_turn_id
+        )
+        assert.match(document.body.textContent ?? '', /New accepted answer/)
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+        globalThis.fetch = panelFetch
+      }
+    })
+  }
+
+  for (const action of ['Resume', 'Cancel']) {
+    test(`before-ready disconnect keeps an explicit ${action} path through lookup`, async () => {
+      const panelFetch = globalThis.fetch
+      let turn = ''
+      let lookups = 0
+      let recoveries = 0
+      let outputs = 0
+      const calls: Array<{
+        url: string
+        method?: string
+        body?: BodyInit | null
+      }> = []
+      api.get = (async () => ({
+        data: {
+          success: true,
+          data: { ...assistantStatus, agent: { stream_enabled: true } },
+        },
+      })) as typeof api.get
+      globalThis.fetch = async (input, init) => {
+        const url = String(input)
+        calls.push({ url, method: init?.method, body: init?.body })
+        if (url === '/api/assistant/chat') {
+          turn = JSON.parse(String(init?.body)).client_turn_id
+          throw new TypeError('Lost before ready')
+        }
+        const mapping = { conversation_id: 42, client_turn_id: turn }
+        if (url.endsWith('/conversation')) {
+          lookups += 1
+          if (lookups === 1) {
+            return Response.json(
+              { success: false, code: 'ASSISTANT_HISTORY_NOT_FOUND' },
+              { status: 404 }
+            )
+          }
+          return Response.json(
+            {
+              success: true,
+              data: {
+                ...mapping,
+                phase: action === 'Resume' ? 'creation_inflight' : 'registered',
+              },
+            },
+            { status: action === 'Resume' ? 202 : 200 }
           )
-          init?.signal?.addEventListener(
-            'abort',
-            () => controller.error(new DOMException('Stopped', 'AbortError')),
-            { once: true }
+        }
+        if (url.endsWith('/conversation/recover')) {
+          recoveries += 1
+          assert.equal(init?.body, '{}')
+          return recoveries === 1
+            ? Response.json(
+                {
+                  success: false,
+                  code: 'ASSISTANT_CONVERSATION_RECOVERY_UNKNOWN',
+                  data: { ...mapping, phase: 'creation_inflight' },
+                },
+                { status: 202 }
+              )
+            : Response.json({
+                success: true,
+                data: { ...mapping, phase: 'registered' },
+              })
+        }
+        if (url.endsWith('/cancel')) {
+          return Response.json(
+            {
+              success: false,
+              code: 'ASSISTANT_OPERATION_RELEASED',
+              data: { ...mapping, state: 'released' },
+            },
+            { status: 409 }
           )
+        }
+        assert.ok(url.endsWith('/output'))
+        outputs += 1
+        if (outputs === 1) {
+          return Response.json(
+            { success: false, code: 'ASSISTANT_HISTORY_NOT_FOUND' },
+            { status: 404 }
+          )
+        }
+        return new Response(
+          `event: done\ndata: ${JSON.stringify({ choices: [{ message: { content: 'Recovered original answer' } }], lmm_assistant_history: mapping })}\n\n`,
+          { headers: { 'content-type': 'text/event-stream' } }
+        )
+      }
+      const rendered = await renderPanel()
+      const click = async (label: string) => {
+        await act(async () => {
+          findButton(label).click()
+          await flushEffects()
+        })
+      }
+      try {
+        await setTextareaValue(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+          'Original request'
+        )
+        await click('Send')
+        assert.equal(calls.length, 1)
+        assert.match(document.body.textContent ?? '', /Pending/)
+        assert.ok(findButton('Resume'))
+        assert.ok(findButton('Cancel'))
+        await click(action)
+        assert.match(document.body.textContent ?? '', /Pending/)
+        assert.equal(lookups, 1)
+        await click(action)
+        if (action === 'Resume') {
+          assert.equal(recoveries, 1)
+          assert.equal(outputs, 0)
+          assert.match(document.body.textContent ?? '', /Pending/)
+          await click('Resume')
+          assert.equal(recoveries, 2)
+          assert.equal(outputs, 1)
+          assert.match(document.body.textContent ?? '', /Pending/)
+          assert.doesNotMatch(
+            document.body.textContent ?? '',
+            /Response stopped\./
+          )
+          await click('Resume')
+          assert.equal(outputs, 2)
+          assert.match(
+            document.body.textContent ?? '',
+            /Recovered original answer/
+          )
+        } else {
+          assert.equal(recoveries, 0)
+          assert.equal(outputs, 0)
+          assert.match(document.body.textContent ?? '', /Response stopped\./)
+          assert.equal(calls.at(-1)?.body, '{}')
+        }
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          false
+        )
+        assert.doesNotMatch(document.body.textContent ?? '', /Pending/)
+        assert.equal(
+          calls.filter((call) => call.url === '/api/assistant/chat').length,
+          1
+        )
+        assert.equal(
+          calls.filter((call) => call.url.endsWith('/resume')).length,
+          0
+        )
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+        globalThis.fetch = panelFetch
+      }
+    })
+  }
+
+  for (const change of ['conversation', 'account', 'session'] as const) {
+    for (const delayed of ['chat', 'lookup', 'receipt'] as const) {
+      test(`late ${delayed} frames cannot cross a ${change} boundary`, async () => {
+        const panelFetch = globalThis.fetch
+        let resolveOld: ((response: Response) => void) | undefined
+        let oldTurn = ''
+        let currentTurn = ''
+        let currentOutput:
+          | ReadableStreamDefaultController<Uint8Array>
+          | undefined
+        let posts = 0
+        api.get = (async (url: string) => ({
+          data: {
+            success: true,
+            data:
+              url === '/api/assistant/status'
+                ? { ...assistantStatus, agent: { stream_enabled: true } }
+                : null,
+          },
+        })) as typeof api.get
+        globalThis.fetch = async (input, init) => {
+          const url = String(input)
+          if (
+            url.endsWith('/conversation') ||
+            url.endsWith('/conversation/recover')
+          ) {
+            if (
+              (delayed === 'lookup' && url.endsWith('/conversation')) ||
+              (delayed === 'receipt' && url.endsWith('/recover'))
+            ) {
+              return new Promise<Response>((resolve) => {
+                resolveOld = resolve
+              })
+            }
+            return Response.json(
+              {
+                success: true,
+                data: {
+                  conversation_id: 101,
+                  client_turn_id: oldTurn,
+                  phase: 'creation_inflight',
+                },
+              },
+              { status: 202 }
+            )
+          }
+          assert.equal(url, '/api/assistant/chat')
+          posts += 1
+          const id = JSON.parse(String(init?.body)).client_turn_id
+          assert.match(id, /^turn-[A-Za-z0-9_-]{21}$/)
+          if (posts === 1) {
+            oldTurn = id
+            if (delayed === 'chat') {
+              return new Promise<Response>((resolve) => {
+                resolveOld = resolve
+              })
+            }
+            throw new TypeError('Lost before ready')
+          }
+          currentTurn = id
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                currentOutput = controller
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `event: ready\ndata: ${JSON.stringify({ conversation_id: 202, client_turn_id: currentTurn })}\n\nevent: replace\ndata: {"content":"Current tentative"}\n\n`
+                  )
+                )
+              },
+            }),
+            { headers: { 'content-type': 'text/event-stream' } }
+          )
+        }
+        const rendered = await renderPanel(undefined, 'page', registrationUser)
+        const send = async (text: string) => {
+          await setTextareaValue(
+            requireValue(
+              document.querySelector<HTMLTextAreaElement>('textarea')
+            ),
+            text
+          )
+          await act(async () => {
+            findButton('Send').click()
+            await flushEffects()
+          })
+        }
+        try {
+          await send('Previous question')
+          if (delayed !== 'chat') {
+            await act(async () => {
+              findButton('Resume').click()
+              await flushEffects()
+            })
+          }
+          await act(async () => {
+            if (change === 'conversation') {
+              requireValue(
+                document.querySelector<HTMLButtonElement>(
+                  'button[aria-label="New conversation"]'
+                )
+              ).click()
+            } else if (change === 'account') {
+              useAuthStore
+                .getState()
+                .auth.setUser({ ...registrationUser, id: 202 })
+            } else {
+              useAuthStore.getState().auth.setBundle({
+                user: registrationUser,
+                access_token: 'local-test-token',
+                token_type: 'Bearer',
+                access_expires_at: 1_900_000_000,
+                session: {
+                  sid: 'next-stream-session',
+                  current: true,
+                  login_method: 'password',
+                  ip: '',
+                  user_agent: '',
+                  created_at: 1,
+                  last_active_at: 1,
+                  expires_at: 1_900_000_000,
+                },
+              })
+            }
+            await flushEffects()
+          })
+          await send('Current question')
+          await act(async () => {
+            requireValue(resolveOld)(
+              delayed === 'chat'
+                ? new Response(
+                    `event: ready\ndata: ${JSON.stringify({ conversation_id: 101, client_turn_id: oldTurn })}\n\nevent: replace\ndata: {"content":"Stale private prefix"}\n\nevent: done\ndata: ${JSON.stringify({ choices: [{ message: { content: 'Stale final answer' } }], lmm_assistant_history: { conversation_id: 101, client_turn_id: oldTurn } })}\n\n`,
+                    { headers: { 'content-type': 'text/event-stream' } }
+                  )
+                : Response.json({
+                    success: true,
+                    data: {
+                      conversation_id: 101,
+                      client_turn_id: oldTurn,
+                      phase: 'registered',
+                    },
+                  })
+            )
+            await flushEffects()
+          })
+          assert.doesNotMatch(
+            document.body.textContent ?? '',
+            /Stale private|Stale final|Previous question/
+          )
+          assert.match(document.body.textContent ?? '', /Current tentative/)
+          assert.equal(
+            requireValue(
+              document.querySelector<HTMLTextAreaElement>('textarea')
+            ).disabled,
+            true
+          )
+          await act(async () => {
+            requireValue(currentOutput).enqueue(
+              new TextEncoder().encode(
+                `event: done\ndata: ${JSON.stringify({ choices: [{ message: { content: 'Current settled answer' } }], lmm_assistant_history: { conversation_id: 202, client_turn_id: currentTurn } })}\n\n`
+              )
+            )
+            await flushEffects()
+          })
+          assert.match(
+            document.body.textContent ?? '',
+            /Current settled answer/
+          )
+          assert.equal(posts, 2)
+        } finally {
+          await act(async () => rendered.root.unmount())
+          rendered.queryClient.clear()
+          globalThis.fetch = panelFetch
+        }
+      })
+    }
+  }
+
+  test('cancel-before-start receipt closes the fenced conversation and permits an explicit new one', async () => {
+    const panelFetch = globalThis.fetch
+    let originalTurn = ''
+    let newTurn = ''
+    let posts = 0
+    const calls: string[] = []
+    api.get = (async (url: string) => ({
+      data: {
+        success: true,
+        data:
+          url === '/api/assistant/status'
+            ? { ...assistantStatus, agent: { stream_enabled: true } }
+            : null,
+      },
+    })) as typeof api.get
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      calls.push(url)
+      if (url === '/api/assistant/chat') {
+        posts += 1
+        if (posts === 1) {
+          originalTurn = JSON.parse(String(init?.body)).client_turn_id
+          throw new TypeError('Lost before ready')
+        }
+        newTurn = JSON.parse(String(init?.body)).client_turn_id
+        return Response.json({
+          choices: [{ message: { content: 'New conversation answer' } }],
+          lmm_assistant_history: {
+            conversation_id: 202,
+            client_turn_id: newTurn,
+          },
+        })
+      }
+      if (url.endsWith('/conversation')) {
+        return Response.json(
+          {
+            success: true,
+            data: {
+              conversation_id: 42,
+              client_turn_id: originalTurn,
+              phase: 'creation_inflight',
+            },
+          },
+          { status: 202 }
+        )
+      }
+      assert.equal(
+        url,
+        `/api/assistant/conversations/42/turns/${originalTurn}/cancel`
+      )
+      assert.equal(init?.method, 'POST')
+      assert.equal(init?.body, '{}')
+      return Response.json({
+        success: true,
+        data: {
+          conversation_id: 42,
+          client_turn_id: originalTurn,
+          state: 'cancelled_before_start',
         },
       })
-      return new Response(body, {
-        headers: { 'content-type': 'text/event-stream' },
-      })
-    }) as typeof globalThis.fetch
-    const rendered = await renderPanel()
-    try {
+    }
+    const rendered = await renderPanel(undefined, 'page', registrationUser)
+    const send = async (text: string) => {
       await setTextareaValue(
         requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
-        'Help diagnose this request'
+        text
+      )
+      await act(async () => {
+        findButton('Send').click()
+        await flushEffects()
+      })
+    }
+    try {
+      await send('Original request')
+      await act(async () => {
+        findButton('Cancel').click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Response stopped\./)
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Pending|safety policy/
+      )
+      assert.equal(document.querySelector('button[aria-label="Resume"]'), null)
+      const textarea = requireValue(
+        document.querySelector<HTMLTextAreaElement>('textarea')
+      )
+      assert.equal(textarea.disabled, true)
+      assert.match(textarea.placeholder, /Start a new conversation/)
+      assert.equal(
+        calls.some((url) => url.endsWith('/recover')),
+        false
       )
       await act(async () => {
         requireValue(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="New conversation"]'
+          )
         ).click()
         await flushEffects()
       })
-      await act(async () => {
-        requireValue(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Stop"]')
-        ).click()
-        await flushEffects()
-      })
-      assert.match(document.body.textContent ?? '', /Partial answer/)
-      assert.match(document.body.textContent ?? '', /Response stopped\./)
       assert.equal(
         requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
           .disabled,
         false
       )
+      await send('Explicit new request')
+      assert.match(document.body.textContent ?? '', /New conversation answer/)
+      assert.equal(posts, 2)
+      assert.notEqual(newTurn, originalTurn)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      globalThis.fetch = panelFetch
+    }
+  })
+
+  test('stream_enabled false keeps the JSON transport', async () => {
+    const panelFetch = globalThis.fetch
+    let posts = 0
+    api.get = (async () => ({
+      data: {
+        success: true,
+        data: {
+          ...assistantStatus,
+          agent: { stream_enabled: false },
+        },
+      },
+    })) as typeof api.get
+    api.post = (async (
+      _url: string,
+      _body: unknown,
+      config: { headers?: Record<string, string> }
+    ) => {
+      posts += 1
+      assert.notEqual(config.headers?.Accept, 'text/event-stream')
+      return {
+        data: { choices: [{ message: { content: 'JSON answer' } }] },
+        headers: {},
+      }
+    }) as typeof api.post
+    globalThis.fetch = async () => {
+      throw new Error('SSE must remain disabled')
+    }
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'Hello'
+      )
       await act(async () => {
-        findButton('Retry').click()
+        findButton('Send').click()
         await flushEffects()
       })
-      assert.deepEqual(posted[1], posted[0])
-      assert.match(document.body.textContent ?? '', /Complete answer/)
-      assert.doesNotMatch(document.body.textContent ?? '', /Response stopped\./)
-      assert.equal(
-        (document.body.textContent ?? '').match(/Help diagnose this request/g)
-          ?.length,
-        1
-      )
+      assert.equal(posts, 1)
+      assert.match(document.body.textContent ?? '', /JSON answer/)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -768,6 +1392,7 @@ describe('AssistantPanel', () => {
       return { data: { success: true, data: assistantStatus } }
     }) as typeof api.get
     api.post = (async () => ({
+      headers: {},
       data: { choices: [{ message: { content: 'Answer is ready' } }] },
     })) as typeof api.post
     const rendered = await renderPanel()
@@ -2287,6 +2912,7 @@ describe('AssistantPanel', () => {
     api.post = (async (url: string) => {
       assert.equal(url, '/api/assistant/chat')
       return {
+        headers: {},
         data: {
           choices: [
             { message: { content: 'Review your new nickname and confirm.' } },
@@ -3446,6 +4072,7 @@ describe('AssistantPanel', () => {
       assert.equal(url, '/api/assistant/chat')
       granted = true
       return {
+        headers: {},
         data: {
           choices: [
             {
@@ -3730,6 +4357,7 @@ describe('AssistantPanel in-site human support', () => {
       posts.push(url)
       assert.equal(url, '/api/assistant/chat')
       return {
+        headers: {},
         data: {
           choices: [
             { message: { content: 'Check the client configuration.' } },

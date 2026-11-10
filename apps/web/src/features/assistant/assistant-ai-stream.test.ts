@@ -329,3 +329,86 @@ describe('SSE line endings', () => {
     )
   })
 })
+
+const originalTurn = { conversation_id: 42, client_turn_id: 'turn-1' }
+const frame = (event: string, data: unknown) =>
+  `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+
+test('ready binds replace snapshots and done to the original turn', async () => {
+  let visible = ''
+  const snapshots: string[] = []
+  const result = await consumeAssistantAISDKStream(
+    eventStream(
+      frame('ready', originalTurn) +
+        frame('replace', { content: 'First prefix' }) +
+        frame('replace', { content: '' }) +
+        frame('progress', { phase: 'tool', step: 1 }) +
+        frame('replace', { content: 'New prefix' }) +
+        frame('done', {
+          choices: [{ message: { content: 'Settled' } }],
+          lmm_assistant_history: originalTurn,
+        })
+    ).body,
+    {
+      onReady: (turn) => assert.deepEqual(turn, originalTurn),
+      onReset: () => {
+        visible = ''
+        snapshots.push(visible)
+      },
+      onDelta: (text) => {
+        visible += text
+        snapshots.push(visible)
+      },
+    },
+    { expectedTurn: originalTurn }
+  )
+  assert.deepEqual(snapshots, ['', 'First prefix', '', '', 'New prefix'])
+  assert.equal(visible, 'New prefix')
+  assert.deepEqual(result.choices, [{ message: { content: 'Settled' } }])
+})
+
+for (const wrong of [
+  { ...originalTurn, conversation_id: 43 },
+  { ...originalTurn, client_turn_id: 'other-turn' },
+]) {
+  for (const event of ['ready', 'done']) {
+    test(`rejects mismatched ${event} identity ${JSON.stringify(wrong)}`, async () => {
+      const text =
+        event === 'ready'
+          ? frame('ready', wrong) + frame('replace', { content: 'Stale' })
+          : frame('ready', originalTurn) +
+            frame('done', { lmm_assistant_history: wrong })
+      let delivered = false
+      await assert.rejects(
+        consumeAssistantAISDKStream(
+          eventStream(text).body,
+          {
+            onDelta: () => {
+              delivered = true
+            },
+          },
+          { expectedTurn: originalTurn }
+        ),
+        /different turn/
+      )
+      assert.equal(delivered, false)
+    })
+  }
+}
+
+test('does not expose unowned prefixes before ready', async () => {
+  let delivered = false
+  await assert.rejects(
+    consumeAssistantAISDKStream(
+      eventStream(frame('replace', { content: 'Unowned' })).body,
+      {
+        onDelta: () => {
+          delivered = true
+        },
+      },
+      { expectedTurn: originalTurn }
+    ),
+    /preceded/
+  )
+  assert.equal(delivered, false)
+})

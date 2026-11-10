@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import axios, { type AxiosError } from 'axios'
+import { z } from 'zod'
 
 import { parseUsageBuckets } from '@/features/dashboard/lib/usage-bucket'
 import type { QuotaDataItem } from '@/features/dashboard/types'
@@ -29,6 +30,9 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   AssistantStreamError,
+  assistantTurnIdentitySchema,
+  parseAssistantTurnIdentity,
+  type AssistantTurnIdentity,
   assistantAbortReason,
   withAssistantDeadline,
   type AssistantProgress,
@@ -48,7 +52,10 @@ import {
   parseAssistantToolErrorCode,
   type AssistantToolErrorCode,
 } from './assistant-tool-errors'
-import { continueAssistantResponse } from './assistant-turn-recovery'
+import {
+  AssistantTurnContinuationError,
+  continueAssistantResponse,
+} from './assistant-turn-recovery'
 import {
   parseAssistantVisualization,
   type AssistantVisualization,
@@ -80,11 +87,13 @@ type AssistantChatPayload = {
     code?: string
   }
   code?: string
+  data?: unknown
   message?: string
   support_request?: AssistantSupportRequest
   lmm_assistant_action?: unknown
   lmm_assistant_policy?: unknown
   lmm_assistant_history?: {
+    client_turn_id?: unknown
     conversation_id?: unknown
     privacy_notice?: unknown
     restricted?: unknown
@@ -105,6 +114,7 @@ export const ASSISTANT_MAX_REQUEST_ATTEMPTS = 2
 const ASSISTANT_RETRY_DELAYS_MS = [200] as const
 
 type AssistantStreamHandlers = {
+  onReady?: (turn: AssistantTurnIdentity) => void
   onDelta?: (content: string) => void
   onReset?: () => void
   onProgress?: (progress: AssistantProgress) => void
@@ -195,6 +205,7 @@ export type DrawingWebAccess = {
 }
 
 export type AssistantStatus = {
+  agent?: { stream_enabled?: boolean }
   drawing_web_access?: DrawingWebAccess
   enabled: boolean
   model: string
@@ -1598,11 +1609,251 @@ async function readAssistantFetchPayload(
 async function consumeAssistantStream(
   body: ReadableStream<Uint8Array>,
   handlers: AssistantStreamHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  expectedTurn?: { client_turn_id: string; conversation_id?: number }
 ): Promise<AssistantChatPayload> {
   return (await consumeAssistantAISDKStream(body, handlers, {
     signal,
+    expectedTurn,
   })) as AssistantChatPayload
+}
+
+function verifyAssistantTurnReply(
+  payload: AssistantChatPayload,
+  expected: Record<string, unknown>
+) {
+  if (typeof expected.client_turn_id !== 'string') return
+  const turn = parseAssistantTurnIdentity(payload.lmm_assistant_history)
+  if (
+    turn.client_turn_id !== expected.client_turn_id ||
+    (typeof expected.conversation_id === 'number' &&
+      turn.conversation_id !== expected.conversation_id)
+  ) {
+    throw new AssistantStreamError(
+      502,
+      {},
+      'Assistant returned a different turn receipt'
+    )
+  }
+}
+
+function throwAssistantPendingResponse(
+  payload: AssistantChatPayload,
+  expected: Record<string, unknown>
+): never {
+  const turn = parseAssistantTurnIdentity(payload.data)
+  verifyAssistantTurnReply({ lmm_assistant_history: turn }, expected)
+  throw new AssistantTurnContinuationError(
+    turn.conversation_id,
+    turn.client_turn_id,
+    payload.code ?? 'ASSISTANT_OPERATION_PENDING'
+  )
+}
+
+export class AssistantTurnReleasedError extends Error {
+  constructor(readonly beforeStart = false) {
+    super()
+  }
+}
+export class AssistantSubmissionRejectedError extends AssistantStreamError {}
+export class AssistantTurnTerminalError extends AssistantStreamError {}
+
+const assistantConversationLookup = z.object({
+  success: z.literal(true),
+  data: assistantTurnIdentitySchema.extend({
+    phase: z.enum(['registered', 'creation_inflight']),
+  }),
+})
+const assistantCancelledBeforeStart = z.object({
+  success: z.literal(true),
+  data: assistantTurnIdentitySchema.extend({
+    state: z.literal('cancelled_before_start'),
+  }),
+})
+export type AssistantConversationMapping = z.infer<
+  typeof assistantConversationLookup
+>['data']
+
+// A lookup miss can race the original POST's commit. It never permits replay.
+export async function lookupAssistantTurn(
+  clientTurnId: string,
+  signal?: AbortSignal
+): Promise<AssistantConversationMapping> {
+  return requestAssistantConversationMapping(clientTurnId, signal, false)
+}
+
+export async function recoverAssistantConversation(
+  turn: AssistantTurnIdentity,
+  signal?: AbortSignal
+): Promise<AssistantConversationMapping> {
+  return requestAssistantConversationMapping(
+    turn.client_turn_id,
+    signal,
+    true,
+    turn.conversation_id
+  )
+}
+
+async function requestAssistantConversationMapping(
+  clientTurnId: string,
+  signal: AbortSignal | undefined,
+  recover: boolean,
+  expectedConversationId?: number
+): Promise<AssistantConversationMapping> {
+  return withAssistantDeadline(async (signal) => {
+    const auth = useAuthStore.getState().auth
+    const headers =
+      auth.user && auth.session
+        ? await getFreshAuthHeaders()
+        : getCommonHeaders()
+    throwIfAssistantAborted(signal)
+    const response = await fetch(
+      `/api/assistant/turns/${encodeURIComponent(clientTurnId)}/conversation${recover ? '/recover' : ''}`,
+      {
+        method: recover ? 'POST' : 'GET',
+        credentials: 'include',
+        headers: {
+          ...headers,
+          Accept: 'application/json',
+          ...(recover ? { 'Content-Type': 'application/json' } : {}),
+        },
+        signal,
+        ...(recover ? { body: '{}' } : {}),
+      }
+    )
+    const payload = await readAssistantFetchPayload(response)
+    throwIfAssistantAborted(signal)
+    if (!response.ok) {
+      throw new AssistantStreamError(
+        response.status,
+        payload,
+        payload.message ?? 'Assistant conversation lookup failed',
+        false
+      )
+    }
+    const recoveryUnknown = recover && response.status === 202
+    const parsed = recoveryUnknown
+      ? assistantConversationLookup
+          .extend({
+            success: z.literal(false),
+            code: z.literal('ASSISTANT_CONVERSATION_RECOVERY_UNKNOWN'),
+          })
+          .parse(payload)
+      : assistantConversationLookup.parse(payload)
+    if (
+      parsed.data.client_turn_id !== clientTurnId ||
+      (expectedConversationId !== undefined &&
+        parsed.data.conversation_id !== expectedConversationId) ||
+      (!recoveryUnknown &&
+        (response.status === 202) !==
+          (parsed.data.phase === 'creation_inflight'))
+    ) {
+      throw new AssistantStreamError(
+        502,
+        {},
+        'Assistant returned a different turn receipt'
+      )
+    }
+    if (recoveryUnknown) {
+      throw new AssistantTurnContinuationError(
+        parsed.data.conversation_id,
+        clientTurnId,
+        'ASSISTANT_CONVERSATION_RECOVERY_UNKNOWN'
+      )
+    }
+    return parsed.data
+  }, signal)
+}
+
+// These commands observe or cancel the original turn; neither can submit chat.
+export async function observeAssistantTurn(
+  turn: AssistantTurnIdentity,
+  handlers: AssistantStreamHandlers,
+  signal?: AbortSignal,
+  cancel = false
+): Promise<AssistantReply> {
+  return withAssistantDeadline(async (signal) => {
+    const auth = useAuthStore.getState().auth
+    const headers =
+      auth.user && auth.session
+        ? await getFreshAuthHeaders()
+        : getCommonHeaders()
+    throwIfAssistantAborted(signal)
+    const response = await fetch(
+      `/api/assistant/conversations/${turn.conversation_id}/turns/${encodeURIComponent(turn.client_turn_id)}/${cancel ? 'cancel' : 'output'}`,
+      {
+        method: cancel ? 'POST' : 'GET',
+        credentials: 'include',
+        headers: {
+          ...headers,
+          Accept: cancel ? 'application/json' : 'text/event-stream',
+          'Content-Type': 'application/json',
+          'X-LMM-Credit-Unit': '500000',
+        },
+        signal,
+        ...(cancel ? { body: '{}' } : {}),
+      }
+    )
+    if (
+      response.ok &&
+      response.status !== 202 &&
+      response.headers.get('content-type')?.includes('text/event-stream') &&
+      response.body
+    ) {
+      return buildAssistantReply(
+        await consumeAssistantStream(response.body, handlers, signal, turn),
+        null
+      )
+    }
+    const payload = await readAssistantFetchPayload(response)
+    if (response.status === 202) throwAssistantPendingResponse(payload, turn)
+    if (cancel && response.status === 200) {
+      const cancelled = assistantCancelledBeforeStart.safeParse(payload)
+      if (cancelled.success) {
+        verifyAssistantTurnReply(
+          { lmm_assistant_history: cancelled.data.data },
+          turn
+        )
+        throw new AssistantTurnReleasedError(true)
+      }
+    }
+    if (!response.ok) {
+      if (payload.code === 'ASSISTANT_OPERATION_RELEASED') {
+        verifyAssistantTurnReply(
+          { lmm_assistant_history: parseAssistantTurnIdentity(payload.data) },
+          turn
+        )
+        throw new AssistantTurnReleasedError()
+      }
+      if (
+        payload.code === 'ASSISTANT_OPERATION_REJECTED' ||
+        payload.code === 'ASSISTANT_OPERATION_EXPIRED'
+      ) {
+        verifyAssistantTurnReply(
+          { lmm_assistant_history: parseAssistantTurnIdentity(payload.data) },
+          turn
+        )
+        throw new AssistantTurnTerminalError(
+          response.status,
+          payload,
+          payload.code,
+          false
+        )
+      }
+      throw new AssistantStreamError(
+        response.status,
+        payload,
+        payload.message ?? 'Assistant operation is pending',
+        false
+      )
+    }
+    verifyAssistantTurnReply(payload, turn)
+    throwIfAssistantAborted(signal)
+    return buildAssistantReply(
+      payload,
+      response.headers.get('x-lmm-assistant-intent')
+    )
+  }, signal)
 }
 
 async function sendAssistantMessageStream(
@@ -1615,7 +1866,7 @@ async function sendAssistantMessageStream(
   const authHeaders =
     auth.user && auth.session ? await getFreshAuthHeaders() : getCommonHeaders()
   throwIfAssistantAborted(signal)
-  let response = await fetch('/api/assistant/chat', {
+  const response = await fetch('/api/assistant/chat', {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -1629,10 +1880,9 @@ async function sendAssistantMessageStream(
   })
 
   if (response.status === 202) {
-    response = await continueAssistantJSONResponse(
-      response,
-      typeof body.client_turn_id === 'string' ? body.client_turn_id : undefined,
-      signal
+    throwAssistantPendingResponse(
+      await readAssistantFetchPayload(response),
+      body
     )
   }
 
@@ -1644,18 +1894,17 @@ async function sendAssistantMessageStream(
       payload?.error?.message ||
       payload?.message ||
       `Assistant request failed with HTTP ${response.status}`
-    throw new AssistantStreamError(
-      response.status,
-      payload,
-      message,
-      payload?.retryable
-    )
+    const ErrorType = [400, 401, 403].includes(response.status)
+      ? AssistantSubmissionRejectedError
+      : AssistantStreamError
+    throw new ErrorType(response.status, payload, message, payload?.retryable)
   }
 
   const contentType = response.headers.get('content-type')?.toLowerCase() || ''
   if (!contentType.includes('text/event-stream')) {
     const jsonPayload = payload ?? (await readAssistantFetchPayload(response))
     throwIfAssistantAborted(signal)
+    verifyAssistantTurnReply(jsonPayload, body)
     return buildAssistantReply(
       jsonPayload,
       response.headers.get('x-lmm-assistant-intent')
@@ -1671,7 +1920,15 @@ async function sendAssistantMessageStream(
   const streamedPayload = await consumeAssistantStream(
     response.body,
     handlers,
-    signal
+    signal,
+    typeof body.client_turn_id === 'string'
+      ? {
+          client_turn_id: body.client_turn_id,
+          ...(typeof body.conversation_id === 'number'
+            ? { conversation_id: body.conversation_id }
+            : {}),
+        }
+      : undefined
   )
   throwIfAssistantAborted(signal)
   return buildAssistantReply(
@@ -1793,6 +2050,7 @@ export async function sendAssistantMessage(
       } catch (error) {
         throwIfAssistantAborted(signal)
         if (
+          handlers?.onDelta !== undefined ||
           !isRetryableAssistantError(error) ||
           attempt >= ASSISTANT_MAX_REQUEST_ATTEMPTS
         ) {
