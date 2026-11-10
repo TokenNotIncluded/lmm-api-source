@@ -96,6 +96,9 @@ pub struct Request {
     pub(crate) google_search: bool,
     /// Bounded Responses cache controls; never evidence of actual billed writes.
     pub prompt_cache_options: Option<Value>,
+    /// Validated native prompt sections with cache breakpoints. Keep original
+    /// block/message boundaries: normalization can change the cached prefix.
+    pub(super) anthropic_cached_prompt: Option<Map<String, Value>>,
     /// Validated Chat image controls, only emitted on a Gemini route.
     image_config: Option<ImageConfig>,
     pub(crate) include_usage: bool,
@@ -472,6 +475,7 @@ impl Request {
             || !matches!(self.tool_choice, ToolChoice::Auto)
             || self.parallel_tool_calls.is_some()
             || self.prompt_cache_options.is_some()
+            || self.anthropic_cached_prompt.is_some()
             || self.reasoning_effort.is_some()
             || self.google_search
             || self.temperature.is_some()
@@ -1010,6 +1014,7 @@ impl Request {
             reasoning_effort,
             google_search: false,
             prompt_cache_options,
+            anthropic_cached_prompt: None,
             image_config,
             continuation_token: None,
             compatibility: Map::new(),
@@ -1195,6 +1200,11 @@ impl Request {
         protocol: UpstreamProtocol,
         model: &str,
     ) -> Result<Value, RelayError> {
+        if self.anthropic_cached_prompt.is_some() && protocol != UpstreamProtocol::Anthropic {
+            return Err(RelayError::Unsupported(
+                "Anthropic cache_control requires an Anthropic route",
+            ));
+        }
         if self.google_search
             && (self.client != ClientProtocol::Gemini
                 || protocol != UpstreamProtocol::Gemini
@@ -1541,6 +1551,11 @@ impl Request {
             v["stop_sequences"] = json!(self.stop);
         }
         self.sampling(&mut v);
+        if let Some(prompt) = &self.anthropic_cached_prompt {
+            for (key, value) in prompt {
+                v[key] = value.clone();
+            }
+        }
         Ok(v)
     }
     fn gemini(&self) -> Result<Value, RelayError> {

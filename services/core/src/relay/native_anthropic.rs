@@ -1,4 +1,4 @@
-//! Bounded Anthropic Messages client adapter. Hosted tools and cache controls fail closed.
+//! Bounded Anthropic Messages client adapter. Cache breakpoints retain native boundaries; hosted tools fail closed.
 use super::request::{InputBlock, Message, Request, Role};
 use super::{
     BlockKind, ClientProtocol, Event, FinishReason, Limits, RelayError, UpstreamProtocol, Usage,
@@ -166,14 +166,92 @@ fn blocks(v: &Value, role: Role, limits: &Limits) -> Result<Vec<InputBlock>, Rel
     }
     Ok(out)
 }
+// Only protocol control locations are inspected. A cache_control property in a
+// tool's input/schema is user data, never a cache directive.
+fn take_cache_control(value: &mut Value) -> Result<bool, RelayError> {
+    let Some(object) = value.as_object_mut() else {
+        return Ok(false);
+    };
+    let Some(control) = object.remove("cache_control") else {
+        return Ok(false);
+    };
+    keys(&control, &["type", "ttl"])?;
+    if control["type"] != "ephemeral"
+        || control
+            .get("ttl")
+            .is_some_and(|ttl| !matches!(ttl.as_str(), Some("5m" | "1h")))
+    {
+        return Err(RelayError::Invalid("invalid Anthropic cache_control"));
+    }
+    Ok(true)
+}
+
+fn take_block_cache_controls(value: &mut Value) -> Result<bool, RelayError> {
+    let Some(blocks) = value.as_array_mut() else {
+        return Ok(false);
+    };
+    let mut found = false;
+    for block in blocks {
+        if block.get("cache_control").is_some()
+            && !matches!(
+                block["type"].as_str(),
+                Some("text" | "image" | "tool_use" | "tool_result")
+            )
+        {
+            return Err(RelayError::Unsupported(
+                "cache_control on this Anthropic block is unsupported",
+            ));
+        }
+        found |= take_cache_control(block)?;
+        if block["type"] == "tool_result"
+            && let Some(content) = block.get_mut("content")
+        {
+            found |= take_block_cache_controls(content)?;
+        }
+    }
+    Ok(found)
+}
+
+/// Remove controls for the existing semantic validator, retaining the original
+/// native prompt only when necessary. Replay happens only after full validation.
+fn cached_prompt(value: &mut Value) -> Result<Option<Map<String, Value>>, RelayError> {
+    let original = ["cache_control", "system", "messages", "tools"]
+        .into_iter()
+        .filter_map(|key| value.get(key).map(|v| (key.to_owned(), v.clone())))
+        .collect();
+    let mut found = take_cache_control(value)?;
+    if let Some(system) = value.get_mut("system") {
+        found |= take_block_cache_controls(system)?;
+    }
+    if let Some(messages) = value.get_mut("messages").and_then(Value::as_array_mut) {
+        for message in messages {
+            if let Some(content) = message.get_mut("content") {
+                found |= take_block_cache_controls(content)?;
+            }
+        }
+    }
+    if let Some(tools) = value.get_mut("tools").and_then(Value::as_array_mut) {
+        for tool in tools {
+            if tool.get("type").is_some() {
+                return Err(RelayError::Unsupported(
+                    "Anthropic hosted or typed tools require native execution and result semantics",
+                ));
+            }
+            found |= take_cache_control(tool)?;
+        }
+    }
+    Ok(found.then_some(original))
+}
+
 pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError> {
     limits.validate()?;
     if body.len() > limits.request_bytes {
         return Err(RelayError::Limit("request body"));
     }
-    let v = serde_json::from_slice::<Unique>(body)
+    let mut v = serde_json::from_slice::<Unique>(body)
         .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON"))?
         .0;
+    let cached_prompt = cached_prompt(&mut v)?;
     keys(
         &v,
         &[
@@ -313,6 +391,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         return Err(RelayError::Limit("input blocks"));
     }
     request.messages = messages;
+    request.anthropic_cached_prompt = cached_prompt;
     Ok(request)
 }
 
@@ -782,6 +861,160 @@ mod tests {
         assert_eq!(wire["messages"][0]["content"][1]["input"]["q"], "x");
     }
     #[test]
+    fn native_anthropic_cache_control_preserves_prompt_boundaries_and_ttls() {
+        for stream in [false, true] {
+            let extra = json!({
+                "stream":stream,
+                "system":[
+                    {"type":"text","text":"prefix"},
+                    {"type":"text","text":"rules","cache_control":{"type":"ephemeral","ttl":"1h"}}
+                ],
+                "tools":[{"name":"lookup","input_schema":{"type":"object"},
+                    "cache_control":{"type":"ephemeral","ttl":"1h"}}],
+                "messages":[
+                    {"role":"user","content":[{"type":"text","text":"first","cache_control":{"type":"ephemeral","ttl":"5m"}}]},
+                    {"role":"user","content":[{"type":"text","text":"second","cache_control":{"type":"ephemeral"}}]}
+                ]
+            });
+            let parsed = Request::parse(
+                ClientProtocol::Anthropic,
+                &request(extra.clone()),
+                &Limits::default(),
+            )
+            .unwrap();
+            let wire: Value = serde_json::from_slice(
+                &parsed
+                    .upstream_body_to(UpstreamProtocol::Anthropic, "chosen")
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(wire["model"], "chosen");
+            assert_eq!(wire["stream"], stream);
+            for key in ["system", "tools", "messages"] {
+                assert_eq!(wire[key], extra[key], "{key}");
+            }
+            assert!(parsed.validate_exact_input_count().is_err());
+            for protocol in [
+                UpstreamProtocol::Chat,
+                UpstreamProtocol::Responses,
+                UpstreamProtocol::Gemini,
+            ] {
+                let error = parsed.upstream_body_to(protocol, "chosen").unwrap_err();
+                assert!(matches!(error, RelayError::Unsupported(_)));
+                assert_eq!(error.status(), 400);
+            }
+        }
+    }
+
+    #[test]
+    fn native_anthropic_automatic_cache_and_tool_history_remain_native() {
+        let extra = json!({
+            "cache_control":{"type":"ephemeral","ttl":"1h"},
+            "system":"rules",
+            "tools":[{"name":"lookup","input_schema":{"type":"object"}}],
+            "messages":[
+                {"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"lookup","input":{"cache_control":"user data"},"cache_control":{"type":"ephemeral","ttl":"1h"}}]},
+                {"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":[{"type":"text","text":"answer","cache_control":{"type":"ephemeral"}}],"cache_control":{"type":"ephemeral"}}]}
+            ]
+        });
+        let parsed = Request::parse(
+            ClientProtocol::Anthropic,
+            &request(extra.clone()),
+            &Limits::default(),
+        )
+        .unwrap();
+        let wire = parsed
+            .upstream_to(UpstreamProtocol::Anthropic, "chosen")
+            .unwrap();
+        for key in ["cache_control", "system", "tools", "messages"] {
+            assert_eq!(wire[key], extra[key], "{key}");
+        }
+        let automatic = Request::parse(
+            ClientProtocol::Anthropic,
+            &request(json!({"cache_control":{"type":"ephemeral"}})),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert!(automatic.validate_exact_input_count().is_err());
+        for protocol in [
+            UpstreamProtocol::Chat,
+            UpstreamProtocol::Responses,
+            UpstreamProtocol::Gemini,
+        ] {
+            assert!(matches!(
+                automatic.upstream_to(protocol, "chosen"),
+                Err(RelayError::Unsupported(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn native_anthropic_cached_images_keep_sources_and_order() {
+        let content = json!([
+            {"type":"text","text":"before"},
+            {"type":"image","source":{"type":"url","url":"https://example.com/image.png"},"cache_control":{"type":"ephemeral"}},
+            {"type":"text","text":"after"}
+        ]);
+        let parsed = Request::parse(
+            ClientProtocol::Anthropic,
+            &request(json!({"messages":[{"role":"user","content":content}]})),
+            &Limits::default(),
+        )
+        .unwrap();
+        let wire = parsed
+            .upstream_to(UpstreamProtocol::Anthropic, "chosen")
+            .unwrap();
+        assert_eq!(wire["messages"][0]["content"], content);
+    }
+
+    #[test]
+    fn native_anthropic_cache_control_rejects_invalid_and_lossy_inputs() {
+        for control in [
+            Value::Null,
+            json!({}),
+            json!("ephemeral"),
+            json!({"type":"persistent"}),
+            json!({"type":"ephemeral","ttl":"12h"}),
+            json!({"type":"ephemeral","ttl":null}),
+            json!({"type":"ephemeral","other":true}),
+        ] {
+            for extra in [
+                json!({"cache_control":control}),
+                json!({"system":[{"type":"text","text":"rules","cache_control":control}]}),
+                json!({"tools":[{"name":"f","input_schema":{},"cache_control":control}]}),
+                json!({"messages":[{"role":"user","content":[{"type":"text","text":"hello","cache_control":control}]}]}),
+            ] {
+                assert!(
+                    parse(&request(extra), &Limits::default()).is_err(),
+                    "{control}"
+                );
+            }
+        }
+        for extra in [
+            json!({"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"t","signature":"s","cache_control":{"type":"ephemeral"}}]}]}),
+            json!({"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":[{"type":"text","text":"hello","secret_extension":true}]}]}),
+            json!({"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"orphan","content":"x"}]}]}),
+        ] {
+            assert!(parse(&request(extra), &Limits::default()).is_err());
+        }
+        let duplicate = br#"{"model":"claude","max_tokens":10,"cache_control":{"type":"ephemeral","ttl":"5m","ttl":"1h"},"messages":[{"role":"user","content":"a"}]}"#;
+        assert!(parse(duplicate, &Limits::default()).is_err());
+    }
+
+    #[test]
+    fn native_anthropic_hosted_tools_are_explicitly_unsupported() {
+        for tool in [
+            json!({"type":"web_search_20250305","name":"web_search","max_uses":3}),
+            json!({"type":"web_fetch_20250910","name":"web_fetch"}),
+            json!({"type":"code_execution_20250522","name":"code_execution"}),
+        ] {
+            let error = parse(&request(json!({"tools":[tool]})), &Limits::default()).unwrap_err();
+            assert!(matches!(error, RelayError::Unsupported(_)));
+            assert_eq!(error.code(), "unsupported_feature");
+        }
+    }
+
+    #[test]
     fn native_anthropic_rejects_nested_duplicates_and_unknown_fields() {
         let b=br#"{"model":"claude","max_tokens":10,"messages":[{"role":"user","content":"a","content":"b"}]}"#;
         assert!(parse(b, &Limits::default()).is_err());
@@ -800,7 +1033,6 @@ mod tests {
         for block in [
             json!({"type":"image","source":{"type":"base64","data":"a"}}),
             json!({"type":"server_tool_use","id":"a","name":"web_search","input":{}}),
-            json!({"type":"text","text":"x","cache_control":{"type":"ephemeral"}}),
         ] {
             assert!(
                 parse(
