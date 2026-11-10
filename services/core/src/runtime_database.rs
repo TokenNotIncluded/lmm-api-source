@@ -278,7 +278,10 @@ pub(crate) async fn check_connection(
               (c.relname IN ('clients','families') AND a.attname='revoked_at')
               OR (c.relname IN ('requests','codes','tokens') AND a.attname='consumed_at'))))
           AND has_column_privilege(c.oid,a.attname,'UPDATE'))
-        OR has_function_privilege('core_commerce.import_legacy_refund_grant(jsonb)','EXECUTE')
+        OR EXISTS(SELECT FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname='core_commerce' AND p.proname='import_legacy_refund_grant'
+            AND p.pronargs=1 AND p.proargtypes[0]='jsonb'::regtype
+            AND has_function_privilege(p.oid,'EXECUTE'))
         OR has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_legacy_escrow_batch(jsonb)','EXECUTE')
