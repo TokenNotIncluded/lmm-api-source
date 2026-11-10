@@ -32,7 +32,7 @@ def fixture(*, changes=None, owner_inactive=False):
         "source_unit": "source_quota_integer", "native_unit": "credit_500k_usd",
         "numerator": 1, "denominator": 1, "evidence_sha256": "e" * 64,
         "economic_review_sha256": IMPORT.digest(economic_review)}
-    tables = sorted(set(IMPORT.FIN.CHANGED_TABLES) | set(IMPORT.FIN.FRESH_EMPTY_TABLES) |
+    tables = sorted(set(IMPORT.FIN.CHANGED_TABLES) | set(IMPORT.FIN.fresh_empty_tables()) |
         set(IMPORT.CHANGED_TABLES) | {"core_migration.import_runs", "core_identity.users", "core_trust_pricing.policies"})
     sequences = sorted(set(IMPORT.FIN.CHANGED_SEQUENCES) | set(IMPORT.CHANGED_SEQUENCES))
     state = {"inventory": {"tables": tables, "sequences": sequences},
@@ -73,6 +73,52 @@ def material_fixture(**kwargs):
 
 
 class ProducerTests(unittest.TestCase):
+    def test_reviewed_origins_preserve_audit_time_and_distinct_owner_mapping(self):
+        for origin in ("assistant", "drawing_mcp"):
+            with self.subTest(origin=origin):
+                material = material_fixture(changes={"creation_source": origin, "created_time": 123})
+                row = material["records"][0]
+                self.assertEqual(row["creation_source"], origin)
+                self.assertEqual(row["created_time"], 123)
+                self.assertEqual(material["proposal"]["records"][0]["creation_source"], origin)
+                self.assertEqual((row["target_user_id"], row["target_personal_account_id"]), (37, 8))
+                self.assertFalse(row.get("revoked_rekey_required", False))
+                sql = IMPORT.build_apply_sql(material)
+                self.assertIn("to_timestamp(123),to_timestamp(123)", sql)
+                self.assertIn("INSERT INTO core_migration.import_runs", sql)
+                self.assertNotIn("UPDATE core_identity.users", sql)
+                self.assertNotIn("INSERT INTO core_identity.developer_access", sql)
+                self.assertNotIn("INSERT INTO core_identity.user_routing_groups", sql)
+
+    def test_reviewed_origins_leave_independent_authority_and_state_guards(self):
+        for origin in ("assistant", "drawing_mcp"):
+            for changes in ({"oauth_managed": True}, {"group": ""}, {"group": "auto"},
+                            {"model_limits_enabled": True, "model_limits": "model-a"}):
+                with self.subTest(origin=origin, changes=changes):
+                    with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+                        material_fixture(changes={"creation_source": origin, **changes})
+            for field, value in (("active", False), ("developer_access_granted", False),
+                                 ("routing_groups", [])):
+                with self.subTest(origin=origin, target_guard=field):
+                    source, target = inputs([token(creation_source=origin)])
+                    target["users"][0][field] = value
+                    proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
+                    with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+                        IMPORT._supported_rows(proposal, target, 201)
+            material = material_fixture(changes={"creation_source": origin, "status": 2,
+                "deleted_at": "2026-10-26T00:00:00Z"})
+            self.assertFalse(material["records"][0]["enabled"])
+            self.assertTrue(material["records"][0]["revoked"])
+
+    def test_writer_independently_rejects_unreviewed_origin_without_mapper_block(self):
+        for origin in ("system", "red_packet_cover", "assistant_runtime", "future-plugin"):
+            with self.subTest(origin=origin):
+                _, target, proposal, _, _, _ = fixture()
+                proposal["records"][0]["creation_source"] = origin
+                proposal["records"][0]["blocked_reasons"] = []
+                with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+                    IMPORT._supported_rows(proposal, target, 201)
+
     def test_atomic_native_credentials_and_quota_keep_original_digest(self):
         material = material_fixture()
         row = material["records"][0]

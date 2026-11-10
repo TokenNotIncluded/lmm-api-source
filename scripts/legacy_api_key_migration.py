@@ -46,6 +46,9 @@ MAP_FIELDS = {"source_user_id", "target_user_id", "target_personal_account_id"}
 POLICY_FIELDS = {"auto_groups", "max_token_auto_groups", "user_model_rate_limit_enabled"}
 CREATION_SOURCES = {None, "", "manual", "system", "drawing_mcp", "assistant",
                     "assistant_runtime", "red_packet_cover"}
+# Reviewed cc52 ordinary bearer origins: preserve these as migration audit
+# facts, without authorizing new automatic issuance or managed/runtime keys.
+AUDIT_ONLY_CREATION_SOURCES = {None, "", "manual", "assistant", "drawing_mcp"}
 PREFERENCES = {"subscription_first", "wallet_first", "subscription_only", "wallet_only"}
 
 
@@ -259,7 +262,7 @@ def plan_api_keys(source: dict, target: dict) -> dict:
                         or raw.startswith("oauth_managed_"))
         if not ordinary:
             blocked.append("managed_credential_requires_separate_migration")
-        if token["creation_source"] not in (None, "", "manual") or "的初始令牌" in name:
+        if token["creation_source"] not in AUDIT_ONLY_CREATION_SOURCES or "的初始令牌" in name:
             blocked.append("creation_source_metadata_requires_adapter")
         if not token["one_time_reveal"]:
             blocked.append("recoverable_secret_encryption_required")

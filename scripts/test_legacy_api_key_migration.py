@@ -52,6 +52,31 @@ def inputs(tokens=None):
 
 
 class ProposalTests(unittest.TestCase):
+    def test_reviewed_ordinary_origins_preserve_raw_label_and_creation_time(self):
+        for origin in (None, "", "manual", "assistant", "drawing_mcp"):
+            with self.subTest(origin=origin):
+                source, target = inputs([token(creation_source=origin, created_time=123)])
+                result = MODULE.plan_api_keys(source, target)
+                row = result["records"][0]
+                self.assertEqual(row["blocked_reasons"], [])
+                self.assertEqual(row["creation_source"], origin)
+                self.assertEqual(row["created_time"], 123)
+                self.assertEqual(row["target_personal_account_id"], 8)
+                self.assertFalse(result["apply_supported"])
+                self.assertFalse(result["activation_approved"])
+
+    def test_origin_policy_does_not_admit_runtime_or_initial_system_keys(self):
+        for origin in ("system", "red_packet_cover", "assistant_runtime"):
+            with self.subTest(origin=origin):
+                source, target = inputs([token(creation_source=origin)])
+                row = MODULE.plan_api_keys(source, target)["records"][0]
+                self.assertIn("creation_source_metadata_requires_adapter", row["blocked_reasons"])
+        for origin in ("manual", "assistant", "drawing_mcp"):
+            with self.subTest(initial_name_origin=origin):
+                source, target = inputs([token(creation_source=origin, name="Synthetic的初始令牌")])
+                row = MODULE.plan_api_keys(source, target)["records"][0]
+                self.assertIn("creation_source_metadata_requires_adapter", row["blocked_reasons"])
+
     def test_preserves_secret_digest_owner_quota_and_funding_without_authorizing_apply(self):
         source, target = inputs()
         before = deepcopy((source, target))

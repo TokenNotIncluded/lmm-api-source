@@ -226,6 +226,11 @@ def _supported_rows(proposal: dict, target: dict, first_id: int, *, revoke_unsup
     rows = []
     for offset, original in enumerate(proposal["records"]):
         blocked = set(original["blocked_reasons"]) - {"recoverable_secret_encryption_required"}
+        # Apply the same reviewed origin boundary as the mapper. Retain the raw
+        # label in the record/material; this does not grant any other authority.
+        if (original["creation_source"] not in PROPOSAL.AUDIT_ONLY_CREATION_SOURCES
+                or "的初始令牌" in original["name"]):
+            blocked.add("creation_source_metadata_requires_adapter")
         # An inactive owner stays inactive. This imports historical authority,
         # without activating the user, changing auth_version or granting access.
         if not original["source_owner_enabled"] and not observed[original["target_user_id"]]["active"]:
