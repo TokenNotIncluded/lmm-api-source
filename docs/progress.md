@@ -63,7 +63,7 @@ REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选
 
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
-| APP-01 | 脚本仓库读取、保存与 pull 固定返回 unsupported | 待补齐 | 补真实仓库配置与拉取、权限和错误状态，并验证管理页面；普通脚本编辑不覆盖仓库业务。 |
+| APP-01 | 公开 GitHub 配置、原子拉取与快照已接通；私仓凭据与浏览器验收未齐 | 待补齐 | 2026-11-10，`2e2ae58` 实现配置 revision CAS、受限 archive 读取、完整快照与来源持久化、operations v3 与离线升级、管理页保存版本和草稿禁止 pull；`Dirac` 独立复验 39 项边界合同、operations race 15 项零跳过、真实 TLS/PG 并发与失败保留、v1→v2→v3 原操作恢复、最小权限及 composition/离线 CLI，证据 `~/.cache/lmm-predeploy-validation/20261110-independent-app01/report.md`。Web 定向用例和完整类型检查自测通过；Core 授权为合成 fixture，私有仓库密钥明确 501，公网 GitHub、实际 Core 与浏览器全链路仍待完成。 |
 | APP-02 | 用量分享的非 aggregate SVG、LMM 自动数据源与 live Cursor 未齐 | 待补齐 | 接 Core 实际用量与所需来源/布局；验证公开字段、权限、更新与撤销，区分手填 snapshot。 |
 | APP-03 | HeroSMS 当前目录、报价、购买、取消、重下单和管理缺失 | 待补齐 | 补真实供应商 IO、Core 资金、退款和页面接线；现有历史只读不变。 |
 | APP-04 | io.net 远端模型部署管理未迁移 | 待补齐 | 补连接设置、创建/列表、容器/日志、续期、权限与失败恢复；与本项目安装发布工具分开验收。 |
