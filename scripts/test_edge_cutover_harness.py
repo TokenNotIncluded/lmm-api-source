@@ -10,7 +10,7 @@ class EdgeCutoverHarnessTests(unittest.TestCase):
     def test_candidate_fixture_contract(self):
         result = run_harness()
         self.assertEqual(result, {
-            "checks": 20,
+            "checks": 22,
             "listen": "127.0.0.1",
             "nginx_test": True,
             "status": "PASS",

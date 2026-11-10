@@ -3,13 +3,15 @@
 
 This is deliberately a fixture harness, not a production Nginx configuration.
 It proves route precedence, private-route denial, callback isolation, query/body
-preservation, API-vs-SPA fallback, and streaming headers without opening a
+preservation, API-vs-SPA fallback, streaming headers and WebSocket upgrades without opening a
 non-loopback listener or touching an installed Nginx server.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import http.client
 import json
 import os
@@ -67,6 +69,29 @@ class BackendHandler(BaseHTTPRequestHandler):
                 return
             self._reply(404, b'{"service":"extensions","error":"not_found"}')
             return
+        if self.path == "/v1/responses" and self.headers.get("Upgrade", "").lower() == "websocket":
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            if self.headers.get("Connection", "").lower() != "upgrade" or not key:
+                self._reply(400, b'{"error":"invalid_upgrade"}')
+                return
+            accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode(), usedforsecurity=False).digest())
+            self.send_response(101)
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Sec-WebSocket-Accept", accept.decode())
+            self.end_headers()
+            self.wfile.flush()
+            self.connection.settimeout(3)
+            self.close_connection = True
+            # One short masked text frame is sufficient to prove the tunnel.
+            if self.rfile.read(2) != b"\x81\x84":
+                return
+            mask = self.rfile.read(4)
+            payload = self.rfile.read(4)
+            text = bytes(byte ^ mask[index] for index, byte in enumerate(payload))
+            self.wfile.write(b"\x81\x04" + text)
+            self.wfile.flush()
+            return
         if self.path.startswith("/api/remote-control/v1/pi/events"):
             first = b"data: first\n\n"
             second = b"data: second\n\n"
@@ -110,7 +135,7 @@ class BackendHandler(BaseHTTPRequestHandler):
         self._record("POST", body)
         if getattr(self.server, "role", "unknown") == "core" and (
                 self.path.startswith("/api/oauth/federated/")
-                or self.path.startswith("/api/user/account-links/")):
+                or self.path.startswith("/api/user/account-links/") or self.path == "/v1/responses"):
             self._reply(200, b'{"service":"core"}')
             return
         if getattr(self.server, "role", "unknown") == "extensions" and (
@@ -154,6 +179,25 @@ def _stream_first_chunk(port: int) -> tuple[int, dict[str, str], bytes, float]:
     return response.status, headers, first, elapsed
 
 
+def _websocket_round_trip(port: int) -> None:
+    with socket.create_connection(("127.0.0.1", port), timeout=4) as connection, connection.makefile("rb") as reader:
+        connection.sendall(
+            b"GET /v1/responses HTTP/1.1\r\nHost: localhost\r\n"
+            b"Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n"
+            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+            b"Authorization: Bearer fixture-model-key\r\nX-LMM-Edge-Proof: untrusted\r\n"
+            b"X-LMM-Edge-Client-IP: 192.0.2.1\r\n\r\n"
+        )
+        status = reader.readline()
+        assert status.startswith(b"HTTP/1.1 101 "), status
+        headers = http.client.parse_headers(reader)
+        assert headers["Upgrade"].lower() == "websocket"
+        assert headers["Sec-WebSocket-Accept"] == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        mask = b"\x01\x02\x03\x04"
+        connection.sendall(b"\x81\x84" + mask + bytes(byte ^ mask[index] for index, byte in enumerate(b"ping")))
+        assert reader.read(6) == b"\x81\x04ping"
+
+
 def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: int) -> Path:
     mime_types = os.environ.get("NGINX_MIME_TYPES", "/etc/nginx/mime.types")
     (root / "index.html").write_text("<html><body>fixture-spa</body></html>\n", encoding="utf-8")
@@ -164,6 +208,7 @@ def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: in
         "error_log " + str(root / "error.log") + ";\n"
         "daemon off;\nmaster_process off;\nevents {}\n"
         "http {\n"
+        "map $http_upgrade $fixture_connection_upgrade { default upgrade; '' close; }\n"
         "include " + json.dumps(mime_types) + ";\n"
         "access_log off;\n"
         "client_body_temp_path " + str(root / "body") + ";\n"
@@ -177,6 +222,7 @@ def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: in
         "root " + str(root) + ";\n"
         "proxy_http_version 1.1;\n"
         "location = /health/ready { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
+        "location = /v1/responses { proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $fixture_connection_upgrade; proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_buffering off; proxy_pass http://fixture_core; }\n"
         "location ^~ /v1/ { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/remote-control/v1/pi/ { proxy_buffering off; proxy_read_timeout 30s; proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/oauth { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
@@ -301,7 +347,18 @@ def run_harness() -> dict[str, object]:
             assert status == 200 and headers.get("content-type", "").startswith("text/event-stream")
             assert body == b"data: first\n\n", (headers, body)
             assert elapsed < 0.15, f"SSE first chunk was buffered ({elapsed:.3f}s)"
-            return {"status": "PASS", "nginx_test": True, "checks": 20, "listen": "127.0.0.1"}
+            before_extensions = len(extensions.seen)
+            _websocket_round_trip(edge_port)
+            upgrade = core.seen[-1]["headers"]
+            assert upgrade["authorization"] == "Bearer fixture-model-key"
+            assert upgrade["x-lmm-edge-proof"] == "fixture-proof"
+            assert upgrade["x-lmm-edge-client-ip"] == "127.0.0.1"
+            assert len(extensions.seen) == before_extensions
+            status, _, body = _request(edge_port, "POST", "/v1/responses", b'{"input":"fixture"}')
+            assert (status, json.loads(body)["service"]) == (200, "core")
+            assert core.seen[-1]["body"] == '{"input":"fixture"}'
+            assert "upgrade" not in core.seen[-1]["headers"]
+            return {"status": "PASS", "nginx_test": True, "checks": 22, "listen": "127.0.0.1"}
     finally:
         if nginx_process is not None and nginx_process.poll() is None:
             nginx_process.terminate()
