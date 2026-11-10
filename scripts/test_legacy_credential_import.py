@@ -242,7 +242,7 @@ class ProducerTests(unittest.TestCase):
                     source, target = inputs([token(creation_source=origin)])
                     target["users"][0][field] = value
                     proposal = IMPORT.PROPOSAL.plan_api_keys(source, target)
-                    with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+                    with self.assertRaisesRegex(IMPORT.Error, "credential_live_source_key_requires_complete_native_authority"):
                         IMPORT._supported_rows(proposal, target, 201)
             material = material_fixture(changes={"creation_source": origin, "status": 2,
                 "deleted_at": "2026-10-26T00:00:00Z"})
@@ -294,7 +294,7 @@ class ProducerTests(unittest.TestCase):
         review.update(target_input_sha256=IMPORT.PROPOSAL.sha256(target),
                       proposal_sha256=proposal["proposal_sha256"])
         self.assertIn("target_routing_grant_missing", proposal["records"][0]["blocked_reasons"])
-        with self.assertRaisesRegex(IMPORT.Error, "credential_native_semantics_unsupported"):
+        with self.assertRaisesRegex(IMPORT.Error, "credential_live_source_key_requires_complete_native_authority"):
             IMPORT.prepare_material(source, target, proposal, review, migration_id="synthetic-import",
                 snapshot=snapshot, runtime_roles=["synthetic_runtime"], source_files=files)
 
