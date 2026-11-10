@@ -4043,6 +4043,7 @@
     "Epay Gateway": "Шлюз Epay",
     "Epay is a payment protocol, not a specific official website. Verify the provider yourself and do not trust random third-party Epay deployments.": "Epay — это платежный протокол, а не конкретный официальный сайт. Самостоятельно проверяйте поставщика и не доверяйте случайным сторонним развертываниям Epay.",
     "Epay merchant ID": "ID торговца EasyPay",
+    "EPay prices are fixed per plan revision. Edit the plan to create a new revision before changing a price.": "Цены EPay фиксированы для каждой версии плана. Перед изменением цены отредактируйте план, чтобы создать новую версию.",
     "Epay safety reminder": "Напоминание о безопасности Epay",
     "Epay secret key": "Секретный ключ Epay",
     "Epay WeChat Pay": "WeChat Pay через Epay",

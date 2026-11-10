@@ -49,6 +49,7 @@ import {
   type NativePlanTerms,
 } from "./native-api";
 import { NativeSubscriptionRecords } from "./native-records";
+import { NativeEPayPriceAdmin } from "./native-epay-admin";
 
 const commandSchema = z.discriminatedUnion("kind", [
   z
@@ -123,6 +124,8 @@ export function NativeSubscriptionAdmin() {
 function PlanAdmin({ scope }: { scope: CommerceScope }) {
   const { t, i18n } = useTranslation();
   const [plans, setPlans] = useState<NativePlan[]>([]);
+  const [pricePlan, setPricePlan] = useState<NativePlan | null>(null);
+  const [priceBlocked, setPriceBlocked] = useState(true);
   const [editing, setEditing] = useState<NativePlan | null>(null);
   const [terms, setTerms] = useState<NativePlanTerms>(initial);
   const [archive, setArchive] = useState<NativePlan | null>(null);
@@ -174,7 +177,7 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
     }
   }
   async function execute(command: Command) {
-    if (running.current || !current() || storageBlocked) return;
+    if (running.current || !current() || storageBlocked || priceBlocked) return;
     if (!remember(command)) return;
     running.current = true;
     setBusy(true);
@@ -249,7 +252,7 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
       <SectionPageLayout.Title>{t("Subscriptions")}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button
-          disabled={busy || !!pending || storageBlocked}
+          disabled={busy || !!pending || storageBlocked || priceBlocked}
           onClick={() => edit(null)}
         >
           {t("Create Plan")}
@@ -299,10 +302,17 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
                   {t("Revision")}: {plan.revision}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  disabled={busy || !!pending || storageBlocked}
+                  disabled={busy || !!pending || storageBlocked || priceBlocked}
+                  onClick={() => setPricePlan(plan)}
+                >
+                  EPay · {t("Price")}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy || !!pending || storageBlocked || priceBlocked}
                   onClick={() => edit(plan)}
                 >
                   {t(plan.archived ? "Restore" : "Edit")}
@@ -310,7 +320,7 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
                 <Button
                   variant="outline"
                   disabled={
-                    busy || !!pending || plan.archived || storageBlocked
+                    busy || !!pending || plan.archived || storageBlocked || priceBlocked
                   }
                   onClick={() => {
                     setArchive(plan);
@@ -329,6 +339,14 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
             {t("No subscription plans yet")}
           </p>
         )}
+        <NativeEPayPriceAdmin
+          scope={scope}
+          plan={pricePlan}
+          blocked={busy || !!pending || storageBlocked}
+          onSelect={setPricePlan}
+          onEditPlan={edit}
+          onBlockedChange={setPriceBlocked}
+        />
         <Dialog
           open={open}
           onOpenChange={(next) => {

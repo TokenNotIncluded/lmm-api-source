@@ -4043,6 +4043,7 @@
     "Epay Gateway": "Cổng thanh toán Epay",
     "Epay is a payment protocol, not a specific official website. Verify the provider yourself and do not trust random third-party Epay deployments.": "Epay là một giao thức thanh toán, không phải một trang web chính thức cụ thể. Hãy tự xác minh nhà cung cấp và không tin tùy tiện các bản triển khai Epay của bên thứ ba.",
     "Epay merchant ID": "ID người bán Epay",
+    "EPay prices are fixed per plan revision. Edit the plan to create a new revision before changing a price.": "Giá EPay được cố định theo từng phiên bản gói. Hãy chỉnh sửa gói để tạo phiên bản mới trước khi đổi giá.",
     "Epay safety reminder": "Nhắc nhở an toàn Epay",
     "Epay secret key": "Khóa bí mật Epay",
     "Epay WeChat Pay": "WeChat Pay qua Epay",

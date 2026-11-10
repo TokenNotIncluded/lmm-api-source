@@ -4043,6 +4043,7 @@
     "Epay Gateway": "Epay Gateway",
     "Epay is a payment protocol, not a specific official website. Verify the provider yourself and do not trust random third-party Epay deployments.": "Epay is a payment protocol, not a specific official website. Verify the provider yourself and do not trust random third-party Epay deployments.",
     "Epay merchant ID": "Epay merchant ID",
+    "EPay prices are fixed per plan revision. Edit the plan to create a new revision before changing a price.": "EPay prices are fixed per plan revision. Edit the plan to create a new revision before changing a price.",
     "Epay safety reminder": "Epay safety reminder",
     "Epay secret key": "Epay secret key",
     "Epay WeChat Pay": "Epay WeChat Pay",

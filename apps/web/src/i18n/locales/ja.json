@@ -4043,6 +4043,7 @@
     "Epay Gateway": "Epayゲートウェイ",
     "Epay is a payment protocol, not a specific official website. Verify the provider yourself and do not trust random third-party Epay deployments.": "Epay は決済プロトコルであり、特定の公式サイトではありません。提供元を自分で確認し、第三者が構築した Epay サイトを安易に信用しないでください。",
     "Epay merchant ID": "Epay マーチャントID",
+    "EPay prices are fixed per plan revision. Edit the plan to create a new revision before changing a price.": "EPay の価格はプランのバージョンごとに固定されます。価格を変更する前に、プランを編集して新しいバージョンを作成してください。",
     "Epay safety reminder": "Epay の安全に関する注意",
     "Epay secret key": "Epayシークレットキー",
     "Epay WeChat Pay": "Epay WeChat Pay（微信支付）",

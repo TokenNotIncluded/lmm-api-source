@@ -47,6 +47,8 @@ import {
   type SubscriptionPending,
 } from "./native-api";
 
+import { NativeEPaySubscriptions } from "./native-epay";
+
 export function NativeWalletSubscriptions({
   onUpdated,
 }: {
@@ -73,6 +75,7 @@ function SubscriptionWallet({
   const [plans, setPlans] = useState<NativePlan[]>([]);
   const [purchases, setPurchases] = useState<NativePurchase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [epayBlocked, setEPayBlocked] = useState(true);
   const [pending, setPending] = useState<SubscriptionPending | null>(null);
   const [receipt, setReceipt] = useState<NativeReceipt | null>(null);
   const [notice, setNotice] = useState("");
@@ -194,7 +197,7 @@ function SubscriptionWallet({
       }
     });
   }
-  const disabled = busy || loading || !!pending || storageBlocked;
+  const disabled = busy || loading || !!pending || storageBlocked || epayBlocked;
   const amount =
     pending?.kind === "purchase"
       ? pending.quote?.plan.terms.price_units
@@ -249,10 +252,8 @@ function SubscriptionWallet({
         >
           {t("Refresh")}
         </Button>
-        {loading ? (
-          <p role="status">{t("Loading...")}</p>
-        ) : (
-          <>
+        {loading && <p role="status">{t("Loading...")}</p>}
+        <>
             <ul className="divide-y">
               {plans.map((plan) => (
                 <li
@@ -274,11 +275,21 @@ function SubscriptionWallet({
                 </li>
               ))}
             </ul>
-            {!plans.length && (
+            {!loading && !plans.length && (
               <p className="text-muted-foreground text-sm">
                 {t("No subscription plans yet")}
               </p>
             )}
+            <NativeEPaySubscriptions
+              scope={scope}
+              plans={plans}
+              blocked={busy || !!pending || storageBlocked}
+              onBlockedChange={setEPayBlocked}
+              onUpdated={() => {
+                onUpdated?.();
+                void load();
+              }}
+            />
             <h3 className="font-medium">{t("Subscription records")}</h3>
             <ul className="divide-y">
               {purchases.map((item) => (
@@ -353,8 +364,7 @@ function SubscriptionWallet({
                 </li>
               ))}
             </ul>
-          </>
-        )}
+        </>
         {pending && (
           <Alert>
             <AlertDescription className="space-y-3">
