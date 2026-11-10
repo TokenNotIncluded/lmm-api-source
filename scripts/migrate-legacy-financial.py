@@ -106,10 +106,9 @@ def canonical(value) -> str:
     return json.dumps(exact(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def digest(value) -> str:
-    # Tag every type, not just Decimal: a literal JSONB {"$decimal":"1.00"}
-    # must not hash as the numeric 1.00. The private raw export is unmodified.
-    def typed(item):
+def _typed_canonical_chunks(value):
+    """Yield the existing type-tagged canonical UTF-8 bytes without a full tree."""
+    def scalar(item):
         if item is None:
             return ["null"]
         if type(item) is bool:
@@ -121,13 +120,53 @@ def digest(value) -> str:
             return ["decimal", str(item)]
         if type(item) is str:
             return ["string", item]
-        if isinstance(item, list):
-            return ["array", [typed(child) for child in item]]
-        if isinstance(item, dict):
-            require(all(type(key) in (str, int) for key in item), "hash_object_key_invalid")
-            return ["object", sorted([[typed(key), typed(child)] for key, child in item.items()], key=lambda pair: canonical(pair[0]))]
         raise MappingError("binary_float_or_unsupported_hash_type_rejected")
-    return hashlib.sha256(canonical(typed(value)).encode()).hexdigest()
+
+    def validate(item):
+        if isinstance(item, list):
+            for child in item:
+                validate(child)
+        elif isinstance(item, dict):
+            require(all(type(key) in (str, int) for key in item), "hash_object_key_invalid")
+            for key, child in item.items():
+                scalar(key)
+                validate(child)
+        else:
+            scalar(item)
+
+    def chunks(item):
+        if isinstance(item, list):
+            yield b'["array",['
+            for index, child in enumerate(item):
+                if index:
+                    yield b','
+                yield from chunks(child)
+            yield b']]'
+        elif isinstance(item, dict):
+            yield b'["object",['
+            ordered = sorted(item.items(), key=lambda pair: canonical(scalar(pair[0])))
+            for index, (key, child) in enumerate(ordered):
+                if index:
+                    yield b','
+                yield b'['
+                yield from chunks(key)
+                yield b','
+                yield from chunks(child)
+                yield b']'
+            yield b']]'
+        else:
+            yield canonical(scalar(item)).encode()
+
+    # Preserve the old insertion-order rejection before key sorting/encoding.
+    validate(value)
+    yield from chunks(value)
+
+
+def digest(value) -> str:
+    checksum = hashlib.sha256()
+    for chunk in _typed_canonical_chunks(value):
+        checksum.update(chunk)
+    return checksum.hexdigest()
 
 
 def no_duplicate_keys(pairs):
