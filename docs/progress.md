@@ -20,7 +20,7 @@
 
 审计基线的边界检查为 32 项、26 项通过、6 项失败；完整质量门禁在计划阶段被过期且仍为 open/critical 的 QD-001 阻断，`checks=[]`。这些原始记录保留在[固定审计][audit]，本轮修复与独立复验见下表及[原始证据][rel-evidence]。
 
-REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真实镜像资源与启动验收。CHECK-09 仍需逐条补齐 QD-001 退出证据；不得通过只改指纹、延后期限、降级债务或手填通过记录消除阻断。
+REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选的真实镜像资源与启动验收。新增实现改变存储合同或运行输入时，仍须复验相应范围。CHECK-09 仍需逐条补齐 QD-001 退出证据；不得通过只改指纹、延后期限、降级债务或手填通过记录消除阻断。
 
 2026-11-08 固定候选为 [7fb02902][rel-candidate]，基于 `bb2697e9216d67bf1f34705af570ed2d8eb5288d`；开发分别由 `rel01_boundaries`、`rel02_delivery` 负责，`rel_acceptance` 独立审查并执行检查，验证前后工作树干净。真实 PostgreSQL、容器及资金业务验收未运行。
 
@@ -29,7 +29,7 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
 | REL-01 | 静态边界合同已对齐：模块连接池、4 处已审查正文指纹及 Core schema 拒绝范围 | 已验收 | 2026-11-08，`rel_acceptance` 在 [7fb02902][rel-candidate] 独立核对池归属/关闭、GRANT、namespace 与安装权限，33 项边界检查通过；补齐 directory_ads/referrals 及拒绝反例。[原始证据][rel-evidence]。范围为静态源码合同，真实数据库权限验收仍按 CHECK 项执行。 |
-| REL-02 | 当前源码/main、TOML 与固定来源已对齐；真实镜像验收待补 | 待验收 | 修复 [15bc5748][rel02-fix]；独立拓扑 15、镜像合同/模拟编排 16、归档 fixture 14 项及 8 个工作流语法检查通过。还需用固定候选实际构建 Extensions runtime 镜像，执行镜像内资源检查和同镜像离线非 root 启动；当前环境无 Docker。[原始证据][rel-evidence]。Actions 启用仍须另行决定。 |
+| REL-02 | 当前源码/main、TOML 与固定来源已对齐；固定候选真实运行镜像已验证 | 已验收 | 修复 [15bc5748][rel02-fix] 的既有静态证据保留。2026-11-10，`Maxwell` 从 `c9ed1de2deed81bc5569f0a29d18b9b57caa1ac6` 私有 git archive 实际构建 Extensions runtime linux/amd64，镜像 `sha256:47c775673f82ee8bc947d68183efd2a249a3cf9db999997af81d0a3a3c55fd21`；原版 smoke 验证资源/许可哈希、UID 65532、无网络/只读根、liveness 200 和正常退出 0，容器清理读回通过。证据：`~/.cache/lmm-rel02-c9ed1de-mhjivaya/REPORT.txt`。首次 mise 信任拦截日志保留，固定镜像只调 PATH 后复跑通过。未包含随后 APP/MODEL/ASSIST 增量；最终组合、发布和生产按 REL-03/CHECK 项继续验收，未推镜像或启用 Actions。 |
 | REL-03 | 当前产品组合的制品、安装升级与发布证据未闭合 | 待前置 | CHECK-09 关闭后，关联 Core、Extensions、CLI、Web 的来源、平台、摘要/签名、安装升级记录与 Release；发布和生产切换分别记录。 |
 
 ## 身份、模型与助手
@@ -37,12 +37,12 @@ REL-01 的静态边界阻断已解除；REL-02 的配置修复已提交，剩真
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
 | AUTH-01 | 通用 OIDC、WeChat 登录/绑定及旧 OIDC provider 合同未对齐 | 待补齐 | 补 provider、claims、issuer/client 校验、绑定与撤销和实际页面。保留已实现的 OAuth2 服务端、MFA 与 Passkey，分别验收。 |
-| MODEL-01 | 视觉输入切片已实现；运行验收及 cache_control/hosted tools/fileData 仍未齐 | 待补齐 | 2026-11-09，`model_identity` 实现 [df9b3c9d][vision-input]，`root` 独立审阅：Chat/Responses 图像 URL 与内联数据、Anthropic URL/base64、Gemini inlineData；保持图文顺序/detail，拒绝有损转换，Core 不下载客户端图像 URL。`cargo check --lib --locked` 通过；此前三次 codegen 被 SIGKILL，新增单元、真实 TCP 与 PostgreSQL 计费用例均未执行，不据此声明协议/资金验收通过。[原始记录][progress-evidence]。继续补 Anthropic cache_control/hosted tools、带归属校验的 Gemini fileData/provider file_id，并运行四协议响应、usage、唯一结算与恢复测试。 |
+| MODEL-01 | 视觉输入与 Anthropic cache_control 切片已实现；hosted tools/fileData 与组合验收仍未齐 | 待补齐 | 2026-11-09，`model_identity` 实现 [df9b3c9d][vision-input]，`root` 独立审阅：Chat/Responses 图像 URL 与内联数据、Anthropic URL/base64、Gemini inlineData；保持图文顺序/detail，拒绝有损转换，Core 不下载客户端图像 URL。`cargo check --lib --locked` 通过；此前三次 codegen 被 SIGKILL，新增单元、真实 TCP 与 PostgreSQL 计费用例均未执行，不据此声明协议/资金验收通过。[原始记录][progress-evidence]。2026-11-10，`86f6925` 保留 Anthropic 顶层、工具、system、消息块和工具结果的缓存标记/TTL/原边界，跨协议有损转换明确拒绝；`Poincare` 两组开发单元筛选分别 21、12 项通过，独立复验进行中，证据 `~/.cache/lmm-api-model01-cache-validation/result.json`。继续补 hosted tools、带归属校验的 Gemini fileData/provider file_id，并运行四协议响应、usage、唯一结算与恢复测试。 |
 | MODEL-02 | Responses 持久化/previous_response_id 与部分旧同步 API 缺等价行为 | 待补齐 | 补存储、续接、工具、重放与计费；逐项恢复所需 completions、compact、search、decisions、moderations 等实际行为。 |
 | MODEL-03 | 独立 TTS/STT/translation 和双向 Realtime/WebSocket 未齐 | 待补齐 | 补连接、取消、回执、计费与断连恢复；当前 Chat audio 与模型 SSE 继续保留，不能据此关闭本项。 |
 | MODEL-04 | 视频、Kling/Jimeng、MJ、Suno 异步任务未形成完整闭环 | 待补齐 | 按任务族补提交、查询/回调、结果/remix、原操作恢复与唯一扣费。 |
 | MODEL-05 | 渠道 tag、多 key 轮换、Codex 运维和真实推理探测未齐 | 待补齐 | 补自动选择/失效/恢复与真实调用测试；现有渠道 CRUD、密钥库、价格发布和目录探测保留。 |
-| ASSIST-01 | 自定义对话开场预设已持久化并接通管理入口；真实 SSE 仍缺失 | 待补齐 | 2026-11-09，`model_identity` 实现 [a0804b60][assistant-presets]，`root` 在冻结输入上独立验证真实 PostgreSQL/TCP 的发布、版本冲突、匿名计数和预设点击一致性；三个 Go 定向用例、webcompat 包、实际 TanStack 父/子路由八项用例及 Extensions 构建通过。L5 可读、L6 可写；预设只提供用户开场内容，不增加工具或资金权限。[原始记录][progress-evidence]。仍需接通上游与浏览器的真实 SSE、取消及恢复；完整 Web 类型检查和浏览器验收未通过，组件/路由测试不代替该证据。 |
+| ASSIST-01 | 自定义预设与 Go SSE 接口已实现；Core 实际上游输出和浏览器消费仍未齐 | 待补齐 | 2026-11-09，`model_identity` 实现 [a0804b60][assistant-presets]，`root` 在冻结输入上独立验证真实 PostgreSQL/TCP 的发布、版本冲突、匿名计数和预设点击一致性；三个 Go 定向用例、webcompat 包、实际 TanStack 父/子路由八项用例及 Extensions 构建通过。L5 可读、L6 可写；预设只提供用户开场内容，不增加工具或资金权限。[原始记录][progress-evidence]。2026-11-10，`16bd895` 接通 Go 真实逐帧 SSE、原 turn 只读重连与显式取消；`Mendel` 对 assistant/webcompat/coreclient 的定向 race 自测通过，包括真实 HTTP 首帧 flush/断开与 gRPC/TCP 协议，未使用实际 Rust Core/账本；原记录 `~/.cache/lmm-assist01-validation/report.txt`。Core 上游 live registry 与 Web 消费正在接线，实际 Core 尚不宣告流能力；真实上游/资金/浏览器未验收。Web 类型限定修复见 CHECK-06，不能代替最终组合。 |
 
 ## 订阅、支付与商店
 

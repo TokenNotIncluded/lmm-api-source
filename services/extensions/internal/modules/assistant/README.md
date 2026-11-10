@@ -178,3 +178,26 @@ the session; an error is not proof that a remote effect failed. Duplicate call
 IDs report the original state and do not execute again. Private handler errors
 are replaced with fixed error values. This metadata receipt is not a payment,
 refund or complete external reconciliation mechanism.
+
+## Bound agent output over SSE
+
+`POST /api/assistant/chat` accepts explicit `Accept: text/event-stream` for the
+agent mode. The transport requires Core capabilities `assistant.agent_turn.execute.v1`
+and `assistant.agent_turn.stream.v1` before starting a turn. Frames are `ready`,
+`replace` (the current redacted prefix), `progress` (tool boundary), and `done`
+(the existing durable settled reply). Prefixes and end observations do not settle
+money or complete history. New rounds reset the displayed prefix. Slow writes
+have a ten-second deadline; an observation request is bounded to 300 seconds.
+
+`GET /api/assistant/conversations/{id}/turns/{turn}/output` observes the current
+prefix of an existing turn and then recovers its original receipt. It never
+starts model/tool execution, and rejects query cursors or `Last-Event-ID`; this
+is a replaceable snapshot stream, not durable event replay.
+`POST /api/assistant/conversations/{id}/turns/{turn}/cancel` with `{}` explicitly
+cancels the original operation. Unknown results remain pending (202); a lost
+observer does not automatically cancel, retry, refund or release held credits.
+
+These routes do not provide a model adapter themselves. Core's real upstream
+worker, final settlement, browser consumption and proxy flush behavior require
+their own integration evidence. Current completion is recorded only in
+[progress](../../../../../docs/progress.md).
