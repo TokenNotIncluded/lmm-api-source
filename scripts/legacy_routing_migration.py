@@ -30,8 +30,10 @@ contracts are provenance, not signatures, approvals or Core acceptance.
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from fractions import Fraction
 import hashlib
 import importlib.util
 import json
@@ -47,7 +49,12 @@ F = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(F)
 MappingError, require = F.MappingError, F.require
 MAX_ID = 2**63 - 1
-PROTOCOLS = {1: {"openai_chat", "openai_responses"}, 14: {"anthropic_messages"}, 24: {"gemini"}}
+# Fixed go-v0.2.118 adapters, not an arbitrary "OpenAI-compatible" fallback.
+# xAI's native Claude path uses Bearer and cannot use Core's Anthropic auth.
+# TypeSafe is exclusively SystemOne. OpenRouter requires a distinct reviewed
+# payload contract; its special settings and suffix behavior remain refused.
+PROTOCOLS = {1: {"openai_chat", "openai_responses"}, 14: {"anthropic_messages"}, 24: {"gemini"},
+             20: {"openai_chat"}, 48: {"openai_chat", "openai_responses"}, 62: {"system_one"}}
 EMPTY = (None, "", "{}", "null")
 CHANNEL_FIELDS = {"id", "type", "key", "open_ai_organization", "test_model", "status", "name", "weight",
                   "created_time", "test_time", "response_time", "base_url", "other", "balance", "balance_updated_time",
@@ -166,6 +173,8 @@ def blocked_channel(row, provider, credential):
         reasons.append("provider_contract_missing")
     else:
         require(provider.get("source_channel_sha256") == F.digest(row), "provider_source_channel_changed")
+        if row.get("type") == 20 and provider.get("adapter_contract") != "openrouter-chat-v1":
+            reasons.append("openrouter_adapter_contract_missing")
         if provider.get("protocol") not in PROTOCOLS.get(row.get("type"), set()):
             reasons.append("provider_protocol_not_compatible")
         # Legacy adapters append their version prefix; Core appends only the
@@ -178,8 +187,15 @@ def blocked_channel(row, provider, credential):
         source_base = row.get("base_url")
         if type(source_base) is str and urlsplit(source_base).hostname == "gateway.ai.cloudflare.com":
             reasons.append("legacy_cloudflare_path_rewrite_not_supported")
+        # Both legacy TypeSafe and Core SystemOne normalize a terminal /v1;
+        # preserve an explicitly configured base, never infer a provider URL.
+        expected_endpoint = source_base + expected_prefix if type(source_base) is str else None
+        if row.get("type") == 62 and type(source_base) is str:
+            expected_endpoint = source_base.rstrip("/")
+            if not expected_endpoint.endswith("/v1"):
+                expected_endpoint += "/v1"
         if (not endpoint_valid(source_base) or not endpoint_valid(provider.get("endpoint"))
-                or prefix != expected_prefix or provider.get("endpoint") != source_base + expected_prefix):
+                or prefix != expected_prefix or provider.get("endpoint") != expected_endpoint):
             reasons.append("provider_endpoint_not_bound_to_source")
         if not text_reference(provider.get("contract_revision")):
             reasons.append("provider_contract_revision_missing")
@@ -203,13 +219,149 @@ def text_reference(value):
     return type(value) is str and 1 <= len(value) <= 512 and not any(ord(c) < 32 for c in value)
 
 
-def price_for(provider, group, model, options_hash):
+def compile_token_expression(expression):
+    """Compile only bounded len tiers and linear token terms; never eval code.
+
+    Coefficients remain exact USD/million fractions. Measured image/audio,
+    output-dependent branches, constants, and arbitrary functions reject.
+    Variable presence is retained even for a zero coefficient (cache semantics).
+    """
+    require(type(expression) is str and 0 < len(expression) <= 16384 and bool(expression.strip()),
+            "legacy_expression_invalid")
+    variables = {"p": "input", "c": "output", "cr": "cache_read", "cc": "cache_write",
+                 "cc1h": "cache_write_1h", "cc12h": "cache_write_12h"}
+    used, tiers = set(), []
+    rest, previous, scale = expression.strip(), 0, Fraction(1)
+    # The production editor wraps an existing tariff as (expr) * (decimal).
+    # Strip only a balanced *whole* wrapper and retain its exact multiplier.
+    while rest.startswith("("):
+        depth, close = 0, None
+        quoted = False
+        for i, char in enumerate(rest):
+            if char == '"':
+                quoted = not quoted
+            if quoted:
+                continue
+            depth += (char == "(") - (char == ")")
+            if depth == 0:
+                close = i
+                break
+        require(close is not None, "legacy_expression_tier_shape_unsupported")
+        tail = rest[close+1:].strip()
+        if tail:
+            multiplier = re.fullmatch(r"\*\s*\(\s*(\d+(?:\.\d*)?|\.\d+)\s*\)", tail)
+            require(multiplier is not None, "legacy_expression_outer_operation_unsupported")
+            scale *= Fraction(multiplier[1])
+        rest = rest[1:close].strip()
+
+    def polynomial(text):
+        try:
+            tree = ast.parse(text.strip(), mode="eval")
+        except (SyntaxError, RecursionError):
+            raise MappingError("legacy_expression_not_token_linear") from None
+        require(sum(1 for _ in ast.walk(tree)) <= 256, "legacy_expression_too_complex")
+
+        def visit(node):
+            if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+                literal = ast.get_source_segment(text.strip(), node)
+                require(re.fullmatch(r"(?:\d+(?:\.\d*)?|\.\d+)", literal or "") is not None,
+                        "legacy_expression_decimal_invalid")
+                value = Fraction(literal)
+                require(value >= 0, "legacy_expression_negative_rate")
+                return {"": value}
+            if isinstance(node, ast.Name) and node.id in variables:
+                used.add(node.id)
+                return {node.id: Fraction(1)}
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                a, b = visit(node.left), visit(node.right)
+                return {key: a.get(key, 0) + b.get(key, 0) for key in a.keys() | b.keys()}
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+                a, b = visit(node.left), visit(node.right)
+                require(set(a) == {""} or set(b) == {""}, "legacy_expression_not_token_linear")
+                scalar, vector = (a[""], b) if set(a) == {""} else (b[""], a)
+                return {key: scalar * value for key, value in vector.items()}
+            raise MappingError("legacy_expression_not_token_linear")
+
+        coefficients = visit(tree.body)
+        require(coefficients.pop("", 0) == 0, "legacy_expression_request_fee_not_supported")
+        return coefficients
+
+    while rest:
+        bound = re.match(r"len\s*(<=|<)\s*(\d+)\s*\?\s*", rest)
+        upper = None
+        if bound:
+            upper = int(bound[2]) - (bound[1] == "<")
+            require(previous < upper <= 16_000_000, "legacy_expression_tier_bound_invalid")
+            rest = rest[bound.end():]
+        # Labels are provenance, not pricing variables. The balanced AST rejects
+        # nested functions; this grammar deliberately accepts no arbitrary DSL.
+        call = re.match(r'tier\(\s*"[^"\\\x00-\x1f]{1,128}"\s*,', rest)
+        require(call is not None, "legacy_expression_tier_shape_unsupported")
+        depth, end = 1, call.end()
+        while end < len(rest) and depth:
+            if rest[end] == "(":
+                depth += 1
+            elif rest[end] == ")":
+                depth -= 1
+            end += 1
+        require(depth == 0, "legacy_expression_tier_shape_unsupported")
+        coefficients = polynomial(rest[call.end():end-1])
+        rates = {}
+        for var, field in variables.items():
+            rate = coefficients.get(var, Fraction(0)) * scale
+            require(rate.numerator <= 2**64-1 and rate.denominator <= 10**18,
+                    "legacy_expression_rate_out_of_range")
+            rates[field] = {"numerator": rate.numerator, "denominator": rate.denominator}
+        tier = {"rates": rates}
+        if upper is not None:
+            tier["up_to_input_tokens"] = upper
+        tiers.append(tier)
+        require(len(tiers) <= 4, "legacy_expression_tier_limit")
+        tail = rest[end:].strip()
+        if upper is None:
+            require(not tail, "legacy_expression_trailing_syntax")
+            break
+        require(tail.startswith(":"), "legacy_expression_final_tier_missing")
+        rest, previous = tail[1:].strip(), upper
+        require(rest, "legacy_expression_final_tier_missing")
+    uses_hour, uses_twelve = "cc1h" in used, "cc12h" in used
+    require(not uses_twelve or ({"cr", "cc"} <= used and not uses_hour),
+            "legacy_expression_cache_partition_unsupported")
+    for tier in tiers:
+        for var, field in (("cc1h", "cache_write_1h"), ("cc12h", "cache_write_12h")):
+            if var not in used:
+                tier["rates"].pop(field)
+    return {"revision": 4 if uses_twelve else 2 if "cc" in used or uses_hour else 1,
+            "source_digest": hashlib.sha256(expression.encode()).hexdigest(),
+            "uses_cache_read": "cr" in used, "uses_cache_write": "cc" in used,
+            "uses_cache_write_1h": uses_hour, "uses_cache_write_12h": uses_twelve, "tiers": tiers}
+
+
+def price_for(provider, group, model, options_hash, expressions=None, billing_modes=None):
     require(type(provider.get("prices")) is list and all(type(row) is dict for row in provider["prices"]), "price_contract_rows_invalid")
     rows = [row for row in provider.get("prices", []) if row.get("group") == group and row.get("model") == model]
     if len(rows) != 1:
         return None, "price_contract_missing_or_duplicate"
     price = rows[0]
     require(price.get("source_options_sha256") == options_hash, "price_source_options_changed")
+    expression = (expressions or {}).get(model)
+    # Fixed legacy GetBillingMode defaults an absent per-model entry to ratio.
+    # A configured but inactive expression must not silently replace that price.
+    mode = (billing_modes or {}).get(model, "ratio")
+    require(mode in ("ratio", "tiered_expr"), "legacy_billing_mode_unsupported")
+    if price.get("kind") == "tiered_decimal":
+        require(mode == "tiered_expr", "price_source_billing_mode_mismatch")
+        require(type(expression) is str and expression == price.get("source_expression"),
+                "price_source_expression_mismatch")
+        require(price.get("source_rate_unit") == "USD_per_million_tokens"
+                and text_reference(price.get("contract_revision")), "price_expression_unit_unreviewed")
+        tariff = compile_token_expression(expression)
+        return {"billing_mode": "tiered_decimal", "tiered": tariff,
+                "rates": {k: 0 for k in ("input", "output", "cache_read", "cache_write", "request")},
+                "group_multiplier_ppm": number(price.get("group_multiplier_ppm"), "price_multiplier_invalid", 0, 1_000_000_000),
+                "speed_multiplier_ppm": number(price.get("speed_multiplier_ppm"), "price_multiplier_invalid", 1, 1_000_000_000)}, None
+    if mode == "tiered_expr":
+        return None, "legacy_expression_pricing_not_compiled"
     if price.get("kind") != "flat_tokens" or not text_reference(price.get("contract_revision")):
         return None, "legacy_expression_or_price_kind_not_supported"
     rates = price.get("rates")
@@ -224,6 +376,96 @@ def price_for(provider, group, model, options_hash):
            or rate * group_ppm * speed_ppm // 2_000_000_000_000 > MAX_ID for rate in rates.values()):
         return None, "price_not_exact_integer_credits"
     return {"rates": rates, "group_multiplier_ppm": group_ppm, "speed_multiplier_ppm": speed_ppm}, None
+
+
+def image_sidecar(provider, channel, credential, context, group, model, options_hash, options,
+                  expressions, billing_modes):
+    """Bind explicit image deployment rules to original prices, never invent limits.
+
+    Only direct OpenAI image operations are admitted here. OpenRouter Chat
+    images use its separate Chat adapter; Gemini ratio has no reviewed wire yet.
+    """
+    require(channel["type"] == 1 and provider["protocol"] == "openai_chat",
+            "legacy_image_adapter_not_supported")
+    require(context.get("upstream_model") == model, "image_model_mapping_unproven")
+    operations = context["source_operations"]
+    require(set(operations) <= {"images.generations", "images.edits"} and len(set(operations)) == len(operations),
+            "image_operations_invalid")
+    rows = provider.get("image_prices")
+    require(type(rows) is list and rows and all(type(row) is dict for row in rows), "image_price_contract_missing")
+    selected = [row for row in rows if row.get("billing_group") == group and row.get("semantic_model") == model]
+    require(selected, "image_price_contract_missing")
+    revision = number(provider.get("image_price_revision"), "image_price_revision_missing")
+    source_options = {row["key"]: row.get("value") for row in options}
+    group_ratios = source_options.get("GroupRatio", {})
+    if type(group_ratios) is str:
+        group_ratios = F.parse_json(group_ratios)
+    require(type(group_ratios) is dict, "image_source_group_ratios_invalid")
+    require(str(source_options.get("LegacyPricingQuotaPerUnit")) == "500000",
+            "image_source_currency_unreviewed")
+    mode = billing_modes.get(model, "ratio")
+    rules, seen, covered = [], set(), set()
+    fields = {"upstream_id", "vendor", "billing_group", "upstream_model", "semantic_model", "endpoint", "size", "quality",
+              "usd_micros_per_image", "group_multiplier", "max_n", "count_basis", "max_budget", "source_revision"}
+
+    def ratio(value):
+        require(type(value) is dict and set(value) == {"numerator", "denominator"}, "image_ratio_invalid")
+        return Fraction(number(value["numerator"], "image_ratio_invalid", 0, 2**64-1),
+                        number(value["denominator"], "image_ratio_invalid", 1, 2**64-1))
+
+    for row in selected:
+        require(set(row) == fields | {"source_options_sha256", "source_billing_mode", "billing_price_key"},
+                "image_price_contract_fields_invalid")
+        require(row["source_options_sha256"] == options_hash, "image_source_options_changed")
+        # Alias evidence is not in the supplied routing export. Do not guess or
+        # normalize an alias from a suffix; direct source keys are the safe subset.
+        require(row["billing_price_key"] == model and row["source_billing_mode"] == mode,
+                "image_source_billing_key_or_mode_unproven")
+        require(row["upstream_id"] == channel["id"] and row["upstream_model"] == model and row["vendor"] == "openai",
+                "image_provider_binding_mismatch")
+        require("images." + row["endpoint"] in operations, "image_endpoint_not_observed")
+        require(text_reference(row["source_revision"]) and text_reference(row["size"]) and text_reference(row["quality"]),
+                "image_deployment_contract_missing")
+        key = (row["endpoint"], row["size"], row["quality"])
+        require(key not in seen, "image_price_duplicate")
+        seen.add(key); covered.add("images." + row["endpoint"])
+        number(row["max_n"], "image_max_n_missing", 1, 64)
+        number(row["max_budget"], "image_max_budget_missing", 1)
+        require(ratio(row["group_multiplier"]) == Fraction(str(group_ratios.get(group, 1))),
+                "image_source_group_multiplier_mismatch")
+        if mode == "tiered_expr":
+            basis = row["count_basis"]
+            require(type(basis) is dict and set(basis) == {"native_tokens"}, "image_expression_cannot_be_flattened")
+            native = basis["native_tokens"]
+            require(type(native) is dict and set(native) == {"billing_price_key", "source_expression", "source_sha256",
+                    "currency_basis", "credits_per_usd", "usd_multiplier", "max_input_tokens", "max_output_tokens"},
+                    "image_native_token_contract_invalid")
+            expression = expressions.get(model)
+            require(type(expression) is str and native["source_expression"] == expression
+                    and native["source_sha256"] == hashlib.sha256(expression.encode()).hexdigest()
+                    and native["billing_price_key"] == model, "image_source_expression_changed")
+            require(native["currency_basis"] == "legacy_pricing_unit" and native["credits_per_usd"] == 500000
+                    and str(source_options.get("LegacyPricingQuotaPerUnit")) == "500000",
+                    "image_source_currency_unreviewed")
+            require(ratio(native["usd_multiplier"]) == 1 and ratio(row["usd_micros_per_image"]) == 0,
+                    "image_expression_multiplier_unproven")
+            number(native["max_input_tokens"], "image_input_bound_missing", 1, 16_000_000)
+            number(native["max_output_tokens"], "image_output_bound_missing", 1, 16_000_000)
+        elif mode == "ratio":
+            model_prices = source_options.get("ModelPrice", {})
+            if type(model_prices) is str:
+                model_prices = F.parse_json(model_prices)
+            require(type(model_prices) is dict and model in model_prices, "image_ratio_tariff_not_supported")
+            require(row["count_basis"] == "returned_payloads"
+                    and ratio(row["usd_micros_per_image"]) == Fraction(str(model_prices[model])) * 1_000_000,
+                    "image_source_per_returned_price_mismatch")
+        else:
+            raise MappingError("image_source_billing_mode_unsupported")
+        rules.append({key: row[key] for key in fields})
+    require(covered == set(operations), "image_operation_tariff_missing")
+    spec = {"id": channel["id"], "vendor": "openai", "upstream_model": model,
+            "endpoint": provider["endpoint"], "secret_file": credential["secret_file"]}
+    return revision, rules, spec
 
 
 def plan(tables, identities, bindings, *, runtime=None, providers=None, credentials=None, source_counts=None):
@@ -274,14 +516,23 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
             number(limits["max_output_tokens"], "runtime_limits_invalid", 1, 65_536)
             require(limits["timeout_seconds"] + 12 < limits["lease_seconds"], "runtime_lease_too_short")
     # Arbitrary old billing expressions are never replaced by supplied flat rates.
-    option_keys = set()
+    option_keys, expressions, billing_modes = set(), {}, {}
     require(type(tables["options"]) is list, "routing_source_options_invalid")
     for option in tables["options"]:
         require(type(option) is dict and type(option.get("key")) is str and option["key"] not in option_keys,
                 "routing_option_key_duplicate_or_invalid")
         option_keys.add(option["key"])
+        if option["key"] == "billing_setting.billing_mode" and option.get("value") not in EMPTY:
+            billing_modes = F.parse_json(option["value"]) if type(option["value"]) is str else option["value"]
+            require(type(billing_modes) is dict and all(type(k) is str and type(v) is str for k, v in billing_modes.items()),
+                    "legacy_billing_modes_invalid")
         if re.search(r"expr|expression", option["key"], re.I) and option.get("value") not in EMPTY + ("[]",):
-            block("legacy_expression_pricing_not_compiled")
+            if option["key"] == "billing_setting.billing_expr":
+                expressions = F.parse_json(option["value"]) if type(option["value"]) is str else option["value"]
+                require(type(expressions) is dict and all(type(k) is str and type(v) is str for k, v in expressions.items()),
+                        "legacy_expression_options_invalid")
+            else:
+                block("legacy_expression_pricing_not_compiled")
         if re.search(r"usablegroup|special.*group|groupgroupratio", option["key"], re.I) and option.get("value") not in EMPTY + ("[]",):
             block("cross_group_policy_not_mapped")
     options_hash = F.digest(tables["options"])
@@ -335,6 +586,7 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         or channel.get("weight") != ability.get("weight") or type(channel.get("weight")) is not int):
                     entry["reasons"].append("cache_channel_priority_or_weight_disagrees")
     upstreams, secret_refs, external_models, routes, prices = {}, {}, {}, [], []
+    image_rules, image_specs, image_revision = [], {}, None
     reference_keys, destination_keys = {}, {}
     next_target_id = 0
     for (group, model), pairs in sorted(ability_groups.items()):
@@ -355,6 +607,40 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                     entry["reasons"].append(weight_error)
                 provider, credential = provider_map.get(cid), credential_map.get(cid)
                 entry["reasons"].extend(blocked_channel(channel, provider, credential))
+                contexts = [c for c in provider.get("models", []) if type(c) is dict and c.get("source_model") == model] if provider else []
+                image_context = contexts[0] if provider and type(provider.get("image_prices")) is list and provider["image_prices"] and len(contexts) == 1 and type(contexts[0].get("source_operations")) is list and contexts[0]["source_operations"] and all(
+                    type(op) is str and op in ("images.generations", "images.edits") for op in contexts[0]["source_operations"]) else None
+                if image_context is not None:
+                    entry.update(native_surface="images", billing_price_key=model,
+                                 source_billing_mode=billing_modes.get(model, "ratio"),
+                                 source_image_rules_sha256=F.digest(provider["image_prices"]))
+                    # The native image selector has no legacy weighted/failover
+                    # policy. Multiple old channels must not collapse to one.
+                    if len(pairs) != 1:
+                        entry["reasons"].append("legacy_image_channel_selection_not_mapped")
+                    if not entry["reasons"]:
+                        revision, rules, spec = image_sidecar(provider, channel, credential, image_context, group, model,
+                            options_hash, tables["options"], expressions, billing_modes)
+                        require(image_revision in (None, revision), "image_price_revision_conflict")
+                        image_revision = revision
+                        # Native image providers use (original channel, model).
+                        # The unique channel/credential contracts above retain
+                        # one endpoint and one source key across these entries.
+                        provider_key = (cid, model)
+                        require(provider_key not in image_specs or image_specs[provider_key] == spec,
+                                "image_provider_binding_conflict")
+                        image_specs[provider_key] = spec
+                        image_rules.extend(rules)
+                        ref = (credential["reference"]["id"], credential["reference"]["revision"])
+                        digest = credential["source_key_sha256"]
+                        require(reference_keys.get(ref, digest) == digest
+                                and destination_keys.get(credential["secret_file"], digest) == digest,
+                                "credential_reference_or_destination_key_conflict")
+                        reference_keys[ref] = digest
+                        destination_keys[credential["secret_file"]] = digest
+                    for reason in sorted(set(entry["reasons"])):
+                        block(reason, group=group, model=model, channel_id=cid)
+                    continue
                 if provider is not None:
                     require(type(provider.get("models")) is list and all(type(c) is dict for c in provider["models"]),
                             "provider_model_context_rows_invalid")
@@ -364,7 +650,8 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                     else:
                         context = contexts[0]
                         allowed_operations = {"openai_chat": {"chat.completions"}, "openai_responses": {"responses"},
-                                              "anthropic_messages": {"messages"}, "gemini": {"generateContent", "streamGenerateContent"}}
+                                              "anthropic_messages": {"messages"}, "gemini": {"generateContent", "streamGenerateContent"},
+                                              "system_one": {"systemone"}}
                         operations = context.get("source_operations")
                         if (type(operations) is not list or not operations or any(type(op) is not str for op in operations)
                                 or not set(operations) <= allowed_operations.get(provider.get("protocol"), set())
@@ -374,6 +661,8 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                             entry["reasons"].append("legacy_gemini_version_contract_missing_or_unsupported")
                         if context.get("upstream_model") != model:
                             entry["reasons"].append("model_mapping_not_supported")
+                        if channel.get("type") == 20 and model.endswith("-thinking"):
+                            entry["reasons"].append("openrouter_thinking_suffix_policy_not_mapped")
                         number(context.get("max_input_tokens"), "provider_input_bound_invalid", 1, 16_000_000)
                         number(context.get("max_output_tokens"), "provider_output_bound_invalid", 1, 65_536)
                         require(all(type(context.get(field)) is bool for field in ("missing_cached_tokens_is_zero", "missing_cache_creation_tokens_is_zero")),
@@ -384,7 +673,7 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         external_models[(cid, model)] = {"upstream_id": cid, "upstream_model": model, "protocol": provider.get("protocol"),
                             "endpoint": provider.get("endpoint"), "contract_revision": provider.get("contract_revision"),
                             **{k: context[k] for k in ("max_input_tokens", "max_output_tokens", "missing_cached_tokens_is_zero", "missing_cache_creation_tokens_is_zero")}}
-                    price, price_error = price_for(provider, group, model, options_hash)
+                    price, price_error = price_for(provider, group, model, options_hash, expressions, billing_modes)
                     if price_error:
                         entry["reasons"].append(price_error)
                     elif route_price is None:
@@ -408,9 +697,12 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                     next_target_id += 1
                     targets.append({"id": next_target_id, "upstream_id": cid, "upstream_model": model, "enabled": True,
                                     "priority": entry["native_priority"], "weight": entry["native_weight"], "speeds": ["standard"],
-                                    "payload": "adapt", "timeout_ms": limits["timeout_seconds"] * 1000})
+                                    "payload": "open_router" if channel.get("type") == 20 else "adapt",
+                                    "timeout_ms": limits["timeout_seconds"] * 1000})
                 for reason in sorted(set(entry["reasons"])):
                     block(reason, group=group, model=model, channel_id=cid)
+        if all(entry.get("native_surface") == "images" for _, entry in pairs):
+            continue
         route_id = len(routes) + 1
         routes.append({"id": route_id, "group": group, "model": model, "enabled": True, "speeds": ["standard"], "targets": targets,
                        "failover": {"max_attempts": 1, "retry_on": [], "allow_replay_after_send": False}})
@@ -435,6 +727,9 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
             "upstreams": list(upstreams.values()), "routes": routes, "aliases": []}, "prices": {"version": 1, "rules": prices},
             "credentials": list(secret_refs.values()), "key_groups": [], "external_models": list(external_models.values()),
             "local_streaming": runtime["streaming_enabled"], **limits}
+        if image_rules:
+            result["candidate"]["image_prices"] = {"revision": image_revision, "rules": image_rules}
+            result["candidate"]["image_providers"] = list(image_specs.values())
     result["plan_sha256"] = F.digest(result)
     return result
 

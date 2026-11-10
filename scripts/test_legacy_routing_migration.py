@@ -57,6 +57,49 @@ def reasons(result):
     return {entry["reason"] for entry in result["blockers"]}
 
 
+def image_fixture(returned=False):
+    value = fixture()
+    tables, _, _, contracts = value
+    model = "synthetic-image"
+    expression = 'tier("synthetic", p * 7 + cr_text * 0.2 + img * 9 + cr_img * 0.3 + img_o * 11)'
+    tables["options"] = [{"key": "LegacyPricingQuotaPerUnit", "value": "500000"},
+        {"key": "billing_setting.billing_mode", "value": json.dumps({model: "ratio" if returned else "tiered_expr"})},
+        {"key": "billing_setting.billing_expr", "value": json.dumps({model: expression})},
+        {"key": "ModelPrice", "value": json.dumps({model: 1})}]
+    channel = copy.deepcopy(tables["channels"][0])
+    channel.update(id=3, models=model, key="synthetic-image-secret")
+    tables["channels"].append(channel)
+    tables["abilities"].append({"group": channel["group"], "model": model, "channel_id": 3,
+                               "enabled": True, "weight": 0, "priority": channel["priority"]})
+    provider = copy.deepcopy(contracts["providers"]["channels"][0])
+    provider.update(channel_id=3, image_price_revision=9)
+    provider["models"] = [{"source_model": model, "upstream_model": model,
+                           "source_operations": ["images.generations", "images.edits"]}]
+    basis = "returned_payloads" if returned else {"native_tokens": {
+        "billing_price_key": model, "source_expression": expression,
+        "source_sha256": hashlib.sha256(expression.encode()).hexdigest(),
+        "currency_basis": "legacy_pricing_unit", "credits_per_usd": 500000,
+        "usd_multiplier": {"numerator": 1, "denominator": 1},
+        "max_input_tokens": 100, "max_output_tokens": 100}}
+    provider["image_prices"] = [{"upstream_id": 3, "vendor": "openai", "billing_group": channel["group"],
+        "upstream_model": model, "semantic_model": model, "endpoint": endpoint,
+        "size": "1024x1024", "quality": "standard",
+        "usd_micros_per_image": {"numerator": 1000000 if returned else 0, "denominator": 1},
+        "group_multiplier": {"numerator": 1, "denominator": 1}, "max_n": 2,
+        "count_basis": copy.deepcopy(basis), "max_budget": 10000000, "source_revision": "synthetic-contract",
+        "source_options_sha256": R.F.digest(tables["options"]), "billing_price_key": model,
+        "source_billing_mode": "ratio" if returned else "tiered_expr"} for endpoint in ("generations", "edits")]
+    contracts["providers"]["channels"].append(provider)
+    credential = copy.deepcopy(contracts["credentials"]["credentials"][0])
+    credential.update(channel_id=3, reference={"id": 3, "revision": 1}, secret_file="/private/install/channel-3")
+    contracts["credentials"]["credentials"].append(credential)
+    for p in contracts["providers"]["channels"]:
+        for price in p["prices"]:
+            price["source_options_sha256"] = R.F.digest(tables["options"])
+    rebind_channel(value, 3)
+    return value
+
+
 def rebind_channel(value, cid=1):
     tables, _, _, contracts = value
     channel = next(c for c in tables["channels"] if c["id"] == cid)
@@ -66,6 +109,133 @@ def rebind_channel(value, cid=1):
 
 
 class RoutingSemanticsTests(unittest.TestCase):
+    def test_image_sidecar_preserves_native_source_and_declared_total_bounds(self):
+        value = image_fixture()
+        result = run_fixture(value)
+        self.assertEqual(result["status"], "candidate-requires-native-validation")
+        candidate = result["candidate"]
+        self.assertEqual(len(candidate["routing"]["routes"]), 1)
+        self.assertEqual(candidate["image_providers"][0]["secret_file"], "/private/install/channel-3")
+        assessment = next(row for row in result["ability_assessments"] if row["channel_id"] == 3)
+        self.assertEqual((assessment["billing_price_key"], assessment["source_billing_mode"]),
+                         ("synthetic-image", "tiered_expr"))
+        rules = candidate["image_prices"]["rules"]
+        self.assertEqual([r["endpoint"] for r in rules], ["generations", "edits"])
+        self.assertEqual(rules[0]["count_basis"]["native_tokens"]["max_input_tokens"], 100)
+        self.assertEqual(tomllib.loads("config = " + R.toml_value(candidate))["config"], candidate)
+        for field, replacement in (("source_sha256", "0"*64), ("billing_price_key", "guessed-alias"),
+                                   ("max_input_tokens", 0), ("usd_multiplier", {"numerator": 2, "denominator": 1})):
+            changed = copy.deepcopy(value)
+            changed[3]["providers"]["channels"][-1]["image_prices"][0]["count_basis"]["native_tokens"][field] = replacement
+            with self.subTest(field=field), self.assertRaises(R.MappingError):
+                run_fixture(changed)
+
+    def test_image_returned_count_price_is_bound_to_original_model_price(self):
+        value = image_fixture(returned=True)
+        result = run_fixture(value)
+        self.assertEqual(result["candidate"]["image_prices"]["rules"][0]["count_basis"], "returned_payloads")
+        value[3]["providers"]["channels"][-1]["image_prices"][0]["usd_micros_per_image"]["numerator"] = 999
+        with self.assertRaisesRegex(R.MappingError, "image_source_per_returned_price_mismatch"):
+            run_fixture(value)
+
+    def test_decimal_tiers_keep_exact_rates_boundaries_and_zero_cache_variable(self):
+        expression = 'len < 200001 ? tier("base", p * 0.3 + c * 15 + cr * 0 + cc * 3.75 + cc1h * 6) : tier("long", p * 0.6 + c * 22.5 + cr * 0 + cc * 7.5 + cc1h * 12)'
+        tariff = R.compile_token_expression(expression)
+        self.assertEqual(tariff["revision"], 2)
+        self.assertTrue(tariff["uses_cache_read"])
+        self.assertTrue(tariff["uses_cache_write_1h"])
+        self.assertEqual(tariff["source_digest"], hashlib.sha256(expression.encode()).hexdigest())
+        self.assertEqual(tariff["tiers"][0]["up_to_input_tokens"], 200000)
+        self.assertNotIn("up_to_input_tokens", tariff["tiers"][1])
+        self.assertEqual(tariff["tiers"][0]["rates"]["input"], {"numerator": 3, "denominator": 10})
+        self.assertEqual(tariff["tiers"][1]["rates"]["output"], {"numerator": 45, "denominator": 2})
+        self.assertEqual(tomllib.loads("tariff = " + R.toml_value(tariff))["tariff"], tariff)
+
+    def test_outer_decimal_multiplier_preserves_every_tier_exactly(self):
+        original = 'len <= 100 ? tier("a", p * 0.3 + c * 2) : tier("b", p * 0.6 + c * 4)'
+        tariff = R.compile_token_expression('(' + original + ') * (1.25)')
+        self.assertEqual(tariff["tiers"][0]["rates"]["input"], {"numerator": 3, "denominator": 8})
+        self.assertEqual(tariff["tiers"][1]["rates"]["input"], {"numerator": 3, "denominator": 4})
+        for tail in (' / (2)', ' * (-1)', ' + (1)', ' * (__import__("os"))'):
+            with self.subTest(tail=tail), self.assertRaises(R.MappingError):
+                R.compile_token_expression('(' + original + ')' + tail)
+
+    def test_expression_rejects_unrepresented_dimensions_and_arbitrary_code(self):
+        for expression in ('tier("base", p * 1 + img * 2)', 'tier("base", p*c)',
+                           'tier("base", p + 1)', 'tier("base", p * -1)',
+                           'c < 100 ? tier("a", p) : tier("b", p*2)',
+                           'tier("base", __import__("os").system("false"))',
+                           'len <= 100 ? tier("a", p) : len <= 50 ? tier("b", p) : tier("c", p)'):
+            with self.subTest(expression=expression), self.assertRaises(R.MappingError):
+                R.compile_token_expression(expression)
+
+    def test_tiered_candidate_binds_source_expression_and_rejects_flattening(self):
+        value = fixture()
+        expression = 'tier("base", p * 0.125 + c * 2 + cr * 0)'
+        value[0]["options"] = [{"key": "billing_setting.billing_expr", "value": json.dumps({"example-model": expression})},
+                               {"key": "billing_setting.billing_mode", "value": json.dumps({"example-model": "tiered_expr"})}]
+        for provider in value[3]["providers"]["channels"]:
+            provider["prices"][0].update(kind="tiered_decimal", source_expression=expression,
+                source_rate_unit="USD_per_million_tokens", source_options_sha256=R.F.digest(value[0]["options"]))
+        result = run_fixture(value)
+        self.assertEqual(result["status"], "candidate-requires-native-validation")
+        self.assertEqual(result["candidate"]["prices"]["rules"][0]["billing_mode"], "tiered_decimal")
+        self.assertEqual(result["candidate"]["prices"]["rules"][0]["tiered"]["tiers"][0]["rates"]["input"],
+                         {"numerator": 1, "denominator": 8})
+        value[3]["providers"]["channels"][0]["prices"][0]["source_expression"] += " "
+        with self.assertRaisesRegex(R.MappingError, "price_source_expression_mismatch"):
+            run_fixture(value)
+        value[3]["providers"]["channels"][0]["prices"][0].update(kind="flat_tokens", source_expression=expression)
+        self.assertIn("legacy_expression_pricing_not_compiled", reasons(run_fixture(value)))
+
+    def test_stale_expression_does_not_override_ratio_billing_mode(self):
+        value = fixture()
+        value[0]["options"] = [{"key": "billing_setting.billing_expr", "value": json.dumps({"example-model": 'tier("unused", img * 9)'})}]
+        for provider in value[3]["providers"]["channels"]:
+            provider["prices"][0]["source_options_sha256"] = R.F.digest(value[0]["options"])
+        self.assertEqual(run_fixture(value)["status"], "candidate-requires-native-validation")
+        value[3]["providers"]["channels"][0]["prices"][0]["kind"] = "tiered_decimal"
+        with self.assertRaisesRegex(R.MappingError, "price_source_billing_mode_mismatch"):
+            run_fixture(value)
+
+    def test_xai_only_admits_reviewed_openai_operations(self):
+        value = fixture()
+        for channel in value[0]["channels"]:
+            channel["type"] = 48
+            rebind_channel(value, channel["id"])
+        self.assertEqual(run_fixture(value)["status"], "candidate-requires-native-validation")
+        value[3]["providers"]["channels"][0]["protocol"] = "anthropic_messages"
+        self.assertIn("provider_protocol_not_compatible", reasons(run_fixture(value)))
+
+    def test_typesafe_preserves_systemone_path_with_or_without_v1(self):
+        for base in ("https://typesafe.example", "https://typesafe.example/v1"):
+            with self.subTest(base=base):
+                value = fixture()
+                for channel, provider in zip(value[0]["channels"], value[3]["providers"]["channels"]):
+                    channel.update(type=62, base_url=base)
+                    provider.update(protocol="system_one", endpoint="https://typesafe.example/v1")
+                    provider["models"][0]["source_operations"] = ["systemone"]
+                    rebind_channel(value, channel["id"])
+                self.assertEqual(run_fixture(value)["status"], "candidate-requires-native-validation")
+                value[3]["providers"]["channels"][0]["models"][0]["source_operations"] = ["chat.completions"]
+                self.assertIn("legacy_operation_surface_not_supported_or_unproven", reasons(run_fixture(value)))
+                value[3]["providers"]["channels"][0]["endpoint"] += "/systemone"
+                self.assertIn("provider_endpoint_not_bound_to_source", reasons(run_fixture(value)))
+
+    def test_openrouter_does_not_silently_use_generic_openai_adapter(self):
+        value = fixture()
+        value[0]["channels"][0]["type"] = 20
+        rebind_channel(value)
+        self.assertIn("openrouter_adapter_contract_missing", reasons(run_fixture(value)))
+        value[3]["providers"]["channels"][0]["adapter_contract"] = "openrouter-chat-v1"
+        result = run_fixture(value)
+        self.assertEqual(result["status"], "candidate-requires-native-validation")
+        targets = result["candidate"]["routing"]["routes"][0]["targets"]
+        self.assertEqual([target["payload"] for target in targets], ["open_router", "adapt"])
+        value[0]["channels"][0]["header_override"] = '{"x-custom":"value"}'
+        rebind_channel(value)
+        self.assertIn("special_channel_behavior_not_mapped", reasons(run_fixture(value)))
+
     def test_high_old_priority_maps_to_low_native_priority(self):
         result = run_fixture(fixture(priorities=(-5, 100)))
         self.assertEqual(result["status"], "candidate-requires-native-validation")
