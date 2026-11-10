@@ -29,4 +29,10 @@ The independent verifier built source `a32f98c` into the actual Go executable SH
 
 Original operation recovery and re-entry, foreign operation/installer rejection, post-DDL transaction rollback and normal runtime object ACLs passed. The first attempt also exposed a runner-only OID string/integer comparison error; its evidence was retained, and only the unfinished checks were completed with corrected normalization in attempt02. Those passes do not close the product defect.
 
-Evidence: `~/.cache/lmm-predeploy-validation/20261110-independent-app04-cli/summary.json` and `attempt01/product-finding-runtime-create.json`. Both private PG instances stopped and their PGDATA was removed. The implementation fix rejects effective database CREATE/TEMPORARY authority before any addon mutation or recovery, but is not yet validated or accepted. Keep the finding open until independent actual CLI re-verification succeeds.
+Evidence: `~/.cache/lmm-predeploy-validation/20261110-independent-app04-cli/summary.json` and `attempt01/product-finding-runtime-create.json`. Both private PG instances stopped and their PGDATA was removed. At that point the implementation fix was awaiting verification. The later targeted result below closes this finding while retaining the original failure.
+
+## Targeted independent fix verification
+
+`APP04-IONET-UPGRADE-RUNTIME-DB-DDL-001` is fixed and independently verified for the offline CLI scope. The verifier froze `1da1c64` plus the two upgrade implementation/test files (791 inputs unchanged), built actual CLI SHA-256 `093566797f14ad7acc811450d76e7060d7673d134b8c1fa1ff5d2943348b3dc1`, and ran once against private PostgreSQL 18.6. The original upgrade regression passed without skipping. All eight effective CREATE/TEMPORARY refusal cases (direct/PUBLIC, install/recovery) preserved catalog, data and receipts; after revoking excess privileges, normal installation and original-operation recovery passed. No retry was needed.
+
+Evidence: `~/.cache/lmm-predeploy-validation/20261110-independent-app04-cli-recheck/result.json`; `attempt01/cleanup.json` confirms private PG stopped and fixture removed. The original failure remains retained. This closes this finding only; it does not establish full APP04, live-provider or production acceptance.

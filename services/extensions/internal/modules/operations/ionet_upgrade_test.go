@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"testing"
+
+	"github.com/lib/pq"
 )
 
 func TestIoNetPostgresOfflineUpgradeRollbackAndOriginalReceipt(t *testing.T) {
@@ -58,6 +60,25 @@ func TestIoNetPostgresOfflineUpgradeRollbackAndOriginalReceipt(t *testing.T) {
 	}
 	if _, err := db.Exec(`ALTER ROLE ionet_upgrade_runtime NOLOGIN`); err != nil {
 		t.Fatal(err)
+	}
+	var database string
+	if err := db.QueryRow(`SELECT current_database()`).Scan(&database); err != nil {
+		t.Fatal(err)
+	}
+	for _, privilege := range []string{"CREATE", "TEMPORARY"} {
+		if _, err := db.Exec("GRANT " + privilege + " ON DATABASE " + pq.QuoteIdentifier(database) + " TO ionet_upgrade_runtime"); err != nil {
+			t.Fatal(err)
+		}
+		if err := run(operation, false, true); !errors.Is(err, ErrUnavailable) {
+			t.Fatal("runtime database DDL privilege accepted", privilege, err)
+		}
+		var unchanged bool
+		if err := db.QueryRow(`SELECT to_regclass('lmm_operations.ionet_upgrades') IS NULL AND to_regclass('lmm_operations.ionet_config') IS NULL`).Scan(&unchanged); err != nil || !unchanged {
+			t.Fatal("rejected upgrade changed schema", err)
+		}
+		if _, err := db.Exec("REVOKE " + privilege + " ON DATABASE " + pq.QuoteIdentifier(database) + " FROM ionet_upgrade_runtime"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := run(operation, true, true); !errors.Is(err, ErrNotFound) {
 		t.Fatal("missing recovery dispatched", err)

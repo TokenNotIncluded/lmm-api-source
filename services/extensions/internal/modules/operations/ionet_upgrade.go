@@ -15,6 +15,7 @@ func UpgradeIoNet(ctx context.Context, tx *sql.Tx, runtimeRole, operation string
 	var ready bool
 	if tx.QueryRowContext(ctx, `SELECT current_user=pg_get_userbyid(d.datdba)
  AND EXISTS(SELECT FROM pg_roles WHERE rolname=$1 AND NOT rolcanlogin AND NOT(rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
+ AND NOT has_database_privilege($1,d.oid,'CREATE,TEMPORARY')
  AND NOT EXISTS(SELECT FROM pg_stat_activity WHERE datid=d.oid AND pid<>pg_backend_pid())
  AND NOT EXISTS(SELECT FROM pg_prepared_xacts WHERE database=current_database())
  AND NOT EXISTS(SELECT FROM pg_namespace WHERE nspname='lmm_operations' AND nspowner<>d.datdba)
