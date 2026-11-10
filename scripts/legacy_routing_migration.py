@@ -219,7 +219,7 @@ def text_reference(value):
     return type(value) is str and 1 <= len(value) <= 512 and not any(ord(c) < 32 for c in value)
 
 
-def compile_token_expression(expression):
+def compile_token_expression(expression, *, non_audio=False):
     """Compile only bounded len tiers and linear token terms; never eval code.
 
     Coefficients remain exact USD/million fractions. Measured image/audio,
@@ -254,6 +254,51 @@ def compile_token_expression(expression):
             scale *= Fraction(multiplier[1])
         rest = rest[1:close].strip()
 
+    if 'weekday(' in rest:
+        # Recognize only the actual reviewed UTC workday predicate. No eval or
+        # host clock; import time must not decide which branch will be charged.
+        import datetime
+        compact = re.sub(r"\s+", "", rest)
+        require(compact.count("?") == 1 and compact.count(":") == 1,
+                "legacy_calendar_shape_unsupported")
+        predicate, branches = compact.split("?", 1)
+        peak, off_peak = branches.split(":", 1)
+        require(peak.startswith('tier("peak",') and off_peak.startswith('tier("off_peak",'),
+                "legacy_calendar_branch_labels_unsupported")
+        dates = re.findall(r'\(date\("Asia/Shanghai"\)>=(\d{8})&&date\("Asia/Shanghai"\)<=(\d{8})\)', predicate)
+        require(0 < len(dates) <= 16, "legacy_calendar_dates_unsupported")
+        expected = ('weekday("UTC")>=1&&weekday("UTC")<=5&&'
+                    '((hour("UTC")>=1&&hour("UTC")<4)||(hour("UTC")>=6&&hour("UTC")<10))&&!('
+                    + '||'.join(f'(date("Asia/Shanghai")>={a}&&date("Asia/Shanghai")<={b})' for a,b in dates) + ')')
+        require(predicate == expected, "legacy_calendar_predicate_unsupported")
+        previous = None
+        for a,b in dates:
+            try:
+                start,end = (datetime.date.fromisoformat(f"{v[:4]}-{v[4:6]}-{v[6:]}") for v in (a,b))
+            except ValueError:
+                raise MappingError("legacy_calendar_dates_unsupported") from None
+            require(start.year == end.year == 2026 and start <= end and (previous is None or previous < start),
+                    "legacy_calendar_dates_unsupported")
+            previous = end
+        high, low = compile_token_expression(peak), compile_token_expression(off_peak)
+        require(all(high[k] == low[k] for k in ("revision", "uses_cache_read", "uses_cache_write",
+                                                "uses_cache_write_1h", "uses_cache_write_12h")),
+                "legacy_calendar_branch_usage_mismatch")
+        for branch in (high,low):
+            for tier in branch["tiers"]:
+                for rate in tier["rates"].values():
+                    value = Fraction(rate["numerator"], rate["denominator"]) * scale
+                    require(value.numerator <= 2**64-1 and value.denominator <= 10**18,
+                            "legacy_expression_rate_out_of_range")
+                    rate.update(numerator=value.numerator, denominator=value.denominator)
+        low["source_digest"] = hashlib.sha256(expression.encode()).hexdigest()
+        low["calendar"] = {"revision":1, "source_expression":expression,
+            "weekday_timezone":"UTC", "weekdays":[1,2,3,4,5], "hour_timezone":"UTC",
+            "hour_ranges":[{"start":1,"end":4},{"start":6,"end":10}],
+            "excluded_date_timezone":"Asia/Shanghai",
+            "excluded_dates":[{"start":int(a),"end":int(b)} for a,b in dates], "match_tiers":high["tiers"]}
+        return low
+
     def polynomial(text):
         try:
             tree = ast.parse(text.strip(), mode="eval")
@@ -269,6 +314,8 @@ def compile_token_expression(expression):
                 value = Fraction(literal)
                 require(value >= 0, "legacy_expression_negative_rate")
                 return {"": value}
+            if isinstance(node, ast.Name) and node.id == "ai" and non_audio:
+                return {"": Fraction(0)}
             if isinstance(node, ast.Name) and node.id in variables:
                 used.add(node.id)
                 return {node.id: Fraction(1)}
@@ -337,7 +384,7 @@ def compile_token_expression(expression):
             "uses_cache_write_1h": uses_hour, "uses_cache_write_12h": uses_twelve, "tiers": tiers}
 
 
-def price_for(provider, group, model, options_hash, expressions=None, billing_modes=None):
+def price_for(provider, group, model, options_hash, expressions=None, billing_modes=None, *, source_channel_type=None):
     require(type(provider.get("prices")) is list and all(type(row) is dict for row in provider["prices"]), "price_contract_rows_invalid")
     rows = [row for row in provider.get("prices", []) if row.get("group") == group and row.get("model") == model]
     if len(rows) != 1:
@@ -355,7 +402,22 @@ def price_for(provider, group, model, options_hash, expressions=None, billing_mo
                 "price_source_expression_mismatch")
         require(price.get("source_rate_unit") == "USD_per_million_tokens"
                 and text_reference(price.get("contract_revision")), "price_expression_unit_unreviewed")
-        tariff = compile_token_expression(expression)
+        has_audio_input = re.search(r"\bai\b", expression) is not None
+        if has_audio_input:
+            contexts = [c for c in provider.get("models", []) if c.get("source_model") == model]
+            contract = provider.get("non_audio_contract", provider.get("adapter_contract"))
+            allowed = ({"generateContent", "streamGenerateContent"}
+                if contract == "gemini-non-audio-v1" and source_channel_type == 24 and provider.get("protocol") == "gemini"
+                else {"chat.completions"}
+                if contract == "openrouter-chat-non-audio-v1" and source_channel_type == 20
+                    and provider.get("protocol") == "openai_chat" and provider.get("adapter_contract") == "openrouter-chat-v1"
+                else set())
+            require(bool(allowed) and provider.get("audio_rules") == []
+                    and len(contexts) == 1 and type(contexts[0].get("source_operations")) is list
+                    and bool(contexts[0]["source_operations"])
+                    and set(contexts[0]["source_operations"]) <= allowed,
+                    "legacy_audio_zero_requires_non_audio_contract")
+        tariff = compile_token_expression(expression, non_audio=has_audio_input)
         return {"billing_mode": "tiered_decimal", "tiered": tariff,
                 "rates": {k: 0 for k in ("input", "output", "cache_read", "cache_write", "request")},
                 "group_multiplier_ppm": number(price.get("group_multiplier_ppm"), "price_multiplier_invalid", 0, 1_000_000_000),
@@ -673,7 +735,15 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         external_models[(cid, model)] = {"upstream_id": cid, "upstream_model": model, "protocol": provider.get("protocol"),
                             "endpoint": provider.get("endpoint"), "contract_revision": provider.get("contract_revision"),
                             **{k: context[k] for k in ("max_input_tokens", "max_output_tokens", "missing_cached_tokens_is_zero", "missing_cache_creation_tokens_is_zero")}}
-                    price, price_error = price_for(provider, group, model, options_hash, expressions, billing_modes)
+                    price, price_error = price_for(provider, group, model, options_hash, expressions, billing_modes, source_channel_type=channel.get("type"))
+                    if price is not None and price.get("billing_mode") == "tiered_decimal":
+                        entry["pricing_compilation"] = {"source_expression": expressions[model],
+                            "source_digest": price["tiered"]["source_digest"],
+                            "source_options_sha256":options_hash}
+                        if re.search(r"\bai\b", expressions[model]):
+                            entry["pricing_compilation"].update(non_audio_contract=provider.get("non_audio_contract",provider.get("adapter_contract")),
+                                adapter_contract=provider.get("adapter_contract"), ai=0,
+                                source_operations=contexts[0]["source_operations"], audio_rules=[])
                     if price_error:
                         entry["reasons"].append(price_error)
                     elif route_price is None:

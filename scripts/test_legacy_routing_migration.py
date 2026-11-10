@@ -509,5 +509,83 @@ class FileSafetyTests(unittest.TestCase):
         read.assert_not_called()
 
 
+class CalendarAndNonAudioTests(unittest.TestCase):
+    @staticmethod
+    def calendar_expression():
+        predicate = ('weekday("UTC") >= 1 && weekday("UTC") <= 5 && '
+            '((hour("UTC") >= 1 && hour("UTC") < 4) || (hour("UTC") >= 6 && hour("UTC") < 10)) && '
+            '!((date("Asia/Shanghai") >= 20260101 && date("Asia/Shanghai") <= 20260103))')
+        return '(' + predicate + ' ? tier("peak", p*2+cr*.2+c*4) : tier("off_peak",p+cr*.1+c*2)) * (1.25)'
+
+    def test_calendar_compiles_both_branches_with_original_provenance(self):
+        expr = self.calendar_expression()
+        tariff = R.compile_token_expression(expr)
+        self.assertEqual(tariff['source_digest'], hashlib.sha256(expr.encode()).hexdigest())
+        self.assertEqual(tariff['calendar']['source_expression'], expr)
+        self.assertEqual(tariff['tiers'][0]['rates']['input'], {'numerator':5,'denominator':4})
+        self.assertEqual(tariff['calendar']['match_tiers'][0]['rates']['input'], {'numerator':5,'denominator':2})
+        self.assertEqual(tariff['calendar']['excluded_dates'], [{'start':20260101,'end':20260103}])
+        self.assertEqual(tariff['calendar']['hour_ranges'], [{'start':1,'end':4},{'start':6,'end':10}])
+
+    def test_calendar_rejects_changed_boolean_zone_and_unreviewed_dates(self):
+        expr = self.calendar_expression()
+        for wrong in (expr.replace('&& !','|| !'), expr.replace('"UTC"','"local"',1),
+                      expr.replace('20260103','20270103'), expr.replace('20260103','20260230'),
+                      expr.replace('hour("UTC") < 4','hour("UTC") <= 4')):
+            with self.subTest(expr=wrong), self.assertRaises(R.MappingError):
+                R.compile_token_expression(wrong)
+
+    @staticmethod
+    def non_audio_fixture():
+        value=fixture();expr='tier("base", p*.5+ai*3+cr*.1+c*2)'
+        value[0]['options']=[{'key':'billing_setting.billing_expr','value':json.dumps({'example-model':expr})},
+                            {'key':'billing_setting.billing_mode','value':json.dumps({'example-model':'tiered_expr'})}]
+        for channel,provider in zip(value[0]['channels'],value[3]['providers']['channels']):
+            channel['type']=24;provider.update(protocol='gemini',adapter_contract='gemini-non-audio-v1',audio_rules=[],
+                legacy_path_prefix='/v1beta',endpoint=channel['base_url']+'/v1beta',
+                source_channel_sha256=R.F.digest(channel))
+            next(c for c in value[3]['credentials']['credentials'] if c['channel_id']==channel['id'])['source_channel_sha256']=R.F.digest(channel)
+            provider['models'][0].update(source_operations=['generateContent','streamGenerateContent'],legacy_api_version='v1beta')
+            provider['prices'][0].update(kind='tiered_decimal',source_expression=expr,source_rate_unit='USD_per_million_tokens',
+                source_options_sha256=R.F.digest(value[0]['options']))
+        return value,expr
+
+    def test_ai_zero_requires_explicit_runtime_contract_and_preserves_source(self):
+        value,expr=self.non_audio_fixture();result=run_fixture(value)
+        self.assertEqual(result['status'],'candidate-requires-native-validation')
+        tariff=result['candidate']['prices']['rules'][0]['tiered']
+        self.assertEqual(tariff['source_digest'],hashlib.sha256(expr.encode()).hexdigest())
+        self.assertEqual(tariff['tiers'][0]['rates']['input'],{'numerator':1,'denominator':2})
+        receipt=result['ability_assessments'][0]['pricing_compilation']
+        self.assertEqual(receipt['source_expression'],expr);self.assertEqual(receipt['ai'],0)
+        self.assertEqual(receipt['audio_rules'],[])
+        with self.assertRaises(R.MappingError): R.compile_token_expression(expr)
+        for key,bad in [('adapter_contract','unknown'),('protocol','system_one'),('audio_rules',[{'enabled':True}])]:
+            wrong=copy.deepcopy(value);wrong[3]['providers']['channels'][0][key]=bad
+            with self.subTest(key=key), self.assertRaisesRegex(R.MappingError,'legacy_audio_zero_requires_non_audio_contract'):
+                run_fixture(wrong)
+        wrong=copy.deepcopy(value);wrong[3]['providers']['channels'][0]['models'][0]['source_operations']=['opaque']
+        with self.assertRaisesRegex(R.MappingError,'legacy_audio_zero_requires_non_audio_contract'):run_fixture(wrong)
+
+
+    def test_openrouter_ai_zero_keeps_source_protocol_and_requires_original_type20(self):
+        value,expr=self.non_audio_fixture()
+        for channel,provider in zip(value[0]['channels'],value[3]['providers']['channels']):
+            channel['type']=20
+            provider.update(protocol='openai_chat',adapter_contract='openrouter-chat-v1',
+                non_audio_contract='openrouter-chat-non-audio-v1',legacy_path_prefix='/v1',
+                endpoint=channel['base_url']+'/v1',source_channel_sha256=R.F.digest(channel))
+            next(c for c in value[3]['credentials']['credentials'] if c['channel_id']==channel['id'])['source_channel_sha256']=R.F.digest(channel)
+            provider['models'][0]['source_operations']=['chat.completions']
+        result=run_fixture(value)
+        self.assertEqual(result['status'],'candidate-requires-native-validation')
+        self.assertEqual(result['candidate']['routing']['upstreams'][0]['protocol'],'openai_chat')
+        self.assertEqual(result['candidate']['routing']['routes'][0]['targets'][0]['payload'],'open_router')
+        self.assertEqual(result['ability_assessments'][0]['pricing_compilation']['non_audio_contract'], 'openrouter-chat-non-audio-v1')
+        provider=value[3]['providers']['channels'][0]
+        with self.assertRaisesRegex(R.MappingError,'legacy_audio_zero_requires_non_audio_contract'):
+            R.price_for(provider,'原组/一','example-model',R.F.digest(value[0]['options']),{'example-model':expr},
+                {'example-model':'tiered_expr'},source_channel_type=1)
+
 if __name__ == "__main__":
     unittest.main()
