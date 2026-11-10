@@ -171,6 +171,8 @@ fn required() -> Result<RequiredCapabilities, Rejection> {
             .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
         web_identity: config::setting_os("LMM_CORE_WEB_ORIGIN").is_some()
             || config::setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE").is_some(),
+        federated_auth: config::federated_auth_configured()
+            .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
         oauth2: config::oauth2_configured(),
         market_oauth: config::market_oauth_configured(),
         wallet: config::wallet_configured(),
