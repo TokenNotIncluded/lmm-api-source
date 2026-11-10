@@ -4,6 +4,7 @@ package assistant
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/access"
@@ -117,6 +118,22 @@ func (s *AgentChat) Cancel(ctx context.Context, credential string, conversation 
 		return PersonalChatReply{}, ErrDelegationUnavailable
 	}
 	p, _, key, err := s.outputTurn(ctx, credential, conversation, turn)
+	if errors.Is(err, access.ErrNotFound) && p.UserID > 0 {
+		fence, ok := s.journal.(AgentUnstartedFence)
+		if !ok {
+			return PersonalChatReply{}, err
+		}
+		closed, fenceErr := fence.FenceUnstarted(ctx, p.UserID, conversation, turn)
+		if fenceErr != nil {
+			return PersonalChatReply{}, fenceErr
+		}
+		if closed {
+			return PersonalChatReply{ConversationID: conversation, ClientTurnID: turn, State: "cancelled_before_start"}, nil
+		}
+		// An intent won the lock. Never infer absence of the Core attempt from a
+		// not-found observation; cancel only its original binding or retain UNKNOWN.
+		p, _, key, err = s.outputTurn(ctx, credential, conversation, turn)
+	}
 	if err != nil {
 		return PersonalChatReply{}, err
 	}

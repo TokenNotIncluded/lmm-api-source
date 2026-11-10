@@ -256,6 +256,7 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			assistantRespond(w, value, err)
 		}))
 	}
+	registerAssistantConversationLookup(mux, chat, protected)
 	registerAssistantStreams(mux, chat, protected)
 	RegisterAssistantGifts(mux, auth, gifts)
 	mux.HandleFunc("POST /api/assistant/chat", protected(func(w http.ResponseWriter, r *http.Request, token string) {
@@ -349,6 +350,10 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 func assistantChatRespond(w http.ResponseWriter, reply assistant.PersonalChatReply, err error) {
 	if err != nil {
 		assistantRespond(w, nil, err)
+		return
+	}
+	if reply.State == "cancelled_before_start" {
+		assistantRespond(w, reply, nil)
 		return
 	}
 	if reply.State != "settled" || reply.Text == "" {

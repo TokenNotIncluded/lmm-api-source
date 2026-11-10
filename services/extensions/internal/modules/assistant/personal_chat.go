@@ -2,8 +2,6 @@ package assistant
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 	"unicode/utf8"
 
@@ -68,8 +66,7 @@ func (s *PersonalChat) Chat(ctx context.Context, credential string, request Pers
 	if id == 0 {
 		// The same first-turn retry always inspects the same durable creation
 		// claim. A lost ACK never invents a second conversation or payer.
-		sum := sha256.Sum256([]byte("personal-chat-v1:" + request.ClientTurnID))
-		pending, err := s.pending.Start(ctx, credential, hex.EncodeToString(sum[:16]))
+		pending, err := s.pending.Start(ctx, credential, personalChatCreationKey(request.ClientTurnID))
 		if err != nil {
 			return PersonalChatReply{}, err
 		}

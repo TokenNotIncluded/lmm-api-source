@@ -2,8 +2,6 @@ package assistant
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -102,8 +100,7 @@ func (s *AgentChat) chat(ctx context.Context, credential string, request Persona
 	}
 	id := request.ConversationID
 	if id == 0 {
-		sum := sha256.Sum256([]byte("personal-chat-v1:" + request.ClientTurnID))
-		pending, e := s.pending.Start(ctx, credential, hex.EncodeToString(sum[:16]))
+		pending, e := s.pending.Start(ctx, credential, personalChatCreationKey(request.ClientTurnID))
 		if e != nil {
 			return PersonalChatReply{}, e
 		}
