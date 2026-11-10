@@ -48,7 +48,7 @@ REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选
 
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
-| SUB-01 | 外部支付订阅缺口：EPay 一次购买及 Stripe/Creem/Pancake 的原支持生命周期 | 待补齐 | 按 provider 补产品快照、首购/周期 grant、失败、取消和原交易恢复；钱包充值与余额订阅分别验收。 |
+| SUB-01 | 外部支付订阅缺口：EPay 一次购买及 Stripe/Creem/Pancake 的原支持生命周期 | 待补齐 | 按 provider 补产品快照、首购/周期 grant、失败、取消和原交易恢复；钱包充值与余额订阅分别验收。2026-11-10，`d24577e` 提交 EPay 原生购买、冻结报价确认、原单只读 checkout 恢复和 root 价格管理页；开发逐文件自测 15 项、类型检查与隔离 Web 构建通过，新增提示七语言已补齐，证据 `~/.cache/lmm-api-sub01-web-epay/admin-v2/manifest.json`。该结果使用受控 HTTP/DOM fixture，配套 Core/Go 与管理价目读取接线、实际浏览器及资金组合验收尚未完成，不代表其他 provider 生命周期已补齐。 |
 | SUB-02 | 管理记录与立即失效已实现；reset voucher、绑定/删除与批量重置仍未齐 | 待补齐 | 2026-11-10，`384f531` 新增 Core 管理记录、原生用户抽屉与 root 失效操作；`root` 自测后由 `Dirac` 独立在 PostgreSQL 18.6 复跑实际查询、过滤/分页、导入额度、8 次并发原操作恢复、唯一回执/审计与审计失败回滚，资金/消费/预留保全；页面四项定向自测通过。证据：`~/.cache/lmm-predeploy-validation/20261110-independent/report.md`。仅 SQL 与组件证据，Rust HTTP/会话权限/charging 进程及浏览器未验收；继续补 voucher、绑定/删除、批量重置及完整授权/额度语义。 |
 | PAY-01 | 商店仅接 balance/free，缺四类旧外部收款 | 待补齐 | 恢复 external:epay、external:waffo_pancake、platform:waffo_pancake、platform:linuxdo；分别证明卖家/平台收款、币种、库存交付、结算和恢复，保留 LDC 单位。 |
 | PAY-02 | Pancake 及外部商店退款未齐 | 待补齐 | 补原交易冻结、发送、查询/通知、失败释放、对账及卖家收入回冲；已有 Stripe/Waffo Global 退款与 Core ReleaseRefund 按现合同验收。 |
@@ -63,7 +63,7 @@ REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选
 
 | 编号 | 目标与当前差距 | 状态 | 下一步及关闭条件 |
 | --- | --- | --- | --- |
-| APP-01 | 公开 GitHub 配置、原子拉取与快照已接通；私仓凭据与浏览器验收未齐 | 待补齐 | 2026-11-10，`2e2ae58` 实现配置 revision CAS、受限 archive 读取、完整快照与来源持久化、operations v3 与离线升级、管理页保存版本和草稿禁止 pull；`Dirac` 独立复验 39 项边界合同、operations race 15 项零跳过、真实 TLS/PG 并发与失败保留、v1→v2→v3 原操作恢复、最小权限及 composition/离线 CLI，证据 `~/.cache/lmm-predeploy-validation/20261110-independent-app01/report.md`。Web 定向用例和完整类型检查自测通过；Core 授权为合成 fixture，私有仓库密钥明确 501，公网 GitHub、实际 Core 与浏览器全链路仍待完成。 |
+| APP-01 | 公开与私有 GitHub 配置、原子拉取及快照已实现；实际 Core/浏览器组合待验收 | 待补齐 | 2026-11-10，`2e2ae58` 实现配置 revision CAS、受限 archive 读取、完整快照与来源持久化、operations v3 与离线升级、管理页保存版本和草稿禁止 pull；`Dirac` 独立复验 39 项边界合同、operations race 15 项零跳过、真实 TLS/PG 并发与失败保留、v1→v2→v3 原操作恢复、最小权限及 composition/离线 CLI，证据 `~/.cache/lmm-predeploy-validation/20261110-independent-app01/report.md`。Web 定向用例和完整类型检查自测通过；Core 授权为合成 fixture，当时私有仓库密钥明确 501。后续 `9c9ef8a` 补加密凭据写入/替换/清除、L6 新鲜授权、受限私仓 archive 请求、显式离线凭据扩展和独立 32 字节 keyfile。开发实际 TLS/PG/race 与 Web 定向测试通过；首次全站类型检查遇到同时编辑的 SUB 测试类型错误，后者已由 SUB 作者修复并通过类型检查。证据 `~/.cache/lmm-app01-private/report.md`。root 另完成真实 PG 离线 CLI/原收据恢复/不同操作拒绝和密钥隔离自测，证据 `~/.cache/lmm-script-cli-30zvxt6z/report.md`。私仓网络为受控 TLS fixture，无真实 GitHub PAT；独立验收、实际 Core 与浏览器全链路仍待完成。 |
 | APP-02 | 用量分享的非 aggregate SVG、LMM 自动数据源与 live Cursor 未齐 | 待补齐 | 接 Core 实际用量与所需来源/布局；验证公开字段、权限、更新与撤销，区分手填 snapshot。 |
 | APP-03 | HeroSMS 当前目录、报价、购买、取消、重下单和管理缺失 | 待补齐 | 补真实供应商 IO、Core 资金、退款和页面接线；现有历史只读不变。 |
 | APP-04 | io.net 远端模型部署管理未迁移 | 待补齐 | 补连接设置、创建/列表、容器/日志、续期、权限与失败恢复；与本项目安装发布工具分开验收。 |
@@ -93,7 +93,7 @@ REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选
 | CHECK-06 | 全站页面、CLI 与跨仓库集成 | 待验收 | 2026-11-10，`b2e97f9` 修复 Extore 目录数组交叉类型与助手测试事件类型；`Dirac` 独立执行完整 Web 类型检查及逐文件组件测试（Extore 1 项、助手设置 8 项）通过，固定输入与限制见 `~/.cache/lmm-predeploy-validation/20261110-independent/report.md`。仍需按角色/语言/桌面与窄屏/错误状态执行，截图、请求与数据库回读绑定最终候选；实际管理弹窗、OAuth consent、广告与 Extore 两端授权/多规格/重复同步/撤销/隔离。Extore main 自动部署限制继续生效。 |
 | CHECK-07 | 安装、升级、备份恢复与切换 | 待验收 | 当前 schema 的 owner/runtime 分离、普通启动无 DDL、低权限拒绝；实际隔离恢复、writer fence/drain、死 holder CAS、有效写入保全与业务重启。 |
 | CHECK-08 | 资源、旧新版性能与稳定性 | 待验收 | 相同 CPU/内存、数据、功能和计费语义下的优化构建；完整成功率、吞吐、P95/P99、RSS/PSS、长稳、慢消费者和故障恢复；产品 cgroup 与整机预算分开。门槛见[质量指南](quality.md#独立业务与资源验收)。 |
-| CHECK-09 | 最终冻结组合与 QD-001 关闭 | 待前置 | 前置实现、迁移和验收全部关联同一源码/产物/配置/来源/目标；不同人员/agent 独立复验，逐条满足 QD-001 的真实 host/funds 条件，保留失败记录并确认无输入漂移。 |
+| CHECK-09 | 最终冻结组合与 QD-001 关闭 | 待前置 | 前置实现、迁移和验收全部关联同一源码/产物/配置/来源/目标；不同人员/agent 独立复验，逐条满足 QD-001 的真实 host/funds 条件，保留失败记录并确认无输入漂移。2026-11-10，`Peirce` 在固定初始 Core59 二进制与 `ec3210a` Go 主机产物上独立执行同一订单双 HTTP settle；两请求实际锁等待重叠，均返回相同成功回执，唯一 capture/settle operation 与余额、账本平衡回读通过。[组件证据](../.quality/evidence/qd001-same-order-settlement-20261110.md) 保留前两次 fixture/清理失败及来源漂移范围；初始组件不含后续 SUB/APP 改动，最终冻结组合仍须复验，QD-001 保持 open/critical。 |
 
 ## 维护约定
 
