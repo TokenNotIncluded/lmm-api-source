@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Unwired compatibility leaf for the bounded cc52 billing expressions.
+//! Compatibility arithmetic for the bounded cc52 billing expressions.
 //!
 //! No configuration, clock acquisition, database, admission or price authority.
 //! The owner must bind the original UTF-8 expression/hash and money bits before
 //! using this leaf. Native decimal pricing does not call this module.
+pub(crate) mod compat;
+#[cfg(test)]
+mod compat_tests;
 mod eval;
 mod parser;
 #[cfg(test)]
