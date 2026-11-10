@@ -4,6 +4,7 @@ mod authority;
 pub(crate) mod contract;
 mod engine;
 mod limits;
+pub(crate) mod legacy_precharge;
 mod types;
 
 pub use engine::Charging;
