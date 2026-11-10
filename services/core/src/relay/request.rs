@@ -84,6 +84,9 @@ pub struct Request {
     pub model: String,
     pub stream: bool,
     pub max_output_tokens: u32,
+    /// The client's validated output limit before the gateway applies its default.
+    /// Legacy precharge estimates use the original value, including its absence.
+    pub explicit_max_output_tokens: Option<u32>,
     pub messages: Vec<Message>,
     pub tools: Vec<FunctionTool>,
     pub temperature: Option<f64>,
@@ -783,14 +786,17 @@ impl Request {
         if token_values.len() > 1 {
             return Err(RelayError::Invalid("conflicting output limits"));
         }
-        let max_output_tokens = if let Some(n) = token_values.first() {
-            n.as_u64()
-                .and_then(|n| u32::try_from(n).ok())
-                .filter(|n| *n > 0 && *n <= limits.max_output_tokens)
-                .ok_or(RelayError::Invalid("invalid output token limit"))?
-        } else {
-            4096.min(limits.max_output_tokens)
-        };
+        let explicit_max_output_tokens = token_values
+            .first()
+            .map(|n| {
+                n.as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .filter(|n| *n > 0 && *n <= limits.max_output_tokens)
+                    .ok_or(RelayError::Invalid("invalid output token limit"))
+            })
+            .transpose()?;
+        let max_output_tokens =
+            explicit_max_output_tokens.unwrap_or(4096.min(limits.max_output_tokens));
         let mut stop = Vec::new();
         if let Some(s) = v.get("stop").filter(|s| !s.is_null()) {
             if let Some(s) = s.as_str() {
@@ -1120,6 +1126,7 @@ impl Request {
             model,
             stream,
             max_output_tokens,
+            explicit_max_output_tokens,
             messages,
             tools,
             stop,
@@ -1983,6 +1990,51 @@ impl Request {
             v["tools"] = json!([{"googleSearch":{}}]);
         }
         Ok(v)
+    }
+}
+
+#[cfg(test)]
+mod output_limit_tests {
+    use super::*;
+
+    #[test]
+    fn source_output_limit_stays_distinct_from_provider_default() {
+        let limits = Limits::default();
+        let chat = |body| Request::parse_deferred_openai(ClientProtocol::Chat, body, &limits);
+        let implicit =
+            chat(br#"{"model":"m","messages":[{"role":"user","content":"hi"}]}"#).unwrap();
+        let explicit = chat(
+            br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":4096}"#,
+        )
+        .unwrap();
+        assert_eq!(implicit.max_output_tokens, explicit.max_output_tokens);
+        assert_eq!(implicit.explicit_max_output_tokens, None);
+        assert_eq!(explicit.explicit_max_output_tokens, Some(4096));
+
+        let ws = Request::parse_responses_ws(
+            br#"{"model":"m","input":"hi","max_output_tokens":32}"#,
+            &limits,
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(ws.explicit_max_output_tokens, Some(32));
+        let anthropic = Request::parse(
+            ClientProtocol::Anthropic,
+            br#"{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}"#,
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(anthropic.explicit_max_output_tokens, Some(32));
+        let gemini = crate::relay::native_gemini::parse(
+            "m",
+            false,
+            br#"{"contents":[{"parts":[{"text":"hi"}]}]}"#,
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(gemini.explicit_max_output_tokens, None);
+        assert_eq!(gemini.max_output_tokens, 4096);
     }
 }
 
