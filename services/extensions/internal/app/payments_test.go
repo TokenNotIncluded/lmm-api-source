@@ -398,3 +398,40 @@ func TestCallbackSharesHostAdmissionBeforeSideEffects(t *testing.T) {
 		t.Fatal(w, calls)
 	}
 }
+
+// Transport-only check; the genuine Core/PG fixture verifies money and HMAC.
+func TestStripeSubscriptionIngressIsSeparateAndPreservesRawProof(t *testing.T) {
+	host := paymentIngressHost(t)
+	wallet, epay, stripe := 0, 0, 0
+	h := mountPaymentCallbacks(host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { wallet++; w.WriteHeader(204) }), host)
+	h = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { epay++; w.WriteHeader(204) }), h)
+	body := "{\n  \"id\":\"evt_original\", \"type\":\"invoice.paid\"\n}"
+	signature := "t=123,v1=" + strings.Repeat("a", 64)
+	h = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/stripe/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stripe++
+		raw, err := io.ReadAll(r.Body)
+		if err != nil || string(raw) != body || r.Header.Get("Stripe-Signature") != signature || r.URL.Path != "/callbacks/8" || r.Header.Get("Authorization") != "" || r.Header.Get("X-LMM-User-Credential") != "" {
+			t.Fatal("raw proof or credential isolation changed", err)
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}), h)
+	for _, tc := range []struct {
+		path string
+		code int
+	}{{"/callbacks/subscriptions/stripe/8", 403}, {"/callbacks/subscriptions/8", 204}, {"/callbacks/8", 204}, {"/callbacks/subscriptions/stripe/08", 404}, {"/callbacks/subscriptions/stripe/8/orders", 404}} {
+		r := paymentCallbackRequest("POST", tc.path)
+		r.Body = io.NopCloser(strings.NewReader(body))
+		r.ContentLength = int64(len(body))
+		r.Header.Set("Stripe-Signature", signature)
+		r.Header.Set("Authorization", "Bearer synthetic_host")
+		r.Header.Set("X-LMM-User-Credential", "synthetic_user")
+		w := paymentCallbackRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.code {
+			t.Fatal(tc.path, w.Code)
+		}
+	}
+	if wallet != 1 || epay != 1 || stripe != 1 {
+		t.Fatal("callback cross-routing", wallet, epay, stripe)
+	}
+}

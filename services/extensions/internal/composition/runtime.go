@@ -84,6 +84,8 @@ type Runtime struct {
 	PaymentClient               *coreclient.Client
 	Payments                    *payments.Service
 	SubscriptionPayments        *payments.EPaySubscriptions
+	StripeSubscriptionPayments  *payments.StripeSubscriptions
+	PancakeSubscriptionPayments *payments.PancakeSubscriptions
 	CommerceClient              *coreclient.Client
 	Store                       *store.Service
 	Support                     *support.Service
@@ -142,6 +144,12 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 				}
 				if r.SubscriptionPayments != nil {
 					recovery = append(recovery, func(work context.Context) error { return r.SubscriptionPayments.Recover(work, 1) })
+				}
+				if r.PancakeSubscriptionPayments != nil {
+					recovery = append(recovery, func(work context.Context) error { return r.PancakeSubscriptionPayments.Recover(work, 1) })
+				}
+				if r.StripeSubscriptionPayments != nil {
+					recovery = append(recovery, func(work context.Context) error { return r.StripeSubscriptionPayments.Recover(work, 1) })
 				}
 				if r.Store != nil {
 					recovery = append(recovery, r.Store.RecoverDeliveries)
@@ -496,7 +504,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			}
 			r.Modules = append(r.Modules, remote)
 		case "payments":
-			r.Modules = append(r.Modules, paymentModule{r.Payments, r.SubscriptionPayments})
+			r.Modules = append(r.Modules, paymentModule{wallet: r.Payments, subscriptions: r.SubscriptionPayments, stripe: r.StripeSubscriptionPayments, pancake: r.PancakeSubscriptionPayments})
 		case "store":
 			r.Modules = append(r.Modules, r.Store)
 		case "support":

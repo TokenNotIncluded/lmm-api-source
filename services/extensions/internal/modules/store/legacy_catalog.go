@@ -314,7 +314,7 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return legacyPage(out, len(out), r.Offset, r.Limit), nil
 	case "save_product":
 		return s.saveLegacyProduct(ctx, token, actor, r)
-	case "my_orders", "create_order", "get_order", "pay_order", "reconcile_order", "cancel_order", "refunds", "request_refund", "decide_refund":
+	case "my_orders", "create_order", "get_order", "pay_order", "reconcile_order", "cancel_order", "refunds", "request_refund", "decide_refund", "cancel_refund", "proactive_refund":
 		return s.legacyOrder(ctx, token, actor, r)
 	}
 	row, err := s.LocateProduct(ctx, r.ID)

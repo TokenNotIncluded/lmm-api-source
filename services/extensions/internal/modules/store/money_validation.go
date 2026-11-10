@@ -44,6 +44,9 @@ func validateOrderCommand(shopID string, o Order, c MoneyCommand) error {
 	if c.Kind != "pay" && c.Kind != "settle" && c.Kind != "refund" {
 		return ErrConflict
 	}
+	if c.Refund != nil {
+		return validatePartialCommand(shopID, o, c)
+	}
 	if ID(c) != ID(orderMoneyCommand(shopID, o, c.Kind)) {
 		return ErrConflict
 	}
@@ -53,6 +56,9 @@ func validateOrderCommand(shopID string, o Order, c MoneyCommand) error {
 // Call under the shop transaction lock, both before a remote request and when
 // its receipt comes back. The order may have changed while that request ran.
 func validatePendingMoney(shopID string, o Order, op operation) error {
+	if op.Command.Refund != nil {
+		return validatePendingPartial(shopID, o, op)
+	}
 	if op.Done || validateOrderCommand(shopID, o, op.Command) != nil {
 		return ErrConflict
 	}

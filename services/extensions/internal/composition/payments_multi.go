@@ -21,29 +21,30 @@ type multiPaymentDocument struct {
 }
 
 type multiPaymentChannel struct {
-	ID                 int64  `toml:"id"`
-	Provider           string `toml:"provider"`
-	Merchant           string `toml:"merchant"`
-	Environment        string `toml:"environment"`
-	Currency           string `toml:"currency"`
-	Enabled            bool   `toml:"enabled"`
-	APIKeyFile         string `toml:"api_key_file"`
-	APIVersion         string `toml:"api_version"`
-	PrivateKeyFile     string `toml:"private_key_file"`
-	SuccessURL         string `toml:"success_url"`
-	CancelURL          string `toml:"cancel_url"`
-	Endpoint           string `toml:"endpoint"`
-	NotifyURL          string `toml:"notify_url"`
-	ReturnURL          string `toml:"return_url"`
-	PaymentType        string `toml:"payment_type"`
-	ProductID          string `toml:"product_id"`
-	ProductAmountMinor int64  `toml:"product_amount_minor"`
-	StoreID            string `toml:"store_id"`
-	PayMethodType      string `toml:"pay_method_type"`
-	PayMethodName      string `toml:"pay_method_name"`
-	CheckoutRegion     string `toml:"checkout_region"`
-	CheckoutLanguage   string `toml:"checkout_language"`
-	TaxCategory        string `toml:"tax_category"`
+	ID                  int64  `toml:"id"`
+	Provider            string `toml:"provider"`
+	Merchant            string `toml:"merchant"`
+	Environment         string `toml:"environment"`
+	Currency            string `toml:"currency"`
+	Enabled             bool   `toml:"enabled"`
+	SubscriptionEnabled bool   `toml:"subscription_enabled"`
+	APIKeyFile          string `toml:"api_key_file"`
+	APIVersion          string `toml:"api_version"`
+	PrivateKeyFile      string `toml:"private_key_file"`
+	SuccessURL          string `toml:"success_url"`
+	CancelURL           string `toml:"cancel_url"`
+	Endpoint            string `toml:"endpoint"`
+	NotifyURL           string `toml:"notify_url"`
+	ReturnURL           string `toml:"return_url"`
+	PaymentType         string `toml:"payment_type"`
+	ProductID           string `toml:"product_id"`
+	ProductAmountMinor  int64  `toml:"product_amount_minor"`
+	StoreID             string `toml:"store_id"`
+	PayMethodType       string `toml:"pay_method_type"`
+	PayMethodName       string `toml:"pay_method_name"`
+	CheckoutRegion      string `toml:"checkout_region"`
+	CheckoutLanguage    string `toml:"checkout_language"`
+	TaxCategory         string `toml:"tax_category"`
 }
 
 func outboundPaymentSecret(path string, pem bool) (string, error) {
@@ -73,6 +74,9 @@ func outboundPaymentSecret(path string, pem bool) (string, error) {
 }
 
 func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([]payments.Adapter, error) {
+	return loadMultiPaymentAdaptersWithAdmission(raw, signer, nil)
+}
+func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheckoutSigner, admission map[int64]bool) ([]payments.Adapter, error) {
 	var cfg multiPaymentDocument
 	meta, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&cfg)
 	if err != nil || len(meta.Undecoded()) != 0 || cfg.Version != 2 || !meta.IsDefined("channels") || len(cfg.Channels) > 16 {
@@ -80,7 +84,7 @@ func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([
 	}
 	// TOML accepts case-insensitive Go field matches; the public contract does not.
 	allowed := map[string]bool{"version": true, "channels": true}
-	for _, field := range strings.Fields("id provider merchant environment currency enabled api_key_file api_version private_key_file success_url cancel_url endpoint notify_url return_url payment_type product_id product_amount_minor store_id pay_method_type pay_method_name checkout_region checkout_language tax_category") {
+	for _, field := range strings.Fields("id provider merchant environment currency enabled subscription_enabled api_key_file api_version private_key_file success_url cancel_url endpoint notify_url return_url payment_type product_id product_amount_minor store_id pay_method_type pay_method_name checkout_region checkout_language tax_category") {
 		allowed["channels."+field] = true
 	}
 	for _, key := range meta.Keys() {
@@ -95,6 +99,12 @@ func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([
 			return nil, errors.New("invalid or duplicate payment channel")
 		}
 		ids[c.ID] = true
+		if c.SubscriptionEnabled && c.Provider != "stripe" && c.Provider != "waffo_pancake" {
+			return nil, errors.New("subscription_enabled requires Stripe or Pancake")
+		}
+		if admission != nil && (c.Provider == "stripe" || c.Provider == "waffo_pancake") {
+			admission[c.ID] = c.SubscriptionEnabled
+		}
 		channel := payments.Channel{ID: c.ID, Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled}
 		var apiKey, privateKey string
 		switch c.Provider {

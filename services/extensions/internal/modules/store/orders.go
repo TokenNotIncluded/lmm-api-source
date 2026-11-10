@@ -287,8 +287,12 @@ func (s *Service) ChangeOrder(ctx context.Context, token string, c OrderChange) 
 			if !Text(c.Text, 4000) {
 				return ErrInvalid
 			}
+			delivery := c.Text
+			if stockOrder(out) {
+				delivery = stockDeliverySummary(remainingStockItems(out))
+			}
 			if out.Delivered {
-				if out.Delivery != c.Text {
+				if out.Delivery != delivery {
 					return ErrConflict
 				}
 				return nil
@@ -296,22 +300,33 @@ func (s *Service) ChangeOrder(ctx context.Context, token string, c OrderChange) 
 			if out.State != Paid || out.RefundState == "requested" {
 				return ErrConflict
 			}
+			quantity, err := remainingDeliveryQuantity(out)
+			if err != nil || quantity <= 0 {
+				return ErrConflict
+			}
 			var v Variant
 			if err := tx.Get("variants", out.VariantID, &v); err != nil {
 				return err
 			}
-			if v.Reserved < out.Quantity || (v.TrackStock && v.Stock < out.Quantity) {
+			if v.Reserved < quantity || (v.TrackStock && v.Stock < quantity) {
 				return ErrConflict
 			}
-			v.Reserved -= out.Quantity
+			if stockOrder(out) {
+				selection := out
+				selection.StockItems = remainingStockItems(out)
+				if err := moveStock(tx, selection, stockReserved, stockDelivered); err != nil {
+					return err
+				}
+			}
+			v.Reserved -= quantity
 			if v.TrackStock {
-				v.Stock -= out.Quantity
+				v.Stock -= quantity
 			}
 			if err := tx.Put("variants", v.ID, v); err != nil {
 				return err
 			}
 			out.Delivered = true
-			out.Delivery = c.Text
+			out.Delivery = delivery
 			out.State = Fulfilled
 		case "request_refund":
 			if !Text(c.Text, 2000) {
@@ -348,12 +363,18 @@ func release(tx Tx, o *Order) error {
 	if err := tx.Get("variants", o.VariantID, &v); err != nil {
 		return err
 	}
-	if err := v.release(o.Quantity); err != nil {
+	quantity, err := remainingDeliveryQuantity(*o)
+	if err != nil || quantity <= 0 {
+		return ErrConflict
+	}
+	if err := v.release(quantity); err != nil {
 		return err
 	}
 	// Undelivered per-unit items return to sale with the reservation.
 	if len(o.StockItems) > 0 {
-		if err := moveStock(tx, *o, stockReserved, stockAvailable); err != nil {
+		selection := *o
+		selection.StockItems = remainingStockItems(*o)
+		if err := moveStock(tx, selection, stockReserved, stockAvailable); err != nil {
 			return err
 		}
 	}

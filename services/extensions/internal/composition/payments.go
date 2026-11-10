@@ -28,6 +28,7 @@ type paymentChannel struct {
 	ID                       int64  `toml:"id"`
 	Merchant                 string `toml:"merchant"`
 	Enabled                  bool   `toml:"enabled"`
+	SubscriptionEnabled      bool   `toml:"subscription_enabled"`
 	APIKeyFile               string `toml:"api_key_file"`
 	APIVersion               string `toml:"api_version"`
 	SuccessURL               string `toml:"success_url"`
@@ -76,6 +77,12 @@ func loadPaymentAdaptersForHost(ctx context.Context, path, hostOrigin string, lo
 }
 
 func loadPaymentAdaptersWithSigner(ctx context.Context, path, hostOrigin string, localHTTP bool, signer payments.EPayCheckoutSigner, runtimeCredentials ...[]byte) ([]payments.Adapter, error) {
+	return loadPaymentAdaptersWithAdmission(ctx, path, hostOrigin, localHTTP, signer, nil, runtimeCredentials...)
+}
+
+// Admission is extracted from the same private document as outbound adapters.
+// An omitted subscription_enabled is false, independently of wallet enabled.
+func loadPaymentAdaptersWithAdmission(ctx context.Context, path, hostOrigin string, localHTTP bool, signer payments.EPayCheckoutSigner, admission map[int64]bool, runtimeCredentials ...[]byte) ([]payments.Adapter, error) {
 	if !cleanPaymentPath(path) {
 		return nil, errors.New("invalid private payment configuration path")
 	}
@@ -90,14 +97,14 @@ func loadPaymentAdaptersWithSigner(ctx context.Context, path, hostOrigin string,
 		return nil, errors.New("invalid private payment configuration")
 	}
 	if version.Version == 2 {
-		return loadMultiPaymentAdapters(raw, signer)
+		return loadMultiPaymentAdaptersWithAdmission(raw, signer, admission)
 	}
 	var cfg paymentDocument
 	meta, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&cfg)
 	if err != nil || len(meta.Undecoded()) != 0 {
 		return nil, errors.New("invalid private payment configuration")
 	}
-	allowed := map[string]bool{"version": true, "provider": true, "channels": true, "channels.id": true, "channels.merchant": true, "channels.enabled": true, "channels.api_key_file": true, "channels.api_version": true, "channels.success_url": true, "channels.cancel_url": true, "channels.isolated_test_mode": true, "channels.isolated_provider_url": true, "channels.isolated_checkout_origin": true, "channels.isolated_return_origin": true, "channels.isolated_secret_directory": true, "channels.isolated_binding_token_file": true}
+	allowed := map[string]bool{"version": true, "provider": true, "channels": true, "channels.id": true, "channels.merchant": true, "channels.enabled": true, "channels.subscription_enabled": true, "channels.api_key_file": true, "channels.api_version": true, "channels.success_url": true, "channels.cancel_url": true, "channels.isolated_test_mode": true, "channels.isolated_provider_url": true, "channels.isolated_checkout_origin": true, "channels.isolated_return_origin": true, "channels.isolated_secret_directory": true, "channels.isolated_binding_token_file": true}
 	for _, key := range meta.Keys() {
 		if !allowed[key.String()] {
 			return nil, errors.New("unknown private payment configuration field")
@@ -151,6 +158,9 @@ func loadPaymentAdaptersWithSigner(ctx context.Context, path, hostOrigin string,
 		}
 		if err != nil {
 			return nil, errors.New("invalid Stripe channel configuration")
+		}
+		if admission != nil {
+			admission[c.ID] = c.SubscriptionEnabled
 		}
 		ids[c.ID], merchants[c.Merchant] = true, true
 		adapters = append(adapters, adapter)
@@ -208,7 +218,8 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	if err != nil {
 		return err
 	}
-	adapters, err := loadPaymentAdaptersWithSigner(ctx, cfg.PaymentConfigFile, cfg.HostPublicOrigin, cfg.LocalHTTP, bridge, credentials...)
+	stripeAdmission := map[int64]bool{}
+	adapters, err := loadPaymentAdaptersWithAdmission(ctx, cfg.PaymentConfigFile, cfg.HostPublicOrigin, cfg.LocalHTTP, bridge, stripeAdmission, credentials...)
 	if err != nil {
 		return err
 	}
@@ -227,14 +238,48 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	if err != nil {
 		return err
 	}
+	var pancake []*payments.Pancake
+	var stripe []*payments.Stripe
 	var epay []*payments.EPay
 	for _, adapter := range adapters {
+		if channel, ok := adapter.(*payments.Pancake); ok {
+			pancake = append(pancake, channel)
+		}
+		if channel, ok := adapter.(*payments.Stripe); ok {
+			stripe = append(stripe, channel)
+		}
 		if channel, ok := adapter.(*payments.EPay); ok {
 			epay = append(epay, channel)
 		}
 	}
 	if len(epay) > 0 {
 		r.SubscriptionPayments, err = payments.NewEPaySubscriptions(r.PaymentClient, repo, epay)
+	}
+	if err != nil {
+		return err
+	}
+	if len(pancake) > 0 {
+		r.PancakeSubscriptionPayments, err = payments.NewPancakeSubscriptions(r.PaymentClient, db, pancake, stripeAdmission)
+		if err != nil {
+			return err
+		}
+	}
+	if r.PancakeSubscriptionPayments != nil {
+		r.PancakeSubscriptionPayments.AttachWallet(r.Payments)
+	}
+	stripeInstalled, e := paymentStorageAddonInstalled(ctx, db, []string{"public.payment_stripe_subscription_checkouts", "public.payment_stripe_subscription_inbox"})
+	if e != nil {
+		return e
+	}
+	stripeRequested := false
+	for _, a := range stripe {
+		stripeRequested = stripeRequested || stripeAdmission[a.Channel().ID]
+	}
+	if stripeRequested && !stripeInstalled {
+		return errors.New("Stripe subscription admission requires explicit storage upgrade")
+	}
+	if len(stripe) > 0 && stripeInstalled {
+		r.StripeSubscriptionPayments, err = payments.NewStripeSubscriptions(r.PaymentClient, db, stripe, stripeAdmission)
 	}
 	return err
 }
@@ -244,13 +289,15 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 type paymentModule struct {
 	wallet        *payments.Service
 	subscriptions *payments.EPaySubscriptions
+	stripe        *payments.StripeSubscriptions
+	pancake       *payments.PancakeSubscriptions
 }
 
 func (paymentModule) Name() string { return "payments" }
 func (m paymentModule) Handler() http.Handler {
 	mux := http.NewServeMux()
-	if m.subscriptions != nil {
-		mux.Handle("/subscriptions/", http.StripPrefix("/subscriptions", m.subscriptions.Handler()))
+	if h := subscriptionPaymentHandler(m.subscriptions, m.stripe, m.pancake); h != nil {
+		mux.Handle("/subscriptions/", http.StripPrefix("/subscriptions", h))
 	}
 	mux.Handle("/", m.wallet.Handler())
 	return mux
@@ -270,4 +317,26 @@ func isolatedPaymentAPIFile(path, dir string) bool {
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && stat.Uid == uint32(os.Geteuid()) && stat.Nlink == 1
+}
+
+// SubscriptionPaymentHandler is also mounted by the existing Web user Session
+// wrapper. Callback ingress is mounted separately with host admission.
+func (r *Runtime) SubscriptionPaymentHandler() http.Handler {
+	return subscriptionPaymentHandler(r.SubscriptionPayments, r.StripeSubscriptionPayments, r.PancakeSubscriptionPayments)
+}
+func subscriptionPaymentHandler(epay *payments.EPaySubscriptions, stripe *payments.StripeSubscriptions, pancake *payments.PancakeSubscriptions) http.Handler {
+	if epay == nil && stripe == nil && pancake == nil {
+		return nil
+	}
+	mux := http.NewServeMux()
+	if pancake != nil {
+		mux.Handle("/pancake/", http.StripPrefix("/pancake", pancake.Handler()))
+	}
+	if stripe != nil {
+		mux.Handle("/stripe/", http.StripPrefix("/stripe", stripe.Handler()))
+	}
+	if epay != nil {
+		mux.Handle("/", epay.Handler())
+	}
+	return mux
 }

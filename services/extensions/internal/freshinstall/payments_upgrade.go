@@ -16,9 +16,30 @@ import (
 // RunPaymentsSubscriptionUpgradeCLI is an explicit offline command. Runtime
 // composition never loads owner credentials or installs this storage extension.
 func RunPaymentsSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runPaymentsSubscriptionUpgradeCLI(ctx, args, out, "epay")
+}
+
+// RunPaymentsStripeSubscriptionUpgradeCLI installs only the additive Stripe
+// successor to an already upgraded EPay database, under the same offline fence.
+func RunPaymentsStripeSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runPaymentsSubscriptionUpgradeCLI(ctx, args, out, "stripe")
+}
+
+// RunPaymentsPancakeSubscriptionUpgradeCLI uses the same fenced owner connection.
+func RunPaymentsPancakeSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runPaymentsSubscriptionUpgradeCLI(ctx, args, out, "pancake")
+}
+func runPaymentsSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer, provider string) error {
 	var c Config
 	var recoverOnly bool
-	f := flag.NewFlagSet("upgrade-payments-subscriptions-db", flag.ContinueOnError)
+	command := "upgrade-payments-subscriptions-db"
+	if provider == "stripe" {
+		command = "upgrade-payments-stripe-subscriptions-db"
+	}
+	if provider == "pancake" {
+		command = "upgrade-payments-pancake-subscriptions-db"
+	}
+	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&c.OwnerURLFile, "owner-url-file", "", "private installation login URL file")
 	f.StringVar(&c.ExpectedDatabase, "database", "", "exact existing payments database")
@@ -64,11 +85,29 @@ func RunPaymentsSubscriptionUpgradeCLI(ctx context.Context, args []string, out i
 	}
 	if recoverOnly {
 		var exists bool
-		if err = db.QueryRowContext(ctx, "SELECT to_regclass('public.payment_subscription_upgrades') IS NOT NULL").Scan(&exists); err != nil || !exists {
+		table := "public.payment_subscription_upgrades"
+		if provider == "stripe" {
+			table = "public.payment_stripe_subscription_upgrades"
+		}
+		if provider == "pancake" {
+			table = "public.payment_pancake_subscription_upgrades"
+		}
+		if err = db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists); err != nil || !exists {
 			return ErrRejected
 		}
 	}
-	receipt, err := payments.UpgradeSubscriptionEPay(ctx, db, c.ExpectedDatabase, c.RuntimeRole)
+	var receipt payments.SubscriptionEPayUpgradeReceipt
+	if provider == "stripe" {
+		var result payments.SubscriptionStripeUpgradeReceipt
+		result, err = payments.UpgradeSubscriptionStripe(ctx, db, c.ExpectedDatabase, c.RuntimeRole)
+		receipt = payments.SubscriptionEPayUpgradeReceipt(result)
+	} else if provider == "pancake" {
+		var result payments.SubscriptionPancakeUpgradeReceipt
+		result, err = payments.UpgradeSubscriptionPancake(ctx, db, c.ExpectedDatabase, c.RuntimeRole)
+		receipt = payments.SubscriptionEPayUpgradeReceipt(result)
+	} else {
+		receipt, err = payments.UpgradeSubscriptionEPay(ctx, db, c.ExpectedDatabase, c.RuntimeRole)
+	}
 	if err != nil {
 		return err
 	}

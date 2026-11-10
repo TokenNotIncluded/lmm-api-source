@@ -133,10 +133,7 @@ func Run() error {
 			return err
 		}
 	}
-	var subscriptionPayments http.Handler
-	if runtime.SubscriptionPayments != nil {
-		subscriptionPayments = runtime.SubscriptionPayments.Handler()
-	}
+	subscriptionPayments := runtime.SubscriptionPaymentHandler()
 	if cfg.Host.WebCompat {
 		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
@@ -148,6 +145,13 @@ func Run() error {
 		handler = mountPaymentCallbacks(host, runtime.Payments.WebhookHandler(), handler)
 		if runtime.SubscriptionPayments != nil {
 			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/", runtime.SubscriptionPayments.Handler(), handler)
+		}
+		if runtime.PancakeSubscriptionPayments != nil {
+			handler = mountLegacyPancakeCallbacks(host, runtime.PancakeSubscriptionPayments.LegacyWebhookHandler(runtime.Payments), handler)
+			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/pancake/", runtime.PancakeSubscriptionPayments.Handler(), handler)
+		}
+		if runtime.StripeSubscriptionPayments != nil {
+			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/stripe/", runtime.StripeSubscriptionPayments.Handler(), handler)
 		}
 	}
 	address := cfg.Host.Listen

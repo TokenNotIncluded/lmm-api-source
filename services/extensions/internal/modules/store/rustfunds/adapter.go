@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
+	"google.golang.org/grpc/metadata"
 )
 
 type Core interface {
@@ -20,6 +21,8 @@ type Adapter struct {
 	completion     bool
 	reconciliation bool
 	selfPurchase   bool
+	partialRefund  bool
+	legacyRefund   bool
 }
 
 func New(core Core, features []string) (*Adapter, error) {
@@ -35,15 +38,19 @@ func New(core Core, features []string) (*Adapter, error) {
 			return nil, store.ErrPaymentUnavailable
 		}
 	}
-	return &Adapter{core: core, completion: set["commerce.delivery.complete.v1"], reconciliation: set["commerce.receipt.reconcile.v1"], selfPurchase: set["commerce.self-purchase.v1"]}, nil
+	return &Adapter{core: core, completion: set["commerce.delivery.complete.v1"], reconciliation: set["commerce.receipt.reconcile.v1"], selfPurchase: set["commerce.self-purchase.v1"], partialRefund: set["commerce.refund.partial.v1"], legacyRefund: set["commerce.refund.legacy-balance.v1"]}, nil
 }
-func (a *Adapter) Available() bool             { return a != nil && !store.Missing(a.core) }
-func (a *Adapter) SelfPurchaseAvailable() bool { return a.Available() && a.selfPurchase }
+func (a *Adapter) PartialRefundAvailable() bool { return a.Available() && a.partialRefund }
+func (a *Adapter) Available() bool              { return a != nil && !store.Missing(a.core) }
+func (a *Adapter) SelfPurchaseAvailable() bool  { return a.Available() && a.selfPurchase }
 func (a *Adapter) Supports(price store.Price) bool {
 	return price.Unit == "credits" && price.Currency == "" && price.Amount >= 0 || price.Unit == "" && price.Currency == "USD" && price.Amount >= 0 && price.Amount <= 9223372036854775807/5000
 }
 func (a *Adapter) DeliveryAvailable() bool { return a.Available() && a.completion }
 func (a *Adapter) command(c store.MoneyCommand) ([]byte, error) {
+	if c.Refund != nil && (!a.PartialRefundAvailable() || c.Kind != "refund") {
+		return nil, store.ErrPaymentUnavailable
+	}
 	if c.Buyer == c.Seller && !a.SelfPurchaseAvailable() {
 		return nil, store.ErrPaymentUnavailable
 	}
@@ -69,6 +76,9 @@ func (a *Adapter) Execute(ctx context.Context, user string, c store.MoneyCommand
 	raw, err := a.command(c)
 	if err != nil {
 		return store.Receipt{}, err
+	}
+	if c.Refund != nil {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-lmm-commerce-refund", "partial-v1")
 	}
 	r, err := a.core.ExecuteCommerce(ctx, user, &pb.ExecuteCommerceRequest{ProtocolMajor: 1, CommandJson: raw})
 	if err != nil {
@@ -111,6 +121,9 @@ func (a *Adapter) Reconcile(ctx context.Context, c store.MoneyCommand) (store.Re
 	raw, err := a.command(c)
 	if err != nil {
 		return store.Receipt{}, err
+	}
+	if c.Refund != nil {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-lmm-commerce-refund", "partial-v1")
 	}
 	r, err := a.core.ReconcileCommerce(ctx, &pb.ExecuteCommerceRequest{ProtocolMajor: 1, CommandJson: raw})
 	if err != nil || r == nil || r.GetReceipt() == nil {

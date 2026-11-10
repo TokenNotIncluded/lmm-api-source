@@ -489,6 +489,8 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		{pattern: "GET /api/store/orders/{id}/refunds", action: "refunds"},
 		{pattern: "POST /api/store/orders/{id}/refunds", action: "request_refund", bodyLimit: 64 << 10, requiredBody: true},
 		{pattern: "POST /api/store/orders/{id}/refunds/{child_id}/decision", action: "decide_refund", bodyLimit: 8 << 10, requiredBody: true},
+		{pattern: "POST /api/store/orders/{id}/refunds/{child_id}/cancel", action: "cancel_refund", bodyLimit: 4 << 10, requiredBody: true},
+		{pattern: "POST /api/store/orders/{id}/refunds/proactive", action: "proactive_refund", bodyLimit: 64 << 10, requiredBody: true},
 	}
 	for _, route := range routes {
 		mux.HandleFunc(route.pattern, func(w http.ResponseWriter, r *http.Request) {

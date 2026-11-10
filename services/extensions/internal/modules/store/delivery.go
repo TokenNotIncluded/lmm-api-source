@@ -55,14 +55,20 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 			return ErrConflict
 		}
 		if out.State == Paid {
+			quantity, err := remainingDeliveryQuantity(out)
+			if err != nil || quantity <= 0 {
+				return ErrConflict
+			}
+			selection := out
+			selection.StockItems = remainingStockItems(out)
 			var private struct {
 				Content string `json:"content"`
 			}
 			if stockOrder(out) {
-				if err := moveStock(tx, out, stockReserved, stockDelivered); err != nil {
+				if err := moveStock(tx, selection, stockReserved, stockDelivered); err != nil {
 					return err
 				}
-				private.Content = stockDeliverySummary(out.StockItems)
+				private.Content = stockDeliverySummary(selection.StockItems)
 			} else if err := tx.Get("commands", ID("legacy-order-delivery-v1", out.ID), &private); err != nil {
 				return err
 			}
@@ -73,12 +79,12 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 			if err := tx.Get("variants", out.VariantID, &v); err != nil {
 				return err
 			}
-			if v.Reserved < out.Quantity || (v.TrackStock && v.Stock < out.Quantity) {
+			if v.Reserved < quantity || (v.TrackStock && v.Stock < quantity) {
 				return ErrConflict
 			}
-			v.Reserved -= out.Quantity
+			v.Reserved -= quantity
 			if v.TrackStock {
-				v.Stock -= out.Quantity
+				v.Stock -= quantity
 			}
 			if err := tx.Put("variants", v.ID, v); err != nil {
 				return err

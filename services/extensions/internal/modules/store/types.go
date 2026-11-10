@@ -143,27 +143,29 @@ func (v *Variant) release(n int64) error {
 }
 
 type Order struct {
-	ID            string               `json:"id"`
-	Buyer         Account              `json:"buyer"`
-	Seller        Account              `json:"seller"`
-	CreatedBy     int64                `json:"created_by"`
-	VariantID     string               `json:"variant_id"`
-	Title         string               `json:"title"`
-	ProductTitle  string               `json:"product_title"`
-	Quantity      int64                `json:"quantity"`
-	UnitPrice     Price                `json:"unit_price"`
-	Total         Price                `json:"total"`
-	State         string               `json:"state"`
-	RequestHash   string               `json:"request_hash"`
-	Delivered     bool                 `json:"delivered"`
-	Delivery      string               `json:"delivery,omitempty"`
-	RefundReason  string               `json:"refund_reason,omitempty"`
-	RefundState   string               `json:"refund_state,omitempty"`
-	PaymentRef    string               `json:"payment_ref,omitempty"`
-	SettlementRef string               `json:"settlement_ref,omitempty"`
-	RefundRef     string               `json:"refund_ref,omitempty"`
-	Legacy        *LegacyOrderMetadata `json:"legacy,omitempty"`
-	LegacyRefund  *legacyRefundRecord  `json:"legacy_refund,omitempty"`
+	ID             string               `json:"id"`
+	Buyer          Account              `json:"buyer"`
+	Seller         Account              `json:"seller"`
+	CreatedBy      int64                `json:"created_by"`
+	VariantID      string               `json:"variant_id"`
+	Title          string               `json:"title"`
+	ProductTitle   string               `json:"product_title"`
+	Quantity       int64                `json:"quantity"`
+	UnitPrice      Price                `json:"unit_price"`
+	Total          Price                `json:"total"`
+	State          string               `json:"state"`
+	RequestHash    string               `json:"request_hash"`
+	Delivered      bool                 `json:"delivered"`
+	Delivery       string               `json:"delivery,omitempty"`
+	RefundReason   string               `json:"refund_reason,omitempty"`
+	RefundState    string               `json:"refund_state,omitempty"`
+	PaymentRef     string               `json:"payment_ref,omitempty"`
+	SettlementRef  string               `json:"settlement_ref,omitempty"`
+	RefundRef      string               `json:"refund_ref,omitempty"`
+	Legacy         *LegacyOrderMetadata `json:"legacy,omitempty"`
+	LegacyRefund   *legacyRefundRecord  `json:"legacy_refund,omitempty"`
+	PartialRefunds []PartialRefund      `json:"partial_refunds,omitempty"`
+	ActiveRefundID string               `json:"active_refund_id,omitempty"`
 	// StockItems lists the per-unit stock items allocated to this order.
 	StockItems []string `json:"stock_items,omitempty"`
 	// Imported marks an order copied from the retired monolith. Its money facts

@@ -17,6 +17,18 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "upgrade-payments-pancake-subscriptions-db" {
+		if err := freshinstall.RunPaymentsPancakeSubscriptionUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "upgrade-payments-stripe-subscriptions-db" {
+		if err := freshinstall.RunPaymentsStripeSubscriptionUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "upgrade-payments-subscriptions-db" {
 		if err := freshinstall.RunPaymentsSubscriptionUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			log.Fatal(err)

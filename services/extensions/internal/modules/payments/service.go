@@ -11,10 +11,11 @@ import (
 )
 
 type Service struct {
-	store    Store
-	core     Core
-	adapters map[int64]Adapter
-	now      func() time.Time
+	pancakeRecovery *PancakeSubscriptions
+	store           Store
+	core            Core
+	adapters        map[int64]Adapter
+	now             func() time.Time
 }
 
 func New(store Store, core Core, adapters ...Adapter) (*Service, error) {
@@ -290,6 +291,12 @@ type proofGatedCallback interface {
 }
 
 func (s *Service) Receive(ctx context.Context, channelID int64, req *http.Request) error {
+	if _, ok := s.adapters[channelID].(*Pancake); ok && s.pancakeRecovery != nil {
+		return s.pancakeRecovery.receiveWallet(ctx, s, channelID, req)
+	}
+	return s.receiveOriginal(ctx, channelID, req)
+}
+func (s *Service) receiveOriginal(ctx context.Context, channelID int64, req *http.Request) error {
 	a := s.adapters[channelID]
 	if a == nil {
 		return ErrNotFound

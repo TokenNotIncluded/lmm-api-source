@@ -285,7 +285,7 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 	if r.Action == "get_order" {
 		return legacyOrderView(row)
 	}
-	if r.Action == "refunds" || r.Action == "request_refund" || r.Action == "decide_refund" {
+	if r.Action == "refunds" || r.Action == "request_refund" || r.Action == "decide_refund" || r.Action == "cancel_refund" || r.Action == "proactive_refund" {
 		return s.legacyRefund(ctx, token, actor, row, r)
 	}
 	if actor != o.Buyer {

@@ -150,6 +150,23 @@ func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundl
 			})
 		}
 	}
+	// Unused subscription providers do not force a migration of an existing
+	// wallet database. A partial installed addon always fails closed; present
+	// tables still receive the complete existing capability/ownership checks.
+	if c.Component == "payments" {
+		for _, addon := range [][]string{
+			{"public.payment_stripe_subscription_checkouts", "public.payment_stripe_subscription_inbox"},
+			{"public.payment_pancake_subscription_checkouts", "public.payment_pancake_subscription_inbox", "public.payment_pancake_wallet_inbox"},
+		} {
+			installed, err := paymentStorageAddonInstalled(bounded, db, addon)
+			if err != nil {
+				return nil, err
+			}
+			if !installed {
+				policy.tables = slices.DeleteFunc(slices.Clone(policy.tables), func(t storageTable) bool { return slices.Contains(addon, t.name) })
+			}
+		}
+	}
 	for _, check := range []struct {
 		tables   []storageTable
 		function string
@@ -313,6 +330,22 @@ func storageTables(component string) []storageTable {
 		add("public.payment_orders", "SELECT", "INSERT", "UPDATE")
 		add("public.payment_events", "SELECT", "INSERT", "UPDATE")
 		add("public.payment_subscription_inbox", "SELECT", "INSERT", "UPDATE")
+		add("public.payment_stripe_subscription_checkouts", "SELECT", "INSERT", "UPDATE")
+		add("public.payment_stripe_subscription_inbox", "SELECT", "INSERT", "UPDATE")
+		add("public.payment_pancake_subscription_checkouts", "SELECT", "INSERT", "UPDATE")
+		add("public.payment_pancake_subscription_inbox", "SELECT", "INSERT", "UPDATE")
+		add("public.payment_pancake_wallet_inbox", "SELECT", "INSERT", "UPDATE")
 	}
 	return tables
+}
+
+// Names are compiled constants. Partial install includes an unexpected relation
+// kind and is rejected rather than treating an inaccessible addon as absent.
+func paymentStorageAddonInstalled(ctx context.Context, db *sql.DB, names []string) (bool, error) {
+	var present, valid int
+	err := db.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE c.relkind='r') FROM unnest($1::text[]) t(name) JOIN pg_class c ON c.oid=to_regclass(t.name)`, pq.Array(names)).Scan(&present, &valid)
+	if err != nil || present != valid || (present != 0 && present != len(names)) {
+		return false, errors.New("payment subscription storage addon incomplete")
+	}
+	return present == len(names), nil
 }

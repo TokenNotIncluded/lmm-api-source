@@ -671,13 +671,24 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	CoreSubscriptionPayments_PrepareEPayPurchase_FullMethodName         = "/lmm.core.v1.CoreSubscriptionPayments/PrepareEPayPurchase"
-	CoreSubscriptionPayments_ConfirmEPayPurchase_FullMethodName         = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmEPayPurchase"
-	CoreSubscriptionPayments_ReadEPayPurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/ReadEPayPurchase"
-	CoreSubscriptionPayments_CancelEPayPurchase_FullMethodName          = "/lmm.core.v1.CoreSubscriptionPayments/CancelEPayPurchase"
-	CoreSubscriptionPayments_AcceptEPaySubscriptionProof_FullMethodName = "/lmm.core.v1.CoreSubscriptionPayments/AcceptEPaySubscriptionProof"
-	CoreSubscriptionPayments_GetEPaySubscriptionProof_FullMethodName    = "/lmm.core.v1.CoreSubscriptionPayments/GetEPaySubscriptionProof"
-	CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_FullMethodName  = "/lmm.core.v1.CoreSubscriptionPayments/ApplyEPaySubscriptionGrant"
+	CoreSubscriptionPayments_PreparePancakePurchase_FullMethodName         = "/lmm.core.v1.CoreSubscriptionPayments/PreparePancakePurchase"
+	CoreSubscriptionPayments_ConfirmPancakePurchase_FullMethodName         = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmPancakePurchase"
+	CoreSubscriptionPayments_ReadPancakePurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/ReadPancakePurchase"
+	CoreSubscriptionPayments_ListPancakePurchases_FullMethodName           = "/lmm.core.v1.CoreSubscriptionPayments/ListPancakePurchases"
+	CoreSubscriptionPayments_AcceptPancakeSubscriptionEvent_FullMethodName = "/lmm.core.v1.CoreSubscriptionPayments/AcceptPancakeSubscriptionEvent"
+	CoreSubscriptionPayments_GetPancakeSubscriptionEvent_FullMethodName    = "/lmm.core.v1.CoreSubscriptionPayments/GetPancakeSubscriptionEvent"
+	CoreSubscriptionPayments_PrepareStripePurchase_FullMethodName          = "/lmm.core.v1.CoreSubscriptionPayments/PrepareStripePurchase"
+	CoreSubscriptionPayments_ConfirmStripePurchase_FullMethodName          = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmStripePurchase"
+	CoreSubscriptionPayments_ReadStripePurchase_FullMethodName             = "/lmm.core.v1.CoreSubscriptionPayments/ReadStripePurchase"
+	CoreSubscriptionPayments_AcceptStripeSubscriptionEvent_FullMethodName  = "/lmm.core.v1.CoreSubscriptionPayments/AcceptStripeSubscriptionEvent"
+	CoreSubscriptionPayments_GetStripeSubscriptionEvent_FullMethodName     = "/lmm.core.v1.CoreSubscriptionPayments/GetStripeSubscriptionEvent"
+	CoreSubscriptionPayments_PrepareEPayPurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/PrepareEPayPurchase"
+	CoreSubscriptionPayments_ConfirmEPayPurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmEPayPurchase"
+	CoreSubscriptionPayments_ReadEPayPurchase_FullMethodName               = "/lmm.core.v1.CoreSubscriptionPayments/ReadEPayPurchase"
+	CoreSubscriptionPayments_CancelEPayPurchase_FullMethodName             = "/lmm.core.v1.CoreSubscriptionPayments/CancelEPayPurchase"
+	CoreSubscriptionPayments_AcceptEPaySubscriptionProof_FullMethodName    = "/lmm.core.v1.CoreSubscriptionPayments/AcceptEPaySubscriptionProof"
+	CoreSubscriptionPayments_GetEPaySubscriptionProof_FullMethodName       = "/lmm.core.v1.CoreSubscriptionPayments/GetEPaySubscriptionProof"
+	CoreSubscriptionPayments_ApplyEPaySubscriptionGrant_FullMethodName     = "/lmm.core.v1.CoreSubscriptionPayments/ApplyEPaySubscriptionGrant"
 )
 
 // CoreSubscriptionPaymentsClient is the client API for CoreSubscriptionPayments service.
@@ -686,6 +697,19 @@ const (
 //
 // Separate entitlement contract. No CreditTopup or caller-selected account/price.
 type CoreSubscriptionPaymentsClient interface {
+	PreparePancakePurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrder, error)
+	ConfirmPancakePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrder, error)
+	ReadPancakePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrder, error)
+	ListPancakePurchases(ctx context.Context, in *ListPancakePurchasesRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrders, error)
+	AcceptPancakeSubscriptionEvent(ctx context.Context, in *AcceptPancakeSubscriptionEventRequest, opts ...grpc.CallOption) (*PancakeSubscriptionEvent, error)
+	GetPancakeSubscriptionEvent(ctx context.Context, in *GetPancakeSubscriptionEventRequest, opts ...grpc.CallOption) (*PancakeSubscriptionEvent, error)
+	PrepareStripePurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*StripeSubscriptionOrder, error)
+	ConfirmStripePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*StripeSubscriptionOrder, error)
+	ReadStripePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*StripeSubscriptionOrder, error)
+	// Atomic original proof admission + optional invoice grant. Requires both
+	// subscription proof_ingress and grant capability, never Go API-paid status.
+	AcceptStripeSubscriptionEvent(ctx context.Context, in *AcceptEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*StripeSubscriptionEvent, error)
+	GetStripeSubscriptionEvent(ctx context.Context, in *GetEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*StripeSubscriptionEvent, error)
 	PrepareEPayPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
 	ConfirmEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPayCheckout, error)
 	ReadEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
@@ -701,6 +725,116 @@ type coreSubscriptionPaymentsClient struct {
 
 func NewCoreSubscriptionPaymentsClient(cc grpc.ClientConnInterface) CoreSubscriptionPaymentsClient {
 	return &coreSubscriptionPaymentsClient{cc}
+}
+
+func (c *coreSubscriptionPaymentsClient) PreparePancakePurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PancakeSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_PreparePancakePurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ConfirmPancakePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PancakeSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ConfirmPancakePurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ReadPancakePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PancakeSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ReadPancakePurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ListPancakePurchases(ctx context.Context, in *ListPancakePurchasesRequest, opts ...grpc.CallOption) (*PancakeSubscriptionOrders, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PancakeSubscriptionOrders)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ListPancakePurchases_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) AcceptPancakeSubscriptionEvent(ctx context.Context, in *AcceptPancakeSubscriptionEventRequest, opts ...grpc.CallOption) (*PancakeSubscriptionEvent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PancakeSubscriptionEvent)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_AcceptPancakeSubscriptionEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) GetPancakeSubscriptionEvent(ctx context.Context, in *GetPancakeSubscriptionEventRequest, opts ...grpc.CallOption) (*PancakeSubscriptionEvent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PancakeSubscriptionEvent)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_GetPancakeSubscriptionEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) PrepareStripePurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*StripeSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StripeSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_PrepareStripePurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ConfirmStripePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*StripeSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StripeSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ConfirmStripePurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ReadStripePurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*StripeSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StripeSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ReadStripePurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) AcceptStripeSubscriptionEvent(ctx context.Context, in *AcceptEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*StripeSubscriptionEvent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StripeSubscriptionEvent)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_AcceptStripeSubscriptionEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) GetStripeSubscriptionEvent(ctx context.Context, in *GetEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*StripeSubscriptionEvent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StripeSubscriptionEvent)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_GetStripeSubscriptionEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *coreSubscriptionPaymentsClient) PrepareEPayPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error) {
@@ -779,6 +913,19 @@ func (c *coreSubscriptionPaymentsClient) ApplyEPaySubscriptionGrant(ctx context.
 //
 // Separate entitlement contract. No CreditTopup or caller-selected account/price.
 type CoreSubscriptionPaymentsServer interface {
+	PreparePancakePurchase(context.Context, *PrepareEPayPurchaseRequest) (*PancakeSubscriptionOrder, error)
+	ConfirmPancakePurchase(context.Context, *EPaySubscriptionOrderRequest) (*PancakeSubscriptionOrder, error)
+	ReadPancakePurchase(context.Context, *EPaySubscriptionOrderRequest) (*PancakeSubscriptionOrder, error)
+	ListPancakePurchases(context.Context, *ListPancakePurchasesRequest) (*PancakeSubscriptionOrders, error)
+	AcceptPancakeSubscriptionEvent(context.Context, *AcceptPancakeSubscriptionEventRequest) (*PancakeSubscriptionEvent, error)
+	GetPancakeSubscriptionEvent(context.Context, *GetPancakeSubscriptionEventRequest) (*PancakeSubscriptionEvent, error)
+	PrepareStripePurchase(context.Context, *PrepareEPayPurchaseRequest) (*StripeSubscriptionOrder, error)
+	ConfirmStripePurchase(context.Context, *EPaySubscriptionOrderRequest) (*StripeSubscriptionOrder, error)
+	ReadStripePurchase(context.Context, *EPaySubscriptionOrderRequest) (*StripeSubscriptionOrder, error)
+	// Atomic original proof admission + optional invoice grant. Requires both
+	// subscription proof_ingress and grant capability, never Go API-paid status.
+	AcceptStripeSubscriptionEvent(context.Context, *AcceptEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error)
+	GetStripeSubscriptionEvent(context.Context, *GetEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error)
 	PrepareEPayPurchase(context.Context, *PrepareEPayPurchaseRequest) (*EPaySubscriptionOrder, error)
 	ConfirmEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPayCheckout, error)
 	ReadEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPaySubscriptionOrder, error)
@@ -796,6 +943,39 @@ type CoreSubscriptionPaymentsServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCoreSubscriptionPaymentsServer struct{}
 
+func (UnimplementedCoreSubscriptionPaymentsServer) PreparePancakePurchase(context.Context, *PrepareEPayPurchaseRequest) (*PancakeSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PreparePancakePurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ConfirmPancakePurchase(context.Context, *EPaySubscriptionOrderRequest) (*PancakeSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmPancakePurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ReadPancakePurchase(context.Context, *EPaySubscriptionOrderRequest) (*PancakeSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadPancakePurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ListPancakePurchases(context.Context, *ListPancakePurchasesRequest) (*PancakeSubscriptionOrders, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPancakePurchases not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) AcceptPancakeSubscriptionEvent(context.Context, *AcceptPancakeSubscriptionEventRequest) (*PancakeSubscriptionEvent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptPancakeSubscriptionEvent not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) GetPancakeSubscriptionEvent(context.Context, *GetPancakeSubscriptionEventRequest) (*PancakeSubscriptionEvent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPancakeSubscriptionEvent not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) PrepareStripePurchase(context.Context, *PrepareEPayPurchaseRequest) (*StripeSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareStripePurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ConfirmStripePurchase(context.Context, *EPaySubscriptionOrderRequest) (*StripeSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmStripePurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ReadStripePurchase(context.Context, *EPaySubscriptionOrderRequest) (*StripeSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadStripePurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) AcceptStripeSubscriptionEvent(context.Context, *AcceptEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptStripeSubscriptionEvent not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) GetStripeSubscriptionEvent(context.Context, *GetEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStripeSubscriptionEvent not implemented")
+}
 func (UnimplementedCoreSubscriptionPaymentsServer) PrepareEPayPurchase(context.Context, *PrepareEPayPurchaseRequest) (*EPaySubscriptionOrder, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareEPayPurchase not implemented")
 }
@@ -837,6 +1017,204 @@ func RegisterCoreSubscriptionPaymentsServer(s grpc.ServiceRegistrar, srv CoreSub
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&CoreSubscriptionPayments_ServiceDesc, srv)
+}
+
+func _CoreSubscriptionPayments_PreparePancakePurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareEPayPurchaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).PreparePancakePurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_PreparePancakePurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).PreparePancakePurchase(ctx, req.(*PrepareEPayPurchaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ConfirmPancakePurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmPancakePurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ConfirmPancakePurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmPancakePurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ReadPancakePurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ReadPancakePurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ReadPancakePurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ReadPancakePurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ListPancakePurchases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPancakePurchasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ListPancakePurchases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ListPancakePurchases_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ListPancakePurchases(ctx, req.(*ListPancakePurchasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_AcceptPancakeSubscriptionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptPancakeSubscriptionEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptPancakeSubscriptionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_AcceptPancakeSubscriptionEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptPancakeSubscriptionEvent(ctx, req.(*AcceptPancakeSubscriptionEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_GetPancakeSubscriptionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPancakeSubscriptionEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).GetPancakeSubscriptionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_GetPancakeSubscriptionEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).GetPancakeSubscriptionEvent(ctx, req.(*GetPancakeSubscriptionEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_PrepareStripePurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareEPayPurchaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).PrepareStripePurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_PrepareStripePurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).PrepareStripePurchase(ctx, req.(*PrepareEPayPurchaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ConfirmStripePurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmStripePurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ConfirmStripePurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmStripePurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ReadStripePurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ReadStripePurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ReadStripePurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ReadStripePurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_AcceptStripeSubscriptionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptEPaySubscriptionProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptStripeSubscriptionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_AcceptStripeSubscriptionEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptStripeSubscriptionEvent(ctx, req.(*AcceptEPaySubscriptionProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_GetStripeSubscriptionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEPaySubscriptionProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).GetStripeSubscriptionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_GetStripeSubscriptionEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).GetStripeSubscriptionEvent(ctx, req.(*GetEPaySubscriptionProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _CoreSubscriptionPayments_PrepareEPayPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -972,6 +1350,50 @@ var CoreSubscriptionPayments_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "lmm.core.v1.CoreSubscriptionPayments",
 	HandlerType: (*CoreSubscriptionPaymentsServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PreparePancakePurchase",
+			Handler:    _CoreSubscriptionPayments_PreparePancakePurchase_Handler,
+		},
+		{
+			MethodName: "ConfirmPancakePurchase",
+			Handler:    _CoreSubscriptionPayments_ConfirmPancakePurchase_Handler,
+		},
+		{
+			MethodName: "ReadPancakePurchase",
+			Handler:    _CoreSubscriptionPayments_ReadPancakePurchase_Handler,
+		},
+		{
+			MethodName: "ListPancakePurchases",
+			Handler:    _CoreSubscriptionPayments_ListPancakePurchases_Handler,
+		},
+		{
+			MethodName: "AcceptPancakeSubscriptionEvent",
+			Handler:    _CoreSubscriptionPayments_AcceptPancakeSubscriptionEvent_Handler,
+		},
+		{
+			MethodName: "GetPancakeSubscriptionEvent",
+			Handler:    _CoreSubscriptionPayments_GetPancakeSubscriptionEvent_Handler,
+		},
+		{
+			MethodName: "PrepareStripePurchase",
+			Handler:    _CoreSubscriptionPayments_PrepareStripePurchase_Handler,
+		},
+		{
+			MethodName: "ConfirmStripePurchase",
+			Handler:    _CoreSubscriptionPayments_ConfirmStripePurchase_Handler,
+		},
+		{
+			MethodName: "ReadStripePurchase",
+			Handler:    _CoreSubscriptionPayments_ReadStripePurchase_Handler,
+		},
+		{
+			MethodName: "AcceptStripeSubscriptionEvent",
+			Handler:    _CoreSubscriptionPayments_AcceptStripeSubscriptionEvent_Handler,
+		},
+		{
+			MethodName: "GetStripeSubscriptionEvent",
+			Handler:    _CoreSubscriptionPayments_GetStripeSubscriptionEvent_Handler,
+		},
 		{
 			MethodName: "PrepareEPayPurchase",
 			Handler:    _CoreSubscriptionPayments_PrepareEPayPurchase_Handler,

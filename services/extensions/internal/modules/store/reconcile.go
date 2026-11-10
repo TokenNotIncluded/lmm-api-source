@@ -12,12 +12,17 @@ import (
 func (s *Service) reconcileOrderMoney(ctx context.Context, shopID, orderID string) (Order, error) {
 	var out Order
 	var op operation
+	var historical bool
 	err := s.repo.Within(ctx, shopID, func(tx Tx) error {
 		if err := tx.Get("orders", orderID, &out); err != nil {
 			return err
 		}
 		if out.ID != orderID {
 			return ErrConflict
+		}
+		if out.Imported != nil && out.State == RefundPending {
+			historical = true
+			return nil
 		}
 		var kind string
 		switch out.State {
@@ -33,6 +38,9 @@ func (s *Service) reconcileOrderMoney(ctx context.Context, shopID, orderID strin
 			return nil
 		}
 		key := ID("store-money-v1", shopID, orderID, kind)
+		if kind == "refund" && out.ActiveRefundID != "" {
+			key = partialMoneyKey(shopID, orderID, out.ActiveRefundID)
+		}
 		if err := tx.Get("money_operations", key, &op); err != nil {
 			return err
 		}
@@ -41,6 +49,9 @@ func (s *Service) reconcileOrderMoney(ctx context.Context, shopID, orderID strin
 		}
 		return validatePendingMoney(shopID, out, op)
 	})
+	if err == nil && historical {
+		return s.reconcileHistoricalRefund(ctx, shopID, orderID)
+	}
 	if err != nil || op.Command.Key == "" {
 		return out, err
 	}

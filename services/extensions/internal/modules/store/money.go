@@ -32,6 +32,9 @@ type MoneyCommand struct {
 	PaymentRef    string              `json:"payment_ref,omitempty"`
 	SettlementRef string              `json:"settlement_ref,omitempty"`
 	OrderSnapshot *MoneyOrderSnapshot `json:"order_snapshot,omitempty"`
+	// Omitted for every existing command: original field order/bytes/hash stay
+	// unchanged. Sending this extension requires negotiated partial support.
+	Refund *RefundSpec `json:"refund,omitempty"`
 }
 type MoneyOrderSnapshot struct {
 	VariantID string `json:"variant_id"`
@@ -93,6 +96,11 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			}
 			out.State = PaymentPending
 		case "refund":
+			// New refund identities own their own caps and saved commands. The
+			// original one-shot refund must never bypass those reservations.
+			if len(out.PartialRefunds) > 0 {
+				return ErrConflict
+			}
 			if out.RefundState != "requested" || (out.State != Paid && out.State != Fulfilled && out.State != Settled) {
 				return ErrConflict
 			}
@@ -145,6 +153,9 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 // finishMoney is shared by a user response and trusted read-only recovery. The
 // receipt can only finish the exact command already persisted in PostgreSQL.
 func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op operation, receipt Receipt) (Order, error) {
+	if op.Command.Refund != nil {
+		return s.finishPartialRefund(ctx, shopID, orderID, op, receipt)
+	}
 	var out Order
 	key := op.Command.Key
 	if !validMoneyReceipt(op.Command, receipt) {

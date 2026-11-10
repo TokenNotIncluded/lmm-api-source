@@ -107,7 +107,7 @@ func compiled(component string) (plan, error) {
 			"GRANT USAGE ON ALL SEQUENCES IN SCHEMA lmm_community TO ",
 		}}, nil
 	case "payments":
-		return plan{prefix: "lmm_payments", schema: payments.Schema + "\n" + payments.SubscriptionEPaySchema, namespaces: []string{"public"}, grants: []string{"GRANT SELECT ON public.payment_storage_guard TO ", "GRANT SELECT,INSERT,UPDATE ON public.payment_orders,public.payment_events,public.payment_subscription_inbox TO "}}, nil
+		return plan{prefix: "lmm_payments", schema: payments.Schema + "\n" + payments.SubscriptionEPaySchema + "\n" + payments.SubscriptionStripeSchema + "\n" + payments.SubscriptionPancakeSchema, namespaces: []string{"public"}, grants: []string{"GRANT SELECT ON public.payment_storage_guard TO ", "GRANT SELECT,INSERT,UPDATE ON public.payment_orders,public.payment_events,public.payment_subscription_inbox,public.payment_stripe_subscription_checkouts,public.payment_stripe_subscription_inbox,public.payment_pancake_subscription_checkouts,public.payment_pancake_subscription_inbox,public.payment_pancake_wallet_inbox TO "}}, nil
 	}
 	return plan{}, ErrRejected
 }

@@ -534,6 +534,8 @@ func storeLegacyRouteCases() []storeLegacyRouteCase {
 		{method: "GET", path: "/api/store/orders/order-1/refunds", action: "refunds", id: "order-1"},
 		{method: "POST", path: "/api/store/orders/order-1/refunds", action: "request_refund", id: "order-1", body: `{"request_key":"refund-1","reason":"Refund","mode":"full"}`},
 		{method: "POST", path: "/api/store/orders/order-1/refunds/refund-1/decision", action: "decide_refund", id: "order-1", child: "refund-1", body: `{"decision":"reject","reason":"Reason"}`},
+		{method: "POST", path: "/api/store/orders/order-1/refunds/refund-1/cancel", action: "cancel_refund", id: "order-1", child: "refund-1", body: `{}`},
+		{method: "POST", path: "/api/store/orders/order-1/refunds/proactive", action: "proactive_refund", id: "order-1", body: `{"request_key":"seller-refund","reason":"Return","mode":"quantity","quantity":1}`},
 	}
 }
 func TestStoreTransportLegacyMainRoutesForwardOnlyVerifiedPersonalActor(t *testing.T) {

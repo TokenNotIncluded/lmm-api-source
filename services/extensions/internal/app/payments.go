@@ -68,6 +68,12 @@ func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next 
 }
 
 func mountPaymentCallbacksAt(host callbackAdmission, prefix string, callbacks http.Handler, next http.Handler) http.Handler {
+	return mountPaymentCallbacksMode(host, prefix, callbacks, next, false)
+}
+func mountLegacyPancakeCallbacks(host callbackAdmission, callbacks http.Handler, next http.Handler) http.Handler {
+	return mountPaymentCallbacksMode(host, "/api/waffo-pancake/webhook/", callbacks, next, true)
+}
+func mountPaymentCallbacksMode(host callbackAdmission, prefix string, callbacks http.Handler, next http.Handler, legacy bool) http.Handler {
 	active := make(chan struct{}, modules.MaxInFlightPerModule)
 	var mu sync.Mutex
 	window := time.Now()
@@ -80,7 +86,7 @@ func mountPaymentCallbacksAt(host callbackAdmission, prefix string, callbacks ht
 		w.Header().Set("Cache-Control", "no-store")
 		channel := strings.TrimPrefix(r.URL.Path, prefix)
 		id, err := strconv.ParseInt(channel, 10, 64)
-		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != channel || r.URL.EscapedPath() != r.URL.Path {
+		if ((!legacy && (err != nil || id <= 0 || strconv.FormatInt(id, 10) != channel)) || (legacy && channel != "test" && channel != "prod")) || r.URL.EscapedPath() != r.URL.Path {
 			callbackFailure(w, http.StatusNotFound, "payment_callback_not_found")
 			return
 		}
@@ -169,6 +175,9 @@ func mountPaymentCallbacksAt(host callbackAdmission, prefix string, callbacks ht
 		}
 		defer controller.SetReadDeadline(time.Time{})
 		r = r.Clone(bounded)
+		if legacy {
+			r.SetPathValue("environment", channel)
+		}
 		r.URL.Path = "/callbacks/" + channel
 		r.URL.RawPath = ""
 		r.Header.Del("Authorization")

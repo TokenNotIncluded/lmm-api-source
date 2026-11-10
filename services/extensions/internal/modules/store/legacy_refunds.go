@@ -9,8 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// The compatibility port supports the full original balance principal only.
-// Partial, provider and guest refunds require separate frozen Core contracts.
+// Existing full commands retain their original identity. Partial requests use
+// the explicitly negotiated Core extension; provider/guest basis stays closed.
 type legacyRefundInput struct {
 	RequestKey  string   `json:"request_key"`
 	Reason      string   `json:"reason"`
@@ -21,6 +21,7 @@ type legacyRefundInput struct {
 	AmountMinor int64    `json:"amount_minor,omitempty"`
 }
 type legacyRefundRecord struct {
+	State          string `json:"state,omitempty"`
 	ID             string `json:"id"`
 	RequestKey     string `json:"request_key"`
 	InputHash      string `json:"input_hash"`
@@ -52,7 +53,11 @@ func legacyRefundKey(s string) bool {
 func legacyRefundDTO(o Order) map[string]any {
 	r := o.LegacyRefund
 	status := o.RefundState
-	if o.State == RefundPending {
+	if r.State != "" {
+		status = r.State
+	} else if r.Decision == "reject" {
+		status = "rejected"
+	} else if o.State == RefundPending {
 		status = "reconciliation_required"
 	}
 	return map[string]any{"id": r.ID, "order_id": o.ID, "request_key": r.RequestKey, "mode": "full", "quantity": o.Quantity,
@@ -101,10 +106,54 @@ func (s *Service) legacyRefund(ctx context.Context, token string, actor Account,
 	if o.Buyer.Kind != "personal" || o.Seller.Kind != "personal" || actor != o.Buyer && actor != o.Seller {
 		return nil, ErrForbidden
 	}
+	if o.Imported != nil {
+		if err := legacyHistoricalSource(o); err != nil {
+			return nil, err
+		}
+		if request.Action == "refunds" {
+			return s.historicalRefundView(ctx, row.ShopID, o)
+		}
+		if request.Action != "request_refund" && request.Action != "decide_refund" {
+			return nil, ErrUnavailable
+		}
+		if request.Action == "request_refund" {
+			var in legacyRefundInput
+			if legacyDecode(request.Body, &in) != nil || in.Mode != "full" {
+				return nil, ErrInvalid
+			}
+		}
+		if _, err := s.historicalFunds(); err != nil {
+			return nil, err
+		}
+	}
+	if request.Action == "cancel_refund" && o.LegacyRefund != nil && o.LegacyRefund.ID == request.ChildID {
+		return s.cancelLegacyRefund(ctx, token, actor, row, request)
+	}
+	usePartial := len(o.PartialRefunds) > 0 || o.Legacy != nil && o.Legacy.PaymentMethod == "free"
+	if o.LegacyRefund != nil && o.LegacyRefund.State == "cancelled" && s.partialRefundAvailable(o) {
+		usePartial = true
+	}
+	usePartial = usePartial || request.Action == "cancel_refund" || request.Action == "proactive_refund"
+	if request.Action == "request_refund" {
+		var in legacyRefundInput
+		if legacyDecode(request.Body, &in) != nil {
+			return nil, ErrInvalid
+		}
+		usePartial = usePartial || in.Mode == "quantity" || in.Mode == "amount"
+	}
+	if request.Action == "decide_refund" {
+		usePartial = partialRefundIndex(o, request.ChildID) >= 0
+	}
+	if request.Action == "refunds" && o.LegacyRefund == nil && s.partialRefundAvailable(o) {
+		usePartial = true
+	}
+	if usePartial {
+		return s.partialRefundAPI(ctx, token, actor, row, request)
+	}
 	// Prove the original full principal against the same accepted payment used
 	// by delivery. A public snapshot or an order's status string is not evidence.
 	if err := s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
-		return legacyRefundProof(tx, row.ShopID, o)
+		return legacyApplicationProof(tx, row.ShopID, o)
 	}); err != nil {
 		return nil, err
 	}
@@ -142,7 +191,7 @@ func (s *Service) legacyRefund(ctx context.Context, token string, actor Account,
 		if validateOrderCommand(row.ShopID, o, orderMoneyCommand(row.ShopID, row.Order, "pay")) != nil {
 			return ErrConflict
 		}
-		if err := legacyRefundProof(tx, row.ShopID, o); err != nil {
+		if err := legacyApplicationProof(tx, row.ShopID, o); err != nil {
 			return err
 		}
 		switch request.Action {
@@ -205,6 +254,13 @@ func (s *Service) legacyRefund(ctx context.Context, token string, actor Account,
 		return nil, err
 	}
 	if approve {
+		if o.Imported != nil {
+			o, err = s.executeHistoricalRefund(ctx, token, row.ShopID, o.ID)
+			if err != nil {
+				return nil, err
+			}
+			return legacyRefundDTO(o), nil
+		}
 		// Only this authenticated seller action may start the existing full refund.
 		// Query first after a lost ACK. If still UNKNOWN, an explicit repeat of
 		// the same seller approval may resume the SAME immutable operation: Core

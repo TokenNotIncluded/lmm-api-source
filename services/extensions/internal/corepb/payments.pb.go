@@ -1657,6 +1657,354 @@ func (x *LegacyPaymentReceipt) GetRejectionCode() string {
 	return ""
 }
 
+type StripeSubscriptionPrice struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	PlanId          int64                  `protobuf:"varint,1,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
+	PlanRevision    int64                  `protobuf:"varint,2,opt,name=plan_revision,json=planRevision,proto3" json:"plan_revision,omitempty"`
+	ChannelId       int64                  `protobuf:"varint,3,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Currency        string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	AmountMinor     string                 `protobuf:"bytes,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	ProviderPriceId string                 `protobuf:"bytes,6,opt,name=provider_price_id,json=providerPriceId,proto3" json:"provider_price_id,omitempty"`
+	Interval        string                 `protobuf:"bytes,7,opt,name=interval,proto3" json:"interval,omitempty"`
+	IntervalCount   int64                  `protobuf:"varint,8,opt,name=interval_count,json=intervalCount,proto3" json:"interval_count,omitempty"`
+	SuccessUrl      string                 `protobuf:"bytes,9,opt,name=success_url,json=successUrl,proto3" json:"success_url,omitempty"`
+	CancelUrl       string                 `protobuf:"bytes,10,opt,name=cancel_url,json=cancelUrl,proto3" json:"cancel_url,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *StripeSubscriptionPrice) Reset() {
+	*x = StripeSubscriptionPrice{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StripeSubscriptionPrice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StripeSubscriptionPrice) ProtoMessage() {}
+
+func (x *StripeSubscriptionPrice) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StripeSubscriptionPrice.ProtoReflect.Descriptor instead.
+func (*StripeSubscriptionPrice) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *StripeSubscriptionPrice) GetPlanId() int64 {
+	if x != nil {
+		return x.PlanId
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionPrice) GetPlanRevision() int64 {
+	if x != nil {
+		return x.PlanRevision
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionPrice) GetChannelId() int64 {
+	if x != nil {
+		return x.ChannelId
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionPrice) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionPrice) GetAmountMinor() string {
+	if x != nil {
+		return x.AmountMinor
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionPrice) GetProviderPriceId() string {
+	if x != nil {
+		return x.ProviderPriceId
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionPrice) GetInterval() string {
+	if x != nil {
+		return x.Interval
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionPrice) GetIntervalCount() int64 {
+	if x != nil {
+		return x.IntervalCount
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionPrice) GetSuccessUrl() string {
+	if x != nil {
+		return x.SuccessUrl
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionPrice) GetCancelUrl() string {
+	if x != nil {
+		return x.CancelUrl
+	}
+	return ""
+}
+
+type StripeSubscriptionOrder struct {
+	state                  protoimpl.MessageState   `protogen:"open.v1"`
+	Order                  *EPaySubscriptionOrder   `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
+	Price                  *StripeSubscriptionPrice `protobuf:"bytes,2,opt,name=price,proto3" json:"price,omitempty"`
+	Merchant               string                   `protobuf:"bytes,3,opt,name=merchant,proto3" json:"merchant,omitempty"`
+	Environment            string                   `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
+	ProviderSubscriptionId string                   `protobuf:"bytes,5,opt,name=provider_subscription_id,json=providerSubscriptionId,proto3" json:"provider_subscription_id,omitempty"`
+	ProviderCustomerId     string                   `protobuf:"bytes,6,opt,name=provider_customer_id,json=providerCustomerId,proto3" json:"provider_customer_id,omitempty"`
+	State                  string                   `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
+	StateCreated           int64                    `protobuf:"varint,8,opt,name=state_created,json=stateCreated,proto3" json:"state_created,omitempty"`
+	CurrentPeriodStart     int64                    `protobuf:"varint,9,opt,name=current_period_start,json=currentPeriodStart,proto3" json:"current_period_start,omitempty"`
+	CurrentPeriodEnd       int64                    `protobuf:"varint,10,opt,name=current_period_end,json=currentPeriodEnd,proto3" json:"current_period_end,omitempty"`
+	LatestGrantId          *int64                   `protobuf:"varint,11,opt,name=latest_grant_id,json=latestGrantId,proto3,oneof" json:"latest_grant_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *StripeSubscriptionOrder) Reset() {
+	*x = StripeSubscriptionOrder{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StripeSubscriptionOrder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StripeSubscriptionOrder) ProtoMessage() {}
+
+func (x *StripeSubscriptionOrder) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StripeSubscriptionOrder.ProtoReflect.Descriptor instead.
+func (*StripeSubscriptionOrder) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *StripeSubscriptionOrder) GetOrder() *EPaySubscriptionOrder {
+	if x != nil {
+		return x.Order
+	}
+	return nil
+}
+
+func (x *StripeSubscriptionOrder) GetPrice() *StripeSubscriptionPrice {
+	if x != nil {
+		return x.Price
+	}
+	return nil
+}
+
+func (x *StripeSubscriptionOrder) GetMerchant() string {
+	if x != nil {
+		return x.Merchant
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionOrder) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionOrder) GetProviderSubscriptionId() string {
+	if x != nil {
+		return x.ProviderSubscriptionId
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionOrder) GetProviderCustomerId() string {
+	if x != nil {
+		return x.ProviderCustomerId
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionOrder) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionOrder) GetStateCreated() int64 {
+	if x != nil {
+		return x.StateCreated
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionOrder) GetCurrentPeriodStart() int64 {
+	if x != nil {
+		return x.CurrentPeriodStart
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionOrder) GetCurrentPeriodEnd() int64 {
+	if x != nil {
+		return x.CurrentPeriodEnd
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionOrder) GetLatestGrantId() int64 {
+	if x != nil && x.LatestGrantId != nil {
+		return *x.LatestGrantId
+	}
+	return 0
+}
+
+type StripeSubscriptionEvent struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	OrderId        string                 `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	EventId        string                 `protobuf:"bytes,2,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	PayloadSha256  []byte                 `protobuf:"bytes,3,opt,name=payload_sha256,json=payloadSha256,proto3" json:"payload_sha256,omitempty"`
+	Kind           string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	State          string                 `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
+	InvoiceId      string                 `protobuf:"bytes,6,opt,name=invoice_id,json=invoiceId,proto3" json:"invoice_id,omitempty"`
+	SubscriptionId *int64                 `protobuf:"varint,7,opt,name=subscription_id,json=subscriptionId,proto3,oneof" json:"subscription_id,omitempty"`
+	PeriodStart    int64                  `protobuf:"varint,8,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	PeriodEnd      int64                  `protobuf:"varint,9,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *StripeSubscriptionEvent) Reset() {
+	*x = StripeSubscriptionEvent{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StripeSubscriptionEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StripeSubscriptionEvent) ProtoMessage() {}
+
+func (x *StripeSubscriptionEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StripeSubscriptionEvent.ProtoReflect.Descriptor instead.
+func (*StripeSubscriptionEvent) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *StripeSubscriptionEvent) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionEvent) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionEvent) GetPayloadSha256() []byte {
+	if x != nil {
+		return x.PayloadSha256
+	}
+	return nil
+}
+
+func (x *StripeSubscriptionEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionEvent) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionEvent) GetInvoiceId() string {
+	if x != nil {
+		return x.InvoiceId
+	}
+	return ""
+}
+
+func (x *StripeSubscriptionEvent) GetSubscriptionId() int64 {
+	if x != nil && x.SubscriptionId != nil {
+		return *x.SubscriptionId
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionEvent) GetPeriodStart() int64 {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return 0
+}
+
+func (x *StripeSubscriptionEvent) GetPeriodEnd() int64 {
+	if x != nil {
+		return x.PeriodEnd
+	}
+	return 0
+}
+
 type PrepareEPayPurchaseRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Mutation         *MutationContext       `protobuf:"bytes,1,opt,name=mutation,proto3" json:"mutation,omitempty"`
@@ -1668,7 +2016,7 @@ type PrepareEPayPurchaseRequest struct {
 
 func (x *PrepareEPayPurchaseRequest) Reset() {
 	*x = PrepareEPayPurchaseRequest{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[22]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1680,7 +2028,7 @@ func (x *PrepareEPayPurchaseRequest) String() string {
 func (*PrepareEPayPurchaseRequest) ProtoMessage() {}
 
 func (x *PrepareEPayPurchaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[22]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1693,7 +2041,7 @@ func (x *PrepareEPayPurchaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareEPayPurchaseRequest.ProtoReflect.Descriptor instead.
 func (*PrepareEPayPurchaseRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{22}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *PrepareEPayPurchaseRequest) GetMutation() *MutationContext {
@@ -1726,7 +2074,7 @@ type EPaySubscriptionOrderRequest struct {
 
 func (x *EPaySubscriptionOrderRequest) Reset() {
 	*x = EPaySubscriptionOrderRequest{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[23]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1738,7 +2086,7 @@ func (x *EPaySubscriptionOrderRequest) String() string {
 func (*EPaySubscriptionOrderRequest) ProtoMessage() {}
 
 func (x *EPaySubscriptionOrderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[23]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1751,7 +2099,7 @@ func (x *EPaySubscriptionOrderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EPaySubscriptionOrderRequest.ProtoReflect.Descriptor instead.
 func (*EPaySubscriptionOrderRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{23}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *EPaySubscriptionOrderRequest) GetOrderId() string {
@@ -1787,7 +2135,7 @@ type EPaySubscriptionOrder struct {
 
 func (x *EPaySubscriptionOrder) Reset() {
 	*x = EPaySubscriptionOrder{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[24]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1799,7 +2147,7 @@ func (x *EPaySubscriptionOrder) String() string {
 func (*EPaySubscriptionOrder) ProtoMessage() {}
 
 func (x *EPaySubscriptionOrder) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[24]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1812,7 +2160,7 @@ func (x *EPaySubscriptionOrder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EPaySubscriptionOrder.ProtoReflect.Descriptor instead.
 func (*EPaySubscriptionOrder) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{24}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *EPaySubscriptionOrder) GetOrderId() string {
@@ -1938,7 +2286,7 @@ type AcceptEPaySubscriptionProofRequest struct {
 
 func (x *AcceptEPaySubscriptionProofRequest) Reset() {
 	*x = AcceptEPaySubscriptionProofRequest{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[25]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1950,7 +2298,7 @@ func (x *AcceptEPaySubscriptionProofRequest) String() string {
 func (*AcceptEPaySubscriptionProofRequest) ProtoMessage() {}
 
 func (x *AcceptEPaySubscriptionProofRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[25]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1963,7 +2311,7 @@ func (x *AcceptEPaySubscriptionProofRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use AcceptEPaySubscriptionProofRequest.ProtoReflect.Descriptor instead.
 func (*AcceptEPaySubscriptionProofRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{25}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *AcceptEPaySubscriptionProofRequest) GetOrderId() string {
@@ -1998,7 +2346,7 @@ type GetEPaySubscriptionProofRequest struct {
 
 func (x *GetEPaySubscriptionProofRequest) Reset() {
 	*x = GetEPaySubscriptionProofRequest{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[26]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2010,7 +2358,7 @@ func (x *GetEPaySubscriptionProofRequest) String() string {
 func (*GetEPaySubscriptionProofRequest) ProtoMessage() {}
 
 func (x *GetEPaySubscriptionProofRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[26]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2023,7 +2371,7 @@ func (x *GetEPaySubscriptionProofRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEPaySubscriptionProofRequest.ProtoReflect.Descriptor instead.
 func (*GetEPaySubscriptionProofRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{26}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetEPaySubscriptionProofRequest) GetOrderId() string {
@@ -2061,7 +2409,7 @@ type EPaySubscriptionProof struct {
 
 func (x *EPaySubscriptionProof) Reset() {
 	*x = EPaySubscriptionProof{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[27]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2073,7 +2421,7 @@ func (x *EPaySubscriptionProof) String() string {
 func (*EPaySubscriptionProof) ProtoMessage() {}
 
 func (x *EPaySubscriptionProof) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[27]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2086,7 +2434,7 @@ func (x *EPaySubscriptionProof) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EPaySubscriptionProof.ProtoReflect.Descriptor instead.
 func (*EPaySubscriptionProof) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{27}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *EPaySubscriptionProof) GetProofId() string {
@@ -2142,7 +2490,7 @@ type ApplyEPaySubscriptionGrantRequest struct {
 
 func (x *ApplyEPaySubscriptionGrantRequest) Reset() {
 	*x = ApplyEPaySubscriptionGrantRequest{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[28]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2154,7 +2502,7 @@ func (x *ApplyEPaySubscriptionGrantRequest) String() string {
 func (*ApplyEPaySubscriptionGrantRequest) ProtoMessage() {}
 
 func (x *ApplyEPaySubscriptionGrantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[28]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2167,7 +2515,7 @@ func (x *ApplyEPaySubscriptionGrantRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ApplyEPaySubscriptionGrantRequest.ProtoReflect.Descriptor instead.
 func (*ApplyEPaySubscriptionGrantRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{28}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ApplyEPaySubscriptionGrantRequest) GetOrderId() string {
@@ -2205,7 +2553,7 @@ type EPaySubscriptionGrant struct {
 
 func (x *EPaySubscriptionGrant) Reset() {
 	*x = EPaySubscriptionGrant{}
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[29]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2217,7 +2565,7 @@ func (x *EPaySubscriptionGrant) String() string {
 func (*EPaySubscriptionGrant) ProtoMessage() {}
 
 func (x *EPaySubscriptionGrant) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_payments_proto_msgTypes[29]
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2230,7 +2578,7 @@ func (x *EPaySubscriptionGrant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EPaySubscriptionGrant.ProtoReflect.Descriptor instead.
 func (*EPaySubscriptionGrant) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{29}
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *EPaySubscriptionGrant) GetOrderId() string {
@@ -2271,6 +2619,629 @@ func (x *EPaySubscriptionGrant) GetGrantedAtUnix() int64 {
 func (x *EPaySubscriptionGrant) GetEndsAtUnix() int64 {
 	if x != nil {
 		return x.EndsAtUnix
+	}
+	return 0
+}
+
+// Pancake is an entitlement contract, independent of wallet CreditTopup.
+// Existing messages/field numbers/enums are unchanged. EPaySubscriptionOrder is
+// reused only as the established frozen external-order layout.
+type PancakeSubscriptionPrice struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	PlanId                int64                  `protobuf:"varint,1,opt,name=plan_id,json=planId,proto3" json:"plan_id,omitempty"`
+	PlanRevision          int64                  `protobuf:"varint,2,opt,name=plan_revision,json=planRevision,proto3" json:"plan_revision,omitempty"`
+	ChannelId             int64                  `protobuf:"varint,3,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Currency              string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	AmountMinor           string                 `protobuf:"bytes,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	StoreId               string                 `protobuf:"bytes,6,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty"`
+	ProductId             string                 `protobuf:"bytes,7,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	ProductType           string                 `protobuf:"bytes,8,opt,name=product_type,json=productType,proto3" json:"product_type,omitempty"`
+	BillingPeriod         string                 `protobuf:"bytes,9,opt,name=billing_period,json=billingPeriod,proto3" json:"billing_period,omitempty"`
+	ProviderPlanReference string                 `protobuf:"bytes,10,opt,name=provider_plan_reference,json=providerPlanReference,proto3" json:"provider_plan_reference,omitempty"`
+	ReturnUrl             string                 `protobuf:"bytes,11,opt,name=return_url,json=returnUrl,proto3" json:"return_url,omitempty"`
+	CheckoutRegion        string                 `protobuf:"bytes,12,opt,name=checkout_region,json=checkoutRegion,proto3" json:"checkout_region,omitempty"`
+	CheckoutLanguage      string                 `protobuf:"bytes,13,opt,name=checkout_language,json=checkoutLanguage,proto3" json:"checkout_language,omitempty"`
+	TaxCategory           string                 `protobuf:"bytes,14,opt,name=tax_category,json=taxCategory,proto3" json:"tax_category,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *PancakeSubscriptionPrice) Reset() {
+	*x = PancakeSubscriptionPrice{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PancakeSubscriptionPrice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PancakeSubscriptionPrice) ProtoMessage() {}
+
+func (x *PancakeSubscriptionPrice) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PancakeSubscriptionPrice.ProtoReflect.Descriptor instead.
+func (*PancakeSubscriptionPrice) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *PancakeSubscriptionPrice) GetPlanId() int64 {
+	if x != nil {
+		return x.PlanId
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionPrice) GetPlanRevision() int64 {
+	if x != nil {
+		return x.PlanRevision
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionPrice) GetChannelId() int64 {
+	if x != nil {
+		return x.ChannelId
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionPrice) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetAmountMinor() string {
+	if x != nil {
+		return x.AmountMinor
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetStoreId() string {
+	if x != nil {
+		return x.StoreId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetProductId() string {
+	if x != nil {
+		return x.ProductId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetProductType() string {
+	if x != nil {
+		return x.ProductType
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetBillingPeriod() string {
+	if x != nil {
+		return x.BillingPeriod
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetProviderPlanReference() string {
+	if x != nil {
+		return x.ProviderPlanReference
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetReturnUrl() string {
+	if x != nil {
+		return x.ReturnUrl
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetCheckoutRegion() string {
+	if x != nil {
+		return x.CheckoutRegion
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetCheckoutLanguage() string {
+	if x != nil {
+		return x.CheckoutLanguage
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionPrice) GetTaxCategory() string {
+	if x != nil {
+		return x.TaxCategory
+	}
+	return ""
+}
+
+type PancakeSubscriptionOrder struct {
+	state             protoimpl.MessageState    `protogen:"open.v1"`
+	Order             *EPaySubscriptionOrder    `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
+	Price             *PancakeSubscriptionPrice `protobuf:"bytes,2,opt,name=price,proto3" json:"price,omitempty"`
+	Merchant          string                    `protobuf:"bytes,3,opt,name=merchant,proto3" json:"merchant,omitempty"`
+	Environment       string                    `protobuf:"bytes,4,opt,name=environment,proto3" json:"environment,omitempty"`
+	ProviderReference string                    `protobuf:"bytes,5,opt,name=provider_reference,json=providerReference,proto3" json:"provider_reference,omitempty"`
+	ProviderOrderId   string                    `protobuf:"bytes,6,opt,name=provider_order_id,json=providerOrderId,proto3" json:"provider_order_id,omitempty"`
+	State             string                    `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
+	StateCreated      int64                     `protobuf:"varint,8,opt,name=state_created,json=stateCreated,proto3" json:"state_created,omitempty"`
+	PaidPeriodStart   int64                     `protobuf:"varint,9,opt,name=paid_period_start,json=paidPeriodStart,proto3" json:"paid_period_start,omitempty"`
+	PaidPeriodEnd     int64                     `protobuf:"varint,10,opt,name=paid_period_end,json=paidPeriodEnd,proto3" json:"paid_period_end,omitempty"`
+	LatestGrantId     *int64                    `protobuf:"varint,11,opt,name=latest_grant_id,json=latestGrantId,proto3,oneof" json:"latest_grant_id,omitempty"`
+	LegacySourceJson  []byte                    `protobuf:"bytes,12,opt,name=legacy_source_json,json=legacySourceJson,proto3" json:"legacy_source_json,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PancakeSubscriptionOrder) Reset() {
+	*x = PancakeSubscriptionOrder{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PancakeSubscriptionOrder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PancakeSubscriptionOrder) ProtoMessage() {}
+
+func (x *PancakeSubscriptionOrder) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PancakeSubscriptionOrder.ProtoReflect.Descriptor instead.
+func (*PancakeSubscriptionOrder) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *PancakeSubscriptionOrder) GetOrder() *EPaySubscriptionOrder {
+	if x != nil {
+		return x.Order
+	}
+	return nil
+}
+
+func (x *PancakeSubscriptionOrder) GetPrice() *PancakeSubscriptionPrice {
+	if x != nil {
+		return x.Price
+	}
+	return nil
+}
+
+func (x *PancakeSubscriptionOrder) GetMerchant() string {
+	if x != nil {
+		return x.Merchant
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionOrder) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionOrder) GetProviderReference() string {
+	if x != nil {
+		return x.ProviderReference
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionOrder) GetProviderOrderId() string {
+	if x != nil {
+		return x.ProviderOrderId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionOrder) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionOrder) GetStateCreated() int64 {
+	if x != nil {
+		return x.StateCreated
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionOrder) GetPaidPeriodStart() int64 {
+	if x != nil {
+		return x.PaidPeriodStart
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionOrder) GetPaidPeriodEnd() int64 {
+	if x != nil {
+		return x.PaidPeriodEnd
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionOrder) GetLatestGrantId() int64 {
+	if x != nil && x.LatestGrantId != nil {
+		return *x.LatestGrantId
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionOrder) GetLegacySourceJson() []byte {
+	if x != nil {
+		return x.LegacySourceJson
+	}
+	return nil
+}
+
+type ListPancakePurchasesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPancakePurchasesRequest) Reset() {
+	*x = ListPancakePurchasesRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPancakePurchasesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPancakePurchasesRequest) ProtoMessage() {}
+
+func (x *ListPancakePurchasesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPancakePurchasesRequest.ProtoReflect.Descriptor instead.
+func (*ListPancakePurchasesRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{35}
+}
+
+type PancakeSubscriptionOrders struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Orders        []*PancakeSubscriptionOrder `protobuf:"bytes,1,rep,name=orders,proto3" json:"orders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PancakeSubscriptionOrders) Reset() {
+	*x = PancakeSubscriptionOrders{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PancakeSubscriptionOrders) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PancakeSubscriptionOrders) ProtoMessage() {}
+
+func (x *PancakeSubscriptionOrders) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PancakeSubscriptionOrders.ProtoReflect.Descriptor instead.
+func (*PancakeSubscriptionOrders) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *PancakeSubscriptionOrders) GetOrders() []*PancakeSubscriptionOrder {
+	if x != nil {
+		return x.Orders
+	}
+	return nil
+}
+
+type AcceptPancakeSubscriptionEventRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	PaymentChannelId  int64                  `protobuf:"varint,1,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
+	ProviderReference string                 `protobuf:"bytes,2,opt,name=provider_reference,json=providerReference,proto3" json:"provider_reference,omitempty"`
+	SignedPayload     []byte                 `protobuf:"bytes,3,opt,name=signed_payload,json=signedPayload,proto3" json:"signed_payload,omitempty"`
+	Signature         []byte                 `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *AcceptPancakeSubscriptionEventRequest) Reset() {
+	*x = AcceptPancakeSubscriptionEventRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptPancakeSubscriptionEventRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptPancakeSubscriptionEventRequest) ProtoMessage() {}
+
+func (x *AcceptPancakeSubscriptionEventRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptPancakeSubscriptionEventRequest.ProtoReflect.Descriptor instead.
+func (*AcceptPancakeSubscriptionEventRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *AcceptPancakeSubscriptionEventRequest) GetPaymentChannelId() int64 {
+	if x != nil {
+		return x.PaymentChannelId
+	}
+	return 0
+}
+
+func (x *AcceptPancakeSubscriptionEventRequest) GetProviderReference() string {
+	if x != nil {
+		return x.ProviderReference
+	}
+	return ""
+}
+
+func (x *AcceptPancakeSubscriptionEventRequest) GetSignedPayload() []byte {
+	if x != nil {
+		return x.SignedPayload
+	}
+	return nil
+}
+
+func (x *AcceptPancakeSubscriptionEventRequest) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+type GetPancakeSubscriptionEventRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	PaymentChannelId  int64                  `protobuf:"varint,1,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
+	ProviderReference string                 `protobuf:"bytes,2,opt,name=provider_reference,json=providerReference,proto3" json:"provider_reference,omitempty"`
+	ProviderEventId   string                 `protobuf:"bytes,3,opt,name=provider_event_id,json=providerEventId,proto3" json:"provider_event_id,omitempty"`
+	PayloadSha256     []byte                 `protobuf:"bytes,4,opt,name=payload_sha256,json=payloadSha256,proto3" json:"payload_sha256,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GetPancakeSubscriptionEventRequest) Reset() {
+	*x = GetPancakeSubscriptionEventRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPancakeSubscriptionEventRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPancakeSubscriptionEventRequest) ProtoMessage() {}
+
+func (x *GetPancakeSubscriptionEventRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPancakeSubscriptionEventRequest.ProtoReflect.Descriptor instead.
+func (*GetPancakeSubscriptionEventRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *GetPancakeSubscriptionEventRequest) GetPaymentChannelId() int64 {
+	if x != nil {
+		return x.PaymentChannelId
+	}
+	return 0
+}
+
+func (x *GetPancakeSubscriptionEventRequest) GetProviderReference() string {
+	if x != nil {
+		return x.ProviderReference
+	}
+	return ""
+}
+
+func (x *GetPancakeSubscriptionEventRequest) GetProviderEventId() string {
+	if x != nil {
+		return x.ProviderEventId
+	}
+	return ""
+}
+
+func (x *GetPancakeSubscriptionEventRequest) GetPayloadSha256() []byte {
+	if x != nil {
+		return x.PayloadSha256
+	}
+	return nil
+}
+
+type PancakeSubscriptionEvent struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OrderId         string                 `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	EventId         string                 `protobuf:"bytes,2,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	PayloadSha256   []byte                 `protobuf:"bytes,3,opt,name=payload_sha256,json=payloadSha256,proto3" json:"payload_sha256,omitempty"`
+	Kind            string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	State           string                 `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
+	ProviderOrderId string                 `protobuf:"bytes,6,opt,name=provider_order_id,json=providerOrderId,proto3" json:"provider_order_id,omitempty"`
+	PaymentId       *string                `protobuf:"bytes,7,opt,name=payment_id,json=paymentId,proto3,oneof" json:"payment_id,omitempty"`
+	CycleKey        string                 `protobuf:"bytes,8,opt,name=cycle_key,json=cycleKey,proto3" json:"cycle_key,omitempty"`
+	SubscriptionId  *int64                 `protobuf:"varint,9,opt,name=subscription_id,json=subscriptionId,proto3,oneof" json:"subscription_id,omitempty"`
+	PeriodStart     int64                  `protobuf:"varint,10,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	PeriodEnd       int64                  `protobuf:"varint,11,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PancakeSubscriptionEvent) Reset() {
+	*x = PancakeSubscriptionEvent{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PancakeSubscriptionEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PancakeSubscriptionEvent) ProtoMessage() {}
+
+func (x *PancakeSubscriptionEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PancakeSubscriptionEvent.ProtoReflect.Descriptor instead.
+func (*PancakeSubscriptionEvent) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *PancakeSubscriptionEvent) GetOrderId() string {
+	if x != nil {
+		return x.OrderId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetPayloadSha256() []byte {
+	if x != nil {
+		return x.PayloadSha256
+	}
+	return nil
+}
+
+func (x *PancakeSubscriptionEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetProviderOrderId() string {
+	if x != nil {
+		return x.ProviderOrderId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetPaymentId() string {
+	if x != nil && x.PaymentId != nil {
+		return *x.PaymentId
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetCycleKey() string {
+	if x != nil {
+		return x.CycleKey
+	}
+	return ""
+}
+
+func (x *PancakeSubscriptionEvent) GetSubscriptionId() int64 {
+	if x != nil && x.SubscriptionId != nil {
+		return *x.SubscriptionId
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionEvent) GetPeriodStart() int64 {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return 0
+}
+
+func (x *PancakeSubscriptionEvent) GetPeriodEnd() int64 {
+	if x != nil {
+		return x.PeriodEnd
 	}
 	return 0
 }
@@ -2406,7 +3377,49 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\x05state\x18\x04 \x01(\x0e2 .lmm.core.v1.PaymentReceiptStateR\x05state\x12\x1d\n" +
 	"\n" +
 	"journal_id\x18\x05 \x01(\x03R\tjournalId\x12%\n" +
-	"\x0erejection_code\x18\x06 \x01(\tR\rrejectionCode\"\x9d\x01\n" +
+	"\x0erejection_code\x18\x06 \x01(\tR\rrejectionCode\"\xe4\x02\n" +
+	"\x17StripeSubscriptionPrice\x12\x17\n" +
+	"\aplan_id\x18\x01 \x01(\x03R\x06planId\x12#\n" +
+	"\rplan_revision\x18\x02 \x01(\x03R\fplanRevision\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x03 \x01(\x03R\tchannelId\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12!\n" +
+	"\famount_minor\x18\x05 \x01(\tR\vamountMinor\x12*\n" +
+	"\x11provider_price_id\x18\x06 \x01(\tR\x0fproviderPriceId\x12\x1a\n" +
+	"\binterval\x18\a \x01(\tR\binterval\x12%\n" +
+	"\x0einterval_count\x18\b \x01(\x03R\rintervalCount\x12\x1f\n" +
+	"\vsuccess_url\x18\t \x01(\tR\n" +
+	"successUrl\x12\x1d\n" +
+	"\n" +
+	"cancel_url\x18\n" +
+	" \x01(\tR\tcancelUrl\"\x95\x04\n" +
+	"\x17StripeSubscriptionOrder\x128\n" +
+	"\x05order\x18\x01 \x01(\v2\".lmm.core.v1.EPaySubscriptionOrderR\x05order\x12:\n" +
+	"\x05price\x18\x02 \x01(\v2$.lmm.core.v1.StripeSubscriptionPriceR\x05price\x12\x1a\n" +
+	"\bmerchant\x18\x03 \x01(\tR\bmerchant\x12 \n" +
+	"\venvironment\x18\x04 \x01(\tR\venvironment\x128\n" +
+	"\x18provider_subscription_id\x18\x05 \x01(\tR\x16providerSubscriptionId\x120\n" +
+	"\x14provider_customer_id\x18\x06 \x01(\tR\x12providerCustomerId\x12\x14\n" +
+	"\x05state\x18\a \x01(\tR\x05state\x12#\n" +
+	"\rstate_created\x18\b \x01(\x03R\fstateCreated\x120\n" +
+	"\x14current_period_start\x18\t \x01(\x03R\x12currentPeriodStart\x12,\n" +
+	"\x12current_period_end\x18\n" +
+	" \x01(\x03R\x10currentPeriodEnd\x12+\n" +
+	"\x0flatest_grant_id\x18\v \x01(\x03H\x00R\rlatestGrantId\x88\x01\x01B\x12\n" +
+	"\x10_latest_grant_id\"\xc3\x02\n" +
+	"\x17StripeSubscriptionEvent\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\tR\aorderId\x12\x19\n" +
+	"\bevent_id\x18\x02 \x01(\tR\aeventId\x12%\n" +
+	"\x0epayload_sha256\x18\x03 \x01(\fR\rpayloadSha256\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05state\x18\x05 \x01(\tR\x05state\x12\x1d\n" +
+	"\n" +
+	"invoice_id\x18\x06 \x01(\tR\tinvoiceId\x12,\n" +
+	"\x0fsubscription_id\x18\a \x01(\x03H\x00R\x0esubscriptionId\x88\x01\x01\x12!\n" +
+	"\fperiod_start\x18\b \x01(\x03R\vperiodStart\x12\x1d\n" +
+	"\n" +
+	"period_end\x18\t \x01(\x03R\tperiodEndB\x12\n" +
+	"\x10_subscription_id\"\x9d\x01\n" +
 	"\x1aPrepareEPayPurchaseRequest\x128\n" +
 	"\bmutation\x18\x01 \x01(\v2\x1c.lmm.core.v1.MutationContextR\bmutation\x12\x17\n" +
 	"\aplan_id\x18\x02 \x01(\x03R\x06planId\x12,\n" +
@@ -2464,7 +3477,71 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\x0fsubscription_id\x18\x04 \x01(\x03R\x0esubscriptionId\x12&\n" +
 	"\x0fgranted_at_unix\x18\x05 \x01(\x03R\rgrantedAtUnix\x12 \n" +
 	"\fends_at_unix\x18\x06 \x01(\x03R\n" +
-	"endsAtUnix*\xdf\x02\n" +
+	"endsAtUnix\"\x8a\x04\n" +
+	"\x18PancakeSubscriptionPrice\x12\x17\n" +
+	"\aplan_id\x18\x01 \x01(\x03R\x06planId\x12#\n" +
+	"\rplan_revision\x18\x02 \x01(\x03R\fplanRevision\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x03 \x01(\x03R\tchannelId\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12!\n" +
+	"\famount_minor\x18\x05 \x01(\tR\vamountMinor\x12\x19\n" +
+	"\bstore_id\x18\x06 \x01(\tR\astoreId\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\a \x01(\tR\tproductId\x12!\n" +
+	"\fproduct_type\x18\b \x01(\tR\vproductType\x12%\n" +
+	"\x0ebilling_period\x18\t \x01(\tR\rbillingPeriod\x126\n" +
+	"\x17provider_plan_reference\x18\n" +
+	" \x01(\tR\x15providerPlanReference\x12\x1d\n" +
+	"\n" +
+	"return_url\x18\v \x01(\tR\treturnUrl\x12'\n" +
+	"\x0fcheckout_region\x18\f \x01(\tR\x0echeckoutRegion\x12+\n" +
+	"\x11checkout_language\x18\r \x01(\tR\x10checkoutLanguage\x12!\n" +
+	"\ftax_category\x18\x0e \x01(\tR\vtaxCategory\"\xa8\x04\n" +
+	"\x18PancakeSubscriptionOrder\x128\n" +
+	"\x05order\x18\x01 \x01(\v2\".lmm.core.v1.EPaySubscriptionOrderR\x05order\x12;\n" +
+	"\x05price\x18\x02 \x01(\v2%.lmm.core.v1.PancakeSubscriptionPriceR\x05price\x12\x1a\n" +
+	"\bmerchant\x18\x03 \x01(\tR\bmerchant\x12 \n" +
+	"\venvironment\x18\x04 \x01(\tR\venvironment\x12-\n" +
+	"\x12provider_reference\x18\x05 \x01(\tR\x11providerReference\x12*\n" +
+	"\x11provider_order_id\x18\x06 \x01(\tR\x0fproviderOrderId\x12\x14\n" +
+	"\x05state\x18\a \x01(\tR\x05state\x12#\n" +
+	"\rstate_created\x18\b \x01(\x03R\fstateCreated\x12*\n" +
+	"\x11paid_period_start\x18\t \x01(\x03R\x0fpaidPeriodStart\x12&\n" +
+	"\x0fpaid_period_end\x18\n" +
+	" \x01(\x03R\rpaidPeriodEnd\x12+\n" +
+	"\x0flatest_grant_id\x18\v \x01(\x03H\x00R\rlatestGrantId\x88\x01\x01\x12,\n" +
+	"\x12legacy_source_json\x18\f \x01(\fR\x10legacySourceJsonB\x12\n" +
+	"\x10_latest_grant_id\"\x1d\n" +
+	"\x1bListPancakePurchasesRequest\"Z\n" +
+	"\x19PancakeSubscriptionOrders\x12=\n" +
+	"\x06orders\x18\x01 \x03(\v2%.lmm.core.v1.PancakeSubscriptionOrderR\x06orders\"\xc9\x01\n" +
+	"%AcceptPancakeSubscriptionEventRequest\x12,\n" +
+	"\x12payment_channel_id\x18\x01 \x01(\x03R\x10paymentChannelId\x12-\n" +
+	"\x12provider_reference\x18\x02 \x01(\tR\x11providerReference\x12%\n" +
+	"\x0esigned_payload\x18\x03 \x01(\fR\rsignedPayload\x12\x1c\n" +
+	"\tsignature\x18\x04 \x01(\fR\tsignature\"\xd4\x01\n" +
+	"\"GetPancakeSubscriptionEventRequest\x12,\n" +
+	"\x12payment_channel_id\x18\x01 \x01(\x03R\x10paymentChannelId\x12-\n" +
+	"\x12provider_reference\x18\x02 \x01(\tR\x11providerReference\x12*\n" +
+	"\x11provider_event_id\x18\x03 \x01(\tR\x0fproviderEventId\x12%\n" +
+	"\x0epayload_sha256\x18\x04 \x01(\fR\rpayloadSha256\"\xa1\x03\n" +
+	"\x18PancakeSubscriptionEvent\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\tR\aorderId\x12\x19\n" +
+	"\bevent_id\x18\x02 \x01(\tR\aeventId\x12%\n" +
+	"\x0epayload_sha256\x18\x03 \x01(\fR\rpayloadSha256\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05state\x18\x05 \x01(\tR\x05state\x12*\n" +
+	"\x11provider_order_id\x18\x06 \x01(\tR\x0fproviderOrderId\x12\"\n" +
+	"\n" +
+	"payment_id\x18\a \x01(\tH\x00R\tpaymentId\x88\x01\x01\x12\x1b\n" +
+	"\tcycle_key\x18\b \x01(\tR\bcycleKey\x12,\n" +
+	"\x0fsubscription_id\x18\t \x01(\x03H\x01R\x0esubscriptionId\x88\x01\x01\x12!\n" +
+	"\fperiod_start\x18\n" +
+	" \x01(\x03R\vperiodStart\x12\x1d\n" +
+	"\n" +
+	"period_end\x18\v \x01(\x03R\tperiodEndB\r\n" +
+	"\v_payment_idB\x12\n" +
+	"\x10_subscription_id*\xdf\x02\n" +
 	"\x13PaymentReceiptState\x12%\n" +
 	"!PAYMENT_RECEIPT_STATE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$PAYMENT_RECEIPT_STATE_CREDIT_APPLIED\x10\x01\x12%\n" +
@@ -2491,8 +3568,19 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\fCommitRefund\x12!.lmm.core.v1.ResolveRefundRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12O\n" +
 	"\rReleaseRefund\x12!.lmm.core.v1.ResolveRefundRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12V\n" +
 	"\x13ApplyExternalRefund\x12\".lmm.core.v1.ExternalRefundRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12W\n" +
-	"\x11GetPaymentReceipt\x12%.lmm.core.v1.GetPaymentReceiptRequest\x1a\x1b.lmm.core.v1.PaymentReceipt2\xf7\x05\n" +
-	"\x18CoreSubscriptionPayments\x12b\n" +
+	"\x11GetPaymentReceipt\x12%.lmm.core.v1.GetPaymentReceiptRequest\x1a\x1b.lmm.core.v1.PaymentReceipt2\xb7\x0f\n" +
+	"\x18CoreSubscriptionPayments\x12h\n" +
+	"\x16PreparePancakePurchase\x12'.lmm.core.v1.PrepareEPayPurchaseRequest\x1a%.lmm.core.v1.PancakeSubscriptionOrder\x12j\n" +
+	"\x16ConfirmPancakePurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a%.lmm.core.v1.PancakeSubscriptionOrder\x12g\n" +
+	"\x13ReadPancakePurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a%.lmm.core.v1.PancakeSubscriptionOrder\x12h\n" +
+	"\x14ListPancakePurchases\x12(.lmm.core.v1.ListPancakePurchasesRequest\x1a&.lmm.core.v1.PancakeSubscriptionOrders\x12{\n" +
+	"\x1eAcceptPancakeSubscriptionEvent\x122.lmm.core.v1.AcceptPancakeSubscriptionEventRequest\x1a%.lmm.core.v1.PancakeSubscriptionEvent\x12u\n" +
+	"\x1bGetPancakeSubscriptionEvent\x12/.lmm.core.v1.GetPancakeSubscriptionEventRequest\x1a%.lmm.core.v1.PancakeSubscriptionEvent\x12f\n" +
+	"\x15PrepareStripePurchase\x12'.lmm.core.v1.PrepareEPayPurchaseRequest\x1a$.lmm.core.v1.StripeSubscriptionOrder\x12h\n" +
+	"\x15ConfirmStripePurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a$.lmm.core.v1.StripeSubscriptionOrder\x12e\n" +
+	"\x12ReadStripePurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a$.lmm.core.v1.StripeSubscriptionOrder\x12v\n" +
+	"\x1dAcceptStripeSubscriptionEvent\x12/.lmm.core.v1.AcceptEPaySubscriptionProofRequest\x1a$.lmm.core.v1.StripeSubscriptionEvent\x12p\n" +
+	"\x1aGetStripeSubscriptionEvent\x12,.lmm.core.v1.GetEPaySubscriptionProofRequest\x1a$.lmm.core.v1.StripeSubscriptionEvent\x12b\n" +
 	"\x13PrepareEPayPurchase\x12'.lmm.core.v1.PrepareEPayPurchaseRequest\x1a\".lmm.core.v1.EPaySubscriptionOrder\x12[\n" +
 	"\x13ConfirmEPayPurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a\x19.lmm.core.v1.EPayCheckout\x12a\n" +
 	"\x10ReadEPayPurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a\".lmm.core.v1.EPaySubscriptionOrder\x12c\n" +
@@ -2514,109 +3602,146 @@ func file_lmm_core_v1_payments_proto_rawDescGZIP() []byte {
 }
 
 var file_lmm_core_v1_payments_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_lmm_core_v1_payments_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_lmm_core_v1_payments_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_lmm_core_v1_payments_proto_goTypes = []any{
-	(PaymentReceiptState)(0),                   // 0: lmm.core.v1.PaymentReceiptState
-	(*ExternalPaymentReference)(nil),           // 1: lmm.core.v1.ExternalPaymentReference
-	(*ProviderEvidence)(nil),                   // 2: lmm.core.v1.ProviderEvidence
-	(*AcceptProviderProofRequest)(nil),         // 3: lmm.core.v1.AcceptProviderProofRequest
-	(*GetProviderProofRequest)(nil),            // 4: lmm.core.v1.GetProviderProofRequest
-	(*ProviderProofReceipt)(nil),               // 5: lmm.core.v1.ProviderProofReceipt
-	(*PrepareTopupRequest)(nil),                // 6: lmm.core.v1.PrepareTopupRequest
-	(*PreparePersonalTopupRequest)(nil),        // 7: lmm.core.v1.PreparePersonalTopupRequest
-	(*PaymentIntent)(nil),                      // 8: lmm.core.v1.PaymentIntent
-	(*GetEPayCheckoutRequest)(nil),             // 9: lmm.core.v1.GetEPayCheckoutRequest
-	(*EPayCheckout)(nil),                       // 10: lmm.core.v1.EPayCheckout
-	(*CreditTopupRequest)(nil),                 // 11: lmm.core.v1.CreditTopupRequest
-	(*HoldRefundRequest)(nil),                  // 12: lmm.core.v1.HoldRefundRequest
-	(*ResolveRefundRequest)(nil),               // 13: lmm.core.v1.ResolveRefundRequest
-	(*ExternalRefundRequest)(nil),              // 14: lmm.core.v1.ExternalRefundRequest
-	(*GetPaymentReceiptRequest)(nil),           // 15: lmm.core.v1.GetPaymentReceiptRequest
-	(*PaymentReceipt)(nil),                     // 16: lmm.core.v1.PaymentReceipt
-	(*PaymentStateChangedEvent)(nil),           // 17: lmm.core.v1.PaymentStateChangedEvent
-	(*AcceptLegacyProviderProofRequest)(nil),   // 18: lmm.core.v1.AcceptLegacyProviderProofRequest
-	(*GetLegacyProviderProofRequest)(nil),      // 19: lmm.core.v1.GetLegacyProviderProofRequest
-	(*LegacyProviderProofReceipt)(nil),         // 20: lmm.core.v1.LegacyProviderProofReceipt
-	(*CreditLegacyTopupRequest)(nil),           // 21: lmm.core.v1.CreditLegacyTopupRequest
-	(*LegacyPaymentReceipt)(nil),               // 22: lmm.core.v1.LegacyPaymentReceipt
-	(*PrepareEPayPurchaseRequest)(nil),         // 23: lmm.core.v1.PrepareEPayPurchaseRequest
-	(*EPaySubscriptionOrderRequest)(nil),       // 24: lmm.core.v1.EPaySubscriptionOrderRequest
-	(*EPaySubscriptionOrder)(nil),              // 25: lmm.core.v1.EPaySubscriptionOrder
-	(*AcceptEPaySubscriptionProofRequest)(nil), // 26: lmm.core.v1.AcceptEPaySubscriptionProofRequest
-	(*GetEPaySubscriptionProofRequest)(nil),    // 27: lmm.core.v1.GetEPaySubscriptionProofRequest
-	(*EPaySubscriptionProof)(nil),              // 28: lmm.core.v1.EPaySubscriptionProof
-	(*ApplyEPaySubscriptionGrantRequest)(nil),  // 29: lmm.core.v1.ApplyEPaySubscriptionGrantRequest
-	(*EPaySubscriptionGrant)(nil),              // 30: lmm.core.v1.EPaySubscriptionGrant
-	(*MutationContext)(nil),                    // 31: lmm.core.v1.MutationContext
+	(PaymentReceiptState)(0),                      // 0: lmm.core.v1.PaymentReceiptState
+	(*ExternalPaymentReference)(nil),              // 1: lmm.core.v1.ExternalPaymentReference
+	(*ProviderEvidence)(nil),                      // 2: lmm.core.v1.ProviderEvidence
+	(*AcceptProviderProofRequest)(nil),            // 3: lmm.core.v1.AcceptProviderProofRequest
+	(*GetProviderProofRequest)(nil),               // 4: lmm.core.v1.GetProviderProofRequest
+	(*ProviderProofReceipt)(nil),                  // 5: lmm.core.v1.ProviderProofReceipt
+	(*PrepareTopupRequest)(nil),                   // 6: lmm.core.v1.PrepareTopupRequest
+	(*PreparePersonalTopupRequest)(nil),           // 7: lmm.core.v1.PreparePersonalTopupRequest
+	(*PaymentIntent)(nil),                         // 8: lmm.core.v1.PaymentIntent
+	(*GetEPayCheckoutRequest)(nil),                // 9: lmm.core.v1.GetEPayCheckoutRequest
+	(*EPayCheckout)(nil),                          // 10: lmm.core.v1.EPayCheckout
+	(*CreditTopupRequest)(nil),                    // 11: lmm.core.v1.CreditTopupRequest
+	(*HoldRefundRequest)(nil),                     // 12: lmm.core.v1.HoldRefundRequest
+	(*ResolveRefundRequest)(nil),                  // 13: lmm.core.v1.ResolveRefundRequest
+	(*ExternalRefundRequest)(nil),                 // 14: lmm.core.v1.ExternalRefundRequest
+	(*GetPaymentReceiptRequest)(nil),              // 15: lmm.core.v1.GetPaymentReceiptRequest
+	(*PaymentReceipt)(nil),                        // 16: lmm.core.v1.PaymentReceipt
+	(*PaymentStateChangedEvent)(nil),              // 17: lmm.core.v1.PaymentStateChangedEvent
+	(*AcceptLegacyProviderProofRequest)(nil),      // 18: lmm.core.v1.AcceptLegacyProviderProofRequest
+	(*GetLegacyProviderProofRequest)(nil),         // 19: lmm.core.v1.GetLegacyProviderProofRequest
+	(*LegacyProviderProofReceipt)(nil),            // 20: lmm.core.v1.LegacyProviderProofReceipt
+	(*CreditLegacyTopupRequest)(nil),              // 21: lmm.core.v1.CreditLegacyTopupRequest
+	(*LegacyPaymentReceipt)(nil),                  // 22: lmm.core.v1.LegacyPaymentReceipt
+	(*StripeSubscriptionPrice)(nil),               // 23: lmm.core.v1.StripeSubscriptionPrice
+	(*StripeSubscriptionOrder)(nil),               // 24: lmm.core.v1.StripeSubscriptionOrder
+	(*StripeSubscriptionEvent)(nil),               // 25: lmm.core.v1.StripeSubscriptionEvent
+	(*PrepareEPayPurchaseRequest)(nil),            // 26: lmm.core.v1.PrepareEPayPurchaseRequest
+	(*EPaySubscriptionOrderRequest)(nil),          // 27: lmm.core.v1.EPaySubscriptionOrderRequest
+	(*EPaySubscriptionOrder)(nil),                 // 28: lmm.core.v1.EPaySubscriptionOrder
+	(*AcceptEPaySubscriptionProofRequest)(nil),    // 29: lmm.core.v1.AcceptEPaySubscriptionProofRequest
+	(*GetEPaySubscriptionProofRequest)(nil),       // 30: lmm.core.v1.GetEPaySubscriptionProofRequest
+	(*EPaySubscriptionProof)(nil),                 // 31: lmm.core.v1.EPaySubscriptionProof
+	(*ApplyEPaySubscriptionGrantRequest)(nil),     // 32: lmm.core.v1.ApplyEPaySubscriptionGrantRequest
+	(*EPaySubscriptionGrant)(nil),                 // 33: lmm.core.v1.EPaySubscriptionGrant
+	(*PancakeSubscriptionPrice)(nil),              // 34: lmm.core.v1.PancakeSubscriptionPrice
+	(*PancakeSubscriptionOrder)(nil),              // 35: lmm.core.v1.PancakeSubscriptionOrder
+	(*ListPancakePurchasesRequest)(nil),           // 36: lmm.core.v1.ListPancakePurchasesRequest
+	(*PancakeSubscriptionOrders)(nil),             // 37: lmm.core.v1.PancakeSubscriptionOrders
+	(*AcceptPancakeSubscriptionEventRequest)(nil), // 38: lmm.core.v1.AcceptPancakeSubscriptionEventRequest
+	(*GetPancakeSubscriptionEventRequest)(nil),    // 39: lmm.core.v1.GetPancakeSubscriptionEventRequest
+	(*PancakeSubscriptionEvent)(nil),              // 40: lmm.core.v1.PancakeSubscriptionEvent
+	(*MutationContext)(nil),                       // 41: lmm.core.v1.MutationContext
 }
 var file_lmm_core_v1_payments_proto_depIdxs = []int32{
 	1,  // 0: lmm.core.v1.ProviderEvidence.payment:type_name -> lmm.core.v1.ExternalPaymentReference
 	2,  // 1: lmm.core.v1.AcceptProviderProofRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
 	1,  // 2: lmm.core.v1.ProviderProofReceipt.payment:type_name -> lmm.core.v1.ExternalPaymentReference
-	31, // 3: lmm.core.v1.PrepareTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	31, // 4: lmm.core.v1.PreparePersonalTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	31, // 5: lmm.core.v1.CreditTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 3: lmm.core.v1.PrepareTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 4: lmm.core.v1.PreparePersonalTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 5: lmm.core.v1.CreditTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 6: lmm.core.v1.CreditTopupRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
-	31, // 7: lmm.core.v1.HoldRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	31, // 8: lmm.core.v1.ResolveRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 7: lmm.core.v1.HoldRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 8: lmm.core.v1.ResolveRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 9: lmm.core.v1.ResolveRefundRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
-	31, // 10: lmm.core.v1.ExternalRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 10: lmm.core.v1.ExternalRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 11: lmm.core.v1.ExternalRefundRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
 	0,  // 12: lmm.core.v1.PaymentReceipt.state:type_name -> lmm.core.v1.PaymentReceiptState
 	16, // 13: lmm.core.v1.PaymentStateChangedEvent.receipt:type_name -> lmm.core.v1.PaymentReceipt
-	31, // 14: lmm.core.v1.CreditLegacyTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	41, // 14: lmm.core.v1.CreditLegacyTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	0,  // 15: lmm.core.v1.LegacyPaymentReceipt.state:type_name -> lmm.core.v1.PaymentReceiptState
-	31, // 16: lmm.core.v1.PrepareEPayPurchaseRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	10, // 17: lmm.core.v1.EPaySubscriptionOrder.checkout:type_name -> lmm.core.v1.EPayCheckout
-	18, // 18: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:input_type -> lmm.core.v1.AcceptLegacyProviderProofRequest
-	19, // 19: lmm.core.v1.CorePayments.GetLegacyProviderProof:input_type -> lmm.core.v1.GetLegacyProviderProofRequest
-	21, // 20: lmm.core.v1.CorePayments.CreditLegacyTopup:input_type -> lmm.core.v1.CreditLegacyTopupRequest
-	3,  // 21: lmm.core.v1.CorePayments.AcceptProviderProof:input_type -> lmm.core.v1.AcceptProviderProofRequest
-	4,  // 22: lmm.core.v1.CorePayments.GetProviderProof:input_type -> lmm.core.v1.GetProviderProofRequest
-	6,  // 23: lmm.core.v1.CorePayments.PrepareTopup:input_type -> lmm.core.v1.PrepareTopupRequest
-	7,  // 24: lmm.core.v1.CorePayments.PreparePersonalTopup:input_type -> lmm.core.v1.PreparePersonalTopupRequest
-	9,  // 25: lmm.core.v1.CorePayments.GetEPayCheckout:input_type -> lmm.core.v1.GetEPayCheckoutRequest
-	11, // 26: lmm.core.v1.CorePayments.CreditTopup:input_type -> lmm.core.v1.CreditTopupRequest
-	12, // 27: lmm.core.v1.CorePayments.HoldRefund:input_type -> lmm.core.v1.HoldRefundRequest
-	13, // 28: lmm.core.v1.CorePayments.BeginRefundDispatch:input_type -> lmm.core.v1.ResolveRefundRequest
-	13, // 29: lmm.core.v1.CorePayments.CommitRefund:input_type -> lmm.core.v1.ResolveRefundRequest
-	13, // 30: lmm.core.v1.CorePayments.ReleaseRefund:input_type -> lmm.core.v1.ResolveRefundRequest
-	14, // 31: lmm.core.v1.CorePayments.ApplyExternalRefund:input_type -> lmm.core.v1.ExternalRefundRequest
-	15, // 32: lmm.core.v1.CorePayments.GetPaymentReceipt:input_type -> lmm.core.v1.GetPaymentReceiptRequest
-	23, // 33: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
-	24, // 34: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	24, // 35: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	24, // 36: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	26, // 37: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
-	27, // 38: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
-	29, // 39: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:input_type -> lmm.core.v1.ApplyEPaySubscriptionGrantRequest
-	20, // 40: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
-	20, // 41: lmm.core.v1.CorePayments.GetLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
-	22, // 42: lmm.core.v1.CorePayments.CreditLegacyTopup:output_type -> lmm.core.v1.LegacyPaymentReceipt
-	5,  // 43: lmm.core.v1.CorePayments.AcceptProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
-	5,  // 44: lmm.core.v1.CorePayments.GetProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
-	8,  // 45: lmm.core.v1.CorePayments.PrepareTopup:output_type -> lmm.core.v1.PaymentIntent
-	8,  // 46: lmm.core.v1.CorePayments.PreparePersonalTopup:output_type -> lmm.core.v1.PaymentIntent
-	10, // 47: lmm.core.v1.CorePayments.GetEPayCheckout:output_type -> lmm.core.v1.EPayCheckout
-	16, // 48: lmm.core.v1.CorePayments.CreditTopup:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 49: lmm.core.v1.CorePayments.HoldRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 50: lmm.core.v1.CorePayments.BeginRefundDispatch:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 51: lmm.core.v1.CorePayments.CommitRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 52: lmm.core.v1.CorePayments.ReleaseRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 53: lmm.core.v1.CorePayments.ApplyExternalRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 54: lmm.core.v1.CorePayments.GetPaymentReceipt:output_type -> lmm.core.v1.PaymentReceipt
-	25, // 55: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
-	10, // 56: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:output_type -> lmm.core.v1.EPayCheckout
-	25, // 57: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
-	25, // 58: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
-	28, // 59: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
-	28, // 60: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
-	30, // 61: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:output_type -> lmm.core.v1.EPaySubscriptionGrant
-	40, // [40:62] is the sub-list for method output_type
-	18, // [18:40] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	28, // 16: lmm.core.v1.StripeSubscriptionOrder.order:type_name -> lmm.core.v1.EPaySubscriptionOrder
+	23, // 17: lmm.core.v1.StripeSubscriptionOrder.price:type_name -> lmm.core.v1.StripeSubscriptionPrice
+	41, // 18: lmm.core.v1.PrepareEPayPurchaseRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	10, // 19: lmm.core.v1.EPaySubscriptionOrder.checkout:type_name -> lmm.core.v1.EPayCheckout
+	28, // 20: lmm.core.v1.PancakeSubscriptionOrder.order:type_name -> lmm.core.v1.EPaySubscriptionOrder
+	34, // 21: lmm.core.v1.PancakeSubscriptionOrder.price:type_name -> lmm.core.v1.PancakeSubscriptionPrice
+	35, // 22: lmm.core.v1.PancakeSubscriptionOrders.orders:type_name -> lmm.core.v1.PancakeSubscriptionOrder
+	18, // 23: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:input_type -> lmm.core.v1.AcceptLegacyProviderProofRequest
+	19, // 24: lmm.core.v1.CorePayments.GetLegacyProviderProof:input_type -> lmm.core.v1.GetLegacyProviderProofRequest
+	21, // 25: lmm.core.v1.CorePayments.CreditLegacyTopup:input_type -> lmm.core.v1.CreditLegacyTopupRequest
+	3,  // 26: lmm.core.v1.CorePayments.AcceptProviderProof:input_type -> lmm.core.v1.AcceptProviderProofRequest
+	4,  // 27: lmm.core.v1.CorePayments.GetProviderProof:input_type -> lmm.core.v1.GetProviderProofRequest
+	6,  // 28: lmm.core.v1.CorePayments.PrepareTopup:input_type -> lmm.core.v1.PrepareTopupRequest
+	7,  // 29: lmm.core.v1.CorePayments.PreparePersonalTopup:input_type -> lmm.core.v1.PreparePersonalTopupRequest
+	9,  // 30: lmm.core.v1.CorePayments.GetEPayCheckout:input_type -> lmm.core.v1.GetEPayCheckoutRequest
+	11, // 31: lmm.core.v1.CorePayments.CreditTopup:input_type -> lmm.core.v1.CreditTopupRequest
+	12, // 32: lmm.core.v1.CorePayments.HoldRefund:input_type -> lmm.core.v1.HoldRefundRequest
+	13, // 33: lmm.core.v1.CorePayments.BeginRefundDispatch:input_type -> lmm.core.v1.ResolveRefundRequest
+	13, // 34: lmm.core.v1.CorePayments.CommitRefund:input_type -> lmm.core.v1.ResolveRefundRequest
+	13, // 35: lmm.core.v1.CorePayments.ReleaseRefund:input_type -> lmm.core.v1.ResolveRefundRequest
+	14, // 36: lmm.core.v1.CorePayments.ApplyExternalRefund:input_type -> lmm.core.v1.ExternalRefundRequest
+	15, // 37: lmm.core.v1.CorePayments.GetPaymentReceipt:input_type -> lmm.core.v1.GetPaymentReceiptRequest
+	26, // 38: lmm.core.v1.CoreSubscriptionPayments.PreparePancakePurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	27, // 39: lmm.core.v1.CoreSubscriptionPayments.ConfirmPancakePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	27, // 40: lmm.core.v1.CoreSubscriptionPayments.ReadPancakePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	36, // 41: lmm.core.v1.CoreSubscriptionPayments.ListPancakePurchases:input_type -> lmm.core.v1.ListPancakePurchasesRequest
+	38, // 42: lmm.core.v1.CoreSubscriptionPayments.AcceptPancakeSubscriptionEvent:input_type -> lmm.core.v1.AcceptPancakeSubscriptionEventRequest
+	39, // 43: lmm.core.v1.CoreSubscriptionPayments.GetPancakeSubscriptionEvent:input_type -> lmm.core.v1.GetPancakeSubscriptionEventRequest
+	26, // 44: lmm.core.v1.CoreSubscriptionPayments.PrepareStripePurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	27, // 45: lmm.core.v1.CoreSubscriptionPayments.ConfirmStripePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	27, // 46: lmm.core.v1.CoreSubscriptionPayments.ReadStripePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	29, // 47: lmm.core.v1.CoreSubscriptionPayments.AcceptStripeSubscriptionEvent:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
+	30, // 48: lmm.core.v1.CoreSubscriptionPayments.GetStripeSubscriptionEvent:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
+	26, // 49: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	27, // 50: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	27, // 51: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	27, // 52: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	29, // 53: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
+	30, // 54: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
+	32, // 55: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:input_type -> lmm.core.v1.ApplyEPaySubscriptionGrantRequest
+	20, // 56: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
+	20, // 57: lmm.core.v1.CorePayments.GetLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
+	22, // 58: lmm.core.v1.CorePayments.CreditLegacyTopup:output_type -> lmm.core.v1.LegacyPaymentReceipt
+	5,  // 59: lmm.core.v1.CorePayments.AcceptProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
+	5,  // 60: lmm.core.v1.CorePayments.GetProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
+	8,  // 61: lmm.core.v1.CorePayments.PrepareTopup:output_type -> lmm.core.v1.PaymentIntent
+	8,  // 62: lmm.core.v1.CorePayments.PreparePersonalTopup:output_type -> lmm.core.v1.PaymentIntent
+	10, // 63: lmm.core.v1.CorePayments.GetEPayCheckout:output_type -> lmm.core.v1.EPayCheckout
+	16, // 64: lmm.core.v1.CorePayments.CreditTopup:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 65: lmm.core.v1.CorePayments.HoldRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 66: lmm.core.v1.CorePayments.BeginRefundDispatch:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 67: lmm.core.v1.CorePayments.CommitRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 68: lmm.core.v1.CorePayments.ReleaseRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 69: lmm.core.v1.CorePayments.ApplyExternalRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 70: lmm.core.v1.CorePayments.GetPaymentReceipt:output_type -> lmm.core.v1.PaymentReceipt
+	35, // 71: lmm.core.v1.CoreSubscriptionPayments.PreparePancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
+	35, // 72: lmm.core.v1.CoreSubscriptionPayments.ConfirmPancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
+	35, // 73: lmm.core.v1.CoreSubscriptionPayments.ReadPancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
+	37, // 74: lmm.core.v1.CoreSubscriptionPayments.ListPancakePurchases:output_type -> lmm.core.v1.PancakeSubscriptionOrders
+	40, // 75: lmm.core.v1.CoreSubscriptionPayments.AcceptPancakeSubscriptionEvent:output_type -> lmm.core.v1.PancakeSubscriptionEvent
+	40, // 76: lmm.core.v1.CoreSubscriptionPayments.GetPancakeSubscriptionEvent:output_type -> lmm.core.v1.PancakeSubscriptionEvent
+	24, // 77: lmm.core.v1.CoreSubscriptionPayments.PrepareStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
+	24, // 78: lmm.core.v1.CoreSubscriptionPayments.ConfirmStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
+	24, // 79: lmm.core.v1.CoreSubscriptionPayments.ReadStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
+	25, // 80: lmm.core.v1.CoreSubscriptionPayments.AcceptStripeSubscriptionEvent:output_type -> lmm.core.v1.StripeSubscriptionEvent
+	25, // 81: lmm.core.v1.CoreSubscriptionPayments.GetStripeSubscriptionEvent:output_type -> lmm.core.v1.StripeSubscriptionEvent
+	28, // 82: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
+	10, // 83: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:output_type -> lmm.core.v1.EPayCheckout
+	28, // 84: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
+	28, // 85: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
+	31, // 86: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
+	31, // 87: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
+	33, // 88: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:output_type -> lmm.core.v1.EPaySubscriptionGrant
+	56, // [56:89] is the sub-list for method output_type
+	23, // [23:56] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_lmm_core_v1_payments_proto_init() }
@@ -2625,14 +3750,18 @@ func file_lmm_core_v1_payments_proto_init() {
 		return
 	}
 	file_lmm_core_v1_commands_proto_init()
+	file_lmm_core_v1_payments_proto_msgTypes[23].OneofWrappers = []any{}
 	file_lmm_core_v1_payments_proto_msgTypes[24].OneofWrappers = []any{}
+	file_lmm_core_v1_payments_proto_msgTypes[27].OneofWrappers = []any{}
+	file_lmm_core_v1_payments_proto_msgTypes[34].OneofWrappers = []any{}
+	file_lmm_core_v1_payments_proto_msgTypes[39].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmm_core_v1_payments_proto_rawDesc), len(file_lmm_core_v1_payments_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   30,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
