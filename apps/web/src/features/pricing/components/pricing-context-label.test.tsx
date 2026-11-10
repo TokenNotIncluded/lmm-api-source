@@ -384,3 +384,45 @@ test('toolbar explains a shared account price without claiming an old 1x basis',
   assert.match(note, /Prices include your account discount/)
   assert.doesNotMatch(note, /base price \(1×\)/)
 })
+
+test('usage-priced images show an operation reservation without a fictional per-image price', () => {
+  const model: PricingModel = {
+    ...accountModel,
+    image_variants: [
+      {
+        group: 'standard',
+        model: 'image-model',
+        endpoint: 'generations',
+        size: '1024x1024',
+        quality: 'standard',
+        max_n: 4,
+        count_basis: {
+          native_tokens: {
+            source_expression: 'tier("standard", p * 5 + img_o * 30)',
+            billing_price_key: 'image-model',
+            source_sha256: 'a'.repeat(64),
+            currency_basis: 'legacy_pricing_unit',
+            credits_per_usd: 500000,
+            usd_multiplier: { numerator: 1, denominator: 1 },
+            max_input_tokens: 4096,
+            max_output_tokens: 8192,
+          },
+        },
+        usd_micros_per_image: null,
+        credits_per_image: null,
+        reservation_credits_for_one: 140000,
+        reservation_scope: 'per_operation',
+        rounding: 'half_up_total_credits_positive_minimum',
+        pricing_version: 4,
+      },
+    ],
+  }
+  const page = render(<ImagePrices model={model} />)
+  assert.match(page.textContent ?? '', /Usage-based billing/)
+  assert.match(page.textContent ?? '', /Reservation per request140000 Credits/)
+  assert.match(page.textContent ?? '', /Actual token usage/)
+  assert.doesNotMatch(
+    page.textContent ?? '',
+    /0 USD|140000 Credits \/ Image|Charges round up/
+  )
+})

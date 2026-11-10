@@ -45,6 +45,10 @@ const userPrice = z.discriminatedUnion('status', [
     .strict(),
 ])
 
+const imageTokenRatio = z
+  .object({ numerator: safeInteger, denominator: safeInteger.positive() })
+  .strict()
+
 export const nativeImageVariantSchema = z
   .object({
     endpoint: z.enum(['generations', 'edits']),
@@ -52,16 +56,76 @@ export const nativeImageVariantSchema = z
     size: identifier,
     quality: identifier,
     max_n: safeInteger.positive(),
-    count_basis: z.enum(['requested', 'returned_payloads']),
-    usd_micros_per_image: fraction,
-    credits_per_image: fraction,
+    count_basis: z.union([
+      z.enum(['requested', 'returned_payloads']),
+      z
+        .object({
+          native_tokens: z
+            .object({
+              source_expression: z.string().min(1),
+              billing_price_key: identifier,
+              source_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+              currency_basis: z.literal('legacy_pricing_unit'),
+              credits_per_usd: z.literal(500000),
+              usd_multiplier: z
+                .object({
+                  numerator: safeInteger,
+                  denominator: safeInteger.positive(),
+                })
+                .strict(),
+              max_input_tokens: safeInteger.positive(),
+              max_output_tokens: safeInteger.positive(),
+            })
+            .strict(),
+        })
+        .strict(),
+      z
+        .object({
+          legacy_token_ratio: z
+            .object({
+              billing_price_key: identifier,
+              model_ratio: imageTokenRatio,
+              completion_ratio: imageTokenRatio,
+              cache_ratio: imageTokenRatio,
+              image_ratio: imageTokenRatio,
+              legacy_quota_per_unit: z.literal(500000),
+              credits_per_usd: z.literal(500000),
+              usd_multiplier: imageTokenRatio,
+              max_input_tokens: safeInteger.positive(),
+              max_output_tokens: safeInteger.positive(),
+            })
+            .strict(),
+        })
+        .strict(),
+    ]),
+    usd_micros_per_image: fraction.nullable(),
+    credits_per_image: fraction.nullable(),
     reservation_credits_for_one: safeInteger,
-    rounding: z.literal('ceil_total_credits'),
+    reservation_scope: z.enum(['per_operation', 'per_image']).optional(),
+    rounding: z.enum([
+      'ceil_total_credits',
+      'half_up_total_credits_positive_minimum',
+    ]),
     pricing_version: safeInteger,
   })
   .refine((variant) => {
     const micros = variant.usd_micros_per_image
     const credits = variant.credits_per_image
+    if (typeof variant.count_basis === 'object') {
+      return (
+        micros === null &&
+        credits === null &&
+        variant.rounding === 'half_up_total_credits_positive_minimum' &&
+        variant.reservation_scope === 'per_operation'
+      )
+    }
+    if (
+      micros === null ||
+      credits === null ||
+      variant.rounding !== 'ceil_total_credits' ||
+      variant.reservation_scope === 'per_operation'
+    )
+      return false
     return (
       BigInt(micros.numerator) * 500_000n * BigInt(credits.denominator) ===
       BigInt(credits.numerator) * 1_000_000n * BigInt(micros.denominator)

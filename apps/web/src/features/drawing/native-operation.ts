@@ -60,18 +60,33 @@ export function clearDrawingOperation(userId: number, requestId: string): void {
   }
 }
 
-export const imageCapabilitySchema = z.object({
-  model: identity,
-  group: identity,
-  endpoint: z.enum(['generations', 'edits']),
-  size: z.string().min(1).max(64),
-  quality: z.string().min(1).max(64),
-  max_n: z.number().int().min(1).max(4),
-  credits_per_image: z.number().int().nonnegative().safe(),
-  max_reference_images: z.number().int().min(0).max(8),
-  max_reference_bytes: z.number().int().min(0).max(10485760),
-  max_total_reference_bytes: z.number().int().min(0).max(16777216),
-})
+export const imageCapabilitySchema = z
+  .object({
+    model: identity,
+    group: identity,
+    endpoint: z.enum(['generations', 'edits']),
+    size: z.string().min(1).max(64),
+    quality: z.string().min(1).max(64),
+    max_n: z.number().int().min(1).max(4),
+    credits_per_image: z.number().int().nonnegative().safe().nullable(),
+    reservation_credits_for_one: z
+      .number()
+      .int()
+      .nonnegative()
+      .safe()
+      .optional(),
+    reservation_scope: z.enum(['per_operation', 'per_image']).optional(),
+    max_reference_images: z.number().int().min(0).max(8),
+    max_reference_bytes: z.number().int().min(0).max(10485760),
+    max_total_reference_bytes: z.number().int().min(0).max(16777216),
+  })
+  .refine(
+    (value) =>
+      value.credits_per_image !== null ||
+      (value.reservation_scope === 'per_operation' &&
+        value.reservation_credits_for_one !== undefined),
+    'Usage-priced images require an operation reservation'
+  )
 export type ImageCapability = z.infer<typeof imageCapabilitySchema>
 export const imageCapabilitiesSchema = z.object({
   models: z.array(imageCapabilitySchema).max(4096),

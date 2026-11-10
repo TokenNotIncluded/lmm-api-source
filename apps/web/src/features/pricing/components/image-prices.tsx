@@ -46,25 +46,53 @@ export function ImagePrices({ model }: { model: PricingModel }) {
               )}
             </dt>
             <dd className='font-mono break-all tabular-nums'>
-              {formatImageVariantUSD(variant)} / {t('Image')}
+              {variant.usd_micros_per_image === null ? (
+                t('Usage-based billing')
+              ) : (
+                <>
+                  {formatImageVariantUSD(variant)} / {t('Image')}
+                </>
+              )}
             </dd>
-            <dt className='text-muted-foreground'>Credits</dt>
+            <dt className='text-muted-foreground'>
+              {variant.credits_per_image === null
+                ? t('Reservation per request')
+                : 'Credits'}
+            </dt>
             <dd className='font-mono break-all tabular-nums'>
-              {formatImageVariantCredits(variant)} / {t('Image')}
+              {variant.credits_per_image === null ? (
+                `${variant.reservation_credits_for_one} Credits`
+              ) : (
+                <>
+                  {formatImageVariantCredits(variant)} / {t('Image')}
+                </>
+              )}
             </dd>
-            <dt className='text-muted-foreground'>{t('Billed image count')}</dt>
+            <dt className='text-muted-foreground'>
+              {t(
+                typeof variant.count_basis === 'object'
+                  ? 'Billing basis'
+                  : 'Billed image count'
+              )}
+            </dt>
             <dd>
               {t(
-                variant.count_basis === 'requested'
-                  ? 'Requested images'
-                  : 'Returned images'
+                typeof variant.count_basis === 'object'
+                  ? 'Actual token usage'
+                  : variant.count_basis === 'requested'
+                    ? 'Requested images'
+                    : 'Returned images'
               )}
             </dd>
             <dt className='text-muted-foreground'>{t('Maximum images')}</dt>
             <dd>{variant.max_n}</dd>
           </dl>
           <p className='text-muted-foreground text-xs'>
-            {t('Charges round up to whole Credits per request.')}
+            {t(
+              typeof variant.count_basis === 'object'
+                ? 'Charges round to the nearest whole Credit per request, with a minimum of 1 Credit for a positive charge.'
+                : 'Charges round up to whole Credits per request.'
+            )}
           </p>
         </div>
       ))}

@@ -405,7 +405,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     (variant) =>
       variant.size === selectedSize && variant.quality === selectedQuality
   )
-  const estimateCredits = selectedVariant
+  const estimateCredits = selectedVariant?.credits_per_image
     ? (() => {
         const numerator =
           BigInt(selectedVariant.credits_per_image.numerator) *
@@ -915,6 +915,14 @@ function DrawingWorkbench({ userId }: { userId: number }) {
             {t(
               'Estimated image cost: {{credits}} Credits. Final reservation is shown in the confirmation.',
               { credits: estimateCredits }
+            )}
+          </p>
+        ) : selectedVariant &&
+          typeof selectedVariant.count_basis === 'object' ? (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Usage-based image pricing. Reservation per request: {{credits}} Credits. Confirm before submitting.',
+              { credits: selectedVariant.reservation_credits_for_one }
             )}
           </p>
         ) : null}
@@ -1485,7 +1493,9 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                     {operation.confirmationExpiresAt > nowUnix
                       ? t(
                           'Image confirmation expires in {{seconds}} seconds.',
-                          { seconds: operation.confirmationExpiresAt - nowUnix }
+                          {
+                            seconds: operation.confirmationExpiresAt - nowUnix,
+                          }
                         )
                       : t(
                           'Image confirmation expired. Check the original request.'

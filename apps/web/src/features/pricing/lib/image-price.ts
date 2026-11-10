@@ -16,14 +16,18 @@ function exactFraction(numerator: bigint, denominator: bigint): string {
     : `${numerator}/${denominator}`
 }
 
-export function formatImageVariantUSD(variant: PricingImageVariant): string {
+export function formatImageVariantUSD(
+  variant: PricingImageVariant
+): string | null {
   const price = variant.usd_micros_per_image
+  if (price === null) return null
   return `${exactFraction(BigInt(price.numerator), BigInt(price.denominator) * 1_000_000n)} USD`
 }
 
 export function formatImageVariantCredits(
   variant: PricingImageVariant
-): string {
+): string | null {
   const price = variant.credits_per_image
+  if (price === null) return null
   return `${exactFraction(BigInt(price.numerator), BigInt(price.denominator))} Credits`
 }

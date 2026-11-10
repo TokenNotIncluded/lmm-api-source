@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import { adaptNativePricing } from './catalog-adapter'
 import {
   nativePricingSchema,
+  nativeImageVariantSchema,
   nativeRuntimeSchema,
   nativeUpstreamCostPriceSchema,
   type NativeCacheWrite12hTier,
@@ -724,4 +725,77 @@ test('12-hour cache pricing keeps each group and tier without a fictional scalar
       ?.cache_write_12h_tiers,
     undefined
   )
+})
+
+test('usage-priced image variants preserve null prices and operation reservation', () => {
+  const variant = {
+    endpoint: 'generations',
+    size: '1024x1024',
+    quality: 'standard',
+    max_n: 4,
+    count_basis: {
+      native_tokens: {
+        source_expression: 'tier("standard", p * 5 + img_o * 30)',
+        billing_price_key: 'native-image',
+        source_sha256: 'a'.repeat(64),
+        currency_basis: 'legacy_pricing_unit',
+        credits_per_usd: 500000,
+        usd_multiplier: { numerator: 1, denominator: 1 },
+        max_input_tokens: 4096,
+        max_output_tokens: 8192,
+      },
+    },
+    usd_micros_per_image: null,
+    credits_per_image: null,
+    reservation_credits_for_one: 140000,
+    reservation_scope: 'per_operation',
+    rounding: 'half_up_total_credits_positive_minimum',
+    pricing_version: 4,
+  }
+  const input = fixture()
+  input.models = [
+    {
+      id: 'native-image',
+      model: 'native-image',
+      group: 'standard',
+      apis: ['openai-images-generations'],
+      billing_status: 'configured',
+      token_price: null,
+      image_variants: [nativeImageVariantSchema.parse(variant)],
+    },
+  ]
+  const model = adaptNativePricing(nativePricingSchema.parse(input)).data[0]
+  const image = model.image_variants?.[0]
+  assert.ok(image)
+  assert.equal(formatImageVariantUSD(image), null)
+  assert.equal(formatImageVariantCredits(image), null)
+  assert.equal(image.reservation_scope, 'per_operation')
+  assert.equal(image.reservation_credits_for_one, 140000)
+  const ratioVariant = nativeImageVariantSchema.parse({
+    ...variant,
+    count_basis: {
+      legacy_token_ratio: {
+        billing_price_key: 'image-ratio',
+        model_ratio: { numerator: 1, denominator: 4 },
+        completion_ratio: { numerator: 6, denominator: 1 },
+        cache_ratio: { numerator: 1, denominator: 10 },
+        image_ratio: { numerator: 1, denominator: 1 },
+        legacy_quota_per_unit: 500000,
+        credits_per_usd: 500000,
+        usd_multiplier: { numerator: 1, denominator: 1 },
+        max_input_tokens: 4096,
+        max_output_tokens: 8192,
+      },
+    },
+  })
+  assert.equal(ratioVariant.credits_per_image, null)
+  assert.equal(ratioVariant.reservation_scope, 'per_operation')
+  for (const wrong of [
+    { ...variant, reservation_scope: 'per_image' },
+    { ...variant, reservation_scope: undefined },
+    { ...variant, credits_per_image: { numerator: '0', denominator: '1' } },
+    { ...variant, rounding: 'ceil_total_credits' },
+    { ...variant, count_basis: 'requested' },
+  ])
+    assert.equal(nativeImageVariantSchema.safeParse(wrong).success, false)
 })

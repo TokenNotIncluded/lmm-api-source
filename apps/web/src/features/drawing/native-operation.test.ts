@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import {
   clearDrawingOperation,
   imageConfirmationURL,
+  imageCapabilitySchema,
   readDrawingOperation,
   referenceImageMetadata,
   saveDrawingOperation,
@@ -122,5 +123,37 @@ test('reference image metadata freezes original bytes in order and rejects limit
         type: 'image/png',
       }),
     ])
+  )
+})
+
+test('usage-priced capabilities require a reservation and never substitute zero price', () => {
+  const capability = {
+    model: 'image',
+    group: 'standard',
+    endpoint: 'generations',
+    size: '1024x1024',
+    quality: 'standard',
+    max_n: 4,
+    credits_per_image: null,
+    reservation_credits_for_one: 140000,
+    reservation_scope: 'per_operation',
+    max_reference_images: 0,
+    max_reference_bytes: 0,
+    max_total_reference_bytes: 0,
+  }
+  assert.equal(imageCapabilitySchema.parse(capability).credits_per_image, null)
+  assert.equal(
+    imageCapabilitySchema.safeParse({
+      ...capability,
+      reservation_scope: 'per_image',
+    }).success,
+    false
+  )
+  assert.equal(
+    imageCapabilitySchema.safeParse({
+      ...capability,
+      reservation_credits_for_one: undefined,
+    }).success,
+    false
   )
 })
