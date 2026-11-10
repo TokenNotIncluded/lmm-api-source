@@ -666,7 +666,7 @@ mod tests {
 
     #[test]
     fn deferred_capture_and_body_encoding_keep_the_selected_route_policy() {
-        let body = br#"{"model":"m","service_tier":"priority","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"answer","parameters":{"type":"object","properties":{"z":{"type":"string"},"a":{"type":"string"}}}}}]}"#;
+        let body = br#"{"model":"m","service_tier":"default","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"answer","parameters":{"type":"object","properties":{"z":{"type":"string"},"a":{"type":"string"}}}}}]}"#;
         let request =
             request::Request::parse_deferred_openai(ClientProtocol::Chat, body, &Limits::default())
                 .unwrap();
@@ -731,7 +731,7 @@ mod tests {
                 "{text}"
             );
         }
-        let deferred = br#"{"model":"m","service_tier":"priority","messages":[{"role":"user","content":"hi"}]}"#;
+        let deferred = br#"{"model":"m","service_tier":"default","messages":[{"role":"user","content":"hi"}]}"#;
         let request = request::Request::parse_deferred_openai(
             ClientProtocol::Chat,
             deferred,

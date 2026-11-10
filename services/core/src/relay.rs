@@ -12,24 +12,29 @@ mod keepalive;
 mod native;
 pub(crate) mod native_anthropic;
 pub(crate) mod native_gemini;
+#[cfg(test)]
+mod openrouter_tests;
 pub(crate) mod provider_network;
 mod request;
 mod schema_order;
 mod sse;
 #[cfg(test)]
+mod standard_only_tests;
+#[cfg(test)]
 mod tests;
 mod types;
 mod vision;
+mod zconv_request;
 #[cfg(test)]
 mod vision_tests;
+pub(crate) use decode::Decoder as AssistantDecoder;
 #[cfg(test)]
 pub(crate) use decode::usage as provider_usage;
 pub(crate) use decode::usage_with_cache_creation_mode as provider_usage_with_cache_creation_mode;
-pub(crate) use decode::Decoder as AssistantDecoder;
 pub(crate) use encode::Encoder as AssistantEncoder;
-pub(crate) use sse::Parser as AssistantSseParser;
 pub use input_count::CountObservation;
 pub use request::{FunctionTool, InputBlock, Message, Request, Role, ToolChoice};
+pub(crate) use sse::Parser as AssistantSseParser;
 pub use types::*;
 pub use vision::ImageInput;
 
@@ -536,9 +541,10 @@ impl Worker {
     async fn events(&mut self, events: Vec<Event>) -> Result<(), RelayError> {
         if self.request.stream
             && self.report.timings.first_output_us.is_none()
-            && events
-                .iter()
-                .any(|event| matches!(event, Event::Delta { text, .. } if !text.is_empty()))
+            && events.iter().any(|event| {
+                matches!(event, Event::Delta { text, .. } if !text.is_empty())
+                    || matches!(event, Event::Images(images) if !images.is_empty())
+            })
         {
             self.report.timings.first_output_us =
                 u64::try_from(self.started.elapsed().as_micros()).ok();

@@ -26,6 +26,7 @@ pub(crate) struct Decoder {
     finish: Option<FinishReason>,
     blocks: BTreeMap<Key, Slot>,
     max_blocks: usize,
+    image_count: usize,
     event_bytes: usize,
     gemini_calls: u64,
     gemini_grounded_requests: Option<u8>,
@@ -393,6 +394,7 @@ impl Decoder {
             finish: None,
             blocks: BTreeMap::new(),
             max_blocks: limits.max_blocks,
+            image_count: 0,
             event_bytes: limits.event_bytes,
             gemini_calls: 0,
             gemini_grounded_requests: None,
@@ -451,7 +453,7 @@ impl Decoder {
             }
             return Ok(s.index);
         }
-        if self.blocks.len() >= self.max_blocks {
+        if self.blocks.len() + self.image_count >= self.max_blocks {
             return Err(RelayError::Limit("output block count"));
         }
         if let BlockKind::Tool { id, name } = &kind {
@@ -753,6 +755,35 @@ impl Decoder {
             ] {
                 if let Some(s) = d.get(field).filter(|s| !s.is_null()) {
                     self.simple(key, kind, text(s)?, out)?;
+                }
+            }
+            if let Some(images) = d.get("images").filter(|v| !v.is_null()) {
+                let images = images
+                    .as_array()
+                    .ok_or(RelayError::Protocol("invalid Chat images"))?;
+                if !images.is_empty() {
+                    if self.finish.is_some() {
+                        return Err(RelayError::Protocol("images after finish"));
+                    }
+                    if images.len()
+                        > self
+                            .max_blocks
+                            .saturating_sub(self.blocks.len() + self.image_count)
+                    {
+                        return Err(RelayError::Limit("output block count"));
+                    }
+                    for image in images {
+                        if image["type"].as_str() != Some("image_url")
+                            || image["image_url"]["url"].as_str().is_none_or(|url| {
+                                url.is_empty() || url.chars().any(char::is_control)
+                            })
+                            || image.get("index").is_some_and(|i| i.as_u64().is_none())
+                        {
+                            return Err(RelayError::Protocol("invalid Chat image"));
+                        }
+                    }
+                    self.image_count += images.len();
+                    out.push(Event::Images(images.clone()));
                 }
             }
             if let Some(calls) = d.get("tool_calls").filter(|v| !v.is_null()) {

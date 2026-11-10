@@ -101,6 +101,8 @@ pub struct Request {
     pub(super) anthropic_cached_prompt: Option<Map<String, Value>>,
     /// Validated Chat image controls, only emitted on a Gemini route.
     image_config: Option<ImageConfig>,
+    /// Explicit OpenRouter Chat controls, emitted only by its selected contract.
+    openrouter: Map<String, Value>,
     pub(crate) include_usage: bool,
     /// Gemini Long Decode token. Present only when the native request sent a
     /// non-empty `continuationToken`. Other protocols cannot replay it.
@@ -317,6 +319,67 @@ impl ImageConfig {
     }
 }
 
+fn openrouter_options(v: &Value) -> Result<Map<String, Value>, RelayError> {
+    let mut options = Map::new();
+    for name in ["modalities", "image_config", "usage", "reasoning"] {
+        let Some(value) = v.get(name).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        match name {
+            "modalities" => {
+                let values = value
+                    .as_array()
+                    .ok_or(RelayError::Invalid("invalid modalities"))?;
+                let mut seen = std::collections::BTreeSet::new();
+                if values.is_empty()
+                    || values.len() > 2
+                    || values.iter().any(|v| {
+                        !matches!(v.as_str(), Some("text" | "image"))
+                            || !seen.insert(v.as_str().unwrap())
+                    })
+                {
+                    return Err(RelayError::Invalid("invalid modalities"));
+                }
+            }
+            "image_config" => {
+                keys(value, &["aspect_ratio", "image_size"])?;
+                for (_, v) in object(value)? {
+                    image_config_value(v)?;
+                }
+            }
+            "usage" => {
+                keys(value, &["include"])?;
+                if !value["include"].is_boolean() {
+                    return Err(RelayError::Invalid("invalid usage include"));
+                }
+            }
+            "reasoning" => {
+                keys(value, &["enabled", "effort", "max_tokens", "exclude"])?;
+                for key in ["enabled", "exclude"] {
+                    if value.get(key).is_some_and(|v| !v.is_boolean()) {
+                        return Err(RelayError::Invalid("invalid reasoning boolean"));
+                    }
+                }
+                if value
+                    .get("max_tokens")
+                    .is_some_and(|v| v.as_u64().is_none_or(|n| n == 0 || n > u32::MAX as u64))
+                {
+                    return Err(RelayError::Invalid("invalid reasoning max_tokens"));
+                }
+                if let Some(effort) = value.get("effort") {
+                    image_config_value(effort)?;
+                }
+                if value.get("effort").is_some() && value.get("max_tokens").is_some() {
+                    return Err(RelayError::Invalid("ambiguous reasoning budget"));
+                }
+            }
+            _ => unreachable!(),
+        }
+        options.insert(name.into(), value.clone());
+    }
+    Ok(options)
+}
+
 fn chat_image_config(v: &Value) -> Result<Option<ImageConfig>, RelayError> {
     ImageConfig::parse(v.get("imageConfig"))
 }
@@ -483,6 +546,7 @@ impl Request {
             || !self.stop.is_empty()
             || self.continuation_token.is_some()
             || self.image_config.is_some()
+            || !self.openrouter.is_empty()
             || self.response_format.is_some()
             || !self.compatibility.is_empty()
             || self.messages.iter().any(|message| {
@@ -602,6 +666,10 @@ impl Request {
                     "reasoning_effort",
                     "store",
                     "imageConfig",
+                    "modalities",
+                    "image_config",
+                    "usage",
+                    "reasoning",
                     "response_format",
                 ],
             )?,
@@ -1016,6 +1084,11 @@ impl Request {
             prompt_cache_options,
             anthropic_cached_prompt: None,
             image_config,
+            openrouter: if client == ClientProtocol::Chat {
+                openrouter_options(&v)?
+            } else {
+                Map::new()
+            },
             continuation_token: None,
             compatibility: Map::new(),
             response_format: response_format(&v)?,
@@ -1105,6 +1178,33 @@ impl Request {
 
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
         use crate::routing::PayloadPolicy;
+        if route.payload_policy == PayloadPolicy::OpenRouter {
+            if !self.compatibility.is_empty() {
+                return Err(RelayError::Unsupported(
+                    "legacy OpenAI fields are not OpenRouter controls",
+                ));
+            }
+            if self.client != ClientProtocol::Chat || route.protocol != UpstreamProtocol::Chat {
+                return Err(RelayError::Unsupported("OpenRouter contract requires Chat"));
+            }
+            let mut payload = self.encode_upstream(route.protocol, &route.model)?;
+            let object = payload.as_object_mut().unwrap();
+            object.remove("stream_options");
+            object.remove("reasoning_effort");
+            object.insert("usage".into(), json!({"include":true}));
+            if let Some(effort) = &self.reasoning_effort {
+                if effort != "none" {
+                    object.insert("reasoning".into(), json!({"enabled":true,"effort":effort}));
+                }
+            }
+            object.extend(self.openrouter.clone());
+            return Ok(payload);
+        }
+        if !self.openrouter.is_empty() {
+            return Err(RelayError::Unsupported(
+                "OpenRouter fields require its selected route contract",
+            ));
+        }
         let PayloadPolicy::LegacyOpenai {
             allow_service_tier,
             allow_inference_geo,
@@ -1168,11 +1268,14 @@ impl Request {
                             && !s.chars().any(char::is_control)
                     })
                     .ok_or(RelayError::Invalid("invalid legacy OpenAI string field"))?;
-                if name == "service_tier"
-                    && !["auto", "default", "flex", "priority", "scale", "fast"].contains(&text)
-                    && !(route.protocol == UpstreamProtocol::Responses && text == "ultrafast")
+                // This deployment has only standard prices. Selected provider
+                // compatibility never authorizes an unpriced acceleration tier.
+                if (name == "service_tier" && text != "default")
+                    || (name == "speed" && text != "standard")
                 {
-                    return Err(RelayError::Unsupported("unsupported service tier"));
+                    return Err(RelayError::Unsupported(
+                        "only standard service tier is enabled",
+                    ));
                 }
                 payload[name] = value.clone();
             }
@@ -1187,7 +1290,7 @@ impl Request {
         protocol: UpstreamProtocol,
         model: &str,
     ) -> Result<Value, RelayError> {
-        if !self.compatibility.is_empty() {
+        if !self.compatibility.is_empty() || !self.openrouter.is_empty() {
             return Err(RelayError::Unsupported(
                 "legacy fields require an explicit selected route policy",
             ));
@@ -1227,6 +1330,9 @@ impl Request {
         }
         for m in &self.messages {
             for b in &m.content {
+                if let InputBlock::Image(image) = b {
+                    image.wire(protocol)?;
+                }
                 if protocol == UpstreamProtocol::Anthropic
                     && matches!(
                         b,
@@ -1273,6 +1379,184 @@ impl Request {
             return Err(RelayError::Unsupported(
                 "reasoning effort or strict tools require an OpenAI protocol route",
             ));
+        }
+        let source = match self.client {
+            ClientProtocol::Chat => UpstreamProtocol::Chat,
+            ClientProtocol::Responses => UpstreamProtocol::Responses,
+            ClientProtocol::Anthropic => UpstreamProtocol::Anthropic,
+            ClientProtocol::Gemini => UpstreamProtocol::Gemini,
+        };
+        // Native same-wire controls remain native. The six Chat cross-wire
+        // directions use zconv output, after the existing admission guards.
+        if source != protocol
+            && (source == UpstreamProtocol::Chat || protocol == UpstreamProtocol::Chat)
+        {
+            if protocol == UpstreamProtocol::Responses && !self.stop.is_empty() {
+                return Err(RelayError::Unsupported("Responses stop sequences"));
+            }
+            if protocol == UpstreamProtocol::Anthropic && self.temperature.is_some_and(|t| t > 1.0)
+            {
+                return Err(RelayError::Unsupported("Anthropic temperature exceeds one"));
+            }
+            if protocol == UpstreamProtocol::Gemini && self.parallel_tool_calls == Some(false) {
+                return Err(RelayError::Unsupported(
+                    "Gemini cannot enforce serial tool calls",
+                ));
+            }
+            if matches!(
+                protocol,
+                UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
+            ) {
+                self.split_system()?;
+            }
+            let mut input = match source {
+                UpstreamProtocol::Chat => self.chat(model)?,
+                UpstreamProtocol::Responses => self.responses(model)?,
+                UpstreamProtocol::Anthropic => self.anthropic(model)?,
+                UpstreamProtocol::Gemini => self.gemini()?,
+            };
+            if source == UpstreamProtocol::Responses && protocol == UpstreamProtocol::Chat {
+                // Compatibility resolution for Core's existing selected Chat
+                // route: its old writer omitted None, hence Chat non-strict.
+                // This is NOT OpenAI Responses' automatic schema normalization.
+                // Keep the schema untouched and leave native Responses alone.
+                if let Some(tools) = input.get_mut("tools").and_then(Value::as_array_mut) {
+                    for tool in tools {
+                        if tool.get("strict").is_none_or(Value::is_null) {
+                            tool["strict"] = json!(false);
+                        }
+                    }
+                }
+            }
+            // Core has already validated these provider-specific controls.
+            // zconv owns message/tool conversion; these controls are explicitly
+            // carried around its strict-loss boundary, never silently dropped.
+            for key in [
+                "reasoning_effort",
+                "reasoning",
+                "parallel_tool_calls",
+                "response_format",
+            ] {
+                input.as_object_mut().unwrap().remove(key);
+            }
+            if let Some(choice) = input.get_mut("tool_choice").and_then(Value::as_object_mut) {
+                choice.remove("disable_parallel_tool_use");
+            }
+            if source == UpstreamProtocol::Gemini {
+                if let Some(config) = input
+                    .get_mut("generationConfig")
+                    .and_then(Value::as_object_mut)
+                {
+                    for key in [
+                        "candidateCount",
+                        "responseMimeType",
+                        "responseJsonSchema",
+                        "responseSchema",
+                    ] {
+                        config.remove(key);
+                    }
+                }
+                if let Some(declarations) = input
+                    .pointer_mut("/tools/0/functionDeclarations")
+                    .and_then(Value::as_array_mut)
+                {
+                    for declaration in declarations {
+                        if let Some(schema) = declaration
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("parametersJsonSchema")
+                        {
+                            declaration["parameters"] = schema;
+                        }
+                    }
+                }
+            }
+            let records = 64
+                + self.tools.len() * 8
+                + self
+                    .messages
+                    .iter()
+                    .map(|m| m.content.len() * 4 + 4)
+                    .sum::<usize>();
+            let mut converted = super::zconv_request::convert(
+                source,
+                protocol,
+                input,
+                model,
+                self.max_output_tokens,
+                records,
+            )?;
+            if let Some(effort) = &self.reasoning_effort {
+                if protocol == UpstreamProtocol::Chat {
+                    converted["reasoning_effort"] = json!(effort);
+                } else {
+                    converted["reasoning"] = json!({"effort":effort});
+                }
+            }
+            if let Some(parallel) = self.parallel_tool_calls {
+                match protocol {
+                    UpstreamProtocol::Chat | UpstreamProtocol::Responses => {
+                        converted["parallel_tool_calls"] = json!(parallel)
+                    }
+                    UpstreamProtocol::Anthropic if !self.tools.is_empty() => {
+                        converted["tool_choice"]["disable_parallel_tool_use"] = json!(!parallel)
+                    }
+                    _ => {}
+                }
+            }
+            // Keep Core's existing JSON Schema dialect placement. Tool names,
+            // descriptions, choice and message bodies remain zconv's output.
+            if protocol == UpstreamProtocol::Gemini {
+                if let Some(declarations) = converted
+                    .pointer_mut("/tools/0/functionDeclarations")
+                    .and_then(Value::as_array_mut)
+                {
+                    for (declaration, tool) in declarations.iter_mut().zip(&self.tools) {
+                        declaration.as_object_mut().unwrap().remove("parameters");
+                        let placed = super::gemini_schema::function_parameters(
+                            &tool.parameters,
+                            super::gemini_schema::ACCEPTS_JSON_SCHEMA,
+                        );
+                        if let Some(value) = placed.value {
+                            declaration[placed.field] = value;
+                        }
+                    }
+                }
+            }
+            if self.response_format.is_some() {
+                let native = match protocol {
+                    UpstreamProtocol::Chat => self.chat(model)?,
+                    UpstreamProtocol::Gemini => self.gemini()?,
+                    _ => unreachable!("response format admission above"),
+                };
+                if protocol == UpstreamProtocol::Chat {
+                    converted["response_format"] = native["response_format"].clone();
+                } else {
+                    for key in ["responseMimeType", "responseJsonSchema", "responseSchema"] {
+                        if let Some(value) = native["generationConfig"].get(key) {
+                            converted["generationConfig"][key] = value.clone();
+                        }
+                    }
+                }
+            }
+            // These are Core-owned transport controls, never supplier evidence.
+            if matches!(
+                protocol,
+                UpstreamProtocol::Chat | UpstreamProtocol::Responses
+            ) {
+                converted["store"] = json!(false);
+                converted["stream"] = json!(self.stream);
+            }
+            if protocol == UpstreamProtocol::Chat && self.stream {
+                converted["stream_options"] = json!({"include_usage":true});
+            }
+            if protocol == UpstreamProtocol::Gemini {
+                converted["generationConfig"]["candidateCount"] = json!(1);
+                if let Some(image_config) = &self.image_config {
+                    converted["generationConfig"]["imageConfig"] = image_config.to_gemini_value();
+                }
+            }
+            return Ok(converted);
         }
         match protocol {
             UpstreamProtocol::Chat => self.chat(model),
@@ -1650,5 +1934,293 @@ impl Request {
             v["tools"] = json!([{"googleSearch":{}}]);
         }
         Ok(v)
+    }
+}
+
+#[cfg(test)]
+mod zconv_tests {
+    use super::*;
+    fn parse(protocol: UpstreamProtocol, body: &Value, stream: bool) -> Request {
+        let raw = serde_json::to_vec(body).unwrap();
+        match protocol {
+            UpstreamProtocol::Chat => {
+                Request::parse(ClientProtocol::Chat, &raw, &Limits::default()).unwrap()
+            }
+            UpstreamProtocol::Responses => {
+                Request::parse(ClientProtocol::Responses, &raw, &Limits::default()).unwrap()
+            }
+            UpstreamProtocol::Anthropic => {
+                Request::parse(ClientProtocol::Anthropic, &raw, &Limits::default()).unwrap()
+            }
+            UpstreamProtocol::Gemini => {
+                super::super::native_gemini::parse("provider", stream, &raw, &Limits::default())
+                    .unwrap()
+            }
+        }
+    }
+    fn old(request: &Request, protocol: UpstreamProtocol) -> Value {
+        match protocol {
+            UpstreamProtocol::Chat => request.chat("provider"),
+            UpstreamProtocol::Responses => request.responses("provider"),
+            UpstreamProtocol::Anthropic => request.anthropic("provider"),
+            UpstreamProtocol::Gemini => request.gemini(),
+        }
+        .unwrap()
+    }
+    #[test]
+    fn zconv_six_directions_match_existing_text_tool_image_semantics() {
+        for other in [
+            UpstreamProtocol::Responses,
+            UpstreamProtocol::Anthropic,
+            UpstreamProtocol::Gemini,
+        ] {
+            for (source, target) in [
+                (UpstreamProtocol::Chat, other),
+                (other, UpstreamProtocol::Chat),
+            ] {
+                for stream in [false, true] {
+                    for kind in ["text", "tool", "image"] {
+                        let mut body = json!({"model":"provider","stream":stream,"max_tokens":32,"messages":[{"role":"system","content":"be precise"},{"role":"user","content":"hello"}]});
+                        if kind == "tool" {
+                            body["tools"] = json!([{"type":"function","function":{"name":"weather","description":"Get weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}]);
+                            body["tool_choice"] =
+                                json!({"type":"function","function":{"name":"weather"}});
+                            body["messages"].as_array_mut().unwrap().extend([
+                                json!({"role":"assistant","content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Taipei\"}"}}]}),
+                                json!({"role":"tool","tool_call_id":"call-1","content":"{\"temp\":20}"})]);
+                        }
+                        if kind == "image" {
+                            body["messages"][1]["content"] = json!([{"type":"text","text":"read"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AQID"}}]);
+                        }
+                        let canonical = parse(UpstreamProtocol::Chat, &body, stream);
+                        let source_body = old(&canonical, source);
+                        let mut request = parse(source, &source_body, stream);
+                        request.client = match source {
+                            UpstreamProtocol::Chat => ClientProtocol::Chat,
+                            UpstreamProtocol::Responses => ClientProtocol::Responses,
+                            UpstreamProtocol::Anthropic => ClientProtocol::Anthropic,
+                            UpstreamProtocol::Gemini => ClientProtocol::Gemini,
+                        };
+                        let expected = old(&request, target);
+                        let actual = request.upstream_to(target, "provider").unwrap_or_else(|e| {
+                            panic!("{source:?}->{target:?} {kind} stream={stream}: {e:?}")
+                        });
+                        println!(
+                            "ZCONV_DIFF {source:?}->{target:?} {kind} stream={stream}\nOLD={expected}\nACTUAL={actual}"
+                        );
+                        let mut comparable = expected.clone();
+                        if target == UpstreamProtocol::Chat {
+                            for message in comparable["messages"].as_array_mut().unwrap() {
+                                if message.get("tool_call_id").is_some() {
+                                    // Old writer carried Anthropic's user role
+                                    // into Chat, producing invalid wire. zconv
+                                    // correctly emits Chat's required tool role.
+                                    message["role"] = json!("tool");
+                                }
+                            }
+                            for message in actual["messages"].as_array().unwrap() {
+                                if message.get("tool_call_id").is_some() {
+                                    assert_eq!(message["role"], "tool");
+                                }
+                            }
+                        }
+                        let mut expected_request = parse(target, &comparable, stream);
+                        // zconv direct.rs preserves Chat's non-strict default;
+                        // the old writer incorrectly left Responses' different
+                        // default implicit. Do not erase the explicit false.
+                        if source == UpstreamProtocol::Chat && target == UpstreamProtocol::Responses
+                        {
+                            for tool in &mut expected_request.tools {
+                                if tool.strict.is_none() {
+                                    tool.strict = Some(false);
+                                }
+                            }
+                        }
+                        let actual_request = parse(target, &actual, stream);
+                        if source == UpstreamProtocol::Responses && target == UpstreamProtocol::Chat
+                        {
+                            for tool in &mut expected_request.tools {
+                                if tool.strict.is_none() {
+                                    tool.strict = Some(false);
+                                }
+                            }
+                        }
+                        assert_eq!(
+                            format!("{:?}", actual_request.messages),
+                            format!("{:?}", expected_request.messages),
+                            "{source:?}->{target:?} {kind}"
+                        );
+                        assert_eq!(
+                            format!("{:?}", actual_request.tools),
+                            format!("{:?}", expected_request.tools)
+                        );
+                        assert_eq!(
+                            format!("{:?}", actual_request.tool_choice),
+                            format!("{:?}", expected_request.tool_choice)
+                        );
+                        assert_eq!(actual_request.max_output_tokens, 32);
+                        assert_eq!(actual_request.stream, stream);
+                        if target == UpstreamProtocol::Chat && stream {
+                            assert_eq!(actual["stream_options"]["include_usage"], true);
+                        }
+                        if target != UpstreamProtocol::Gemini {
+                            assert_eq!(actual["model"], "provider");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn zconv_provider_controls_and_strict_defaults() {
+        for strict in [None, Some(false), Some(true)] {
+            let mut body = json!({"model":"provider","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object","properties":{}}}}]});
+            if let Some(value) = strict {
+                body["tools"][0]["function"]["strict"] = json!(value);
+            }
+            let request = parse(UpstreamProtocol::Chat, &body, false);
+            let actual = request
+                .upstream_to(UpstreamProtocol::Responses, "provider")
+                .unwrap();
+            assert_eq!(actual["tools"][0]["strict"], json!(strict.unwrap_or(false)));
+            println!("STRICT {strict:?} {actual}");
+        }
+        for effort in ["none", "minimal", "low", "medium", "high", "xhigh", "max"] {
+            for source in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+                let body = if source == UpstreamProtocol::Chat {
+                    json!({"model":"provider","messages":[{"role":"user","content":"hi"}],"reasoning_effort":effort})
+                } else {
+                    json!({"model":"provider","input":"hi","reasoning":{"effort":effort}})
+                };
+                let request = parse(source, &body, false);
+                let target = if source == UpstreamProtocol::Chat {
+                    UpstreamProtocol::Responses
+                } else {
+                    UpstreamProtocol::Chat
+                };
+                let actual = request.upstream_to(target, "provider").unwrap();
+                assert_eq!(
+                    if target == UpstreamProtocol::Chat {
+                        &actual["reasoning_effort"]
+                    } else {
+                        &actual["reasoning"]["effort"]
+                    },
+                    effort
+                );
+                println!("REASONING {source:?}->{target:?} {actual}");
+            }
+        }
+        for parallel in [false, true] {
+            let body = json!({"model":"provider","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object","properties":{}}}}],"parallel_tool_calls":parallel});
+            let request = parse(UpstreamProtocol::Chat, &body, false);
+            let anthropic = request
+                .upstream_to(UpstreamProtocol::Anthropic, "provider")
+                .unwrap();
+            assert_eq!(
+                anthropic["tool_choice"]["disable_parallel_tool_use"],
+                !parallel
+            );
+            let back = parse(UpstreamProtocol::Anthropic, &anthropic, false)
+                .upstream_to(UpstreamProtocol::Chat, "provider")
+                .unwrap();
+            assert_eq!(back["parallel_tool_calls"], parallel);
+            assert_eq!(
+                request
+                    .upstream_to(UpstreamProtocol::Gemini, "provider")
+                    .is_ok(),
+                parallel
+            );
+            println!("PARALLEL {parallel} {anthropic} BACK={back}");
+        }
+        for strict in [
+            None,
+            Some(Value::Null),
+            Some(json!(false)),
+            Some(json!(true)),
+        ] {
+            let schema = json!({"type":"object","properties":{"optional":{"type":"string"}},"additionalProperties":true});
+            let mut body = json!({"model":"provider","input":"hi","tools":[{"type":"function","name":"f","parameters":schema}]});
+            if let Some(value) = &strict {
+                body["tools"][0]["strict"] = value.clone();
+            }
+            let request = parse(UpstreamProtocol::Responses, &body, false);
+            let actual = request
+                .upstream_to(UpstreamProtocol::Chat, "provider")
+                .unwrap();
+            let resolved = strict.as_ref().and_then(Value::as_bool).unwrap_or(false);
+            assert_eq!(actual["tools"][0]["function"]["strict"], resolved);
+            assert_eq!(actual["tools"][0]["function"]["parameters"], schema);
+            let native = request
+                .upstream_to(UpstreamProtocol::Responses, "provider")
+                .unwrap();
+            assert_eq!(
+                native["tools"][0].get("strict"),
+                strict.as_ref().filter(|value| !value.is_null())
+            );
+            assert_eq!(native["tools"][0]["parameters"], schema);
+            println!("CORE_CHAT_ROUTE_STRICT {strict:?} CHAT={actual} NATIVE={native}");
+        }
+        let preserved = json!({"type":"object","properties":{},"default":{"type":"image_url","image_url":{"url":"x","detail":"auto"}},"examples":[{"type":"input_image","detail":"auto","image_url":"x"}]});
+        let schema_request = parse(
+            UpstreamProtocol::Chat,
+            &json!({"model":"provider","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":preserved}}]}),
+            false,
+        );
+        let native = schema_request
+            .upstream_to(UpstreamProtocol::Anthropic, "provider")
+            .unwrap();
+        assert_eq!(native["tools"][0]["input_schema"], preserved);
+        println!("SCHEMA_DEFAULT_PRESERVED {native}");
+        let schema = json!({"type":"object","properties":{"x":{"type":"string"}},"additionalProperties":false,"default":{"type":"image_url","image_url":{"url":"x","detail":"auto"}}});
+        let body = json!({"model":"provider","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":schema}}],"response_format":{"type":"json_schema","json_schema":{"name":"s","schema":schema}}});
+        let request = parse(UpstreamProtocol::Chat, &body, false);
+        let gemini = request
+            .upstream_to(UpstreamProtocol::Gemini, "provider")
+            .unwrap();
+        assert_eq!(
+            gemini["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"],
+            schema
+        );
+        assert_eq!(
+            gemini["generationConfig"],
+            old(&request, UpstreamProtocol::Gemini)["generationConfig"]
+        );
+        // Native Gemini input has never admitted responseSchema controls.
+        // Verify only its supported tool-schema reverse direction, retaining
+        // the native admission boundary rather than adding a new protocol.
+        assert!(
+            super::super::native_gemini::parse(
+                "provider",
+                false,
+                &serde_json::to_vec(&gemini).unwrap(),
+                &Limits::default()
+            )
+            .is_err()
+        );
+        let mut tool_only = gemini.clone();
+        for key in ["responseMimeType", "responseSchema", "responseJsonSchema"] {
+            tool_only["generationConfig"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+        }
+        let back = parse(UpstreamProtocol::Gemini, &tool_only, false)
+            .upstream_to(UpstreamProtocol::Chat, "provider")
+            .unwrap();
+        assert_eq!(back["tools"][0]["function"]["parameters"], schema);
+        println!("SCHEMA GEMINI={gemini} BACK={back}");
+        for detail in ["auto", "high"] {
+            let body = json!({"model":"provider","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AQID","detail":detail}}]}]});
+            let request = parse(UpstreamProtocol::Chat, &body, false);
+            for target in [UpstreamProtocol::Anthropic, UpstreamProtocol::Gemini] {
+                let actual = request.upstream_to(target, "provider");
+                assert_eq!(
+                    actual.is_ok(),
+                    detail == "auto",
+                    "{target:?} {detail}: {actual:?}"
+                );
+                println!("IMAGE_DETAIL {target:?} {detail} {actual:?}");
+            }
+        }
     }
 }

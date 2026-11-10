@@ -199,6 +199,11 @@ impl Snapshot {
                         "legacy OpenAI payload protocol",
                     ));
                 }
+                if target.payload == PayloadPolicy::OpenRouter
+                    && upstream.config.protocol != Protocol::OpenAiChat
+                {
+                    return Err(RoutingError::InvalidConfig("OpenRouter payload protocol"));
+                }
                 targets.push(Arc::new(Target {
                     config: target.clone(),
                     upstream: Arc::clone(upstream),

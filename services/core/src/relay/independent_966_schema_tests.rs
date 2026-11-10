@@ -249,7 +249,7 @@ fn independent_966_gemini_openapi_conversion_preserves_order_and_normalizes_type
 fn independent_966_deferred_parser_retains_order_and_route_authority() {
     let mut body = String::from_utf8(client_body(ClientProtocol::Chat, &[ZA])).unwrap();
     body.pop();
-    body.push_str(r#","speed":"fast"}"#);
+    body.push_str(r#","speed":"standard"}"#);
     let request =
         Request::parse_deferred_openai(ClientProtocol::Chat, body.as_bytes(), &Limits::default())
             .unwrap();
@@ -274,7 +274,7 @@ fn independent_966_deferred_parser_retains_order_and_route_authority() {
     );
     assert_eq!(
         serde_json::from_slice::<Value>(&encoded).unwrap()["speed"],
-        "fast"
+        "standard"
     );
 }
 
@@ -312,7 +312,7 @@ fn independent_966_uncharged_strict_transport_keeps_order_without_route_authorit
     );
     let mut body = String::from_utf8(client_body(ClientProtocol::Chat, &[ZA])).unwrap();
     body.pop();
-    body.push_str(r#","speed":"fast"}"#);
+    body.push_str(r#","speed":"standard"}"#);
     let deferred =
         Request::parse_deferred_openai(ClientProtocol::Chat, body.as_bytes(), &Limits::default())
             .unwrap();

@@ -339,6 +339,9 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         &serde_json::to_vec(&canonical).map_err(|_| RelayError::Invalid("request encoding"))?,
         limits,
     )?;
+    // The canonical parser above is only an internal representation bridge.
+    // Keep the real source protocol for native controls and conversion routing.
+    request.client = ClientProtocol::Anthropic;
     if let Some(captured) = super::schema_order::anthropic_schemas(body) {
         request.assign_ordered_schemas(&captured);
     }
@@ -682,6 +685,11 @@ impl NativeEncoder {
                 {
                     return Err(RelayError::Protocol("invalid Gemini continuation token"));
                 }
+            }
+            Event::Images(_) => {
+                return Err(RelayError::Unsupported(
+                    "Chat image output requires a Chat client",
+                ));
             }
             Event::GroundingMetadata(_) => {
                 return Err(RelayError::Unsupported(

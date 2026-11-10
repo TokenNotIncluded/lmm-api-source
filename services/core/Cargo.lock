@@ -1748,6 +1748,7 @@ dependencies = [
  "webauthn-rs",
  "zeroize",
  "zstd",
+ "zconv",
 ]
 
 [[package]]
@@ -4548,3 +4549,9 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[package]]
+name = "zconv"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34f66e432c0159637136b9ce91167a514e97b1c02fd4a470a475841a0ed7d306"

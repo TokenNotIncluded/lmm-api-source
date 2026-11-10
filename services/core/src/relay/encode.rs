@@ -25,6 +25,7 @@ pub(crate) struct Encoder {
     started: bool,
     done: bool,
     blocks: Vec<Block>,
+    images: Vec<Value>,
     usage: Usage,
     finish: Option<FinishReason>,
     bytes: usize,
@@ -53,6 +54,7 @@ impl Encoder {
             started: false,
             done: false,
             blocks: Vec::new(),
+            images: Vec::new(),
             usage: Usage::default(),
             finish: None,
             bytes: 0,
@@ -216,7 +218,10 @@ impl Encoder {
                 }
             }
             Event::Block { index, kind } => {
-                if !self.started || index != self.blocks.len() || index >= self.limits.max_blocks {
+                if !self.started
+                    || index != self.blocks.len()
+                    || index + self.images.len() >= self.limits.max_blocks
+                {
                     return Err(RelayError::Protocol("invalid output block index"));
                 }
                 let tool_index = self
@@ -354,6 +359,31 @@ impl Encoder {
                     return Err(RelayError::Protocol("invalid Gemini continuation token"));
                 }
             }
+            Event::Images(images) => {
+                if self.client != ClientProtocol::Chat {
+                    return Err(RelayError::Unsupported(
+                        "Chat image output requires a Chat client",
+                    ));
+                }
+                if !self.started || self.finish.is_some() || self.done {
+                    return Err(RelayError::Protocol("invalid Chat image transition"));
+                }
+                if images.len()
+                    > self
+                        .limits
+                        .max_blocks
+                        .saturating_sub(self.blocks.len() + self.images.len())
+                {
+                    return Err(RelayError::Limit("output block count"));
+                }
+                let bytes = serde_json::to_vec(&images)
+                    .map_err(|_| RelayError::Protocol("invalid Chat images"))?;
+                self.account(bytes.len())?;
+                if self.stream {
+                    out.push(self.chat_chunk(json!({"images":images}), None)?);
+                }
+                self.images.extend(images);
+            }
             Event::GroundingMetadata(_) => {
                 return Err(RelayError::Unsupported(
                     "grounding metadata requires native Gemini",
@@ -457,6 +487,9 @@ impl Encoder {
             }
         }
         let mut message = json!({"role":"assistant","content":if content.is_empty() {Value::Null} else {json!(content)}});
+        if !self.images.is_empty() {
+            message["images"] = json!(self.images);
+        }
         if !reasoning.is_empty() {
             message["reasoning_content"] = json!(reasoning);
         }

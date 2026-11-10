@@ -170,9 +170,9 @@ fn compatibility_body(chat: bool, stream: bool, model: &str) -> serde_json::Valu
     } else {
         json!({"model":model,"input":"hello","max_output_tokens":16,"stream":stream})
     };
-    body["service_tier"] = json!("auto");
+    body["service_tier"] = json!("default");
     body["inference_geo"] = json!("synthetic-region");
-    body["speed"] = json!("synthetic-speed");
+    body["speed"] = json!("standard");
     body["safety_identifier"] = json!("synthetic-user");
     if stream {
         body["stream_options"] = json!({"include_obfuscation":false});

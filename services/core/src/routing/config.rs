@@ -168,6 +168,8 @@ pub enum PayloadPolicy {
     Passthrough,
     /// Task 05 may use its explicit protocol/model-name adapter. No parameter downgrade.
     Adapt,
+    /// Explicit legacy type-20 OpenRouter Chat adapter.
+    OpenRouter,
     /// Explicit type-1 OpenAI HTTP filtering. Unset flags remove only these fields.
     LegacyOpenai {
         #[serde(default)]
@@ -189,6 +191,7 @@ impl PayloadPolicy {
         match self {
             Self::Adapt => !(client.dedicated() || upstream.dedicated()) || client == upstream,
             Self::Passthrough => false,
+            Self::OpenRouter => client == Protocol::OpenAiChat && upstream == Protocol::OpenAiChat,
             Self::LegacyOpenai { .. } => {
                 client == upstream
                     && matches!(client, Protocol::OpenAiChat | Protocol::OpenAiResponses)

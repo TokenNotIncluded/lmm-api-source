@@ -1162,6 +1162,8 @@ pub(crate) enum Event {
     },
     EndBlock(usize),
     Usage(Usage),
+    /// OpenRouter Chat image payloads; never text or token-usage evidence.
+    Images(Vec<Value>),
     GroundingMetadata(Value),
     StopSequence(String),
     /// Opaque Gemini Long Decode token from `candidates[].continuationToken`.

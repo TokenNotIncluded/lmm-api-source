@@ -619,6 +619,11 @@ impl NativeEncoder {
                 }
                 self.usage.merge(*u)?;
             }
+            Event::Images(_) => {
+                return Err(RelayError::Unsupported(
+                    "Chat image output requires a Chat client",
+                ));
+            }
             Event::GroundingMetadata(metadata) => {
                 let bytes = serde_json::to_vec(metadata)
                     .map_err(|_| RelayError::Protocol("invalid grounding metadata"))?;

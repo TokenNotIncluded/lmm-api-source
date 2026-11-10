@@ -137,9 +137,9 @@ fn legacy_openai_all_flags_preserve_or_remove_exact_payloads() {
             for mask in 0..32_u8 {
                 let flags = std::array::from_fn(|i| mask & (1 << i) != 0);
                 for (name, value) in [
-                    ("service_tier", json!("priority")),
+                    ("service_tier", json!("default")),
                     ("inference_geo", json!("us")),
-                    ("speed", json!("fast")),
+                    ("speed", json!("standard")),
                     ("safety_identifier", json!("synthetic-user")),
                 ] {
                     body[name] = value;
@@ -342,12 +342,7 @@ fn legacy_openai_preserves_nullable_fields_and_protocol_specific_tiers() {
         )
         .unwrap();
         let result = request.upstream(&legacy_route(upstream, [true; 5]));
-        if client == ClientProtocol::Responses {
-            expected["service_tier"] = json!("ultrafast");
-            assert_eq!(result.unwrap(), expected);
-        } else {
-            assert!(result.is_err());
-        }
+        assert!(result.is_err());
     }
 }
 
