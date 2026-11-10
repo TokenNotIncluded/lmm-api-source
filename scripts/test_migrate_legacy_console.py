@@ -58,10 +58,11 @@ def identity_material(contract=None):
     mapping = H.map_identity(users, [], source_sha256=SOURCE)
     id_map = H.id_map_bytes(mapping["records"]).encode()
     identity_manifest = {"format_version": 2, "scope": "identity-only", "source_archive_sha256": SOURCE,
-                         "identity_contract": {key: contract[key] for key in ("identity_version", "identity_fingerprint_sha256")},
+                         "identity_contract": H.identity_contract(),
                          "developer_access_policy": H.DEVELOPER_POLICY,
-                         "initialized_core_seed_contract": H.CORE_SEED_CONTRACT,
+                         "initialized_core_seed_contract": H.reviewed_profile(),
                          "source_export_sha256": "e" * 64, "source_baseline_proof_sha256": "f" * 64,
+                         "mapping_file_sha256": hashlib.sha256((H.canonical(mapping) + "\n").encode()).hexdigest(),
                          "source_target_id_map_sha256": hashlib.sha256(id_map).hexdigest(),
                          "mapping_sha256": mapping["mapping_sha256"], "summary": mapping["summary"],
                          "import_tool_sha256": H.sha256_file(Path(H.__file__)),
@@ -192,6 +193,144 @@ class ActivationLineageConsoleTests(unittest.TestCase):
         self.assertEqual(proof["facts"][0]["auth_version"], 6)
 
 
+class FinancialLineageConsoleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from test_financial_import import source_fixture, material_fixture, escrow_material_fixture
+        source = source_fixture()
+        cls.materials = (material_fixture(source=source), escrow_material_fixture())
+        cls.contract = MODULE.current_contract()
+        m = cls.materials[0]
+        cls.proof = MODULE.bind_identity_proof((H.canonical(m["identity_import"]["manifest"]) + "\n").encode(),
+            (H.canonical(source["identity_plan"]) + "\n").encode(), H.id_map_bytes(source["identity_plan"]["records"]).encode(),
+            source_sha256=m["source_archive_sha256"], contract=cls.contract)
+
+    def fixture(self, escrow=False):
+        m = deepcopy(self.materials[int(escrow)])
+        post = deepcopy(m["before_state"])
+        for table in MODULE.FIN.CHANGED_TABLES + (MODULE.FIN.ESCROW_TABLES if escrow else ()):
+            post["tables"][table] = {"rows": 1, "sha256": hashlib.sha256(("SYNTHETIC:" + table).encode()).hexdigest()}
+        post["tables"]["core_billing.opening_imports"]["rows"] = len(m["opening"])
+        post["tables"]["core_billing.account_opening_counters"]["rows"] = len(m["counters"])
+        # These values are explicitly SYNTHETIC, never a guessed original seed.
+        seq = m["before_state"]["sequences"]["core_billing.ledger_accounts_id_seq"]
+        seed = {"ledger_accounts": [{"id": i, "owner_account_id": None, "bucket": bucket,
+            "unit": "credit_500k_usd", "created_at": "2026-10-01T00:00:00+00:00"}
+            for i, bucket in ((1, "clearing"), (2, "revenue"))],
+            "balance_state": [{"ledger_account_id": i, "balance_units": 0, "revision": 0} for i in (1, 2)],
+            "ledger_sequence": [{"last_value": seq["last_value"], "log_cnt": 0, "is_called": seq["is_called"]}]}
+        row = {"migration_id": m["migration_id"], "source_archive_sha256": m["source_archive_sha256"],
+            "mapping_sha256": m["mapping_sha256"], "completed_at": "2026-10-01T00:00:02+00:00",
+            "manifest": {"scope": m["scope"], "material": m, "post_state": post}}
+        binding = {"receipt": row, "receipt_sha256": hashlib.sha256(MODULE.FIN.canonical(row).encode()).hexdigest(),
+            "material_sha256": MODULE.FIN.digest(m), "pre_financial_seed": seed}
+        proof = deepcopy(self.proof)
+        # Both existing financial fixture producers share this A2 provenance.
+        self.assertEqual(m["identity_import"], self.materials[0]["identity_import"])
+        target = {**self.contract, "financial_import": binding,
+            "identity_import": MODULE.identity_reference(proof, m["identity_import"]["migration_id"]),
+            "catalog_fingerprint_sha256": m["target"]["catalog_fingerprint_sha256"],
+            "trust_policy_seed": m["target"]["trust_policy_seed"], "initialized_core_seed_sha256": "f" * 64}
+        return target, proof, deepcopy(m["target"]["instance"])
+
+    def refresh(self, target):
+        b = target["financial_import"]
+        b["receipt_sha256"] = hashlib.sha256(MODULE.FIN.canonical(b["receipt"]).encode()).hexdigest()
+        b["material_sha256"] = MODULE.FIN.digest(b["receipt"]["manifest"]["material"])
+
+    def test_actual_financial_validators_accept_both_synthetic_frozen_profiles(self):
+        for escrow in (False, True):
+            target, proof, instance = self.fixture(escrow)
+            self.assertIs(MODULE.financial_reference(target, proof, instance, "console-synthetic"), target["financial_import"])
+
+    def test_not_a_scope_only_allowlist_and_requires_both_frozen_hashes(self):
+        for mutate in (lambda b: b.update(receipt_sha256="0" * 64), lambda b: b.update(material_sha256="0" * 64),
+                       lambda b: b["receipt"]["manifest"].update(scope="unrelated-import"),
+                       lambda b: b.update(verified=True)):
+            target, proof, instance = self.fixture()
+            mutate(target["financial_import"])
+            with self.assertRaises(MODULE.MappingError):
+                MODULE.financial_reference(target, proof, instance, "console-synthetic")
+        target["financial_import"] = {"scope": MODULE.FIN.SCOPE}
+        with self.assertRaises(MODULE.MappingError):
+            MODULE.financial_reference(target, proof, instance, "console-synthetic")
+
+    def test_source_and_original_identity_account_map_must_match(self):
+        for kind in ("archive", "a2", "map", "account", "instance", "catalog", "run_collision"):
+            target, proof, instance = self.fixture()
+            if kind == "archive":
+                proof["source_archive_sha256"] = "0" * 64
+            elif kind == "a2":
+                proof["manifest"]["source_export_sha256"] = "0" * 64
+            elif kind == "map":
+                proof["source_target_id_map_sha256"] = "0" * 64
+            elif kind == "account":
+                proof["facts"][0]["account_id"] = 999
+            elif kind == "instance":
+                instance["server_instance_nonce"] = "another-instance"
+            elif kind == "catalog":
+                target["catalog_fingerprint_sha256"] = "0" * 64
+            else:
+                target["identity_import"]["migration_id"] = target["financial_import"]["receipt"]["migration_id"]
+            with self.subTest(kind=kind), self.assertRaises(MODULE.MappingError):
+                MODULE.financial_reference(target, proof, instance, "console-synthetic")
+
+    def test_financial_source_review_cannot_be_replaced_with_not_approved(self):
+        target, proof, instance = self.fixture()
+        target["financial_import"]["receipt"]["manifest"]["material"]["source_review"]["decision"] = "NOT_APPROVED"
+        self.refresh(target)
+        with self.assertRaises(MODULE.MappingError):
+            MODULE.financial_reference(target, proof, instance, "console-synthetic")
+
+    def test_missing_seed_no_default_log_count_and_missing_opening_reject(self):
+        for kind in ("missing", "log_cnt", "extra_seed_key", "incomplete_opening"):
+            target, proof, instance = self.fixture()
+            b = target["financial_import"]
+            if kind == "missing":
+                del b["pre_financial_seed"]
+            elif kind == "log_cnt":
+                del b["pre_financial_seed"]["ledger_sequence"][0]["log_cnt"]
+            elif kind == "extra_seed_key":
+                b["pre_financial_seed"]["event_capacity"] = []
+            else:
+                b["receipt"]["manifest"]["post_state"]["tables"]["core_billing.opening_imports"]["rows"] = 0
+                self.refresh(target)
+            with self.subTest(kind=kind), self.assertRaises(MODULE.MappingError):
+                MODULE.financial_reference(target, proof, instance, "console-synthetic")
+
+    def test_complete_sql_allows_only_the_exact_run_and_preserves_nonowned_guards(self):
+        target, proof, instance = self.fixture()
+        plan = MODULE.map_console([], [], [], source_sha256=proof["source_archive_sha256"])
+        connection = {"role": instance["role"], "login_role": instance["session_user"], "set_role": instance["role"]}
+        m = {"format_version": 1, "scope": "console-only", "source_archive_sha256": plan["source_archive_sha256"],
+            "mapping_sha256": plan["mapping_sha256"], "summary": plan["summary"], "identity_import": target["identity_import"],
+            **MODULE.manifest_binding(self.contract, target, instance, connection)}
+        sql = MODULE.build_import_sql(plan, migration_id="console-synthetic", target_contract=target, manifest=m,
+            contract=self.contract, target_identity=instance, identity_proof=proof, target_connection=connection)
+        self.assertIn("NOT IN ('console-synthetic','synthetic-identity','synthetic-financial')", sql)
+        self.assertIn("to_jsonb(required_financial) IS DISTINCT FROM", sql)
+        self.assertIn("console_financial_post_state_changed", sql)
+        self.assertIn("console_financial_seed_before_state_mismatch", sql)
+        self.assertIn("core_billing.opening_import_runs)<>1", sql)
+        self.assertIn("non-console facts changed", sql)
+        self.assertIn("identity current facts proof mismatch", sql)
+        self.assertEqual(sql.count("initialized seed receipt mismatch"), 2)
+        self.assertNotIn("UPDATE core_billing", sql)
+        self.assertNotIn("INSERT INTO core_billing", sql)
+
+    def test_seed_capture_is_readonly_and_original_hash_is_kept(self):
+        capture = MODULE.financial_seed_projection_sql()
+        self.assertIn("log_cnt", capture)
+        self.assertNotIn("nextval", capture)
+        self.assertNotIn("setval", capture)
+        target, _, _ = self.fixture()
+        query = MODULE.console_seed_hash_sql(target["financial_import"])
+        self.assertIn("core_gift.risk_key", query)
+        self.assertIn("core_federated_auth.providers", query)
+        self.assertIn("::jsonb", query)
+        self.assertEqual(MODULE.console_seed_hash_sql(None), H.fresh_seed_hash_query())
+
+
 class MapperTests(unittest.TestCase):
     def test_preserves_raw_text_setup_and_receipt_without_rehash(self):
         raw = ' [ {"id":2,"content":"<公告>&","extra":"x","mandatory":true,"publishDate":"2020-01-01T0:00:00,12345678999+24:60","ackRevision":" g1 "} ] '
@@ -277,7 +416,7 @@ class SqlGuardTests(unittest.TestCase):
     def test_real_component_list_dynamic_and_identity_version(self):
         contract = MODULE.current_contract()
         expected = H.component_schemas()
-        self.assertEqual(len(expected), 26)
+        self.assertEqual(len(expected), 65)
         self.assertEqual(contract, H.current_contract())
         self.assertEqual(contract["component_fingerprints"],
                          {name: hashlib.sha256(raw).hexdigest() for name, raw in expected.items()})
@@ -285,7 +424,9 @@ class SqlGuardTests(unittest.TestCase):
         self.assertIn("console", expected)
         self.assertIn("model-gateway", expected)
         self.assertIn("commerce", expected)
-        self.assertEqual(contract["identity_version"], int(re.search(r"const VERSION:\s*i32\s*=\s*(\d+)", (MODULE.ROOT / "services/core/src/identity/schema.rs").read_text())[1]))
+        self.assertEqual(contract["identity_version"], H.identity_contract()["identity_version"])
+        self.assertEqual(H.identity_contract()["identity_version"], int(re.search(r"const VERSION:\s*i32\s*=\s*(\d+)", (MODULE.ROOT / "services/core/src/identity/schema.rs").read_text())[1]))
+        self.assertEqual(contract["component_fingerprints"]["identity"], H.identity_contract()["identity_fingerprint_sha256"])
 
     def test_unknown_component_syntax_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:

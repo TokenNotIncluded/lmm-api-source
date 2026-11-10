@@ -29,6 +29,7 @@ import re
 import sys
 
 import legacy_admin_activation_lineage as LINEAGE
+import financial_import as FIN
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,7 +172,11 @@ def bind_identity_proof(manifest_bytes: bytes, mapping_bytes: bytes, id_map_byte
     except (ValueError, UnicodeError):
         raise MappingError("identity_artifact_json_invalid") from None
     require(isinstance(manifest, dict) and isinstance(mapping, dict), "identity_artifact_shape_invalid")
-    expected_contract = {key: contract[key] for key in ("identity_version", "identity_fingerprint_sha256")}
+    # A2 records the base identity schema (version6, from historical Core26),
+    # not the assembled component count65. Bind the exact component as well.
+    expected_contract = IDENTITY.identity_contract()
+    require(contract["component_fingerprints"].get("identity") == expected_contract["identity_fingerprint_sha256"],
+            "identity_component_contract_mismatch")
     require(manifest.get("format_version") == 2 and manifest.get("scope") == "identity-only"
             and manifest.get("source_archive_sha256") == source_sha256
             and manifest.get("identity_contract") == expected_contract, "identity_manifest_contract_mismatch")
@@ -296,6 +301,150 @@ def target_identity_facts(identity_proof: dict, target_contract: dict, target_id
         raise MappingError(str(error)) from None
 
 
+def financial_reference(target_contract: dict, identity_proof: dict, target_identity: dict,
+                        console_migration_id: str) -> dict | None:
+    """Accept one frozen committed financial row, never a scope-only exemption.
+
+    The row is still only proposed evidence until financial_guard_sql re-reads
+    it and its opening/ledger state from this actual target transaction.
+    """
+    binding = target_contract.get("financial_import")
+    if binding is None:
+        require("financial_import" not in target_contract, "console_financial_reference_invalid")
+        return None
+    require(type(binding) is dict and set(binding) == {"receipt", "receipt_sha256", "material_sha256", "pre_financial_seed"},
+            "console_financial_reference_invalid")
+    row = binding["receipt"]
+    require(type(row) is dict and set(row) == {"migration_id", "source_archive_sha256", "mapping_sha256", "manifest", "completed_at"},
+            "console_financial_receipt_invalid")
+    require(hashlib.sha256(FIN.canonical(row).encode()).hexdigest() == binding["receipt_sha256"],
+            "console_financial_receipt_hash_mismatch")
+    require(type(row["migration_id"]) is str and IDENTITY.MIGRATION_ID.fullmatch(row["migration_id"])
+            and row["migration_id"] not in (console_migration_id, target_contract["identity_import"]["migration_id"]),
+            "console_financial_run_collision")
+    manifest = row["manifest"]
+    require(type(manifest) is dict and set(manifest) == {"scope", "material", "post_state"}
+            and manifest["scope"] in (FIN.SCOPE, FIN.ESCROW_SCOPE), "console_financial_scope_invalid")
+    material = manifest["material"]
+    require(type(material) is dict and FIN.digest(material) == binding["material_sha256"],
+            "console_financial_material_hash_mismatch")
+    require(material.get("scope") == manifest["scope"] and material.get("migration_id") == row["migration_id"]
+            and material.get("source_archive_sha256") == row["source_archive_sha256"] == identity_proof["source_archive_sha256"]
+            and material.get("mapping_sha256") == row["mapping_sha256"], "console_financial_source_mismatch")
+    # Reuse the existing financial validator; no new approval is synthesized,
+    # and stale tools/material/contracts fail instead of being silently rebased.
+    try:
+        FIN.validate_material(material)
+    except FIN.Error as error:
+        raise MappingError(str(error)) from None
+    imported = material["identity_import"]
+    require(imported["migration_id"] == target_contract["identity_import"]["migration_id"]
+            and imported["source_archive_sha256"] == identity_proof["source_archive_sha256"]
+            and imported["mapping_sha256"] == identity_proof["mapping_sha256"]
+            and imported["manifest"] == identity_proof["manifest"]
+            and imported["manifest"]["source_target_id_map_sha256"] == identity_proof["source_target_id_map_sha256"],
+            "console_financial_identity_lineage_mismatch")
+    expected_users = [{"id": r["user_id"], "personal_account_id": r["account_id"]} for r in identity_proof["facts"]]
+    identities = {r["id"]: r["personal_account_id"] for r in expected_users}
+    require(FIN.canonical(material["native_users"]) == FIN.canonical(expected_users)
+            and material["identity_map_sha256"] == FIN.digest(identities), "console_financial_account_map_mismatch")
+    target = material["target"]
+    instance = target["instance"]
+    require(instance["database"] == target_identity["database"]
+            and int(instance["database_oid"]) == int(target_identity["database_oid"])
+            and instance["server_instance_nonce"] == target_identity["server_instance_nonce"]
+            and target["catalog_fingerprint_sha256"] == target_contract["catalog_fingerprint_sha256"]
+            and target["component_fingerprints"] == target_contract["component_fingerprints"],
+            "console_financial_target_mismatch")
+    seed = binding["pre_financial_seed"]
+    require(type(seed) is dict and set(seed) == {"ledger_accounts", "balance_state", "ledger_sequence"}
+            and type(seed["ledger_accounts"]) is list and len(seed["ledger_accounts"]) == 2
+            and type(seed["balance_state"]) is list and len(seed["balance_state"]) == 2
+            and type(seed["ledger_sequence"]) is list and len(seed["ledger_sequence"]) == 1,
+            "console_financial_seed_projection_invalid")
+    seq = seed["ledger_sequence"][0]
+    original_seq = material["before_state"]["sequences"]["core_billing.ledger_accounts_id_seq"]
+    require(type(seq) is dict and set(seq) == {"last_value", "log_cnt", "is_called"}
+            and type(seq["last_value"]) is int and type(seq["is_called"]) is bool
+            and seq["last_value"] == original_seq["last_value"] and seq["is_called"] == original_seq["is_called"]
+            and type(seq["log_cnt"]) is int and 0 <= seq["log_cnt"] <= 9223372036854775807,
+            "console_financial_seed_projection_invalid")
+    post = manifest["post_state"]
+    before = material["before_state"]
+    require(type(post) is dict and set(post) == {"inventory", "tables", "sequences"}
+            and post["inventory"] == before["inventory"]
+            and set(post["tables"]) == set(before["tables"])
+            and set(post["sequences"]) == set(before["sequences"]), "console_financial_post_state_invalid")
+    tables = (*FIN.CHANGED_TABLES, *(FIN.ESCROW_TABLES + ("core_billing.legacy_escrow_operations",)
+                                    if manifest["scope"] == FIN.ESCROW_SCOPE else ()))
+    for name in tables:
+        value = post["tables"][name]
+        require(type(value) is dict and set(value) == {"rows", "sha256"}
+                and type(value["rows"]) is int and value["rows"] >= 0, "console_financial_post_state_invalid")
+        FIN.checked_hash(value["sha256"], "console_financial_post_state_invalid")
+    require(post["tables"]["core_billing.opening_import_runs"]["rows"] == 1
+            and post["tables"]["core_billing.opening_imports"]["rows"] == len(material["opening"])
+            and post["tables"]["core_billing.account_opening_counters"]["rows"] == len(material["counters"]),
+            "console_financial_opening_incomplete")
+    return binding
+
+
+def financial_seed_projection_sql() -> str:
+    """Capture on the actual target BEFORE opening; SELECT never advances a sequence."""
+    return """SELECT jsonb_build_object(
+ 'ledger_accounts',(SELECT coalesce(jsonb_agg(to_jsonb(t)||jsonb_build_object('created_at',""" + IDENTITY.utc_timestamp_text_sql("t.created_at") + """) ORDER BY t.id),'[]') FROM core_billing.ledger_accounts t),
+ 'balance_state',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.ledger_account_id),'[]') FROM core_billing.balance_state t),
+ 'ledger_sequence',(SELECT jsonb_agg(jsonb_build_object('last_value',t.last_value,'log_cnt',t.log_cnt,'is_called',t.is_called)) FROM core_billing.ledger_accounts_id_seq t))"""
+
+
+def console_seed_hash_sql(financial: dict | None) -> str:
+    query = IDENTITY.fresh_seed_hash_query()
+    if financial is None:
+        return query
+    # Preserve the reviewed whole seed expression, changing only the three
+    # financial-owned entries to their frozen pre-opening values. The original
+    # initialization hash remains the authority, including physical log_cnt.
+    prefix, suffix = "SELECT encode(sha256(convert_to(", "::text,'UTF8')),'hex')"
+    require(query.startswith(prefix) and query.endswith(suffix), "console_seed_query_shape_changed")
+    expression = query[len(prefix):-len(suffix)]
+    seed = literal(FIN.canonical(financial["pre_financial_seed"]))
+    return prefix + "((" + expression + ") || " + seed + "::jsonb)" + suffix
+
+
+def financial_guard_sql(binding: dict | None) -> str:
+    if binding is None:
+        return ""
+    row = binding["receipt"]
+    material = row["manifest"]["material"]
+    instance = material["target"]["instance"]
+    tables = (*FIN.CHANGED_TABLES, *(FIN.ESCROW_TABLES + ("core_billing.legacy_escrow_operations",)
+                                    if material["scope"] == FIN.ESCROW_SCOPE else ()))
+    checks = " OR ".join("financial_state->'tables'->" + literal(n) + " IS DISTINCT FROM " +
+        literal(FIN.canonical(row["manifest"]["post_state"]["tables"][n])) + "::jsonb" for n in tables)
+    checks += " OR " + " OR ".join("financial_state->'sequences'->" + literal(n) + " IS DISTINCT FROM " +
+        literal(FIN.canonical(row["manifest"]["post_state"]["sequences"][n])) + "::jsonb" for n in FIN.CHANGED_SEQUENCES)
+    seed_checks = []
+    for key, table in (("ledger_accounts", "core_billing.ledger_accounts"), ("balance_state", "core_billing.balance_state")):
+        seed_checks.append("""(SELECT jsonb_build_object('rows',count(*),'sha256',encode(sha256(coalesce(
+ string_agg(sha256(convert_to(v::text,'UTF8')),''::bytea ORDER BY convert_to(v::text,'UTF8')),''::bytea)),'hex'))
+ FROM jsonb_array_elements(""" + literal(FIN.canonical(binding["pre_financial_seed"][key])) + "::jsonb) v) IS DISTINCT FROM " +
+            literal(FIN.canonical(material["before_state"]["tables"][table])) + "::jsonb")
+    return f"""
+ SELECT * INTO required_financial FROM core_migration.import_runs WHERE migration_id={literal(row['migration_id'])};
+ IF NOT FOUND OR to_jsonb(required_financial) IS DISTINCT FROM {literal(FIN.canonical(row))}::jsonb
+ OR required_financial.manifest->'material'->'identity_import' IS DISTINCT FROM to_jsonb(required_identity)
+ OR (SELECT count(*) FROM core_migration.import_runs WHERE manifest->>'scope' IN ({literal(FIN.SCOPE)},{literal(FIN.ESCROW_SCOPE)}))<>1
+ OR (SELECT count(*) FROM core_billing.opening_import_runs)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_billing.opening_import_runs r WHERE r.migration_id={literal(row['migration_id'])}
+  AND r.source_archive_sha256={literal(row['source_archive_sha256'])} AND r.mapping_sha256={literal(row['mapping_sha256'])})
+ OR (SELECT system_identifier::text FROM pg_control_system()) IS DISTINCT FROM {literal(instance['system_identifier'])}
+ THEN RAISE EXCEPTION 'console_financial_durable_receipt_mismatch'; END IF;
+ IF {' OR '.join(seed_checks)} THEN RAISE EXCEPTION 'console_financial_seed_before_state_mismatch'; END IF;
+ SELECT ({FIN.state_sql(material['before_state']['inventory'], row['migration_id'])}) INTO financial_state;
+ IF {checks} THEN RAISE EXCEPTION 'console_financial_post_state_changed'; END IF;
+"""
+
+
 def build_import_sql(plan: dict, *, migration_id: str, target_contract: dict, manifest: dict,
                      contract: dict, target_identity: dict, identity_proof: dict,
                      target_connection: dict | None = None) -> str:
@@ -311,6 +460,7 @@ def build_import_sql(plan: dict, *, migration_id: str, target_contract: dict, ma
     expected_reference = identity_reference(identity_proof, reference.get("migration_id"))
     require(reference == expected_reference and reference["migration_id"] != migration_id
             and manifest.get("identity_import") == expected_reference, "identity_import_reference_mismatch")
+    financial = financial_reference(target_contract, identity_proof, target_identity, migration_id)
     require(all(row["user_id"] in {fact["user_id"] for fact in identity_proof["facts"]} for row in plan["receipts"]),
             "console_receipt_identity_unmapped")
     for key in ("identity_version", "identity_fingerprint_sha256", "component_fingerprints", "catalog_query_sha256",
@@ -363,6 +513,8 @@ def build_import_sql(plan: dict, *, migration_id: str, target_contract: dict, ma
     identity_facts = literal(canonical(effective_facts))
     identity_manifest = literal(canonical(identity_proof["manifest"]))
     identity_run_id = literal(reference["migration_id"])
+    allowed_run_ids = ",".join((run_id, identity_run_id) +
+                               ((literal(financial["receipt"]["migration_id"]),) if financial else ()))
     table_predicate = "c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'"
     sql = f"""BEGIN ISOLATION LEVEL SERIALIZABLE;
 SET LOCAL synchronous_commit=on;
@@ -378,6 +530,8 @@ DECLARE payload JSONB := {payload}::jsonb;
  identity_facts JSONB := {identity_facts}::jsonb;
  previous core_migration.import_runs%ROWTYPE;
  required_identity core_migration.import_runs%ROWTYPE;
+ required_financial core_migration.import_runs%ROWTYPE;
+ financial_state JSONB;
  table_row RECORD;
  snapshot_row JSONB;
  before_other JSONB;
@@ -414,7 +568,7 @@ BEGIN
  END IF;
  IF {IDENTITY.upgrade_receipts_guard_sql()} THEN RAISE EXCEPTION 'fresh core upgrade receipts must be empty'; END IF;
  IF {IDENTITY.trust_policy_seed_guard_sql(target_contract)} THEN RAISE EXCEPTION 'fresh trust policy seed mismatch'; END IF;
- IF ({IDENTITY.fresh_seed_hash_query()}) IS DISTINCT FROM {literal(target_contract['initialized_core_seed_sha256'])}
+ IF ({console_seed_hash_sql(financial)}) IS DISTINCT FROM {literal(target_contract['initialized_core_seed_sha256'])}
  THEN RAISE EXCEPTION 'initialized seed receipt mismatch'; END IF;
  IF EXISTS(SELECT 1 FROM core_trust_pricing.user_bases) OR EXISTS(SELECT 1 FROM core_trust_pricing.legacy_paid_orders)
  THEN RAISE EXCEPTION 'trust import must follow console import'; END IF;
@@ -427,7 +581,8 @@ BEGIN
  IF required_identity.source_archive_sha256<>{source_hash} THEN RAISE EXCEPTION 'identity import archive mismatch'; END IF;
  IF required_identity.mapping_sha256<>{literal(reference['mapping_sha256'])} THEN RAISE EXCEPTION 'identity import mapping proof mismatch'; END IF;
  IF required_identity.manifest IS DISTINCT FROM {identity_manifest}::jsonb THEN RAISE EXCEPTION 'identity import manifest proof mismatch'; END IF;
- IF EXISTS(SELECT 1 FROM core_migration.import_runs WHERE migration_id NOT IN ({run_id},{identity_run_id})) THEN
+ {financial_guard_sql(financial)}
+ IF EXISTS(SELECT 1 FROM core_migration.import_runs WHERE migration_id NOT IN ({allowed_run_ids})) THEN
   RAISE EXCEPTION 'target belongs to another import';
  END IF;
  {LINEAGE.guard_sql(admin_bindings)}
@@ -497,7 +652,7 @@ BEGIN
  END IF;
  IF {IDENTITY.upgrade_receipts_guard_sql()} THEN RAISE EXCEPTION 'fresh core upgrade receipts must be empty'; END IF;
  IF {IDENTITY.trust_policy_seed_guard_sql(target_contract)} THEN RAISE EXCEPTION 'fresh trust policy seed mismatch'; END IF;
- IF ({IDENTITY.fresh_seed_hash_query()}) IS DISTINCT FROM {literal(target_contract['initialized_core_seed_sha256'])}
+ IF ({console_seed_hash_sql(financial)}) IS DISTINCT FROM {literal(target_contract['initialized_core_seed_sha256'])}
  THEN RAISE EXCEPTION 'initialized seed receipt mismatch'; END IF;
  {_snapshot_sql('after_other')}
  IF before_other IS DISTINCT FROM after_other OR before_runs IS DISTINCT FROM
