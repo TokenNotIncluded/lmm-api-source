@@ -65,7 +65,7 @@ def trust_seed_fixture():
 
 
 def snapshot_fixture(source):
-    names = sorted(set(F.CHANGED_TABLES) | set(F.FRESH_EMPTY_TABLES) | {"core_trust_pricing.policies","core_identity.users", "core_identity.accounts",
+    names = sorted(set(F.CHANGED_TABLES) | set(F.fresh_empty_tables()) | {"core_trust_pricing.policies","core_identity.users", "core_identity.accounts",
         "core_migration.import_runs", "core_meta.runtime_contract", "core_meta.component_contract", "public.unrelated"})
     inventory = {"tables": names, "sequences": sorted(F.CHANGED_SEQUENCES)}
     state = {"inventory": inventory, "tables": {name: {"rows": 0, "sha256": F.sha(b"")} for name in names},
@@ -368,11 +368,17 @@ class MaterialTests(unittest.TestCase):
             F.build_apply_sql(material)
 
     def test_every_fresh49_empty_table_is_bound(self):
-        for name in F.FRESH_EMPTY_TABLES:
+        for name in F.fresh_empty_tables():
             material = copy.deepcopy(self.material)
             material["before_state"]["tables"][name] = {"rows": 1, "sha256": "0" * 64}
             with self.subTest(table=name), self.assertRaisesRegex(F.Error, "fresh49_business_or_upgrade_records_not_empty"):
                 F.build_apply_sql(material)
+
+    def test_core58_suffix_receipt_cannot_be_omitted_from_inventory(self):
+        inventory = copy.deepcopy(self.material["before_state"]["inventory"])
+        inventory["tables"].remove("core_meta.commerce_display_rate_upgrades")
+        with self.assertRaisesRegex(F.Error, "incomplete_inventory"):
+            F.validate_inventory(inventory)
 
     def test_trust_seed_requires_owner_capture_and_exact_default_fields(self):
         material = copy.deepcopy(self.material)

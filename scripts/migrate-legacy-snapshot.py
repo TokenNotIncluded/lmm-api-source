@@ -273,7 +273,22 @@ REVIEWED_RUST_FILES_56 = {**REVIEWED_RUST_FILES_55,
 CORE56_SCHEMA_REVISION = 'e22175daf23382a2188ee69233c85ba015d104b2'
 CORE56_MANIFEST_SHA256 = 'f2340fb850e81f168ababe0301d80bd85769b235a8c5b5abb91f0bcd7429624e'
 CORE56_CATALOG_SHA256 = '46cbd8e0a9e9bb6c55cb899558b40fa8c8df1affa2e366cbbde733a8527bda43'
-CORE_COMPONENTS = frozenset(REVIEWED_COMPONENTS_56)
+# Reviewed committed Core58 assembly. The SQL fixture checks below do not claim
+# actual Core59 init-db/catalog/ACL acceptance; Core59 remains unreviewed.
+CORE58_SEED_CONTRACT = "fresh58-identity6-complete-seeds-v1"
+CORE_SEED_CONTRACT = CORE58_SEED_CONTRACT
+REVIEWED_COMPONENTS_58 = {**REVIEWED_COMPONENTS_56,
+    "commerce-self-purchase": ('include_str!("../schema/commerce_self_purchase.sql")', 'fae185c575e3b82e634523a95d3453e0c86c4f21f28719f885ac53631c8986e0'),
+    "display-exchange-rate": ('include_str!("../schema/display_exchange_rate.sql")', '98d943eac33dbfe195c01f3c35119be75d48c29b0e7e045afc547cdafa8054b5')}
+REVIEWED_RUST_FILES_58 = {**REVIEWED_RUST_FILES_56,
+    "services/core/src/core_schema.rs": "a65b89a0b7f6b6abb8f6ebb801a1a9e241da734255e723cbec99821ac32cf00a",
+    "services/core/src/subscriptions.rs": "493a804eafdc45cc633683d09cd80a7d341f9132258f2e452f24839d00850c81",
+    "services/core/src/core_schema/navigation_options.rs": "183e3af26d5d9ab1f7d153dfe38ce01f20d09e7745ad9560f614bc46864539eb",
+    "services/core/src/core_schema/upgrade/fresh_target.json": "cb6a6df0f28dd14bffddd2a89cd7610fe18c5e5dd8d815bbb911131a650014b9"}
+CORE58_SCHEMA_REVISION = "2a0c7bd380f58a553dc903d399255821c1a65d0f"
+CORE58_MANIFEST_SHA256 = "02a013915ad4b77dd4cd4006ff62c07653e474afe690b6927892c10168ab400a"
+CORE58_CATALOG_SHA256 = "e4ca2e9475c7513fbc551dcc78fdfed2f5f792ce98961620c329dbf74836b55b"
+CORE_COMPONENTS = frozenset(REVIEWED_COMPONENTS_58)
 CORE55_SCHEMA_REVISION = "a49db97b8acea8118531426280ebbab9d24f991e"
 CORE55_MANIFEST_SHA256 = "0a05869e5391a5cc2d8da2c329c7992a98dfef4b1cb38c8903c408099c91c9e0"
 CORE55_CATALOG_SHA256 = "5376f90af7a78aeb501c4d976d799033a6a88346f28a57b3e5853a3e0e442207"
@@ -286,6 +301,8 @@ def reviewed_profile(root: Path | None = None) -> str:
     """An exact reviewed assembly selects a profile; no arbitrary suffixes."""
     root = ROOT if root is None else Path(root)
     digest = sha256_file(root / "services/core/src/core_schema.rs")
+    if digest == REVIEWED_RUST_FILES_58["services/core/src/core_schema.rs"]:
+        return CORE58_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_56["services/core/src/core_schema.rs"]:
         return CORE56_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_55["services/core/src/core_schema.rs"]:
@@ -299,12 +316,14 @@ def reviewed_profile(root: Path | None = None) -> str:
 
 def reviewed_components(root: Path) -> dict:
     return {CORE49_SEED_CONTRACT: REVIEWED_COMPONENTS, CORE54_SEED_CONTRACT: REVIEWED_COMPONENTS_54,
-            CORE55_SEED_CONTRACT: REVIEWED_COMPONENTS_55, CORE56_SEED_CONTRACT: REVIEWED_COMPONENTS_56}[reviewed_profile(root)]
+            CORE55_SEED_CONTRACT: REVIEWED_COMPONENTS_55, CORE56_SEED_CONTRACT: REVIEWED_COMPONENTS_56,
+            CORE58_SEED_CONTRACT: REVIEWED_COMPONENTS_58}[reviewed_profile(root)]
 
 
 def reviewed_files(root: Path) -> dict:
     return {CORE49_SEED_CONTRACT: REVIEWED_RUST_FILES, CORE54_SEED_CONTRACT: REVIEWED_RUST_FILES_54,
-            CORE55_SEED_CONTRACT: REVIEWED_RUST_FILES_55, CORE56_SEED_CONTRACT: REVIEWED_RUST_FILES_56}[reviewed_profile(root)]
+            CORE55_SEED_CONTRACT: REVIEWED_RUST_FILES_55, CORE56_SEED_CONTRACT: REVIEWED_RUST_FILES_56,
+            CORE58_SEED_CONTRACT: REVIEWED_RUST_FILES_58}[reviewed_profile(root)]
 
 
 def _reviewed_rust(root: Path, relative: str) -> str:
@@ -415,10 +434,11 @@ def current_contract(root: Path | None = None) -> dict:
             "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT):
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
         revision, manifest_pin, catalog_pin = ((CORE54_SCHEMA_REVISION, CORE54_MANIFEST_SHA256, CORE54_CATALOG_SHA256)
             if profile == CORE54_SEED_CONTRACT else (CORE55_SCHEMA_REVISION, CORE55_MANIFEST_SHA256, CORE55_CATALOG_SHA256)
-            if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256))
+            if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256)
+            if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256))
         # Match serde_json::to_vec(schema_manifest()) plus the CLI's final LF.
         # Both producing Rust and fresh_target.json are independently pinned.
         manifest = {"format_version": 1, "scope": "compiled-core-schema-contract",
@@ -541,11 +561,40 @@ UPGRADE_RECEIPT_TABLES = (
 )
 
 
-def upgrade_receipts_guard_sql() -> str:
-    return " OR ".join("EXISTS(SELECT 1 FROM " + table + ")" for table in UPGRADE_RECEIPT_TABLES)
+def upgrade_receipt_tables(contract: dict) -> tuple[str, ...]:
+    # Historical fixtures have no suffix receipt table. Never reference an absent
+    # table there; never exclude a newer receipt from the fresh-target fence.
+    return UPGRADE_RECEIPT_TABLES + (("core_meta.commerce_display_rate_upgrades",)
+        if "commerce-self-purchase" in contract["component_fingerprints"] else ())
 
 
-def fresh_seed_hash_query(profile: str = CORE56_SEED_CONTRACT) -> str:
+def upgrade_receipts_guard_sql(contract: dict | None = None) -> str:
+    contract = current_contract() if contract is None else contract
+    return " OR ".join("EXISTS(SELECT 1 FROM " + table + ")" for table in upgrade_receipt_tables(contract))
+
+
+def profile_acl_guard_sql(contract: dict) -> str:
+    """The Core58 receipt is owner-only, including column ACLs.
+
+    CREATE OR REPLACE preserves post_ledger ACLs; the display writer explicitly
+    revokes PUBLIC. Their SECURITY DEFINER bodies/search paths remain catalog
+    pinned. Named offline runtime grants are allowed, PUBLIC execution is not.
+    """
+    if "commerce-self-purchase" not in contract["component_fingerprints"]:
+        return "FALSE"
+    return """EXISTS(SELECT 1 FROM pg_class c,
+ LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+ WHERE c.oid='core_meta.commerce_display_rate_upgrades'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_attribute t JOIN pg_class c ON c.oid=t.attrelid,
+ LATERAL aclexplode(t.attacl) a
+ WHERE c.oid='core_meta.commerce_display_rate_upgrades'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_proc p,
+ LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+ WHERE p.oid IN ('core_billing.post_ledger(jsonb)'::regprocedure,
+ 'core_console.write_display_exchange_rate(text)'::regprocedure) AND a.grantee=0)"""
+
+
+def fresh_seed_hash_query(profile: str = CORE58_SEED_CONTRACT) -> str:
     """Bind all seed fields in UTC, including the physical sequence row fields."""
     relations = {
         "ledger_accounts": ("core_billing.ledger_accounts", "id"),
@@ -565,8 +614,8 @@ def fresh_seed_hash_query(profile: str = CORE56_SEED_CONTRACT) -> str:
         "promotion_secret": ("core_promotions.secrets", "singleton"),
         "channel_projection_state": ("core_channels.projection_state", "singleton"),
     }
-    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT), "seed_profile_not_reviewed")
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT):
+    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT), "seed_profile_not_reviewed")
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
         # 50--54 add no seed rights: all twelve tables must remain empty.
         # Their whole rows and both new physical sequences are still hashed.
         relations.update({
@@ -585,12 +634,14 @@ def fresh_seed_hash_query(profile: str = CORE56_SEED_CONTRACT) -> str:
             "referral_event_journals": ("core_referrals.event_journals", "event_id"),
             "referral_events_sequence": ("core_referrals.events_id_seq", "last_value"),
         })
-    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT):
+    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
         relations["connection_snapshot"] = ("core_history.connection_snapshot", "singleton")
-    if profile == CORE56_SEED_CONTRACT:
+    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
         relations.update({"directory_ad_quotes": ("core_directory_ads.quotes", "id"),
                           "directory_ad_payments": ("core_directory_ads.payments", "id"),
                           "directory_ad_refunds": ("core_directory_ads.refunds", "principal,request_id")})
+    if profile == CORE58_SEED_CONTRACT:
+        relations["commerce_display_rate_upgrades"] = ("core_meta.commerce_display_rate_upgrades", "upgrade_id")
     fields = []
     for key, (relation, order) in relations.items():
         # PostgreSQL sequences have no composite row type for to_jsonb(t).
@@ -1080,7 +1131,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         require(target_contract.get(key) == contract.get(key), "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
-    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT):
+    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT):
         require(catalog_hash == contract["fresh_catalog_sha256"], "target_fresh_catalog_mismatch")
     validate_import_material(plan, source_sha256, manifest)
     require(isinstance(target_identity, dict), "target_identity_incomplete")
@@ -1267,11 +1318,11 @@ BEGIN
  IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid()) THEN
   RAISE EXCEPTION 'target has other database clients';
  END IF;
- LOCK TABLE core_meta.schema_contract,core_meta.component_contract,core_meta.runtime_contract,{','.join(UPGRADE_RECEIPT_TABLES)},core_migration.import_runs IN ACCESS EXCLUSIVE MODE;
+ LOCK TABLE core_meta.schema_contract,core_meta.component_contract,core_meta.runtime_contract,{','.join(upgrade_receipt_tables(contract))},core_migration.import_runs IN ACCESS EXCLUSIVE MODE;
  IF (SELECT count(*) FROM core_meta.schema_contract)<>1 OR NOT EXISTS (SELECT 1 FROM core_meta.schema_contract WHERE singleton AND version={IDENTITY_VERSION} AND encode(fingerprint,'hex')={sql_literal(fingerprint)}) THEN
   RAISE EXCEPTION 'identity contract mismatch';
  END IF;
- IF {upgrade_receipts_guard_sql()} THEN
+ IF {upgrade_receipts_guard_sql(contract)} THEN
   RAISE EXCEPTION 'fresh target has upgrade receipts';
  END IF;
  IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -1288,6 +1339,9 @@ BEGIN
   LATERAL aclexplode(c.relacl) a WHERE n.nspname NOT IN ('pg_catalog','information_schema')
   AND left(n.nspname,3)<>'pg_' AND a.grantee=0) THEN
   RAISE EXCEPTION 'target schema ownership or public privileges mismatch';
+ END IF;
+ IF {profile_acl_guard_sql(contract)} THEN
+  RAISE EXCEPTION 'fresh target profile privileges mismatch';
  END IF;
  FOR table_row IN SELECT n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
   WHERE {application_tables} ORDER BY n.nspname,c.relname
@@ -1452,7 +1506,7 @@ BEGIN
  OR (SELECT last_value<>COALESCE((SELECT max((r->>'user_id')::bigint)+1 FROM jsonb_array_elements(payload) r),1) OR is_called FROM core_identity.users_id_seq) THEN
   RAISE EXCEPTION 'identity sequence readback mismatch';
  END IF;
- IF {upgrade_receipts_guard_sql()} THEN RAISE EXCEPTION 'fresh target upgrade receipts changed'; END IF;
+ IF {upgrade_receipts_guard_sql(contract)} THEN RAISE EXCEPTION 'fresh target upgrade receipts changed'; END IF;
  IF ({catalog_hash_sql(contract)}) IS DISTINCT FROM actual_catalog THEN RAISE EXCEPTION 'target catalog changed'; END IF;
  PERFORM pg_stat_clear_snapshot();
  IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid()) THEN
@@ -1485,7 +1539,7 @@ COMMIT;
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source-receipt", type=Path, required=True)
-    parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned fresh56 receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
+    parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned reviewed fresh receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
     parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/.local/state/lmm-api; must not already exist")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true", help="Explicitly execute the private SQL plan against the matching empty initialized target")

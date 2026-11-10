@@ -66,6 +66,13 @@ CHANGED_SEQUENCES = (
 )
 
 
+def fresh_empty_tables() -> tuple[str, ...]:
+    # Preserve the historical base list; bind suffix receipts to the exact
+    # reviewed assembly so older fixture contracts do not acquire absent tables.
+    return tuple(dict.fromkeys((*FRESH_EMPTY_TABLES,
+        *IDENTITY.upgrade_receipt_tables(IDENTITY.current_contract()))))
+
+
 def canonical(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
@@ -111,7 +118,7 @@ def validate_inventory(inventory: dict) -> None:
         require(type(values) is list and values == sorted(set(values)), "invalid_inventory")
         for name in values:
             relation(name)
-    require(set(CHANGED_TABLES) | set(FRESH_EMPTY_TABLES) | {"core_migration.import_runs", "core_identity.users", "core_trust_pricing.policies"}
+    require(set(CHANGED_TABLES) | set(fresh_empty_tables()) | {"core_migration.import_runs", "core_identity.users", "core_trust_pricing.policies"}
             <= set(inventory["tables"]), "incomplete_inventory")
     require(set(CHANGED_SEQUENCES) <= set(inventory["sequences"]), "incomplete_inventory")
 
@@ -500,7 +507,7 @@ def validate_material(material: dict) -> None:
     for value in state["tables"].values():
         PLANNER.integer(value.get("rows"), "snapshot_count_invalid", minimum=0)
         checked_hash(value.get("sha256"))
-    require(all(state["tables"][name] == {"rows": 0, "sha256": sha(b"")} for name in FRESH_EMPTY_TABLES),
+    require(all(state["tables"][name] == {"rows": 0, "sha256": sha(b"")} for name in fresh_empty_tables()),
             "fresh49_business_or_upgrade_records_not_empty")
     if composed:
         require(set(ESCROW_TABLES) | {"core_billing.legacy_escrow_operations"} <= set(state["tables"]),
@@ -577,6 +584,8 @@ def _guard(material: dict) -> str:
  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE {TABLE_FILTER} AND pg_get_userbyid(p.proowner)<>current_user)
  THEN RAISE EXCEPTION 'financial_schema_owner_mismatch'; END IF;
+ IF {IDENTITY.profile_acl_guard_sql(contract)} THEN
+  RAISE EXCEPTION 'financial_profile_privileges_mismatch'; END IF;
  IF ({IDENTITY.catalog_hash_sql(contract)}) IS DISTINCT FROM {literal(target['catalog_fingerprint_sha256'])}
  OR ({ownership_sql()}) IS DISTINCT FROM {literal(target['ownership_sha256'])}
  OR NOT EXISTS(SELECT 1 FROM core_meta.runtime_contract WHERE singleton

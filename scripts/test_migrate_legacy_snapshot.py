@@ -59,7 +59,7 @@ def mapped(rows, factors=None, source_sha256=SOURCE_SHA256, **options):
 
 
 def target_contract(**options):
-    return {**MODULE.current_contract(), "catalog_fingerprint_sha256": MODULE.CORE56_CATALOG_SHA256,
+    return {**MODULE.current_contract(), "catalog_fingerprint_sha256": MODULE.CORE58_CATALOG_SHA256,
             "allow_initialized_core_seed": True, "initialized_core_seed_contract": MODULE.CORE_SEED_CONTRACT,
             "initialized_core_seed_sha256": "d" * 64,
             "trust_policy_seed": {
@@ -518,9 +518,9 @@ class DeveloperAccessTests(unittest.TestCase):
 
 
 class IdentityContractTests(unittest.TestCase):
-    def test_core56_assembly_uses_exact_concat_lf_and_telegram_alias(self):
+    def test_core58_assembly_uses_exact_concat_lf_and_telegram_alias(self):
         schemas = MODULE.component_schemas()
-        self.assertEqual(len(schemas), 56)
+        self.assertEqual(len(schemas), 58)
         root = MODULE.ROOT / "services/core/schema"
         self.assertEqual(schemas["trust-pricing"], (root / "trust_pricing.sql").read_bytes()
                          + b"\n" + (root / "image_trust_extension.sql").read_bytes())
@@ -536,7 +536,7 @@ class IdentityContractTests(unittest.TestCase):
             shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
             shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
             for relative in ("services/core/src/core_schema.rs", "services/core/schema/wallet.sql",
-                             "services/core/schema/legacy_history_compat.sql"):
+                             "services/core/schema/legacy_history_compat.sql", "services/core/src/subscriptions.rs"):
                 (root / relative).write_bytes(subprocess.check_output(
                     ["git", "show", revision + ":" + relative], cwd=HISTORY_ROOT))
             historical = root / "scripts/migrate-legacy-snapshot.py"
@@ -568,7 +568,8 @@ class IdentityContractTests(unittest.TestCase):
                     self.assertEqual(path.read_bytes(), subprocess.check_output(
                         ["git", "show", "b69dfe6:" + str(path.relative_to(MODULE.ROOT))], cwd=HISTORY_ROOT))
         self.assertEqual(list(schemas)[49:], ["legacy-payments", "legacy-payment-opening-identity",
-            "affiliate-claims", "referral-ledger-revision", "legacy-referrals", "connection-history", "directory-ads"])
+            "affiliate-claims", "referral-ledger-revision", "legacy-referrals", "connection-history", "directory-ads",
+            "commerce-self-purchase", "display-exchange-rate"])
         self.assertIn(b"ALTER TABLE core_billing.ledger_journals", schemas["referral-ledger-revision"])
         self.assertIn(b"CREATE OR REPLACE FUNCTION core_billing.ledger_apply_entry", schemas["referral-ledger-revision"])
 
@@ -579,7 +580,8 @@ class IdentityContractTests(unittest.TestCase):
             shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
             for relative in ("services/core/src/core_schema.rs",
                              "services/core/src/core_schema/navigation_options.rs",
-                             "services/core/src/core_schema/upgrade/fresh_target.json"):
+                             "services/core/src/core_schema/upgrade/fresh_target.json",
+                             "services/core/src/subscriptions.rs"):
                 (root / relative).write_bytes(subprocess.check_output(
                     ["git", "show", "5194aca:" + relative], cwd=HISTORY_ROOT))
             contract54 = MODULE.current_contract(root)
@@ -591,23 +593,24 @@ class IdentityContractTests(unittest.TestCase):
             with self.assertRaises(MODULE.MappingError):
                 MODULE.current_contract(root)
 
-    def test_core56_manifest_pin_and_entire_source_review_are_bound(self):
+    def test_core58_manifest_pin_and_entire_source_review_are_bound(self):
         contract = MODULE.current_contract()
-        self.assertEqual(contract["import_profile"], MODULE.CORE56_SEED_CONTRACT)
-        self.assertEqual(contract["compiled_manifest_sha256"], MODULE.CORE56_MANIFEST_SHA256)
-        self.assertEqual(contract["fresh_catalog_sha256"], MODULE.CORE56_CATALOG_SHA256)
+        self.assertEqual(contract["import_profile"], MODULE.CORE58_SEED_CONTRACT)
+        self.assertEqual(contract["compiled_manifest_sha256"], MODULE.CORE58_MANIFEST_SHA256)
+        self.assertEqual(contract["fresh_catalog_sha256"], MODULE.CORE58_CATALOG_SHA256)
         self.assertEqual(contract["seed_query_sha256"], hashlib.sha256(MODULE.fresh_seed_hash_query().encode()).hexdigest())
         self.assertTrue(set(MODULE.REVIEWED_RUST_FILES_54) <= set(contract["source_file_hashes"]))
         self.assertNotEqual(contract["component_fingerprints"]["wallet"], MODULE.REVIEWED_COMPONENTS["wallet"][1])
 
-    def test_core56_each_new_component_and_manifest_producer_reject_byte_drift(self):
+    def test_core58_each_new_component_and_manifest_producer_reject_byte_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
             shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
             files = ["services/core/schema/" + name.replace("-", "_") + ".sql"
-                     for name in list(MODULE.REVIEWED_COMPONENTS_56)[49:]] + [
+                     for name in list(MODULE.REVIEWED_COMPONENTS_58)[49:]] + [
                          "services/core/src/core_schema/manifest.rs",
+                         "services/core/src/subscriptions.rs",
                          "services/core/src/core_schema/navigation_options.rs",
                          "services/core/src/core_schema/upgrade/fresh_target.json"]
             for relative in files:
@@ -618,12 +621,54 @@ class IdentityContractTests(unittest.TestCase):
                     MODULE.current_contract(root)
                 path.write_bytes(original)
 
+    def test_historical56_contract_and_seed_bytes_remain_exact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
+            shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
+            for relative in MODULE.REVIEWED_RUST_FILES_56:
+                (root / relative).write_bytes(subprocess.check_output(
+                    ["git", "show", MODULE.CORE56_SCHEMA_REVISION + ":" + relative], cwd=HISTORY_ROOT))
+            old_script = root / "scripts/migrate-legacy-snapshot.py"
+            old_script.parent.mkdir()
+            old_script.write_bytes(subprocess.check_output(
+                ["git", "show", MODULE.CORE58_SCHEMA_REVISION + ":scripts/migrate-legacy-snapshot.py"], cwd=HISTORY_ROOT))
+            spec = importlib.util.spec_from_file_location("historical56_review", old_script)
+            old = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(old)
+            self.assertEqual(MODULE.current_contract(root), old.current_contract(root))
+            self.assertEqual(MODULE.fresh_seed_hash_query(MODULE.CORE56_SEED_CONTRACT),
+                             old.fresh_seed_hash_query(MODULE.CORE56_SEED_CONTRACT))
+            self.assertNotIn("commerce_display_rate_upgrades", MODULE.upgrade_receipts_guard_sql(MODULE.current_contract(root)))
+
+    def test_core58_receipt_and_acl_fence_is_profile_specific(self):
+        contract = MODULE.current_contract()
+        self.assertIn("core_meta.commerce_display_rate_upgrades", MODULE.upgrade_receipt_tables(contract))
+        self.assertIn("core_meta.commerce_display_rate_upgrades", MODULE.fresh_seed_hash_query())
+        self.assertNotIn("commerce_display_rate_upgrades", MODULE.fresh_seed_hash_query(MODULE.CORE56_SEED_CONTRACT))
+        guard = MODULE.profile_acl_guard_sql(contract)
+        self.assertIn("aclexplode(t.attacl)", guard)
+        self.assertIn("core_console.write_display_exchange_rate(text)", guard)
+        self.assertIn("core_billing.post_ledger(jsonb)", guard)
+        self.assertEqual(MODULE.profile_acl_guard_sql({"component_fingerprints": MODULE.REVIEWED_COMPONENTS_56}), "FALSE")
+
+    def test_core59_or_unreviewed_suffix_cannot_reuse_core58_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
+            shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
+            path = root / "services/core/src/core_schema.rs"
+            path.write_text(path.read_text().replace('("directory-ads",', '("subscription-epay",'))
+            with self.assertRaisesRegex(MODULE.MappingError, "component_rust_source_fingerprint_mismatch"):
+                MODULE.current_contract(root)
+
     def test_no_receipt_can_relabel_older_profile_or_supply_its_own_catalog(self):
         plan = mapped([user()])
         manifest = manifest_for(plan)
         for key, value in (("import_profile", MODULE.CORE49_SEED_CONTRACT),
                            ("import_profile", MODULE.CORE54_SEED_CONTRACT),
                            ("import_profile", MODULE.CORE55_SEED_CONTRACT),
+                           ("import_profile", MODULE.CORE56_SEED_CONTRACT),
                            ("source_schema_revision", "0" * 40),
                            ("compiled_manifest_sha256", "0" * 64),
                            ("fresh_catalog_sha256", "0" * 64),
