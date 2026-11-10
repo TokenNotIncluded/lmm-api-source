@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "scope": "Fixed Core65 + Go synthetic subscription RSA fixture; repository adaptation PG NOT_RUN",
+  "core": {
+    "sha256": "106b74e26bd7b5c1cddc4ce15e378651e0d71f8354330e068d89626f64750782",
+    "source_revision": "f7b400416b6b9e61f680b5f33c55a1cc4b6f1f21",
+    "input_manifest_sha256": "b5ce139e599e96ff2c6456bc762974fbf1292a3c52ab8ac5a23f3ba69861d104",
+    "receipt_sha256": "93ae02a4f08ae684d8330ca427a3d28081c4595f894483cbef48fa3f12b438d4",
+    "components": 65,
+    "catalog_sha256": "f104ea5933f8b6bc28108bd005f1e61785765657d530fdab701bc2a8a41afaa6",
+    "manifest_sha256": "62c8f7e32b0c831dfea5a11311d94193d6625fc9f7e3564755971882c65cff3a"
+  },
+  "go": {
+    "binary_sha256": "f769f8096eff499166a1cb9e5d60b204e5ad281f4621fbf3a2cfcab38b529ae6",
+    "component_source_commit": "6fcf501",
+    "embedded_revision": "5d89145760cd3e04de1f76f87c26e1212ec0ce15",
+    "embedded_modified": true,
+    "source_files": 815
+  },
+  "default_artifacts": {
+    "core": ".cache/lmm-image-launch-20261110/final65/bin-native-trust-merged/artifact/lmm-core",
+    "go": ".cache/lmm-launch-extension-build/artifact/lmm-extensions"
+  },
+  "sql_revision": "f7b400416b6b9e61f680b5f33c55a1cc4b6f1f21",
+  "sql": {
+    "deployment/postgres/grant-core-runtime.sql": "a9e18561adacf6005742b7973010098065b50cf49e59b27fa2b4eed417ee7e6e",
+    "deployment/postgres/verify-channel-observations-owner.sql": "582616256d8a9dcaee62c6a04ed8e494043397d3db8fe9018e66fd5c27046526"
+  },
+  "limits": {
+    "topology": "one PG, one Core, one Go serial restart, one direct TLS provider stub bound203.0.113.7:443 on lo; private user+mount+netns hosts/NSS; no uplink/default/main route",
+    "memory_max_bytes": 1610612736,
+    "swap_max_bytes": 0,
+    "cpu_quota_percent": 75,
+    "nice": 19,
+    "io_class": "idle",
+    "estimated_rss_mib": [
+      350,
+      900
+    ],
+    "estimated_duration_seconds": [
+      30,
+      180
+    ],
+    "minimum_free_disk_bytes": 536870912,
+    "expected_write_mib": [
+      50,
+      250
+    ],
+    "max_connections": 20,
+    "shared_buffers_mib": 16,
+    "work_mem_mib": 1,
+    "core_worker_threads": 1,
+    "core_pool_connections": 4,
+    "go_maxprocs": 1,
+    "go_memory_limit_mib": 256
+  },
+  "harness_files": {
+    "README.md": "737f94b5545cc68f2836ba48b8febea86d804a2d08d8d15fa7fa96f722f6609f",
+    "RUN.sh": "fd27ccd96a296b5b0b6db1eb543e1f1cf8c5dc949ada519235de40e422623d25",
+    "cached-evidence.json": "9aa215af06dc0f2e692835528d5f0ef3faab4081f3ee0c174bd7ce9cc2872647",
+    "host_integrity.py": "5bd9b406136fb12aa357d2be74d16d3ac9a4c84cb4387aa81ec0239c8eb26b81",
+    "hosts.fixture": "475feabb4edbd435c9b84b26f59507edc0f6eb03718e9ae336aafe4a57e9243a",
+    "namespace-entry.sh": "ca6d9a93895d300eb8ca17e791789905335732902a3667ec8cce9efc49162da0",
+    "nsswitch.fixture": "51d447751d54638c246e77fb4c9e046526fb62486bd11ff3faf9d11d07be6f97",
+    "prepare.py": "5a604c5f904efbda5c9e2e03c897e834b6c39f6d43da01e73635d0ae88726b38",
+    "runner.py": "263310cf28e202401e7eb9a695943c9fd5a767fd5076fc212b6722614d8c444c"
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "cached_execution": "PASS",
+  "repository_adaptation_pg": "NOT_RUN",
+  "private_cache_locator": "~/.cache/lmm-subscription-tcp-rsa-20261110",
+  "attempt": "attempt-b9pvbjkl",
+  "freeze_sha256": "cb4c359770f12b661ea2d913de249c4f530c0a9ea7b7cec3db6d42efd26979f0",
+  "original_runner_sha256": "2aa89d2e8b53fb02c5ef1a1c4d1e6dc1d4fc22a58b583f88544b7c4163ad76a0",
+  "session": 46943,
+  "unit": "lmm-sub-rsa-1158322.scope",
+  "exit": 0,
+  "cases": [
+    "actual65_init_and_unmodified_runtime_check",
+    "actual_go_prepare_core_rpc_and_idempotency",
+    "actual_authenticated_order_ownership_denial",
+    "actual_go_confirm_core_rpc_and_isolated_sdk_checkout",
+    "real_rsa_reject_and_core_subscription_grant_target_readback",
+    "go_restart_and_signed_original_replay_no_duplicate_grant",
+    "signed_renewal_and_replay_target_cycles_entitlements_readback"
+  ],
+  "cleanup": {
+    "pg_stop_exit": 0,
+    "owned_pg_stopped": true,
+    "children_exited": true
+  },
+  "unit_after": {
+    "LoadState": "not-found",
+    "ActiveState": "inactive"
+  },
+  "final_counts": {
+    "core_subscriptions.external_orders": 1,
+    "core_subscriptions.pancake_orders": 1,
+    "core_subscriptions.pancake_events": 2,
+    "core_subscriptions.pancake_cycles": 2,
+    "core_charging.subscriptions": 2,
+    "payment_pancake_subscription_inbox": 4,
+    "payment_pancake_subscription_checkouts": 1
+  },
+  "wallet_ledger_count_before": 0,
+  "wallet_ledger_count_after": 0,
+  "host_namespace_hosts_NSS_CA_unchanged": true,
+  "scope": "Actual pinned binaries, local fixed-origin TLS stub and synthetic RSA keys only. No real provider, production migration, deployment or release qualification. Go embedded VCS dirty; source provenance in pins.json. No product transport/SSRF changes. Raw evidence and all keys remain private.",
+  "evidence_sha256": {
+    "attempt-b9pvbjkl/report.json": "4f74b9d80ce8cf0e23354ebafaaf7b45df171e2ce36a6ca8b66b578bcc1c7392",
+    "attempt-b9pvbjkl/commands.json": "64de9828957444517ec62d7de668d1e16caa5af907e71c6339a0d5b1c9c685a4",
+    "attempt-b9pvbjkl/http-trace.json": "bbc8b4ccfcd408e257ea26e4f51e1a107917e90f21e9e7d1e311ad4350036adf",
+    "attempt-b9pvbjkl/network-isolation.json": "8955a91a0b98dff932d741d22a639c6159694e8697c63ef06960fa013c3a379e",
+    "attempt-b9pvbjkl/confirmed-state.json": "2f0878dd91166bc3259e1a6b5dc87aefda166fa17bdb5757ba96ef431dcc0fe1",
+    "attempt-b9pvbjkl/forged-state.json": "0a69eec89e8f0045bfe4fecef32c09720f617b6d2fb07ac352cfd71ce9468b92",
+    "attempt-b9pvbjkl/wrong-amount-state.json": "82adf13569c1015ef32a6988dd49ee570833192e63f3bb2cc915876e8d6e6b09",
+    "attempt-b9pvbjkl/first-paid.json": "da0ee09d9eb9a34737a11336b42538bcdc4156f36d15e96f1effd7cc915aec04",
+    "attempt-b9pvbjkl/paid-replay-state.json": "da0ee09d9eb9a34737a11336b42538bcdc4156f36d15e96f1effd7cc915aec04",
+    "attempt-b9pvbjkl/reopen-state.json": "da0ee09d9eb9a34737a11336b42538bcdc4156f36d15e96f1effd7cc915aec04",
+    "attempt-b9pvbjkl/renewal-state.json": "e8b18812e2686a638ad9abbcbf48e68cfb7ee47337b4b2bd5a5ecd166aa070dc",
+    "attempt-b9pvbjkl/final-state.json": "b83bb6b8fee1fd545a841915e1b9161e9f079d08092e3c25e173f67ca455eb6b",
+    "attempt-b9pvbjkl/synthetic-provider-calls.json": "de56d6deb73ec70143c0fa6aa97f05c436e4361b2d71405227ba22cc39a2af61",
+    "attempt-b9pvbjkl/pg-stop.log": "f2c0faedef0a01ab1cc16ffea304c9d5e661dd13b60122fecd895a586042b79a",
+    "attempt-b9pvbjkl/root-independent-review.json": "47509199ca7ae707dd2d7772425fc6d678f4a710135379bc10172ced0bb77044",
+    "attempt-b9pvbjkl/ledger-before.stdout": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "attempt-b9pvbjkl/ledger-after.stdout": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "rsa-final-acceptance-receipt.json": "a6023997b91736b74c47ed0e7c4a060658e18dd4a167c28c6cfab1973dbeb581",
+    "private-namespace-guard-result.json": "5452bf2cd3cd39c45b32cc4c887e374df930463f4339ed82e9c3b23e8728ca29",
+    "invocation-20261110T163516Z-1158322.log.host-before.json": "8b417d6e36fff83992420d3967d8523987eba12c2c9cb04ce7d18d3470f6c88c",
+    "invocation-20261110T163516Z-1158322.log.host-after.json": "7604b40ee9cb0bd6761c7c08b44b772ab862b31077d8d999ae4bf50ea524a766",
+    "private-namespace-guard-attempt01-fail.json": "8cdb7042eaea40f88bf5698a7dbe8998c7dae692922328dfac6e257dd24f6eb7",
+    "invocation-20261110T163516Z-1158322.log": "53a393d8ed132c120f94a3dfdb2f66d6b6cd0a9a648a0f6bfeafd593a7241e42"
+  },
+  "retained_failures": [
+    {
+      "attempt": "attempt-l5hc_1c1",
+      "stage": "go-install",
+      "classification": "Fixture PG environment refused by fresh installer before DB connection",
+      "report_sha256": "0896695d6a0dc86f0be6a71728f14ca88fa350738a4e264839118910a71d11b5",
+      "business_after_failure": "NOT_RUN"
+    },
+    {
+      "attempt": "attempt-ai0pb8y2",
+      "stage": "save-price",
+      "classification": "Fixture checkout language/region violated actual schema contract",
+      "report_sha256": "7654f8b8113db68bae705e27ba1e150b130bd36dec55bb8f25be3e80cf179b51",
+      "business_after_failure": "NOT_RUN"
+    },
+    {
+      "attempt": "attempt-qflht2go",
+      "stage": "confirm",
+      "classification": "Proxy fixture incompatible with unchanged production direct-only transport; no provider POST",
+      "report_sha256": "29f317d47dbb0c312130a603456e8178f5f6a8562d2d0f754bb5e5e136785af4",
+      "business_after_failure": "NOT_RUN"
+    }
+  ],
+  "repository_static_checks": [
+    "Python AST parse",
+    "shell syntax",
+    "runner main() AST identical to cached PASS input; only top-level artifact configuration adapted"
+  ]
+}
