@@ -22,6 +22,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 from collections import Counter
@@ -178,7 +180,10 @@ def store_secret(args) -> str | None:
     path = getattr(args, "store_key_file", None)
     if not path:
         return legacy_secret(args, "MERCHANT_STORE_ENCRYPTION_KEY", "CRYPTO_SECRET")
-    secret = Path(path).read_text().strip()
+    private = Path(path)
+    if not stat.S_ISREG(private.lstat().st_mode) or private.is_symlink() or private.stat().st_mode & 0o077:
+        fail("store_key_not_private")
+    secret = private.read_text().strip()
     if len(secret) < 32:
         fail("store_key_too_short")
     return secret
@@ -186,6 +191,7 @@ def store_secret(args) -> str | None:
 
 def store_decrypt(secret: str, kind: str, ident: str, value: str) -> str:
     import base64
+    from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     value = (value or "").strip()
     if not value:
@@ -194,7 +200,61 @@ def store_decrypt(secret: str, kind: str, ident: str, value: str) -> str:
         fail("store_cipher_envelope")
     raw = base64.urlsafe_b64decode(value[3:] + "=" * (-len(value[3:]) % 4))
     key = hashlib.sha256(f"merchant-store:{kind}:{ident}:{secret}".encode()).digest()
-    return AESGCM(key).decrypt(raw[:12], raw[12:], None).decode()
+    try:
+        return AESGCM(key).decrypt(raw[:12], raw[12:], None).decode()
+    except (InvalidTag, UnicodeError, ValueError):
+        fail("store_cipher_authentication_failed")
+
+
+def store_stock_key(args) -> bytes:
+    """Read the deployment's existing raw target key; never generate a key."""
+    path = getattr(args, "store_stock_key_file", None)
+    if not path:
+        fail("store_target_stock_key_required")
+    p = Path(path)
+    if not stat.S_ISREG(p.lstat().st_mode) or p.is_symlink() or p.stat().st_mode & 0o077:
+        fail("store_target_stock_key_not_private")
+    key = p.read_bytes()
+    if len(key) != 32:
+        fail("store_target_stock_key_not_32_bytes")
+    return key
+
+
+def store_seal_stock(key: bytes, shop: str, ident: str, plain: str) -> str:
+    import base64
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    if not plain or len(plain.encode()) > 32768 or "\0" in plain:
+        fail("store_stock_plaintext_invalid")
+    nonce = os.urandom(12)
+    aad = ("lmm-store-stock-v1\0" + shop + "\0" + ident).encode()
+    raw = nonce + AESGCM(key).encrypt(nonce, plain.encode(), aad)
+    return "v1:" + base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def store_pickup_commands(o: dict, secret: str | None, shop: str) -> list[str]:
+    """Retain old protection and alias, without exposing or inventing a code."""
+    commands = []
+    password = o.get("pickup_code_hash") or ""
+    if o.get("pickup_code_required") or password:
+        if not re.fullmatch(r"\$2[aby]\$(?:0[4-9]|1[0-4])\$[./A-Za-z0-9]{53}", password):
+            fail("store_pickup_bcrypt_not_supported")
+        commands.append(put("lmm_store.commands", shop, go_id("legacy-order-pickup-v1", o["id"]),
+                            {"salt": "", "hash": "", "legacy_bcrypt": password}))
+    token_hash = o.get("pickup_token_hash") or ""
+    encrypted = o.get("pickup_token_ciphertext") or ""
+    if token_hash or encrypted:
+        if not secret:
+            fail("store_pickup_key_required")
+        token = store_decrypt(secret, "pickup", o["id"], encrypted)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token) or hashlib.sha256(token.encode()).hexdigest() != token_hash:
+            fail("store_pickup_token_hash_mismatch")
+        if not re.fullmatch(r"[a-f0-9]{64}", o["id"]):
+            fail("store_pickup_order_id_not_supported")
+        canonical = o["id"] + "." + hashlib.sha256(b"store-import-pickup-v1\0" + token.encode()).hexdigest()
+        commands.append(put("lmm_store.commands", shop, go_id("store-pickup-v1", o["id"]), {"token": canonical}))
+        commands.append(put("lmm_store.commands", shop, go_id("legacy-store-pickup-v1", token_hash),
+                            {"kind": "legacy-store-pickup-v1", "token_hash": token_hash, "token": canonical}))
+    return commands
 
 
 def jlist(text: str | None) -> list:
@@ -272,6 +332,8 @@ def phase_store(ctx: Ctx) -> Plan:
     orders = ctx.rows("merchant_store_orders", "created_at,id")
     refunds = {r["order_id"]: r for r in ctx.rows("merchant_store_refunds", "created_at,id")}
     stocks = ctx.rows("merchant_store_stocks", "created_at,id")
+    fixed = {r["variant_id"]: r for r in ctx.rows("merchant_store_fixed_contents", "variant_id")}
+    fixed_orders = {r["order_id"]: r for r in ctx.rows("merchant_store_order_fixed_deliveries", "order_id")}
     if len(refunds) != ctx.count("merchant_store_refunds"):
         fail("store_multiple_refunds_per_order")
     by_product = {p["id"]: p for p in products}
@@ -311,20 +373,68 @@ def phase_store(ctx: Ctx) -> Plan:
                            "updated_at": p["updated_at"]})
             plan.stats["implicit_default_variants"] += 1
         for v in own:
-            # Per-unit legacy stock has no new backend (only fixed content);
-            # tracked stock 0 keeps these card-key variants sold out.
             variants[v["id"]] = {"id": v["id"], "product_id": p["id"], "title": v["name"],
                                  "price": {"amount_credits": v["price_quota"], "unit": "credits"},
-                                 "track_stock": True, "stock": 0, "reserved": 0, "quota": -1, "claimed": 0,
+                                 "track_stock": v["template"] != "fixed-content", "stock": 0, "reserved": 0, "quota": -1, "claimed": 0,
                                  "legacy": {"template": v["template"], "enabled": v["enabled"],
                                             "created_at": v["created_at"], "updated_at": v["updated_at"]}}
+            if v["template"] == "fixed-content":
+                snapshot = fixed.get(v["id"])
+                if snapshot:
+                    if not secret or snapshot["product_id"] != p["id"]:
+                        fail("store_fixed_content_key_or_owner_missing")
+                    variants[v["id"]]["legacy"]["fixed_content"] = store_decrypt(secret, "fixed-content", p["id"] + ":" + v["id"], snapshot["ciphertext"])
+                elif p["status"] == "published" and v["enabled"]:
+                    fail("store_published_fixed_content_missing")
+    stock_bodies = []
+    stock_by_order: dict[str, list[dict]] = {}
+    target_key = store_stock_key(ctx.args) if stocks else None
+    seen_stock, seen_positions, seen_tokens = set(), set(), set()
+    order_source = {o["id"]: o for o in orders}
+    for s in stocks:
+        product = by_product[s["product_id"]]
+        variant_id = s["variant_id"] or product_bodies[s["product_id"]]["legacy"]["default_variant_id"]
+        v = variants[variant_id]
+        state, position = s["state"], s["position"]
+        if (s["id"] in seen_stock or v["product_id"] != s["product_id"] or not v["track_stock"]
+                or state not in {"available", "reserved", "delivered", "refunded", "removed"}
+                or type(position) is not int or position <= 0 or (variant_id, position) in seen_positions):
+            fail("store_stock_identity_or_state_invalid")
+        seen_stock.add(s["id"]); seen_positions.add((variant_id, position))
+        original_order = s["order_id"] or ""
+        if (state in {"available", "removed"}) != (original_order == ""):
+            fail("store_stock_order_state_mismatch")
+        if original_order:
+            owner = order_source.get(original_order)
+            owner_variant = (owner.get("variant_id") or product_bodies[owner["product_id"]]["legacy"]["default_variant_id"]) if owner else None
+            if not owner or owner["product_id"] != s["product_id"] or owner_variant != variant_id:
+                fail("store_stock_order_ownership_mismatch")
+            stock_by_order.setdefault(original_order, []).append(s)
+        shop = legacy_shop_id(product["seller_id"])
+        encrypted = ""
+        if state != "removed" or s["ciphertext"]:
+            if not secret:
+                fail("store_stock_source_key_required")
+            plain = store_decrypt(secret, "stock", s["product_id"] + ":" + s["id"], s["ciphertext"])
+            encrypted = store_seal_stock(target_key, shop, s["id"], plain)
+        stock_bodies.append((shop, {"id": s["id"], "product_id": s["product_id"], "variant_id": variant_id,
+                                   "position": position, "state": state, "order_id": original_order, "ciphertext": encrypted,
+                                   "created_at": s["created_at"], "updated_at": s["created_at"]}))
+        v["stock_sequence"] = max(v.get("stock_sequence", 0), position)
+        if state in {"available", "reserved"}: v["stock"] += 1
+        if state == "reserved": v["reserved"] += 1
+        if state in {"reserved", "delivered", "refunded"}: v["claimed"] += 1
     order_bodies = []
+    commands = 0
     for o in orders:
         product = by_product[o["product_id"]]
         variant_id = o["variant_id"] or product_bodies[o["product_id"]]["legacy"]["default_variant_id"]
         v = variants[variant_id]
         if o["price_quota"] != o["unit_price_quota"] * o["quantity"] or o["payment_method"] != "balance" or o["amount_minor"]:
             fail(f"store_order_shape:{o['id']}")
+        associated = sorted(stock_by_order.get(o["id"], []), key=lambda s: (s["position"], s["id"]))
+        # Old payment already allocated/delivered units before the buyer first
+        # opened pickup. claimed_at is a viewing receipt, not a financial grant.
         delivered = (o["claimed_at"] or 0) > 0
         if o["status"] == "paid":
             state = "settled"  # legacy balance payment credited the seller at purchase
@@ -332,11 +442,16 @@ def phase_store(ctx: Ctx) -> Plan:
             state = "refunded"
         else:
             fail(f"store_order_status:{o['status']}")
-        if delivered:
-            v["claimed"] += o["quantity"]
+        template = o["delivery_template"] or v["legacy"]["template"]
+        if template == "fixed-content":
+            if o["status"] == "paid": v["claimed"] += o["quantity"]
+        elif o["status"] == "paid":
+            if len(associated) != o["quantity"] or any(s["state"] != "delivered" for s in associated):
+                fail("store_paid_delivery_stock_missing")
+            delivered = True
         legacy = {"product_id": o["product_id"], "payment_method": "balance", "created_at": o["created_at"],
                   "paid_at": o["paid_at"] or 0, "delivery_template": o["delivery_template"] or v["legacy"]["template"],
-                  "pickup_code_required": bool(o["pickup_code_required"])}
+                  "pickup_code_required": bool(o["pickup_code_required"] or o.get("pickup_code_hash"))}
         if o["seller_terms_version"]:
             legacy.update(seller_terms_version=o["seller_terms_version"], seller_terms_content=o["seller_terms_content"],
                           seller_terms_accepted_at=o["seller_terms_accepted_at"])
@@ -348,17 +463,27 @@ def phase_store(ctx: Ctx) -> Plan:
                 "product_title": o["product_title"], "quantity": o["quantity"],
                 "unit_price": {"amount_credits": o["unit_price_quota"], "unit": "credits"},
                 "total": {"amount_credits": o["price_quota"], "unit": "credits"}, "state": state,
-                "request_hash": "legacy:" + (o["input_digest"] or o["id"]), "delivered": delivered, "legacy": legacy}
-        if delivered and secret:
-            items = [s for s in stocks if s["order_id"] == o["id"]]
-            body["delivery"] = "\n".join(store_decrypt(secret, "stock", f"{s['product_id']}:{s['id']}", s["ciphertext"])
-                                         for s in items)
-            plan.stats["delivery_contents_decrypted"] += 1
-        elif delivered:
-            plan.stats["delivery_contents_not_decrypted"] += 1
+                "request_hash": "legacy:" + (o["input_digest"] or o["id"]), "delivered": delivered, "legacy": legacy,
+                "imported": {"source": "go-v0.2.118", "snapshot": hashlib.sha256(jdump(o).encode()).hexdigest(),
+                             "claimed_at": o["claimed_at"] or 0}}
+        if template == "fixed-content" and (delivered or o["status"] == "paid"):
+            original = fixed_orders.get(o["id"])
+            if not original or not secret:
+                fail("store_order_fixed_snapshot_or_key_missing")
+            # Never replace an old order's private snapshot with today's product.
+            body["delivery"] = store_decrypt(secret, "order-fixed-delivery", o["id"], original["ciphertext"])
+            body["delivered"] = True
+        elif associated:
+            body["stock_items"] = [s["id"] for s in associated]
+            body["delivery"] = "stock-items:v1:" + hashlib.sha256("\n".join(body["stock_items"]).encode()).hexdigest()
+        token_hash = o.get("pickup_token_hash") or ""
+        if token_hash and token_hash in seen_tokens: fail("store_pickup_token_reused")
+        if token_hash: seen_tokens.add(token_hash)
+        pickup = store_pickup_commands(o, secret, legacy_shop_id(o["seller_id"]))
+        plan.sql.extend(pickup); commands += len(pickup)
         r = refunds.get(o["id"])
         if r:
-            if r["status"] != "completed" or state != "refunded":
+            if r["status"] != "completed" or state != "refunded" or r.get("mode", "full") != "full":
                 fail(f"store_refund_state:{r['id']}")
             body.update(refund_state="completed", refund_reason=r["reason"] or "")
             body["legacy_refund"] = {"id": r["id"], "request_key": r["request_key"], "input_hash": r["input_digest"] or "",
@@ -379,7 +504,8 @@ def phase_store(ctx: Ctx) -> Plan:
             plan.sql.append(put("lmm_store.variants", shops[uid], v["id"], v))
     for shop, body in order_bodies:
         plan.sql.append(put("lmm_store.orders", shop, body["id"], body))
-    commands = 0
+    for shop, body in stock_bodies:
+        plan.sql.append(put("lmm_store.stock_items", shop, body["id"], body))
     for t in ctx.rows("merchant_store_seller_terms", "seller_id"):
         if t["seller_id"] not in shops:
             shops[t["seller_id"]] = legacy_shop_id(t["seller_id"])
@@ -398,7 +524,7 @@ def phase_store(ctx: Ctx) -> Plan:
         commands += 1
     plan.expect = {"lmm_store.shops": len(shops), "lmm_store.products": len(product_bodies),
                    "lmm_store.variants": len(variants), "lmm_store.orders": len(order_bodies),
-                   "lmm_store.commands": commands}
+                   "lmm_store.commands": commands, "lmm_store.stock_items": len(stock_bodies)}
     plan.stats.update(shops=len(shops), products=len(product_bodies), variants=len(variants), orders=len(order_bodies))
     M = plan.mapping
     M["merchant_store_products"] = ("lmm_store.products", len(products), "legacy metadata + legacy_public snapshot; deleted kept as status=deleted")
@@ -407,10 +533,9 @@ def phase_store(ctx: Ctx) -> Plan:
     M["merchant_store_orders"] = ("lmm_store.orders", len(orders), "paid->settled, refunded->refunded; read-only history, no money_operations")
     M["merchant_store_refunds"] = ("lmm_store.orders legacy_refund", len(refunds), "one completed full refund per order")
     archived(plan, ctx, "merchant_store_refund_items", "stock-level refund evidence; new store refunds whole orders, items stay in snapshot")
-    archived(plan, ctx, "merchant_store_stocks",
-             "per-unit card-key stock has no new backend (fixed content only); available units all belong to deleted products; "
-             + ("delivered contents copied into order.delivery" if secret else "ciphertext needs MERCHANT_STORE_ENCRYPTION_KEY/CRYPTO_SECRET (not available locally)"),
-             "missing_backend")
+    M["merchant_store_stocks"] = ("lmm_store.stock_items", len(stock_bodies), "original ownership/state/position retained; AEAD resealed with target stock key; deleted products stay deleted")
+    M["merchant_store_fixed_contents"] = ("lmm_store.variants legacy.fixed_content", len(fixed), "private source content; no catalogue fallback")
+    M["merchant_store_order_fixed_deliveries"] = ("lmm_store.orders delivery", len(fixed_orders), "original per-order snapshot only")
     M["merchant_store_seller_terms"] = ("lmm_store.commands @web:seller-terms", ctx.count("merchant_store_seller_terms"), "")
     M["merchant_store_terms_acceptances"] = ("lmm_store.commands legacy-seller-terms-v1", ctx.count("merchant_store_terms_acceptances"), "")
     archived(plan, ctx, "merchant_store_promotions", "paid placement purchases (months/quota); new store has no paid placement (promotion_quota=0); charges are Core money history", "missing_backend")
@@ -1258,6 +1383,7 @@ def main() -> None:
     p.add_argument("--extensions-bin", help="built lmm-extensions binary (toolmarket snapshot seal)")
     p.add_argument("--legacy-secrets-env", help="legacy KEY=VALUE secrets file (0600); values never printed")
     p.add_argument("--store-key-file", help="legacy MERCHANT_STORE_ENCRYPTION_KEY (or CRYPTO_SECRET) text file")
+    p.add_argument("--store-stock-key-file", help="existing deployment raw 32-byte Go stock key; required to preserve legacy inventory")
     p.add_argument("--apply", action="store_true")
     args = p.parse_args()
     out = args.output.expanduser().resolve()

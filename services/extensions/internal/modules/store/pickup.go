@@ -14,8 +14,9 @@ import (
 )
 
 type pickupProtection struct {
-	Salt string `json:"salt"`
-	Hash string `json:"hash"`
+	Salt         string `json:"salt"`
+	Hash         string `json:"hash"`
+	LegacyBcrypt string `json:"legacy_bcrypt,omitempty"`
 }
 
 type pickupLink struct {
@@ -46,6 +47,9 @@ func validPickupCode(protection *pickupProtection, code string) bool {
 	}
 	if len(code) < 8 || len(code) > 72 {
 		return false
+	}
+	if protection.LegacyBcrypt != "" {
+		return validLegacyPickupCode(protection, code)
 	}
 	salt, saltErr := hex.DecodeString(protection.Salt)
 	wanted, hashErr := hex.DecodeString(protection.Hash)
@@ -109,6 +113,11 @@ func (s *Service) legacyPickupLink(ctx context.Context, token string, actor Acco
 }
 
 func (s *Service) Pickup(ctx context.Context, session string, user int64, token, code string, collect bool) (map[string]any, error) {
+	var err error
+	token, err = s.canonicalPickupToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
 	id, secret, found := strings.Cut(token, ".")
 	if !found || len(id) != 64 || len(secret) != 64 {
 		return nil, ErrNotFound
@@ -184,6 +193,20 @@ func (s *Service) Pickup(ctx context.Context, session string, user int64, token,
 			return ErrPending
 		}
 		result = map[string]any{"order_id": order.ID, "trade_no": order.ID, "product_id": order.Legacy.ProductID, "product_title": order.ProductTitle, "variant_id": order.VariantID, "variant_name": order.Title, "delivery_template": order.Legacy.DeliveryTemplate, "quantity": order.Quantity, "fixed_content": order.Delivery, "items": []string{}}
+		if stockOrder(order) {
+			items, ids, positions, err := s.openOrderStock(tx, row.ShopID, order)
+			if err != nil {
+				return err
+			}
+			if len(items) == 0 {
+				return ErrConflict
+			}
+			result["fixed_content"] = ""
+			result["items"] = items
+			result["item_stock_ids"] = ids
+			result["item_positions"] = positions
+			result["quantity"] = len(items)
+		}
 		return nil
 	})
 	return result, err
