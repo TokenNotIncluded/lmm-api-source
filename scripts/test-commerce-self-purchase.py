@@ -56,6 +56,17 @@ def source_contract():
         (CORE / "schema" / path).read_text()
         for path in combined.get(name, [name.replace("-", "_") + ".sql"])
     )) for name in names]
+    alias = 'navigation_options::SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT'
+    if alias in declarations:
+        producer = (CORE / 'src/core_schema/navigation_options.rs').read_text()
+        constants = re.findall(r'const SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT:\s*&str\s*=\s*(.*?);', producer, re.S)
+        expected = 'concat!(include_str!("../../schema/subscription_stripe.sql"),"\\n",include_str!("upgrade/core59_to62_receipt.sql"))'
+        need(len(constants) == 1 and re.sub(r'\s+', '', constants[0]) == expected,
+             'Core62 composite constant changed: review resolver before capture')
+        index = names.index('subscription-stripe')
+        components[index] = ('subscription-stripe',
+            (CORE/'schema/subscription_stripe.sql').read_bytes().decode('utf-8') + "\n" +
+            (CORE/'src/core_schema/upgrade/core59_to62_receipt.sql').read_bytes().decode('utf-8'))
     metadata = [json.loads(re.search(r'const CONTRACT: &str = (".*");', source).group(1))]
     metadata += [(CORE / path).read_text() for path in [
         "schema/core_upgrade.sql", "schema/component_upgrade.sql",

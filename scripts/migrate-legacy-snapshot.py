@@ -135,6 +135,10 @@ REVIEWED_SCHEMA_ALIASES = {
     'crate::promotions::SCHEMA': ('services/core/src/promotions.rs', 'SCHEMA', 'include_str!("../schema/promotions.sql")'),
     'crate::promotions::red_packets::SCHEMA': ('services/core/src/promotions/red_packets.rs', 'SCHEMA', 'include_str!("../../schema/red_packets.sql")'),
 }
+REVIEWED_SCHEMA_ALIASES['navigation_options::SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT'] = (
+    'services/core/src/core_schema/navigation_options.rs',
+    'SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT',
+    'concat!(include_str!("../../schema/subscription_stripe.sql"),"\\n",include_str!("upgrade/core59_to62_receipt.sql"))')
 CORE_COMPONENTS = frozenset(REVIEWED_COMPONENTS)
 CATALOG_QUERY_SHA256 = 'b5a7bbfc27ebce87bd4e2ef7ba7f48d0bf21c56d572edebb6a84dcee61eca328'
 OAUTH_CATALOG_QUERY_SHA256 = "39f6af7c6f19226a9daf794a5b897c630ca87670be3c1059f406fd8b4884cbca"
@@ -204,7 +208,7 @@ def identity_contract(root: Path | None = None) -> dict:
     versions = re.findall(r"^const VERSION: i32 = ([0-9]+);$", source, re.MULTILINE)
     require(versions == [str(IDENTITY_VERSION)], "identity_source_version_mismatch")
     _reviewed_constant(source, "SCHEMA", 'include_str!("../../schema/identity.sql")')
-    require(sha256_file(rust) == REVIEWED_RUST_FILES["services/core/src/identity/schema.rs"],
+    require(sha256_file(rust) == (REVIEWED_RUST_FILES if root is None else reviewed_files(root))["services/core/src/identity/schema.rs"],
             "identity_rust_source_fingerprint_mismatch")
     fingerprint = sha256_file(schema)
     require(fingerprint == IDENTITY_FINGERPRINT, "identity_source_fingerprint_mismatch")
@@ -322,10 +326,246 @@ CORE54_MANIFEST_SHA256 = "2632145eaf6cdf3cdbf7141e89831f25c8b4d4a8426e2d4ad95ad6
 CORE54_CATALOG_SHA256 = "3a7ba0ed308f2c4ce9f80e422d5308ab8353d8f21cfb5a63575fbabb678311fc"
 
 
+CORE65_SEED_CONTRACT = "fresh65-identity6-complete-seeds-v1"
+# Fresh65 target only: reviewed f7 binary 106b74e2, actual native init/check,
+# exact catalog capture and baseline runtime check-db. These receipts do not
+# establish historical financial import, optional-capability ACLs or deployment.
+# No environment, plan, source receipt or CLI option may replace this review.
+REVIEWED_CORE65 = {'source_schema_revision': 'f7b400416b6b9e61f680b5f33c55a1cc4b6f1f21',
+ 'compiled_manifest_sha256': '62c8f7e32b0c831dfea5a11311d94193d6625fc9f7e3564755971882c65cff3a',
+ 'fresh_catalog_sha256': 'f104ea5933f8b6bc28108bd005f1e61785765657d530fdab701bc2a8a41afaa6',
+ 'capture_receipt_sha256': 'fa28c4872c3165ff0390d5be2fbbbe8f535222a48af420c02d85ef5ac30c1e1f',
+ 'actual_init_receipt_sha256': 'd15c2f043d083d32853533a8ad7ed4c9f89bcb8e89422403afec9fc372d5660c',
+ 'acl_receipt_sha256': '1df7f5634cbc0314103617c70c9cdfa8a4744d57e5a5f68f98ac0ef8f1941d8f',
+ 'components': {'humangrant': ('include_str!("../schema/humangrant.sql")',
+                               '7d9437a2ee485bc7491c76e755ca481a7a722c4ea9ae7322fe32ac5f8f0090bc'),
+                'identity': ('include_str!("../schema/identity.sql")',
+                             '28e38032e210565121fff19e095d36214ed2fc8f40016e3535c83929c0c60992'),
+                'ledger': ('include_str!("../schema/ledger.sql")',
+                           'ce973f6fee25904d4fcdc87895ec49e6c53e10c9fb3508df4d7d72ace16df77f'),
+                'payments': ('include_str!("../schema/payments.sql")',
+                             '9579afddbe5aeb4deb67984e731bcdc6ca405dc619ceede8d92505ecc43f7d39'),
+                'charging': ('include_str!("../schema/charging.sql")',
+                             '08f0a99e3cc7729627f782ec0341c31353008926b8ec8584c555a6c10dcb53de'),
+                'routing': ('include_str!("../schema/routing.sql")',
+                            '9d91dc1796a39a32e1e4ce7c907eabf186687c7725230bd95af3b782fcf6a2a3'),
+                'events': ('include_str!("../schema/events.sql")',
+                           '99b3f6e9daa36c97fd18d515c8654310945612c0d992297b816a0405c17d5f22'),
+                'charging-ledger': ('include_str!("../schema/charging_ledger.sql")',
+                                    'a06370899332ece92cf54fe0fa24df70ea532480b09a19abf99a52a30a7d24de'),
+                'migration': ('include_str!("../schema/migration.sql")',
+                              '4f6264d3edff1bd7a1f80289595a9e4dea596e325be7c6f4db568d03e738c78c'),
+                'console': ('include_str!("../schema/console.sql")',
+                            '3857fec4b617c4b13e2a18f2a0a62386bdcf95ac1d4ce5d77e48215073e2c32e'),
+                'model-gateway': ('include_str!("../schema/model_gateway.sql")',
+                                  '3550655d1318c7b33e1877d6eb5b98eb47f045a9c4cfb801d23331fcccb00be4'),
+                'commerce': ('include_str!("../schema/commerce.sql")',
+                             'b7f9d07c4112623b34679b3043a1d315a4155ebe32688c2f878071a16f59b4c9'),
+                'tool-market': ('include_str!("../schema/tool_market.sql")',
+                                '404a5a6f6a459bca2eeeaf19be312324933e81999ef160b4befa796668c4d11c'),
+                'abuse': ('include_str!("../schema/abuse.sql")',
+                          'b1c838d88f748c6bb3d885c4b39f112587bc8b7d38400c26ec43b3597110cec6'),
+                'oauth-grants': ('include_str!("../schema/oauth_grants.sql")',
+                                 'e515ba3deca6d5b0b170fc5a7fa32cf40a42301b683b62e8bb80bc23683b16f3'),
+                'history': ('include_str!("../schema/history.sql")',
+                            '9359e86f0f262e3f24bb9f8db70e32caab85cde515af6f2e5fdd1a66b4f83656'),
+                'assistant-model': ('include_str!("../schema/assistant_model.sql")',
+                                    'c3960ce7ac307b6d4aecc0abccd0c97614220eeb7c20f960177bb53a3c2c3f6b'),
+                'gift': ('include_str!("../schema/gift.sql")',
+                         '845cb755dd1ba92d9e5608f638d46367af3565bc3c5f383bb1aabc64929410d2'),
+                'image': ('include_str!("../schema/image.sql")',
+                          '5ec9f1e4ea14093285de9bd34fecef5660b10e73ac2828de41f3c2c26f013d11'),
+                'market-oauth': ('include_str!("../schema/market_oauth.sql")',
+                                 '29819097b5470b4ecc8b1a7d7581d5abdc6b120df239edd6f4d373330086797e'),
+                'tool-market-credit': ('include_str!("../schema/tool_market_credit.sql")',
+                                       '59b861b2a316b79bf0842ab13c07d0570b07bf3b84945f4edf8957ace4cc733f'),
+                'wallet': ('include_str!("../schema/wallet.sql")',
+                           '0b75972ef1aaa6b8b09b2d5e84636ba90aa8affcb4c1c30fbb7de18a9a9b95ad'),
+                'bounties': ('include_str!("../schema/bounties.sql")',
+                             '965aa476d684fcfb0c72b6d58b7bb801d37135414f3c73f2a08c688e88143e06'),
+                'assistant-tools': ('include_str!("../schema/assistant_tools.sql")',
+                                    '9839e06cc0854c9efa60f30fef9c84a922dc18003b6317898df38a16c366aab4'),
+                'trust-pricing': ('crate::billing::trust_pricing::SCHEMA',
+                                  '93e0e16b04c312d9e1f27a0ae8dc25f16da4e7c044571cc14310b81de8cf1915'),
+                'telegram-auth': ('crate::identity::TELEGRAM_AUTH_SCHEMA',
+                                  'd4734912cf68cdc8083356dc4301670cec27ec522e2c5ecaf2653a6a7d292510'),
+                'assistant-agent': ('include_str!("../schema/assistant_agent.sql")',
+                                    '2d4f29262bf9dec6fb10a82b2e8829a50b76030e40f5ebeed2a75eb0ea0ce1cf'),
+                'site-finance': ('include_str!("../schema/site_statistics.sql")',
+                                 '9bca87cc0cdc5ba96efb5c8bc7ef737684d74fcde257adba713a5951ebf63eb1'),
+                'payment-gateways': ('include_str!("../schema/payment_gateways.sql")',
+                                     '58c46cacccd631a14712915bb402c4c8bbdfc47b53b2c5fafa27a1aa32e91d97'),
+                'request-limits': ('include_str!("../schema/request_limits.sql")',
+                                   'd8404a5a93dcfba21f64c9c2f1d9b2efee0ad3c381c6f6057d138a7a45825972'),
+                'operations': ('include_str!("../schema/operations.sql")',
+                               '68bbf2e77a8751a3527ae6d14a4336fd394d12f780cc1b0a6aae8cf74709c5f2'),
+                'coinbase-payments': ('include_str!("../schema/coinbase_payments.sql")',
+                                      '222ea05eb4e7c5f24c5522b946edccde3cbee0d300a1da421dd5e62bafd1b3ee'),
+                'channel-control': ('crate::channel_http::SCHEMA',
+                                    '8f3caa43abf34475632047eaa2d59cc160e15ec90619379419d801b1b7b3726a'),
+                'channel-vault': ('crate::channel_http::VAULT_SCHEMA',
+                                  'd5fe4fca492a12d6a853e635c0e8bc2d0479584744c5c350e6bded1f1ae4b6cd'),
+                'passkeys': ('crate::identity::PASSKEY_SCHEMA',
+                             '26f610ad18bd62389e8b5304869d5e35bc84257605e8ecd54346a83824717ab6'),
+                'account-lifecycle': ('crate::identity::ACCOUNT_LIFECYCLE_SCHEMA',
+                                      '5ee797e0d99b7019622ac30b33efa0d124ad7dd44822e1d8088fdf2d160b6617'),
+                'subscriptions': ('crate::subscriptions::SCHEMA',
+                                  '9e1a631e70ed0fbdfafbc18229381f741fde18941a6708877768841945ee617d'),
+                'promotions': ('crate::promotions::SCHEMA',
+                               '7f0caaf95f01242fd629006fc3089be43e66219b42992e5f0917ea6651ddab9b'),
+                'notifications': ('include_str!("../schema/notifications.sql")',
+                                  'ab622593b37f4ed9bd053d6ffd8d3b75fdc9bb6296cb8f0031607f2f35acda21'),
+                'account-links': ('crate::identity::ACCOUNT_LINKS_SCHEMA',
+                                  '8feb800e3c71e634c1dd5d62d8cb6e2ed731790648028d55898946117307b179'),
+                'completion-upgrade': ('include_str!("../schema/completion_upgrade.sql")',
+                                       'cbf657dbaff8ea48980f1cd8a7e2aa3d356fa11bda0c0b6a5c5e8e780833ef0a'),
+                'account-appeals': ('crate::identity::ACCOUNT_APPEALS_SCHEMA',
+                                    'e9e14bc084de332bbef4fa858235bbb369f4a5df7e9b229a6a21bc0610252fb1'),
+                'channel-accounting': ('crate::channel_http::ACCOUNTING_SCHEMA',
+                                       '79e0d26947ceb515614f28f76c6de2cdb444943b9bad380b7d3e4915412c7040'),
+                'channel-projection': ('concat!(include_str!("../schema/channel_projection.sql"),"\\n",include_str!("../schema/channel_openings.sql"))',
+                                       '395f3a02d672e6b22eb854525f81b280155e32ad43c7175ec86a9c50a7611d4a'),
+                'trust-policy-edit': ('concat!(include_str!("../schema/trust_policy_edit.sql"),"\\n",include_str!("../schema/trust_policy_edit_proof.sql"),"\\n",include_str!("../schema/trust_policy_edit_editor.sql"),"\\n",include_str!("../schema/trust_policy_upgrade.sql"))',
+                                      '0d6588cb01bc829239b5186b4f20804c31d2c90d668f73506ca6b7485e20bc65'),
+                'channel-observations': ('concat!(include_str!("../schema/channel_observations.sql"),"\\n",include_str!("../schema/channel_observations_upgrade.sql"))',
+                                         '5d2784ba236898048958aa47558963671e234083db990e8ebd5f2b809c788dcb'),
+                'navigation-options': ('include_str!("../schema/navigation_options.sql")',
+                                       '4ef34139527fff615e8be1e34dd931b8d22ed61ec8497bcf15a7e150ea7c130c'),
+                'red-packets': ('crate::promotions::red_packets::SCHEMA',
+                                '8df4f60aae98fc6555f07967d722d7c840c98353f4a5937e12e637a958171dde'),
+                'legacy-history-compat': ('include_str!("../schema/legacy_history_compat.sql")',
+                                          'ee05f13bb33859f6c9137500fd8023e41ee5f2db72c6e7788a8ad458e3e62744'),
+                'legacy-payments': ('include_str!("../schema/legacy_payments.sql")',
+                                    '2541d8cab4781126a1eb16c986ed53a7b5c7a03bc22aecb05ece0b714108b744'),
+                'legacy-payment-opening-identity': ('include_str!("../schema/legacy_payment_opening_identity.sql")',
+                                                    'c2716051d9460f77acbb026a8fc224104d73f7eb4e54d153869919f45e2d92b8'),
+                'affiliate-claims': ('include_str!("../schema/affiliate_claims.sql")',
+                                     '9360480aa91db92d3bf66356b842f4944d0f868ea7771cc54e3417cb869e475a'),
+                'referral-ledger-revision': ('include_str!("../schema/referral_ledger_revision.sql")',
+                                             '4221800369a6ac582b367892b94d9b734a882f7d023de12a8e530bab29c7989e'),
+                'legacy-referrals': ('include_str!("../schema/legacy_referrals.sql")',
+                                     '8725422e057fadf00781c4557e60407773fd29893d85c35ff6045f0863574c4e'),
+                'connection-history': ('include_str!("../schema/connection_history.sql")',
+                                       '8bdc06523c35f932f38ca047050cc096aa393eb9058c6e0cd43a63f526071403'),
+                'directory-ads': ('include_str!("../schema/directory_ads.sql")',
+                                  '38d9f9c798f13ccbcaaaff5b6350b769a2422d95dc52fb85a52bb18ed5adbc18'),
+                'commerce-self-purchase': ('include_str!("../schema/commerce_self_purchase.sql")',
+                                           'fae185c575e3b82e634523a95d3453e0c86c4f21f28719f885ac53631c8986e0'),
+                'display-exchange-rate': ('include_str!("../schema/display_exchange_rate.sql")',
+                                          '98d943eac33dbfe195c01f3c35119be75d48c29b0e7e045afc547cdafa8054b5'),
+                'subscription-epay': ('crate::subscriptions::EPAY_SCHEMA',
+                                      '1314709e7c357f20c92ba0ced5190eddba820045dc020ce8e0f86d4662f981c7'),
+                'federated-auth': ('include_str!("../schema/federated_auth.sql")',
+                                   '0784c5097bf3ed003e7c6d7963c09660845acf6f27779896d858fc356bbef7bc'),
+                'commerce-partial-refunds': ('crate::commerce::PARTIAL_REFUNDS_SCHEMA',
+                                             'd64019bcdba8e0cd5c45d501013276eca062535a4dc96b7e11b30bbcfc0a3100'),
+                'subscription-stripe': ('navigation_options::SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT',
+                                        'f835440cce39786ce95ebc995e370592f3c949b4be0e2fe3fe0bb3d18b8915ea'),
+                'subscription-pancake': ('crate::subscriptions::PANCAKE_SCHEMA',
+                                         '2d3a77fd83e3f4e02d75687e6356bc5665ad93c45192f59c1c1f5e199b9e8c7c'),
+                'commerce-legacy-refunds': ('crate::commerce::LEGACY_REFUNDS_SCHEMA',
+                                            'f3d2d6e2c02b2c26027fb8f21604a13d4937f3bd2276bd63be0a09683631d927'),
+                'image-native-usage': ('include_str!("../schema/image_native_usage.sql")',
+                                       'd35ce948f56342145f4fa6102bb915f7edad42841b35d30978652d793de84dc0')},
+ 'files': {'deployment/postgres/grant-core-runtime.sql': 'a9e18561adacf6005742b7973010098065b50cf49e59b27fa2b4eed417ee7e6e',
+           'deployment/postgres/revoke-core-runtime.sql': '91aefd7b372aba1e9eaaa89dfed198a339464861993d09c0b082fa855107b000',
+           'services/core/schema/commerce_legacy_refunds_grants.sql': '68e9f761e766df8f5ae3563718b63ae38254528ff12bf53db49163c202342d49',
+           'services/core/schema/commerce_partial_refunds_grants.sql': '22671b1dbc95a343509eda8a542d62f5899edbcfc4317d248b44da97c4bd8cec',
+           'services/core/schema/subscription_epay_grants.sql': 'bde1bbf563e1e8a4321cc2f3a5df48ef2d984de194c9fc6d2fec9b0aefda4e19',
+           'services/core/schema/subscription_pancake_grants.sql': 'ac711e3db1a77e729aec6b5f6805d3359e7ab3b2f48d1271c37a840fea6be6cc',
+           'services/core/schema/subscription_stripe_grants.sql': '08ab9bf0c2d85a8f091f9b535872d1fefe4ee5c5c307921c296b6c613328bada',
+           'services/core/src/admin/check_db.rs': '14a60d5a51bb5fa8b140d90a77176dbc56bb69deee7e8548b6162a462ea9df04',
+           'services/core/src/billing/trust_pricing.rs': 'c4c5f47d372fde4e5f7afd854a7a4691ef1b31ff74c1695d4242f0ab5133312f',
+           'services/core/src/channel_http.rs': 'b85ef9b4e9eb5cc80a8fa3ba32a8c0d097d0469ee57d52c42c3dde1530170155',
+           'services/core/src/commerce.rs': '756d9e4ad0b88a4dc64c537e67b4ae650ba30ae4110d606a04f0a57b76daccfa',
+           'services/core/src/core_schema.rs': '0514920db57e4a1e8b40e46bf789cb4a2f8623a299053c66866c6d20a1e59446',
+           'services/core/src/core_schema/manifest.rs': 'a48d29c77e8bd92652c69785b3a82e2ae1995c52adcc3296f89a91ae911df6a5',
+           'services/core/src/core_schema/navigation_options.rs': '9078b68636a52fc6a97777639e721212e6d0a5ba8ba1ecec18e25f87a1d8315d',
+           'services/core/src/core_schema/upgrade/core59_to62_receipt.sql': 'd425ceb0a045756a0ac806d1ec9b8aacad3ef4bf8182bf2d12712d34e60011cd',
+           'services/core/src/core_schema/upgrade/fresh_target.json': 'd70793341526135454c6a149fba4534e2a066113d8b1fca265891cc2f4488e0e',
+           'services/core/src/identity.rs': 'd4ba5b032ee140dfee6fe2399b60d444f0c2c59e4319173ab4b94cd465dac02b',
+           'services/core/src/identity/browser.rs': 'eff5654446a335425c66de1113f4864fd8b745cd989350776fd28c1f267aee0f',
+           'services/core/src/identity/browser/account_appeals.rs': '1b5e24fcaa18cae2518989cd1ab9d10b896be18aed711d7125fbf859454de39d',
+           'services/core/src/identity/browser/account_lifecycle.rs': '30c479b52309df5adb6de229ee54eade90a55e7f3508bd9969ce7fff5db0172a',
+           'services/core/src/identity/browser/account_links.rs': 'fa498ab8219280ce06de4fb3297da436aff0d42df2e2903da580a361f538d295',
+           'services/core/src/identity/browser/passkeys.rs': 'f4640a9bd6335a87df3d96702dec1a58d32350d204e361d3e74980722633710e',
+           'services/core/src/identity/grants.rs': 'f54840add7d997dc90e6a4f6f817f61b1fc1ff0acb6c8f5a29d6ae1f19f8b060',
+           'services/core/src/identity/schema.rs': 'eca66200583c53679c93633c78be9d8c4803977d7645b06612fa24bec1226612',
+           'services/core/src/identity/telegram.rs': '2dd9950fa5052230155ebc512dd12038adbeeab90bd7963bb8cbf3ca145bb5eb',
+           'services/core/src/promotions.rs': '677f2e5b195c6662905885fedf8ce60df4deb7b11a8f3dcae166dc00f4a172f6',
+           'services/core/src/promotions/red_packets.rs': '4e7cdbe2c3a9f701f173631285e18c92d29350ebf7221beaff227f72446fd3bf',
+           'services/core/src/runtime_database.rs': '04043cd6dc10859215e7188f3295e739ea6574015b1053c4d7eb8d739952aad4',
+           'services/core/src/subscriptions.rs': 'f1f198bea041bf6f7495939a2eb47082768472da47c7e13825108cf0169ece80',
+           'services/core/src/subscriptions/external_epay.rs': '2a87243e3c59c2a1d0c85f8c4cf443df8c4affb034790acd108b89c4fbcdc15c',
+           'services/core/src/subscriptions/external_pancake.rs': 'fa0746e0e0449326b224c0b4e11cf1a7044f3486d9425a50d94dfc12e639fe82'}}
+CORE65_COMPONENT_EXPRESSIONS = {
+    "federated-auth": 'include_str!("../schema/federated_auth.sql")',
+    "commerce-partial-refunds": 'crate::commerce::PARTIAL_REFUNDS_SCHEMA',
+    "subscription-stripe": 'navigation_options::SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT',
+    "subscription-pancake": 'crate::subscriptions::PANCAKE_SCHEMA',
+    "commerce-legacy-refunds": 'crate::commerce::LEGACY_REFUNDS_SCHEMA',
+    "image-native-usage": 'include_str!("../schema/image_native_usage.sql")',
+}
+REVIEWED_SCHEMA_ALIASES['crate::commerce::PARTIAL_REFUNDS_SCHEMA'] = (
+    'services/core/src/commerce.rs', 'PARTIAL_REFUNDS_SCHEMA',
+    'include_str!("../schema/commerce_partial_refunds.sql")')
+REVIEWED_SCHEMA_ALIASES['crate::subscriptions::PANCAKE_SCHEMA'] = (
+    'services/core/src/subscriptions/external_pancake.rs', 'PANCAKE_SCHEMA',
+    'include_str!("../../schema/subscription_pancake.sql")')
+REVIEWED_SCHEMA_ALIASES['crate::commerce::LEGACY_REFUNDS_SCHEMA'] = (
+    'services/core/src/commerce.rs', 'LEGACY_REFUNDS_SCHEMA',
+    'include_str!("../schema/commerce_legacy_refunds.sql")')
+
+
+
+def reviewed65() -> dict:
+    review = REVIEWED_CORE65
+    require(isinstance(review, dict), "core65_profile_not_admitted")
+    require(set(review) == {"source_schema_revision", "compiled_manifest_sha256", "fresh_catalog_sha256",
+        "capture_receipt_sha256", "actual_init_receipt_sha256", "acl_receipt_sha256",
+        "components", "files"}, "core65_review_incomplete")
+    require(isinstance(review["source_schema_revision"], str) and
+        re.fullmatch(r"[0-9a-f]{40}", review["source_schema_revision"]), "core65_review_incomplete")
+    for key in ("compiled_manifest_sha256", "fresh_catalog_sha256", "capture_receipt_sha256",
+                "actual_init_receipt_sha256", "acl_receipt_sha256"):
+        require(isinstance(review[key], str) and re.fullmatch(r"[0-9a-f]{64}", review[key]),
+                "core65_review_incomplete")
+    components, files = review["components"], review["files"]
+    require(isinstance(components, dict) and isinstance(files, dict), "core65_review_incomplete")
+    require(list(components) == [*REVIEWED_COMPONENTS_59, *CORE65_COMPONENT_EXPRESSIONS],
+            "core65_component_contract_incomplete")
+    for name, pair in components.items():
+        expression = (REVIEWED_COMPONENTS_59[name][0] if name in REVIEWED_COMPONENTS_59
+                      else CORE65_COMPONENT_EXPRESSIONS[name])
+        require(isinstance(pair, (tuple, list)) and len(pair) == 2 and pair[0] == expression and
+            isinstance(pair[1], str) and re.fullmatch(r"[0-9a-f]{64}", pair[1]), "core65_component_not_reviewed")
+        if name in REVIEWED_COMPONENTS_59:
+            require(pair[1] == REVIEWED_COMPONENTS_59[name][1], "core65_historical_component_changed")
+    required = set(REVIEWED_RUST_FILES_59) | {
+        "services/core/src/commerce.rs", "services/core/src/core_schema/manifest.rs",
+        "services/core/src/subscriptions.rs", "services/core/src/subscriptions/external_pancake.rs",
+        "services/core/src/core_schema/upgrade/fresh_target.json",
+        "services/core/src/core_schema/upgrade/core59_to62_receipt.sql",
+        "services/core/schema/commerce_partial_refunds_grants.sql",
+        "services/core/schema/subscription_stripe_grants.sql",
+        "services/core/schema/subscription_pancake_grants.sql",
+        "services/core/schema/commerce_legacy_refunds_grants.sql",
+        "deployment/postgres/grant-core-runtime.sql", "deployment/postgres/revoke-core-runtime.sql"}
+    require(required <= set(files), "core65_source_review_incomplete")
+    require(all(isinstance(path, str) and not Path(path).is_absolute() and '..' not in Path(path).parts
+        and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+        for path, digest in files.items()), "core65_source_review_incomplete")
+    return review
+
+
 def reviewed_profile(root: Path | None = None) -> str:
     """An exact reviewed assembly selects a profile; no arbitrary suffixes."""
     root = ROOT if root is None else Path(root)
     digest = sha256_file(root / "services/core/src/core_schema.rs")
+    if REVIEWED_CORE65 is not None:
+        review = reviewed65()
+        if digest == review["files"]["services/core/src/core_schema.rs"]:
+            return CORE65_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_59["services/core/src/core_schema.rs"]:
         return CORE59_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_58["services/core/src/core_schema.rs"]:
@@ -342,12 +582,16 @@ def reviewed_profile(root: Path | None = None) -> str:
 
 
 def reviewed_components(root: Path) -> dict:
+    if reviewed_profile(root) == CORE65_SEED_CONTRACT:
+        return reviewed65()["components"]
     return {CORE49_SEED_CONTRACT: REVIEWED_COMPONENTS, CORE54_SEED_CONTRACT: REVIEWED_COMPONENTS_54,
             CORE55_SEED_CONTRACT: REVIEWED_COMPONENTS_55, CORE56_SEED_CONTRACT: REVIEWED_COMPONENTS_56,
             CORE58_SEED_CONTRACT: REVIEWED_COMPONENTS_58, CORE59_SEED_CONTRACT: REVIEWED_COMPONENTS_59}[reviewed_profile(root)]
 
 
 def reviewed_files(root: Path) -> dict:
+    if reviewed_profile(root) == CORE65_SEED_CONTRACT:
+        return reviewed65()["files"]
     return {CORE49_SEED_CONTRACT: REVIEWED_RUST_FILES, CORE54_SEED_CONTRACT: REVIEWED_RUST_FILES_54,
             CORE55_SEED_CONTRACT: REVIEWED_RUST_FILES_55, CORE56_SEED_CONTRACT: REVIEWED_RUST_FILES_56,
             CORE58_SEED_CONTRACT: REVIEWED_RUST_FILES_58, CORE59_SEED_CONTRACT: REVIEWED_RUST_FILES_59}[reviewed_profile(root)]
@@ -363,7 +607,10 @@ def _component_schema_paths(root: Path, expression: str, source_path: Path) -> l
     paths = []
     for relative in re.findall(r'include_str!\("([^"\\]+)"\)', expression):
         path = (source_path.parent / relative).resolve()
-        require(path.parent == (root / "services/core/schema").resolve(), "component_contract_invalid")
+        receipt = (root / "services/core/src/core_schema/upgrade/core59_to62_receipt.sql").resolve()
+        producer = (root / "services/core/src/core_schema/navigation_options.rs").resolve()
+        require(path.parent == (root / "services/core/schema").resolve() or
+                (path == receipt and source_path.resolve() == producer), "component_contract_invalid")
         paths.append(path)
     require(bool(paths), "component_expression_not_reviewed")
     return paths
@@ -414,6 +661,15 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
                 require(re.findall(r"^mod external_epay;$", subscriptions, re.M) == ["mod external_epay;"]
                         and re.findall(r"^pub use external_epay::\*;$", subscriptions, re.M)
                         == ["pub use external_epay::*;"], "component_alias_not_reviewed")
+            if name == "subscription-pancake":
+                subscriptions = _reviewed_rust(root, "services/core/src/subscriptions.rs")
+                exports = re.findall(r"^pub use external_pancake::([^;]+);$", subscriptions, re.M)
+                require(re.findall(r"^mod external_pancake;$", subscriptions, re.M) == ["mod external_pancake;"]
+                        and len(exports) == 1, "component_alias_not_reviewed")
+                exported = exports[0].strip()
+                members = exported[1:-1].split(',') if exported.startswith('{') and exported.endswith('}') else [exported]
+                require(exported == '*' or 'PANCAKE_SCHEMA' in [member.strip() for member in members],
+                        "component_alias_not_reviewed")
         data = _component_bytes(root, expression, source_path)
         require(hashlib.sha256(data).hexdigest() == expected_digest, "component_source_fingerprint_mismatch")
         components[name] = data
@@ -466,12 +722,16 @@ def current_contract(root: Path | None = None) -> dict:
             "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         revision, manifest_pin, catalog_pin = ((CORE54_SCHEMA_REVISION, CORE54_MANIFEST_SHA256, CORE54_CATALOG_SHA256)
             if profile == CORE54_SEED_CONTRACT else (CORE55_SCHEMA_REVISION, CORE55_MANIFEST_SHA256, CORE55_CATALOG_SHA256)
             if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256)
             if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256)
             if profile == CORE58_SEED_CONTRACT else (CORE59_SCHEMA_REVISION, CORE59_MANIFEST_SHA256, CORE59_CATALOG_SHA256))
+        if profile == CORE65_SEED_CONTRACT:
+            review = reviewed65()
+            revision, manifest_pin, catalog_pin = (review["source_schema_revision"],
+                review["compiled_manifest_sha256"], review["fresh_catalog_sha256"])
         # Match serde_json::to_vec(schema_manifest()) plus the CLI's final LF.
         # Both producing Rust and fresh_target.json are independently pinned.
         manifest = {"format_version": 1, "scope": "compiled-core-schema-contract",
@@ -484,9 +744,14 @@ def current_contract(root: Path | None = None) -> dict:
                 "definition_order": "postgresql-c-collation"}}
         digest = hashlib.sha256((json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + "\n").encode()).hexdigest()
         pin = json.loads((root / "services/core/src/core_schema/upgrade/fresh_target.json").read_text())
-        require(digest == manifest_pin and pin == {
-            "manifest_sha256": manifest_pin, "catalog_sha256": catalog_pin},
+        expected_pin = {"manifest_sha256": manifest_pin, "catalog_sha256": catalog_pin}
+        if profile == CORE65_SEED_CONTRACT:
+            expected_pin["component_count"] = len(components)
+        require(digest == manifest_pin and pin == expected_pin,
             "compiled_manifest_contract_mismatch")
+        if profile == CORE65_SEED_CONTRACT:
+            contract["profile_review_evidence"] = {key: reviewed65()[key] for key in
+                ("capture_receipt_sha256", "actual_init_receipt_sha256", "acl_receipt_sha256")}
         contract.update(import_profile=profile, source_schema_revision=revision,
                         compiled_manifest_sha256=digest,
                         fresh_catalog_sha256=catalog_pin,
@@ -600,16 +865,32 @@ def upgrade_receipt_tables(contract: dict) -> tuple[str, ...]:
     return (UPGRADE_RECEIPT_TABLES + (("core_meta.commerce_display_rate_upgrades",)
         if "commerce-self-purchase" in contract["component_fingerprints"] else ())
         + (("core_meta.subscription_epay_upgrades",)
-        if "subscription-epay" in contract["component_fingerprints"] else ()))
+        if "subscription-epay" in contract["component_fingerprints"] else ())
+        + (("core_meta.core59_to62_upgrades",) if "subscription-stripe" in contract["component_fingerprints"] else ()))
 
 
 def fresh_business_tables(contract: dict) -> tuple[str, ...]:
     # These rights are never inferred from legacy balances or identity mappings.
     # This fence alone does not authorize a profile: current_contract requires
     # the complete reviewed source assembly, manifest and catalog pins.
-    return (("core_subscriptions.external_prices", "core_subscriptions.external_orders",
-             "core_subscriptions.external_proofs", "core_subscriptions.external_grants")
-            if "subscription-epay" in contract["component_fingerprints"] else ())
+    components = contract["component_fingerprints"]
+    tables = (("core_subscriptions.external_prices", "core_subscriptions.external_orders",
+               "core_subscriptions.external_proofs", "core_subscriptions.external_grants")
+              if "subscription-epay" in components else ())
+    if "federated-auth" in components:
+        tables += tuple("core_federated_auth." + name for name in
+                        ("providers", "identities", "flows", "assertions", "operations"))
+    if "commerce-partial-refunds" in components:
+        tables += ("core_commerce.refund_totals", "core_commerce.refund_operations")
+    if "subscription-stripe" in components:
+        tables += tuple("core_subscriptions.stripe_" + name for name in
+                        ("prices", "state", "events", "cycles"))
+    if "subscription-pancake" in components:
+        tables += tuple("core_subscriptions.pancake_" + name for name in
+                        ("prices", "orders", "events", "cycles"))
+    if "commerce-legacy-refunds" in components:
+        tables += ("core_commerce.legacy_refund_grants", "core_commerce.legacy_refund_operations")
+    return tables
 
 
 def upgrade_receipts_guard_sql(contract: dict | None = None) -> str:
@@ -653,6 +934,46 @@ def profile_acl_guard_sql(contract: dict) -> str:
  'core_subscriptions.check_external_grant()'::regprocedure,
  'core_subscriptions.external_ends_at(jsonb,bigint)'::regprocedure,
  'core_subscriptions.apply_epay_grant(text,text,text)'::regprocedure) AND a.grantee=0)"""
+    if "subscription-stripe" in contract["component_fingerprints"]:
+        # Root intentionally grants named runtime SELECT on this new metadata
+        # table. No PUBLIC, grant option, writer or column ACL is admitted.
+        guard += """
+ OR EXISTS(SELECT 1 FROM pg_class c,
+ LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+ WHERE c.oid='core_meta.core59_to62_upgrades'::regclass AND
+ (a.grantee=0 OR (a.grantee<>c.relowner AND (a.privilege_type<>'SELECT' OR a.is_grantable))))
+ OR EXISTS(SELECT 1 FROM pg_attribute t JOIN pg_class c ON c.oid=t.attrelid,
+ LATERAL aclexplode(t.attacl) a
+ WHERE c.oid='core_meta.core59_to62_upgrades'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_proc p,
+ LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+ WHERE p.oid IN ('core_commerce.post_refund_delta(bigint,text,jsonb,bigint,bigint,boolean)'::regprocedure,
+ 'core_subscriptions.guard_epay_provider()'::regprocedure,
+ 'core_subscriptions.check_stripe_cycle()'::regprocedure) AND a.grantee=0)
+ OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,
+ LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+ WHERE n.nspname='core_federated_auth' AND a.grantee=0)"""
+    if "subscription-pancake" in contract["component_fingerprints"]:
+        guard += """
+ OR EXISTS(SELECT 1 FROM pg_proc p,
+ LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+ WHERE p.oid IN ('core_subscriptions.guard_pancake_order()'::regprocedure,
+ 'core_subscriptions.check_pancake_cycle()'::regprocedure) AND a.grantee=0)"""
+    if "commerce-legacy-refunds" in contract["component_fingerprints"]:
+        guard += """
+ OR EXISTS(SELECT 1 FROM pg_class c,
+ LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+ WHERE c.oid IN ('core_commerce.legacy_refund_grants'::regclass,
+ 'core_commerce.legacy_refund_operations'::regclass) AND
+ (a.grantee=0 OR (a.grantee<>c.relowner AND (a.privilege_type<>'SELECT' OR a.is_grantable))))
+ OR EXISTS(SELECT 1 FROM pg_attribute t JOIN pg_class c ON c.oid=t.attrelid,
+ LATERAL aclexplode(t.attacl) a
+ WHERE c.oid IN ('core_commerce.legacy_refund_grants'::regclass,
+ 'core_commerce.legacy_refund_operations'::regclass) AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_proc p,
+ LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+ WHERE (p.oid='core_commerce.import_legacy_refund_grant(jsonb)'::regprocedure AND a.grantee<>p.proowner)
+ OR (p.oid='core_commerce.finalize_legacy_refund(jsonb,bytea,bigint,bigint)'::regprocedure AND a.grantee=0))"""
     return guard
 
 
@@ -677,8 +998,8 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
         "promotion_secret": ("core_promotions.secrets", "singleton"),
         "channel_projection_state": ("core_channels.projection_state", "singleton"),
     }
-    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT), "seed_profile_not_reviewed")
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
+    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT), "seed_profile_not_reviewed")
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         # 50--54 add no seed rights: all twelve tables must remain empty.
         # Their whole rows and both new physical sequences are still hashed.
         relations.update({
@@ -697,15 +1018,15 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             "referral_event_journals": ("core_referrals.event_journals", "event_id"),
             "referral_events_sequence": ("core_referrals.events_id_seq", "last_value"),
         })
-    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
+    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         relations["connection_snapshot"] = ("core_history.connection_snapshot", "singleton")
-    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
+    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         relations.update({"directory_ad_quotes": ("core_directory_ads.quotes", "id"),
                           "directory_ad_payments": ("core_directory_ads.payments", "id"),
                           "directory_ad_refunds": ("core_directory_ads.refunds", "principal,request_id")})
-    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
+    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         relations["commerce_display_rate_upgrades"] = ("core_meta.commerce_display_rate_upgrades", "upgrade_id")
-    if profile == CORE59_SEED_CONTRACT:
+    if profile in (CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         relations.update({
             "subscription_epay_upgrades": ("core_meta.subscription_epay_upgrades", "upgrade_id"),
             "external_prices": ("core_subscriptions.external_prices", "plan_id,plan_revision,channel_id"),
@@ -713,6 +1034,23 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             "external_proofs": ("core_subscriptions.external_proofs", "id"),
             "external_grants": ("core_subscriptions.external_grants", "order_id"),
         })
+    if profile == CORE65_SEED_CONTRACT:
+        relations.update({"federated_" + name: ("core_federated_auth." + name, order)
+            for name, order in (("providers", "id"), ("identities", "provider_id,subject_digest"),
+                ("flows", "digest"), ("assertions", "digest"), ("operations", "actor_user_id,operation_key"))})
+        relations["core59_to62_upgrades"] = ("core_meta.core59_to62_upgrades", "upgrade_id")
+        relations["federated_provider_sequence"] = ("core_federated_auth.providers_id_seq", "last_value")
+        relations.update({"refund_totals": ("core_commerce.refund_totals", "order_id"),
+            "refund_operations": ("core_commerce.refund_operations", "operation_key"),
+            "stripe_prices": ("core_subscriptions.stripe_prices", "plan_id,plan_revision,channel_id"),
+            "stripe_state": ("core_subscriptions.stripe_state", "order_id"),
+            "stripe_events": ("core_subscriptions.stripe_events", "order_id,event_id"),
+            "stripe_cycles": ("core_subscriptions.stripe_cycles", "order_id,invoice_id")})
+        relations.update({"pancake_" + name: ("core_subscriptions.pancake_" + name, order)
+            for name, order in (("prices", "plan_id,plan_revision,channel_id"), ("orders", "order_id"),
+                ("events", "order_id,event_id"), ("cycles", "order_id,cycle_key"))})
+        relations.update({"legacy_refund_grants": ("core_commerce.legacy_refund_grants", "order_id"),
+            "legacy_refund_operations": ("core_commerce.legacy_refund_operations", "order_id")})
     fields = []
     for key, (relation, order) in relations.items():
         # PostgreSQL sequences have no composite row type for to_jsonb(t).
@@ -727,6 +1065,12 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             row_json += "||jsonb_build_object(" + sql_literal(timestamp) + "," + utc_timestamp_text_sql("t." + timestamp) + ")"
         fields.append(sql_literal(key) + ",COALESCE((SELECT jsonb_agg(" + row_json + " ORDER BY " +
                       order + ") FROM " + relation + " t),'[]'::jsonb)")
+    if profile == CORE65_SEED_CONTRACT:
+        # Keep each call below PG's argument limit; historical seed SQL bytes
+        # remain unchanged. Each fields entry contains a key/value pair.
+        objects = ["jsonb_build_object(" + ",".join(fields[i:i+40]) + ")"
+                   for i in range(0, len(fields), 40)]
+        return "SELECT encode(sha256(convert_to((" + "||".join(objects) + ")::text,'UTF8')),'hex')"
     return "SELECT encode(sha256(convert_to(jsonb_build_object(" + ",".join(fields) + ")::text,'UTF8')),'hex')"
 
 
@@ -1226,7 +1570,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         require(target_contract.get(key) == contract.get(key), "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
-    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT):
+    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT):
         require(catalog_hash == contract["fresh_catalog_sha256"], "target_fresh_catalog_mismatch")
     validate_import_material(plan, source_sha256, manifest)
     require(isinstance(target_identity, dict), "target_identity_incomplete")

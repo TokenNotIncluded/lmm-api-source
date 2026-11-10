@@ -285,7 +285,7 @@ class ReadinessTests(unittest.TestCase):
     def test_ledger_upgrade_receipt_still_forbids_formal_opening(self):
         material = copy.deepcopy(self.fixture.material)
         material["before_state"]["tables"]["core_meta.ledger_revisions"] = {"rows": 1, "sha256": "a" * 64}
-        with self.assertRaisesRegex(F.Error, "fresh26_business_or_upgrade_records_not_empty"):
+        with self.assertRaisesRegex(F.Error, "fresh49_business_or_upgrade_records_not_empty"):
             F.build_apply_sql(material)
 
     def test_policy_evidence_file_tampering_is_an_independent_blocker(self):
