@@ -326,7 +326,13 @@ class PostgreSQLTests(unittest.TestCase):
             self.rejected_unchanged(F.build_apply_sql(material), "financial_target_instance_mismatch")
         material = copy.deepcopy(self.material)
         material["target"]["catalog_fingerprint_sha256"] = "0" * 64
-        self.rejected_unchanged(F.build_apply_sql(material), "financial_target_catalog_mismatch")
+        if "fresh_catalog_sha256" in F.IDENTITY.current_contract():
+            before = self.full_state()
+            with self.assertRaisesRegex(F.IDENTITY.MappingError, "target_fresh_catalog_mismatch"):
+                F.build_apply_sql(material)
+            self.assertEqual(self.full_state(), before)
+        else:
+            self.rejected_unchanged(F.build_apply_sql(material), "financial_target_catalog_mismatch")
 
     def test_actual_catalog_mutation_and_business_fact_cas_are_rejected(self):
         self.sql("UPDATE core_identity.users SET auth_version=2 WHERE id=71;")
