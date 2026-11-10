@@ -435,3 +435,43 @@ test('share page uses the configured site link and default badge footer', async 
     await view.close()
   }
 })
+
+test('linked all-time selection exports all, then model sharing restores a legal window', async () => {
+  adapter()
+  const view = await mount()
+  const svgURL = () =>
+    new URL(
+      element<HTMLTextAreaElement>(view.host, 'textarea[aria-label="SVG URL"]')
+        .value
+    )
+  try {
+    const period = element<HTMLSelectElement>(view.host, '#badge-period')
+    assert.ok([...period.options].some((option) => option.value === 'all'))
+    await act(async () => {
+      period.value = 'all'
+      period.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    assert.equal(svgURL().searchParams.get('layout'), 'aggregate')
+    assert.equal(svgURL().searchParams.get('period'), 'all')
+    await layout(view.host, 'models')
+    const modelPeriod = element<HTMLSelectElement>(view.host, '#badge-period')
+    assert.deepEqual(
+      [...modelPeriod.options].map((option) => option.value),
+      ['7d', '30d', '365d']
+    )
+    assert.equal(modelPeriod.value, '30d')
+    // Switching layouts never enables the separate model-sharing permission.
+    assert.equal(
+      view.host.querySelector('textarea[aria-label="SVG URL"]'),
+      null
+    )
+    await click(button(view.host, 'Turn on model sharing'))
+    await settled(
+      () => !!view.host.querySelector('textarea[aria-label="SVG URL"]')
+    )
+    assert.equal(svgURL().searchParams.get('layout'), 'models')
+    assert.equal(svgURL().searchParams.get('period'), '30d')
+  } finally {
+    await view.close()
+  }
+})

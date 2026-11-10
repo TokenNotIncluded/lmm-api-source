@@ -613,7 +613,8 @@ export function ProfileSharePage() {
                       <NativeSelectOption value='365d'>
                         {t('Last 365 days')}
                       </NativeSelectOption>
-                      {options.layout === 'badge' ? (
+                      {options.layout === 'badge' ||
+                      options.layout === 'aggregate' ? (
                         <NativeSelectOption value='all'>
                           {t('All time')}
                         </NativeSelectOption>
