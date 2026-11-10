@@ -677,5 +677,119 @@ class LegacyRoundingTests(unittest.TestCase):
             self.quote(provider, options)
 
 
+class LegacyRatioDecimalTests(unittest.TestCase):
+    def fixture(self, model="amazon/nova-2-lite-v1", mr="0.15", cr="8.333333", cache="0.5"):
+        provider, options = LegacyRoundingTests().fixture()
+        old_model = provider["prices"][0]["model"]
+        for row in options:
+            if type(row["value"]) is dict and old_model in row["value"]:
+                row["value"] = {model: row["value"][old_model]}
+            if row["key"] == "ModelRatio": row["value"] = {model: mr}
+            if row["key"] == "CompletionRatio": row["value"] = {model: cr}
+            if row["key"] == "CacheRatio": row["value"] = {} if cache is None else {model: cache}
+        price = provider["prices"][0]
+        for key in ("rates", "rounding_contract", "rounding_source_revision", "rounding_oracle_sha256"):
+            del price[key]
+        price.update(model=model, kind="legacy_ratio_decimal", source_options_sha256=R.F.digest(options),
+            ratio_source_revision=R.LEGACY_RATIO_SOURCE, ratio_oracle_sha256="a"*64,
+            source_usage_contract="ordinary-inclusive-no-cache-write-v1")
+        provider["models"][0]["source_model"] = model
+        provider["source_channel_sha256"] = "b"*64
+        return provider, options
+
+    def quote(self, provider, options, **kwargs):
+        return R.price_for(provider, "OpenRouter", provider["prices"][0]["model"], R.F.digest(options),
+            source_channel_type=20, source_options=options, source_revision=R.LEGACY_RATIO_SOURCE, **kwargs)
+
+    def test_exact_nova_coefficients_no_expression_or_integer_rounding(self):
+        cases = [("amazon/nova-2-lite-v1", "0.15", "8.333333", (24999999,10000000)),
+                 ("amazon/nova-lite-v1", "0.02975", "4", (119,500)),
+                 ("amazon/nova-micro-v1", "0.0175", "4", (7,50)),
+                 ("amazon/nova-pro-v1", "0.3995", "4", (799,250))]
+        for model, mr, cr, expected in cases:
+            provider, options = self.fixture(model, mr, cr)
+            result, error = self.quote(provider, options)
+            self.assertIsNone(error)
+            self.assertNotIn("rounding", result)
+            tariff = result["tiered"]
+            self.assertEqual(tariff["revision"], 1)
+            self.assertEqual(len(tariff["tiers"]), 1)
+            self.assertNotIn("up_to_input_tokens", tariff["tiers"][0])
+            self.assertFalse(tariff["uses_cache_write"])
+            self.assertEqual(tariff["tiers"][0]["rates"]["output"],
+                             dict(zip(("numerator", "denominator"), expected)))
+            # An inactive expression is never compiled or entered in the digest.
+            self.assertEqual(self.quote(provider, options, expressions={model:"not an expression"})[0], result)
+
+    def test_source_digest_binds_ratios_channel_limits_and_default_provenance(self):
+        provider, options = self.fixture()
+        original = self.quote(provider, options)[0]["tiered"]["source_digest"]
+        for path, val in [("source_channel_sha256", "c"*64), ("max_input_tokens", 99)]:
+            p = copy.deepcopy(provider)
+            if path == "max_input_tokens": p["models"][0][path] = val
+            else: p[path] = val
+            self.assertNotEqual(self.quote(p, options)[0]["tiered"]["source_digest"], original)
+        p, opts = self.fixture("deepseek/deepseek-v3.2-exp", ".11", "1.5", None)
+        q, explicit = self.fixture("deepseek/deepseek-v3.2-exp", ".11", "1.5", "1")
+        missing = self.quote(p, opts)[0]["tiered"]
+        present = self.quote(q, explicit)[0]["tiered"]
+        self.assertEqual(missing["tiers"], present["tiers"])
+        self.assertNotEqual(missing["source_digest"], present["source_digest"])
+        self.assertEqual(missing["tiers"][0]["rates"]["cache_read"], {"numerator":11,"denominator":50})
+        # The original integer policy also uses cc52's real missing-cache default1.
+        p, opts = LegacyRoundingTests().fixture()
+        next(row for row in opts if row["key"] == "CacheRatio")["value"] = {}
+        p["prices"][0]["rates"]["cache_read"] = 500000
+        p["prices"][0]["source_options_sha256"] = R.F.digest(opts)
+        self.assertEqual(LegacyRoundingTests().quote(p, opts)[0]["rounding"], R.LEGACY_RATIO_ROUNDING)
+
+    def test_rejects_zero_coefficients_mixed_unproven_and_out_of_bound(self):
+        for key, val in [("ModelRatio", "0"), ("CompletionRatio", "0"), ("CacheRatio", "0"),
+                         ("CacheRatio", None), ("ModelRatio", "-1"), ("ModelRatio", "1000000000")]:
+            p, opts = self.fixture()
+            next(row for row in opts if row["key"] == key)["value"] = {p["prices"][0]["model"]:val}
+            p["prices"][0]["source_options_sha256"] = R.F.digest(opts)
+            with self.subTest(key=key,val=val), self.assertRaises(R.MappingError): self.quote(p, opts)
+        for key, val in [("source_expression", "fake"), ("rates", {}), ("tiered", {}), ("request_fee", 1),
+                         ("audio", {}), ("image", {}), ("calendar", {}),
+                         ("ratio_source_revision", "b"*40), ("ratio_oracle_sha256", None),
+                         ("source_usage_contract", "unknown"), ("speed_multiplier_ppm", 1200000),
+                         ("group_multiplier_ppm", 1199999)]:
+            p, opts = self.fixture();p["prices"][0][key] = val
+            with self.subTest(field=key), self.assertRaises(R.MappingError): self.quote(p, opts)
+        p, opts = self.fixture()
+        with self.assertRaises(R.MappingError): self.quote(p, opts, billing_modes={p["prices"][0]["model"]:"tiered_expr"})
+        p["audio_rules"] = [{}]
+        with self.assertRaises(R.MappingError): self.quote(p, opts)
+        p, opts = self.fixture("anthropic/claude-fable-5.1", "5", "5", ".025")
+        with self.assertRaises(R.MappingError): self.quote(p, opts)
+
+    def test_group_zero_remains_free_and_plan_preserves_ratio_origin(self):
+        p, opts = self.fixture()
+        next(row for row in opts if row["key"] == "GroupRatio")["value"] = {"OpenRouter":0}
+        p["prices"][0].update(group_multiplier_ppm=0, source_options_sha256=R.F.digest(opts))
+        self.assertEqual(self.quote(p, opts)[0]["group_multiplier_ppm"], 0)
+        value = fixture(weights=(0,), priorities=(10,))
+        tables, _, _, contracts = value
+        p, opts = self.fixture("example-model")
+        for row in opts:
+            if row["key"] == "GroupRatio": row["value"] = {"原组/一":"1.2"}
+        tables["options"] = opts
+        contracts["runtime"]["source_revision"] = R.LEGACY_RATIO_SOURCE
+        channel = tables["channels"][0]; channel["type"] = 20
+        rebind_channel(value, channel["id"])
+        provider = contracts["providers"]["channels"][0]
+        provider.update({key:val for key,val in p.items() if key not in ("models", "source_channel_sha256")})
+        provider["prices"][0].update(group="原组/一",source_options_sha256=R.F.digest(opts))
+        result = run_fixture(value)
+        self.assertEqual(result["status"], "candidate-requires-native-validation", result.get("blockers"))
+        compilation = result["ability_assessments"][0]["pricing_compilation"]
+        self.assertNotIn("source_expression", compilation)
+        self.assertEqual(compilation["source_kind"], "legacy_ratio_decimal")
+        self.assertEqual(compilation["source_ratio"]["source_mode"], "ratio")
+        self.assertEqual(R.F.digest(compilation["source_ratio"]), compilation["source_digest"])
+        self.assertEqual(tomllib.loads("config = " + R.toml_value(result["candidate"]))["config"], result["candidate"])
+
+
 if __name__ == "__main__":
     unittest.main()

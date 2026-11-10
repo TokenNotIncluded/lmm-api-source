@@ -23,6 +23,10 @@ Optional JSON contracts have format_version=1, the scope below, and bindings
   rounding_source_revision=cc52aa195c6f2a01d703a1a407be73c31b89867d,
   rounding_oracle_sha256. Omission retains native Core ceil; this narrow contract
   requires original ratio/group/currency and non-audio adapter bindings.
+  Positive ordinary ratios may instead use kind=legacy_ratio_decimal with
+  ratio_source_revision, ratio_oracle_sha256, source_usage_contract=
+  ordinary-inclusive-no-cache-write-v1 and the same source/options/multiplier
+  bindings. The source remains ratio; one decimal band is not an expression.
 * legacy-routing-credential-references: credentials[] containing channel_id,
   source_channel_sha256, source_key_sha256 (SHA256 of the exact UTF-8 field),
   reference={id,revision}, secret_file (absolute installation destination).
@@ -390,19 +394,9 @@ def compile_token_expression(expression, *, non_audio=False):
             "uses_cache_write_1h": uses_hour, "uses_cache_write_12h": uses_twelve, "tiers": tiers}
 
 
-def legacy_ratio_rounding(price, provider, group, model, options, source_revision, channel_type):
-    """Prove the narrow ordinary OpenRouter ratio contract, without guessing rates.
-
-    Trust remains a separately frozen Core entitlement; it is not folded into
-    these group/rate coefficients. Native Core and unmarked imports stay ceil.
-    """
-    require(price["rounding_contract"] == LEGACY_RATIO_ROUNDING, "rounding_contract_unsupported")
-    require(source_revision == LEGACY_RATIO_SOURCE
-            and price.get("rounding_source_revision") == LEGACY_RATIO_SOURCE,
-            "rounding_source_revision_unproven")
-    require(type(price.get("rounding_oracle_sha256")) is str
-            and re.fullmatch(r"[a-f0-9]{64}", price["rounding_oracle_sha256"]),
-            "rounding_oracle_evidence_missing")
+def legacy_ratio_source(provider, group, model, options, source_revision, channel_type):
+    """Fixed ordinary inclusive OpenRouter source domain, not model-name inference."""
+    require(source_revision == LEGACY_RATIO_SOURCE, "rounding_source_revision_unproven")
     require(channel_type == 20 and provider.get("protocol") == "openai_chat"
             and provider.get("adapter_contract") == "openrouter-chat-v1"
             and provider.get("non_audio_contract") == "openrouter-chat-non-audio-v1"
@@ -421,6 +415,9 @@ def legacy_ratio_rounding(price, provider, group, model, options, source_revisio
 
     def coefficient(key, name):
         values = mapping(key)
+        # Fixed cc52 GetCacheRatio returns (1, false) only for an absent key.
+        if key == "CacheRatio" and name not in values:
+            return Fraction(1)
         require(name in values and type(values[name]) is not bool, "rounding_source_ratio_missing")
         try:
             value = Fraction(str(values[name]))
@@ -437,10 +434,6 @@ def legacy_ratio_rounding(price, provider, group, model, options, source_revisio
     cr = coefficient("CompletionRatio", model)
     cache = coefficient("CacheRatio", model)
     group_ratio = coefficient("GroupRatio", group)
-    expected = {"input": mr * 2_000_000, "output": mr * cr * 2_000_000,
-                "cache_read": mr * cache * 2_000_000, "cache_write": 0, "request": 0}
-    require(price["rates"] == expected and price["group_multiplier_ppm"] == group_ratio * 1_000_000
-            and price["speed_multiplier_ppm"] == 1_000_000, "rounding_source_rate_mismatch")
     contexts = [row for row in provider.get("models", []) if row.get("source_model") == model]
     require(len(contexts) == 1 and contexts[0].get("source_operations") == ["chat.completions"],
             "rounding_operation_unsupported")
@@ -451,7 +444,81 @@ def legacy_ratio_rounding(price, provider, group, model, options, source_revisio
              * mr * cr) * group_ratio
     # Do not claim parity for Go's int32 saturation; this admitted domain cannot reach it.
     require(upper <= 2**31 - 1, "rounding_legacy_int32_bound_exceeded")
+    return mr, cr, cache, group_ratio, context, model not in mapping("CacheRatio")
+
+
+def legacy_ratio_rounding(price, provider, group, model, options, source_revision, channel_type):
+    """Prove the narrow ordinary OpenRouter ratio contract, without guessing rates.
+
+    Trust remains a separately frozen Core entitlement; it is not folded into
+    these group/rate coefficients. Native Core and unmarked imports stay ceil.
+    """
+    require(price["rounding_contract"] == LEGACY_RATIO_ROUNDING, "rounding_contract_unsupported")
+    require(source_revision == LEGACY_RATIO_SOURCE
+            and price.get("rounding_source_revision") == LEGACY_RATIO_SOURCE,
+            "rounding_source_revision_unproven")
+    require(type(price.get("rounding_oracle_sha256")) is str
+            and re.fullmatch(r"[a-f0-9]{64}", price["rounding_oracle_sha256"]),
+            "rounding_oracle_evidence_missing")
+    mr, cr, cache, group_ratio, _, _ = legacy_ratio_source(
+        provider, group, model, options, source_revision, channel_type)
+    expected = {"input": mr * 2_000_000, "output": mr * cr * 2_000_000,
+                "cache_read": mr * cache * 2_000_000, "cache_write": 0, "request": 0}
+    require(price["rates"] == expected and price["group_multiplier_ppm"] == group_ratio * 1_000_000
+            and price["speed_multiplier_ppm"] == 1_000_000, "rounding_source_rate_mismatch")
     return LEGACY_RATIO_ROUNDING
+
+
+def legacy_ratio_decimal(price, provider, group, model, options, source_revision, channel_type):
+    """Compile original ratio coefficients; a one-band tariff is only mathematics.
+
+    Positive coefficients are essential: old ratio minimum1 for a zero weighted
+    numerator is NOT the decimal tariff's positive-numerator minimum1 contract.
+    """
+    require(price.get("ratio_source_revision") == LEGACY_RATIO_SOURCE
+            and type(price.get("ratio_oracle_sha256")) is str
+            and re.fullmatch(r"[a-f0-9]{64}", price["ratio_oracle_sha256"]),
+            "ratio_decimal_source_unproven")
+    require(text_reference(price.get("contract_revision"))
+            and price.get("source_usage_contract") == "ordinary-inclusive-no-cache-write-v1"
+            and set(price) <= {"group", "model", "kind", "contract_revision", "source_options_sha256",
+                "group_multiplier_ppm", "speed_multiplier_ppm", "ratio_source_revision",
+                "ratio_oracle_sha256", "source_usage_contract"},
+            "ratio_decimal_contract_unsupported")
+    require(type(options) is list and price["source_options_sha256"] == F.digest(options),
+            "price_source_options_changed")
+    require(type(provider.get("source_channel_sha256")) is str
+            and re.fullmatch(r"[a-f0-9]{64}", provider["source_channel_sha256"]),
+            "ratio_decimal_channel_unbound")
+    mr, cr, cache, group_ratio, context, cache_default = legacy_ratio_source(
+        provider, group, model, options, source_revision, channel_type)
+    require(mr > 0 and cr > 0 and cache > 0, "ratio_decimal_positive_domain_required")
+    group_ppm = number(price.get("group_multiplier_ppm"), "price_multiplier_invalid", 0, 1_000_000_000)
+    speed_ppm = number(price.get("speed_multiplier_ppm"), "price_multiplier_invalid", 1, 1_000_000_000)
+    require(group_ppm == group_ratio * 1_000_000 and speed_ppm == 1_000_000,
+            "rounding_source_rate_mismatch")
+    rates = {}
+    for key, value in {"input": 2 * mr, "output": 2 * mr * cr,
+                       "cache_read": 2 * mr * cache, "cache_write": Fraction(0)}.items():
+        require(value.numerator <= 2**64 - 1 and value.denominator <= 10**18,
+                "ratio_decimal_rate_out_of_range")
+        rates[key] = {"numerator": value.numerator, "denominator": value.denominator}
+    origin = {"format_version": 1, "kind": "legacy_ratio_decimal", "source_mode": "ratio",
+        "source_revision": source_revision, "source_options_sha256": price["source_options_sha256"],
+        "source_channel_sha256": provider["source_channel_sha256"],
+        "contract_revision": price["contract_revision"], "oracle_sha256": price["ratio_oracle_sha256"],
+        "source_usage_contract": price["source_usage_contract"], "group": group, "model": model,
+        "ratios": {k: str(v) for k, v in zip(("model", "completion", "cache", "group"), (mr, cr, cache, group_ratio))},
+        "cache_ratio_default": "cc52_GetCacheRatio_missing_1" if cache_default else None,
+        "adapter_contract": provider["adapter_contract"], "non_audio_contract": provider["non_audio_contract"],
+        "source_operations": context["source_operations"],
+        "max_input_tokens": context["max_input_tokens"], "max_output_tokens": context["max_output_tokens"]}
+    return {"billing_mode": "tiered_decimal",
+        "tiered": {"revision": 1, "source_digest": F.digest(origin), "uses_cache_read": True,
+            "uses_cache_write": False, "uses_cache_write_1h": False, "uses_cache_write_12h": False,
+            "tiers": [{"rates": rates}]},
+        "rates": {k: 0 for k in ("input", "output", "cache_read", "cache_write", "request")},
+        "group_multiplier_ppm": group_ppm, "speed_multiplier_ppm": speed_ppm}, origin
 
 
 def price_for(provider, group, model, options_hash, expressions=None, billing_modes=None, *, source_channel_type=None,
@@ -473,6 +540,11 @@ def price_for(provider, group, model, options_hash, expressions=None, billing_mo
         require(price["rounding_contract"] == LEGACY_RATIO_ROUNDING and mode == "ratio"
                 and price.get("kind") == "flat_tokens", "rounding_contract_unsupported")
     require(mode in ("ratio", "tiered_expr"), "legacy_billing_mode_unsupported")
+    if price.get("kind") == "legacy_ratio_decimal":
+        require(mode == "ratio", "price_source_billing_mode_mismatch")
+        result, _ = legacy_ratio_decimal(price, provider, group, model, source_options,
+                                         source_revision, source_channel_type)
+        return result, None
     if price.get("kind") == "tiered_decimal":
         require(mode == "tiered_expr", "price_source_billing_mode_mismatch")
         require(type(expression) is str and expression == price.get("source_expression"),
@@ -825,7 +897,14 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                             "source_revision": source_price["rounding_source_revision"],
                             "source_options_sha256": options_hash,
                             "oracle_sha256": source_price["rounding_oracle_sha256"]}
-                    if price is not None and price.get("billing_mode") == "tiered_decimal":
+                    source_price = next((row for row in provider.get("prices", [])
+                        if row.get("group") == group and row.get("model") == model), {})
+                    if price is not None and source_price.get("kind") == "legacy_ratio_decimal":
+                        _, origin = legacy_ratio_decimal(source_price, provider, group, model, tables["options"],
+                            runtime.get("source_revision"), channel.get("type"))
+                        entry["pricing_compilation"] = {"source_kind": "legacy_ratio_decimal",
+                            "source_digest": price["tiered"]["source_digest"], "source_ratio": origin}
+                    elif price is not None and price.get("billing_mode") == "tiered_decimal":
                         entry["pricing_compilation"] = {"source_expression": expressions[model],
                             "source_digest": price["tiered"]["source_digest"],
                             "source_options_sha256":options_hash}
