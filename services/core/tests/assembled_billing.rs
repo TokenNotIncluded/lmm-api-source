@@ -36,6 +36,7 @@ fn request(id: &str, reserve: i64) -> ChargeRequest {
         lease_seconds: 300,
         maximum_seconds: 600,
         price: Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,

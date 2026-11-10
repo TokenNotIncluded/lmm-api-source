@@ -18,7 +18,11 @@ Optional JSON contracts have format_version=1, the scope below, and bindings
   Gemini additionally needs legacy_api_version="v1beta"}, and
   prices[] {group, model, kind=flat_tokens, source_options_sha256,
   contract_revision, rates={input,output,cache_read,cache_write,request},
-  group_multiplier_ppm, speed_multiplier_ppm}.
+  group_multiplier_ppm, speed_multiplier_ppm}. Ordinary OpenRouter ratio imports
+  may explicitly add rounding_contract=legacy_go_ratio_half_away_min1_v1,
+  rounding_source_revision=cc52aa195c6f2a01d703a1a407be73c31b89867d,
+  rounding_oracle_sha256. Omission retains native Core ceil; this narrow contract
+  requires original ratio/group/currency and non-audio adapter bindings.
 * legacy-routing-credential-references: credentials[] containing channel_id,
   source_channel_sha256, source_key_sha256 (SHA256 of the exact UTF-8 field),
   reference={id,revision}, secret_file (absolute installation destination).
@@ -49,6 +53,8 @@ F = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(F)
 MappingError, require = F.MappingError, F.require
 MAX_ID = 2**63 - 1
+LEGACY_RATIO_ROUNDING = "legacy_go_ratio_half_away_min1_v1"
+LEGACY_RATIO_SOURCE = "cc52aa195c6f2a01d703a1a407be73c31b89867d"
 # Fixed go-v0.2.118 adapters, not an arbitrary "OpenAI-compatible" fallback.
 # xAI's native Claude path uses Bearer and cannot use Core's Anthropic auth.
 # TypeSafe is exclusively SystemOne. OpenRouter requires a distinct reviewed
@@ -384,17 +390,88 @@ def compile_token_expression(expression, *, non_audio=False):
             "uses_cache_write_1h": uses_hour, "uses_cache_write_12h": uses_twelve, "tiers": tiers}
 
 
-def price_for(provider, group, model, options_hash, expressions=None, billing_modes=None, *, source_channel_type=None):
+def legacy_ratio_rounding(price, provider, group, model, options, source_revision, channel_type):
+    """Prove the narrow ordinary OpenRouter ratio contract, without guessing rates.
+
+    Trust remains a separately frozen Core entitlement; it is not folded into
+    these group/rate coefficients. Native Core and unmarked imports stay ceil.
+    """
+    require(price["rounding_contract"] == LEGACY_RATIO_ROUNDING, "rounding_contract_unsupported")
+    require(source_revision == LEGACY_RATIO_SOURCE
+            and price.get("rounding_source_revision") == LEGACY_RATIO_SOURCE,
+            "rounding_source_revision_unproven")
+    require(type(price.get("rounding_oracle_sha256")) is str
+            and re.fullmatch(r"[a-f0-9]{64}", price["rounding_oracle_sha256"]),
+            "rounding_oracle_evidence_missing")
+    require(channel_type == 20 and provider.get("protocol") == "openai_chat"
+            and provider.get("adapter_contract") == "openrouter-chat-v1"
+            and provider.get("non_audio_contract") == "openrouter-chat-non-audio-v1"
+            and provider.get("audio_rules") == [] and "claude" not in model.lower(),
+            "rounding_provider_semantics_unsupported")
+    require(type(options) is list, "rounding_source_options_missing")
+    source = {row["key"]: row.get("value") for row in options}
+    require(str(source.get("LegacyPricingQuotaPerUnit")) == "500000",
+            "rounding_currency_unproven")
+
+    def mapping(key):
+        value = source.get(key, {})
+        value = F.parse_json(value) if type(value) is str else value
+        require(type(value) is dict, "rounding_source_ratio_invalid")
+        return value
+
+    def coefficient(key, name):
+        values = mapping(key)
+        require(name in values and type(values[name]) is not bool, "rounding_source_ratio_missing")
+        try:
+            value = Fraction(str(values[name]))
+        except (ValueError, ZeroDivisionError):
+            raise MappingError("rounding_source_ratio_invalid") from None
+        require(value >= 0, "rounding_source_ratio_invalid")
+        return value
+
+    require(model not in mapping("ModelPrice") and not mapping("GroupGroupRatio"),
+            "rounding_non_ratio_or_group_override")
+    image_ratio = mapping("ImageRatio").get(model, 1)  # fixed Go defaults missing ImageRatio to one
+    require(str(image_ratio) in ("1", "1.0"), "rounding_image_ratio_unsupported")
+    mr = coefficient("ModelRatio", model)
+    cr = coefficient("CompletionRatio", model)
+    cache = coefficient("CacheRatio", model)
+    group_ratio = coefficient("GroupRatio", group)
+    expected = {"input": mr * 2_000_000, "output": mr * cr * 2_000_000,
+                "cache_read": mr * cache * 2_000_000, "cache_write": 0, "request": 0}
+    require(price["rates"] == expected and price["group_multiplier_ppm"] == group_ratio * 1_000_000
+            and price["speed_multiplier_ppm"] == 1_000_000, "rounding_source_rate_mismatch")
+    contexts = [row for row in provider.get("models", []) if row.get("source_model") == model]
+    require(len(contexts) == 1 and contexts[0].get("source_operations") == ["chat.completions"],
+            "rounding_operation_unsupported")
+    context = contexts[0]
+    upper = (number(context.get("max_input_tokens"), "rounding_input_bound_missing", 1, 16_000_000)
+             * max(mr, mr * cache)
+             + number(context.get("max_output_tokens"), "rounding_output_bound_missing", 1, 65_536)
+             * mr * cr) * group_ratio
+    # Do not claim parity for Go's int32 saturation; this admitted domain cannot reach it.
+    require(upper <= 2**31 - 1, "rounding_legacy_int32_bound_exceeded")
+    return LEGACY_RATIO_ROUNDING
+
+
+def price_for(provider, group, model, options_hash, expressions=None, billing_modes=None, *, source_channel_type=None,
+              source_options=None, source_revision=None):
     require(type(provider.get("prices")) is list and all(type(row) is dict for row in provider["prices"]), "price_contract_rows_invalid")
     rows = [row for row in provider.get("prices", []) if row.get("group") == group and row.get("model") == model]
     if len(rows) != 1:
         return None, "price_contract_missing_or_duplicate"
     price = rows[0]
+    require("rounding" not in price and ("rounding_contract" in price
+            or not ({"rounding_source_revision", "rounding_oracle_sha256"} & price.keys())),
+            "rounding_contract_missing")
     require(price.get("source_options_sha256") == options_hash, "price_source_options_changed")
     expression = (expressions or {}).get(model)
     # Fixed legacy GetBillingMode defaults an absent per-model entry to ratio.
     # A configured but inactive expression must not silently replace that price.
     mode = (billing_modes or {}).get(model, "ratio")
+    if "rounding_contract" in price:
+        require(price["rounding_contract"] == LEGACY_RATIO_ROUNDING and mode == "ratio"
+                and price.get("kind") == "flat_tokens", "rounding_contract_unsupported")
     require(mode in ("ratio", "tiered_expr"), "legacy_billing_mode_unsupported")
     if price.get("kind") == "tiered_decimal":
         require(mode == "tiered_expr", "price_source_billing_mode_mismatch")
@@ -437,7 +514,11 @@ def price_for(provider, group, model, options_hash, expressions=None, billing_mo
     if any(rate * group_ppm * speed_ppm % 2_000_000_000_000
            or rate * group_ppm * speed_ppm // 2_000_000_000_000 > MAX_ID for rate in rates.values()):
         return None, "price_not_exact_integer_credits"
-    return {"rates": rates, "group_multiplier_ppm": group_ppm, "speed_multiplier_ppm": speed_ppm}, None
+    result = {"rates": rates, "group_multiplier_ppm": group_ppm, "speed_multiplier_ppm": speed_ppm}
+    if "rounding_contract" in price:
+        result["rounding"] = legacy_ratio_rounding(price, provider, group, model, source_options,
+                                                  source_revision, source_channel_type)
+    return result, None
 
 
 def image_sidecar(provider, channel, credential, context, group, model, options_hash, options,
@@ -735,7 +816,15 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         external_models[(cid, model)] = {"upstream_id": cid, "upstream_model": model, "protocol": provider.get("protocol"),
                             "endpoint": provider.get("endpoint"), "contract_revision": provider.get("contract_revision"),
                             **{k: context[k] for k in ("max_input_tokens", "max_output_tokens", "missing_cached_tokens_is_zero", "missing_cache_creation_tokens_is_zero")}}
-                    price, price_error = price_for(provider, group, model, options_hash, expressions, billing_modes, source_channel_type=channel.get("type"))
+                    price, price_error = price_for(provider, group, model, options_hash, expressions, billing_modes,
+                        source_channel_type=channel.get("type"), source_options=tables["options"],
+                        source_revision=runtime.get("source_revision"))
+                    if price is not None and price.get("rounding"):
+                        source_price = next(row for row in provider["prices"] if row.get("group") == group and row.get("model") == model)
+                        entry["rounding_compilation"] = {"rounding": price["rounding"],
+                            "source_revision": source_price["rounding_source_revision"],
+                            "source_options_sha256": options_hash,
+                            "oracle_sha256": source_price["rounding_oracle_sha256"]}
                     if price is not None and price.get("billing_mode") == "tiered_decimal":
                         entry["pricing_compilation"] = {"source_expression": expressions[model],
                             "source_digest": price["tiered"]["source_digest"],

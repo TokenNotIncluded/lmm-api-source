@@ -377,6 +377,7 @@ async fn execute(
         .audio_output
         .min(audio_price.max_output_tokens);
     let price = charging::Price {
+        rounding: None,
         audio: Some(audio_price.clone()),
         text_request: None,
         tool: None,

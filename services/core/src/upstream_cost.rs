@@ -99,6 +99,28 @@ pub(crate) fn ceil_with_discount(
     u64::try_from(rounded).ok()
 }
 
+/// Exact half-away rounding for an explicitly selected legacy ratio contract.
+/// BigUint keeps both the discount product and half comparison overflow-free.
+pub(crate) fn half_away_with_discount(
+    numerator: u128,
+    denominator: u128,
+    discount: Option<DiscountRatio>,
+) -> Option<u64> {
+    if denominator == 0 {
+        return None;
+    }
+    let mut numerator = BigUint::from(numerator);
+    let mut denominator = BigUint::from(denominator);
+    if let Some(discount) = discount {
+        numerator *= discount.numerator();
+        denominator *= discount.denominator();
+    }
+    let remainder = &numerator % &denominator;
+    let rounded =
+        &numerator / &denominator + BigUint::from(u8::from(remainder * 2_u8 >= denominator));
+    u64::try_from(rounded).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

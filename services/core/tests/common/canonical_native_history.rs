@@ -12,6 +12,7 @@ struct NativeCase {
 impl NativeCase {
     fn free() -> Self {
         let text = Price {
+            rounding: None,
             version: "synthetic-bootstrap-v1".into(),
             model: "synthetic-text".into(),
             group: "default".into(),

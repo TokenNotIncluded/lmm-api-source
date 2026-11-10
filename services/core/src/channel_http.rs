@@ -740,6 +740,7 @@ mod tests {
         let prices = PriceConfig {
             version: 1,
             rules: vec![PriceRule {
+                rounding: None,
                 billing_mode: crate::routing::BillingMode::Tokens,
                 tiered: None,
                 id: 1,

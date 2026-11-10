@@ -20,6 +20,7 @@ async fn legacy_fixture(pool: PgPool, corrupt: bool) {
     let mut audio = rule(&supplier.endpoint).price;
     audio.usage_format = AudioUsageFormat::OpenAiChatV1;
     let price = charging::Price {
+        rounding: None,
         audio: Some(audio.clone()),
         text_request: None,
         tool: None,

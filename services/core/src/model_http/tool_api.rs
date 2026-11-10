@@ -272,6 +272,7 @@ async fn execute(
             "native tools require an explicit successful-request tariff",
         ))?;
     let price = charging::Price {
+        rounding: None,
         text_request: None,
         audio: None,
         grounding: None,

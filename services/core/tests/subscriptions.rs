@@ -377,6 +377,7 @@ async fn real_charging_reservations_and_usage_block_refund_and_revoked_actors_ca
         id: "subscription-real-consumption".into(),
         fingerprint: [9; 32],
         price: Price {
+            rounding: None,
             text_request: None,
             tool: None,
             audio: None,

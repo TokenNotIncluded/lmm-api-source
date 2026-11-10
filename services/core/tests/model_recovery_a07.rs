@@ -193,6 +193,7 @@ async fn seed_terminal(
 ) {
     let price = if cost.is_some() {
         Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -211,6 +212,7 @@ async fn seed_terminal(
         }
     } else {
         Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -300,6 +302,7 @@ async fn test_a07_token_based_with_cache_creation_refuses_recovery(pool: PgPool)
 async fn test_a07_token_based_with_cache_creation_and_reported_cost_refuses_recovery(pool: PgPool) {
     let f = fixture(&pool).await;
     let token_price = Price {
+        rounding: None,
         tool: None,
         text_request: None,
         audio: None,
@@ -357,6 +360,7 @@ async fn test_a07_paged_recovery_advances_past_holds_without_starvation(pool: Pg
             id: format!("need-res-{n:03}"),
             fingerprint: [17; 32],
             price: Price {
+                rounding: None,
                 tool: None,
                 text_request: None,
                 audio: None,

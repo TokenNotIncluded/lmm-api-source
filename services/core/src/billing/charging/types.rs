@@ -283,6 +283,8 @@ impl Usage {
 #[serde(deny_unknown_fields)]
 pub struct Price {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rounding: Option<crate::routing::TokenRounding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<crate::billing::audio::AudioPrice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_request: Option<text_request_price::TextRequestPrice>,
@@ -340,6 +342,19 @@ impl Price {
         Ok(())
     }
     pub fn validate(&self) -> Result<()> {
+        if self.rounding.is_some()
+            && (self.audio.is_some()
+                || self.text_request.is_some()
+                || self.tool.is_some()
+                || self.grounding.is_some()
+                || self.image.is_some()
+                || self.tiered.is_some()
+                || self.upstream_cost_group_ppm.is_some()
+                || (self.input_per_million == 0
+                    && (self.output_per_million != 0 || self.cached_per_million != 0)))
+        {
+            return Err(Error::Invalid);
+        }
         if let Some(audio) = &self.audio {
             audio.validate().map_err(|_| Error::Invalid)?;
             if self.text_request.is_some()
@@ -546,11 +561,20 @@ impl Price {
                 )
                 .ok_or(Error::Invalid);
         }
-        let amount = crate::upstream_cost::ceil_with_discount(
-            u128::try_from(sum).map_err(|_| Error::Invalid)?,
-            1_000_000,
-            self.discount(),
-        )
+        let numerator = u128::try_from(sum).map_err(|_| Error::Invalid)?;
+        let amount = match self.rounding {
+            None => crate::upstream_cost::ceil_with_discount(numerator, 1_000_000, self.discount()),
+            Some(crate::routing::TokenRounding::LegacyGoRatioV1) => {
+                crate::upstream_cost::half_away_with_discount(numerator, 1_000_000, self.discount())
+                    .map(|amount| {
+                        if self.input_per_million > 0 && (usage.input > 0 || usage.output > 0) {
+                            amount.max(1)
+                        } else {
+                            amount
+                        }
+                    })
+            }
+        }
         .ok_or(Error::Invalid)?;
         i64::try_from(amount).map_err(|_| Error::Invalid)
     }
@@ -635,6 +659,14 @@ impl Price {
                 }
             }
         };
+        let amount = if self.rounding.is_some()
+            && self.input_per_million > 0
+            && matches!(basis, ReservationBasis::Tokens { input, output } if input > 0 || output > 0)
+        {
+            amount.max(1)
+        } else {
+            amount
+        };
         i64::try_from(amount).map_err(|_| Error::Invalid)
     }
 
@@ -689,6 +721,7 @@ mod trust_price_tests {
 
     pub(super) fn base() -> Price {
         Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -981,6 +1014,15 @@ pub(super) fn valid_id(value: &str) -> bool {
 #[cfg(test)]
 mod generic_remainder_tests {
     use super::*;
+
+    #[test]
+    fn legacy_rounding_rejects_existing_valid_tiered_receipt() {
+        let mut p = price();
+        p.validate().unwrap();
+        p.rounding = Some(crate::routing::TokenRounding::LegacyGoRatioV1);
+        assert!(p.validate().is_err());
+    }
+
     use crate::routing::{
         CacheCreationMode, DecimalRate, InputSemantics, PersistedTieredTariff, TieredRates,
         TieredTariff, TokenTier,
@@ -994,6 +1036,7 @@ mod generic_remainder_tests {
     }
     fn price() -> Price {
         Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -1265,6 +1308,7 @@ mod delegated_source_tests {
     #[test]
     fn tilde_model_price_does_not_relax_other_identifiers_or_lengths() {
         let mut price = Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -1305,6 +1349,7 @@ mod delegated_source_tests {
     #[test]
     fn unicode_group_price_keeps_model_and_version_identifier_rules_strict() {
         let mut price = Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -1363,5 +1408,225 @@ mod delegated_source_tests {
             "a".repeat(64)
         );
         assert_eq!(serde_json::to_vec(&command).unwrap(), original.into_bytes());
+    }
+}
+
+#[cfg(test)]
+mod legacy_rounding_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn price() -> Price {
+        serde_json::from_value(json!({
+            "version":"legacy-bound-1", "model":"google/gemini-3.1-flash-image", "group":"allowed",
+            "input_per_million":300000,"cached_per_million":30000,"output_per_million":1800000,
+            "rounding":"legacy_go_ratio_half_away_min1_v1",
+            "user_trust":{"user_id":7,"policy_revision":1,"basis_revision":2,
+                "effective_level":1,"level_source":"automatic",
+                "discount":{"numerator":9,"denominator":10},
+                "evaluated_at":100,"next_decay_at":200,"evidence_digest":vec![1u8;32]}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn legacy_rounding_frozen_settlement_and_default_replay() {
+        let price = price();
+        price.validate().unwrap();
+        let frozen = serde_json::to_vec(&price).unwrap();
+        let replay: Price = serde_json::from_slice(&frozen).unwrap();
+        assert_eq!(price, replay);
+        for (input, cached, output, expected) in [
+            (7, 2, 19, 32),
+            (7, 2, 1, 3),
+            (1, 0, 0, 1),
+            (0, 0, 25, 41),
+            (0, 0, 0, 0),
+        ] {
+            assert_eq!(
+                replay
+                    .cost(Usage {
+                        input,
+                        cached,
+                        output,
+                        ..Usage::default()
+                    })
+                    .unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            replay
+                .reservation_ceiling(ReservationBasis::Tokens {
+                    input: 100,
+                    output: 20
+                })
+                .unwrap(),
+            60
+        );
+        let mut old = price.clone();
+        old.rounding = None;
+        let old_bytes = serde_json::to_vec(&old).unwrap();
+        assert!(!String::from_utf8_lossy(&old_bytes).contains("rounding"));
+        let old_replay: Price = serde_json::from_slice(&old_bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&old_replay).unwrap(), old_bytes);
+        assert_eq!(
+            old_replay
+                .cost(Usage {
+                    input: 7,
+                    cached: 2,
+                    output: 19,
+                    ..Usage::default()
+                })
+                .unwrap(),
+            33
+        );
+        assert_ne!(
+            serde_json::to_vec(&price.base_price()).unwrap(),
+            serde_json::to_vec(&old.base_price()).unwrap()
+        );
+        let mut invalid = serde_json::to_value(&price).unwrap();
+        invalid["rounding"] = json!("legacy_go_ratio_v1");
+        assert!(serde_json::from_value::<Price>(invalid).is_err());
+    }
+
+    #[test]
+    fn legacy_rounding_rejects_existing_valid_non_scalar_receipts() {
+        let mut base = serde_json::to_value(price()).unwrap();
+        base.as_object_mut().unwrap().remove("rounding");
+        for dimension in [
+            "input_per_million",
+            "cached_per_million",
+            "output_per_million",
+        ] {
+            base[dimension] = json!(0);
+        }
+        let request = json!({"upstream_id":1,"vendor":"openai","billing_group":"allowed",
+            "upstream_model":"google/gemini-3.1-flash-image","semantic_model":"google/gemini-3.1-flash-image",
+            "endpoint":"generations","size":"1024x1024","quality":"standard","n":1});
+        let mut rule = request.clone();
+        rule.as_object_mut().unwrap().remove("n");
+        for (key, value) in [
+            (
+                "usd_micros_per_image",
+                json!({"numerator":1000000,"denominator":1}),
+            ),
+            ("group_multiplier", json!({"numerator":1,"denominator":1})),
+            ("max_n", json!(1)),
+            ("count_basis", json!("returned_payloads")),
+            ("max_budget", json!(1000000)),
+            ("source_revision", json!("synthetic-v1")),
+        ] {
+            rule[key] = value;
+        }
+        let variants = [
+            (
+                "text_request",
+                json!({"usd_micros_per_request":1000000,"group_multiplier_ppm":1000000,
+                "speed_multiplier_ppm":1000000,"credits_per_usd":500000}),
+            ),
+            (
+                "tool",
+                json!({"kind":"deep_seek_search","usd_micros_per_request":1000000,
+                "group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000,"credits_per_usd":500000,
+                "provider_contract_revision":"synthetic-v1"}),
+            ),
+            (
+                "grounding",
+                json!({"contract":{"mode":"grounded_request_v1","tool_input":"exclude_search_retrieval_v1",
+                "usd_micros_per_grounded_request":1000},"group_multiplier_ppm":1000000,
+                "speed_multiplier_ppm":1000000,"provider_contract_revision":"synthetic-v1"}),
+            ),
+            (
+                "audio",
+                json!({"version":1,"price_revision":"legacy-bound-1","source_sha256":vec![1u8;32],
+                "model":"google/gemini-3.1-flash-image","group":"allowed","provider_contract_revision":"synthetic-v1",
+                "tariff":{"kind":"fixed","usd_per_request":{"numerator":1,"denominator":1}},
+                "group_multiplier":{"numerator":1,"denominator":1},"rounding":"ceiling",
+                "usage_format":"four_counters_v1","bounds":{"text_input":100,"text_output":100,"audio_input":100,"audio_output":100},
+                "max_input_tokens":200,"max_output_tokens":200,"max_budget":1000000}),
+            ),
+            (
+                "image",
+                json!({"revision":1,"rule":rule,"request":request,"reservation_credits":500000}),
+            ),
+            ("upstream_cost_group_ppm", json!(1000000)),
+        ];
+        for (dimension, value) in variants {
+            let mut encoded = base.clone();
+            encoded[dimension] = value;
+            if dimension == "image" {
+                encoded["version"] = json!("image-1");
+            } else if dimension == "upstream_cost_group_ppm" {
+                encoded["model"] = json!("openrouter/fusion");
+            }
+            let valid: Price = serde_json::from_value(encoded).unwrap();
+            valid
+                .validate()
+                .unwrap_or_else(|e| panic!("control {dimension}: {e:?}"));
+            let mut mixed = valid;
+            mixed.rounding = Some(crate::routing::TokenRounding::LegacyGoRatioV1);
+            assert!(mixed.validate().is_err(), "mixed {dimension}");
+            assert!(
+                mixed.cost(Usage::default()).is_err(),
+                "mixed cost {dimension}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_rounding_zero_cost_billable_minimum_and_zero_ratio() {
+        let mut price = price();
+        price.cached_per_million = 0;
+        assert_eq!(
+            price
+                .cost(Usage {
+                    input: 1,
+                    cached: 1,
+                    ..Usage::default()
+                })
+                .unwrap(),
+            1
+        );
+        price.output_per_million = 0;
+        assert_eq!(
+            price
+                .cost(Usage {
+                    output: 1,
+                    ..Usage::default()
+                })
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            price
+                .reservation_ceiling(ReservationBasis::Tokens {
+                    input: 0,
+                    output: 1
+                })
+                .unwrap(),
+            1
+        );
+        assert_eq!(price.cost(Usage::default()).unwrap(), 0);
+        price.input_per_million = 0;
+        assert_eq!(
+            price
+                .cost(Usage {
+                    input: 1,
+                    output: 1,
+                    ..Usage::default()
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            price
+                .reservation_ceiling(ReservationBasis::Tokens {
+                    input: 1,
+                    output: 1
+                })
+                .unwrap(),
+            0
+        );
     }
 }

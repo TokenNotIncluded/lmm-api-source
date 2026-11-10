@@ -1036,6 +1036,7 @@ mod tests {
             id: "native-input-only".into(),
             fingerprint: [1; 32],
             price: super::super::Price {
+                rounding: None,
                 tool: None,
                 text_request: None,
                 audio: None,

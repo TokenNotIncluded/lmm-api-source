@@ -208,6 +208,7 @@ async fn seed_nonempty_hold(f: &Fixture, pool: &PgPool) {
         lease_seconds: 60,
         maximum_seconds: 120,
         price: Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,

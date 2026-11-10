@@ -31,6 +31,7 @@ const WORKER: [u8; 32] = [7; 32];
 
 fn test_price() -> Price {
     Price {
+        rounding: None,
         tool: None,
         text_request: None,
         audio: None,

@@ -587,5 +587,95 @@ class CalendarAndNonAudioTests(unittest.TestCase):
             R.price_for(provider,'原组/一','example-model',R.F.digest(value[0]['options']),{'example-model':expr},
                 {'example-model':'tiered_expr'},source_channel_type=1)
 
+
+
+class LegacyRoundingTests(unittest.TestCase):
+    def fixture(self):
+        model = "google/gemini-3.1-flash-image"
+        options = [{"key": key, "value": value} for key, value in {
+            "LegacyPricingQuotaPerUnit": "500000", "ModelRatio": {model: "0.25"},
+            "CompletionRatio": {model: 6}, "CacheRatio": {model: "0.1"},
+            "GroupRatio": {"OpenRouter": "1.2"}, "ModelPrice": {}, "ImageRatio": {}}.items()]
+        price = {"group": "OpenRouter", "model": model, "kind": "flat_tokens",
+            "contract_revision": "fixed-legacy-contract", "source_options_sha256": R.F.digest(options),
+            "rates": {"input":500000,"output":3000000,"cache_read":50000,"cache_write":0,"request":0},
+            "group_multiplier_ppm":1200000,"speed_multiplier_ppm":1000000,
+            "rounding_contract":R.LEGACY_RATIO_ROUNDING,
+            "rounding_source_revision":R.LEGACY_RATIO_SOURCE,"rounding_oracle_sha256":"a"*64}
+        provider = {"prices":[price], "protocol":"openai_chat", "adapter_contract":"openrouter-chat-v1",
+            "non_audio_contract":"openrouter-chat-non-audio-v1", "audio_rules":[],
+            "models":[{"source_model":model,"source_operations":["chat.completions"],
+                "max_input_tokens":100,"max_output_tokens":20}]}
+        return provider, options
+
+    def quote(self, provider, options, **kwargs):
+        return R.price_for(provider, "OpenRouter", "google/gemini-3.1-flash-image", R.F.digest(options),
+            source_channel_type=20, source_options=options, source_revision=R.LEGACY_RATIO_SOURCE, **kwargs)
+
+    def test_legacy_rounding_binds_source_and_omission_remains_ceil(self):
+        provider, options = self.fixture()
+        price, error = self.quote(provider, options)
+        self.assertIsNone(error)
+        self.assertEqual(price["rounding"], R.LEGACY_RATIO_ROUNDING)
+        for key in ("rounding_contract","rounding_source_revision","rounding_oracle_sha256"):
+            del provider["prices"][0][key]
+        self.assertNotIn("rounding", self.quote(provider, options)[0])
+
+    def test_legacy_rounding_plan_retains_explicit_policy_and_provenance(self):
+        value = fixture()
+        tables, _, _, contracts = value
+        sample, options = self.fixture()
+        for row in options:
+            if type(row["value"]) is dict:
+                row["value"] = {("example-model" if key == "google/gemini-3.1-flash-image"
+                                else "原组/一" if key == "OpenRouter" else key): val
+                                for key, val in row["value"].items()}
+        tables["options"] = options
+        contracts["runtime"]["source_revision"] = R.LEGACY_RATIO_SOURCE
+        for channel, provider in zip(tables["channels"], contracts["providers"]["channels"]):
+            channel["type"] = 20
+            rebind_channel(value, channel["id"])
+            provider.update({key: val for key, val in sample.items() if key not in ("models", "prices")})
+            price = copy.deepcopy(sample["prices"][0])
+            price.update(model="example-model", group="原组/一", source_options_sha256=R.F.digest(options))
+            provider["prices"] = [price]
+            provider["models"][0]["source_operations"] = ["chat.completions"]
+        result = run_fixture(value)
+        self.assertEqual(result["status"], "candidate-requires-native-validation")
+        for rule in result["candidate"]["prices"]["rules"]:
+            self.assertEqual(rule["rounding"], R.LEGACY_RATIO_ROUNDING)
+        self.assertEqual(tomllib.loads("config = " + R.toml_value(result["candidate"]))["config"], result["candidate"])
+        for entry in result["ability_assessments"]:
+            self.assertEqual(entry["rounding_compilation"]["source_revision"], R.LEGACY_RATIO_SOURCE)
+            self.assertEqual(entry["rounding_compilation"]["oracle_sha256"], "a"*64)
+
+    def test_legacy_rounding_rejects_unknown_or_unproven_and_mixed_modes(self):
+        for field, value in [("rounding_contract","legacy_go_ratio_v1"),
+                             ("rounding_source_revision","b"*40),
+                             ("rounding_oracle_sha256",None), ("speed_multiplier_ppm",1200000)]:
+            provider, options = self.fixture()
+            provider["prices"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(R.MappingError):
+                self.quote(provider, options)
+        provider, options = self.fixture()
+        with self.assertRaises(R.MappingError):
+            self.quote(provider, options, billing_modes={"google/gemini-3.1-flash-image":"tiered_expr"})
+        provider, options = self.fixture()
+        provider["prices"][0]["rates"]["request"] = 1
+        self.assertEqual(self.quote(provider, options)[1], "flat_price_dimension_not_supported_by_gateway")
+        for key, value in [("ModelRatio", {"google/gemini-3.1-flash-image":"0.3"}),
+                           ("ImageRatio", {"google/gemini-3.1-flash-image":2}),
+                           ("LegacyPricingQuotaPerUnit","1000000")]:
+            provider, options = self.fixture()
+            next(row for row in options if row["key"] == key)["value"] = value
+            provider["prices"][0]["source_options_sha256"] = R.F.digest(options)
+            with self.subTest(option=key), self.assertRaises(R.MappingError):
+                self.quote(provider, options)
+        provider, options = self.fixture()
+        provider["audio_rules"] = [{}]
+        with self.assertRaises(R.MappingError):
+            self.quote(provider, options)
+
+
 if __name__ == "__main__":
     unittest.main()

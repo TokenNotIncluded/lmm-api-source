@@ -109,6 +109,7 @@ mod trust_admission_tests {
             id: "trust-request".into(),
             fingerprint: [1; 32],
             price: Price {
+                rounding: None,
                 tool: None,
                 text_request: None,
                 audio: None,

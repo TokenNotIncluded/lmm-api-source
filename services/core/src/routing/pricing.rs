@@ -24,6 +24,15 @@ impl BillingMode {
     }
 }
 
+/// Explicit owner-selected compatibility for imported ordinary Go ratio prices.
+/// Absence keeps the native Core ceiling, including previously frozen receipts.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenRounding {
+    #[serde(rename = "legacy_go_ratio_half_away_min1_v1")]
+    LegacyGoRatioV1,
+}
+
 /// All token rates are integer micro-USD per 1,000,000 tokens.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -39,6 +48,8 @@ pub struct TokenRates {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PriceRule {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rounding: Option<TokenRounding>,
     #[serde(default, skip_serializing_if = "BillingMode::is_tokens")]
     pub billing_mode: BillingMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,17 +186,32 @@ impl CreditQuote {
                 .map(Credits);
         }
         let mut ceiling = *self;
+        // Compatibility affects final settlement only, never the safety hold.
+        ceiling.price.rounding = None;
         ceiling.price.rates.input = self
             .price
             .rates
             .input
             .max(self.price.rates.cache_read)
             .max(self.price.rates.cache_write);
-        ceiling.charge(Usage {
+        let amount = ceiling.charge(Usage {
             input: input_tokens,
             output: output_tokens,
             ..Usage::default()
-        })
+        })?;
+        // A nonzero legacy ratio can bill min1 for an otherwise free measured
+        // dimension (e.g. zero-priced output). Bound that final minimum too.
+        Ok(
+            if self.price.rounding.is_some()
+                && self.price.rates.input > 0
+                && self.price.group_multiplier_ppm > 0
+                && (input_tokens > 0 || output_tokens > 0)
+            {
+                Credits(amount.0.max(1))
+            } else {
+                amount
+            },
+        )
     }
 
     /// Sum all dimensions and multipliers, then round up once in ledger units.
@@ -199,6 +225,9 @@ impl CreditQuote {
         usage: Usage,
         semantics: super::InputSemantics,
     ) -> Result<Credits, RoutingError> {
+        if self.price.rounding.is_some() && usage.cache_write != 0 {
+            return Err(RoutingError::InvalidRequest);
+        }
         if let Some(tariff) = self.price.tiered {
             return tariff
                 .charge_with_discount(
@@ -239,10 +268,25 @@ impl CreditQuote {
         let denominator = DENOMINATOR
             .checked_mul(divisor)
             .ok_or(RoutingError::PriceOverflow)?;
-        let amount =
-            crate::upstream_cost::ceil_with_discount(numerator, denominator, self.discount)
-                .filter(|amount| *amount <= i64::MAX as u64)
-                .ok_or(RoutingError::PriceOverflow)?;
+        let amount = match self.price.rounding {
+            None => crate::upstream_cost::ceil_with_discount(numerator, denominator, self.discount),
+            Some(TokenRounding::LegacyGoRatioV1) => {
+                crate::upstream_cost::half_away_with_discount(numerator, denominator, self.discount)
+                    .map(|amount| {
+                        // Old Go applies min1 even when all measured input is free cache.
+                        if self.price.rates.input > 0
+                            && self.price.group_multiplier_ppm > 0
+                            && (usage.input > 0 || usage.cache_read > 0 || usage.output > 0)
+                        {
+                            amount.max(1)
+                        } else {
+                            amount
+                        }
+                    })
+            }
+        }
+        .filter(|amount| *amount <= i64::MAX as u64)
+        .ok_or(RoutingError::PriceOverflow)?;
         Ok(Credits(amount))
     }
 
@@ -279,6 +323,7 @@ fn rounded_amount(numerator: u128, denominator: u128) -> Result<u64, RoutingErro
 /// Immutable request-local price evidence. No floating point or database lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PriceQuote {
+    rounding: Option<TokenRounding>,
     billing_mode: BillingMode,
     tiered: Option<super::CompiledTariff>,
     version: u64,
@@ -289,6 +334,9 @@ pub struct PriceQuote {
 }
 
 impl PriceQuote {
+    pub(crate) fn rounding(&self) -> Option<TokenRounding> {
+        self.rounding
+    }
     /// Native input-only protocols cannot infer zero rates from the integer
     /// placeholders carried beside a decimal tariff.
     pub fn is_input_only_scalar(&self) -> bool {
@@ -437,6 +485,16 @@ impl PriceSnapshot {
             {
                 return Err(RoutingError::InvalidConfig("price rule"));
             }
+            if rule.rounding.is_some()
+                && (rule.billing_mode != BillingMode::Tokens
+                    || rule.tiered.is_some()
+                    || rule.rates.cache_write != 0
+                    || rule.rates.request != 0
+                    || (rule.rates.input == 0
+                        && (rule.rates.output != 0 || rule.rates.cache_read != 0)))
+            {
+                return Err(RoutingError::InvalidConfig("legacy ratio rounding"));
+            }
             let tiered = match (&rule.tiered, rule.billing_mode) {
                 (Some(tariff), BillingMode::TieredDecimal)
                     if [
@@ -479,6 +537,7 @@ impl PriceSnapshot {
                 return Err(RoutingError::InvalidConfig("upstream-cost router price"));
             }
             let quote = PriceQuote {
+                rounding: rule.rounding,
                 billing_mode: rule.billing_mode,
                 tiered,
                 version: config.version,
@@ -554,6 +613,7 @@ mod upstream_cost_tests {
     #[test]
     fn upstream_cost_rules_reject_fixed_rates_unknown_models_and_speed_fees() {
         let mut rule = PriceRule {
+            rounding: None,
             billing_mode: BillingMode::UpstreamCost,
             tiered: None,
             id: 1,
@@ -602,6 +662,7 @@ mod explicit_free_group_tests {
         let prices = PriceSnapshot::compile(PriceConfig {
             version: 1,
             rules: vec![PriceRule {
+                rounding: None,
                 billing_mode: BillingMode::Tokens,
                 tiered: None,
                 id: 1,
@@ -655,6 +716,7 @@ mod a07_tests {
 
     fn quote(rates: TokenRates) -> PriceQuote {
         PriceQuote {
+            rounding: None,
             billing_mode: BillingMode::Tokens,
             tiered: None,
             version: 3,
@@ -889,5 +951,157 @@ mod a07_tests {
             credits(quote(rates(0))).reservation_ceiling(0, 0),
             Ok(Credits(0))
         );
+    }
+}
+
+#[cfg(test)]
+mod legacy_rounding_tests {
+    use super::*;
+
+    fn snapshot(group: u32) -> PriceSnapshot {
+        PriceSnapshot::compile(PriceConfig {
+            version: 1,
+            rules: vec![PriceRule {
+                rounding: Some(TokenRounding::LegacyGoRatioV1),
+                billing_mode: BillingMode::Tokens,
+                tiered: None,
+                id: 1,
+                model: "google/gemini-3.1-flash-image".into(),
+                group: "default".into(),
+                speed: Speed::Standard,
+                rates: TokenRates {
+                    input: 500_000,
+                    output: 3_000_000,
+                    cache_read: 50_000,
+                    cache_write: 0,
+                    request: 0,
+                },
+                group_multiplier_ppm: group,
+                speed_multiplier_ppm: 1_000_000,
+            }],
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn legacy_rounding_fixed_go_oracle_and_reservations() {
+        let price = snapshot(1_200_000)
+            .quote("google/gemini-3.1-flash-image", "default", Speed::Standard)
+            .unwrap();
+        let quote = price
+            .with_credit_rate(CreditRate::new(1, 500_000).unwrap())
+            .with_discount(Some(
+                crate::billing::trust_pricing::DiscountRatio::new(9, 10).unwrap(),
+            ));
+        // cc52aa text_quota.go:353-361, 411-442; same MR=.25, CR=6, cache=.1, group=1.2, trust=.9.
+        for (input, cached, output, expected) in [
+            (7, 2, 19, 32),
+            (7, 2, 1, 3),
+            (1, 0, 0, 1),
+            (0, 0, 25, 41),
+            (0, 0, 0, 0),
+        ] {
+            assert_eq!(
+                quote
+                    .charge(Usage::from_totals(input, output, cached, 0).unwrap())
+                    .unwrap(),
+                Credits(expected)
+            );
+        }
+        assert_eq!(quote.reservation_ceiling(100, 20).unwrap(), Credits(60));
+        let mut zero_cache = quote;
+        zero_cache.price.rates.cache_read = 0;
+        assert_eq!(
+            zero_cache
+                .charge(Usage::from_totals(1, 0, 1, 0).unwrap())
+                .unwrap(),
+            Credits(1)
+        );
+        let mut zero_output = quote;
+        zero_output.price.rates.output = 0;
+        assert_eq!(
+            zero_output
+                .charge(Usage::from_totals(0, 1, 0, 0).unwrap())
+                .unwrap(),
+            Credits(1)
+        );
+        let free = snapshot(0)
+            .quote("google/gemini-3.1-flash-image", "default", Speed::Standard)
+            .unwrap()
+            .with_credit_rate(CreditRate::new(1, 500_000).unwrap());
+        assert_eq!(
+            free.charge(Usage::from_totals(7, 19, 2, 0).unwrap())
+                .unwrap(),
+            Credits(0)
+        );
+        assert_eq!(free.reservation_ceiling(100, 20).unwrap(), Credits(0));
+        let mut zero_ratio = quote;
+        zero_ratio.price.rates = TokenRates {
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cache_write: 0,
+            request: 0,
+        };
+        assert_eq!(
+            zero_ratio
+                .charge(Usage::from_totals(1, 1, 0, 0).unwrap())
+                .unwrap(),
+            Credits(0)
+        );
+        assert!(
+            quote
+                .charge(Usage::from_totals(1, 0, 0, 1).unwrap())
+                .is_err()
+        );
+        assert_eq!(zero_output.reservation_ceiling(0, 1).unwrap(), Credits(1));
+        assert_eq!(
+            crate::upstream_cost::half_away_with_discount(u128::MAX, u128::MAX, quote.discount),
+            Some(1)
+        );
+        assert_eq!(
+            crate::upstream_cost::half_away_with_discount(u128::MAX, 1, None),
+            None
+        );
+        assert_eq!(
+            crate::upstream_cost::half_away_with_discount(1, 0, None),
+            None
+        );
+        let mut native = quote;
+        native.price.rounding = None;
+        assert_eq!(
+            native
+                .charge(Usage::from_totals(7, 19, 2, 0).unwrap())
+                .unwrap(),
+            Credits(33)
+        );
+    }
+
+    #[test]
+    fn legacy_rounding_optional_json_and_reject_other_dimensions() {
+        let mut config = snapshot(1_200_000).config().clone();
+        assert_eq!(
+            serde_json::to_value(config.rules[0].rounding).unwrap(),
+            "legacy_go_ratio_half_away_min1_v1"
+        );
+        config.rules[0].rounding = None;
+        let old_bytes = serde_json::to_vec(&config).unwrap();
+        assert!(!String::from_utf8_lossy(&old_bytes).contains("rounding"));
+        assert_eq!(
+            serde_json::to_vec(&serde_json::from_slice::<PriceConfig>(&old_bytes).unwrap())
+                .unwrap(),
+            old_bytes
+        );
+        assert!(serde_json::from_str::<TokenRounding>("\"legacy_go_ratio_v1\"").is_err());
+        config.rules[0].rounding = Some(TokenRounding::LegacyGoRatioV1);
+        for dimension in ["request", "cache_write", "upstream_cost"] {
+            let mut invalid = config.clone();
+            match dimension {
+                "request" => invalid.rules[0].rates.request = 1,
+                "cache_write" => invalid.rules[0].rates.cache_write = 1,
+                _ => invalid.rules[0].billing_mode = BillingMode::UpstreamCost,
+            }
+            assert!(PriceSnapshot::compile(invalid).is_err());
+        }
     }
 }

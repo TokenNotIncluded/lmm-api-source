@@ -318,6 +318,7 @@ async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
 }
 fn price(quote: &ImageQuote) -> Price {
     Price {
+        rounding: None,
         tool: None,
         text_request: None,
         audio: None,

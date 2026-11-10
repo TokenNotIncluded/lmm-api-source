@@ -160,6 +160,7 @@ async fn invalidation_stops_new_holds_and_renewal_but_existing_requests_can_fini
         id: "before-invalidation-settle".into(),
         fingerprint: [31; 32],
         price: Price {
+            rounding: None,
             text_request: None,
             tool: None,
             audio: None,

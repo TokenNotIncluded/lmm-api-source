@@ -111,6 +111,7 @@ pub(super) fn credit_price_with_calendar(
     if let Some(tariff) = quote.tiered() {
         let (group_multiplier_ppm, speed_multiplier_ppm) = quote.multipliers_ppm();
         let price = Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -142,6 +143,7 @@ pub(super) fn credit_price_with_calendar(
     if quote.billing_mode() == crate::routing::BillingMode::UpstreamCost {
         let (group_ppm, _) = quote.multipliers_ppm();
         let price = Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,
@@ -163,6 +165,7 @@ pub(super) fn credit_price_with_calendar(
     }
     if let Some(tariff) = crate::billing::text_request_price::TextRequestPrice::from_quote(quote) {
         let price = Price {
+            rounding: None,
             text_request: Some(tariff),
             tool: None,
             audio: None,
@@ -201,6 +204,7 @@ pub(super) fn credit_price_with_calendar(
         i64::try_from(numerator / DENOMINATOR).map_err(|_| RelayError::BillingUnavailable)
     };
     let price = Price {
+        rounding: quote.rounding(),
         tool: None,
         text_request: None,
         audio: None,
@@ -513,6 +517,7 @@ mod tests {
         PriceSnapshot::compile(PriceConfig {
             version: 3,
             rules: vec![PriceRule {
+                rounding: None,
                 billing_mode: crate::routing::BillingMode::Tokens,
                 tiered: None,
                 id: 1,

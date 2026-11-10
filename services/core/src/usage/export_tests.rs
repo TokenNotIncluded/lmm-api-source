@@ -18,6 +18,7 @@ fn request(state: &str) -> ValidatedRequest {
         source: Source::Wallet,
         reserved: 100,
         price: Price {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,

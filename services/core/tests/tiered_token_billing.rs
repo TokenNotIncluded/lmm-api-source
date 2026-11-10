@@ -184,6 +184,7 @@ fn gateway_with_billing(
     let prices = PriceSnapshot::compile(PriceConfig {
         version,
         rules: vec![PriceRule {
+            rounding: None,
             billing_mode: mode,
             tiered: price,
             id: 1,

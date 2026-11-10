@@ -116,6 +116,7 @@ mod tests {
     #[test]
     fn request_tariff_is_explicit_exact_and_never_mixed_with_token_rates() {
         let mut rule = PriceRule {
+            rounding: None,
             id: 1,
             model: "text".into(),
             group: "default".into(),

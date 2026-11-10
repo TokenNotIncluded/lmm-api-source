@@ -480,6 +480,7 @@ fn gateway_with_output_rate(
             .into_iter()
             .enumerate()
             .map(|(index, model)| PriceRule {
+                rounding: None,
                 billing_mode: BillingMode::Tokens,
                 tiered: None,
                 id: index as u64 + 1,

@@ -23,7 +23,7 @@ pub use engine::{
 pub use group_name::valid_group_name;
 pub use pricing::{
     BillingMode, CreditQuote, CreditRate, Credits, MAX_MULTIPLIER, MULTIPLIER_ONE, MicroUsd,
-    PriceConfig, PriceQuote, PriceRule, PriceSnapshot, TokenRates, Usage,
+    PriceConfig, PriceQuote, PriceRule, PriceSnapshot, TokenRates, TokenRounding, Usage,
 };
 // Relay code uses this re-export. The standalone routing test compiles this
 // module by itself, so the name has no caller in that crate.

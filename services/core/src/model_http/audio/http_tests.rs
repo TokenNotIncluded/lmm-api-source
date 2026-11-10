@@ -396,6 +396,7 @@ async fn recovery_with_format(pool: PgPool, format: AudioUsageFormat) {
     let mut audio = rule(&supplier.endpoint).price;
     audio.usage_format = format;
     let price = charging::Price {
+        rounding: None,
         audio: Some(audio.clone()),
         text_request: None,
         tool: None,

@@ -37,6 +37,7 @@ fn routes(
     let prices = PriceSnapshot::compile(PriceConfig {
         version: 1,
         rules: vec![PriceRule {
+            rounding: None,
             billing_mode: lmm_core::routing::BillingMode::Tokens,
             tiered: None,
             id: 1,
@@ -395,6 +396,7 @@ impl Fixture {
             id: id.into(),
             fingerprint: Sha256::digest(id.as_bytes()).into(),
             price: Price {
+                rounding: None,
                 tool: None,
                 text_request: None,
                 audio: None,

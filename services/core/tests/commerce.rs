@@ -1014,6 +1014,7 @@ async fn model_and_commerce_on_distinct_wallets_cannot_exceed_shared_user_cap(po
         id: "model-commerce-budget-race".into(),
         fingerprint: [3; 32],
         price: ModelPrice {
+            rounding: None,
             tool: None,
             text_request: None,
             audio: None,

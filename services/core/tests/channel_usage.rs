@@ -404,6 +404,7 @@ fn spec(id: &str, input: i64) -> ChargeRequest {
         lease_seconds: 60,
         maximum_seconds: 120,
         price: Price {
+            rounding: None,
             text_request: None,
             tool: None,
             audio: None,

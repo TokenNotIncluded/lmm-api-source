@@ -681,6 +681,7 @@ pub(crate) mod tests {
                 failover: FailoverPolicy::default(),
             });
             rules.push(PriceRule {
+                rounding: None,
                 billing_mode: BillingMode::Tokens,
                 tiered: None,
                 id,
@@ -1714,6 +1715,7 @@ mod cache_write_12h_projection_tests {
         let prices = PriceSnapshot::compile(PriceConfig {
             version: 7,
             rules: vec![PriceRule {
+                rounding: None,
                 id: 1,
                 model: "cache-model".into(),
                 group: "default".into(),

@@ -1413,6 +1413,7 @@ mod openai_cache_billing_tests {
             let restored: Usage = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(restored, usage);
             let ledger = charging::Price {
+                rounding: None,
                 tool: None,
                 text_request: None,
                 audio: None,
@@ -2100,6 +2101,7 @@ mod a07_billing_tests {
             owner_account_id: 3,
             payer_account_id: 3,
             price: charging::Price {
+                rounding: None,
                 tool: None,
                 text_request: None,
                 audio: None,
