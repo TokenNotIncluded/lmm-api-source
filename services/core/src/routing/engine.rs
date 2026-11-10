@@ -167,7 +167,7 @@ impl Snapshot {
                 && route
                     .speeds
                     .iter()
-                    .any(|&speed| prices.quote(&route.model, &route.group, speed).is_none())
+                    .any(|&speed| prices.template(&route.model, &route.group, speed).is_none())
             {
                 return Err(RoutingError::MissingPrice);
             }
@@ -451,10 +451,16 @@ impl Router {
         if !route.config.speeds.contains(&speed) {
             return Err(RoutingError::SpeedDisabled);
         }
-        let quote = snapshot
+        let (quote, calendar) = snapshot
             .prices
-            .quote(canonical, request.group, speed)
+            .quote_at(
+                canonical,
+                request.group,
+                speed,
+                chrono::Utc::now().timestamp(),
+            )?
             .ok_or(RoutingError::MissingPrice)?;
+        let calendar = calendar.map(Arc::new);
         // Apply encoder support before priority and weight selection.
         // @context-fold begin route-payload-candidates
         let mut pool: Vec<_> = route
@@ -503,6 +509,7 @@ impl Router {
             snapshot,
             route,
             quote,
+            calendar,
             candidates,
             requested_model: request.model.into(),
             speed,
@@ -663,6 +670,7 @@ pub struct RoutePlan {
     snapshot: Arc<Snapshot>,
     route: Arc<Route>,
     quote: PriceQuote,
+    calendar: Option<Arc<super::FrozenCalendar>>,
     candidates: Vec<Arc<Target>>,
     requested_model: Box<str>,
     speed: Speed,
@@ -693,6 +701,7 @@ impl RoutePlan {
                 route: self.route.clone(),
                 version: self.snapshot.version,
                 quote: self.quote,
+                calendar: self.calendar.clone(),
                 number: index as u8 + 1,
                 speed: self.speed,
             })
@@ -781,6 +790,7 @@ impl RoutePlan {
                 route: Arc::clone(&self.route),
                 version: self.snapshot.version,
                 quote: self.quote,
+                calendar: self.calendar.clone(),
                 number: self.attempts,
                 speed: self.speed,
             });
@@ -808,11 +818,15 @@ pub struct Attempt {
     route: Arc<Route>,
     version: ReleaseVersion,
     quote: PriceQuote,
+    calendar: Option<Arc<super::FrozenCalendar>>,
     number: u8,
     speed: Speed,
 }
 
 impl Attempt {
+    pub(crate) fn calendar(&self) -> Option<&super::FrozenCalendar> {
+        self.calendar.as_deref()
+    }
     pub fn version(&self) -> ReleaseVersion {
         self.version
     }

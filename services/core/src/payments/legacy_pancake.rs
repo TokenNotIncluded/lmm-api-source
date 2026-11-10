@@ -52,7 +52,7 @@ fn optional_status(data: &Value, key: &str, expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn decimal_micros(value: &str) -> Result<i64> {
+pub(super) fn decimal_micros(value: &str) -> Result<i64> {
     let value = value.trim();
     if value.is_empty() || value.len() > 32 * 1024 {
         return Err(Error::Invalid);

@@ -55,8 +55,9 @@ const REGISTRATION_TIME_PROVEN: &str = r#"
 
 /// Settled native requests (actor is the user; tokens are input+output; credits
 /// are net settled) plus the imported legacy source. When the legacy hourly
-/// aggregates are installed they supersede per-log history, which they already
-/// contain; otherwise consume logs (type 2) from complete sources are used.
+/// aggregates contain complete imported data they supersede per-log history,
+/// which they already contain; otherwise consume logs (type 2) from complete
+/// sources are used. Both tables are installed and readable in the full schema.
 const NATIVE: &str = r#"SELECT r.actor_user_id AS user_id, r.authorized_at AS at, btrim(coalesce(r.price->>'model','')) AS model,
   coalesce(r.input_tokens,0)+coalesce(r.output_tokens,0) AS tokens, 1::bigint AS requests,
   greatest(r.settled-r.refunded,0) AS credits
@@ -299,7 +300,10 @@ impl CommunityRead {
         sqlx::query("SET TRANSACTION READ ONLY")
             .execute(&mut *tx)
             .await?;
-        let aggregates: bool = sqlx::query_scalar("SELECT to_regclass('core_history.quota_aggregates') IS NOT NULL AND has_table_privilege('core_history.quota_aggregates','SELECT')")
+        // Historical imports are offline and complete before runtime starts.
+        // Table existence/permissions cannot select the source: fresh installs
+        // always include both tables and startup requires both read grants.
+        let aggregates: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_history.quota_aggregates q JOIN core_history.sources s ON s.source_id=q.source_id WHERE s.complete AND s.contract_version='core.history-source.v1')")
             .fetch_one(&mut *tx)
             .await?;
         let history = if aggregates {

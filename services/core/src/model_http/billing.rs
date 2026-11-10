@@ -2357,7 +2357,9 @@ mod a07_billing_tests {
             denominator,
         };
         PersistedTieredTariff {
+            calendar: None,
             tariff: TieredTariff {
+                calendar: None,
                 uses_cache_write_12h: false,
                 revision: 3,
                 source_digest: "ab".repeat(32),

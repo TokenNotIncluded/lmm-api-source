@@ -235,6 +235,7 @@ mod activity_tests {
                 image: Some(crate::billing::image_price::ImageUsage {
                     output_images: 1,
                     provider_receipt_sha256: [1; 32],
+                    native_tokens: None,
                 }),
                 ..Usage::default()
             },

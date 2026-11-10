@@ -63,6 +63,26 @@ fn receipt(v: Receipt) -> pb::CommerceReceipt {
     }
 }
 impl CommerceRpc {
+    fn check_legacy_refund(&self, metadata: &MetadataMap) -> Result<(), Status> {
+        if !(self.permissions.refund && self.permissions.read && self.permissions.reconcile)
+            || single(metadata, "x-lmm-commerce-refund")? != "legacy-balance-v1"
+        {
+            return Err(Status::failed_precondition(
+                "historical balance refunds were not negotiated",
+            ));
+        }
+        Ok(())
+    }
+    fn check_partial(&self, metadata: &MetadataMap) -> Result<(), Status> {
+        if !(self.permissions.refund && self.permissions.read && self.permissions.reconcile)
+            || single(metadata, "x-lmm-commerce-refund")? != "partial-v1"
+        {
+            return Err(Status::failed_precondition(
+                "partial refunds were not negotiated",
+            ));
+        }
+        Ok(())
+    }
     pub fn new(
         store: CommerceStore,
         token: &[u8],
@@ -80,6 +100,10 @@ impl CommerceRpc {
     }
     pub fn features(&self) -> Vec<String> {
         [
+            (
+                self.permissions.refund && self.permissions.read && self.permissions.reconcile,
+                "commerce.refund.legacy-balance.v1",
+            ),
             (self.permissions.pay, "commerce.pay.v1"),
             (self.permissions.settle, "commerce.settle.v1"),
             (self.permissions.refund, "commerce.refund.v1"),
@@ -89,6 +113,10 @@ impl CommerceRpc {
                 "commerce.delivery.complete.v1",
             ),
             (self.permissions.reconcile, "commerce.receipt.reconcile.v1"),
+            (
+                self.permissions.refund && self.permissions.read && self.permissions.reconcile,
+                "commerce.refund.partial.v1",
+            ),
             (
                 self.permissions.pay
                     && self.permissions.settle
@@ -144,6 +172,20 @@ impl pb::core_commerce_server::CoreCommerce for CommerceRpc {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Status::resource_exhausted("commerce busy"))?;
+        if super::legacy_refunds::is_command(&request.get_ref().command_json) {
+            self.check_legacy_refund(request.metadata())?;
+            return tokio::time::timeout(
+                Duration::from_secs(2),
+                self.store
+                    .execute_legacy_refund(&user, &request.get_ref().command_json),
+            )
+            .await
+            .map_err(|_| {
+                Status::deadline_exceeded("historical refund outcome unknown; reconcile same key")
+            })?
+            .map(|v| Response::new(receipt(v)))
+            .map_err(status);
+        }
         let [command]: [super::MoneyCommand; 1] =
             serde_json::from_slice(&request.get_ref().command_json)
                 .map_err(|_| Status::invalid_argument("invalid commerce command"))?;
@@ -153,6 +195,9 @@ impl pb::core_commerce_server::CoreCommerce for CommerceRpc {
             "refund" => self.permissions.refund,
             _ => false,
         };
+        if command.refund.is_some() {
+            self.check_partial(request.metadata())?;
+        }
         if !permission {
             return Err(Status::permission_denied(
                 "commerce service permission denied",
@@ -241,6 +286,33 @@ impl pb::core_commerce_server::CoreCommerce for CommerceRpc {
             return Err(Status::invalid_argument("commerce command too large"));
         }
         self.check(request.metadata(), self.permissions.reconcile)?;
+        if super::legacy_refunds::is_command(&request.get_ref().command_json) {
+            self.check_legacy_refund(request.metadata())?;
+            let _slot = self
+                .slots
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| Status::resource_exhausted("commerce busy"))?;
+            return tokio::time::timeout(
+                Duration::from_secs(2),
+                self.store
+                    .reconcile_legacy_refund(&request.get_ref().command_json),
+            )
+            .await
+            .map_err(|_| Status::deadline_exceeded("historical refund receipt unknown"))?
+            .map(|v| {
+                Response::new(pb::QueryCommerceResponse {
+                    receipt: v.map(receipt),
+                })
+            })
+            .map_err(status);
+        }
+        let [command]: [super::MoneyCommand; 1] =
+            serde_json::from_slice(&request.get_ref().command_json)
+                .map_err(|_| Status::invalid_argument("invalid commerce command"))?;
+        if command.refund.is_some() {
+            self.check_partial(request.metadata())?;
+        }
         let _slot = self
             .slots
             .clone()

@@ -58,22 +58,22 @@ REVOKE ALL PRIVILEGES ON SCHEMA core_oauth, core_events, core_console,
     core_charging, core_telegram_auth, core_model, core_image, core_tool_market,
     core_commerce, core_payments, core_humangrant, core_assistant_tools,
     core_assistant, core_market_oauth, core_wallet, core_bounties,
-    core_trust_pricing FROM :"runtime_role";
+    core_trust_pricing, core_federated_auth FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_oauth, core_events,
     core_console, core_charging, core_telegram_auth, core_model, core_image,
     core_tool_market, core_commerce, core_payments, core_humangrant,
     core_assistant_tools, core_assistant, core_market_oauth, core_wallet,
-    core_bounties, core_trust_pricing FROM :"runtime_role";
+    core_bounties, core_trust_pricing, core_federated_auth FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA core_oauth, core_events,
     core_console, core_charging, core_telegram_auth, core_model, core_image,
     core_tool_market, core_commerce, core_payments, core_humangrant,
     core_assistant_tools, core_assistant, core_market_oauth, core_wallet,
-    core_bounties, core_trust_pricing FROM :"runtime_role";
+    core_bounties, core_trust_pricing, core_federated_auth FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_oauth, core_events,
     core_console, core_charging, core_telegram_auth, core_model, core_image,
     core_tool_market, core_commerce, core_payments, core_humangrant,
     core_assistant_tools, core_assistant, core_market_oauth, core_wallet,
-    core_bounties, core_trust_pricing FROM :"runtime_role";
+    core_bounties, core_trust_pricing, core_federated_auth FROM :"runtime_role";
 
 -- Web identity is the only optional feature that uses public. Keep its
 -- projections scoped; never reset unrelated public objects or baseline schema

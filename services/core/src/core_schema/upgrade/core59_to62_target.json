@@ -1,0 +1,19 @@
+{
+  "format_version": 1,
+  "predecessor": {
+    "component_count": 59,
+    "manifest_sha256": "cd54e4a35500c482ad0385b625edefc160e5dfdeb554b2e0038c00ff81df320c",
+    "catalog_sha256": "38df997ce287e5bfe31b05a50cc1c7a831189b719e3690b7127a3d6080ad5640"
+  },
+  "successor": {
+    "component_count": 62,
+    "manifest_sha256": null,
+    "catalog_sha256": null
+  },
+  "runtime_grants_sha256": null,
+  "frozen_sql_sha256": {
+    "federated-auth": "0784c5097bf3ed003e7c6d7963c09660845acf6f27779896d858fc356bbef7bc",
+    "commerce-partial-refunds": "d64019bcdba8e0cd5c45d501013276eca062535a4dc96b7e11b30bbcfc0a3100",
+    "subscription-stripe": "a96a29d57e01c4a2656eff9b19980360f50c19578ee92c7c78ddec038cdd3917"
+  }
+}

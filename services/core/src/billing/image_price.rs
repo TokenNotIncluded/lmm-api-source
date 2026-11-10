@@ -4,6 +4,11 @@ use crate::billing::trust_pricing::DiscountRatio;
 use crate::billing::{CREDITS_PER_USD, Credits};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+pub(crate) mod native_tokens;
+pub use native_tokens::{
+    ImageOutputTokenSource, ImageTokenCurrencyBasis, ImageTokenTariff, ImageTokenUsage,
+    LegacyImageRatioTariff,
+};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "snake_case")]
@@ -20,11 +25,13 @@ pub struct ExactRatio {
     pub denominator: u64,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageCountBasis {
     Requested,
     ReturnedPayloads,
+    NativeTokens(ImageTokenTariff),
+    LegacyTokenRatio(LegacyImageRatioTariff),
 }
 
 /// Deployment configuration only. Do not deserialize this from model HTTP input.
@@ -109,12 +116,39 @@ impl ImageQuote {
         if successful_images > self.binding.n {
             return Err(ImagePriceError::InvalidCount);
         }
-        let n = match self.tariff.count_basis {
+        let n = match &self.tariff.count_basis {
             ImageCountBasis::Requested => self.binding.n,
             ImageCountBasis::ReturnedPayloads if successful_images > 0 => successful_images,
             ImageCountBasis::ReturnedPayloads => return Err(ImagePriceError::SettlementPending),
+            ImageCountBasis::NativeTokens(_) | ImageCountBasis::LegacyTokenRatio(_) => {
+                return Err(ImagePriceError::SettlementPending);
+            }
         };
         cost_with_discount(&self.tariff, n, discount)
+    }
+    pub(crate) fn settlement_usage(
+        &self,
+        usage: &ImageUsage,
+        discount: Option<DiscountRatio>,
+    ) -> Result<Credits, ImagePriceError> {
+        usage.validate()?;
+        if usage.output_images > self.binding.n {
+            return Err(ImagePriceError::InvalidCount);
+        }
+        match (&self.tariff.count_basis, usage.native_tokens) {
+            (ImageCountBasis::NativeTokens(tariff), Some(tokens)) => {
+                let cost = tariff.credits(Some(tokens), self.tariff.group_multiplier, discount)?;
+                Credits::try_from(cost).map_err(|_| ImagePriceError::Overflow)
+            }
+            (ImageCountBasis::LegacyTokenRatio(tariff), Some(tokens)) => Credits::try_from(
+                tariff.credits(Some(tokens), self.tariff.group_multiplier, discount)?,
+            )
+            .map_err(|_| ImagePriceError::Overflow),
+            (ImageCountBasis::NativeTokens(_) | ImageCountBasis::LegacyTokenRatio(_), None) => {
+                Err(ImagePriceError::SettlementPending)
+            }
+            (_, _) => self.settlement_with_discount(usage.output_images, discount),
+        }
     }
     pub fn persisted(&self) -> PersistedImagePrice {
         PersistedImagePrice {
@@ -157,12 +191,16 @@ pub enum ImagePriceError {
 pub struct ImageUsage {
     pub output_images: u32,
     pub provider_receipt_sha256: [u8; 32],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_tokens: Option<ImageTokenUsage>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ImageUsageWire {
     output_images: u32,
     provider_receipt_sha256: [u8; 32],
+    #[serde(default)]
+    native_tokens: Option<ImageTokenUsage>,
 }
 impl TryFrom<ImageUsageWire> for ImageUsage {
     type Error = &'static str;
@@ -170,6 +208,7 @@ impl TryFrom<ImageUsageWire> for ImageUsage {
         let result = Self {
             output_images: value.output_images,
             provider_receipt_sha256: value.provider_receipt_sha256,
+            native_tokens: value.native_tokens,
         };
         result
             .validate()
@@ -181,6 +220,9 @@ impl ImageUsage {
     pub(crate) fn validate(&self) -> Result<(), ImagePriceError> {
         if !(1..=128).contains(&self.output_images) || self.provider_receipt_sha256 == [0; 32] {
             return Err(ImagePriceError::SettlementPending);
+        }
+        if let Some(tokens) = self.native_tokens {
+            tokens.validate()?;
         }
         Ok(())
     }
@@ -216,7 +258,7 @@ impl PersistedImagePrice {
         usage.validate()?;
         self.clone()
             .restore()?
-            .settlement_with_discount(usage.output_images, discount)
+            .settlement_usage(usage, discount)
             .map(i64::from)
     }
     pub(crate) fn reservation_with_discount(
@@ -320,6 +362,19 @@ impl ImagePriceConfig {
                 return Err(ImagePriceError::InvalidConfig);
             }
             let request = request_for(r, 1).normalized()?;
+            if let ImageCountBasis::NativeTokens(tariff) = &r.count_basis {
+                tariff.validate()?;
+                // No silent fallback or misleading simultaneous per-image price.
+                if r.usd_micros_per_image.numerator != 0 {
+                    return Err(ImagePriceError::InvalidConfig);
+                }
+            }
+            if let ImageCountBasis::LegacyTokenRatio(tariff) = &r.count_basis {
+                tariff.validate()?;
+                if r.usd_micros_per_image.numerator != 0 {
+                    return Err(ImagePriceError::InvalidConfig);
+                }
+            }
             if request.size != r.size || request.quality != r.quality {
                 return Err(ImagePriceError::InvalidConfig);
             }
@@ -392,6 +447,14 @@ fn cost_with_discount(
     n: u32,
     discount: Option<DiscountRatio>,
 ) -> Result<Credits, ImagePriceError> {
+    if let ImageCountBasis::NativeTokens(tariff) = &r.count_basis {
+        return Credits::try_from(tariff.credits(None, r.group_multiplier, discount)?)
+            .map_err(|_| ImagePriceError::Overflow);
+    }
+    if let ImageCountBasis::LegacyTokenRatio(tariff) = &r.count_basis {
+        return Credits::try_from(tariff.credits(None, r.group_multiplier, discount)?)
+            .map_err(|_| ImagePriceError::Overflow);
+    }
     let mut numerators = [
         u128::from(r.usd_micros_per_image.numerator),
         u128::from(r.group_multiplier.numerator),
@@ -432,6 +495,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_image_frozen_receipt_roundtrip_and_explicit_fixed_count_price_do_not_mix() {
+        let mut config = config();
+        config.rules[0].semantic_model = "gpt-image-2".into();
+        config.rules[0].usd_micros_per_image.numerator = 0;
+        config.rules[0].count_basis = ImageCountBasis::NativeTokens(native_tokens::tests::tariff());
+        let quote = config.quote(&request_for(&config.rules[0], 3)).unwrap();
+        let usage = ImageUsage {
+            output_images: 2,
+            provider_receipt_sha256: [1; 32],
+            native_tokens: Some(
+                ImageTokenUsage::from_native(&native_tokens::tests::measured()).unwrap(),
+            ),
+        };
+        assert_eq!(
+            i64::from(quote.reservation_credits()),
+            1900,
+            "operation bound is not multiplied by n"
+        );
+        assert_eq!(quote.persisted().cost(&usage).unwrap(), 381);
+        assert_eq!(quote.settlement(2), Err(ImagePriceError::SettlementPending));
+        let frozen = serde_json::to_value(quote.persisted()).unwrap();
+        assert_eq!(
+            frozen["rule"]["count_basis"]["native_tokens"]["billing_price_key"],
+            "gpt-image-2"
+        );
+        let restored: PersistedImagePrice = serde_json::from_value(frozen).unwrap();
+        assert_eq!(restored.cost(&usage).unwrap(), 381);
+        let mut missing = usage;
+        missing.native_tokens = None;
+        assert_eq!(
+            restored.cost(&missing),
+            Err(ImagePriceError::SettlementPending)
+        );
+        // Actual legacy flare ModelPrice=1 is a different, explicitly configured
+        // fixed USD/image contract. Native counters do not replace that tariff.
+        config.rules[0].semantic_model = "gpt-image-2.5-flare".into();
+        config.rules[0].count_basis = ImageCountBasis::ReturnedPayloads;
+        config.rules[0].max_n = 4;
+        config.rules[0].usd_micros_per_image.numerator = 1_000_000;
+        let fixed = config.quote(&request_for(&config.rules[0], 3)).unwrap();
+        assert_eq!(i64::from(fixed.reservation_credits()), 1_500_000);
+        assert_eq!(fixed.persisted().cost(&usage).unwrap(), 1_000_000);
+        assert_eq!(restored.cost(&usage).unwrap(), 381);
+    }
+
+    #[test]
     fn trusted_discount_is_applied_before_total_image_credit_ceiling() {
         let mut c = config();
         c.rules[0].usd_micros_per_image = ExactRatio {
@@ -465,6 +574,7 @@ mod tests {
         let usage = ImageUsage {
             output_images: 1,
             provider_receipt_sha256: [1; 32],
+            native_tokens: None,
         };
         assert_eq!(persisted.reservation_with_discount(discount).unwrap(), 2);
         assert_eq!(persisted.cost_with_discount(&usage, discount).unwrap(), 1);
@@ -573,6 +683,7 @@ mod tests {
             let usage = ImageUsage {
                 output_images: 2,
                 provider_receipt_sha256: [1; 32],
+                native_tokens: None,
             };
             assert_eq!(
                 q.persisted().cost_with_discount(&usage, identity),
@@ -774,6 +885,7 @@ mod tests {
         let usage = ImageUsage {
             output_images: 2,
             provider_receipt_sha256: [1; 32],
+            native_tokens: None,
         };
         assert!(usage.follows(&usage));
         let mut altered = usage;
@@ -800,6 +912,7 @@ mod tests {
         let valid = ImageUsage {
             output_images: 1,
             provider_receipt_sha256: [1; 32],
+            native_tokens: None,
         };
         let mut wire = serde_json::to_value(valid).unwrap();
         assert_eq!(

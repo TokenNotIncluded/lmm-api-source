@@ -422,11 +422,13 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             payments: true,
             console: true,
             commerce: true,
+            directory_ads: false,
             assistant: false,
             assistant_agent: false,
             assistant_tools: false,
             tool_market: false,
             web_identity: true,
+            federated_auth: false,
             oauth2: false,
             market_oauth: false,
             wallet: false,
@@ -779,6 +781,40 @@ async fn runtime_rejects_set_role_inherited_owner_and_admin_paths(pool: PgPool) 
 }
 
 #[sqlx::test(migrations = false)]
+async fn partial_refund_runtime_requires_receipts_counters_and_closed_money_port(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_commerce").await;
+    let required = RequiredCapabilities {
+        commerce: true,
+        ..RequiredCapabilities::default()
+    };
+    runtime_database::check(&role.pool, required).await.unwrap();
+    for permission in [
+        "SELECT ON core_commerce.refund_operations",
+        "INSERT(order_id) ON core_commerce.refund_totals",
+        "UPDATE(revision) ON core_commerce.refund_totals",
+        "EXECUTE ON FUNCTION core_commerce.post_refund_delta(bigint,text,jsonb,bigint,bigint,boolean)",
+    ] {
+        sqlx::raw_sql(&format!("REVOKE {permission} FROM {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges),
+            "missing partial refund permission: {permission}"
+        );
+        sqlx::raw_sql(&format!("GRANT {permission} TO {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    runtime_database::check(&role.pool, required).await.unwrap();
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn missing_ledger_execute_is_rejected_and_check_never_changes_grants(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
@@ -895,12 +931,40 @@ async fn new_evidence_and_import_tables_reject_table_and_column_write_grants(poo
             "UPDATE ON core_commerce.orders",
         ),
         (
+            "UPDATE(receipt) ON core_commerce.refund_operations",
+            "UPDATE(receipt) ON core_commerce.refund_operations",
+        ),
+        (
+            "UPDATE(order_id) ON core_commerce.refund_totals",
+            "UPDATE(order_id) ON core_commerce.refund_totals",
+        ),
+        (
+            "INSERT(refunded_units) ON core_commerce.refund_totals",
+            "INSERT(refunded_units) ON core_commerce.refund_totals",
+        ),
+        (
             "UPDATE ON core_charging.external_consumption",
             "UPDATE ON core_charging.external_consumption",
         ),
         (
             "INSERT ON core_identity.developer_access",
             "INSERT ON core_identity.developer_access",
+        ),
+        (
+            "INSERT ON core_commerce.legacy_refund_grants",
+            "INSERT ON core_commerce.legacy_refund_grants",
+        ),
+        (
+            "INSERT ON core_commerce.legacy_refund_operations",
+            "INSERT ON core_commerce.legacy_refund_operations",
+        ),
+        (
+            "UPDATE ON core_commerce.legacy_refund_grants",
+            "UPDATE ON core_commerce.legacy_refund_grants",
+        ),
+        (
+            "EXECUTE ON FUNCTION core_commerce.import_legacy_refund_grant(jsonb)",
+            "EXECUTE ON FUNCTION core_commerce.import_legacy_refund_grant(jsonb)",
         ),
         (
             "EXECUTE ON FUNCTION core_billing.import_opening_balance(jsonb)",
@@ -1038,17 +1102,27 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
         role.optional("core_image").await;
         runtime_database::check(&role.pool, images).await.unwrap();
     }
-    sqlx::query(&format!(
-        "REVOKE EXECUTE ON FUNCTION core_image.valid_output(jsonb) FROM {}",
-        role.name
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        runtime_database::check(&role.pool, images).await,
-        Err(Error::MissingPrivileges)
-    );
+    for function in [
+        "valid_output(jsonb)",
+        "native_counter(jsonb,numeric)",
+        "valid_native_tokens(jsonb)",
+        "valid_native_usage(jsonb)",
+        "valid_image_usage(jsonb)",
+    ] {
+        sqlx::query(&format!(
+            "REVOKE EXECUTE ON FUNCTION core_image.{function} FROM {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, images).await,
+            Err(Error::MissingPrivileges)
+        );
+        role.optional("core_image").await;
+        runtime_database::check(&role.pool, images).await.unwrap();
+    }
     role.cleanup().await;
 }
 
@@ -1056,46 +1130,59 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
 async fn ledger_revision_metadata_is_readonly_runtime_evidence(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
-    runtime_database::check(&role.pool, RequiredCapabilities::default())
+    for (table, column) in [
+        ("ledger_revisions", "procedure"),
+        ("core59_to62_upgrades", "request"),
+    ] {
+        runtime_database::check(&role.pool, RequiredCapabilities::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM core_meta.{table}"))
+                .fetch_one(&role.pool)
+                .await
+                .unwrap(),
+            0
+        );
+        let denied = sqlx::query(&format!(
+            "UPDATE core_meta.{table} SET {column}={column} WHERE false"
+        ))
+        .execute(&role.pool)
+        .await
+        .unwrap_err();
+        assert_eq!(
+            denied.as_database_error().unwrap().code().as_deref(),
+            Some("42501")
+        );
+        sqlx::query(&format!(
+            "REVOKE SELECT ON core_meta.{table} FROM {}",
+            role.name
+        ))
+        .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count(*)FROM core_meta.ledger_revisions")
-            .fetch_one(&role.pool)
-            .await
-            .unwrap(),
-        0
-    );
-    let denied =
-        sqlx::query("UPDATE core_meta.ledger_revisions SET procedure=procedure WHERE false")
-            .execute(&role.pool)
-            .await
-            .unwrap_err();
-    assert_eq!(
-        denied.as_database_error().unwrap().code().as_deref(),
-        Some("42501")
-    );
-    sqlx::query(&format!(
-        "REVOKE SELECT ON core_meta.ledger_revisions FROM {}",
-        role.name
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
-        Err(Error::MissingPrivileges)
-    );
-    sqlx::query(&format!(
-        "GRANT SELECT,UPDATE(procedure) ON core_meta.ledger_revisions TO {}",
-        role.name
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
-        Err(Error::UnsafePrivileges)
-    );
+        assert_eq!(
+            runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(&format!(
+            "GRANT SELECT,UPDATE({column}) ON core_meta.{table} TO {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
+            Err(Error::UnsafePrivileges)
+        );
+        sqlx::query(&format!(
+            "REVOKE UPDATE({column}) ON core_meta.{table} FROM {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
     role.cleanup().await;
 }

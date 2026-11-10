@@ -163,6 +163,10 @@ impl IdentityStore {
                 method.as_str(),
                 "google" | "github" | "linuxdo" | "discord" | "telegram" | "oidc" | "wechat"
             )
+            && !method.strip_prefix("custom:").is_some_and(|slug| {
+                !slug.is_empty() && slug.len() <= 64
+                    && slug.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
         }) {
             return Err(IdentityError::Invalid);
         }

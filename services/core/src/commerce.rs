@@ -2,6 +2,8 @@
 //! A service credential only enables this port; the current user, exact frozen
 //! order, key scope, funding grants and shared budgets authorize every mutation.
 mod identifiers;
+pub mod legacy_refunds;
+pub mod partial_refunds;
 pub mod rpc;
 
 use crate::{
@@ -19,6 +21,8 @@ use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, types::Json};
 use std::{fmt, time::Duration};
 
 pub const SCHEMA: &str = include_str!("../schema/commerce.sql");
+pub const LEGACY_REFUNDS_SCHEMA: &str = include_str!("../schema/commerce_legacy_refunds.sql");
+pub const PARTIAL_REFUNDS_SCHEMA: &str = include_str!("../schema/commerce_partial_refunds.sql");
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -90,6 +94,8 @@ pub struct MoneyCommand {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub settlement_ref: String,
     pub order_snapshot: OrderSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refund: Option<partial_refunds::RefundSpec>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -169,13 +175,14 @@ impl MoneyCommand {
             || !matches!(self.kind.as_str(), "pay" | "settle" | "refund")
             || self.payment_ref.len() > 256
             || self.settlement_ref.len() > 256
-            || self.key
-                != id(&serde_json::json!([
-                    "store-money-v1",
-                    self.shop_id,
-                    self.order_id,
-                    self.kind
-                ]))
+            || (self.refund.is_none()
+                && self.key
+                    != id(&serde_json::json!([
+                        "store-money-v1",
+                        self.shop_id,
+                        self.order_id,
+                        self.kind
+                    ])))
             || self
                 .order_snapshot
                 .unit_price
@@ -185,6 +192,9 @@ impl MoneyCommand {
             return Err(Error::Invalid);
         }
         self.order_snapshot.unit_price.credits()?;
+        if let Some(refund) = &self.refund {
+            refund.validate(self)?;
+        }
         self.total.credits()
     }
     fn economics(&self) -> Economics {
@@ -239,7 +249,12 @@ impl CommerceStore {
         let amount = command.validate()?;
         let digest = Sha256::digest(bytes).to_vec();
         for attempt in 0..4 {
-            match self.once(secret, &command, &digest, amount).await {
+            let result = if command.refund.is_some() {
+                self.once_partial_refund(secret, &command, &digest).await
+            } else {
+                self.once(secret, &command, &digest, amount).await
+            };
+            match result {
                 Err(Error::Retry) if attempt < 3 => tokio::task::yield_now().await,
                 value => return value,
             }
@@ -324,6 +339,17 @@ impl CommerceStore {
             tx.commit().await?;
             return Ok(receipt);
         }
+        let returned = if let Some(row) = &order {
+            Self::partial_returned(&mut tx, row.try_get("id")?).await?
+        } else {
+            0
+        };
+        // Legacy full commands retain their existing receipt/behavior. Once a
+        // partial refund exists, a NEW refund needs an explicit per-refund id;
+        // never release the original full hold or reverse the original gross.
+        if cmd.kind == "refund" && returned > 0 {
+            return Err(Error::Conflict);
+        }
         let now: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut *tx)
@@ -394,6 +420,18 @@ impl CommerceStore {
         };
         let outcome = if budget_rejection {
             None
+        } else if cmd.kind == "settle" && returned > 0 {
+            Some(
+                Self::capture_partial_remainder(
+                    &mut tx,
+                    order.as_ref().ok_or(Error::Missing)?.try_get("id")?,
+                    cmd,
+                    actor.user_id,
+                    amount,
+                    returned,
+                )
+                .await?,
+            )
         } else {
             let request = LedgerRequest {
                 scope: "core-commerce".into(),
@@ -537,7 +575,7 @@ impl CommerceStore {
             buyer?;
         }
         let receipt: Option<Json<Receipt>> = sqlx::query_scalar(
-            "SELECT receipt FROM core_commerce.operations WHERE operation_key=$1 AND order_id=$2",
+            "SELECT receipt FROM core_commerce.operations WHERE operation_key=$1 AND order_id=$2 UNION ALL SELECT receipt FROM core_commerce.refund_operations WHERE operation_key=$1 AND order_id=$2",
         )
         .bind(key)
         .bind(row.try_get::<i64, _>("id")?)
@@ -576,7 +614,7 @@ impl CommerceStore {
         if economics != cmd.economics() {
             return Err(Error::Conflict);
         }
-        let operation = sqlx::query("SELECT command_sha256,receipt FROM core_commerce.operations WHERE operation_key=$1 AND order_id=$2")
+        let operation = sqlx::query("SELECT command_sha256,receipt FROM core_commerce.operations WHERE operation_key=$1 AND order_id=$2 UNION ALL SELECT command_sha256,receipt FROM core_commerce.refund_operations WHERE operation_key=$1 AND order_id=$2")
             .bind(&cmd.key).bind(order.try_get::<i64,_>("id")?).fetch_optional(&mut *tx).await?;
         let receipt = if let Some(operation) = operation {
             if operation.try_get::<Vec<u8>, _>("command_sha256")? != digest {
@@ -684,11 +722,17 @@ impl CommerceStore {
                 amount_units: Credits::try_from(amount).map_err(|_| Error::Invalid)?,
             },
         };
-        let Json(outcome): Json<Outcome> =
-            sqlx::query_scalar("SELECT core_billing.post_ledger($1)")
-                .bind(Json(request))
-                .fetch_one(&mut *tx)
-                .await?;
+        let returned = Self::partial_returned(&mut tx, oid).await?;
+        let outcome = if returned > 0 {
+            Self::capture_partial_remainder(&mut tx, oid, cmd, actor, amount, returned).await?
+        } else {
+            let Json(outcome): Json<Outcome> =
+                sqlx::query_scalar("SELECT core_billing.post_ledger($1)")
+                    .bind(Json(request))
+                    .fetch_one(&mut *tx)
+                    .await?;
+            outcome
+        };
         let (journal, rejection) = match outcome {
             Outcome::Posted { journal_id, .. } => (Some(journal_id), String::new()),
             Outcome::Rejected {

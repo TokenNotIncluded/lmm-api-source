@@ -12,6 +12,8 @@ mod channel_accounting;
 mod channel_observations;
 #[path = "runtime_channel_projection.rs"]
 mod channel_projection;
+#[path = "runtime_federated_auth.rs"]
+mod federated_auth;
 #[path = "runtime_operations.rs"]
 mod operations;
 #[path = "runtime_product_features.rs"]
@@ -43,6 +45,7 @@ pub struct RequiredCapabilities {
     pub bounties: bool,
     pub community: bool,
     pub trust_policy_editor: bool,
+    pub federated_auth: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +180,7 @@ pub(crate) async fn check_connection(
               OR (n.nspname='core_tool_market' AND c.relname='publishers')
               OR (n.nspname='core_gift' AND c.relname IN ('policy','risk_key'))
               OR (n.nspname='core_bounties' AND c.relname='policy')
+              OR (n.nspname='core_commerce' AND c.relname IN ('legacy_refund_grants','legacy_refund_operations'))
               OR (n.nspname='core_payments' AND c.relname='legacy_bases'))
              AND (has_table_privilege(c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
                OR has_any_column_privilege(c.oid,'INSERT,UPDATE,REFERENCES')))
@@ -184,7 +188,7 @@ pub(crate) async fn check_connection(
                OR n.nspname='core_payments' AND c.relname IN ('receipts','provider_events','provider_refunds','blocked_refunds','accepted_proofs','refund_dispatches','refund_dispatch_bindings','legacy_proofs','provider_identifiers','legacy_applications')
                OR n.nspname='core_charging' AND c.relname IN ('budget_checks','usage_events','refunds','policy_events','ledger_commands')
                OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials')
-               OR n.nspname='core_commerce' AND c.relname='operations'
+               OR n.nspname='core_commerce' AND c.relname IN ('operations','refund_operations')
                OR n.nspname='core_bounties' AND c.relname='operations'
                OR n.nspname='core_tool_market' AND c.relname='quotes'
                OR n.nspname='core_assistant' AND c.relname='conversations'
@@ -194,6 +198,10 @@ pub(crate) async fn check_connection(
                 OR has_any_column_privilege(c.oid,'UPDATE,REFERENCES')))
             OR (n.nspname IN ('core_charging','core_events','core_commerce','core_payments','core_tool_market','core_assistant','core_image','core_wallet','core_bounties')
               AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
+            OR (n.nspname='core_commerce' AND c.relname='refund_totals'
+              AND (has_table_privilege(c.oid,'INSERT')
+                OR EXISTS(SELECT FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                  AND a.attname<>'order_id' AND has_column_privilege(c.oid,a.attname,'INSERT'))))
             OR (n.nspname='core_wallet' AND c.relname='affiliate_claims'
               AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'REFERENCES')
                 OR EXISTS(SELECT FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
@@ -257,6 +265,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_gift' AND c.relname='registration_profiles' AND a.attname<>'observed_at')
             OR (n.nspname='core_commerce' AND c.relname='orders' AND a.attname NOT IN ('state','settlement_journal_id','revision','delivery_reference'))
             OR (n.nspname='core_commerce' AND c.relname='key_scopes' AND a.attname<>'can_spend')
+            OR (n.nspname='core_commerce' AND c.relname='refund_totals' AND a.attname NOT IN ('refunded_units','refunded_native','retired_quantity','quantity_basis','quantity_native','revision'))
             OR (n.nspname='core_events' AND c.relname='capacity' AND a.attname NOT IN ('pending_events','pending_bytes'))
             OR (n.nspname='core_abuse' AND c.relname='settings' AND a.attname NOT IN ('revision','document'))
             OR (n.nspname='core_abuse' AND c.relname='user_marks' AND a.attname NOT IN ('marked','policy_id','revision'))
@@ -269,6 +278,7 @@ pub(crate) async fn check_connection(
               (c.relname IN ('clients','families') AND a.attname='revoked_at')
               OR (c.relname IN ('requests','codes','tokens') AND a.attname='consumed_at'))))
           AND has_column_privilege(c.oid,a.attname,'UPDATE'))
+        OR has_function_privilege('core_commerce.import_legacy_refund_grant(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_legacy_escrow_batch(jsonb)','EXECUTE')
@@ -299,6 +309,7 @@ pub(crate) async fn check_connection(
     tool_market_credit::check(connection, required.tool_market).await?;
     operations::check(connection).await?;
     telegram::check(connection, required.web_identity).await?;
+    federated_auth::check(connection, required.federated_auth).await?;
     product_features::check(connection, required.console).await?;
     account_security::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;
@@ -374,10 +385,10 @@ pub(crate) async fn check_connection(
           AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='core_billing' AND c.relkind IN ('r','p')
               AND NOT has_table_privilege(c.oid,'SELECT'))
-          AND (SELECT count(*)=6 AND coalesce(bool_and(has_table_privilege(c.oid,'SELECT')),false)
+          AND (SELECT count(*)=7 AND coalesce(bool_and(has_table_privilege(c.oid,'SELECT')),false)
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='core_meta' AND c.relkind IN ('r','p') AND c.relname IN
-              ('schema_contract','component_contract','runtime_contract','schema_upgrades','component_upgrades','ledger_revisions'))
+              ('schema_contract','component_contract','runtime_contract','schema_upgrades','component_upgrades','ledger_revisions','core59_to62_upgrades'))
           AND has_table_privilege('core_billing.balance_state','SELECT')
           AND has_table_privilege('core_billing.account_policies','SELECT')
           AND has_table_privilege('core_billing.account_policies','INSERT')
@@ -616,6 +627,10 @@ pub(crate) async fn check_connection(
             AND has_column_privilege('core_charging.requests','image_operation_id','INSERT')
             AND has_column_privilege('core_charging.requests','image_usage','UPDATE')
             AND has_function_privilege('core_image.valid_output(jsonb)','EXECUTE')
+            AND has_function_privilege('core_image.native_counter(jsonb,numeric)','EXECUTE')
+            AND has_function_privilege('core_image.valid_native_tokens(jsonb)','EXECUTE')
+            AND has_function_privilege('core_image.valid_native_usage(jsonb)','EXECUTE')
+            AND has_function_privilege('core_image.valid_image_usage(jsonb)','EXECUTE')
             AND has_function_privilege('core_tool_market.lock_builtin_context(text)','EXECUTE')
             AND has_schema_privilege('core_tool_market','USAGE')
             AND NOT EXISTS(SELECT FROM (VALUES ('credit_calls'),('credit_consents'),('credit_quotes'),('credit_builtin_bindings')) t(name)
@@ -640,7 +655,17 @@ pub(crate) async fn check_connection(
             AND has_table_privilege('core_commerce.key_scopes','SELECT')
             AND has_table_privilege('core_commerce.key_scopes','INSERT')
             AND has_column_privilege('core_commerce.key_scopes','can_spend','UPDATE')
+            AND has_table_privilege('core_commerce.refund_operations','SELECT')
+            AND has_table_privilege('core_commerce.refund_operations','INSERT')
+            AND has_table_privilege('core_commerce.refund_totals','SELECT')
+            AND has_column_privilege('core_commerce.refund_totals','order_id','INSERT')
+            AND NOT EXISTS(SELECT FROM (VALUES ('refunded_units'),('refunded_native'),('retired_quantity'),('quantity_basis'),('quantity_native'),('revision')) AS permitted(column_name)
+              WHERE NOT has_column_privilege('core_commerce.refund_totals',permitted.column_name,'UPDATE'))
+            AND has_function_privilege('core_commerce.post_refund_delta(bigint,text,jsonb,bigint,bigint,boolean)','EXECUTE')
             AND has_sequence_privilege('core_commerce.orders_id_seq','USAGE')
+            AND has_table_privilege('core_commerce.legacy_refund_grants','SELECT')
+            AND has_table_privilege('core_commerce.legacy_refund_operations','SELECT')
+            AND has_function_privilege('core_commerce.finalize_legacy_refund(jsonb,bytea,bigint,bigint)','EXECUTE')
         "#,
         )
         .fetch_one(&mut *connection)

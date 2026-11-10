@@ -45,6 +45,14 @@ impl EPaySubscriptionsRpc {
     }
     pub fn price_router(&self) -> axum::Router {
         super::epay_price_router(self.store.clone(), self.payments.clone())
+            .merge(super::pancake_http::router(
+                self.store.clone(),
+                self.payments.clone(),
+            ))
+            .merge(super::stripe_http::router(
+                self.store.clone(),
+                self.payments.clone(),
+            ))
     }
     pub fn features(&self) -> Vec<String> {
         [
@@ -85,7 +93,7 @@ impl EPaySubscriptionsRpc {
             })
     }
 }
-fn order_wire(o: EPayPurchase) -> Result<pb::EPaySubscriptionOrder> {
+pub(super) fn order_wire(o: EPayPurchase) -> Result<pb::EPaySubscriptionOrder> {
     Ok(pb::EPaySubscriptionOrder {
         order_id: o.order_id,
         account_id: o.account_id,
@@ -117,6 +125,220 @@ fn proof_wire(p: EPayProof) -> pb::EPaySubscriptionProof {
 }
 #[tonic::async_trait]
 impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySubscriptionsRpc {
+    async fn prepare_pancake_purchase(
+        &self,
+        r: Request<pb::PrepareEPayPurchaseRequest>,
+    ) -> std::result::Result<Response<pb::PancakeSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
+            super::pancake_rpc::order(
+                self.store
+                    .prepare_pancake_purchase(
+                        &self.payments,
+                        &user,
+                        &EPayPurchaseRequest {
+                            operation_key: key,
+                            plan_id: r.plan_id,
+                            channel_id: r.payment_channel_id,
+                        },
+                    )
+                    .await?,
+            )
+        })
+        .await
+    }
+    async fn confirm_pancake_purchase(
+        &self,
+        r: Request<pb::EPaySubscriptionOrderRequest>,
+    ) -> std::result::Result<Response<pb::PancakeSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            super::pancake_rpc::order(
+                self.store
+                    .confirm_pancake_purchase(&user, &r.order_id)
+                    .await?,
+            )
+        })
+        .await
+    }
+    async fn read_pancake_purchase(
+        &self,
+        r: Request<pb::EPaySubscriptionOrderRequest>,
+    ) -> std::result::Result<Response<pb::PancakeSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            super::pancake_rpc::order(self.store.read_pancake_purchase(&user, &r.order_id).await?)
+        })
+        .await
+    }
+    async fn list_pancake_purchases(
+        &self,
+        r: Request<pb::ListPancakePurchasesRequest>,
+    ) -> std::result::Result<Response<pb::PancakeSubscriptionOrders>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        self.run(async {
+            let orders = self
+                .store
+                .pancake_purchases(&user)
+                .await?
+                .into_iter()
+                .map(super::pancake_rpc::order)
+                .collect::<Result<Vec<_>>>()?;
+            Ok(pb::PancakeSubscriptionOrders { orders })
+        })
+        .await
+    }
+    async fn accept_pancake_subscription_event(
+        &self,
+        r: Request<pb::AcceptPancakeSubscriptionEventRequest>,
+    ) -> std::result::Result<Response<pb::PancakeSubscriptionEvent>, Status> {
+        self.auth.check(
+            r.metadata(),
+            self.permissions.proof_ingress && self.permissions.grant,
+        )?;
+        let r = r.into_inner();
+        self.run(async {
+            Ok(super::pancake_rpc::event(
+                self.store
+                    .accept_pancake_event(
+                        &self.payments,
+                        r.payment_channel_id,
+                        &r.provider_reference,
+                        &r.signed_payload,
+                        &r.signature,
+                    )
+                    .await?,
+            ))
+        })
+        .await
+    }
+    async fn get_pancake_subscription_event(
+        &self,
+        r: Request<pb::GetPancakeSubscriptionEventRequest>,
+    ) -> std::result::Result<Response<pb::PancakeSubscriptionEvent>, Status> {
+        self.auth.check(r.metadata(), self.permissions.proof_read)?;
+        let r = r.into_inner();
+        self.run(async {
+            Ok(super::pancake_rpc::event(
+                self.store
+                    .get_pancake_event(
+                        r.payment_channel_id,
+                        &r.provider_reference,
+                        &r.provider_event_id,
+                        &r.payload_sha256,
+                    )
+                    .await?,
+            ))
+        })
+        .await
+    }
+
+    async fn prepare_stripe_purchase(
+        &self,
+        r: Request<pb::PrepareEPayPurchaseRequest>,
+    ) -> std::result::Result<Response<pb::StripeSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
+            super::stripe_rpc::order(
+                self.store
+                    .prepare_stripe_purchase(
+                        &self.payments,
+                        &user,
+                        &EPayPurchaseRequest {
+                            operation_key: key,
+                            plan_id: r.plan_id,
+                            channel_id: r.payment_channel_id,
+                        },
+                    )
+                    .await?,
+            )
+        })
+        .await
+    }
+    async fn confirm_stripe_purchase(
+        &self,
+        r: Request<pb::EPaySubscriptionOrderRequest>,
+    ) -> std::result::Result<Response<pb::StripeSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            super::stripe_rpc::order(
+                self.store
+                    .confirm_stripe_purchase(&user, &r.order_id)
+                    .await?,
+            )
+        })
+        .await
+    }
+    async fn read_stripe_purchase(
+        &self,
+        r: Request<pb::EPaySubscriptionOrderRequest>,
+    ) -> std::result::Result<Response<pb::StripeSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            super::stripe_rpc::order(self.store.read_stripe_purchase(&user, &r.order_id).await?)
+        })
+        .await
+    }
+    async fn accept_stripe_subscription_event(
+        &self,
+        r: Request<pb::AcceptEPaySubscriptionProofRequest>,
+    ) -> std::result::Result<Response<pb::StripeSubscriptionEvent>, Status> {
+        self.auth.check(
+            r.metadata(),
+            self.permissions.proof_ingress && self.permissions.grant,
+        )?;
+        let r = r.into_inner();
+        self.run(async {
+            Ok(super::stripe_rpc::event(
+                self.store
+                    .accept_stripe_event(
+                        &self.payments,
+                        &r.order_id,
+                        &r.signed_payload,
+                        &r.signature,
+                    )
+                    .await?,
+            ))
+        })
+        .await
+    }
+    async fn get_stripe_subscription_event(
+        &self,
+        r: Request<pb::GetEPaySubscriptionProofRequest>,
+    ) -> std::result::Result<Response<pb::StripeSubscriptionEvent>, Status> {
+        self.auth.check(r.metadata(), self.permissions.proof_read)?;
+        let r = r.into_inner();
+        self.run(async {
+            Ok(super::stripe_rpc::event(
+                self.store
+                    .stripe_event(&r.order_id, &r.provider_event_id, &r.payload_sha256)
+                    .await?,
+            ))
+        })
+        .await
+    }
     async fn prepare_e_pay_purchase(
         &self,
         r: Request<pb::PrepareEPayPurchaseRequest>,

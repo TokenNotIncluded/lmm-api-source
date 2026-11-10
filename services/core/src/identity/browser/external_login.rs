@@ -81,6 +81,9 @@ impl BrowserAuth {
             "session.linuxdo_browser_login" => "linuxdo",
             "session.discord_browser_login" => "discord",
             "session.telegram_browser_login" => "telegram",
+            "session.oidc_browser_login" => "oidc",
+            "session.wechat_browser_login" => "wechat",
+            "session.custom_oauth_browser_login" => "custom_oauth",
             "session.passkey_browser_login" => "passkey",
             _ => return Err(IdentityError::Invalid.into()),
         };

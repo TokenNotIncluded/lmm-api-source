@@ -9,6 +9,7 @@ mod providers;
 pub mod rpc;
 mod stripe;
 pub(crate) mod subscription_epay;
+pub(crate) mod subscription_stripe;
 pub(crate) mod waffo;
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
 pub use legacy_pancake::{FrozenPancakeQuote, VerifiedLegacyPancake, verify_legacy_pancake};
@@ -1680,3 +1681,5 @@ impl PaymentsStore {
         Ok(receipt)
     }
 }
+
+pub(crate) mod subscription_pancake;

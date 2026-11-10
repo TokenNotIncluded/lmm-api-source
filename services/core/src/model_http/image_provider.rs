@@ -1,7 +1,7 @@
 //! Server-owned image HTTP boundary. This module observes results, never settles funds.
 //! Reference: openai/openai-python 0e5794dc48b8f8d51f6047f8a0b1814eb1e65850
 //! (Apache-2.0). Independently implemented; no upstream source copied.
-use crate::billing::image_price::{ImageEndpoint, ImageQuote, ImageQuoteRequest};
+use crate::billing::image_price::{ImageEndpoint, ImageQuote, ImageQuoteRequest, ImageTokenUsage};
 use crate::image::ImageMediaType;
 use crate::relay::{
     Limits, RelayError, honeypot_network,
@@ -58,6 +58,7 @@ pub(crate) struct PreparedImageCall {
 pub(crate) struct ImageObservation {
     pub(crate) output_images: u32,
     pub(crate) provider_receipt_sha256: [u8; 32],
+    pub(crate) native_tokens: Option<ImageTokenUsage>,
     /// Sanitized complete native response, not an untrusted supplier error body.
     pub(crate) data: Value,
 }
@@ -847,7 +848,23 @@ fn observe(raw: &[u8], requested_n: u32, secret: &str) -> Result<ImageObservatio
     let v = serde_json::from_slice::<Unique>(raw)
         .map_err(|_| RelayError::SettlementPending)?
         .0;
-    object(&v, &["created", "data"])?;
+    object(
+        &v,
+        &[
+            "created",
+            "data",
+            "usage",
+            "background",
+            "output_format",
+            "quality",
+            "size",
+        ],
+    )?;
+    let native_tokens = v
+        .get("usage")
+        .map(ImageTokenUsage::from_native)
+        .transpose()
+        .map_err(|_| RelayError::SettlementPending)?;
     if v.get("created").is_some_and(|n| n.as_u64().is_none()) {
         return Err(RelayError::SettlementPending);
     }
@@ -927,9 +944,22 @@ fn observe(raw: &[u8], requested_n: u32, secret: &str) -> Result<ImageObservatio
     if let Some(created) = v.get("created") {
         response["created"] = created.clone();
     }
+    if native_tokens.is_some() {
+        response["usage"] = v["usage"].clone();
+    }
+    for key in ["background", "output_format", "quality", "size"] {
+        if let Some(value) = v.get(key) {
+            let metadata = text(value, 512)?;
+            if metadata.contains(secret) {
+                return Err(RelayError::SettlementPending);
+            }
+            response[key] = json!(metadata);
+        }
+    }
     Ok(ImageObservation {
         output_images: data.len() as u32,
         provider_receipt_sha256: Sha256::digest(raw).into(),
+        native_tokens,
         data: response,
     })
 }
@@ -1183,6 +1213,45 @@ mod tests {
         assert!(validate_quote_response_format(&quote, "").is_ok());
         assert!(validate_quote_response_format(&quote, "b64_json").is_ok());
         assert!(observe(br#"{"created":1,"data":[{"b64_json":"aW1hZ2U="}],"usage":{"input_tokens":3,"output_tokens":5}}"#,1,"synthetic-secret").is_err());
+    }
+    #[test]
+    fn image_provider_native_usage_and_metadata_are_preserved_without_invented_details() {
+        // Synthetic payload using the fixed legacy parser test and official
+        // developers.openai.com/api/reference/resources/images/methods/generate.
+        let usage = crate::billing::image_price::native_tokens::tests::measured();
+        let response = json!({"created":1,"data":[{"b64_json":"AQID"}],"usage":usage,
+            "background":"opaque","output_format":"png","quality":"high","size":"1024x1024"});
+        let raw = serde_json::to_vec(&response).unwrap();
+        let observed = observe(&raw, 1, "synthetic-secret").unwrap();
+        assert_eq!(observed.data, response);
+        let tokens = observed.native_tokens.unwrap();
+        assert_eq!(tokens.output_image, 10);
+        assert_eq!(
+            tokens.output_image_source,
+            crate::billing::image_price::ImageOutputTokenSource::ImagesEndpointTotal
+        );
+        assert!(
+            observed.data["usage"]
+                .get("output_tokens_details")
+                .is_none()
+        );
+        assert!(
+            observe(
+                br#"{"data":[{"b64_json":"AQID"}],"usage":{},"usage":{}}"#,
+                1,
+                "synthetic-secret"
+            )
+            .is_err()
+        );
+        assert!(
+            observe(
+                br#"{"data":[{"b64_json":"AQID"}],"quality":"synthetic-\u0073ecret"}"#,
+                1,
+                "synthetic-secret"
+            )
+            .is_err(),
+            "decoded metadata must not expose escaped credentials"
+        );
     }
     #[tokio::test]
     async fn image_provider_response_format_omission_and_url_are_bound_before_dispatch() {

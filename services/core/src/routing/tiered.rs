@@ -139,6 +139,8 @@ pub struct TieredTariff {
     pub uses_cache_read: bool,
     pub uses_cache_write: bool,
     pub tiers: Vec<TokenTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<super::calendar::CalendarSchedule>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub uses_cache_write_1h: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -173,11 +175,16 @@ pub struct PersistedTieredTariff {
     /// choose a newer counter interpretation from the current configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_mode: Option<CacheCreationMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<super::calendar::FrozenCalendar>,
 }
 
 impl PersistedTieredTariff {
     pub fn validate(&self) -> Result<(), RoutingError> {
         let compiled = self.tariff.compile()?;
+        if let Some(calendar) = &self.calendar {
+            calendar.validate(&self.tariff)?;
+        }
         if self.group_multiplier_ppm > MAX_MULTIPLIER
             || !(1..=MAX_MULTIPLIER).contains(&self.speed_multiplier_ppm)
             || self.credits_per_usd != 500_000
@@ -240,6 +247,9 @@ pub struct CompiledTariff {
 
 impl TieredTariff {
     pub fn compile(&self) -> Result<CompiledTariff, RoutingError> {
+        if self.calendar.is_some() {
+            return Err(invalid());
+        }
         let cache_creation_mode = match self.revision {
             1 | 2 | 4 => None,
             3 => Some(CacheCreationMode::GenericRemainderV1),
@@ -330,6 +340,7 @@ impl TieredRates {
 impl CompiledTariff {
     pub fn tariff(self) -> TieredTariff {
         TieredTariff {
+            calendar: None,
             revision: self.revision,
             source_digest: self
                 .source_digest
@@ -834,6 +845,7 @@ mod tests {
     fn frozen_tariff_identity_discount_preserves_original_amounts() {
         let price = flat(rate(1, 3), rate(7, 11), rate(0, 1), false);
         let frozen = PersistedTieredTariff {
+            calendar: None,
             tariff: price.tariff(),
             input_semantics: InputSemantics::Inclusive,
             group_multiplier_ppm: 1_250_000,
@@ -879,6 +891,7 @@ mod tests {
     }
     fn tariff(tiers: Vec<TokenTier>, uses_cache_read: bool) -> TieredTariff {
         TieredTariff {
+            calendar: None,
             revision: 1,
             source_digest: "12".repeat(32),
             uses_cache_read,
@@ -918,6 +931,7 @@ mod tests {
 
     fn cache_tariff() -> TieredTariff {
         TieredTariff {
+            calendar: None,
             revision: 2,
             source_digest: "34".repeat(32),
             uses_cache_read: true,
@@ -1281,6 +1295,7 @@ mod tests {
     fn openai_v4_frozen_tariff_restores_exact_price_and_rejects_anthropic_or_new_mode() {
         let mut current = cache_12h_tariff();
         let frozen = PersistedTieredTariff {
+            calendar: None,
             tariff: current.clone(),
             input_semantics: InputSemantics::Inclusive,
             group_multiplier_ppm: 1_000_000,
@@ -1399,6 +1414,7 @@ mod tests {
         let tariff = generic_tariff();
         let compiled = tariff.compile().unwrap();
         let mut frozen = PersistedTieredTariff {
+            calendar: None,
             tariff: tariff.clone(),
             input_semantics: InputSemantics::AnthropicText,
             group_multiplier_ppm: 1_000_000,
@@ -1921,6 +1937,7 @@ mod tests {
     fn frozen_tariff_keeps_exact_rates_and_rejects_unknown_fields() {
         let compiled = flat(rate(1, 3), rate(7, 11), rate(0, 1), false);
         let frozen = PersistedTieredTariff {
+            calendar: None,
             tariff: compiled.tariff(),
             input_semantics: InputSemantics::AnthropicText,
             group_multiplier_ppm: 1_250_000,

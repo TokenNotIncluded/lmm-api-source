@@ -166,6 +166,27 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/display_exchange_rate.sql"),
     ),
     ("subscription-epay", crate::subscriptions::EPAY_SCHEMA),
+    (
+        "federated-auth",
+        include_str!("../schema/federated_auth.sql"),
+    ),
+    (
+        "commerce-partial-refunds",
+        crate::commerce::PARTIAL_REFUNDS_SCHEMA,
+    ),
+    (
+        "subscription-stripe",
+        navigation_options::SUBSCRIPTION_STRIPE_WITH_UPGRADE_RECEIPT,
+    ),
+    ("subscription-pancake", crate::subscriptions::PANCAKE_SCHEMA),
+    (
+        "commerce-legacy-refunds",
+        crate::commerce::LEGACY_REFUNDS_SCHEMA,
+    ),
+    (
+        "image-native-usage",
+        include_str!("../schema/image_native_usage.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

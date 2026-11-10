@@ -488,3 +488,68 @@ async fn calendar_plan_purchase_and_renewal_keep_calendar_terms(pool: PgPool) {
     f.store.confirm(&f.user, &renewal.id).await.unwrap();
     balanced(&pool).await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn balance_original_quote_read_recovers_receipt_without_reconfirming(pool: PgPool) {
+    let f = fixture(&pool, true).await;
+    let plan = f
+        .store
+        .save_plan(&f.admin, None, create("balance-status-create-0001"))
+        .await
+        .unwrap();
+    let q = f
+        .store
+        .quote(&f.user, quote(plan.id, "balance-status-quote-0001", None))
+        .await
+        .unwrap();
+    let before = f.store.read_balance_purchase(&f.user, &q.id).await.unwrap();
+    assert_eq!(before.quote, q);
+    assert!(before.receipt.is_none());
+    assert!(matches!(
+        f.store.read_balance_purchase(&f.other, &q.id).await,
+        Err(Error::NotFound)
+    ));
+    let receipt = f.store.confirm(&f.user, &q.id).await.unwrap();
+    let counts:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_entries),(SELECT count(*) FROM core_subscriptions.purchases),(SELECT count(*) FROM core_charging.subscriptions)").fetch_one(&pool).await.unwrap();
+    for _ in 0..2 {
+        let original = f.store.read_balance_purchase(&f.user, &q.id).await.unwrap();
+        assert_eq!(original.quote, q);
+        assert_eq!(original.receipt.as_ref(), Some(&receipt));
+    }
+    let after:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_entries),(SELECT count(*) FROM core_subscriptions.purchases),(SELECT count(*) FROM core_charging.subscriptions)").fetch_one(&pool).await.unwrap();
+    assert_eq!(counts, after);
+}
+
+#[sqlx::test(migrations = false)]
+async fn legacy_balance_original_is_read_only_and_counts_purchase_limit(pool: PgPool) {
+    let f = fixture(&pool, true).await;
+    let mut input = create("legacy-balance-plan-0001");
+    input.terms.max_purchases_per_user = 1;
+    let plan = f.store.save_plan(&f.admin, None, input).await.unwrap();
+    let actor = f.identity.authorize(&f.user).await.unwrap();
+    let grant:i64=sqlx::query_scalar("INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups,active) VALUES($1,'legacy-sub:test:1','grant',1000,2000,100,ARRAY['*'],ARRAY['*'],false) RETURNING id").bind(f.account).fetch_one(&pool).await.unwrap();
+    let history = serde_json::json!({"reference":"BALANCE_OLD_1","plan":plan,"account_id":f.account,"charge_units":"10","subscription_id":grant,"ends_at":2000,"source":{"source_status":"success"}});
+    sqlx::query("INSERT INTO core_subscriptions.commands(actor_user_id,operation_key,request,result) VALUES($1,'legacy_balance_original_0001',$2,$3)").bind(actor.user_id).bind(serde_json::json!({"kind":"legacy_balance_original_v1"})).bind(&history).execute(&pool).await.unwrap();
+    let before:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_entries),(SELECT count(*) FROM core_charging.subscriptions)").fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        f.store
+            .read_legacy_balance_purchase(&f.user, "BALANCE_OLD_1")
+            .await
+            .unwrap(),
+        history
+    );
+    assert_eq!(
+        f.store
+            .read_legacy_balance_purchase(&f.other, "BALANCE_OLD_1")
+            .await,
+        Err(Error::NotFound)
+    );
+    let q = f
+        .store
+        .quote(&f.user, quote(plan.id, "legacy-balance-next-quote", None))
+        .await
+        .unwrap();
+    assert_eq!(f.store.confirm(&f.user, &q.id).await, Err(Error::Conflict));
+    let after:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_entries),(SELECT count(*) FROM core_charging.subscriptions)").fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+}

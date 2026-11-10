@@ -271,6 +271,7 @@ async fn price_events_come_from_committed_publications_and_current_group_scope(p
         prices["rules"][0]["rates"] =
             json!({"input":0,"output":0,"cache_read":0,"cache_write":0,"request":0});
         prices["rules"][0]["tiered"] = serde_json::to_value(TieredTariff {
+            calendar: None,
             revision: 1,
             source_digest: "23".repeat(32),
             uses_cache_read: false,

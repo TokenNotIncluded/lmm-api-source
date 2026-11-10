@@ -98,6 +98,15 @@ pub(super) fn credit_price(
     model: &str,
     group: &str,
 ) -> Result<Price, RelayError> {
+    credit_price_with_calendar(quote, model, group, None)
+}
+
+pub(super) fn credit_price_with_calendar(
+    quote: PriceQuote,
+    model: &str,
+    group: &str,
+    calendar: Option<&crate::routing::FrozenCalendar>,
+) -> Result<Price, RelayError> {
     let rates = quote.rates();
     if let Some(tariff) = quote.tiered() {
         let (group_multiplier_ppm, speed_multiplier_ppm) = quote.multipliers_ppm();
@@ -111,6 +120,7 @@ pub(super) fn credit_price(
             image: None,
             upstream_cost_group_ppm: None,
             tiered: Some(crate::routing::PersistedTieredTariff {
+                calendar: calendar.cloned(),
                 tariff: tariff.tariff(),
                 input_semantics: crate::routing::InputSemantics::Inclusive,
                 group_multiplier_ppm,
@@ -267,7 +277,12 @@ impl Bridge {
         let quote = attempt.quote().with_credit_rate(
             CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?,
         );
-        let mut price = credit_price(quote.price(), attempt.canonical_model(), &group)?;
+        let mut price = credit_price_with_calendar(
+            quote.price(),
+            attempt.canonical_model(),
+            &group,
+            attempt.calendar(),
+        )?;
         if request.google_search {
             if request.client != ClientProtocol::Gemini || attempt.protocol() != Protocol::Gemini {
                 return Err(RelayError::Unsupported(

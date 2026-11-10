@@ -13,6 +13,7 @@ pub use permissions::{
 };
 mod auth;
 mod browser;
+pub(crate) use browser::{FederatedLoginOutcome, FederatedBindOutcome};
 pub use browser::{
     ACCOUNT_APPEALS_SCHEMA, ACCOUNT_LIFECYCLE_SCHEMA, AccountAppealContext, AccountAppealGrant,
     AccountAppealReceipt, AccountClosureOutcome, AccountClosurePreview, AccountClosureReceipt,
@@ -39,6 +40,8 @@ pub use mfa::{
     MfaStatus,
 };
 mod external_login;
+pub(crate) mod federated;
+pub(crate) use federated::SCHEMA as FEDERATED_AUTH_SCHEMA;
 mod telegram;
 pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA;
 pub use telegram::{TelegramAuthorization, TelegramFlow, TelegramLogin};
@@ -112,6 +115,7 @@ pub struct IdentityStore {
     google: Option<std::sync::Arc<GoogleOAuth>>,
     external: std::collections::BTreeMap<ExternalProvider, std::sync::Arc<ExternalOAuth>>,
     telegram: Option<std::sync::Arc<TelegramLogin>>,
+    federated: Option<std::sync::Arc<federated::FederatedAuth>>,
     dashboard_routing: Option<std::sync::Arc<crate::routing::Router>>,
     commerce_scope_enabled: bool,
     financial_profile_enabled: bool,
@@ -438,6 +442,7 @@ impl IdentityStore {
             google: None,
             external: std::collections::BTreeMap::new(),
             telegram: None,
+            federated: None,
             dashboard_routing: None,
             commerce_scope_enabled: false,
             financial_profile_enabled: false,

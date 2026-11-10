@@ -35,6 +35,19 @@ pub(super) enum Reply {
     SlowOneImage,
     Empty,
     Truncated,
+    NativeImage,
+    NativeImageUnknownCache,
+    NativeImageByPrompt,
+}
+fn native_image_response(unknown_cache: bool) -> Value {
+    let mut usage = crate::billing::image_price::native_tokens::tests::measured();
+    if unknown_cache {
+        usage["input_tokens_details"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cached_tokens_details");
+    }
+    json!({"created":1,"data":[{"b64_json":"AQID"}],"usage":usage,"size":"1024x1024","quality":"standard"})
 }
 #[derive(Clone)]
 struct SupplierState {
@@ -72,6 +85,8 @@ async fn supplier_reply(
         state.release.acquire().await.unwrap().forget();
     }
     match state.reply {
+        Reply::NativeImageByPrompt => Json(native_image_response(input["prompt"] == "unknown-cache")).into_response(),
+        Reply::NativeImage | Reply::NativeImageUnknownCache => Json(native_image_response(matches!(state.reply, Reply::NativeImageUnknownCache))).into_response(),
         // A completed, syntactically valid provider image payload is the image
         // usage evidence. The relay does not infer image cost from text tokens.
         Reply::OneImage | Reply::SlowOneImage => {
@@ -121,6 +136,16 @@ async fn supplier_edit_reply(
     assert_eq!(model.as_deref(), Some("supplier-image"));
     if matches!(state.reply, Reply::Truncated) {
         return (axum::http::StatusCode::OK, "{\"data\":[").into_response();
+    }
+    if matches!(
+        state.reply,
+        Reply::NativeImage | Reply::NativeImageUnknownCache
+    ) {
+        return Json(native_image_response(matches!(
+            state.reply,
+            Reply::NativeImageUnknownCache
+        )))
+        .into_response();
     }
     Json(json!({"created":1,"data":[{"b64_json":"AQID"}]})).into_response()
 }
@@ -208,6 +233,62 @@ async fn fixture(pool: PgPool) -> Fixture {
 fn image_service(f: &Fixture, supplier: &Supplier) -> ImageService {
     image_service_for_pool(&f.pool, supplier)
 }
+#[tokio::test]
+async fn image_provider_source_binding_allows_multiple_models_without_invented_channel_ids() {
+    // Lazy pool is never queried; this exercises configuration/credential binding.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgresql://unused@127.0.0.1/unused")
+        .unwrap();
+    let make = |secret: &str| {
+        let mut rules = Vec::new();
+        let mut specs = Vec::new();
+        for (model, key) in [
+            ("gpt-image-2", "synthetic-source-key"),
+            ("gpt-image-2.5-flare", secret),
+        ] {
+            rules.push(ImagePriceRule {
+                upstream_id: 9,
+                vendor: "openai".into(),
+                billing_group: "allowed".into(),
+                upstream_model: model.into(),
+                semantic_model: model.into(),
+                endpoint: ImageEndpoint::Generations,
+                size: "1024x1024".into(),
+                quality: "high".into(),
+                usd_micros_per_image: ExactRatio {
+                    numerator: 1_000_000,
+                    denominator: 1,
+                },
+                group_multiplier: ExactRatio {
+                    numerator: 1,
+                    denominator: 1,
+                },
+                max_n: 1,
+                count_basis: ImageCountBasis::ReturnedPayloads,
+                max_budget: Credits::try_from(500000).unwrap(),
+                source_revision: "synthetic-binding-only".into(),
+            });
+            specs.push(ProviderSpec {
+                upstream_id: 9,
+                vendor: "openai".into(),
+                upstream_model: model.into(),
+                base_url: "http://127.0.0.1:1/v1".into(),
+                secret: key.into(),
+                local_http: true,
+            });
+        }
+        ImageService::new(
+            pool.clone(),
+            Charging::new(pool.clone(), Arc::new(TransactionalLedger)),
+            ImagePriceConfig { revision: 1, rules },
+            specs,
+            &Limits::default(),
+        )
+    };
+    assert!(make("synthetic-source-key").is_ok());
+    assert!(matches!(make("different-source-key"), Err(Error::Invalid)));
+    pool.close().await;
+}
 pub(super) fn image_service_for_pool(pool: &PgPool, supplier: &Supplier) -> ImageService {
     let rules = [ImageEndpoint::Generations, ImageEndpoint::Edits]
         .into_iter()
@@ -279,6 +360,240 @@ async fn no_charges(f: &Fixture) {
     let funds = f.ledger.balance(f.account).await.unwrap();
     assert_eq!(funds.available_units, 10000);
     assert_eq!(funds.reserved_units, 0);
+}
+
+fn native_image_service(f: &Fixture, supplier: &Supplier) -> ImageService {
+    let mut service = image_service(f, supplier);
+    let mut rules = service.prices.rules.clone();
+    for rule in &mut rules {
+        rule.semantic_model = "gpt-image-2".into();
+        rule.usd_micros_per_image.numerator = 0;
+        rule.count_basis = ImageCountBasis::NativeTokens(
+            crate::billing::image_price::native_tokens::tests::tariff(),
+        );
+        rule.source_revision = "production-shape-synthetic-usage-not-live".into();
+    }
+    let prices = ImagePriceConfig { revision: 2, rules };
+    prices.validate().unwrap();
+    service.prices = Arc::new(prices);
+    service
+}
+
+async fn block_image_completion(pool: &PgPool, enabled: bool) {
+    if enabled {
+        sqlx::raw_sql("CREATE FUNCTION public.fixture_image_complete_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.state='completed' THEN RAISE EXCEPTION 'synthetic image completion transaction failure' USING ERRCODE='40001'; END IF; RETURN NEW; END $$; CREATE TRIGGER fixture_image_complete_failure BEFORE UPDATE ON core_image.operations FOR EACH ROW EXECUTE FUNCTION public.fixture_image_complete_failure();").execute(pool).await.unwrap();
+    } else {
+        sqlx::raw_sql("DROP TRIGGER fixture_image_complete_failure ON core_image.operations; DROP FUNCTION public.fixture_image_complete_failure();").execute(pool).await.unwrap();
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn image_recovery_limit_one_passes_earlier_unknown_across_rounds_without_redispatch(
+    pool: PgPool,
+) {
+    let f = fixture(pool).await;
+    let supplier = Supplier::start(Reply::NativeImageByPrompt).await;
+    let service = native_image_service(&f, &supplier);
+    let mut unknown = input(1);
+    unknown.model = "gpt-image-2".into();
+    unknown.prompt = "unknown-cache".into();
+    let early = format!("{:064x}", 1);
+    let later = format!("{:064x}", 2);
+    assert!(
+        service
+            .execute_api(&f.secret, &early, &groups(), unknown.clone(), None, None)
+            .await
+            .is_err()
+    );
+    let mut known = unknown;
+    known.prompt = "known-cache".into();
+    block_image_completion(&f.pool, true).await;
+    assert!(
+        service
+            .execute_api(&f.secret, &later, &groups(), known.clone(), None, None)
+            .await
+            .is_err()
+    );
+    block_image_completion(&f.pool, false).await;
+    assert_eq!(service.recover_receipts(1).await.unwrap(), 0);
+    assert_eq!(service.recover_receipts(1).await.unwrap(), 1);
+    let receipt = service
+        .execute_api(&f.secret, &later, &groups(), known, None, None)
+        .await
+        .unwrap();
+    assert_eq!(receipt.charged_credits, Some(381));
+    assert_eq!(service.recover_receipts(1).await.unwrap(), 0);
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 2);
+    let pending = service
+        .charging
+        .resolve(&operation(&early))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.state, "reconcile");
+    assert_eq!(pending.reserved, 1900);
+    let funds = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!((funds.available_units, funds.reserved_units), (7719, 1900));
+}
+
+#[sqlx::test(migrations = false)]
+async fn image_api_legacy_ratio_uses_measured_totals_not_gpt_expression_or_per_image_price(
+    pool: PgPool,
+) {
+    let f = fixture(pool).await;
+    let supplier = Supplier::start(Reply::NativeImageUnknownCache).await;
+    let mut service = native_image_service(&f, &supplier);
+    let mut prices = (*service.prices).clone();
+    for rule in &mut prices.rules {
+        rule.semantic_model = "google/gemini-3.1-flash-image".into();
+        rule.count_basis = ImageCountBasis::LegacyTokenRatio(
+            crate::billing::image_price::native_tokens::tests::ratio_tariff(),
+        );
+    }
+    service.prices = Arc::new(prices);
+    let mut request = input(1);
+    request.model = "google/gemini-3.1-flash-image".into();
+    let receipt = service
+        .execute_api(
+            &f.secret,
+            &format!("{:064x}", 1104),
+            &groups(),
+            request,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt.reservation_credits, 178);
+    assert_eq!(receipt.charged_credits, Some(31));
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 1);
+    let funds = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!((funds.available_units, funds.reserved_units), (9969, 0));
+}
+
+#[sqlx::test(migrations = false)]
+async fn image_api_native_usage_frozen_expression_settlement_replay_and_receipt_recovery(
+    pool: PgPool,
+) {
+    let f = fixture(pool).await;
+    let supplier = Supplier::start(Reply::NativeImage).await;
+    let mut service = native_image_service(&f, &supplier);
+    let mut request = input(1);
+    request.model = "gpt-image-2".into();
+    let key = format!("{:064x}", 1101);
+    let receipt = service
+        .execute_api(&f.secret, &key, &groups(), request.clone(), None, None)
+        .await
+        .unwrap();
+    assert_eq!(receipt.state, "completed");
+    assert_eq!(receipt.reservation_credits, 1900);
+    assert_eq!(receipt.charged_credits, Some(381));
+    assert_eq!(
+        receipt.output.as_ref().unwrap()["usage"],
+        crate::billing::image_price::native_tokens::tests::measured()
+    );
+    let charge = service
+        .charging
+        .resolve(&receipt.operation_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(charge.price.cost(charge.usage).unwrap(), 381);
+    let raw = serde_json::to_vec(&charge.usage.image).unwrap();
+    let restored = serde_json::from_slice::<Option<ImageUsage>>(&raw).unwrap();
+    assert_eq!(restored, charge.usage.image);
+    let upload = ImageMultipartInput {
+        images: vec![ImageUpload {
+            bytes: base64::Engine::decode(&base64::engine::general_purpose::STANDARD,
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZkAAAAASUVORK5CYII=").unwrap(),
+            media_type: ImageMediaType::Png,
+        }],
+        mask: None,
+    };
+    let edited = service
+        .execute_api(
+            &f.secret,
+            &format!("{:064x}", 1103),
+            &groups(),
+            request.clone(),
+            Some(upload),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(edited.charged_credits, Some(381));
+    // Fail the real completion transaction after Charging.settle commits; never
+    // violate the database's immutable completed-state fence to fake a crash.
+    block_image_completion(&f.pool, true).await;
+    let recovery_key = format!("{:064x}", 1105);
+    assert!(
+        service
+            .execute_api(
+                &f.secret,
+                &recovery_key,
+                &groups(),
+                request.clone(),
+                None,
+                None
+            )
+            .await
+            .is_err()
+    );
+    block_image_completion(&f.pool, false).await;
+    let mut prices = (*service.prices).clone();
+    prices.revision += 1;
+    for rule in &mut prices.rules {
+        if let ImageCountBasis::NativeTokens(tariff) = &mut rule.count_basis {
+            tariff.source_expression = tariff.source_expression.replace("p * 5", "p * 6");
+            tariff.source_sha256 =
+                format!("{:x}", Sha256::digest(tariff.source_expression.as_bytes()));
+        }
+    }
+    service.prices = Arc::new(prices);
+    assert_eq!(service.recover_receipts(1).await.unwrap(), 1);
+    let replay = service
+        .execute_api(&f.secret, &key, &groups(), request, None, None)
+        .await
+        .unwrap();
+    assert_eq!(replay.charged_credits, Some(381));
+    assert_eq!(
+        supplier.hits.load(Ordering::SeqCst),
+        3,
+        "never redispatch on recovery/replay"
+    );
+    let funds = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!((funds.available_units, funds.reserved_units), (8857, 0));
+}
+
+#[sqlx::test(migrations = false)]
+async fn image_api_native_usage_unknown_cache_retains_hold_without_retry(pool: PgPool) {
+    let f = fixture(pool).await;
+    let supplier = Supplier::start(Reply::NativeImageUnknownCache).await;
+    let service = native_image_service(&f, &supplier);
+    let mut request = input(1);
+    request.model = "gpt-image-2".into();
+    let key = format!("{:064x}", 1102);
+    assert!(
+        service
+            .execute_api(&f.secret, &key, &groups(), request.clone(), None, None)
+            .await
+            .is_err()
+    );
+    let charge = service
+        .charging
+        .resolve(&operation(&key))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(charge.state, "reconcile");
+    assert_eq!((charge.reserved, charge.settled), (1900, 0));
+    assert_eq!(service.recover_receipts(1).await.unwrap(), 0);
+    let _ = service
+        .execute_api(&f.secret, &key, &groups(), request, None, None)
+        .await;
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 1);
+    let funds = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!((funds.available_units, funds.reserved_units), (8100, 1900));
 }
 
 #[sqlx::test(migrations = false)]

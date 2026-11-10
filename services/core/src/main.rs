@@ -336,6 +336,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let lifecycle = Lifecycle::with_capacity(config::max_inflight()?);
     let ingress = config::ingress()?;
     let legacy_config = config::legacy_auth()?;
+    let federated_auth = config::federated_auth_configured()?;
+    if federated_auth && (database_url.is_none() || legacy_config.is_none()) {
+        return Err("federated authentication requires a database and native Web authentication".into());
+    }
     let console_enabled = config::console_enabled()?;
     let mut capabilities = lmm_core::http::Capabilities::default();
     let mut public_status = lmm_core::http::PublicStatus::default();
@@ -369,6 +373,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 bounties: config::bounties_configured(),
                 community: config::community_configured(),
                 trust_policy_editor: config::trust_policy_editor_enabled()?,
+                federated_auth,
             },
         )
         .await?;
@@ -383,6 +388,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             .with_financial_profile_enabled(legacy_config.is_some())
             .with_account_links(true)
             .with_commerce_scope_enabled(config::commerce_configured());
+        store.check_federated_auth_ready().await?;
         capabilities.identity = true;
         // Production never silently opts out of owner-controlled user pricing.
         // Library fixtures may omit the builder; serving this binary may not.
@@ -498,6 +504,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                     .external_client_id(&store, lmm_core::identity::ExternalProvider::Discord)
                     .map(str::to_owned),
                 telegram_bot_name: store.telegram_bot_name().map(str::to_owned),
+                federated_auth: store.federated_auth_enabled(),
             };
             if console_enabled {
                 let mut options = lmm_core::options_http::OptionsHttp::new(

@@ -199,6 +199,20 @@ message LegacyPaymentReceipt {
 
 // Separate entitlement contract. No CreditTopup or caller-selected account/price.
 service CoreSubscriptionPayments {
+  rpc PreparePancakePurchase(PrepareEPayPurchaseRequest) returns (PancakeSubscriptionOrder);
+  rpc ConfirmPancakePurchase(EPaySubscriptionOrderRequest) returns (PancakeSubscriptionOrder);
+  rpc ReadPancakePurchase(EPaySubscriptionOrderRequest) returns (PancakeSubscriptionOrder);
+  rpc ListPancakePurchases(ListPancakePurchasesRequest) returns (PancakeSubscriptionOrders);
+  rpc AcceptPancakeSubscriptionEvent(AcceptPancakeSubscriptionEventRequest) returns (PancakeSubscriptionEvent);
+  rpc GetPancakeSubscriptionEvent(GetPancakeSubscriptionEventRequest) returns (PancakeSubscriptionEvent);
+
+  rpc PrepareStripePurchase(PrepareEPayPurchaseRequest) returns (StripeSubscriptionOrder);
+  rpc ConfirmStripePurchase(EPaySubscriptionOrderRequest) returns (StripeSubscriptionOrder);
+  rpc ReadStripePurchase(EPaySubscriptionOrderRequest) returns (StripeSubscriptionOrder);
+  // Atomic original proof admission + optional invoice grant. Requires both
+  // subscription proof_ingress and grant capability, never Go API-paid status.
+  rpc AcceptStripeSubscriptionEvent(AcceptEPaySubscriptionProofRequest) returns (StripeSubscriptionEvent);
+  rpc GetStripeSubscriptionEvent(GetEPaySubscriptionProofRequest) returns (StripeSubscriptionEvent);
   rpc PrepareEPayPurchase(PrepareEPayPurchaseRequest) returns (EPaySubscriptionOrder);
   rpc ConfirmEPayPurchase(EPaySubscriptionOrderRequest) returns (EPayCheckout);
   rpc ReadEPayPurchase(EPaySubscriptionOrderRequest) returns (EPaySubscriptionOrder);
@@ -206,6 +220,42 @@ service CoreSubscriptionPayments {
   rpc AcceptEPaySubscriptionProof(AcceptEPaySubscriptionProofRequest) returns (EPaySubscriptionProof);
   rpc GetEPaySubscriptionProof(GetEPaySubscriptionProofRequest) returns (EPaySubscriptionProof);
   rpc ApplyEPaySubscriptionGrant(ApplyEPaySubscriptionGrantRequest) returns (EPaySubscriptionGrant);
+}
+message StripeSubscriptionPrice {
+  int64 plan_id = 1;
+  int64 plan_revision = 2;
+  int64 channel_id = 3;
+  string currency = 4;
+  string amount_minor = 5;
+  string provider_price_id = 6;
+  string interval = 7;
+  int64 interval_count = 8;
+  string success_url = 9;
+  string cancel_url = 10;
+}
+message StripeSubscriptionOrder {
+  EPaySubscriptionOrder order = 1;
+  StripeSubscriptionPrice price = 2;
+  string merchant = 3;
+  string environment = 4;
+  string provider_subscription_id = 5;
+  string provider_customer_id = 6;
+  string state = 7;
+  int64 state_created = 8;
+  int64 current_period_start = 9;
+  int64 current_period_end = 10;
+  optional int64 latest_grant_id = 11;
+}
+message StripeSubscriptionEvent {
+  string order_id = 1;
+  string event_id = 2;
+  bytes payload_sha256 = 3;
+  string kind = 4;
+  string state = 5;
+  string invoice_id = 6;
+  optional int64 subscription_id = 7;
+  int64 period_start = 8;
+  int64 period_end = 9;
 }
 message PrepareEPayPurchaseRequest {
   MutationContext mutation = 1;
@@ -263,4 +313,38 @@ message EPaySubscriptionGrant {
   int64 subscription_id = 4;
   int64 granted_at_unix = 5;
   int64 ends_at_unix = 6;
+}
+
+// Pancake is an entitlement contract, independent of wallet CreditTopup.
+// Existing messages/field numbers/enums are unchanged. EPaySubscriptionOrder is
+// reused only as the established frozen external-order layout.
+message PancakeSubscriptionPrice {
+ int64 plan_id=1; int64 plan_revision=2; int64 channel_id=3;
+ string currency=4; string amount_minor=5; string store_id=6;
+ string product_id=7; string product_type=8; string billing_period=9;
+ string provider_plan_reference=10; string return_url=11;
+ string checkout_region=12; string checkout_language=13; string tax_category=14;
+}
+message PancakeSubscriptionOrder {
+ EPaySubscriptionOrder order=1; PancakeSubscriptionPrice price=2;
+ string merchant=3; string environment=4; string provider_reference=5;
+ string provider_order_id=6; string state=7; int64 state_created=8;
+ int64 paid_period_start=9; int64 paid_period_end=10;
+ optional int64 latest_grant_id=11; bytes legacy_source_json=12;
+}
+message ListPancakePurchasesRequest {}
+message PancakeSubscriptionOrders { repeated PancakeSubscriptionOrder orders=1; }
+message AcceptPancakeSubscriptionEventRequest {
+ int64 payment_channel_id=1; string provider_reference=2;
+ bytes signed_payload=3; bytes signature=4;
+}
+message GetPancakeSubscriptionEventRequest {
+ int64 payment_channel_id=1; string provider_reference=2;
+ string provider_event_id=3; bytes payload_sha256=4;
+}
+message PancakeSubscriptionEvent {
+ string order_id=1; string event_id=2; bytes payload_sha256=3;
+ string kind=4; string state=5; string provider_order_id=6;
+ optional string payment_id=7; string cycle_key=8;
+ optional int64 subscription_id=9; int64 period_start=10; int64 period_end=11;
 }

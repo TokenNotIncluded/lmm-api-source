@@ -129,6 +129,7 @@ pub struct PublicStatus {
     pub linuxdo_client_id: Option<String>,
     pub discord_client_id: Option<String>,
     pub telegram_bot_name: Option<String>,
+    pub federated_auth: bool,
 }
 
 fn oauth_method_enabled(status: &PublicStatus, method: &str) -> bool {
@@ -269,6 +270,34 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     data.as_object_mut()
         .expect("status data is a JSON object")
         .extend(extra);
+    if status.federated_auth {
+        let providers = match crate::identity::federated::public_catalog(&state.pool).await {
+            Ok(Value::Array(providers)) => providers,
+            _ => return public_configuration_unavailable(),
+        };
+        data["native_federated_auth"] = json!(true);
+        data["federated_oauth_providers"] = json!(providers);
+        data["custom_oauth_providers"] = json!(providers.iter().filter(|provider| provider["kind"] == "custom_oauth").collect::<Vec<_>>());
+        if let Some(oidc) = providers.iter().find(|provider| provider["kind"] == "oidc") {
+            data["oidc_enabled"] = json!(true);
+            data["oidc_client_id"] = oidc["client_id"].clone();
+            data["oidc_authorization_endpoint"] = oidc["authorization_endpoint"].clone();
+            data["oidc_display_name"] = oidc["name"].clone();
+        }
+        if let Some(wechat) = providers.iter().find(|provider| provider["kind"] == "wechat") {
+            data["wechat_login"] = json!(true);
+            data["wechat_qrcode"] = wechat["qr_code_url"].clone();
+        }
+        let new_registration = providers.iter().any(|provider| {
+            let method = if provider["kind"] == "custom_oauth" {
+                format!("custom:{}", provider["slug"].as_str().unwrap_or_default())
+            } else { provider["kind"].as_str().unwrap_or_default().to_owned() };
+            oauth_method_enabled(&status, &method)
+        });
+        if status.registration_enabled && status.oauth_register_enabled && new_registration {
+            data["oauth_register_enabled"] = json!(true);
+        }
+    }
     if state.capabilities.console {
         let options: Result<Vec<(String, String)>, _> = sqlx::query_as(
             "SELECT key,value FROM core_console.options WHERE key IN ('HeaderNavModules','USDExchangeRate')",

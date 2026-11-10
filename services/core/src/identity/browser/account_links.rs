@@ -57,8 +57,9 @@ pub(in crate::identity::browser) enum PrimaryExclusion<'a> {
     Passkey(i64),
     OAuth(&'a str, &'a str),
     Telegram(&'a str),
+    Federated(i64, &'a str),
 }
-fn version(value: &str, zero: bool) -> Result<i64> {
+pub(in crate::identity::browser) fn version(value: &str, zero: bool) -> Result<i64> {
     let number = value.parse::<i64>().map_err(|_| IdentityError::Invalid)?;
     if number < if zero { 0 } else { 1 } || number.to_string() != value {
         return Err(IdentityError::Invalid);
@@ -126,6 +127,15 @@ impl BrowserAuth {
         let telegram:Option<String>=sqlx::query_scalar("SELECT subject FROM core_telegram_auth.bindings WHERE user_id=$1 AND revoked_at IS NULL").bind(actor.user_id).fetch_optional(&mut *tx).await?;
         if let Some(subject) = telegram {
             links.push(json!({"issuer":TELEGRAM,"subject":subject,"revision":"0","active":true}));
+        }
+        if self.store.federated_auth_enabled() {
+            let rows = sqlx::query("SELECT i.provider_id,i.subject,i.revision,i.revoked_at IS NULL AS active,p.slug,p.name,p.kind,p.enabled AND p.deleted_at IS NULL AS available FROM core_federated_auth.identities i JOIN core_federated_auth.providers p ON p.id=i.provider_id WHERE i.user_id=$1 ORDER BY i.provider_id,i.created_at LIMIT 1001")
+                .bind(actor.user_id).fetch_all(&mut *tx).await?;
+            if rows.len() > 1000 { return Err(IdentityError::Conflict.into()); }
+            for row in rows {
+                let id = row.try_get::<i64,_>("provider_id")?.to_string();
+                links.push(json!({"issuer":format!("urn:lmm:federated:{id}"),"provider_id":id,"subject":row.try_get::<String,_>("subject")?,"revision":row.try_get::<i64,_>("revision")?.to_string(),"active":row.try_get::<bool,_>("active")?,"available":row.try_get::<bool,_>("available")?,"slug":row.try_get::<String,_>("slug")?,"name":row.try_get::<String,_>("name")?,"kind":row.try_get::<String,_>("kind")?}));
+            }
         }
         tx.commit().await?;
         Ok(
@@ -365,10 +375,11 @@ impl BrowserAuth {
         excluding: PrimaryExclusion<'_>,
         passkeys_enabled: bool,
     ) -> Result<bool> {
-        let (passkey, issuer, subject, telegram) = match excluding {
-            PrimaryExclusion::Passkey(id) => (id, "", "", ""),
-            PrimaryExclusion::OAuth(issuer, subject) => (0, issuer, subject, ""),
-            PrimaryExclusion::Telegram(subject) => (0, "", "", subject),
+        let (passkey, issuer, subject, telegram, federated) = match excluding {
+            PrimaryExclusion::Passkey(id) => (id, "", "", "", 0),
+            PrimaryExclusion::OAuth(issuer, subject) => (0, issuer, subject, "", 0),
+            PrimaryExclusion::Telegram(subject) => (0, "", "", subject, 0),
+            PrimaryExclusion::Federated(id, subject) => (0, "", subject, "", id),
         };
         let mut issuers: Vec<&str> = self.store.external.keys().map(|p| p.issuer()).collect();
         if self.store.google.is_some() {
@@ -378,6 +389,11 @@ impl BrowserAuth {
             .bind(user).bind(passkeys_enabled).bind(passkey).bind(self.store.telegram.is_some()).bind(telegram).fetch_one(&mut *c).await?;
         if local {
             return Ok(true);
+        }
+        if self.store.federated_auth_enabled() {
+            let available: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_federated_auth.identities i JOIN core_federated_auth.providers p ON p.id=i.provider_id WHERE i.user_id=$1 AND i.revoked_at IS NULL AND p.enabled AND p.deleted_at IS NULL AND NOT(i.provider_id=$2 AND i.subject=$3))")
+                .bind(user).bind(federated).bind(subject).fetch_one(&mut *c).await?;
+            if available { return Ok(true); }
         }
         let sql = if self.store.account_links_enabled {
             "SELECT EXISTS(SELECT 1 FROM core_identity.oauth_identities i LEFT JOIN core_account_links.oauth_states s USING(issuer,subject) WHERE i.user_id=$1 AND i.issuer=ANY($2) AND NOT(i.issuer=$3 AND i.subject=$4) AND s.revoked_at IS NULL)"

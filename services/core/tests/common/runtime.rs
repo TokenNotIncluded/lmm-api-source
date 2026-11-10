@@ -45,6 +45,20 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#)).execute(owner).await.unwrap();
+        // Historical upgrade fixtures create the role before the Core62 suffix.
+        let core62_installed: bool =
+            sqlx::query_scalar("SELECT to_regclass('core_meta.core59_to62_upgrades') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if core62_installed {
+            sqlx::raw_sql(&format!(
+                "GRANT SELECT ON core_meta.core59_to62_upgrades TO {name}"
+            ))
+            .execute(owner)
+            .await
+            .unwrap();
+        }
         let accounting_installed: bool =
             sqlx::query_scalar("SELECT to_regnamespace('core_channels') IS NOT NULL")
                 .fetch_one(owner)
@@ -444,7 +458,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
               GRANT USAGE ON SCHEMA core_image,core_tool_market TO {0};
               GRANT SELECT,INSERT,UPDATE(state,confirmed_at,confirmation_digest,confirmation_sid,charge_id,output,output_digest,image_usage,settled_credits) ON core_image.operations TO {0};
               GRANT INSERT(image_operation_id),UPDATE(image_usage) ON core_charging.requests TO {0};
-              GRANT EXECUTE ON FUNCTION core_image.valid_output(jsonb),core_tool_market.lock_builtin_context(text) TO {0};
+              GRANT EXECUTE ON FUNCTION core_image.valid_output(jsonb),core_image.native_counter(jsonb,numeric),core_image.valid_native_tokens(jsonb),core_image.valid_native_usage(jsonb),core_image.valid_image_usage(jsonb),core_tool_market.lock_builtin_context(text) TO {0};
               GRANT SELECT ON core_tool_market.credit_calls,core_tool_market.credit_consents,core_tool_market.credit_quotes,core_tool_market.credit_builtin_bindings TO {0};
             "#,
                 self.name
@@ -466,6 +480,11 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
               GRANT UPDATE(state,settlement_journal_id,revision,delivery_reference) ON core_commerce.orders TO {0};
               GRANT UPDATE(can_spend) ON core_commerce.key_scopes TO {0};
               GRANT USAGE ON SEQUENCE core_commerce.orders_id_seq TO {0};
+              GRANT SELECT,INSERT ON core_commerce.refund_operations TO {0};
+              GRANT SELECT ON core_commerce.refund_totals TO {0};
+              GRANT INSERT(order_id) ON core_commerce.refund_totals TO {0};
+              GRANT UPDATE(refunded_units,refunded_native,retired_quantity,quantity_basis,quantity_native,revision) ON core_commerce.refund_totals TO {0};
+              GRANT EXECUTE ON FUNCTION core_commerce.post_refund_delta(BIGINT,TEXT,JSONB,BIGINT,BIGINT,BOOLEAN) TO {0};
             "#,
                 self.name
             ),

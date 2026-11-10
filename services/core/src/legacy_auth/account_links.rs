@@ -7,7 +7,7 @@ use axum::extract::Path;
 pub(super) fn routes() -> Router<AuthState> {
     Router::new()
         .route("/api/user/account-links", get(list))
-        .route("/api/user/account-links/unlink", post(unlink))
+        .route("/api/user/account-links/unlink", post(unlink).layer(DefaultBodyLimit::max(128 * 1024)))
         .route("/api/user/account-links/{provider}/begin", post(begin))
         .route("/api/user/account-links/{provider}/finish", post(finish))
 }
@@ -50,6 +50,17 @@ async fn list(State(state): State<AuthState>, headers: HeaderMap) -> Response {
             let provider=AccountLinkProvider::parse(slug).expect("fixed provider");
             json!({"provider":slug,"issuer":provider.issuer(),"can_bind":available(&state,provider)})
         }).collect::<Vec<_>>());
+        if state.store.federated_auth_enabled() {
+            let catalog = state.store.federated_catalog().await?;
+            let providers = result["providers"].as_array_mut().ok_or(IdentityError::Storage)?;
+            for provider in catalog.as_array().ok_or(IdentityError::Storage)? {
+                let id = provider["id"].as_str().ok_or(IdentityError::Storage)?;
+                providers.push(json!({"provider":format!("federated:{id}"),"provider_id":id,
+                    "issuer":format!("urn:lmm:federated:{id}"),"can_bind":state.store.account_links_enabled(),
+                    "slug":provider["slug"],"name":provider["name"],"kind":provider["kind"],
+                    "icon":provider["icon"],"qr_code_url":provider["qr_code_url"],"native_federated":true}));
+            }
+        }
         Ok::<_,BrowserAuthError>(result)
     }.await;
     match result {
@@ -59,8 +70,8 @@ async fn list(State(state): State<AuthState>, headers: HeaderMap) -> Response {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Start {
-    expected_auth_version: String,
+pub(super) struct Start {
+    pub(super) expected_auth_version: String,
 }
 async fn begin(
     State(state): State<AuthState>,
@@ -68,6 +79,9 @@ async fn begin(
     Path(provider): Path<String>,
     input: Result<Json<Start>, JsonRejection>,
 ) -> Response {
+    if provider.starts_with("federated:") {
+        return super::federated::begin_bind(state, headers, &provider, input).await;
+    }
     let result = async {
         let provider = AccountLinkProvider::parse(&provider)?;
         if !available(&state, provider) {
@@ -103,6 +117,9 @@ async fn finish(
     Path(slug): Path<String>,
     input: Result<Json<AccountBindFinish>, JsonRejection>,
 ) -> Response {
+    if slug.starts_with("federated:") {
+        return super::federated::finish_bind(state, headers, &slug, input).await;
+    }
     let provider = match AccountLinkProvider::parse(&slug) {
         Ok(provider) => provider,
         Err(error) => return auth_failure(error.into()),
@@ -138,6 +155,14 @@ async fn unlink(
 ) -> Response {
     let result = async {
         let Json(input) = input.map_err(|_| IdentityError::Invalid)?;
+        if let Some(id) = input.issuer.strip_prefix("urn:lmm:federated:") {
+            let provider = id.parse::<i64>().map_err(|_| IdentityError::Invalid)?;
+            if provider <= 0 || provider.to_string() != id { return Err(IdentityError::Invalid.into()); }
+            return state.browser.unlink_federated(
+                bearer(&headers)?.ok_or(IdentityError::Unauthorized)?, provider,
+                &input, state.config.passkeys.is_some(),
+            ).await;
+        }
         state
             .browser
             .unlink_account(

@@ -6,6 +6,8 @@ mod account_links;
 mod compatibility;
 mod email;
 mod external_login;
+mod federated;
+mod federated_admin;
 mod oauth2;
 mod passkeys;
 mod sessions;
@@ -183,6 +185,8 @@ fn build_router(
         .merge(sessions::routes())
         .merge(oauth2::routes())
         .merge(external_login::routes())
+        .merge(federated::routes())
+        .merge(federated_admin::routes())
         .merge(telegram::routes())
         .merge(passkeys::routes())
         .merge(account_lifecycle::routes())

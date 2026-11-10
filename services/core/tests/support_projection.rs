@@ -88,6 +88,7 @@ async fn real_paid_orders_are_integer_credits_and_exclude_other_sellers(pool: Pg
         total: price.clone(),
         payment_ref: String::new(),
         settlement_ref: String::new(),
+        refund: None,
         order_snapshot: OrderSnapshot {
             variant_id: hash("synthetic-variant"),
             quantity: 1,

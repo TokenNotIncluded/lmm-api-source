@@ -45,6 +45,7 @@ fn command(n: i64, price: Price) -> MoneyCommand {
         total: price.clone(),
         payment_ref: String::new(),
         settlement_ref: String::new(),
+        refund: None,
         order_snapshot: OrderSnapshot {
             variant_id: hash(&serde_json::json!(["variant", n])),
             quantity: 1,
@@ -130,6 +131,377 @@ async fn count(pool: &PgPool, table: &str) -> i64 {
 async fn balanced(pool: &PgPool) {
     let n:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) s").fetch_one(pool).await.unwrap();
     assert_eq!(n, 0);
+}
+
+fn partial_refund(
+    cmd: &MoneyCommand,
+    key: &str,
+    mode: lmm_core::commerce::partial_refunds::RefundMode,
+    quantity: i64,
+    retired: i64,
+    amount: i64,
+    payment: &str,
+    settlement: &str,
+) -> MoneyCommand {
+    use lmm_core::commerce::partial_refunds::RefundSpec;
+    let mut c = action(cmd, "refund", payment, settlement);
+    let id = hash(&serde_json::json!([
+        "store-refund-v2",
+        c.shop_id,
+        c.order_id,
+        c.buyer,
+        "buyer",
+        key
+    ]));
+    c.key = hash(&serde_json::json!([
+        "store-refund-money-v1",
+        c.shop_id,
+        c.order_id,
+        id
+    ]));
+    c.refund = Some(RefundSpec {
+        id,
+        request_key: key.into(),
+        requested_by: c.buyer,
+        role: "buyer".into(),
+        mode,
+        quantity,
+        retired_quantity: retired,
+        amount,
+        items_digest: hash(&serde_json::json!([])),
+    });
+    c
+}
+
+#[sqlx::test(migrations = false)]
+async fn partial_refund_preserves_original_grant_captures_remainder_and_replays_old_receipt(
+    pool: PgPool,
+) {
+    use lmm_core::commerce::partial_refunds::RefundMode;
+    let f = fixture(&pool, 200).await;
+    let mut cmd = command(802, credit_price(100));
+    cmd.order_snapshot.quantity = 2;
+    cmd.order_snapshot.unit_price = credit_price(50);
+    let pay = f.store.execute(&f.buyer, &bytes(&cmd)).await.unwrap();
+    let first = partial_refund(
+        &cmd,
+        "first",
+        RefundMode::Quantity,
+        1,
+        1,
+        50,
+        &pay.reference,
+        "",
+    );
+    assert_eq!(
+        f.store.execute(&f.buyer, &bytes(&first)).await,
+        Err(Error::Forbidden)
+    );
+    let wire = bytes(&first);
+    let (a, b) = tokio::join!(
+        f.store.execute(&f.seller, &wire),
+        f.store.execute(&f.seller, &wire)
+    );
+    let receipt = a.unwrap();
+    assert_eq!(receipt.outcome, "succeeded");
+    assert_eq!(b.unwrap(), receipt);
+    let buyer = f.ledger.balance(f.buyer_id).await.unwrap();
+    assert_eq!((buyer.available_units, buyer.reserved_units), (150, 50));
+    assert_eq!(count(&pool, "core_commerce.refund_operations").await, 1);
+    assert_eq!(
+        f.store
+            .execute(
+                &f.seller,
+                &bytes(&action(&cmd, "refund", &pay.reference, ""))
+            )
+            .await,
+        Err(Error::Conflict)
+    );
+    let settle = action(&cmd, "settle", &pay.reference, "");
+    let capture = f
+        .store
+        .complete_delivery(&bytes(&settle), &pay.command_hash, "partial-original-grant")
+        .await
+        .unwrap();
+    assert_eq!(
+        f.ledger.balance(f.seller_id).await.unwrap().available_units,
+        50
+    );
+    assert_eq!(
+        f.ledger.balance(f.buyer_id).await.unwrap().reserved_units,
+        0
+    );
+    let last = partial_refund(
+        &cmd,
+        "last",
+        RefundMode::Amount,
+        0,
+        1,
+        50,
+        &pay.reference,
+        &capture.reference,
+    );
+    assert_eq!(
+        f.store
+            .execute(&f.seller, &bytes(&last))
+            .await
+            .unwrap()
+            .outcome,
+        "succeeded"
+    );
+    assert_eq!(
+        f.ledger.balance(f.buyer_id).await.unwrap().available_units,
+        200
+    );
+    assert_eq!(
+        f.ledger.balance(f.seller_id).await.unwrap().available_units,
+        0
+    );
+    assert_eq!(f.store.execute(&f.seller, &wire).await.unwrap(), receipt);
+    assert_eq!(f.store.reconcile(&wire).await.unwrap(), Some(receipt));
+    let totals: (i64, i64, i64) = sqlx::query_as(
+        "SELECT refunded_units,refunded_native,retired_quantity FROM core_commerce.refund_totals",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(totals, (100, 100, 2));
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn partial_refund_concurrent_independent_keys_cannot_exceed_original_principal(pool: PgPool) {
+    use lmm_core::commerce::partial_refunds::RefundMode;
+    let f = fixture(&pool, 200).await;
+    let cmd = command(803, credit_price(100));
+    let pay = f.store.execute(&f.buyer, &bytes(&cmd)).await.unwrap();
+    let capture = f
+        .store
+        .execute(
+            &f.seller,
+            &bytes(&action(&cmd, "settle", &pay.reference, "")),
+        )
+        .await
+        .unwrap();
+    let a = partial_refund(
+        &cmd,
+        "competing-a",
+        RefundMode::Amount,
+        0,
+        0,
+        70,
+        &pay.reference,
+        &capture.reference,
+    );
+    let b = partial_refund(
+        &cmd,
+        "competing-b",
+        RefundMode::Amount,
+        0,
+        0,
+        70,
+        &pay.reference,
+        &capture.reference,
+    );
+    let aw = bytes(&a);
+    let bw = bytes(&b);
+    let (ar, br) = tokio::join!(
+        f.store.execute(&f.seller, &aw),
+        f.store.execute(&f.seller, &bw)
+    );
+    let ar = ar.unwrap();
+    let br = br.unwrap();
+    assert_eq!(
+        [ar.outcome.as_str(), br.outcome.as_str()]
+            .iter()
+            .filter(|s| **s == "succeeded")
+            .count(),
+        1
+    );
+    assert_eq!(
+        [ar.outcome.as_str(), br.outcome.as_str()]
+            .iter()
+            .filter(|s| **s == "rejected")
+            .count(),
+        1
+    );
+    assert_eq!(f.store.reconcile(&aw).await.unwrap(), Some(ar));
+    assert_eq!(f.store.reconcile(&bw).await.unwrap(), Some(br));
+    assert_eq!(
+        f.ledger.balance(f.buyer_id).await.unwrap().available_units,
+        170
+    );
+    assert_eq!(
+        f.ledger.balance(f.seller_id).await.unwrap().available_units,
+        30
+    );
+    let actual: i64 = sqlx::query_scalar("SELECT refunded_units FROM core_commerce.refund_totals")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(actual, 70);
+    assert_eq!(count(&pool, "core_commerce.refund_operations").await, 2);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn partial_refund_restores_only_original_seller_debt_and_never_recredits_it_twice(
+    pool: PgPool,
+) {
+    use lmm_core::commerce::partial_refunds::RefundMode;
+    let f = fixture(&pool, 500).await;
+    seller_opening_debt(&pool, f.seller_id, 100).await;
+    let cmd = command(804, credit_price(150));
+    let pay = f.store.execute(&f.buyer, &bytes(&cmd)).await.unwrap();
+    let capture = f
+        .store
+        .complete_delivery(
+            &bytes(&action(&cmd, "settle", &pay.reference, "")),
+            &pay.command_hash,
+            "partial-debt-grant",
+        )
+        .await
+        .unwrap();
+    let first = partial_refund(
+        &cmd,
+        "debt-first",
+        RefundMode::Amount,
+        0,
+        0,
+        75,
+        &pay.reference,
+        &capture.reference,
+    );
+    let receipt = f.store.execute(&f.seller, &bytes(&first)).await.unwrap();
+    assert_eq!(receipt.outcome, "succeeded");
+    let debt:i64=sqlx::query_scalar("SELECT balance_units FROM core_billing.balance_state b JOIN core_billing.ledger_accounts a ON a.id=b.ledger_account_id WHERE a.owner_account_id=$1 AND a.bucket='debt'").bind(f.seller_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(debt, -25);
+    let last = partial_refund(
+        &cmd,
+        "debt-last",
+        RefundMode::Full,
+        1,
+        1,
+        75,
+        &pay.reference,
+        &capture.reference,
+    );
+    assert_eq!(
+        f.store
+            .execute(&f.seller, &bytes(&last))
+            .await
+            .unwrap()
+            .outcome,
+        "succeeded"
+    );
+    assert_eq!(
+        f.store.execute(&f.seller, &bytes(&first)).await.unwrap(),
+        receipt
+    );
+    let debt:i64=sqlx::query_scalar("SELECT balance_units FROM core_billing.balance_state b JOIN core_billing.ledger_accounts a ON a.id=b.ledger_account_id WHERE a.owner_account_id=$1 AND a.bucket='debt'").bind(f.seller_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(debt, -100);
+    assert_eq!(
+        f.ledger.balance(f.buyer_id).await.unwrap().available_units,
+        500
+    );
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn partial_refund_same_wallet_records_receipt_without_weakening_zero_entry_journal_guard(
+    pool: PgPool,
+) {
+    use lmm_core::commerce::partial_refunds::RefundMode;
+    let f = fixture(&pool, 100).await;
+    let mut cmd = command(805, credit_price(60));
+    cmd.seller = cmd.buyer;
+    let pay = f.store.execute(&f.buyer, &bytes(&cmd)).await.unwrap();
+    let captured = f
+        .store
+        .complete_delivery(
+            &bytes(&action(&cmd, "settle", &pay.reference, "")),
+            &pay.command_hash,
+            "partial-self-grant",
+        )
+        .await
+        .unwrap();
+    let journals = count(&pool, "core_billing.ledger_journals").await;
+    let refund = partial_refund(
+        &cmd,
+        "self-partial",
+        RefundMode::Amount,
+        0,
+        0,
+        20,
+        &pay.reference,
+        &captured.reference,
+    );
+    let receipt = f.store.execute(&f.buyer, &bytes(&refund)).await.unwrap();
+    assert_eq!(receipt.outcome, "succeeded");
+    assert!(receipt.reference.starts_with("commerce:refund:"));
+    assert_eq!(
+        f.store.execute(&f.buyer, &bytes(&refund)).await.unwrap(),
+        receipt
+    );
+    assert_eq!(
+        f.ledger.balance(f.buyer_id).await.unwrap().available_units,
+        100
+    );
+    assert_eq!(count(&pool, "core_billing.ledger_journals").await, journals);
+    assert_eq!(count(&pool, "core_commerce.refund_operations").await, 1);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn partial_refund_liquidity_unknown_has_no_receipt_then_recovers_original_key(pool: PgPool) {
+    use lmm_core::commerce::partial_refunds::RefundMode;
+    let f = fixture(&pool, 200).await;
+    let cmd = command(806, credit_price(100));
+    let pay = f.store.execute(&f.buyer, &bytes(&cmd)).await.unwrap();
+    let capture = f
+        .store
+        .execute(
+            &f.seller,
+            &bytes(&action(&cmd, "settle", &pay.reference, "")),
+        )
+        .await
+        .unwrap();
+    f.ledger
+        .execute(&Request {
+            scope: "commerce-fixture".into(),
+            operation_key: "partial-seller-spent".into(),
+            actor_user_id: Some(9),
+            reason: "Synthetic seller spent original proceeds".into(),
+            action: Action::Charge {
+                account_id: f.seller_id,
+                amount_units: Credits::try_from(100).unwrap(),
+            },
+        })
+        .await
+        .unwrap();
+    let refund = partial_refund(
+        &cmd,
+        "liquidity",
+        RefundMode::Amount,
+        0,
+        0,
+        40,
+        &pay.reference,
+        &capture.reference,
+    );
+    let wire = bytes(&refund);
+    assert_eq!(f.store.execute(&f.seller, &wire).await, Err(Error::Pending));
+    assert_eq!(f.store.reconcile(&wire).await.unwrap(), None);
+    assert_eq!(count(&pool, "core_commerce.refund_operations").await, 0);
+    fund(&f.ledger, f.seller_id, 40, "partial-seller-recovers").await;
+    let receipt = f.store.execute(&f.seller, &wire).await.unwrap();
+    assert_eq!(receipt.outcome, "succeeded");
+    assert_eq!(f.store.reconcile(&wire).await.unwrap(), Some(receipt));
+    assert_eq!(
+        f.ledger.balance(f.buyer_id).await.unwrap().available_units,
+        140
+    );
+    balanced(&pool).await;
 }
 
 #[sqlx::test(migrations = false)]

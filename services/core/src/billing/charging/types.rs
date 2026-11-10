@@ -1003,7 +1003,9 @@ mod generic_remainder_tests {
             image: None,
             upstream_cost_group_ppm: None,
             tiered: Some(PersistedTieredTariff {
+                calendar: None,
                 tariff: TieredTariff {
+                    calendar: None,
                     uses_cache_write_12h: false,
                     revision: 3,
                     source_digest: "ab".repeat(32),

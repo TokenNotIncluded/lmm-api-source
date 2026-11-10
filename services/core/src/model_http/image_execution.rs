@@ -154,10 +154,12 @@ pub struct ImageService {
     pool: PgPool,
     charging: Charging,
     prices: Arc<ImagePriceConfig>,
-    providers: Arc<BTreeMap<u64, ImageProvider>>,
+    providers: Arc<BTreeMap<(u64, String), ImageProvider>>,
     gate: Arc<tokio::sync::Semaphore>,
     parallelism: usize,
     credential_digests: Arc<Vec<[u8; 32]>>,
+    /// Fair bounded maintenance across polling rounds; never dispatch authority.
+    recovery_cursor: Arc<tokio::sync::Mutex<Option<(i64, String)>>>,
 }
 impl ImageService {
     pub(crate) fn enable_trust_pricing(&self) {
@@ -246,7 +248,9 @@ pub struct Capability {
     pub size: String,
     pub quality: String,
     pub max_n: u32,
-    pub credits_per_image: i64,
+    pub credits_per_image: Option<i64>,
+    pub reservation_credits_for_one: i64,
+    pub reservation_scope: &'static str,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Receipt {
@@ -347,11 +351,25 @@ impl ImageService {
         }
         let mut credential_digests = Vec::new();
         let mut providers = BTreeMap::new();
+        let mut source_bindings = BTreeMap::new();
         for s in specs {
             credential_digests.push(Sha256::digest(s.secret.as_bytes()).into());
+            let identity = (
+                s.vendor.clone(),
+                s.base_url.clone(),
+                <[u8; 32]>::from(Sha256::digest(s.secret.as_bytes())),
+                s.local_http,
+            );
+            if source_bindings
+                .insert(s.upstream_id, identity.clone())
+                .is_some_and(|old| old != identity)
+            {
+                return Err(Error::Invalid);
+            }
             if prices.rules.iter().any(|rule| {
                 rule.upstream_id == s.upstream_id
-                    && (rule.vendor != s.vendor || rule.upstream_model != s.upstream_model)
+                    && rule.upstream_model == s.upstream_model
+                    && rule.vendor != s.vendor
             }) {
                 return Err(Error::Invalid);
             }
@@ -365,12 +383,15 @@ impl ImageService {
                 s.local_http,
             )
             .map_err(|_| Error::Invalid)?;
-            if providers.insert(s.upstream_id, provider).is_some() {
+            if providers
+                .insert((s.upstream_id, s.upstream_model), provider)
+                .is_some()
+            {
                 return Err(Error::Invalid);
             }
         }
         for rule in &prices.rules {
-            if !providers.contains_key(&rule.upstream_id) {
+            if !providers.contains_key(&(rule.upstream_id, rule.upstream_model.clone())) {
                 return Err(Error::Invalid);
             }
         }
@@ -382,6 +403,7 @@ impl ImageService {
             gate: Arc::new(tokio::sync::Semaphore::new(limits.max_in_flight.min(2))),
             parallelism: limits.max_in_flight.min(2),
             credential_digests: Arc::new(credential_digests),
+            recovery_cursor: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
     pub(crate) async fn drain(&self, grace: std::time::Duration) -> usize {
@@ -592,7 +614,25 @@ impl ImageService {
                     size: input.size,
                     quality: input.quality,
                     max_n: rule.max_n.min(4),
-                    credits_per_image: credits_per_image.into(),
+                    credits_per_image: if matches!(
+                        &rule.count_basis,
+                        crate::billing::image_price::ImageCountBasis::NativeTokens(_)
+                            | crate::billing::image_price::ImageCountBasis::LegacyTokenRatio(_)
+                    ) {
+                        None
+                    } else {
+                        Some(credits_per_image.into())
+                    },
+                    reservation_credits_for_one: credits_per_image.into(),
+                    reservation_scope: if matches!(
+                        &rule.count_basis,
+                        crate::billing::image_price::ImageCountBasis::NativeTokens(_)
+                            | crate::billing::image_price::ImageCountBasis::LegacyTokenRatio(_)
+                    ) {
+                        "per_operation"
+                    } else {
+                        "per_image"
+                    },
                 };
                 if !out.contains(&item) {
                     out.push(item)
@@ -872,7 +912,10 @@ impl ImageService {
             .map_err(admission_error)?;
         let provider = self
             .providers
-            .get(&quote.binding().upstream_id)
+            .get(&(
+                quote.binding().upstream_id,
+                quote.binding().upstream_model.clone(),
+            ))
             .ok_or(Error::Invalid)?;
         let prepared = if let Some(edits) = edits {
             provider.prepare_edits(&quote, &prompt, edits).await
@@ -903,10 +946,9 @@ impl ImageService {
         let image = ImageUsage {
             output_images: observation.output_images,
             provider_receipt_sha256: observation.provider_receipt_sha256,
+            native_tokens: observation.native_tokens,
         };
-        quote
-            .settlement(image.output_images)
-            .map_err(|_| Error::Pending)?;
+        image.validate().map_err(|_| Error::Pending)?;
         let output_digest = digest(&observation.data)?;
         let mut tx = begin(&self.pool).await?;
         let changed=sqlx::query("UPDATE core_image.operations SET state='billing_pending',output=$2,output_digest=$3,image_usage=$4 WHERE id=$1 AND state='dispatching' AND charge_id=$1 AND output IS NULL")
@@ -915,6 +957,9 @@ impl ImageService {
             return Err(Error::Pending);
         }
         tx.commit().await.map_err(|_| Error::Pending)?;
+        // Preserve the measured receipt even if pricing cannot classify it.
+        // UNKNOWN can be investigated without another paid provider dispatch.
+        quote.settlement_usage(&image, None).map_err(|_| Error::Pending)?;
         let charge = self
             .charging
             .settle(
@@ -1131,9 +1176,23 @@ impl ImageService {
         if !(1..=1000).contains(&limit) {
             return Err(Error::Invalid);
         }
-        let ids:Vec<String>=sqlx::query_scalar("SELECT id FROM core_image.operations WHERE state='billing_pending' ORDER BY created_at,id LIMIT $1").bind(limit).fetch_all(&self.pool).await?;
+        let mut cursor = self.recovery_cursor.lock().await;
+        let mut rows: Vec<(i64, String)> = if let Some((created, id)) = cursor.as_ref() {
+            sqlx::query_as("SELECT created_at,id FROM core_image.operations WHERE state='billing_pending' AND (created_at,id)>($2,$3) ORDER BY created_at,id LIMIT $1")
+                .bind(limit).bind(created).bind(id).fetch_all(&self.pool).await?
+        } else {
+            Vec::new()
+        };
+        if rows.is_empty() {
+            *cursor = None;
+            rows = sqlx::query_as("SELECT created_at,id FROM core_image.operations WHERE state='billing_pending' ORDER BY created_at,id LIMIT $1")
+                .bind(limit).fetch_all(&self.pool).await?;
+        }
         let mut finished = 0;
-        for id in ids {
+        for (created, id) in rows {
+            // Advance even for UNKNOWN/error receipts. At most `limit` rows and
+            // two indexed queries per invocation, with wrap only at the end.
+            *cursor = Some((created, id.clone()));
             let Some(mut charge) = self.charging.resolve(&id).await? else {
                 return Err(Error::Storage);
             };
@@ -1141,6 +1200,18 @@ impl ImageService {
                 let r=sqlx::query("SELECT image_usage,output,output_digest FROM core_image.operations WHERE id=$1 AND state='billing_pending'").bind(&id).fetch_one(&self.pool).await?;
                 let image: ImageUsage = serde_json::from_value(r.try_get("image_usage")?)
                     .map_err(|_| Error::Storage)?;
+                if charge
+                    .price
+                    .cost(Usage {
+                        image: Some(image),
+                        ..Usage::default()
+                    })
+                    .is_err()
+                {
+                    // A permanently unclassified receipt must not block later
+                    // independently complete receipts or trigger redispatch.
+                    continue;
+                }
                 let output: Value = r.try_get("output")?;
                 if r.try_get::<Vec<u8>, _>("output_digest")? != digest(&output)? {
                     return Err(Error::Storage);

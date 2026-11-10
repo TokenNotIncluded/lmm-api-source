@@ -104,11 +104,14 @@ pub struct ImageVariant {
     pub quality: String,
     pub max_n: u32,
     pub count_basis: image_price::ImageCountBasis,
-    pub usd_micros_per_image: ExactFraction,
-    pub credits_per_image: ExactFraction,
+    pub usd_micros_per_image: Option<ExactFraction>,
+    pub credits_per_image: Option<ExactFraction>,
     pub reservation_credits_for_one: i64,
+    pub reservation_scope: &'static str,
     pub rounding: &'static str,
     pub pricing_version: u64,
+    #[serde(skip)]
+    native_quote: Option<image_price::PersistedImagePrice>,
 }
 #[derive(Clone)]
 pub struct PricingSurface {
@@ -149,14 +152,21 @@ impl PricingSurface {
             .map(|g| g.name.as_str())
             .collect();
         let mut models = Vec::new();
+        let as_of = chrono::Utc::now().timestamp();
         for route in doc.routing.routes.iter().filter(|r| {
             r.enabled && enabled.contains(r.group.as_str()) && r.speeds.contains(&Speed::Standard)
         }) {
-            let quote = prices
-                .quote(&route.model, &route.group, Speed::Standard)
+            let (quote, calendar) = prices
+                .quote_at(&route.model, &route.group, Speed::Standard, as_of)
+                .map_err(|_| PricingError::Unavailable)?
                 .ok_or(PricingError::Unavailable)?;
-            let token_price_ok =
-                super::routing::credit_price(quote, &route.model, &route.group).is_ok();
+            let token_price_ok = super::routing::credit_price_with_calendar(
+                quote,
+                &route.model,
+                &route.group,
+                calendar.as_ref(),
+            )
+            .is_ok();
             let mut apis = BTreeSet::new();
             let mut upstream_budget_contract_required = false;
             for target in route.targets.iter().filter(|t| {
@@ -570,6 +580,27 @@ pub(crate) fn image_variant(
     rule: &image_price::ImagePriceRule,
     quote: &image_price::ImageQuote,
 ) -> Result<ImageVariant, PricingError> {
+    if matches!(
+        &rule.count_basis,
+        image_price::ImageCountBasis::NativeTokens(_)
+            | image_price::ImageCountBasis::LegacyTokenRatio(_)
+    ) {
+        return Ok(ImageVariant {
+            rate_basis: "base_group_rate",
+            endpoint: rule.endpoint,
+            size: rule.size.clone(),
+            quality: rule.quality.clone(),
+            max_n: rule.max_n,
+            count_basis: rule.count_basis.clone(),
+            usd_micros_per_image: None,
+            credits_per_image: None,
+            reservation_credits_for_one: quote.reservation_credits().into(),
+            reservation_scope: "per_operation",
+            rounding: "half_up_total_credits_positive_minimum",
+            pricing_version: quote.revision(),
+            native_quote: Some(quote.persisted()),
+        });
+    }
     let n = u128::from(rule.usd_micros_per_image.numerator)
         .checked_mul(u128::from(rule.group_multiplier.numerator))
         .ok_or(PricingError::Unavailable)?;
@@ -586,18 +617,20 @@ pub(crate) fn image_variant(
         size: rule.size.clone(),
         quality: rule.quality.clone(),
         max_n: rule.max_n,
-        count_basis: rule.count_basis,
-        usd_micros_per_image: ExactFraction {
+        count_basis: rule.count_basis.clone(),
+        usd_micros_per_image: Some(ExactFraction {
             numerator: n.to_string(),
             denominator: d.to_string(),
-        },
-        credits_per_image: ExactFraction {
+        }),
+        credits_per_image: Some(ExactFraction {
             numerator: credits_n.to_string(),
             denominator: credits_d.to_string(),
-        },
+        }),
         reservation_credits_for_one: quote.reservation_credits().into(),
+        reservation_scope: "per_image",
         rounding: "ceil_total_credits",
         pricing_version: quote.revision(),
+        native_quote: None,
     })
 }
 
@@ -990,6 +1023,7 @@ pub(crate) mod tests {
             request: 0,
         };
         rule.tiered = Some(TieredTariff {
+            calendar: None,
             revision: 1,
             source_digest: "23".repeat(32),
             uses_cache_read: true,
@@ -1415,8 +1449,14 @@ pub(crate) mod tests {
             .unwrap();
         let projected = image_variant(&rule, &quote).unwrap();
         assert_eq!(projected.reservation_credits_for_one, 1);
-        assert_eq!(projected.usd_micros_per_image.numerator, "15");
-        assert_eq!(projected.usd_micros_per_image.denominator, "8");
+        assert_eq!(
+            projected.usd_micros_per_image.as_ref().unwrap().numerator,
+            "15"
+        );
+        assert_eq!(
+            projected.usd_micros_per_image.as_ref().unwrap().denominator,
+            "8"
+        );
         let wire = serde_json::to_string(&projected).unwrap();
         assert!(!wire.contains("private"));
         assert_eq!(projected.pricing_version, 23);
@@ -1558,17 +1598,38 @@ impl PricingProjection {
             }
             for image in &mut row.image_variants {
                 image.rate_basis = "effective_user_rate";
-                image.usd_micros_per_image =
-                    discounted_fraction(&image.usd_micros_per_image, discount)?;
-                image.credits_per_image = discounted_fraction(&image.credits_per_image, discount)?;
+                if let Some(quote) = &image.native_quote {
+                    image.reservation_credits_for_one = quote
+                        .reservation_with_discount(Some(discount))
+                        .map_err(|_| PricingError::Unavailable)?;
+                    continue;
+                }
+                image.usd_micros_per_image = Some(discounted_fraction(
+                    image
+                        .usd_micros_per_image
+                        .as_ref()
+                        .ok_or(PricingError::Unavailable)?,
+                    discount,
+                )?);
+                image.credits_per_image = Some(discounted_fraction(
+                    image
+                        .credits_per_image
+                        .as_ref()
+                        .ok_or(PricingError::Unavailable)?,
+                    discount,
+                )?);
                 use num_bigint::BigUint;
                 let n: BigUint = image
                     .credits_per_image
+                    .as_ref()
+                    .ok_or(PricingError::Unavailable)?
                     .numerator
                     .parse()
                     .map_err(|_| PricingError::Unavailable)?;
                 let d: BigUint = image
                     .credits_per_image
+                    .as_ref()
+                    .ok_or(PricingError::Unavailable)?
                     .denominator
                     .parse()
                     .map_err(|_| PricingError::Unavailable)?;
@@ -1668,6 +1729,7 @@ mod cache_write_12h_projection_tests {
                 group_multiplier_ppm: 1_250_000,
                 speed_multiplier_ppm: 2_000_000,
                 tiered: Some(TieredTariff {
+                    calendar: None,
                     revision: 4,
                     source_digest: "ab".repeat(32),
                     uses_cache_read: true,

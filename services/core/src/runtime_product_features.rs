@@ -28,6 +28,14 @@ WITH expected_schemas(name) AS (
       ('core_subscriptions','external_orders',true),
       ('core_subscriptions','external_proofs',true),
       ('core_subscriptions','external_grants',true),
+      ('core_subscriptions','pancake_prices',true),
+      ('core_subscriptions','pancake_orders',true),
+      ('core_subscriptions','pancake_events',true),
+      ('core_subscriptions','pancake_cycles',true),
+      ('core_subscriptions','stripe_prices',true),
+      ('core_subscriptions','stripe_state',true),
+      ('core_subscriptions','stripe_events',true),
+      ('core_subscriptions','stripe_cycles',true),
       ('core_promotions','secrets',false),
       ('core_promotions','campaigns',true),
       ('core_promotions','commands',true),
@@ -51,6 +59,19 @@ WITH expected_schemas(name) AS (
       ('core_subscriptions','refund_quotes','result'),
       ('core_subscriptions','external_orders','confirmed_at'),
       ('core_subscriptions','external_orders','canceled_at'),
+      ('core_subscriptions','pancake_orders','provider_order_id'),
+      ('core_subscriptions','pancake_orders','status'),
+      ('core_subscriptions','pancake_orders','event_created'),
+      ('core_subscriptions','pancake_orders','event_id'),
+      ('core_subscriptions','pancake_orders','paid_period_start'),
+      ('core_subscriptions','pancake_orders','paid_period_end'),
+      ('core_subscriptions','stripe_state','provider_subscription_id'),
+      ('core_subscriptions','stripe_state','provider_customer_id'),
+      ('core_subscriptions','stripe_state','status'),
+      ('core_subscriptions','stripe_state','event_created'),
+      ('core_subscriptions','stripe_state','event_id'),
+      ('core_subscriptions','stripe_state','period_start'),
+      ('core_subscriptions','stripe_state','period_end'),
       ('core_promotions','campaigns','revision'),
       ('core_promotions','campaigns','title'),
       ('core_promotions','campaigns','budget_units'),
@@ -182,6 +203,21 @@ SELECT (
         return Ok(());
     }
     if !complete {
+        return Err(RuntimeDatabaseError::MissingPrivileges);
+    }
+    // Required even when wallet admission is disabled: Stripe subscriptions
+    // share original transaction ownership with wallet, legacy and EPay.
+    let namespace_complete: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS(SELECT FROM pg_catalog.pg_namespace n
+          JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
+          WHERE n.nspname='core_payments' AND c.relname='provider_identifiers' AND c.relkind='r'
+          AND pg_catalog.has_schema_privilege(n.oid,'USAGE')
+          AND pg_catalog.has_table_privilege(c.oid,'SELECT')
+          AND pg_catalog.has_table_privilege(c.oid,'INSERT'))"#,
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if !namespace_complete {
         return Err(RuntimeDatabaseError::MissingPrivileges);
     }
     // These are shared charging tables. Require the subscription operations'

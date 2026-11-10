@@ -1,4 +1,5 @@
 {
-  "catalog_sha256": "38df997ce287e5bfe31b05a50cc1c7a831189b719e3690b7127a3d6080ad5640",
-  "manifest_sha256": "cd54e4a35500c482ad0385b625edefc160e5dfdeb554b2e0038c00ff81df320c"
+  "component_count": 62,
+  "manifest_sha256": null,
+  "catalog_sha256": null
 }

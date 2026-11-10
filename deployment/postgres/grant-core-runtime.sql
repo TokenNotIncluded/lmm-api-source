@@ -8,6 +8,10 @@
 \else
 \set runtime_role lmm_core_runtime
 \endif
+\if :{?enable_federated_auth}
+\else
+\set enable_federated_auth false
+\endif
 \if :{?enable_events}
 \else
 \set enable_events false
@@ -144,7 +148,7 @@ GRANT CONNECT ON DATABASE :"core_database" TO :"runtime_role";
 GRANT USAGE ON SCHEMA core_meta, core_identity, core_billing TO :"runtime_role";
 GRANT SELECT ON core_meta.schema_contract, core_meta.component_contract,
     core_meta.runtime_contract, core_meta.schema_upgrades, core_meta.component_upgrades,
-    core_meta.ledger_revisions TO :"runtime_role";
+    core_meta.ledger_revisions, core_meta.core59_to62_upgrades TO :"runtime_role";
 -- Historical source receipts and logs are imported offline. Runtime only reads.
 GRANT USAGE ON SCHEMA core_history TO :"runtime_role";
 GRANT SELECT ON core_history.sources, core_history.log_records,
@@ -312,6 +316,17 @@ GRANT SELECT,INSERT ON core_charging.subscriptions TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_charging.subscriptions_id_seq TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_subscriptions.external_ends_at(JSONB,BIGINT),core_subscriptions.apply_epay_grant(TEXT,TEXT,TEXT) TO :"runtime_role";
 -- END subscription-epay runtime grants
+-- BEGIN subscription-stripe runtime grants
+GRANT SELECT,INSERT ON core_subscriptions.stripe_prices,core_subscriptions.stripe_state,
+ core_subscriptions.stripe_events,core_subscriptions.stripe_cycles TO :"runtime_role";
+GRANT UPDATE(provider_subscription_id,provider_customer_id,status,event_created,event_id,period_start,period_end)
+ ON core_subscriptions.stripe_state TO :"runtime_role";
+-- END subscription-stripe runtime grants
+-- BEGIN subscription-pancake runtime grants
+-- Runtime never installs this component and never writes wallet journals here.
+GRANT SELECT,INSERT ON core_subscriptions.pancake_prices,core_subscriptions.pancake_orders,core_subscriptions.pancake_events,core_subscriptions.pancake_cycles TO :"runtime_role";
+GRANT UPDATE(provider_order_id,status,event_created,event_id,paid_period_start,paid_period_end) ON core_subscriptions.pancake_orders TO :"runtime_role";
+-- END subscription-pancake runtime grants
 -- END subscriptions runtime grants
 -- BEGIN promotions runtime grants
 GRANT USAGE ON SCHEMA core_promotions TO :"runtime_role";
@@ -485,6 +500,10 @@ GRANT SELECT,INSERT,UPDATE(state,confirmed_at,confirmation_digest,confirmation_s
     ON core_image.operations TO :"runtime_role";
 GRANT INSERT(image_operation_id),UPDATE(image_usage) ON core_charging.requests TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_image.valid_output(jsonb),
+    core_image.native_counter(jsonb,numeric),
+    core_image.valid_native_tokens(jsonb),
+    core_image.valid_native_usage(jsonb),
+    core_image.valid_image_usage(jsonb),
     core_tool_market.lock_builtin_context(text) TO :"runtime_role";
 -- Only inspect the installer-bound original drawing call; no marketplace mutation.
 GRANT SELECT ON core_tool_market.credit_calls,core_tool_market.credit_consents,
@@ -498,6 +517,20 @@ GRANT SELECT, INSERT, UPDATE (state, settlement_journal_id, revision, delivery_r
     ON core_commerce.orders TO :"runtime_role";
 GRANT SELECT, INSERT ON core_commerce.operations TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_commerce.orders_id_seq TO :"runtime_role";
+-- Partial refunds share the original commerce authority boundary.
+GRANT SELECT,INSERT ON core_commerce.refund_operations TO :"runtime_role";
+GRANT SELECT ON core_commerce.refund_totals TO :"runtime_role";
+GRANT INSERT(order_id) ON core_commerce.refund_totals TO :"runtime_role";
+GRANT UPDATE(refunded_units,refunded_native,retired_quantity,quantity_basis,quantity_native,revision)
+ ON core_commerce.refund_totals TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_commerce.post_refund_delta(BIGINT,TEXT,JSONB,BIGINT,BIGINT,BOOLEAN) TO :"runtime_role";
+-- Historical refund authorizations are imported only by the installation owner.
+-- Root coordinates registration/upgrade and startup ACL checks. No table or
+-- column writes: the owner imports grants; only the closed function moves money.
+REVOKE INSERT,UPDATE,DELETE,TRUNCATE ON core_commerce.legacy_refund_grants,core_commerce.legacy_refund_operations FROM :"runtime_role";
+GRANT SELECT ON core_commerce.legacy_refund_grants,core_commerce.legacy_refund_operations TO :"runtime_role";
+REVOKE ALL ON FUNCTION core_commerce.import_legacy_refund_grant(JSONB) FROM :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_commerce.finalize_legacy_refund(JSONB,BYTEA,BIGINT,BIGINT) TO :"runtime_role";
 \endif
 \if :enable_support_projection
 -- Customer summaries need only seller-bound reads, never a commerce writer.
@@ -669,5 +702,21 @@ GRANT SELECT(user_id,created_at) ON core_market_oauth.families TO :"runtime_role
 GRANT SELECT(document,mapping,native_credential_floor,snapshot_observed_at,
     target_database,target_database_oid,target_nonce)
     ON core_history.connection_snapshot TO :"runtime_role";
+\endif
+\if :enable_federated_auth
+-- Federated login state and provider secrets remain Core-only.
+GRANT USAGE ON SCHEMA core_federated_auth TO :"runtime_role";
+GRANT SELECT ON core_federated_auth.providers, core_federated_auth.identities,
+    core_federated_auth.flows, core_federated_auth.assertions, core_federated_auth.operations TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_federated_auth.providers_id_seq TO :"runtime_role";
+GRANT INSERT (kind, slug, name, icon, enabled, configuration, secret_context, secret_key_id, sealed_secret) ON core_federated_auth.providers TO :"runtime_role";
+GRANT UPDATE (slug, name, icon, enabled, configuration, secret_key_id, sealed_secret, revision, updated_at, deleted_at) ON core_federated_auth.providers TO :"runtime_role";
+GRANT INSERT (provider_id, subject, subject_digest, user_id) ON core_federated_auth.identities TO :"runtime_role";
+GRANT UPDATE (revision, revoked_at) ON core_federated_auth.identities TO :"runtime_role";
+GRANT INSERT (digest, provider_id, provider_revision, purpose, binding_digest, nonce_digest, pkce_verifier, user_id, user_version, sid, accepted_legal, affiliate) ON core_federated_auth.flows TO :"runtime_role";
+GRANT UPDATE (consumed_at) ON core_federated_auth.flows TO :"runtime_role";
+GRANT INSERT (digest) ON core_federated_auth.assertions TO :"runtime_role";
+GRANT INSERT (actor_user_id, operation_key, sid, request_digest, action, provider_id, provider_revision) ON core_federated_auth.operations TO :"runtime_role";
+GRANT DELETE ON core_federated_auth.flows, core_federated_auth.assertions TO :"runtime_role";
 \endif
 COMMIT;

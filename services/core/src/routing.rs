@@ -3,6 +3,7 @@
 //! This module performs no network forwarding, ledger writes, or Go calls.
 //! See README.md for publication, retry, credential, and task 05/06 boundaries.
 
+mod calendar;
 mod config;
 mod engine;
 mod group_name;
@@ -10,6 +11,7 @@ mod pricing;
 pub mod store;
 mod tiered;
 
+pub use calendar::{CalendarBranch, CalendarSchedule, FrozenCalendar};
 pub use config::{
     CredentialRef, Endpoint, FailoverPolicy, ModelAlias, ModelGroup, ModelRoute, PayloadPolicy,
     Protocol, RetryCause, RouteTarget, RoutingConfig, Speed, UpstreamConfig,

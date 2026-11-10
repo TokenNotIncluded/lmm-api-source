@@ -1,8 +1,20 @@
 //! Core subscription sales. A wallet charge and its immutable consumption grant
 //! commit together; renewals create new grants and never extend old streams.
 mod admin;
+mod balance_read;
+mod external_pancake;
+mod pancake_http;
+mod pancake_rpc;
+pub use balance_read::BalancePurchaseStatus;
+pub use external_pancake::{PANCAKE_SCHEMA, PancakeEventReceipt, PancakeOrder};
 pub mod epay_rpc;
 mod external_epay;
+mod external_stripe;
+mod stripe_http;
+mod stripe_rpc;
+#[cfg(test)]
+mod stripe_tests;
+pub use external_stripe::*;
 #[cfg(test)]
 mod external_epay_tests;
 pub use external_epay::*;
@@ -108,7 +120,7 @@ async fn lock(c: &mut PgConnection, actor: i64) -> Result<()> {
 }
 // Both payment directions use this count under the same actor advisory lock.
 async fn purchase_count(c: &mut PgConnection, user: i64, plan: i64) -> Result<i64> {
-    Ok(sqlx::query_scalar("SELECT (SELECT count(*) FROM core_subscriptions.purchases p JOIN core_subscriptions.quotes q ON q.id=p.quote_id WHERE p.actor_user_id=$1 AND q.plan_id=$2 AND p.refund_journal_id IS NULL)+(SELECT count(*) FROM core_subscriptions.external_orders WHERE actor_user_id=$1 AND plan_id=$2 AND confirmed_at IS NOT NULL)")
+    Ok(sqlx::query_scalar("SELECT (SELECT count(*) FROM core_subscriptions.purchases p JOIN core_subscriptions.quotes q ON q.id=p.quote_id WHERE p.actor_user_id=$1 AND q.plan_id=$2 AND p.refund_journal_id IS NULL)+(SELECT count(*) FROM core_subscriptions.external_orders WHERE actor_user_id=$1 AND plan_id=$2 AND confirmed_at IS NOT NULL)+(SELECT count(*) FROM core_subscriptions.commands WHERE actor_user_id=$1 AND request->>'kind'='legacy_balance_original_v1' AND (result->'plan'->>'id')::bigint=$2)")
         .bind(user).bind(plan).fetch_one(c).await?)
 }
 async fn now(c: &mut PgConnection) -> Result<i64> {

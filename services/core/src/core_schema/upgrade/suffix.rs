@@ -33,6 +33,7 @@ macro_rules! reject_suffix {
             "core-channel-observations-v1" => concat!("CHANNEL_OBSERVATIONS_", $code),
             "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
             "core-commerce-display-rate-v1" => concat!("COMMERCE_DISPLAY_RATE_", $code),
+            "core-59-to-62-v1" => concat!("CORE62_", $code),
             "core-subscription-epay-v1" => concat!("SUBSCRIPTION_EPAY_", $code),
             _ => concat!("CHANNEL_PROJECTION_", $code),
         })
@@ -52,8 +53,15 @@ impl Suffix {
     }
 
     fn target(&self) -> Result<Target, UpgradeError> {
-        let target: Target =
-            serde_json::from_str(self.target_json).map_err(|_| UpgradeError::Storage)?;
+        let target: Target = if self.procedure == super::core59_to62::PROCEDURE {
+            let (manifest_sha256, catalog_sha256) = super::core59_to62::captured_target()?;
+            Target {
+                manifest_sha256,
+                catalog_sha256,
+            }
+        } else {
+            serde_json::from_str(self.target_json).map_err(|_| UpgradeError::Storage)?
+        };
         if target.manifest_sha256 != self.target_manifest()? || !digest_hex(&target.catalog_sha256)
         {
             return Err(reject_suffix!(self, "COMPILED_TARGET_CHANGED"));
@@ -138,7 +146,14 @@ impl Suffix {
         Ok(())
     }
 
-    async fn receipt_privileges(&self, c: &mut PgConnection) -> Result<(), UpgradeError> {
+    async fn receipt_privileges(
+        &self,
+        c: &mut PgConnection,
+        r: &UpgradeRequest,
+    ) -> Result<(), UpgradeError> {
+        if self.procedure == super::core59_to62::PROCEDURE {
+            return super::core59_to62::receipt_privileges(c, &r.roles.runtime).await;
+        }
         let safe:bool=sqlx::query_scalar(&format!(r#"
 SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
  WHERE c.oid='{receipt}'::regclass AND a.grantee<>c.relowner)
@@ -179,7 +194,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             if self.predecessor_count < 44 {
                 super::channel_projection::check_ready(&mut tx).await?;
             }
-            self.receipt_privileges(&mut tx).await?;
+            self.receipt_privileges(&mut tx, r).await?;
             tx.rollback().await?;
             return self.report(r, "already_committed", target.catalog_sha256);
         }
@@ -228,6 +243,9 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
                 .execute(&mut *tx)
                 .await?;
         }
+        if self.procedure == super::core59_to62::PROCEDURE {
+            super::core59_to62::grant_runtime(&mut tx, &r.roles.runtime).await?;
+        }
         if self.procedure == super::commerce_display_rate::PROCEDURE {
             // Only this new closed options writer is granted. Existing table,
             // sequence and function permissions remain covered by preservation.
@@ -259,7 +277,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         {
             return Err(reject_suffix!(self, "PRESERVATION_OR_TARGET_MISMATCH"));
         }
-        self.receipt_privileges(&mut tx).await?;
+        self.receipt_privileges(&mut tx, r).await?;
         let changed=sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1 WHERE singleton AND catalog_fingerprint=$2").bind(&catalog).bind(&recorded).execute(&mut *tx).await?;
         if changed.rows_affected() != 1 {
             return Err(reject_suffix!(self, "RUNTIME_RECEIPT_CONFLICT"));

@@ -322,10 +322,10 @@ async fn mixed_history_keeps_tokens_known_model_and_nullable_total_in_real_route
         None,
     )
     .await;
-    let mut read = CommunityRead::new(pool.clone()).await.unwrap();
-    // Exercise the pre-aggregate installation's real log query without dropping
-    // current-schema tables in this disposable DB; no usage result is mocked.
-    read.history_source = "log_records";
+    // Incomplete aggregate data must not hide the complete imported logs.
+    aggregate(&pool, incomplete, 1, 71, 1, 880, 888).await;
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    assert_eq!(read.history_source, "log_records");
     let all = read.user_usage(&request(71, end)).await.unwrap();
     assert_eq!(
         (all.totals.tokens, all.totals.requests, all.totals.credits),

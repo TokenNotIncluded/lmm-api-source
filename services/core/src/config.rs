@@ -6,6 +6,9 @@ mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
 #[path = "config_trust_policy.rs"]
 mod trust_policy_config;
+#[cfg(test)]
+#[path = "config_federated_tests.rs"]
+mod federated_config_tests;
 use serde::Deserialize;
 pub use trust_policy_config::{
     trust_policy_editor, trust_policy_editor_config, trust_policy_editor_enabled,
@@ -159,6 +162,7 @@ struct IdentityFile {
     linuxdo: Option<GoogleFile>,
     discord: Option<GoogleFile>,
     telegram: Option<TelegramFile>,
+    federated_auth: Option<FederatedAuthFile>,
 }
 impl Default for IdentityFile {
     fn default() -> Self {
@@ -183,6 +187,7 @@ impl Default for IdentityFile {
             linuxdo: None,
             discord: None,
             telegram: None,
+            federated_auth: None,
         }
     }
 }
@@ -221,6 +226,23 @@ struct MfaKeyringFile {
     version: u32,
     active_key_id: String,
     keys: Vec<MfaKeyFile>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FederatedAuthFile {
+    #[serde(default)]
+    enabled: bool,
+    keyring_file: Option<PathBuf>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FederatedKeyringFile {
+    version: u32,
+    active_key_id: String,
+    keys: Vec<MfaKeyFile>,
+    /// Stable across encryption-key rotation; retiring this key requires an
+    /// offline wait for all issued bridge codes and replay claims to expire.
+    replay_key_file: PathBuf,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -386,6 +408,14 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     if file.version != 1 {
         return Err(invalid_config("unsupported core configuration version"));
     }
+    if let Some(federated) = &file.identity.federated_auth {
+        if federated.enabled && (file.database.is_none() || file.identity.web.is_none() || federated.keyring_file.is_none()) {
+            return Err(invalid_config("enabled federated authentication requires database, native Web identity and a private keyring"));
+        }
+        if !federated.enabled && federated.keyring_file.is_some() {
+            return Err(invalid_config("disabled federated authentication must not configure a keyring"));
+        }
+    }
     trust_policy_config::validate(
         file.trust_policy_editor.as_ref(),
         file.console.enabled,
@@ -421,6 +451,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.identity.linuxdo.is_some()
             || file.identity.discord.is_some()
             || file.identity.telegram.is_some()
+            || file.identity.federated_auth.as_ref().is_some_and(|auth| auth.enabled || auth.keyring_file.is_some())
             || file.identity.api_key_encryption_key_file.is_some()
             || file.identity.mfa.is_some()
             || file.identity.email_config_file.is_some()
@@ -555,6 +586,16 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     if let Some(mfa) = file.identity.mfa {
         paths.push(("LMM_CORE_MFA_KEYRING_FILE", mfa.keyring_file));
+    }
+    if let Some(auth) = file.identity.federated_auth {
+        if auth.enabled {
+            let path = auth.keyring_file.ok_or_else(|| invalid_config("federated authentication requires a private keyring file"))?;
+            put("LMM_CORE_FEDERATED_AUTH_ENABLED", "true".to_owned());
+            paths.push(("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE", path));
+        } else {
+            if auth.keyring_file.is_some() { return Err(invalid_config("disabled federated authentication has key configuration")); }
+            put("LMM_CORE_FEDERATED_AUTH_ENABLED", "false".to_owned());
+        }
     }
     if let Some(market) = file.market_oauth {
         let web = file
@@ -1105,7 +1146,32 @@ pub fn identity_auth(
             .with_mfa_keys(ring.active_key_id, keys)
             .map_err(|_| invalid_config("invalid MFA keyring configuration"))?;
     }
+    if federated_auth_configured()? {
+        let path = setting_os("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE")
+            .ok_or_else(|| invalid_config("federated authentication requires a private keyring file"))?;
+        let ring: FederatedKeyringFile = parse_document(&private_file(Path::new(&path), 16 * 1024)?)?;
+        if ring.version != 1 || ring.keys.is_empty() || ring.keys.len() > 8 {
+            return Err(invalid_config("invalid federated authentication keyring"));
+        }
+        let mut guarded = Vec::new();
+        for key in ring.keys {
+            guarded.push((key.id, zeroize::Zeroizing::new(private_file(&key.key_file, 32)?)));
+        }
+        let keys = guarded.into_iter().map(|(id, mut key)| (id, std::mem::take(&mut *key))).collect();
+        let replay_key = private_file(&ring.replay_key_file, 32)?;
+        store = store.with_federated_keys(ring.active_key_id, keys, replay_key)
+            .map_err(|_| invalid_config("invalid federated authentication keyring"))?;
+    }
     Ok(store)
+}
+
+pub fn federated_auth_configured() -> io::Result<bool> {
+    let enabled = optional_bool_setting("LMM_CORE_FEDERATED_AUTH_ENABLED")?;
+    let key = setting_os("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE").is_some();
+    if (enabled == Some(false) && key) || (enabled == Some(true) && !key) {
+        return Err(invalid_config("inconsistent federated authentication enable/key configuration"));
+    }
+    Ok(key)
 }
 
 fn optional_bool_setting(name: &'static str) -> io::Result<Option<bool>> {

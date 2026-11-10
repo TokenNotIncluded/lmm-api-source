@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-fn bearer(headers: &HeaderMap) -> Result<&str> {
+pub(super) fn bearer(headers: &HeaderMap) -> Result<&str> {
     if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
         return Err(Error::Unauthorized);
     }
@@ -60,6 +60,19 @@ pub fn router(pool: PgPool) -> Router {
             post(invalidate_grant),
         )
         .route("/core/v1/subscriptions/quotes", post(quote))
+        .route(
+            "/core/v1/subscriptions/legacy/unknown-orders",
+            get(unknown_orders),
+        )
+        .route(
+            "/core/v1/subscriptions/legacy/unknown-orders/{id}",
+            get(unknown_order),
+        )
+        .route("/core/v1/subscriptions/quotes/{id}", get(balance_status))
+        .route(
+            "/core/v1/subscriptions/legacy/balance-orders/{id}",
+            get(read_legacy_balance),
+        )
         .route("/core/v1/subscriptions/quotes/{id}/confirm", post(confirm))
         .route("/core/v1/subscriptions/purchases", get(purchases))
         .route(
@@ -254,4 +267,40 @@ async fn save_epay_price(
 struct SaveEPayPrice {
     operation_key: String,
     price: ExternalPrice,
+}
+
+async fn balance_status(
+    State(s): State<SubscriptionStore>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+) -> Result<Json<Value>> {
+    let status = s.read_balance_purchase(bearer(&h)?, &id).await?;
+    Ok(Json(
+        json!({"contract":CONTRACT,"quote":status.quote,"receipt":status.receipt}),
+    ))
+}
+
+async fn read_legacy_balance(
+    State(s): State<SubscriptionStore>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Value>> {
+    Ok(Json(
+        s.read_legacy_balance_purchase(bearer(&h)?, &id).await?,
+    ))
+}
+
+async fn unknown_orders(State(s): State<SubscriptionStore>, h: HeaderMap) -> Result<Json<Value>> {
+    Ok(Json(
+        json!({"orders":s.legacy_subscription_unknowns(bearer(&h)?).await?}),
+    ))
+}
+async fn unknown_order(
+    State(s): State<SubscriptionStore>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Value>> {
+    Ok(Json(
+        s.read_legacy_subscription_unknown(bearer(&h)?, &id).await?,
+    ))
 }

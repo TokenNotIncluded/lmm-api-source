@@ -76,7 +76,7 @@ fn amount(value: &str) -> Result<i64> {
     }
     Ok(n)
 }
-async fn order(c: &mut PgConnection, id: &str) -> Result<EPayPurchase> {
+pub(super) async fn order(c: &mut PgConnection, id: &str) -> Result<EPayPurchase> {
     let r = sqlx::query("SELECT o.*,r.terms,false AS archived,o.plan_revision AS revision,p.id AS proof_id,g.subscription_id,g.granted_at,g.ends_at FROM core_subscriptions.external_orders o JOIN core_subscriptions.plan_revisions r ON r.plan_id=o.plan_id AND r.revision=o.plan_revision LEFT JOIN core_subscriptions.external_proofs p ON p.order_id=o.id LEFT JOIN core_subscriptions.external_grants g ON g.order_id=o.id WHERE o.id=$1")
         .bind(id).fetch_optional(c).await?.ok_or(Error::NotFound)?;
     Ok(EPayPurchase {
@@ -105,7 +105,7 @@ async fn binding(c: &mut PgConnection, id: &str) -> Result<Binding> {
         .await?,
     )
 }
-async fn owned(c: &mut PgConnection, secret: &str, id: &str) -> Result<Principal> {
+pub(super) async fn owned(c: &mut PgConnection, secret: &str, id: &str) -> Result<Principal> {
     let a = actor(c, secret, false).await?;
     lock(c, a.user_id).await?;
     let owns:bool=sqlx::query_scalar("SELECT actor_user_id=$2 AND account_id=$3 FROM core_subscriptions.external_orders WHERE id=$1 FOR UPDATE")
@@ -186,7 +186,7 @@ impl SubscriptionStore {
     ) -> Result<Vec<ExternalPrice>> {
         let mut tx = self.begin().await?;
         actor(&mut tx, secret, admin).await?;
-        let rows=sqlx::query("SELECT e.* FROM core_subscriptions.external_prices e JOIN core_subscriptions.plans p ON p.id=e.plan_id AND p.revision=e.plan_revision JOIN core_subscriptions.plan_revisions r ON r.plan_id=p.id AND r.revision=p.revision WHERE p.id=$1 AND ($2 OR (NOT p.archived AND (r.terms->>'enabled')::boolean)) ORDER BY channel_id")
+        let rows=sqlx::query("SELECT e.* FROM core_subscriptions.external_prices e JOIN core_subscriptions.plans p ON p.id=e.plan_id AND p.revision=e.plan_revision JOIN core_subscriptions.plan_revisions r ON r.plan_id=p.id AND r.revision=p.revision WHERE p.id=$1 AND e.currency IN ('CNY','LDC') AND ($2 OR (NOT p.archived AND (r.terms->>'enabled')::boolean)) ORDER BY channel_id")
             .bind(plan_id).bind(admin).fetch_all(&mut *tx).await?;
         let result = rows
             .into_iter()

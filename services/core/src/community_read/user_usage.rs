@@ -50,7 +50,7 @@ fn scoped_usage(history_source: &str) -> String {
 
 impl CommunityRead {
     /// Actor-scoped native usage plus the selected complete imported source.
-    /// Installed hourly aggregates still supersede logs, never add to them.
+    /// Complete imported hourly aggregates supersede logs, never add to them.
     pub async fn user_usage(&self, r: &UserUsageRequest) -> Result<UserUsage> {
         r.validate()?;
         let mut tx = self.snapshot().await?;

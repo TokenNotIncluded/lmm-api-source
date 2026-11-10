@@ -407,6 +407,7 @@ type ModelPrices = HashMap<String, BTreeMap<Speed, PriceQuote>>;
 pub struct PriceSnapshot {
     config: PriceConfig,
     groups: HashMap<String, ModelPrices>,
+    calendars: HashMap<u64, super::calendar::CompiledCalendar>,
 }
 
 impl PriceSnapshot {
@@ -415,6 +416,7 @@ impl PriceSnapshot {
             return Err(RoutingError::InvalidConfig("price version or size"));
         }
         let mut ids = HashSet::new();
+        let mut calendars = HashMap::new();
         let mut groups: HashMap<String, ModelPrices> = HashMap::new();
         for rule in &config.rules {
             if !valid_id(rule.id)
@@ -447,7 +449,14 @@ impl PriceSnapshot {
                     .iter()
                     .all(|v| *v == 0) =>
                 {
-                    Some(tariff.compile()?)
+                    if let Some(calendar) = &tariff.calendar {
+                        calendars.insert(rule.id, calendar.compile(tariff)?);
+                        let mut base = tariff.clone();
+                        base.calendar = None;
+                        Some(base.compile()?)
+                    } else {
+                        Some(tariff.compile()?)
+                    }
                 }
                 (None, BillingMode::Tokens | BillingMode::UpstreamCost) => None,
                 _ => return Err(RoutingError::InvalidConfig("tiered token price")),
@@ -489,7 +498,11 @@ impl PriceSnapshot {
                 return Err(RoutingError::InvalidConfig("duplicate price rule"));
             }
         }
-        Ok(Self { config, groups })
+        Ok(Self {
+            config,
+            groups,
+            calendars,
+        })
     }
 
     pub fn version(&self) -> u64 {
@@ -497,7 +510,33 @@ impl PriceSnapshot {
     }
 
     pub fn quote(&self, model: &str, group: &str, speed: Speed) -> Option<PriceQuote> {
+        let quote = self.template(model, group, speed)?;
+        // Callers without an admission timestamp cannot choose a calendar price.
+        (!self.calendars.contains_key(&quote.rule_id)).then_some(quote)
+    }
+
+    pub(super) fn template(&self, model: &str, group: &str, speed: Speed) -> Option<PriceQuote> {
         self.groups.get(group)?.get(model)?.get(&speed).copied()
+    }
+
+    pub fn quote_at(
+        &self,
+        model: &str,
+        group: &str,
+        speed: Speed,
+        timestamp: i64,
+    ) -> Result<Option<(PriceQuote, Option<super::FrozenCalendar>)>, RoutingError> {
+        let Some(mut quote) = self.template(model, group, speed) else {
+            return Ok(None);
+        };
+        let calendar = if let Some(calendar) = self.calendars.get(&quote.rule_id) {
+            let (tariff, frozen) = calendar.select(timestamp)?;
+            quote.tiered = Some(tariff);
+            Some(frozen)
+        } else {
+            None
+        };
+        Ok(Some((quote, calendar)))
     }
 
     pub fn config(&self) -> &PriceConfig {
@@ -505,7 +544,7 @@ impl PriceSnapshot {
     }
 
     pub(super) fn same_content(&self, other: &Self) -> bool {
-        self.groups == other.groups
+        self.groups == other.groups && self.calendars == other.calendars
     }
 }
 

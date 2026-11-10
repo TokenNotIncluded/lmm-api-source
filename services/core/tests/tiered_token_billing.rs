@@ -33,6 +33,7 @@ fn tariff() -> TieredTariff {
         denominator,
     };
     TieredTariff {
+        calendar: None,
         revision: 1,
         source_digest: "23".repeat(32),
         uses_cache_read: true,
@@ -72,6 +73,7 @@ fn cache_12h_tariff() -> TieredTariff {
         denominator,
     };
     TieredTariff {
+        calendar: None,
         revision: 4,
         source_digest: "45".repeat(32),
         uses_cache_read: true,

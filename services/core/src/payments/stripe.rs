@@ -257,7 +257,7 @@ pub(super) fn verify(
     }
 }
 
-fn verify_signature(
+pub(super) fn verify_signature(
     payload: &[u8],
     header: &[u8],
     secrets: &[String],

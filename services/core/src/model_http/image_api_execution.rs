@@ -221,7 +221,10 @@ impl ImageService {
             .map_err(admission_error)?;
         let provider = self
             .providers
-            .get(&quote.binding().upstream_id)
+            .get(&(
+                quote.binding().upstream_id,
+                quote.binding().upstream_model.clone(),
+            ))
             .ok_or(Error::Invalid)?;
         let prepared = match edits {
             None => {
@@ -261,13 +264,14 @@ impl ImageService {
         tx.commit().await.map_err(|_| Error::Pending)?;
         let result=async {
             let observation=prepared.dispatch().await.map_err(|_|Error::Pending)?;
-            let image=ImageUsage{output_images:observation.output_images,provider_receipt_sha256:observation.provider_receipt_sha256};
-            quote.settlement(image.output_images).map_err(|_|Error::Pending)?;
+            let image=ImageUsage{output_images:observation.output_images,provider_receipt_sha256:observation.provider_receipt_sha256,native_tokens:observation.native_tokens};
+            image.validate().map_err(|_|Error::Pending)?;
             let output_digest=digest(&observation.data)?;
             let mut tx=begin(&self.pool).await?;
             let changed=sqlx::query("UPDATE core_image.operations SET state='billing_pending',output=$2,output_digest=$3,image_usage=$4 WHERE id=$1 AND state='dispatching' AND charge_id=$1 AND output IS NULL").bind(&id).bind(observation.data).bind(output_digest.as_slice()).bind(json!(image)).execute(&mut *tx).await?.rows_affected();
             if changed!=1{return Err(Error::Pending)}
             tx.commit().await.map_err(|_|Error::Pending)?;
+            quote.settlement_usage(&image, None).map_err(|_|Error::Pending)?;
             let charge=self.charging.settle(&id,&worker,Usage{image:Some(image),..Usage::default()},Outcome::Completed).await?;
             self.complete(&charge).await?;
             self.query_api_with_peer(secret,&id,peer).await
