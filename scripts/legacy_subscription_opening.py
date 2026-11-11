@@ -1,4 +1,4 @@
-"""Offline subscription writer for a reviewed, UTC-only legacy source contract.
+"""Offline subscription writer for reviewed legacy source contracts.
 
 This library has no target connection or apply CLI. It generates an approved SQL
 batch for a newly isolated target, using the financial writer's full target
@@ -9,7 +9,8 @@ units, timezone, reset basis or policy effects reject the entire batch.
 A financial opening attestation supplies target/source identity, not permission
 for subscriptions. Its wallet payloads are validated but never executed here.
 Renewal beyond the recorded expiry is a separate grant. Group transitions and
-wallet overflow are unsupported and must be absent, never silently discarded.
+active wallet overflow are unsupported. Expired epoch-only history preserves
+the original policy without granting present or future spending rights.
 Account funding preferences are conserved; importing entitlements does not change
 an identity-only target's wallet_only policy or activate subscription spending.
 """
@@ -23,6 +24,7 @@ import financial_import as F
 
 SCOPE = "subscription-opening-only-v1"
 SOURCE_CONTRACT = "legacy-subscription-utc-reviewed-v1"
+SOURCE_HISTORY_CONTRACT = "legacy-subscription-expired-epoch-history-v1"
 CHANGED_TABLES = ("core_charging.subscriptions", "core_charging.subscription_opening_consumption")
 SEQUENCE = "core_charging.subscriptions_id_seq"
 MAX_TIME = 253402300799
@@ -41,7 +43,7 @@ def _policy_list(value):
             "subscription_policy_list_invalid")
 
 
-def build_records(plan, review):
+def build_records(plan, review, *, observed_at=None):
     """Map only source facts whose exact monetary and policy meaning was reviewed.
 
     `review.policies` must name every source subscription exactly once, including
@@ -55,12 +57,19 @@ def build_records(plan, review):
         "mapping_sha256", "identity_map_sha256", "evidence_sha256", "credits_per_usd",
         "source_timezone", "renewal_policy", "policies"}, "subscription_review_shape_invalid")
     require(type(review["format_version"]) is int and review["format_version"] == 1
-            and review["scope"] == SCOPE and review["source_contract"] == SOURCE_CONTRACT
+            and review["scope"] == SCOPE
+            and review["source_contract"] in (SOURCE_CONTRACT, SOURCE_HISTORY_CONTRACT)
             and review["decision"] == "approved-offline-subscriptions"
             and type(review["credits_per_usd"]) is int and review["credits_per_usd"] == 500000
-            and review["source_timezone"] == plan.get("source_timezone") == "UTC"
             and review["renewal_policy"] == "separate-grant-after-expiry",
             "subscription_source_basis_unproven")
+    history_only = review["source_contract"] == SOURCE_HISTORY_CONTRACT
+    if history_only:
+        require(review["source_timezone"] is None and plan.get("source_timezone") is None,
+                "subscription_source_basis_unproven")
+    else:
+        require(review["source_timezone"] == plan.get("source_timezone") == "UTC",
+                "subscription_source_basis_unproven")
     for k in ("source_archive_sha256", "mapping_sha256", "identity_map_sha256"):
         require(review[k] == plan.get(k), "subscription_review_source_mismatch")
     F.checked_hash(review["evidence_sha256"])
@@ -85,13 +94,22 @@ def build_records(plan, review):
         p = policies[r["source_subscription_id"]]
         require(all(p[k] == r[k] for k in ("source_row_sha256", "plan_row_sha256")),
                 "subscription_policy_source_mismatch")
-        require(r["allow_wallet_overflow"] is False
-                and all(r[k] in (None, "") for k in ("upgrade_group", "previous_group", "downgrade_group")),
-                "subscription_runtime_policy_unrepresentable")
         require(r["calendar_period"] in periods, "subscription_period_unproven")
         period = periods[r["calendar_period"]]
         start = integer(r["start_time"], "subscription_start_invalid", minimum=0, maximum=MAX_TIME)
         end = integer(r["end_time"], "subscription_end_invalid", minimum=start + 1, maximum=MAX_TIME)
+        expired_at_snapshot = (r["status"] == "expired" and type(observed_at) is int
+                               and end <= observed_at <= MAX_TIME)
+        if history_only:
+            require(r["calendar_period"] == "never" and expired_at_snapshot,
+                    "subscription_epoch_history_unrepresentable")
+        # An expired grant cannot exercise overflow or renew past its immutable
+        # end. Keep the original policy in source_plan and the formal receipt.
+        historical_overflow = (r["allow_wallet_overflow"] is True
+                               and expired_at_snapshot)
+        require((r["allow_wallet_overflow"] is False or historical_overflow)
+                and all(r[k] in (None, "") for k in ("upgrade_group", "previous_group", "downgrade_group")),
+                "subscription_runtime_policy_unrepresentable")
         used = integer(r["opening_used_units"], "subscription_used_invalid", minimum=0)
         amount = integer(r["original_amount_total"], "subscription_limit_invalid", minimum=0)
         unlimited = r["unlimited"]
@@ -127,7 +145,8 @@ def prepare_material(financial_attestation, review, *, migration_id):
     F.validate_material(financial_attestation)
     require(type(migration_id) is str and F.IDENTITY.MIGRATION_ID.fullmatch(migration_id)
             and len(migration_id) <= 100, "subscription_migration_id_invalid")
-    records = build_records(financial_attestation["source_plan"], review)
+    records = build_records(financial_attestation["source_plan"], review,
+                            observed_at=financial_attestation["observation"]["observed_at"])
     m = {"format_version": 1, "scope": SCOPE, "migration_id": migration_id,
          "financial_attestation": financial_attestation, "source_review": review,
          "records": records, "mapping_sha256": F.digest(records), "tool_source_hashes": source_hashes()}
@@ -146,7 +165,8 @@ def validate_material(m):
     F.validate_material(a)
     require(m["tool_source_hashes"] == source_hashes(), "subscription_tool_changed")
     require(F.digest(m["records"]) == m["mapping_sha256"]
-            and m["records"] == build_records(a["source_plan"], m["source_review"]), "subscription_adapter_mismatch")
+            and m["records"] == build_records(a["source_plan"], m["source_review"],
+                observed_at=a["observation"]["observed_at"]), "subscription_adapter_mismatch")
     s = a["before_state"]
     require(set(CHANGED_TABLES) <= set(s["inventory"]["tables"])
             and SEQUENCE in s["inventory"]["sequences"], "subscription_inventory_incomplete")

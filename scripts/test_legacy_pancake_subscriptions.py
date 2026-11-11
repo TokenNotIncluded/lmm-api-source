@@ -82,4 +82,47 @@ class OriginalTests(unittest.TestCase):
         f=self.fixture();f[1]['orders'][0]['disposition']='retain-unknown'
         with self.assertRaises(W.F.IDENTITY.MappingError):self.build(f)
 
+    def test_true_policy_pending_is_durable_without_a_payable_projection(self):
+        source, review, users = self.fixture()
+        row = source['orders'][0]
+        row['plan_snapshot']['allow_wallet_overflow'] = True
+        binding = review['orders'][0]
+        binding.update(source_row_sha256=W.F.digest(row), disposition='retain-unknown')
+        record = W.build_records(source, review, users)[0]
+        self.assertEqual(record['unknown']['source_status'], 'pending')
+        self.assertEqual(record['unknown']['missing_material'], ['unsupported_source_overflow_policy'])
+        self.assertEqual(record['unknown']['source_snapshot'], row['plan_snapshot'])
+        self.assertNotIn('plan', record)
+        self.assertNotIn('order_id', record)
+        self.assertNotIn('binding', record)
+        row['plan_snapshot']['allow_wallet_overflow'] = False
+        binding['source_row_sha256'] = W.F.digest(row)
+        with self.assertRaisesRegex(W.F.IDENTITY.MappingError, 'original_complete_material_cannot_be_discarded'):
+            W.build_records(source, review, users)
+
+    def test_true_policy_paid_history_requires_exact_terminal_entitlement(self):
+        source, review, users = self.fixture(status='success')
+        row = source['orders'][0]
+        row.update(user_subscription_id=1, provider_subscription_id='')
+        row['plan_snapshot'].update(allow_wallet_overflow=True, waffo_pancake_product_type='one_time')
+        binding = review['orders'][0]
+        binding.update(source_row_sha256=W.F.digest(row), disposition='retain-unknown', projection='historical-only')
+        end = binding['last_paid_period_end']
+        entitlement = {'source_subscription_id': 1, 'source_plan_id': 5,
+            'source_user_id': 7, 'account_id': 70, 'status': 'expired', 'end_time': end,
+            'source_row_sha256': 'b' * 64, 'plan_row_sha256': 'c' * 64}
+        record = W.build_records(source, review, users, observed_at=end, source_entitlements=[entitlement])[0]
+        self.assertEqual(record['unknown']['state'], 'UNKNOWN')
+        self.assertEqual(record['unknown']['source_status'], 'success')
+        self.assertEqual(record['unknown']['projection'], 'historical-only')
+        self.assertEqual(record['unknown']['formal_grant']['reference'], 'legacy-sub:opening:1')
+        self.assertNotIn('plan', record)
+        for changes in ({'status': 'active'}, {'account_id': 71}, {'source_plan_id': 6}, {'end_time': end + 1}):
+            with self.subTest(changes=changes), self.assertRaises(W.F.IDENTITY.MappingError):
+                W.build_records(source, review, users, observed_at=end,
+                    source_entitlements=[{**entitlement, **changes}])
+        for cutoff in (None, True, end - 1):
+            with self.subTest(cutoff=cutoff), self.assertRaises(W.F.IDENTITY.MappingError):
+                W.build_records(source, review, users, observed_at=cutoff, source_entitlements=[entitlement])
+
 if __name__=='__main__':unittest.main()

@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from decimal import Decimal
 from pathlib import Path
 import financial_import as F
 
@@ -24,7 +25,7 @@ def identifier(v):
     require(type(v) is str and re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', v), 'original_identifier_invalid')
     return v
 
-def build_records(source, review, native_users):
+def build_records(source, review, native_users, *, observed_at=None, source_entitlements=()):
     require(type(source) is dict and type(source.get('orders')) is list, 'original_source_invalid')
     archive = F.checked_hash(source.get('source_archive_sha256'))
     require(type(review) is dict and review.get('source_archive_sha256') == archive
@@ -54,12 +55,13 @@ def build_records(source, review, native_users):
         if row.get('create_time') is not None and row.get('created_at') is not None:
             require(row['create_time']==row['created_at'], 'original_creation_ambiguous')
         gaps=[]
+        parsed=None
         field=b.get('snapshot_field')
         snapshot=row.get(field) if type(field) is str else None
         if snapshot in (None,''): gaps.append('original_snapshot_missing')
         else:
             try:
-                parsed=json.loads(snapshot) if type(snapshot) is str else snapshot
+                parsed=json.loads(snapshot, parse_float=Decimal) if type(snapshot) is str else snapshot
                 if type(parsed) is not dict:gaps.append('original_snapshot_invalid')
             except (ValueError,TypeError):gaps.append('original_snapshot_invalid')
         if provider!='balance':
@@ -71,14 +73,45 @@ def build_records(source, review, native_users):
                 gaps.append('original_product_store_missing')
         elif type(row.get('charged_quota')) is not int or row['charged_quota']<=0:
             gaps.append('original_balance_charge_missing')
+        unsupported_overflow = (provider == 'waffo_pancake' and field == 'plan_snapshot'
+            and type(parsed) is dict and parsed.get('allow_wallet_overflow') is True)
+        if unsupported_overflow:
+            gaps.append('unsupported_source_overflow_policy')
         if gaps:
             require(b.get('disposition')=='retain-unknown', 'original_missing_material_requires_explicit_unknown')
-            result.append({'source_order_id':oid,'actor_user_id':user,'account_id':users[user],
+            record = {'source_order_id':oid,'actor_user_id':user,'account_id':users[user],
                 'provider':provider,'reference':reference,'disposition':'UNKNOWN',
                 'operation_key':'legacy_unknown_'+F.digest([archive,oid]),
                 'unknown':{'state':'UNKNOWN','source_order_id':str(oid),'account_id':str(users[user]),
                     'provider':provider,'reference':reference,'source_status':status,'created_at':str(created),
-                    'source_archive_sha256':archive,'source_row_sha256':F.digest(row),'missing_material':gaps}})
+                    'source_archive_sha256':archive,'source_row_sha256':F.digest(row),'missing_material':gaps}}
+            if unsupported_overflow:
+                record['unknown']['source_snapshot'] = copy.deepcopy(snapshot)
+                record['unknown']['source_snapshot_sha256'] = F.digest(parsed)
+            if unsupported_overflow and status == 'success':
+                sid = integer(row.get('user_subscription_id'), 'original_history_source_link_missing', minimum=1)
+                matches = [e for e in source_entitlements if e['source_subscription_id'] == sid]
+                require(len(matches) == 1, 'original_history_entitlement_missing')
+                entitlement = matches[0]
+                cutoff = integer(b.get('last_paid_period_end'), 'original_paid_cutoff_required', minimum=1)
+                reference_grant = b.get('opening_grant_reference')
+                require(type(reference_grant) is str and reference_grant.startswith('legacy-sub:')
+                    and reference_grant.endswith(':' + str(sid)) and len(reference_grant) <= 200,
+                    'original_opening_grant_required')
+                require(b.get('projection') == 'historical-only'
+                    and type(observed_at) is int and cutoff <= observed_at
+                    and entitlement['status'] == 'expired' and entitlement['end_time'] == cutoff
+                    and entitlement['source_user_id'] == user and entitlement['account_id'] == users[user]
+                    and entitlement['source_plan_id'] == row.get('plan_id')
+                    and parsed.get('waffo_pancake_product_type') == 'one_time'
+                    and not row.get('provider_subscription_id'), 'original_history_not_terminal')
+                record['unknown'].update(projection='historical-only', formal_grant={
+                    'reference': reference_grant, 'cutoff': str(cutoff), 'source_subscription_id': str(sid),
+                    'source_row_sha256': F.checked_hash(entitlement['source_row_sha256']),
+                    'plan_row_sha256': F.checked_hash(entitlement['plan_row_sha256'])})
+            else:
+                require(b.get('projection') is None, 'original_history_not_terminal')
+            result.append(record)
             continue
         require(b.get('disposition')!='retain-unknown', 'original_complete_material_cannot_be_discarded')
         require(provider!='epay', 'complete_legacy_epay_requires_its_own_binding_writer')
@@ -89,7 +122,7 @@ def build_records(source, review, native_users):
         require(type(field) is str and field in row and row[field] not in ('', None), 'original_frozen_snapshot_missing')
         snapshot = row[field]
         if type(snapshot) is str:
-            snapshot = json.loads(snapshot)
+            snapshot = json.loads(snapshot, parse_float=Decimal)
         require(type(snapshot) is dict, 'original_frozen_snapshot_invalid')
         terms_review = b.get('terms_review', {})
         require(terms_review == {'decision': 'equivalent-no-unsupported-policy',
@@ -165,7 +198,9 @@ def prepare_material(attestation, source, review, *, migration_id):
     F.validate_material(attestation)
     require(type(migration_id) is str and F.IDENTITY.MIGRATION_ID.fullmatch(migration_id), 'original_migration_id_invalid')
     require(source.get('source_archive_sha256') == attestation['source_archive_sha256'], 'original_archive_mismatch')
-    records = build_records(source, review, attestation['native_users'])
+    records = build_records(source, review, attestation['native_users'],
+        observed_at=attestation['observation']['observed_at'],
+        source_entitlements=attestation['source_plan']['subscription_entitlements'])
     if any(r['provider']=='balance' and r.get('disposition')!='UNKNOWN' for r in records):
         require(review['unit_mapping_sha256']==F.digest(attestation['source_review']), 'original_financial_unit_review_mismatch')
     return {'format_version': 1, 'scope': SCOPE, 'migration_id': migration_id,
@@ -185,7 +220,7 @@ def build_apply_sql(m):
     changed = 'ARRAY[' + ','.join(F.literal(t) for t in CHANGED) + ']::text[]'
     sql = F._start(e, readonly=False) + f'''
 DO $lmm_originals$
-DECLARE m jsonb:={F.literal(m)}::jsonb; p jsonb; b jsonb; t jsonb; price jsonb; before_state jsonb; after_state jsonb;
+DECLARE m jsonb:={F.literal(m)}::jsonb; p jsonb; b jsonb; saved_price jsonb; price jsonb; before_state jsonb; after_state jsonb;
  previous core_migration.import_runs%ROWTYPE; grant_id bigint; original_order text; original_channel bigint; original_plan bigint; original_revision bigint;
 BEGIN
  {guard}
@@ -207,6 +242,23 @@ BEGIN
    THEN RAISE EXCEPTION 'original_identity_changed'; END IF;
   FOR p IN SELECT value FROM jsonb_array_elements(m->'records') LOOP
    IF p->>'disposition'='UNKNOWN' THEN
+    IF p->'unknown'->>'projection'='historical-only' AND NOT EXISTS(
+      SELECT FROM core_charging.subscriptions s, core_migration.import_runs r,
+       LATERAL jsonb_array_elements(r.manifest->'material'->'records') opening
+      WHERE r.manifest->>'scope'='subscription-opening-only-v1'
+       AND r.source_archive_sha256=m->'financial_attestation'->>'source_archive_sha256'
+       AND s.grant_reference=p->'unknown'->'formal_grant'->>'reference'
+       AND s.grant_reference='legacy-sub:'||r.migration_id||':'||(opening->>'source_subscription_id')
+       AND s.account_id=(p->>'account_id')::bigint AND NOT s.active
+       AND s.ends_at=(p->'unknown'->'formal_grant'->>'cutoff')::bigint
+       AND s.ends_at<=(m->'financial_attestation'->'observation'->>'observed_at')::bigint
+       AND opening->>'source_subscription_id'=p->'unknown'->'formal_grant'->>'source_subscription_id'
+       AND (opening->>'source_user_id')::bigint=(p->>'actor_user_id')::bigint
+       AND (opening->>'account_id')::bigint=(p->>'account_id')::bigint
+       AND (opening->>'ends_at')::bigint=s.ends_at
+       AND opening->>'source_row_sha256'=p->'unknown'->'formal_grant'->>'source_row_sha256'
+       AND opening->>'plan_row_sha256'=p->'unknown'->'formal_grant'->>'plan_row_sha256')
+    THEN RAISE EXCEPTION 'original_opening_receipt_mismatch'; END IF;
     INSERT INTO core_subscriptions.commands(actor_user_id,operation_key,request,result)
     VALUES((p->>'actor_user_id')::bigint,p->>'operation_key',jsonb_build_object('kind','legacy_subscription_unknown_v1'),p->'unknown');
    ELSE
@@ -247,8 +299,8 @@ BEGIN
     VALUES(original_plan,original_revision,original_channel,price->>'store_id',price->>'product_id',price->>'product_type',price->>'billing_period',
       price->>'provider_plan_reference',price->>'return_url',price->>'checkout_region',price->>'checkout_language',price->>'tax_category')
     ON CONFLICT DO NOTHING;
-    SELECT to_jsonb(pp) INTO t FROM core_subscriptions.pancake_prices pp WHERE pp.plan_id=original_plan AND pp.plan_revision=original_revision AND pp.channel_id=original_channel;
-    IF t IS DISTINCT FROM (price-ARRAY['currency','amount_minor']) || jsonb_build_object('plan_id',original_plan,'plan_revision',original_revision,'channel_id',original_channel)
+    SELECT to_jsonb(pp) INTO saved_price FROM core_subscriptions.pancake_prices pp WHERE pp.plan_id=original_plan AND pp.plan_revision=original_revision AND pp.channel_id=original_channel;
+    IF saved_price IS DISTINCT FROM (price-ARRAY['currency','amount_minor']) || jsonb_build_object('plan_id',original_plan,'plan_revision',original_revision,'channel_id',original_channel)
      THEN RAISE EXCEPTION 'original_product_price_conflict'; END IF;
     INSERT INTO core_subscriptions.external_orders(id,actor_user_id,account_id,operation_key,plan_id,plan_revision,channel_id,
       provider,merchant,environment,currency,amount_minor,channel_binding,quoted_at,expires_at,confirmed_at)
@@ -263,7 +315,7 @@ BEGIN
   END LOOP;
   SET CONSTRAINTS ALL IMMEDIATE;
   SELECT ({state}) INTO after_state;
-  IF before_state->'tables'-{changed} IS DISTINCT FROM after_state->'tables'-{changed}
+  IF (before_state->'tables')-{changed} IS DISTINCT FROM (after_state->'tables')-{changed}
    OR before_state->'sequences' IS DISTINCT FROM after_state->'sequences'
    THEN RAISE EXCEPTION 'original_unrelated_state_changed'; END IF;
   INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest)

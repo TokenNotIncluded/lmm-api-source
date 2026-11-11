@@ -13,7 +13,7 @@ from test_migrate_legacy_financial import tables, user, subscription, plan
 from test_financial_import_pg import installed_postgres_image, POSTGRES_IMAGES
 
 
-def fixture(*, period="monthly", **changes):
+def fixture(*, period="monthly", source_timezone="UTC", **changes):
     source = source_fixture()
     row = subscription(**{"upgrade_group":"", "prev_user_group":"", "downgrade_group":"", "reset_amount":2000, **changes})
     if period == "never":
@@ -21,7 +21,7 @@ def fixture(*, period="monthly", **changes):
     source["plan"] = F.PLANNER.plan_financial(tables(users=[user(71), user(72), user(73)], tokens=[],
         user_subscriptions=[row], subscription_plans=[plan(quota_reset_period=period)]),
         source["identities"], source_sha256=source["plan"]["source_archive_sha256"],
-        identity_provenance=source["plan"]["identity_provenance"], source_timezone="UTC")
+        identity_provenance=source["plan"]["identity_provenance"], source_timezone=source_timezone)
     for value in (source["review"], source["reservations"]):
         value["mapping_sha256"] = source["plan"]["mapping_sha256"]
     snapshot = snapshot_fixture(source)
@@ -36,10 +36,11 @@ def fixture(*, period="monthly", **changes):
         "start": 1, "increment": 1, "min": 1, "max": 2**63-1, "cache": 1, "cycle": False}
     a = material_fixture(source, snapshot)
     r = source["plan"]["subscription_entitlements"][0]
-    review = {"format_version": 1, "scope": S.SCOPE, "source_contract": S.SOURCE_CONTRACT,
+    review = {"format_version": 1, "scope": S.SCOPE,
+        "source_contract": S.SOURCE_CONTRACT if source_timezone == "UTC" else S.SOURCE_HISTORY_CONTRACT,
         "decision": "approved-offline-subscriptions", "source_archive_sha256": a["source_archive_sha256"],
         "mapping_sha256": a["mapping_sha256"], "identity_map_sha256": a["identity_map_sha256"],
-        "credits_per_usd": 500000, "evidence_sha256": "b"*64, "source_timezone": "UTC",
+        "credits_per_usd": 500000, "evidence_sha256": "b"*64, "source_timezone": source_timezone,
         "renewal_policy": "separate-grant-after-expiry", "policies": [{
             "source_subscription_id": r["source_subscription_id"], "models": ["synthetic-model"],
             "groups": ["synthetic-group"], "source_row_sha256": r["source_row_sha256"],
@@ -108,6 +109,45 @@ class SourceContractTests(unittest.TestCase):
         self.assertFalse(r["unlimited"])
         self.assertFalse(r["active"])
         self.assertEqual(r["opening_used"],400)
+
+    def test_expired_overflow_is_history_only_at_the_attested_cutoff(self):
+        a, review = fixture(period="never", status="expired", allow_wallet_overflow=True,
+                            source_timezone=None, reset_amount=None, renewal_amount=None)
+        original = copy.deepcopy(a)
+        original_review = copy.deepcopy(review)
+        cutoff = a["observation"]["observed_at"]
+        material = S.prepare_material(a, review, migration_id="synthetic-expired-history")
+        record = material["records"][0]
+        self.assertFalse(record["active"])
+        self.assertEqual(record["timezone"], "UTC")
+        self.assertIsNone(material["financial_attestation"]["source_plan"]["source_timezone"])
+        self.assertIsNone(material["source_review"]["source_timezone"])
+        self.assertTrue(material["financial_attestation"]["source_plan"]["subscription_entitlements"][0]["allow_wallet_overflow"])
+        self.assertEqual(a, original)
+        self.assertEqual(review, original_review)
+        self.assertEqual(record["opening_used"], 400)
+        end = a["source_plan"]["subscription_entitlements"][0]["end_time"]
+        self.assertEqual(record["ends_at"], end)
+        self.assertEqual(S.build_records(a["source_plan"], review, observed_at=end), [record])
+        for observation in (None, True, str(cutoff), end - 1):
+            with self.subTest(observation=observation), self.assertRaisesRegex(F.Error, "subscription_epoch_history_unrepresentable"):
+                S.build_records(a["source_plan"], review, observed_at=observation)
+        for changes in ({"status": "active"}, {"status": "cancelled"},
+                        {"allow_wallet_overflow": 1}, {"allow_wallet_overflow": None},
+                        {"upgrade_group": "vip"}, {"calendar_period": "weekly"}):
+            plan = copy.deepcopy(a["source_plan"])
+            plan["subscription_entitlements"][0].update(changes)
+            plan["mapping_sha256"] = F.PLANNER.digest({key: value for key, value in plan.items()
+                if key not in ("mapping_sha256", "public_summary")})
+            plan["public_summary"]["mapping_sha256"] = plan["mapping_sha256"]
+            changed_review = {**review, "mapping_sha256": plan["mapping_sha256"]}
+            with self.subTest(changes=changes), self.assertRaisesRegex(F.Error,
+                    "subscription_(epoch_history|runtime_policy)_unrepresentable"):
+                S.build_records(plan, changed_review, observed_at=cutoff)
+        for changes in ({"source_contract": S.SOURCE_CONTRACT}, {"source_contract": "unknown"},
+                        {"source_timezone": "UTC"}):
+            with self.subTest(review=changes), self.assertRaisesRegex(F.Error, "subscription_source_basis_unproven"):
+                S.build_records(a["source_plan"], {**review, **changes}, observed_at=cutoff)
 
     def test_unknown_finite_reset_and_policy_effects_are_rejected(self):
         for changes in ({"reset_amount":None},{"allow_wallet_overflow":True},{"upgrade_group":"vip"}):
