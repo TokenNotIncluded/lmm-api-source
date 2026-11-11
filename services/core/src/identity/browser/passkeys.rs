@@ -5,10 +5,18 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use webauthn_rs::prelude::{
     DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyAuthentication,
     PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential, Url, Uuid, Webauthn,
     WebauthnBuilder,
+};
+use webauthn_rs_core::{
+    WebauthnCore,
+    proto::{
+        AuthenticationState, Credential, Mediation, RequestAuthenticationExtensions,
+        UserVerificationPolicy,
+    },
 };
 
 pub const PASSKEY_SCHEMA: &str = include_str!("../../../schema/passkeys.sql");
@@ -16,6 +24,7 @@ pub const PASSKEY_SCHEMA: &str = include_str!("../../../schema/passkeys.sql");
 #[derive(Clone)]
 pub struct PasskeyConfig {
     webauthn: Webauthn,
+    source_policy_verifier: Arc<WebauthnCore>,
     origin: String,
 }
 impl PasskeyConfig {
@@ -42,6 +51,14 @@ impl PasskeyConfig {
             .map_err(|_| IdentityError::Invalid)?;
         Ok(Self {
             webauthn,
+            source_policy_verifier: Arc::new(WebauthnCore::new_unsafe_experts_only(
+                "LMM",
+                rp_id,
+                vec![url.clone()],
+                Duration::from_secs(300),
+                Some(false),
+                Some(false),
+            )),
             origin: url.origin().ascii_serialization(),
         })
     }
@@ -63,6 +80,31 @@ enum State {
     Discoverable {
         challenge: DiscoverableAuthentication,
     },
+    SourcePolicy {
+        challenge: AuthenticationState,
+        revisions: Option<BTreeMap<String, i64>>,
+    },
+}
+
+fn stored_credential(key: &Passkey) -> Result<Credential> {
+    let value = serde_json::to_value(key).map_err(|_| IdentityError::Storage)?;
+    serde_json::from_value(value["cred"].clone()).map_err(|_| IdentityError::Storage)
+}
+
+fn source_preferred(credential: &Credential, legacy_handle: Option<&[u8]>) -> bool {
+    legacy_handle.is_some() && credential.registration_policy == UserVerificationPolicy::Preferred
+}
+
+fn verification_credential(key: &Passkey, legacy_handle: Option<&[u8]>) -> Result<Credential> {
+    let mut credential = stored_credential(key)?;
+    // Only the verification copy changes. The original stored flags and policy
+    // are retained when the normal result updates the original Passkey below.
+    credential.registration_policy = if source_preferred(&credential, legacy_handle) {
+        UserVerificationPolicy::Discouraged_DO_NOT_USE
+    } else {
+        UserVerificationPolicy::Required
+    };
+    Ok(credential)
 }
 #[derive(Serialize)]
 pub struct PasskeyChallenge {
@@ -332,12 +374,29 @@ impl BrowserAuth {
             }
             let user: i64 = users[0].try_get("id")?;
             let version: i64 = users[0].try_get("auth_version")?;
-            let rows=sqlx::query("SELECT id,revision,passkey FROM core_passkeys.credentials WHERE user_id=$1 AND revoked_at IS NULL ORDER BY id LIMIT 10")
-                .bind(user).fetch_all(&mut *tx).await?;
+            let rows = sqlx::query(
+                r#"
+                SELECT k.id,k.revision,k.passkey,l.user_handle AS legacy_user_handle
+                FROM core_passkeys.credentials k
+                LEFT JOIN core_history.legacy_passkey_handles l
+                  ON l.credential_id=k.credential_id AND l.user_id=k.user_id
+                WHERE k.user_id=$1 AND k.revoked_at IS NULL
+                ORDER BY k.id LIMIT 10
+            "#,
+            )
+            .bind(user)
+            .fetch_all(&mut *tx)
+            .await?;
             let mut keys = Vec::new();
+            let mut source_credentials = Vec::new();
+            let mut source_policy = false;
             let mut revisions = BTreeMap::new();
             for row in rows {
                 let Json(key): Json<Passkey> = row.try_get("passkey")?;
+                let credential = stored_credential(&key)?;
+                let legacy_handle: Option<Vec<u8>> = row.try_get("legacy_user_handle")?;
+                source_policy |= source_preferred(&credential, legacy_handle.as_deref());
+                source_credentials.push(credential);
                 keys.push(key);
                 revisions.insert(
                     row.try_get::<i64, _>("id")?.to_string(),
@@ -347,25 +406,90 @@ impl BrowserAuth {
             if keys.is_empty() {
                 return Err(IdentityError::Unauthorized.into());
             }
-            let (options, challenge) = config
-                .webauthn
-                .start_passkey_authentication(&keys)
-                .map_err(|_| IdentityError::Unauthorized)?;
-            (
-                options,
-                State::Named {
-                    challenge,
-                    revisions,
-                },
-                Some(user),
-                Some(version),
-            )
+            let (options, state) = if source_policy {
+                let builder = config
+                    .source_policy_verifier
+                    .new_challenge_authenticate_builder(
+                        source_credentials,
+                        Some(UserVerificationPolicy::Preferred),
+                    )
+                    .map_err(|_| IdentityError::Unauthorized)?
+                    .allow_backup_eligible_upgrade(true);
+                let (options, challenge) = config
+                    .source_policy_verifier
+                    .generate_challenge_authenticate(builder)
+                    .map_err(|_| IdentityError::Unauthorized)?;
+                (
+                    options,
+                    State::SourcePolicy {
+                        challenge,
+                        revisions: Some(revisions),
+                    },
+                )
+            } else {
+                let (options, challenge) = config
+                    .webauthn
+                    .start_passkey_authentication(&keys)
+                    .map_err(|_| IdentityError::Unauthorized)?;
+                (
+                    options,
+                    State::Named {
+                        challenge,
+                        revisions,
+                    },
+                )
+            };
+            (options, state, Some(user), Some(version))
         } else {
-            let (options, challenge) = config
-                .webauthn
-                .start_discoverable_authentication()
-                .map_err(|_| IdentityError::Invalid)?;
-            (options, State::Discoverable { challenge }, None, None)
+            let source_policy: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT FROM core_passkeys.credentials k
+                    JOIN core_history.legacy_passkey_handles l
+                      ON l.credential_id=k.credential_id AND l.user_id=k.user_id
+                    JOIN core_identity.users u ON u.id=k.user_id
+                    JOIN core_identity.accounts a ON a.id=u.personal_account_id
+                    WHERE k.revoked_at IS NULL AND u.active AND a.active
+                      AND k.passkey#>>'{cred,registration_policy}'='preferred'
+                )
+            "#,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if source_policy {
+                let builder = config
+                    .source_policy_verifier
+                    .new_challenge_authenticate_builder(
+                        Vec::new(),
+                        Some(UserVerificationPolicy::Preferred),
+                    )
+                    .map_err(|_| IdentityError::Invalid)?
+                    .extensions(Some(RequestAuthenticationExtensions {
+                        appid: None,
+                        uvm: Some(true),
+                        hmac_get_secret: None,
+                    }));
+                let (mut options, challenge) = config
+                    .source_policy_verifier
+                    .generate_challenge_authenticate(builder)
+                    .map_err(|_| IdentityError::Invalid)?;
+                options.mediation = Some(Mediation::Conditional);
+                (
+                    options,
+                    State::SourcePolicy {
+                        challenge,
+                        revisions: None,
+                    },
+                    None,
+                    None,
+                )
+            } else {
+                let (options, challenge) = config
+                    .webauthn
+                    .start_discoverable_authentication()
+                    .map_err(|_| IdentityError::Invalid)?;
+                (options, State::Discoverable { challenge }, None, None)
+            }
         };
         let flow_token = new_secret("lmmp_")?;
         let expires_at:i64=sqlx::query_scalar("INSERT INTO core_passkeys.flows(digest,binding_digest,purpose,user_id,user_version,state) VALUES($1,$2,'login',$3,$4,$5) RETURNING floor(extract(epoch FROM expires_at))::bigint")
@@ -404,6 +528,20 @@ impl BrowserAuth {
         let id: i64 = credential.try_get("id")?;
         let user: i64 = credential.try_get("user_id")?;
         let Json(mut key): Json<Passkey> = credential.try_get("passkey")?;
+        let native_handle = credential.try_get::<String, _>("user_handle")?;
+        let legacy_handle: Option<Vec<u8>> = credential.try_get("legacy_user_handle")?;
+        let reported_handle = reg.get_user_unique_id();
+        let named = row.try_get::<Option<i64>, _>("user_id")?.is_some();
+        if (!named || reported_handle.is_some_and(|value| !value.is_empty()))
+            && !discoverable_handle_matches(
+                reported_handle,
+                &native_handle,
+                legacy_handle.as_deref(),
+            )
+        {
+            tx.commit().await?;
+            return Err(IdentityError::Unauthorized.into());
+        }
         let result = match state {
             State::Named {
                 challenge,
@@ -440,6 +578,31 @@ impl BrowserAuth {
                     &[DiscoverableKey::from(&key)],
                 )
             }
+            State::SourcePolicy {
+                mut challenge,
+                revisions,
+            } => {
+                if let Some(revisions) = revisions {
+                    if row.try_get::<Option<i64>, _>("user_id")? != Some(user)
+                        || row.try_get::<Option<i64>, _>("user_version")?
+                            != Some(credential.try_get("auth_version")?)
+                        || revisions.get(&id.to_string())
+                            != Some(&credential.try_get::<i64, _>("revision")?)
+                    {
+                        tx.commit().await?;
+                        return Err(IdentityError::Unauthorized.into());
+                    }
+                }
+                // The immutable imported handle and the locked stored policy
+                // select compatibility. Caller options never select authority.
+                // Keep the generated challenge and replace allowed credentials
+                // only in memory with the exact credential selected above.
+                let copy = verification_credential(&key, legacy_handle.as_deref())?;
+                challenge.set_allowed_credentials(vec![copy]);
+                config
+                    .source_policy_verifier
+                    .authenticate_credential(&reg, &challenge)
+            }
             State::Register { .. } => {
                 tx.commit().await?;
                 return Err(IdentityError::Unauthorized.into());
@@ -452,6 +615,13 @@ impl BrowserAuth {
                 return Err(IdentityError::Unauthorized.into());
             }
         };
+        let original = stored_credential(&key)?;
+        if source_preferred(&original, legacy_handle.as_deref())
+            && result.backup_eligible() != original.backup_eligible
+        {
+            tx.commit().await?;
+            return Err(IdentityError::Unauthorized.into());
+        }
         if key.update_credential(&result).is_none() {
             tx.commit().await?;
             return Err(IdentityError::Unauthorized.into());
@@ -474,7 +644,11 @@ impl BrowserAuth {
 
 /// Native credentials carry the UUID handle. Only a credential imported with
 /// its exact legacy handle (the old decimal user ID) may present that handle.
-fn discoverable_handle_matches(reported: Option<&[u8]>, handle: &str, legacy: Option<&[u8]>) -> bool {
+fn discoverable_handle_matches(
+    reported: Option<&[u8]>,
+    handle: &str,
+    legacy: Option<&[u8]>,
+) -> bool {
     let Some(reported) = reported.filter(|value| !value.is_empty()) else {
         return false;
     };
@@ -490,20 +664,87 @@ async fn cleanup(c: &mut PgConnection) -> Result<()> {
 
 #[cfg(test)]
 mod legacy_handle_tests {
-    use super::{Uuid, discoverable_handle_matches};
+    use super::{
+        Passkey, UserVerificationPolicy, Uuid, discoverable_handle_matches, verification_credential,
+    };
+    use serde_json::json;
+
+    fn key(policy: &str, uv: bool) -> Passkey {
+        serde_json::from_value(json!({"cred": {
+            "cred_id":"c3ludGhldGlj",
+            "cred":{"type_":"ES256","key":{"EC_EC2":{"curve":"SECP256R1",
+                "x":"axfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpY",
+                "y":"T-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"}}},
+            "counter":137,"transports":["usb"],"user_verified":uv,
+            "backup_eligible":true,"backup_state":true,"registration_policy":policy,
+            "extensions":{"cred_protect":"NotRequested","hmac_create_secret":"NotRequested",
+                "appid":"NotRequested","cred_props":"NotRequested"},
+            "attestation":{"data":"None","metadata":"None"},"attestation_format":"none"
+        }}))
+        .unwrap()
+    }
+
+    #[test]
+    fn source_policy_copy_retains_original_uv_counter_backup_and_stored_json() {
+        for uv in [false, true] {
+            let original = key("preferred", uv);
+            let before = serde_json::to_value(&original).unwrap();
+            let copy = verification_credential(&original, Some(b"71")).unwrap();
+            assert_eq!(
+                copy.registration_policy,
+                UserVerificationPolicy::Discouraged_DO_NOT_USE
+            );
+            assert_eq!(copy.counter, 137);
+            assert_eq!(copy.user_verified, uv);
+            assert!(copy.backup_eligible && copy.backup_state);
+            assert_eq!(serde_json::to_value(&original).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn native_unknown_or_source_required_cannot_select_presence_only() {
+        for (policy, handle) in [
+            ("preferred", None),
+            ("required", None),
+            ("required", Some(&b"71"[..])),
+        ] {
+            let copy = verification_credential(&key(policy, false), handle).unwrap();
+            assert_eq!(copy.registration_policy, UserVerificationPolicy::Required);
+        }
+    }
 
     #[test]
     fn legacy_decimal_handle_only_matches_its_imported_credential() {
         let uuid = Uuid::from_u128(0x1234);
         let handle = uuid.to_string();
-        assert!(discoverable_handle_matches(Some(uuid.as_bytes()), &handle, None));
-        assert!(discoverable_handle_matches(Some(uuid.as_bytes()), &handle, Some(b"54")));
-        assert!(discoverable_handle_matches(Some(b"54"), &handle, Some(b"54")));
+        assert!(discoverable_handle_matches(
+            Some(uuid.as_bytes()),
+            &handle,
+            None
+        ));
+        assert!(discoverable_handle_matches(
+            Some(uuid.as_bytes()),
+            &handle,
+            Some(b"54")
+        ));
+        assert!(discoverable_handle_matches(
+            Some(b"54"),
+            &handle,
+            Some(b"54")
+        ));
         assert!(!discoverable_handle_matches(Some(b"54"), &handle, None));
-        assert!(!discoverable_handle_matches(Some(b"55"), &handle, Some(b"54")));
+        assert!(!discoverable_handle_matches(
+            Some(b"55"),
+            &handle,
+            Some(b"54")
+        ));
         assert!(!discoverable_handle_matches(Some(b""), &handle, Some(b"")));
         assert!(!discoverable_handle_matches(None, &handle, Some(b"54")));
         let other = Uuid::from_u128(0x5678);
-        assert!(!discoverable_handle_matches(Some(other.as_bytes()), &handle, None));
+        assert!(!discoverable_handle_matches(
+            Some(other.as_bytes()),
+            &handle,
+            None
+        ));
     }
 }
