@@ -135,6 +135,137 @@ def post_parent_evidence(args):
     return unit, request
 
 
+def paused_parent_data():
+    args = post_parent_data()
+    for row in args["tables"][B.BOUNTY_TABLES[0]]:
+        row.update(status="paused", updated_at=args["observed_at"] - 5)
+    refresh_source(args)
+    return args
+
+
+class PausedParentSourceContractTests(unittest.TestCase):
+    def test_five_paused_projects_and_ninth_accepted_claim_require_exact_attachment(self):
+        args = paused_parent_data()
+        unit, proof = post_parent_evidence(args)
+        self.assertEqual(proof["contract"], M.PAUSED_PARENT_CONTRACT)
+        self.assertEqual((len(proof["paused_projects"]), len(proof["claims"])), (5, 1))
+        missing = M.build(F, **args, unit_evidence=unit)
+        self.assertIsNone(missing["batch_candidate"])
+        self.assertIn("escrow_post_parent_claim_evidence_required", missing["blockers"])
+        before = copy.deepcopy((args, unit, proof))
+        result = M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=proof)
+        self.assertEqual((args, unit, proof), before)
+        self.assertEqual(result["blockers"], [])
+        self.assertEqual((result["project_count"], result["claim_count"],
+            result["accepted_unpaid_claim_count"], result["historical_rejection_guard_count"]), (5, 12, 9, 3))
+        self.assertTrue(all(p["status"] == "paused" for p in result["batch_candidate"]["projects"]))
+        self.assertEqual(result["lineage"], missing["lineage"])
+        for flag in ("economic_approval_verified", "approval_created", "import_payload_created",
+                     "source_unit_authority_verified", "full_database_rights_cleared"):
+            self.assertFalse(result[flag])
+        self.assertEqual((result["source_queries"], result["target_queries"], result["target_writes"]), (0, 0, 0))
+        self.assertFalse(proof["historical_unrecorded_project_fields_verified"])
+        self.assertFalse(proof["actual_deployed_source_verified"])
+        self.assertNotIn("review_proof_sha256", result["batch_candidate"])
+
+    def test_every_other_recorded_parent_project_field_is_protected(self):
+        original = paused_parent_data()
+        row = original["tables"][B.BOUNTY_TABLES[0]][0]
+        for field in row.keys() - {"status", "updated_at"}:
+            args = copy.deepcopy(original)
+            args["tables"][B.BOUNTY_TABLES[0]][0][field] += 1
+            refresh_source(args)
+            with self.subTest(field=field):
+                try:
+                    unit = evidence(args)
+                    unit["source_application_revision"] = M.POST_PARENT_REVISION
+                    result = M.build(F, **args, unit_evidence=unit)
+                except F.MappingError:
+                    continue
+                request = result.get("post_parent_claim_evidence_request")
+                if request:
+                    self.assertNotIn(row["id"], [p["source_project_id"] for p in request.get("paused_projects", [])])
+                    result = M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=request)
+                self.assertIsNone(result["batch_candidate"])
+
+    def test_pause_and_acceptance_order_and_observation_boundaries_are_strict(self):
+        for pause in (0, 1000000, 1000010, 1000009, 1000021):
+            args = paused_parent_data()
+            args["tables"][B.BOUNTY_TABLES[0]][0]["updated_at"] = pause
+            refresh_source(args)
+            unit, proof = post_parent_evidence(args)
+            with self.subTest(pause=pause):
+                self.assertEqual(proof["claims"], [])
+                self.assertIsNone(M.build(F, **args, unit_evidence=unit,
+                    post_parent_claim_evidence=proof)["batch_candidate"])
+
+    def test_new_claim_must_remain_untouched_and_reward_and_actor_bound(self):
+        for field, value in (("status", "submitted"), ("submitted_at", 1), ("paid_at", 1),
+                ("reviewed_at", 1), ("tip_quota", 1), ("updated_at", 1000011),
+                ("reward_quota", 11), ("participant_user_id", 1)):
+            args = paused_parent_data()
+            args["tables"][B.BOUNTY_TABLES[1]][-1][field] = value
+            refresh_source(args)
+            with self.subTest(field=field):
+                try:
+                    unit, proof = post_parent_evidence(args)
+                    result = M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=proof)
+                except F.MappingError:
+                    continue
+                self.assertEqual(proof["claims"], [])
+                self.assertIsNone(result["batch_candidate"])
+
+    def test_attachment_binds_all_pause_fields_complete_rows_and_contract_version(self):
+        args = paused_parent_data()
+        unit, proof = post_parent_evidence(args)
+        for field in proof["paused_projects"][0]:
+            bad = copy.deepcopy(proof)
+            bad["paused_projects"][0][field] = "tampered"
+            with self.subTest(field=field), self.assertRaisesRegex(F.MappingError, "post_parent_claim_evidence_mismatch"):
+                M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=bad)
+        for field, value in (("contract", M.POST_PARENT_CONTRACT), ("paused_projects", []),
+                ("economic_approval_verified", True), ("actual_deployed_source_verified", True)):
+            bad = copy.deepcopy(proof); bad[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(F.MappingError, "post_parent_claim_evidence_mismatch"):
+                M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=bad)
+        changed = copy.deepcopy(args)
+        changed["tables"][B.BOUNTY_TABLES[0]][0]["title"] = "different current raw row"
+        refresh_source(changed)
+        with self.assertRaisesRegex(F.MappingError, "post_parent_claim_evidence_mismatch"):
+            M.build(F, **changed, unit_evidence=evidence(changed), post_parent_claim_evidence=proof)
+
+    def test_source_actor_and_project_changes_cannot_reuse_the_attachment(self):
+        original = paused_parent_data()
+        _, proof = post_parent_evidence(original)
+        for field, value in (("participant_user_id", 2), ("project_id", 11)):
+            args = copy.deepcopy(original)
+            args["tables"][B.BOUNTY_TABLES[1]][-1][field] = value
+            refresh_source(args)
+            unit = evidence(args)
+            unit["source_application_revision"] = M.POST_PARENT_REVISION
+            with self.subTest(field=field), self.assertRaises(F.MappingError):
+                M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=proof)
+
+    def test_unknown_unit_and_wrong_source_revision_cannot_clear_source_gate(self):
+        args = paused_parent_data()
+        request = M.build(F, **args)["post_parent_claim_evidence_request"]
+        result = M.build(F, **args, post_parent_claim_evidence=request)
+        self.assertIsNone(result["batch_candidate"])
+        self.assertFalse(result["post_parent_claim_evidence_bound"])
+        unit = evidence(args)
+        request = M.build(F, **args, unit_evidence=unit)["post_parent_claim_evidence_request"]
+        with self.assertRaisesRegex(F.MappingError, "post_parent_source_revision_unsupported"):
+            M.build(F, **args, unit_evidence=unit, post_parent_claim_evidence=request)
+
+    def test_unchanged_project_contract_keeps_its_original_attachment_shape(self):
+        args = post_parent_data()
+        unit, request = post_parent_evidence(args)
+        self.assertEqual(request["contract"], M.POST_PARENT_CONTRACT)
+        self.assertNotIn("paused_projects", request)
+        self.assertEqual(M.build(F, **args, unit_evidence=unit,
+            post_parent_claim_evidence=request)["blockers"], [])
+
+
 # @mark migration.legacy-escrow-map role=test
 class EscrowMappingTests(unittest.TestCase):
     def test_post_parent_accepted_claim_requires_explicit_bound_source_facts(self):

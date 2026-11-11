@@ -19,6 +19,7 @@ POLICY = "preserve-exact-parent-after-integers"
 # apps/api-go/model/open_source_bounty.go:1152-1241 at this exact revision.
 POST_PARENT_REVISION = "cc52aa195c6f2a01d703a1a407be73c31b89867d"
 POST_PARENT_CONTRACT = "unchanged-parent-project-new-untouched-accepted-claim-v1"
+PAUSED_PARENT_CONTRACT = "parent-published-to-paused-prepause-untouched-accepted-claims-v1"
 SOURCE_GITHUB_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?")
 HASH = re.compile(r"[0-9a-f]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
@@ -92,7 +93,44 @@ def _bound_unit_evidence(F, evidence, *, plan, source_proof, identity_hash, bind
     return True
 
 
-def _post_parent_claims(F, *, tables, lineage_rows, parent, observed_at):
+def _paused_parent_projects(F, *, tables, plan, identities, parent, observed_at):
+    """Protect every recorded parent field and bind the complete current row.
+
+    SetOpenSourceBountyPaused at POST_PARENT_REVISION checks owner/status and
+    writes only status/updated_at. Unrecorded historical fields and the actual
+    deployed executable remain outside this source-facts contract.
+    """
+    if parent is None:
+        return []
+    audit = next(a for a in plan["refund_lineage"]["wallet_rebase_audits"]
+                 if a["declared_plan_sha256"] == parent["plan_sha256"])
+    _, entries = BASIS.parent_contract(F, audit, identities)
+    current = {row["id"]: row for row in tables[BASIS.BOUNTY_TABLES[0]]}
+    facts = []
+    for entry in entries:
+        if entry["table"] != BASIS.BOUNTY_TABLES[0]:
+            continue
+        before = entry["source"]
+        after = {**before, **{key: value["after_credit"]
+                            for key, value in entry["updates"].items()}}
+        row = current.get(entry["id"])
+        if (row is None or after["status"] != "published" or row["status"] != "paused"
+                or _uint(F, row["escrow_quota"]) == 0
+                or not max(parent["snapshot_at"], after["updated_at"])
+                    < _uint(F, row["updated_at"]) <= observed_at
+                or not all(BASIS.typed_equal(F, row.get(key), value)
+                           for key, value in after.items() if key not in ("status", "updated_at"))):
+            continue
+        facts.append({"source_project_id": row["id"],
+            "source_owner_user_id": row["owner_user_id"],
+            "parent_after_sha256": F.digest(after), "source_row_sha256": F.digest(row),
+            "parent_comparison_fields": sorted(after),
+            "before_status": "published", "status": "paused",
+            "parent_updated_at": after["updated_at"], "paused_at": row["updated_at"]})
+    return sorted(facts, key=lambda row: row["source_project_id"])
+
+
+def _post_parent_claims(F, *, tables, lineage_rows, parent, observed_at, paused_projects=()):
     """Recognize source facts, never infer units/approval from creation time.
 
     This intentionally excludes later submissions, reviews and disputes. They
@@ -100,6 +138,7 @@ def _post_parent_claims(F, *, tables, lineage_rows, parent, observed_at):
     """
     if parent is None:
         return []
+    paused = {row["source_project_id"]: row for row in paused_projects}
     projects = {row["id"]: row for row in tables[BASIS.BOUNTY_TABLES[0]]}
     claims, disputes = (tables[name] for name in BASIS.BOUNTY_TABLES[1:])
     facts = []
@@ -110,12 +149,14 @@ def _post_parent_claims(F, *, tables, lineage_rows, parent, observed_at):
             continue
         project, project_basis = projects.get(pid), lineage_rows.get((BASIS.BOUNTY_TABLES[0], pid))
         if (project is None or project_basis is None
-                or project_basis["state"] not in ("after", "before_and_after")):
+                or (project_basis["state"] not in ("after", "before_and_after") and pid not in paused)):
             continue
         created = _uint(F, source.get("created_at"), positive=True)
         net = _uint(F, project.get("net_reward_quota"))
         reward = net or _uint(F, project.get("reward_quota"))
-        if not (project["status"] == "published" and _uint(F, project["escrow_quota"]) > 0
+        if not ((project["status"] == "published" or
+                 (pid in paused and created < paused[pid]["paused_at"]))
+                and _uint(F, project["escrow_quota"]) > 0
                 and parent["snapshot_at"] < created <= observed_at
                 and source["status"] == "accepted" and reward > 0
                 and _uint(F, source["reward_quota"]) == reward
@@ -167,10 +208,10 @@ def _post_parent_claims(F, *, tables, lineage_rows, parent, observed_at):
 
 
 def _post_parent_request(F, *, facts, proposals, tables, plan, source_proof, identity_hash,
-                         parent, unit_evidence, observed_at):
-    if not facts:
+                         parent, unit_evidence, observed_at, paused_projects=()):
+    if not facts and not paused_projects:
         return None
-    affected = {row["source_project_id"] for row in facts}
+    affected = {row["source_project_id"] for row in (*facts, *paused_projects)}
     budgets = []
     for proposal in proposals:
         pid = proposal["source_project_id"]
@@ -186,7 +227,7 @@ def _post_parent_request(F, *, facts, proposals, tables, plan, source_proof, ide
             "complete_project_dispute_rows_sha256": F.digest(sorted(
                 ({"id": row["id"], "source_row_sha256": F.digest(row)}
                  for row in tables[BASIS.BOUNTY_TABLES[2]] if row["project_id"] == pid), key=lambda row: row["id"]))})
-    return {"format_version": 1, "scope": "legacy-escrow-post-parent-source-facts-only",
+    request = {"format_version": 1, "scope": "legacy-escrow-post-parent-source-facts-only",
         "contract": POST_PARENT_CONTRACT, "source_application_revision": POST_PARENT_REVISION,
         "source_archive_sha256": plan["source_archive_sha256"], "mapping_sha256": plan["mapping_sha256"],
         "source_export_sha256": source_proof["source_export_sha256"], "identity_records_sha256": identity_hash,
@@ -194,6 +235,10 @@ def _post_parent_request(F, *, facts, proposals, tables, plan, source_proof, ide
         "observed_at": observed_at, "unit_evidence_sha256": F.digest(unit_evidence) if unit_evidence is not None else None,
         "source_policy_evidence_sha256": unit_evidence["source_policy_evidence_sha256"] if unit_evidence is not None else None,
         "economic_approval_verified": False, "claims": facts, "project_budgets": budgets}
+    if paused_projects:
+        request.update(contract=PAUSED_PARENT_CONTRACT, paused_projects=paused_projects,
+            historical_unrecorded_project_fields_verified=False, actual_deployed_source_verified=False)
+    return request
 
 
 # @mark migration.legacy-escrow-map role=implementation
@@ -243,8 +288,11 @@ def build(F, *, tables, identity_records, plan, migration_id, observed_at,
     if parent is not None and observed_at < parent["snapshot_at"]:
         blockers.append("escrow_observation_precedes_parent_snapshot")
     lineage_rows = {(row["table"], row["source_primary_key"]["id"]): row for row in lineage["records"]}
+    paused_projects = _paused_parent_projects(F, tables=tables, plan=plan, identities=account_map,
+                                              parent=parent, observed_at=observed_at)
+    paused_ids = {row["source_project_id"] for row in paused_projects}
     post_parent_facts = _post_parent_claims(F, tables=tables, lineage_rows=lineage_rows,
-                                          parent=parent, observed_at=observed_at)
+        parent=parent, observed_at=observed_at, paused_projects=paused_projects)
     post_parent_ids = {row["source_challenge_id"] for row in post_parent_facts}
     project_rows, claim_rows, dispute_rows = (tables[name] for name in BASIS.BOUNTY_TABLES)
     funded = {}
@@ -263,7 +311,7 @@ def build(F, *, tables, identity_records, plan, migration_id, observed_at,
         if project["status"] not in ("published", "paused"):
             blockers.append("escrow_nonactive_funded_project_unsupported")
         parent_row = lineage_rows.get((BASIS.BOUNTY_TABLES[0], pid))
-        if parent_row is None or parent_row["state"] not in ("after", "before_and_after"):
+        if parent_row is None or (parent_row["state"] not in ("after", "before_and_after") and pid not in paused_ids):
             blockers.append("escrow_project_parent_after_missing")
         claims, disputes = [], []
         for source in sorted(claim_rows, key=lambda row: row["id"]):
@@ -350,11 +398,14 @@ def build(F, *, tables, identity_records, plan, migration_id, observed_at,
         claim_count += len(claims)
         dispute_count += len(disputes)
     for source in claim_rows:
+        if (source.get("project_id") in paused_ids and parent["snapshot_at"] < source["created_at"]
+                and source["id"] not in post_parent_ids):
+            blockers.append("escrow_paused_project_later_claim_requires_source_history")
         if source.get("paid_at") == 0 and source.get("status") in ("accepted", "submitted") and source.get("project_id") not in funded:
             blockers.append("escrow_continuing_claim_outside_funded_projects")
     post_request = _post_parent_request(F, facts=post_parent_facts, proposals=proposals, tables=tables,
         plan=plan, source_proof=source_proof, identity_hash=identity_hash, parent=parent,
-        unit_evidence=unit_evidence, observed_at=observed_at)
+        unit_evidence=unit_evidence, observed_at=observed_at, paused_projects=paused_projects)
     post_bound = False
     if post_parent_claim_evidence is not None:
         F.require(type(post_parent_claim_evidence) is dict and post_request is not None
@@ -364,9 +415,11 @@ def build(F, *, tables, identity_records, plan, migration_id, observed_at,
             F.require(unit_evidence["source_application_revision"] == POST_PARENT_REVISION,
                       "escrow_post_parent_source_revision_unsupported")
             post_bound = True
-    if post_parent_ids and not post_bound:
+    if (post_parent_ids or paused_ids) and not post_bound:
         blockers.append("escrow_post_parent_claim_evidence_required")
     if post_bound and all(row["state"] in ("after", "before_and_after") or
+            (row["table"] == BASIS.BOUNTY_TABLES[0] and row["state"] == "changed_since_snapshot"
+             and row["source_primary_key"]["id"] in paused_ids) or
             (row["table"] == BASIS.BOUNTY_TABLES[1] and row["state"] == "outside_parent_scope"
              and row["source_primary_key"]["id"] in post_parent_ids) for row in lineage["records"]):
         blockers = [code for code in blockers if code not in (
