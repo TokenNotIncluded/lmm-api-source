@@ -72,7 +72,7 @@ def reviewed_source_contract(contract: dict) -> dict:
     # reviewed profile, compiled manifest/catalog and complete seed-query domain.
     fields = CONTRACT_FIELDS + (("import_profile", "source_schema_revision",
         "compiled_manifest_sha256", "fresh_catalog_sha256", "seed_query_sha256")
-        if contract.get("import_profile") in (IDENTITY.CORE59_SEED_CONTRACT, IDENTITY.CORE65_SEED_CONTRACT, IDENTITY.CURRENT_LEDGER_SEED_CONTRACT, IDENTITY.CREDIT_QUOTES_SEED_CONTRACT, IDENTITY.PANCAKE_LANGUAGE_SEED_CONTRACT) else ())
+        if contract.get("import_profile") in (IDENTITY.CORE59_SEED_CONTRACT, IDENTITY.CORE65_SEED_CONTRACT, IDENTITY.CURRENT_LEDGER_SEED_CONTRACT, IDENTITY.CREDIT_QUOTES_SEED_CONTRACT, IDENTITY.PANCAKE_LANGUAGE_SEED_CONTRACT, IDENTITY.CHECKINS_SEED_CONTRACT) else ())
     return {key: contract[key] for key in fields}
 
 
@@ -438,7 +438,7 @@ def prepare_material(plan: dict, *, migration_id: str, identities: dict,
     require(snapshot["component_fingerprints"] == contract["component_fingerprints"]
             and snapshot["catalog_fingerprint_sha256"] == target_contract.get("catalog_fingerprint_sha256"),
             "target_catalog_mismatch")
-    if contract.get("import_profile") in (IDENTITY.CORE59_SEED_CONTRACT, IDENTITY.CORE65_SEED_CONTRACT, IDENTITY.CURRENT_LEDGER_SEED_CONTRACT, IDENTITY.CREDIT_QUOTES_SEED_CONTRACT, IDENTITY.PANCAKE_LANGUAGE_SEED_CONTRACT):
+    if contract.get("import_profile") in (IDENTITY.CORE59_SEED_CONTRACT, IDENTITY.CORE65_SEED_CONTRACT, IDENTITY.CURRENT_LEDGER_SEED_CONTRACT, IDENTITY.CREDIT_QUOTES_SEED_CONTRACT, IDENTITY.PANCAKE_LANGUAGE_SEED_CONTRACT, IDENTITY.CHECKINS_SEED_CONTRACT):
         require(snapshot["catalog_fingerprint_sha256"] == contract["fresh_catalog_sha256"],
                 "target_fresh_catalog_mismatch")
     IDENTITY.validate_trust_policy_seed(snapshot.get("trust_policy_seed"))
@@ -512,7 +512,7 @@ def validate_material(material: dict) -> None:
             "component_source_changed")
     contract = IDENTITY.current_contract()
     require(target.get("source_contract") == reviewed_source_contract(contract), "source_contract_changed")
-    if contract.get("import_profile") in (IDENTITY.CORE59_SEED_CONTRACT, IDENTITY.CORE65_SEED_CONTRACT, IDENTITY.CURRENT_LEDGER_SEED_CONTRACT, IDENTITY.CREDIT_QUOTES_SEED_CONTRACT, IDENTITY.PANCAKE_LANGUAGE_SEED_CONTRACT):
+    if contract.get("import_profile") in (IDENTITY.CORE59_SEED_CONTRACT, IDENTITY.CORE65_SEED_CONTRACT, IDENTITY.CURRENT_LEDGER_SEED_CONTRACT, IDENTITY.CREDIT_QUOTES_SEED_CONTRACT, IDENTITY.PANCAKE_LANGUAGE_SEED_CONTRACT, IDENTITY.CHECKINS_SEED_CONTRACT):
         require(target.get("catalog_fingerprint_sha256") == contract["fresh_catalog_sha256"],
                 "target_fresh_catalog_mismatch")
     IDENTITY.validate_trust_policy_seed(target.get("trust_policy_seed"))
