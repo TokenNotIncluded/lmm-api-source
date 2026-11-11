@@ -282,6 +282,28 @@ Name: GLIBC_2.34"""
             with self.assertRaises(ValueError):
                 PKG.inspect_elf(binary, "amd64")
 
+    def test_openssl3_dependencies_preserve_soname_and_actual_symbol_minimum(self):
+        binary = self.work / "binary"
+        binary.write_bytes(self.static["amd64"])
+        output = """[Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]
+(NEEDED) Shared library: [libc.so.6]
+(NEEDED) Shared library: [libssl.so.3]
+(NEEDED) Shared library: [libcrypto.so.3]
+Name: GLIBC_2.39
+Name: OPENSSL_3.0.0
+Name: OPENSSL_3.3.0"""
+        with patch.object(PKG, "run", return_value=output):
+            report = PKG.inspect_elf(binary, "amd64")
+        self.assertEqual(report["openssl_minimum"], "3.3.0")
+        self.assertIn("libssl3t64 (>= 3.3.0)", PKG.dependencies([report], "deb", False, False))
+        arch = PKG.dependencies([report], "archlinux", False, False)
+        self.assertTrue({"libssl.so=3-64", "libcrypto.so=3-64", "openssl>=3.3.0"} <= set(arch))
+        rpm = PKG.dependencies([report], "rpm", False, False)
+        self.assertIn("openssl-libs >= 3.3.0", rpm)
+        with patch.object(PKG, "run", return_value=output.replace(".so.3]", ".so.4]")):
+            with self.assertRaises(ValueError):
+                PKG.inspect_elf(binary, "amd64")
+
     def test_prerelease_versions_are_format_specific(self):
         self.assertEqual(PKG.native_version("1.2.3-preview.2", 1, "deb"), ("1.2.3~preview.2", "1"))
         self.assertEqual(PKG.native_version("1.2.3-preview.2", 1, "rpm"), ("1.2.3", "0.preview.2.1"))

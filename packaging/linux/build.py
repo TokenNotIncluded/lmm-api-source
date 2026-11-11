@@ -35,6 +35,8 @@ LIBRARIES = {
     "librt.so.1": ("libc6", "glibc", "glibc"),
     "libgcc_s.so.1": ("libgcc-s1", "libgcc_s.so.1()(64bit)", "gcc-libs"),
     "libdbus-1.so.3": ("libdbus-1-3", "libdbus-1.so.3()(64bit)", "dbus"),
+    "libssl.so.3": ("libssl3t64", "libssl.so.3()(64bit)", "libssl.so=3-64"),
+    "libcrypto.so.3": ("libssl3t64", "libcrypto.so.3()(64bit)", "libcrypto.so=3-64"),
 }
 # Inspect, rather than execute, ELF files. Unknown dependencies fail closed.
 INTERPRETERS = {"amd64": "/lib64/ld-linux-x86-64.so.2", "arm64": "/lib/ld-linux-aarch64.so.1"}
@@ -63,10 +65,12 @@ def inspect_elf(path: Path, arch: str) -> dict:
     if needed and interpreter is None:
         raise ValueError("shared ELF input has no executable interpreter")
     versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bGLIBC_(\d+\.\d+(?:\.\d+)?)\b", text)}
+    openssl_versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bOPENSSL_(\d+\.\d+\.\d+)\b", text)}
     if interpreter and not versions:
         raise ValueError("cannot determine the glibc minimum")
     return {"linkage": "glibc" if interpreter else "static", "needed": needed,
-            "glibc_minimum": ".".join(map(str, max(versions))) if versions else None}
+            "glibc_minimum": ".".join(map(str, max(versions))) if versions else None,
+            "openssl_minimum": ".".join(map(str, max(openssl_versions))) if openssl_versions else None}
 
 
 def dependencies(reports: list[dict], fmt: str, service: bool, network: bool) -> list[str]:
@@ -82,6 +86,14 @@ def dependencies(reports: list[dict], fmt: str, service: bool, network: bool) ->
     for report in reports:
         for lib in report["needed"]:
             deps.add(LIBRARIES[lib][column])
+    openssl_versions = [tuple(map(int, r["openssl_minimum"].split(".")))
+                       for r in reports if r.get("openssl_minimum")]
+    if openssl_versions:
+        version = ".".join(map(str, max(openssl_versions)))
+        name = {"deb": "libssl3t64", "rpm": "openssl-libs", "archlinux": "openssl"}[fmt]
+        deps.discard(name)
+        deps.add({"deb": f"{name} (>= {version})", "rpm": f"{name} >= {version}",
+                  "archlinux": f"{name}>={version}"}[fmt])
     versions = [tuple(map(int, r["glibc_minimum"].split("."))) for r in reports if r["glibc_minimum"]]
     if versions:
         version = ".".join(map(str, max(versions)))
