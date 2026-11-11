@@ -342,3 +342,149 @@ async fn legacy_expression_http_charges_source_float_counterexample(pool: PgPool
     assert_balance(&f, 876, 0).await;
     server.abort();
 }
+
+#[path = "../../tests/common/runtime.rs"]
+mod restricted_runtime;
+
+#[sqlx::test(migrations = false)]
+async fn legacy_gateway_recovery_runs_with_execute_only_checkpoint_access(pool: PgPool) {
+    let f = fixture(pool, 20000).await;
+    let role = restricted_runtime::RuntimeRole::create(&f.pool).await;
+    role.optional("core_charging").await;
+    role.optional("core_model").await;
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT has_table_privilege(current_user,'core_model.output_checkpoints','SELECT')"
+        )
+        .fetch_one(&role.pool)
+        .await
+        .unwrap()
+    );
+    let denied = sqlx::query("SELECT provider_usage FROM core_model.output_checkpoints LIMIT 0")
+        .execute(&role.pool)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("42501")
+    );
+    let runtime_fixture = Fixture {
+        pool: role.pool.clone(),
+        ledger: Ledger::from_pool(role.pool.clone()),
+        session: f.session.clone(),
+        key: f.key.clone(),
+        key_id: f.key_id,
+        account: f.account,
+    };
+    let restarted = gateway(&runtime_fixture, EXTERNAL_BASE, contexts(32768));
+    // Startup calls this recovery scan before the host starts serving HTTP.
+    assert_eq!(
+        restarted
+            .reconcile_completed_streams_page(10, None)
+            .await
+            .unwrap()
+            .0,
+        0
+    );
+    let owner_gateway = legacy_gateway(&f);
+    for gap in [false, true] {
+        let id = format!("legacy-restricted-{gap}");
+        let (context, mut request) = admit(&owner_gateway, &f, &id, "small-model", 1).await;
+        request.stream = true;
+        let route = owner_gateway
+            .bridge
+            .select(&context, &request)
+            .await
+            .unwrap();
+        let reservation = owner_gateway
+            .bridge
+            .reserve(&context, &route, &request)
+            .await
+            .unwrap();
+        owner_gateway
+            .bridge
+            .dispatching(&context, &route, &request.upstream_body(&route).unwrap())
+            .await
+            .unwrap();
+        let worker = owner_gateway.bridge.active.lock().unwrap()[&id].worker;
+        let observed = usage(7000);
+        if gap {
+            owner_gateway
+                .bridge
+                .persist_provider_observation(
+                    &id,
+                    &worker,
+                    &route.id,
+                    observed.clone(),
+                    SMALL_INPUT,
+                    1,
+                )
+                .await
+                .unwrap();
+            let mut tx = f.pool.begin().await.unwrap();
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query("SELECT core_model.checkpoint_output($1,$2,1,$3,128,$4,true)")
+                .bind(&id)
+                .bind(worker.as_slice())
+                .bind([14_u8; 32].as_slice())
+                .bind(serde_json::to_value(observed.checkpoint_usage()).unwrap())
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        } else {
+            owner_gateway
+                .bridge
+                .persist_output(
+                    &reservation,
+                    &OutputCheckpoint {
+                        sequence: 1,
+                        packet_sha256: [14; 32],
+                        packet_bytes: 128,
+                        usage: observed,
+                        terminal_observed: true,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        owner_gateway
+            .bridge
+            .charging
+            .mark_unknown(&id, &worker)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        restarted
+            .reconcile_completed_streams_page(10, None)
+            .await
+            .unwrap()
+            .0,
+        2
+    );
+    assert_balance(&f, 6000, 0).await;
+    assert_eq!(
+        restarted
+            .reconcile_completed_streams_page(10, None)
+            .await
+            .unwrap()
+            .0,
+        0
+    );
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT has_table_privilege(current_user,'core_model.output_checkpoints','SELECT')"
+        )
+        .fetch_one(&role.pool)
+        .await
+        .unwrap()
+    );
+    role.cleanup().await;
+}

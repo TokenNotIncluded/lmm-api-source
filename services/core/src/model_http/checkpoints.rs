@@ -144,9 +144,12 @@ impl Bridge {
     ) -> Result<(usize, Option<String>), RelayError> {
         validate_recovery_page(limit, after_request_id)?;
         let rows: Vec<CompletedStream> = sqlx::query_as(
-            "SELECT DISTINCT ON (request_id) request_id,revision,provider_usage,sequence FROM ( \
+            "WITH completed_streams AS MATERIALIZED ( \
+               SELECT request_id,revision,provider_usage,sequence \
+               FROM core_model.completed_streams_after($1,$2) \
+             ) SELECT DISTINCT ON (request_id) request_id,revision,provider_usage,sequence FROM ( \
                SELECT s.request_id,s.revision,s.provider_usage,s.sequence \
-               FROM core_model.completed_streams_after($1,$2) s \
+               FROM completed_streams s \
                WHERE NOT EXISTS (SELECT 1 FROM core_charging.requests lr \
                    JOIN core_charging.usage_events lp ON lp.request_id=lr.id \
                      AND lp.event_id='reservation-contract:v1' \
@@ -178,8 +181,7 @@ impl Bridge {
                LEFT JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' AND e.detail->>'kind'='usage' \
                LEFT JOIN core_charging.usage_events t ON t.request_id=r.id AND t.event_id='model-provider-terminal:v1' \
                JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='provider-observation:terminal' \
-               LEFT JOIN LATERAL (SELECT cp.provider_usage FROM core_model.output_checkpoints cp \
-                   WHERE cp.request_id=r.id AND cp.terminal_observed ORDER BY cp.sequence DESC LIMIT 1) sc ON true \
+               LEFT JOIN completed_streams sc ON sc.request_id=r.id AND sc.revision=r.revision \
                JOIN LATERAL (SELECT ev.event_id,ev.detail FROM core_charging.usage_events ev \
                    WHERE ev.request_id=r.id AND ev.event_id BETWEEN 'route-dispatch:1' AND 'route-dispatch:8' \
                    ORDER BY ev.event_id DESC LIMIT 1) d ON true \

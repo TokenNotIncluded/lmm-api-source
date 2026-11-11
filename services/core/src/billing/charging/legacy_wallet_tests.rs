@@ -533,7 +533,22 @@ async fn legacy_expression_terminal_budget_failure_is_atomic(pool: PgPool) {
 
 #[sqlx::test(migrations = false)]
 async fn legacy_observation_recovery_requires_revision_route_and_full_audit(pool: PgPool) {
-    let (engine, _) = fixture(&pool).await;
+    fixture(&pool).await;
+    let wallet = WalletLedger::from_pool(pool.clone());
+    wallet.open_wallet(102).await.unwrap();
+    credit_wallet(&wallet, "restricted-recovery", 8).await;
+    let runtime = crate::test_runtime::RuntimeRole::create(&pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    let denied = sqlx::query("SELECT provider_usage FROM core_model.output_checkpoints LIMIT 0")
+        .execute(&runtime.pool)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("42501")
+    );
+    let engine = Charging::new(runtime.pool.clone(), Arc::new(TransactionalLedger));
     let (spec, basis, proof) = prepared_legacy("legacy-observation-recovery", 20);
     engine
         .reserve_prepared_model_with_context(PERSONAL, &spec, &WORKER, None, None, basis, &proof)
@@ -620,6 +635,38 @@ async fn legacy_observation_recovery_requires_revision_route_and_full_audit(pool
     owner_seed_query(&pool, sqlx::query(
         "INSERT INTO core_model.output_checkpoints(request_id,sequence,packet_sha256,packet_bytes,prepared_bytes,provider_usage,terminal_observed) VALUES ($1,1,$2,1,1,$3,true)"
     ).bind(&spec.id).bind(vec![1_u8;32]).bind(serde_json::to_value(&crate::relay::Usage { input_tokens: Some(10), output_tokens: Some(5), ..Default::default() }).unwrap())).await.unwrap();
+    // Discovery-only rows have no holds, consumption, budget checks or ledger
+    // entries. Their IDs fill the first page of the exact target's prefix range.
+    let prefix = spec.id.strip_suffix('y').unwrap();
+    owner_seed_query(&pool, sqlx::query(
+        "WITH decoys AS ( \
+           INSERT INTO core_charging.requests( \
+             id,actor_user_id,key_id,owner_account_id,payer_account_id, \
+             fingerprint,worker_digest,spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved) \
+           SELECT $2 || 'x' || lpad(n::text,4,'0'), \
+             r.actor_user_id,r.key_id,r.owner_account_id,r.payer_account_id, \
+             r.fingerprint,r.worker_digest,r.spec_digest,r.price,r.authorized_at,r.lease_until,r.hard_deadline,'reconcile',0 \
+           FROM core_charging.requests r CROSS JOIN generate_series(1,1000) n WHERE r.id=$1 \
+           RETURNING id \
+         ) INSERT INTO core_model.output_checkpoints( \
+             request_id,sequence,packet_sha256,packet_bytes,prepared_bytes,provider_usage,terminal_observed) \
+           SELECT id,1,decode(repeat('00',32),'hex'),0,0, \
+             jsonb_build_object('input_tokens',0,'output_tokens',0),true FROM decoys"
+    ).bind(&spec.id).bind(prefix)).await.unwrap();
+    let (count, contains_target, last): (i64, bool, String) = sqlx::query_as(
+        "SELECT count(*)::bigint,bool_or(request_id=$1),max(request_id) \
+         FROM core_model.completed_streams_after(1000,$2)",
+    )
+    .bind(&spec.id)
+    .bind(prefix)
+    .fetch_one(&runtime.pool)
+    .await
+    .unwrap();
+    assert_eq!((count, contains_target), (1000, false));
+    let second_page_target: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core_model.completed_streams_after(1000,$2) WHERE request_id=$1)"
+    ).bind(&spec.id).bind(last).fetch_one(&runtime.pool).await.unwrap();
+    assert!(second_page_target);
     // Isolate revision fencing after the required immutable evidence exists.
     assert_eq!(
         engine
@@ -709,6 +756,10 @@ async fn legacy_observation_recovery_requires_revision_route_and_full_audit(pool
             .unwrap(),
         settled
     );
+    let balance = wallet.balance(102).await.unwrap();
+    assert_eq!((balance.spendable_units, balance.debt_units), (0, -7));
+    drop(engine);
+    runtime.cleanup().await;
 }
 
 #[sqlx::test(migrations = false)]

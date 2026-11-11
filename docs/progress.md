@@ -13,6 +13,7 @@
 
 ## 首发阻塞与已验证候选（2026-11-11）
 
+- `abd532d` 的正式 release 联测通过初始化、目录和运行权限检查后，在实际启动恢复扫描时报 `output_checkpoints` 读取权限错误，后续七组业务未运行。已将查询改为既有的受限 EXECUTE 读取接口，新增真实运行角色的启动、恢复、拒绝直接 SELECT 及第 1,001 项分页回归。最新 138 项定向测试通过、1 项旧 Go VM 私有夹具测试跳过，665 项输入前后无漂移。修复后的 release 与完整业务拓扑复验正在进行。失败证据 `~/.cache/lmm-subscription-abd-rsa-8fq2gh55/acceptance-failure-receipt.private.json`，修复自测 `~/.cache/lmm-checkpoint-runtime-fix.emagI8KX`。
 - 旧版纯文本预扣、原钱包补扣、表达式终态旧浮点舍入和崩溃恢复已接通。137 项本地定向测试与 31 项账单、渠道统计、仪表盘集成测试通过，1 项旧 Go VM 私有夹具测试跳过；665 项源码输入前后无漂移。真实 PostgreSQL 覆盖预算、订阅顺序、债务、退款、充值还款、HTTP、SSE 恢复及 TCP 提交回执丢失；HTTP 反例验证旧浮点 124 与原生精确规则 125 的差异贯通账本和恢复。装配时后续 SQL 覆盖账本动作的问题已修复，实际新目录摘要为 `d83aa95031f13c052adf1cc2344db0601b7932c3abc792b57683cb7cacf5b27d`。当前旧浮点分支限于明确冻结合同的钱包来源，历史导入订阅的旧舍入兼容仍待验证。实际迁移、发布与生产切换待完成。证据 `~/.cache/lmm-legacy-wallet-float.bBOUK4Ai`、`~/.cache/lmm-legacy-wallet-readers.6knLAl0M`。
 - 旧托管候选新增有界的暂停项目来源合同，保护 parent 已记录字段并绑定完整当前行，新增 accepted claim 限于暂停前且尚未提交或付款。独立复跑 28 项单测通过；现有真实缓存的纯 mapper 验证在绑定新附件后解除 6 项来源阻断，缺附件继续拒绝。实际部署来源、历史单位权威和独立经济批准仍待验证；完整 CLI 重跑、实际导入及生产切换待完成。证据 `~/.cache/lmm-financial-rebind-zmvsaw34/paused-local-aggregate.private.json`。
 - 对账验收的可到账孤儿充值统计已覆盖 pending 和超时失败两类订单，复用导入器支付生命周期规则。独立编码任务的开发自测包含 5 项隔离 PostgreSQL 行为测试和 9 项原有单测，均通过。测试覆盖漏 owner、正常 owner、普通失败和混合订单，未连接生产。证据 `~/.local/state/lmm-api/payable-orphan-tests/run-pze66l4p`。

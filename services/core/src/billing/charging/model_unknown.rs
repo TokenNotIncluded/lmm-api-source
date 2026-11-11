@@ -259,12 +259,6 @@ impl Charging {
         ).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
         let observed: crate::relay::Usage =
             serde_json::from_value(raw).map_err(|_| Error::Conflict)?;
-        let checkpoint: Value = sqlx::query_scalar(
-            "SELECT provider_usage FROM core_model.output_checkpoints WHERE request_id=$1 AND terminal_observed ORDER BY sequence DESC LIMIT 1"
-        ).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
-        if checkpoint != json(&observed.checkpoint_usage())? {
-            return Err(Error::Conflict);
-        }
         if stored.charge.state == "settled" {
             Self::record_model_terminal_in_transaction(&mut tx, &stored.charge, route_id, usage)
                 .await?;
@@ -282,6 +276,10 @@ impl Charging {
         }
         if stored.charge.state != "reconcile" || stored.charge.revision != expected_revision {
             return Err(Error::WrongState);
+        }
+        let checkpoint = legacy_terminal_checkpoint(&mut tx, id, expected_revision).await?;
+        if checkpoint != json(&observed.checkpoint_usage())? {
+            return Err(Error::Conflict);
         }
         Self::record_model_terminal_in_transaction(&mut tx, &stored.charge, route_id, usage)
             .await?;
@@ -500,4 +498,40 @@ pub(super) async fn legacy_terminal(
         return Err(Error::Conflict);
     }
     Ok(evidence)
+}
+
+/// Read through the canonical SECURITY DEFINER boundary in the original funds
+/// transaction. The function intentionally exposes only reconciliation rows.
+async fn legacy_terminal_checkpoint(
+    c: &mut PgConnection,
+    id: &str,
+    revision: i64,
+) -> Result<Value> {
+    // IDs are validated ASCII. A shorter prefix sorts before the exact ID and
+    // avoids scanning unrelated earlier requests. Other matching prefixes can
+    // fill a page, so continue until the exact ID or the end of its range.
+    let mut after = id
+        .get(..id.len().saturating_sub(1))
+        .filter(|prefix| !prefix.is_empty())
+        .map(str::to_owned);
+    loop {
+        let rows: Vec<(String, i64, Value)> = sqlx::query_as(
+            "SELECT request_id,revision,provider_usage FROM core_model.completed_streams_after(1000,$1) ORDER BY request_id"
+        ).bind(after.as_deref()).fetch_all(&mut *c).await?;
+        for (request_id, observed_revision, checkpoint) in &rows {
+            if request_id == id {
+                if *observed_revision != revision {
+                    return Err(Error::WrongState);
+                }
+                return Ok(checkpoint.clone());
+            }
+        }
+        let Some((last, _, _)) = rows.last() else {
+            return Err(Error::Conflict);
+        };
+        if rows.len() < 1000 || last.as_str() >= id {
+            return Err(Error::Conflict);
+        }
+        after = Some(last.clone());
+    }
 }
