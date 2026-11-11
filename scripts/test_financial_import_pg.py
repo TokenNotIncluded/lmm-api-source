@@ -925,6 +925,148 @@ END $fixture_previous_client$;
             "original_attempt_resolved": "COMMITTED", "database": self.db,
             "executed_transports": executed, "material_sha256": F.digest(material)}) + "\n")
 
+    def test_restart_resolution_real_stop_committed_absent_and_bound_negatives(self):
+        """Only an explicitly disposable resource-owner cluster may be restarted."""
+        from types import SimpleNamespace
+        import shutil
+        import test_financial_import_files as file_tests
+        from test_financial_import import approval_fixture
+
+        directory = os.environ.get("LMM_FINANCIAL_RESTART_PG_DATA")
+        canonical_root = os.environ.get("LMM_FINANCIAL_RESTART_CANONICAL_ROOT")
+        if not directory or not canonical_root:
+            self.skipTest("explicit disposable restart cluster and frozen canonical tools required")
+        directory = F.IDENTITY.private_backup_path(Path(directory), directory=True)
+        self.assertTrue(self.receipt["isolation"].get("restart_owned"))
+        self.assertEqual(str(directory), self.receipt["isolation"]["data_directory"])
+        canonical_root = Path(canonical_root)
+        cases = []
+
+        def prepare_case(label):
+            helper = file_tests.PrepareFilesTests("runTest")
+            helper.use_real_backup_root = True
+            helper.setUp()
+            self.addCleanup(helper.doCleanups)
+            helper.composed_inputs()
+            snapshot = json.loads(self.sql(F.snapshot_sql(self.inventory, "synthetic-financial")).stdout)
+            connection = {**self.connection, "database": self.db}
+            target = {"status": "initialized-identity-bound-financial-target", "application_or_worker_started": False,
+                "migration_id": "synthetic-financial", "source_archive_sha256": helper.source["plan"]["source_archive_sha256"],
+                "connection": connection, "instance_identity": snapshot["instance"],
+                "contract": {**F.IDENTITY.current_contract(), "catalog_fingerprint_sha256": snapshot["catalog_fingerprint_sha256"],
+                             "trust_policy_seed": snapshot["trust_policy_seed"]}}
+            helper.args.target_receipt = F.write_private(helper.input, "real-target.private.json", F.canonical(target))
+            helper.args.runtime_role = [self.runtime_role]
+            # The original writer predates this restart interface. Its bytes,
+            # not the new writer's hash, must remain in the material/SQL.
+            bound = {"scope": F.ESCROW_SCOPE, "tool_source_hashes": {
+                **F.PLANNER.tool_source_hashes(),
+                "financial_writer_sha256": F.IDENTITY.sha256_file(canonical_root / "scripts/financial_import.py"),
+                **{n: F.IDENTITY.sha256_file(canonical_root / "scripts" / n)
+                   for n in ("legacy_escrow_mapping.py", "legacy_bounty_basis.py")}}}
+            old = F.restart_canonical(canonical_root, bound)
+            prepared = helper.output(label + "-prepared")
+            self.assertEqual(old.prepare(helper.args, prepared)["status"], "PREPARED_NOT_APPLIED")
+            material_path = prepared / "material.private.json"
+            material = json.loads(material_path.read_text())
+            sql_path = prepared / "opening.private.sql"
+            approval = approval_fixture(material, sql_path.read_text())
+            approval_path = F.write_private(helper.input, label + "-approval.private.json", F.canonical(approval))
+            case = {"helper": helper, "old": old, "material": material, "material_path": material_path,
+                "sql_path": sql_path, "approval": approval, "approval_path": approval_path,
+                "target_path": helper.args.target_receipt, "connection": connection,
+                "database": self.db, "attempt_dir": helper.output(label + "-attempt")}
+            cases.append(case)
+            return case
+
+        absent = prepare_case("absent")
+        absent["before"] = self.full_state()
+        # A second owned clone supplies the already-committed recovery branch.
+        self.setUp()
+        committed = prepare_case("committed")
+        self.assertEqual(committed["old"].execute(committed["material"], approval=committed["approval"],
+            original_sql=committed["sql_path"].read_text(), connection=committed["connection"],
+            output=committed["attempt_dir"])["status"], "COMMITTED")
+        committed["before"] = self.full_state()
+
+        type(self).db = absent["database"]
+        lock = subprocess.Popen(self.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True)
+        lock.stdin.write("SELECT pg_advisory_lock(" + str(F.FENCE) + "); SELECT 'restart-lock-ready';\n")
+        lock.stdin.flush()
+        while "restart-lock-ready" not in lock.stdout.readline():
+            self.assertIsNone(lock.poll(), "fixture lock exited")
+        def finish_lock():
+            if lock.poll() is None:
+                lock.terminate()
+            lock.communicate(timeout=10)
+        self.addCleanup(finish_lock)
+        # The actual original SQL reaches PostgreSQL and its original session
+        # fence refuses it. The ordinary driver conservatively records UNKNOWN.
+        # A real restart then exercises conclusive read-only absence resolution.
+        outcome = absent["old"].execute(absent["material"], approval=absent["approval"],
+            original_sql=absent["sql_path"].read_text(), connection=absent["connection"],
+            output=absent["attempt_dir"])
+        self.assertEqual(outcome["status"], "UNKNOWN")
+        self.assertIn("financial_import_busy", (absent["attempt_dir"] / "database.stderr.private.txt").read_text())
+        finish_lock()
+        command = ["pg_ctl", "-D", str(directory), "-m", "fast", "-l",
+                   str(self.artifacts / "restart-server.private.log"), "-w", "restart"]
+        restarted = subprocess.run(command, text=True, capture_output=True, timeout=45)
+        self.assertEqual(restarted.returncode, 0, restarted.stderr)
+        evidence = F.write_private(self.artifacts, "actual-restart.private.json", F.canonical({
+            "argv": command, "returncode": restarted.returncode, "stdout": restarted.stdout,
+            "stderr": restarted.stderr, "synthetic_only": True, "no_restore_reset_or_rewind": True}))
+        for case in cases:
+            type(self).db = case["database"]
+            new_instance = self.query(F.instance_sql())
+            attempt_path = case["attempt_dir"] / "attempt.private.json"
+            paths = {"material": case["material_path"], "sql": case["sql_path"],
+                     "approval": case["approval_path"], "attempt": attempt_path}
+            proof = {"format_version": 1, "scope": "financial-same-data-directory-restart-v1",
+                "source_archive_sha256": case["material"]["source_archive_sha256"],
+                "files": {k: F.IDENTITY.sha256_file(v) for k, v in paths.items()}, "restarted_instance": new_instance,
+                "continuity": {"basis": "operator-observed-shutdown-and-same-datadir-recovery",
+                    "no_restore_reset_or_rewind": True, "data_directory": str(directory),
+                    "evidence": [{"path": str(evidence), "sha256": F.IDENTITY.sha256_file(evidence)}]}}
+            proof_path = F.write_private(case["helper"].input, "restart-proof.private.json", F.canonical(proof))
+            args = SimpleNamespace(material=paths["material"], sql=paths["sql"], approval=paths["approval"],
+                resolve_attempt=paths["attempt"], target_receipt=case["target_path"], restart_proof=proof_path,
+                canonical_source_root=canonical_root)
+            if case is absent:
+                for field in ("system_identifier", "database_oid", "server_instance_nonce", "role", "database_owner"):
+                    bad = copy.deepcopy(proof)
+                    bad["restarted_instance"][field] = "wrong"
+                    with self.subTest(field=field), self.assertRaisesRegex(F.Error, "restart_instance_fields_mismatch"):
+                        F.validate_restart_proof(bad, case["material"], proof["files"])
+                bad = copy.deepcopy(proof)
+                bad["source_archive_sha256"] = "0" * 64
+                with self.assertRaisesRegex(F.Error, "restart_evidence_binding_mismatch"):
+                    F.validate_restart_proof(bad, case["material"], proof["files"])
+                source = Path(case["material"]["source_files"]["source_export"]["path"])
+                before = source.read_bytes()
+                try:
+                    source.write_bytes(before + b"\n")
+                    with self.assertRaisesRegex((F.Error, case["old"].Error), "source_file_changed"):
+                        F.resolve_restarted(args, case["helper"].output("changed-source"))
+                finally:
+                    source.write_bytes(before)
+                wrong_root = case["helper"].root / "wrong-tools"
+                wrong_root.mkdir(mode=0o700)
+                (wrong_root / "scripts").mkdir(mode=0o700)
+                for name in ("financial_import.py", "migrate-legacy-financial.py", "migrate-legacy-snapshot.py",
+                             "legacy_financial_preflight.py", "legacy_cutover_money.py",
+                             "legacy_escrow_mapping.py", "legacy_bounty_basis.py"):
+                    shutil.copyfile(canonical_root / "scripts" / name, wrong_root / "scripts" / name)
+                with (wrong_root / "scripts/financial_import.py").open("a") as stream:
+                    stream.write("\n# synthetic changed writer\n")
+                with self.assertRaisesRegex(F.Error, "restart_canonical_source_mismatch"):
+                    F.restart_canonical(wrong_root, case["material"])
+            result = F.resolve_restarted(args, case["helper"].output("restart-resolved"))
+            self.assertEqual(result["status"], "NOT_APPLIED" if case is absent else "COMMITTED")
+            self.assertEqual(self.full_state(), case["before"])
+            self.assertEqual({k: F.IDENTITY.sha256_file(v) for k, v in paths.items()}, proof["files"])
+
     @classmethod
     def tearDownClass(cls):
         cls.db = cls.template

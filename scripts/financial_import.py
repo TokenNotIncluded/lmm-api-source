@@ -844,6 +844,159 @@ def verify_approval(material: dict, sql: str, approval: dict) -> None:
     }, "offline_approval_mismatch")
 
 
+def restart_canonical(source_root: Path, material: dict):
+    """Load the byte-bound original writer, including materials from older tools."""
+    scripts = IDENTITY.private_backup_path(source_root, directory=True) / "scripts"
+    names = {
+        "importer_sha256": "migrate-legacy-financial.py",
+        "identity_helper_sha256": "migrate-legacy-snapshot.py",
+        "financial_preflight_helper_sha256": "legacy_financial_preflight.py",
+        "payment_lifecycle_helper_sha256": "legacy_cutover_money.py",
+        "financial_writer_sha256": "financial_import.py",
+    }
+    if escrow_profile(material):
+        names.update({name: name for name in ("legacy_escrow_mapping.py", "legacy_bounty_basis.py")})
+    expected = material["tool_source_hashes"]
+    require(set(expected) == set(names) and all(
+        IDENTITY.sha256_file(scripts / filename) == expected[key]
+        for key, filename in names.items()), "restart_canonical_source_mismatch")
+    # This CLI process performs only this recovery. Lazy imports must also use
+    # the original scripts, rather than the newer writer's module search path.
+    sys.path.insert(0, str(scripts))
+    dependencies = [("legacy_financial_preflight", "financial_preflight_helper_sha256"),
+                    ("legacy_cutover_money", "payment_lifecycle_helper_sha256")]
+    if escrow_profile(material):
+        dependencies += [("legacy_bounty_basis", "legacy_bounty_basis.py"),
+                         ("legacy_escrow_mapping", "legacy_escrow_mapping.py")]
+    for module_name, key in dependencies:
+        cached = sys.modules.get(module_name)
+        cached_path = Path(getattr(cached, "__file__", "/nonexistent"))
+        if cached_path.is_file() and IDENTITY.sha256_file(cached_path) == expected[key]:
+            continue
+        dependency_spec = importlib.util.spec_from_file_location(module_name, scripts / names[key])
+        dependency = importlib.util.module_from_spec(dependency_spec)
+        sys.modules[module_name] = dependency
+        dependency_spec.loader.exec_module(dependency)
+    spec = importlib.util.spec_from_file_location("financial_restart_canonical", scripts / "financial_import.py")
+    original = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(original)
+    require(original.source_hashes(escrow=escrow_profile(material)) == expected,
+            "restart_canonical_source_mismatch")
+    return original
+
+
+def validate_restart_proof(proof: dict, material: dict, files: dict) -> dict:
+    require(proof.get("format_version") == 1
+            and proof.get("scope") == "financial-same-data-directory-restart-v1"
+            and proof.get("source_archive_sha256") == material["source_archive_sha256"]
+            and proof.get("files") == files, "restart_evidence_binding_mismatch")
+    old = material["target"]["instance"]
+    new = proof.get("restarted_instance")
+    require(type(new) is dict and set(new) == set(old)
+            and {key for key in old if old[key] != new[key]} == {"postmaster_started_at"},
+            "restart_instance_fields_mismatch")
+    require(datetime.fromisoformat(new["postmaster_started_at"]) >
+            datetime.fromisoformat(old["postmaster_started_at"]), "restart_start_not_newer")
+    continuity = proof.get("continuity", {})
+    require(continuity.get("no_restore_reset_or_rewind") is True
+            and continuity.get("basis") in ("operator-observed-oom-and-same-datadir-recovery",
+                                             "operator-observed-shutdown-and-same-datadir-recovery")
+            and type(continuity.get("evidence")) is list and continuity["evidence"],
+            "restart_continuity_missing")
+    for evidence in continuity["evidence"]:
+        path = IDENTITY.private_backup_path(Path(evidence["path"]))
+        require(IDENTITY.sha256_file(path) == evidence["sha256"], "restart_continuity_evidence_changed")
+    directory = IDENTITY.private_backup_path(Path(continuity["data_directory"]), directory=True)
+    pid = (directory / "postmaster.pid").read_text().splitlines()
+    require(len(pid) >= 5 and Path(pid[1]).resolve() == directory.resolve()
+            and int(pid[3]) == new["port"]
+            and int(pid[2]) == int(datetime.fromisoformat(new["postmaster_started_at"]).timestamp()),
+            "restart_data_directory_mismatch")
+    process = Path("/proc") / pid[0]
+    require(process.joinpath("exe").resolve().name == "postgres"
+            and str(directory).encode() in process.joinpath("cmdline").read_bytes().split(b"\0"),
+            "restart_postmaster_process_mismatch")
+    return new
+
+
+def build_restart_resolve_sql(original, material: dict, application_name: str, restarted_instance: dict) -> str:
+    """Keep the original payload and every guard except its proven start time."""
+    sql = original.build_resolve_sql(material, application_name)
+    old_guard = original._guard(material)
+    old_check = "IS DISTINCT FROM " + original.literal(material["target"]["instance"]) + "::jsonb"
+    new_check = "IS DISTINCT FROM " + original.literal(restarted_instance) + "::jsonb"
+    require(old_guard.count(old_check) == 1 and sql.count(old_guard) == 2,
+            "restart_resolver_template_changed")
+    return sql.replace(old_guard, old_guard.replace(old_check, new_check))
+
+
+def resolve_restarted(args, output: Path) -> dict:
+    try:
+        return _resolve_restarted(args, output)
+    except Exception as error:
+        # Each byte-bound identity module defines its own exception class.
+        if type(error).__name__ == "MappingError" and re.fullmatch(r"[a-z][a-z0-9_]{0,127}", str(error)):
+            raise Error(str(error)) from None
+        raise
+
+
+def _resolve_restarted(args, output: Path) -> dict:
+    paths = {"material": args.material, "sql": args.sql, "approval": args.approval,
+             "attempt": args.resolve_attempt}
+    files = {name: IDENTITY.sha256_file(IDENTITY.private_backup_path(path)) for name, path in paths.items()}
+    material = PLANNER.parse_json(read_private(args.material))
+    original = restart_canonical(args.canonical_source_root, material)
+    original.validate_material(material)
+    sql = read_private(args.sql)
+    approval = original.PLANNER.parse_json(read_private(args.approval))
+    attempt = original.PLANNER.parse_json(read_private(args.resolve_attempt))
+    require(attempt.get("operation") == "apply"
+            and attempt.get("material_sha256") == original.digest(material)
+            and attempt.get("sql_sha256") == original.sha(sql.encode())
+            and attempt.get("sql_sha256") == files["sql"]
+            and attempt.get("migration_id") == material["migration_id"], "original_attempt_material_mismatch")
+    require(sql == original.build_apply_sql(material), "original_sql_changed")
+    original.verify_approval(material, sql, approval)
+    original.verify_source_files(material)
+    proof = original.PLANNER.parse_json(read_private(args.restart_proof))
+    new_instance = validate_restart_proof(proof, material, files)
+    target = original.PLANNER.parse_json(read_private(args.target_receipt))
+    require(target.get("application_or_worker_started") is False, "application_start_not_excluded")
+    connection = target["connection"]
+    owner, login = original.IDENTITY.connection_roles(connection)
+    expected = material["target"]["instance"]
+    require(owner == expected["role"] and login == expected["session_user"]
+            and connection["database"] == expected["database"] and connection["port"] == expected["port"],
+            "target_connection_binding_mismatch")
+    query = build_restart_resolve_sql(original, material, attempt["application_name"], new_instance)
+    application_name = "lmm-financial-" + uuid.uuid4().hex
+    write_private(output, "restart-resolution.private.json", canonical({
+        "operation": "resolve-after-restart-readonly", "application_name": application_name,
+        "original_files": files, "restart_proof_sha256": IDENTITY.sha256_file(args.restart_proof),
+        "resolver_sha256": IDENTITY.sha256_file(Path(__file__)), "derived_sql_sha256": sha(query.encode()),
+        "original_material_and_sql_unchanged": True}) + "\n")
+    write_private(output, "executed.private.sql", query)
+    result = {"status": "UNKNOWN", "migration_id": material["migration_id"],
+              "material_sha256": original.digest(material), "operation": "resolve-after-restart-readonly"}
+    code, stdout = original.run_sql(connection, query, output, application_name, readonly=True)
+    if code == 0:
+        original.verify_source_files(material)
+        require(original.source_hashes(escrow=escrow_profile(material)) == material["tool_source_hashes"],
+                "financial_tool_source_changed")
+        resolved = original.PLANNER.parse_json(stdout)
+        require(type(resolved) is dict and set(resolved) == {"status", "migration_id", "material_sha256"}
+                and resolved.get("migration_id") == result["migration_id"]
+                and resolved.get("material_sha256") == result["material_sha256"], "restart_result_binding_mismatch")
+        if resolved.get("status") == "COMMITTED":
+            result["status"] = "COMMITTED"
+        elif resolved.get("status") == "UNKNOWN":
+            # The original SQL proved explicit receipt absence AND full before
+            # state/sequence equality. Continuity evidence closes restore risk.
+            result["status"] = "NOT_APPLIED"
+    write_private(output, "result.private.json", canonical(result) + "\n")
+    return result
+
+
 def write_private(directory: Path, name: str, value: str) -> Path:
     result = IDENTITY.write_private(directory, name, value)
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
@@ -1227,6 +1380,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--migration-id")
     parser.add_argument("--runtime-role", action="append")
+    parser.add_argument("--restart-proof", type=Path,
+                        help="Read-only resolution after an evidenced same-data-directory restart; never enables apply")
+    parser.add_argument("--canonical-source-root", type=Path,
+                        help="Original frozen tools, whose bytes must match the original material")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--prepare", action="store_true")
     mode.add_argument("--check-readiness", action="store_true", help="Check existing private source prerequisites only; no database access, material, SQL or approval")
@@ -1235,6 +1392,9 @@ def main() -> int:
     args = parser.parse_args()
     output = None
     try:
+        require((args.restart_proof is None and args.canonical_source_root is None)
+                or (args.resolve_attempt is not None and args.restart_proof is not None
+                    and args.canonical_source_root is not None), "restart_arguments_require_readonly_resolution")
         if args.prepare or args.check_readiness:
             validate_prepare_arguments(args)
         require(args.prepare or args.check_readiness or (not args.include_legacy_escrow and all(getattr(args, name) is None for name in ESCROW_SOURCE_FILES)),
@@ -1246,6 +1406,9 @@ def main() -> int:
             result = check_readiness(args, output)
         elif args.prepare:
             result = prepare(args, output)
+        elif args.restart_proof:
+            require(all((args.material, args.approval, args.sql, args.target_receipt)), "apply_arguments_missing")
+            result = resolve_restarted(args, output)
         else:
             require(all((args.material, args.approval, args.sql, args.target_receipt)), "apply_arguments_missing")
             material = PLANNER.parse_json(read_private(args.material))
