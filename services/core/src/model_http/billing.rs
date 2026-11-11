@@ -841,31 +841,20 @@ impl Billing for Bridge {
                         (usage, Outcome::Completed)
                     }
                 };
-                let mut supplement = false;
                 if upstream_cost {
-                    let amount = price.cost(usage).map_err(error)?;
-                    let charge = self
-                        .charging
-                        .resolve(&reservation.id)
-                        .await
-                        .map_err(error)?
-                        .ok_or(RelayError::SettlementPending)?;
-                    supplement = amount > charge.reserved;
-                    if supplement {
-                        retry(|| {
-                            self.charging.record_model_terminal(
-                                &reservation.id,
-                                &worker,
-                                &selected.route_id,
-                                usage,
-                            )
-                        })
-                        .await
-                        .map_err(error)?;
-                    }
+                    retry(|| {
+                        self.charging.record_model_terminal(
+                            &reservation.id,
+                            &worker,
+                            &selected.route_id,
+                            usage,
+                        )
+                    })
+                    .await
+                    .map_err(error)?;
                 }
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-                if !supplement {
+                if !upstream_cost {
                     stage = "provider_checkpoint";
                     retry_finalize(
                         deadline,
@@ -886,7 +875,7 @@ impl Billing for Bridge {
                 stage = "settle";
                 let settlement =
                     retry_finalize(deadline, &reservation.id, FinalizeStage::Settle, || async {
-                        if supplement {
+                        if upstream_cost {
                             self.charging
                                 .settle_measured_cost_with_supplement(
                                     &reservation.id,

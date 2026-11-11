@@ -1919,8 +1919,9 @@ async fn measured_cost_supplement_fixture(
     pool: &PgPool,
     engine: &Charging,
     id: &str,
+    reserve: i64,
 ) -> (Request, Usage) {
-    let mut spec = request(id, 10);
+    let mut spec = request(id, reserve);
     spec.price.model = "openrouter/fusion".into();
     spec.price.input_per_million = 0;
     spec.price.cached_per_million = 0;
@@ -1948,10 +1949,36 @@ async fn measured_cost_supplement_fixture(
 }
 
 #[sqlx::test(migrations = false)]
+async fn measured_cost_final_receipt_settles_after_expiry_without_supplement(pool: PgPool) {
+    let (engine, _) = fixture(&pool).await;
+    let (spec, usage) =
+        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-no-supplement", 30).await;
+    expire(&pool, &spec.id).await;
+    assert_eq!(engine.recover_expired(10).await.unwrap().len(), 1);
+    let settle = || {
+        engine.settle_measured_cost_with_supplement(
+            &spec.id,
+            &WORKER,
+            PERSONAL,
+            None,
+            None,
+            usage,
+            Outcome::Completed,
+        )
+    };
+    let settled = settle().await.unwrap();
+    assert_eq!((settled.reserved, settled.settled), (30, 20));
+    assert_eq!(settled.state, "settled");
+    assert_eq!(settle().await.unwrap(), settled);
+    assert_eq!(count(&pool, "reserve").await, 1);
+    assert_eq!(count(&pool, "settle").await, 1);
+}
+
+#[sqlx::test(migrations = false)]
 async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
     let (engine, ledger) = fixture(&pool).await;
     let (spec, usage) =
-        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-supplement").await;
+        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-supplement", 10).await;
     let settle = || {
         engine.settle_measured_cost_with_supplement(
             &spec.id,
@@ -2008,7 +2035,7 @@ async fn measured_cost_supplement_retries_real_wallet_after_expiry_and_topup(poo
         WalletOutcome::Posted { .. }
     ));
     let (spec, usage) =
-        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-wallet").await;
+        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-wallet", 10).await;
     let settle = || {
         engine.settle_measured_cost_with_supplement(
             &spec.id,

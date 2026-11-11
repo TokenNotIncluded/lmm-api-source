@@ -1424,6 +1424,75 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
 }
 
 #[sqlx::test(migrations = false)]
+async fn upstream_cost_gateway_finalizes_reconcile_without_extra_hold(pool: PgPool) {
+    let f = fixture(pool, 1_000_000).await;
+    // Numeric-loopback synthetic billing is the supported fixture contract.
+    // External cost billing still requires a supplier-enforced budget.
+    let original = gateway(&f, "http://127.0.0.1:1/v1", vec![]);
+    let mut document = original.bridge.routing.catalog_document().unwrap();
+    document.routing.routes.truncate(1);
+    document.routing.routes[0].model = "openrouter/fusion".into();
+    document.routing.routes[0].targets[0].upstream_model = "openrouter/fusion".into();
+    document.pricing.rules.truncate(1);
+    document.pricing.rules[0].model = "openrouter/fusion".into();
+    document.pricing.rules[0].billing_mode = BillingMode::UpstreamCost;
+    document.pricing.rules[0].rates = TokenRates {
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+        request: 0,
+    };
+    let g = ModelGateway::new_with_provider_policy(
+        f.pool.clone(),
+        Arc::new(
+            routing::Router::new(
+                document.routing,
+                Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+            )
+            .unwrap(),
+        ),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-measured-cost-provider-key".into(),
+        }],
+        BTreeMap::from([(f.key_id, "allowed".into())]),
+        original.limits.clone(),
+        original.bridge.policy,
+        ProviderPolicy::new(vec![], GLOBAL_INPUT).unwrap(),
+    )
+    .unwrap();
+    let (context, request) =
+        admit(&g, &f, "measured-gateway-reconcile", "openrouter/fusion", 1).await;
+    let route = g.bridge.select(&context, &request).await.unwrap();
+    let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+    g.bridge
+        .dispatching(&context, &route, &request.upstream_body(&route).unwrap())
+        .await
+        .unwrap();
+    let worker = g.bridge.active.lock().unwrap()[&reservation.id].worker;
+    g.bridge
+        .charging
+        .mark_unknown(&reservation.id, &worker)
+        .await
+        .unwrap();
+    let mut observed = usage(7);
+    observed.upstream_cost_atto_usd = crate::upstream_cost::parse_usd("0.000040");
+    g.bridge
+        .finalize(&reservation, &terminal(&reservation.id, &route, observed))
+        .await
+        .unwrap();
+    let settled = receipt(&g, &reservation.id).await;
+    assert_eq!(settled.state, "settled");
+    assert_eq!(settled.settled, 20);
+    assert_balance(&f, 999_980, 0).await;
+    let receipt_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='model-provider-terminal:v1'",
+    ).bind(&reservation.id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(receipt_count, 1);
+}
+
+#[sqlx::test(migrations = false)]
 async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(pool: PgPool) {
     let f = fixture(pool, 400_000).await;
     let g = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
