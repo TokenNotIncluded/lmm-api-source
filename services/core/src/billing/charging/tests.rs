@@ -1915,10 +1915,12 @@ fn upstream_cost_price_requires_receipt_and_preserves_exact_group_quote() {
     assert_eq!(price.validate(), Err(Error::Invalid));
 }
 
-#[sqlx::test(migrations = false)]
-async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
-    let (engine, ledger) = fixture(&pool).await;
-    let mut spec = request("measured-cost-supplement", 10);
+async fn measured_cost_supplement_fixture(
+    pool: &PgPool,
+    engine: &Charging,
+    id: &str,
+) -> (Request, Usage) {
+    let mut spec = request(id, 10);
     spec.price.model = "openrouter/fusion".into();
     spec.price.input_per_million = 0;
     spec.price.cached_per_million = 0;
@@ -1930,10 +1932,10 @@ async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
         upstream_cost_atto_usd: crate::upstream_cost::parse_usd("0.000040"),
         ..Usage::default()
     };
-    // Seed the terminal receipt here to inject a capture failure after the
-    // actual supplemental reservation in the engine transaction.
+    // The gateway writer is covered by selected_bound_http_recovery; this
+    // fixture isolates funding and settlement after the receipt is durable.
     owner_seed_query(
-        &pool,
+        pool,
         sqlx::query("INSERT INTO core_charging.usage_events(request_id,event_id,detail) VALUES ($1,'model-provider-terminal:v1',$2)")
             .bind(&spec.id)
             .bind(serde_json::json!({
@@ -1942,6 +1944,14 @@ async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
                 "price_sha256": super::contract::typed_digest(&spec.price).unwrap(),
             })),
     ).await.unwrap();
+    (spec, usage)
+}
+
+#[sqlx::test(migrations = false)]
+async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
+    let (engine, ledger) = fixture(&pool).await;
+    let (spec, usage) =
+        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-supplement").await;
     let settle = || {
         engine.settle_measured_cost_with_supplement(
             &spec.id,
@@ -1965,6 +1975,90 @@ async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
     assert_eq!(settle().await.unwrap(), settled);
     assert_eq!(count(&pool, "reserve").await, 2);
     assert_eq!(count(&pool, "settle").await, 1);
+}
+
+#[sqlx::test(migrations = false)]
+async fn measured_cost_supplement_retries_real_wallet_after_topup(pool: PgPool) {
+    use crate::billing::{
+        Credits,
+        ledger::{
+            Action, Ledger as WalletLedger, Outcome as WalletOutcome, Request as WalletRequest,
+        },
+        transactional_ledger::TransactionalLedger,
+    };
+
+    fixture(&pool).await;
+    let ledger = WalletLedger::from_pool(pool.clone());
+    let engine = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
+    let account_id = 102;
+    ledger.open_wallet(account_id).await.unwrap();
+    let credit = |key: &str, amount| WalletRequest {
+        scope: "measured-cost-test".into(),
+        operation_key: key.into(),
+        actor_user_id: Some(2),
+        reason: "Isolated measured cost fixture".into(),
+        action: Action::Credit {
+            account_id,
+            amount_units: Credits::try_from(amount).unwrap(),
+            payment_reference: format!("synthetic:{key}"),
+        },
+    };
+    assert!(matches!(
+        ledger.execute(&credit("initial", 15_i64)).await.unwrap(),
+        WalletOutcome::Posted { .. }
+    ));
+    let (spec, usage) =
+        measured_cost_supplement_fixture(&pool, &engine, "measured-cost-wallet").await;
+    let settle = || {
+        engine.settle_measured_cost_with_supplement(
+            &spec.id,
+            &WORKER,
+            PERSONAL,
+            None,
+            None,
+            usage,
+            Outcome::Completed,
+        )
+    };
+    let before = ledger.balance(account_id).await.unwrap();
+    assert_eq!((before.spendable_units, before.reserved_units), (5, 10));
+    assert_eq!(settle().await.unwrap_err(), Error::NoFunds);
+    assert_eq!(ledger.balance(account_id).await.unwrap(), before);
+    let pending = engine.resolve(&spec.id).await.unwrap().unwrap();
+    assert_eq!((pending.reserved, pending.settled), (10, 0));
+
+    assert!(matches!(
+        ledger.execute(&credit("retry", 6_i64)).await.unwrap(),
+        WalletOutcome::Posted { .. }
+    ));
+    let settled = settle().await.unwrap();
+    assert_eq!((settled.reserved, settled.settled), (20, 20));
+    let after = ledger.balance(account_id).await.unwrap();
+    assert_eq!(
+        (
+            after.spendable_units,
+            after.reserved_units,
+            after.debt_units
+        ),
+        (1, 0, 0)
+    );
+    assert_eq!(settle().await.unwrap(), settled);
+    assert_eq!(ledger.balance(account_id).await.unwrap(), after);
+
+    let refund = engine
+        .refund(&spec.id, "full", 20, "isolated-refund")
+        .await
+        .unwrap();
+    assert_eq!(refund.refunded, 20);
+    let balance = ledger.balance(account_id).await.unwrap();
+    assert_eq!(
+        (
+            balance.spendable_units,
+            balance.reserved_units,
+            balance.debt_units
+        ),
+        (21, 0, 0)
+    );
 }
 
 #[test]
