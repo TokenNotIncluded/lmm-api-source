@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 pub(crate) mod native_tokens;
 pub use native_tokens::{
     ImageOutputTokenSource, ImageTokenCurrencyBasis, ImageTokenTariff, ImageTokenUsage,
-    LegacyImageRatioTariff,
+    ImageTokenUsageContract, LegacyImageRatioTariff,
 };
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
@@ -89,6 +89,12 @@ pub struct ImageQuote {
     tariff: ImagePriceRule,
 }
 impl ImageQuote {
+    pub(crate) fn usage_contract(&self) -> ImageTokenUsageContract {
+        match &self.tariff.count_basis {
+            ImageCountBasis::NativeTokens(tariff) => tariff.usage_contract,
+            _ => ImageTokenUsageContract::NativeStrict,
+        }
+    }
     /// Reservation is the full requested-count amount, independent of client disconnect.
     pub fn reservation_credits(&self) -> Credits {
         self.charge
@@ -493,6 +499,52 @@ fn cost_with_discount(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_cache_usage_contract_is_frozen_and_old_quotes_stay_strict() {
+        let mut config = config();
+        config.rules[0].semantic_model = "gpt-image-2".into();
+        config.rules[0].usd_micros_per_image.numerator = 0;
+        let strict_tariff = native_tokens::tests::tariff();
+        config.rules[0].count_basis = ImageCountBasis::NativeTokens(strict_tariff.clone());
+        let strict = config.quote(&request_for(&config.rules[0], 1)).unwrap();
+        assert_eq!(
+            strict.usage_contract(),
+            ImageTokenUsageContract::NativeStrict
+        );
+        let old = serde_json::to_value(strict.persisted()).unwrap();
+        assert!(
+            old["rule"]["count_basis"]["native_tokens"]
+                .get("usage_contract")
+                .is_none()
+        );
+        let restored: PersistedImagePrice = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap(), old);
+        let mut legacy_tariff = strict_tariff;
+        legacy_tariff.usage_contract = ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1;
+        config.rules[0].count_basis = ImageCountBasis::NativeTokens(legacy_tariff);
+        let legacy = config.quote(&request_for(&config.rules[0], 1)).unwrap();
+        assert_eq!(
+            legacy.usage_contract(),
+            ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1
+        );
+        let frozen = serde_json::to_value(legacy.persisted()).unwrap();
+        assert_ne!(frozen, old);
+        assert_eq!(
+            frozen["rule"]["count_basis"]["native_tokens"]["usage_contract"],
+            "cc52_openai_images_cache_absence_v1"
+        );
+        let restored: PersistedImagePrice = serde_json::from_value(frozen.clone()).unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap(), frozen);
+        config.rules[0].count_basis = ImageCountBasis::Requested;
+        assert_eq!(
+            config
+                .quote(&request_for(&config.rules[0], 1))
+                .unwrap()
+                .usage_contract(),
+            ImageTokenUsageContract::NativeStrict
+        );
+    }
 
     #[test]
     fn native_image_frozen_receipt_roundtrip_and_explicit_fixed_count_price_do_not_mix() {

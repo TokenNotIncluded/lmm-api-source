@@ -22,6 +22,20 @@ pub enum ImageOutputTokenSource {
     ImagesEndpointTotal,
 }
 
+/// Frozen image usage interpretation selected by the installation owner.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageTokenUsageContract {
+    #[default]
+    NativeStrict,
+    Cc52OpenaiImagesCacheAbsenceV1,
+}
+impl ImageTokenUsageContract {
+    fn is_native_strict(&self) -> bool {
+        *self == Self::NativeStrict
+    }
+}
+
 /// Trusted deployment input; frozen with the original operation's price.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +44,11 @@ pub struct ImageTokenTariff {
     pub billing_price_key: String,
     pub source_expression: String,
     pub source_sha256: String,
+    #[serde(
+        default,
+        skip_serializing_if = "ImageTokenUsageContract::is_native_strict"
+    )]
+    pub usage_contract: ImageTokenUsageContract,
     pub currency_basis: ImageTokenCurrencyBasis,
     pub credits_per_usd: u64,
     pub usd_multiplier: ExactRatio,
@@ -91,6 +110,12 @@ impl ImageTokenUsage {
         }
     }
     pub(crate) fn from_native(value: &Value) -> Result<Self, ImagePriceError> {
+        Self::from_native_with_contract(value, ImageTokenUsageContract::NativeStrict)
+    }
+    pub(crate) fn from_native_with_contract(
+        value: &Value,
+        contract: ImageTokenUsageContract,
+    ) -> Result<Self, ImagePriceError> {
         native_fields(
             value,
             &[
@@ -123,7 +148,17 @@ impl ImageTokenUsage {
                 "cached_tokens_details",
             ],
         )?;
-        let cached = optional(details, "cached_tokens")?;
+        // cc52 InputTokenDetails.CachedTokens is a Go int. Only this frozen
+        // source contract gives complete field absence its source default zero.
+        // Present nulls, malformed values and partial classifications stay strict.
+        let source_absence = contract == ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1
+            && details.get("cached_tokens").is_none()
+            && details.get("cached_tokens_details").is_none();
+        let cached = if source_absence {
+            Some(0)
+        } else {
+            optional(details, "cached_tokens")?
+        };
         let (cached_text, cached_image) = match details.get("cached_tokens_details") {
             Some(v) => {
                 native_fields(v, &["text_tokens", "image_tokens", "audio_tokens"])?;
@@ -446,6 +481,7 @@ pub(crate) mod tests {
             billing_price_key: "gpt-image-2".into(),
             source_expression: EXPRESSION.into(),
             source_sha256: format!("{:x}", Sha256::digest(EXPRESSION.as_bytes())),
+            usage_contract: ImageTokenUsageContract::NativeStrict,
             currency_basis: ImageTokenCurrencyBasis::LegacyPricingUnit,
             credits_per_usd: 500000,
             usd_multiplier: ExactRatio {
@@ -577,6 +613,95 @@ pub(crate) mod tests {
         let zero = ImageTokenUsage::from_native(&value).unwrap();
         assert_eq!((zero.cached_text, zero.cached_image), (Some(0), Some(0)));
         assert_eq!(tariff().credits(Some(zero), group(), None).unwrap(), 490);
+    }
+    fn absent_cache() -> Value {
+        let mut raw = measured();
+        let details = raw["input_tokens_details"].as_object_mut().unwrap();
+        details.remove("cached_tokens");
+        details.remove("cached_tokens_details");
+        raw
+    }
+    #[test]
+    fn cc52_cache_absence_is_explicit_and_leaves_raw_usage_unchanged() {
+        let raw = absent_cache();
+        let original = raw.clone();
+        let strict = ImageTokenUsage::from_native(&raw).unwrap();
+        assert_eq!(
+            (strict.cached, strict.cached_text, strict.cached_image),
+            (None, None, None)
+        );
+        assert_eq!(
+            tariff().credits(Some(strict), group(), None),
+            Err(pending())
+        );
+        let source = ImageTokenUsage::from_native_with_contract(
+            &raw,
+            ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1,
+        )
+        .unwrap();
+        assert_eq!(
+            (source.cached, source.cached_text, source.cached_image),
+            (Some(0), Some(0), Some(0))
+        );
+        // Source dimensions are p=40,img=60,img_o=10, with no cache charge.
+        assert_eq!(tariff().credits(Some(source), group(), None), Ok(490));
+        assert_eq!(
+            tariff().credits(
+                Some(source),
+                ExactRatio {
+                    numerator: 1,
+                    denominator: 20
+                },
+                None
+            ),
+            Ok(25)
+        );
+        assert_eq!(raw, original);
+        let measured_raw = measured();
+        assert_eq!(
+            ImageTokenUsage::from_native_with_contract(
+                &measured_raw,
+                ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1
+            ),
+            ImageTokenUsage::from_native(&measured_raw)
+        );
+    }
+    #[test]
+    fn cc52_cache_contract_does_not_repair_present_or_partial_measurements() {
+        let contract = ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1;
+        for (field, value) in [
+            ("cached_tokens", serde_json::json!(null)),
+            ("cached_tokens", serde_json::json!("0")),
+            ("cached_tokens", serde_json::json!(-1)),
+            ("cached_tokens_details", serde_json::json!(null)),
+            ("cached_tokens_details", serde_json::json!({})),
+            (
+                "cached_tokens_details",
+                serde_json::json!({"text_tokens":0}),
+            ),
+            (
+                "cached_tokens_details",
+                serde_json::json!({"text_tokens":0,"image_tokens":0}),
+            ),
+        ] {
+            let mut raw = absent_cache();
+            raw["input_tokens_details"][field] = value;
+            assert!(ImageTokenUsage::from_native_with_contract(&raw, contract).is_err());
+        }
+        let mut positive = measured();
+        positive["input_tokens_details"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cached_tokens_details");
+        let usage = ImageTokenUsage::from_native_with_contract(&positive, contract).unwrap();
+        assert_eq!(
+            (usage.cached, usage.cached_text, usage.cached_image),
+            (Some(40), None, None)
+        );
+        assert_eq!(tariff().credits(Some(usage), group(), None), Err(pending()));
+        let mut mismatch = measured();
+        mismatch["input_tokens_details"]["cached_tokens"] = serde_json::json!(0);
+        assert!(ImageTokenUsage::from_native_with_contract(&mismatch, contract).is_err());
     }
     #[test]
     fn native_image_invalid_usage_or_uncompiled_price_cannot_settle() {

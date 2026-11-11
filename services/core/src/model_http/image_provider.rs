@@ -1,7 +1,9 @@
 //! Server-owned image HTTP boundary. This module observes results, never settles funds.
 //! Reference: openai/openai-python 0e5794dc48b8f8d51f6047f8a0b1814eb1e65850
 //! (Apache-2.0). Independently implemented; no upstream source copied.
-use crate::billing::image_price::{ImageEndpoint, ImageQuote, ImageQuoteRequest, ImageTokenUsage};
+use crate::billing::image_price::{
+    ImageEndpoint, ImageQuote, ImageQuoteRequest, ImageTokenUsage, ImageTokenUsageContract,
+};
 use crate::image::ImageMediaType;
 use crate::relay::{
     Limits, RelayError, honeypot_network,
@@ -391,7 +393,12 @@ impl PreparedImageCall {
             }
             raw.extend_from_slice(&chunk);
         }
-        observe(&raw, self.requested_n, &self.secret)
+        observe_with_contract(
+            &raw,
+            self.requested_n,
+            &self.secret,
+            self.quote.usage_contract(),
+        )
     }
 }
 
@@ -832,7 +839,22 @@ fn percent_decoded_contains(s: &str, secret: &str) -> bool {
         .windows(secret.len())
         .any(|w| w == secret.as_bytes())
 }
+#[cfg(test)]
 fn observe(raw: &[u8], requested_n: u32, secret: &str) -> Result<ImageObservation, RelayError> {
+    observe_with_contract(
+        raw,
+        requested_n,
+        secret,
+        ImageTokenUsageContract::NativeStrict,
+    )
+}
+
+fn observe_with_contract(
+    raw: &[u8],
+    requested_n: u32,
+    secret: &str,
+    usage_contract: ImageTokenUsageContract,
+) -> Result<ImageObservation, RelayError> {
     if raw.len() > RESPONSE_BYTES
         || raw.is_empty()
         || requested_n == 0
@@ -862,7 +884,7 @@ fn observe(raw: &[u8], requested_n: u32, secret: &str) -> Result<ImageObservatio
     )?;
     let native_tokens = v
         .get("usage")
-        .map(ImageTokenUsage::from_native)
+        .map(|usage| ImageTokenUsage::from_native_with_contract(usage, usage_contract))
         .transpose()
         .map_err(|_| RelayError::SettlementPending)?;
     if v.get("created").is_some_and(|n| n.as_u64().is_none()) {
@@ -1252,6 +1274,52 @@ mod tests {
             .is_err(),
             "decoded metadata must not expose escaped credentials"
         );
+    }
+
+    #[test]
+    fn image_provider_legacy_cache_absence_preserves_raw_and_rejects_contract_injection() {
+        let mut usage = crate::billing::image_price::native_tokens::tests::measured();
+        let details = usage["input_tokens_details"].as_object_mut().unwrap();
+        details.remove("cached_tokens");
+        details.remove("cached_tokens_details");
+        let response = json!({"created":1,"data":[{"b64_json":"AQID"}],"usage":usage});
+        let raw = serde_json::to_vec(&response).unwrap();
+        let strict = observe(&raw, 1, "synthetic-secret").unwrap();
+        assert_eq!(strict.native_tokens.unwrap().cached, None);
+        let legacy = observe_with_contract(
+            &raw,
+            1,
+            "synthetic-secret",
+            ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1,
+        )
+        .unwrap();
+        assert_eq!(legacy.native_tokens.unwrap().cached, Some(0));
+        assert_eq!(legacy.data, response);
+        let raw_digest: [u8; 32] = Sha256::digest(&raw).into();
+        assert_eq!(legacy.provider_receipt_sha256, raw_digest);
+        for contract in [
+            ImageTokenUsageContract::NativeStrict,
+            ImageTokenUsageContract::Cc52OpenaiImagesCacheAbsenceV1,
+        ] {
+            for in_usage in [false, true] {
+                let mut injected = response.clone();
+                let target = if in_usage {
+                    &mut injected["usage"]
+                } else {
+                    &mut injected
+                };
+                target["usage_contract"] = json!("cc52_openai_images_cache_absence_v1");
+                assert!(
+                    observe_with_contract(
+                        &serde_json::to_vec(&injected).unwrap(),
+                        1,
+                        "synthetic-secret",
+                        contract,
+                    )
+                    .is_err()
+                );
+            }
+        }
     }
     #[tokio::test]
     async fn image_provider_response_format_omission_and_url_are_bound_before_dispatch() {
