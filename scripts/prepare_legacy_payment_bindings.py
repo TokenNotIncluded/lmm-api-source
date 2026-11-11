@@ -2,6 +2,7 @@
 # Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
 """Prepare private owner-reviewed frozen bases. Never connect or post money."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -150,7 +151,8 @@ def main():
     p.add_argument('--expected-rows', type=int, required=True)
     a = p.parse_args()
     facts = settlement_facts(json.loads(a.input.read_text()), json.loads(a.oracle.read_text()),
-                             archive_sha256=a.archive_sha256, expected_rows=a.expected_rows)
+                             archive_sha256=a.archive_sha256, expected_rows=a.expected_rows,
+                             source_input_sha256=hashlib.sha256(a.input.read_bytes()).hexdigest())
     if a.bindings:
         plan = prepare(facts, json.loads(a.bindings.read_text()))
         files = [('plan.private.json', canonical(plan)+'\n'), ('install.private.sql', import_sql(plan))]

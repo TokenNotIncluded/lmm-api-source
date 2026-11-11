@@ -7,6 +7,7 @@ Hashes retain provenance, not cryptographic attestation of an arbitrary JSON fil
 Independent review, channel binding and runtime settlement remain required.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,12 +20,28 @@ from prepare_wallet_history_snapshot import canonical, digest, require
 SCOPE='legacy-topup-settlement-facts.v1'
 NAMESPACE='lmm_api.lmm_prod_20260802.unsettled_topup_basis'
 LEGACY_COMMIT='3948a0a1ee1cefdd016a7aa45a11851545bb4b85'
+CC52_COMMIT='cc52aa195c6f2a01d703a1a407be73c31b89867d'
+CC52_NAMESPACE=NAMESPACE+'.cc52.v1'
+CC52_PROFILE='cc52-v1'
+CC52_SOURCE_FILES={
+    'model/topup.go':'39f7247c6d5d57f0cef008f2117f72d524e391e5b8c628657f03ace2c1a9be8e',
+    'model/pending_topup_credit_rebase.go':'622b012c8cb6648a07a037f659c4f228e7940dadfcd3e8ee005649f9146d44fb',
+    'model/currency_units.go':'45842abacf22878c31d387560ddf521d94e0d95a003e3789398801a562948245',
+    'common/currency_units.go':'96cb9778aa8459f6f0a41a66b0ef76b14080a2050cc5047985701f53ba700cc4',
+}
 MAX=9007199254740991
 
 
-def prepare(source, oracle, *, archive_sha256, expected_rows):
+def prepare(source, oracle, *, archive_sha256, expected_rows, source_input_sha256=None):
     require(re.fullmatch('[0-9a-f]{64}',archive_sha256) is not None,'archive_hash_invalid')
-    require(source.get('source_namespace')==NAMESPACE,'source_namespace_mismatch')
+    cc52=source.get('source_namespace')==CC52_NAMESPACE
+    require(cc52 or source.get('source_namespace')==NAMESPACE,'source_namespace_mismatch')
+    expected_commit=CC52_COMMIT if cc52 else LEGACY_COMMIT
+    if cc52:
+        require(oracle.get('source_profile')==CC52_PROFILE
+                and oracle.get('source_files_sha256')==CC52_SOURCE_FILES,'oracle_source_profile_mismatch')
+        require(type(source_input_sha256) is str and re.fullmatch('[0-9a-f]{64}',source_input_sha256)
+                and oracle.get('source_input_sha256')==source_input_sha256,'oracle_input_file_mismatch')
     observed=source.get('observed_at')
     require(type(observed) is int and 0<observed<=MAX,'observation_invalid')
     users=source.get('source_user_ids');tables=source.get('tables')
@@ -34,7 +51,7 @@ def prepare(source, oracle, *, archive_sha256, expected_rows):
             and all(type(v) is list for v in tables.values()),'source_tables_invalid')
     rows=tables['top_ups']
     require(type(expected_rows) is int and expected_rows>=0 and len(rows)==expected_rows,'source_count_mismatch')
-    require(oracle.get('source_commit')==LEGACY_COMMIT and oracle.get('source_orders_sha256')==digest(rows),
+    require(oracle.get('source_commit')==expected_commit and oracle.get('source_orders_sha256')==digest(rows),
             'oracle_source_binding_mismatch')
     require(oracle.get('source_tables_sha256')==digest(tables) and oracle.get('source_user_ids_sha256')==digest(users),
             'oracle_source_context_mismatch')
@@ -64,7 +81,8 @@ def prepare(source, oracle, *, archive_sha256, expected_rows):
         require(row['id'] in by_id and by_id[row['id']]['user_id']==row['user_id'],'oracle_owner_or_order_mismatch')
     require(seen==set(by_id),'oracle_coverage_mismatch')
     known=set(users)
-    return {'scope':SCOPE,'source_namespace':NAMESPACE,'migration_id':'legacy-topup-settlement-facts-v1',
+    manifest={'scope':SCOPE,'source_namespace':source['source_namespace'],
+            'migration_id':'legacy-topup-settlement-facts-cc52-v1' if cc52 else 'legacy-topup-settlement-facts-v1',
             'source_archive_sha256':archive_sha256,'observed_at':observed,'source_user_ids':sorted(users),
             'mapping_sha256':digest(sorted(users)),'source_export_sha256':digest(source),
             'source_order_count':len(rows),'source_orders_sha256':digest(rows),'history_complete':True,
@@ -76,6 +94,17 @@ def prepare(source, oracle, *, archive_sha256, expected_rows):
             'unmapped_order_ids':sorted(r['id'] for r in rows if r['user_id'] not in known),
             'channel_binding':'requires_separate_owner_review',
             'oracle':oracle,'tables':tables}
+    if cc52:
+        manifest['source_input_sha256']=source_input_sha256
+        manifest['source_profile']=CC52_PROFILE
+        # Quota observations do not establish the separate Epay payment evidence.
+        manifest['epay_missing_immutable_snapshot_count']=sum(
+            row.get('payment_provider')=='epay' and not (
+                type(row.get('expected_amount_micros')) is int and row['expected_amount_micros']>0
+                and type(row.get('credited_quota')) is int and row['credited_quota']>0
+                and type(row.get('settlement_currency')) is str and row['settlement_currency'].strip())
+            for row in rows)
+    return manifest
 
 
 
@@ -99,7 +128,8 @@ def native_intent_compatibility(manifest):
 
 
 def import_sql(manifest):
-    return owner_history_import_sql(manifest,scope=SCOPE,error_prefix='legacy_settlement_facts')
+    return owner_history_import_sql(manifest,scope=SCOPE,error_prefix='legacy_settlement_facts',
+                                    opening_bound_identity=manifest.get('source_profile')==CC52_PROFILE)
 
 
 def main():
@@ -107,7 +137,8 @@ def main():
     p.add_argument('--input',type=Path,required=True);p.add_argument('--oracle',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True);p.add_argument('--archive-sha256',required=True)
     p.add_argument('--expected-rows',type=int,required=True);a=p.parse_args()
-    m=prepare(json.loads(a.input.read_text()),json.loads(a.oracle.read_text()),archive_sha256=a.archive_sha256,expected_rows=a.expected_rows)
+    m=prepare(json.loads(a.input.read_text()),json.loads(a.oracle.read_text()),archive_sha256=a.archive_sha256,
+              expected_rows=a.expected_rows,source_input_sha256=hashlib.sha256(a.input.read_bytes()).hexdigest())
     a.output.mkdir(mode=0o700,parents=True,exist_ok=True)
     for name,text in [('manifest.private.json',canonical(m)+'\n'),('import.private.sql',import_sql(m)),
                       ('compatibility.private.json',canonical(native_intent_compatibility(m))+'\n')]:

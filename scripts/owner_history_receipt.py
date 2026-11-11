@@ -4,7 +4,8 @@ import re
 from prepare_wallet_history_snapshot import literal, require
 
 
-def owner_history_import_sql(manifest, *, scope, error_prefix, include_transaction=True):
+def owner_history_import_sql(manifest, *, scope, error_prefix, include_transaction=True,
+                             opening_bound_identity=False):
     require(manifest.get("scope") == scope, "receipt_scope_mismatch")
     require(re.fullmatch("[a-z_]+", error_prefix) is not None, "receipt_error_prefix_invalid")
     payload = literal(manifest)
@@ -13,6 +14,19 @@ def owner_history_import_sql(manifest, *, scope, error_prefix, include_transacti
     while delimiter in payload:
         suffix += 1
         delimiter = f"$owner_history_{suffix}$"
+    identity_guard = """SELECT FROM jsonb_array_elements_text(m->'source_user_ids') AS x(id)
+   LEFT JOIN core_identity.users u ON u.id=x.id::bigint
+   WHERE u.id IS NULL OR u.personal_account_id<>u.id"""
+    if opening_bound_identity:
+        identity_guard = """SELECT FROM jsonb_array_elements_text(m->'source_user_ids') AS x(id)
+   LEFT JOIN core_identity.users u ON u.id=x.id::bigint
+   WHERE u.id IS NULL OR NOT EXISTS (
+     SELECT FROM core_billing.opening_imports i
+     JOIN core_billing.opening_import_runs r ON r.migration_id=i.migration_id
+     WHERE i.account_id=u.personal_account_id
+       AND i.source_entity_key IN ('user:'||x.id,'legacy.users/'||x.id)
+       AND r.source_archive_sha256=m->>'source_archive_sha256'
+       AND r.observed_at=(m->>'observed_at')::bigint)"""
     body = f"""
 SET LOCAL standard_conforming_strings=on;
 SET LOCAL lock_timeout='5s';
@@ -28,9 +42,7 @@ BEGIN
    WHERE source_archive_sha256=m->>'source_archive_sha256'
    AND observed_at=(m->>'observed_at')::bigint)
  THEN RAISE EXCEPTION '{error_prefix}_opening_source_mismatch'; END IF;
- IF EXISTS(SELECT FROM jsonb_array_elements_text(m->'source_user_ids') AS x(id)
-   LEFT JOIN core_identity.users u ON u.id=x.id::bigint
-   WHERE u.id IS NULL OR u.personal_account_id<>u.id)
+ IF EXISTS({identity_guard})
  THEN RAISE EXCEPTION '{error_prefix}_identity_mapping_mismatch'; END IF;
  IF EXISTS(SELECT FROM core_migration.import_runs
    WHERE manifest->>'scope'={literal(scope)} AND migration_id<>m->>'migration_id')

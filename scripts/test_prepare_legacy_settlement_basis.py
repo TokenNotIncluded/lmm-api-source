@@ -2,6 +2,7 @@ import copy
 import unittest
 from prepare_legacy_settlement_basis import prepare, import_sql, native_intent_compatibility, NAMESPACE, LEGACY_COMMIT
 from prepare_wallet_history_snapshot import digest
+import prepare_legacy_settlement_basis as B
 
 class SettlementFactsTest(unittest.TestCase):
     def setUp(self):
@@ -43,5 +44,39 @@ class SettlementFactsTest(unittest.TestCase):
             with self.assertRaises(ValueError):self.run_plan(oracle=o)
         s=copy.deepcopy(self.source);s['tables']['top_ups'][0]['money']='0.1'
         with self.assertRaisesRegex(ValueError,'source_binding'):self.run_plan(source=s)
+
+    def test_cc52_explicit_profile_preserves_quota_observations_and_epay_gap(self):
+        source=copy.deepcopy(self.source)
+        source['source_namespace']=B.CC52_NAMESPACE
+        source['tables']['top_ups'][0].update(payment_provider='epay',status='pending',
+            expected_amount_micros=0,credited_quota=0,settlement_currency='')
+        oracle=copy.deepcopy(self.oracle)
+        oracle.update(source_commit=B.CC52_COMMIT,source_profile=B.CC52_PROFILE,
+            source_files_sha256=B.CC52_SOURCE_FILES,source_input_sha256='f'*64,
+            source_orders_sha256=digest(source['tables']['top_ups']),source_tables_sha256=digest(source['tables']))
+        manifest=B.prepare(source,oracle,archive_sha256='a'*64,expected_rows=1,source_input_sha256='f'*64)
+        self.assertEqual(manifest['original_quota_accepted_count'],1)
+        self.assertEqual(manifest['epay_missing_immutable_snapshot_count'],1)
+        self.assertFalse(manifest['runtime_settlement_available'])
+        sql=B.import_sql(manifest)
+        self.assertIn('i.account_id=u.personal_account_id',sql)
+        self.assertIn("i.source_entity_key IN ('user:'||x.id,'legacy.users/'||x.id)",sql)
+        self.assertNotIn('u.personal_account_id<>u.id',sql)
+        self.assertIn('u.personal_account_id<>u.id',B.import_sql(self.run_plan()))
+
+    def test_cc52_rejects_old_commit_wrong_input_and_changed_payment_code(self):
+        source=copy.deepcopy(self.source);source['source_namespace']=B.CC52_NAMESPACE
+        oracle=copy.deepcopy(self.oracle)
+        oracle.update(source_commit=B.CC52_COMMIT,source_profile=B.CC52_PROFILE,
+            source_files_sha256=copy.deepcopy(B.CC52_SOURCE_FILES),source_input_sha256='f'*64)
+        for mutate in (lambda o:o.update(source_commit=B.LEGACY_COMMIT),
+                       lambda o:o.update(source_input_sha256='e'*64),
+                       lambda o:o['source_files_sha256'].update({'model/topup.go':'e'*64}),
+                       lambda o:o.update(source_profile='historical-3948')):
+            changed=copy.deepcopy(oracle);mutate(changed)
+            with self.assertRaises(ValueError):
+                B.prepare(source,changed,archive_sha256='a'*64,expected_rows=1,source_input_sha256='f'*64)
+        with self.assertRaisesRegex(ValueError,'input_file'):
+            B.prepare(source,oracle,archive_sha256='a'*64,expected_rows=1)
 
 if __name__=='__main__':unittest.main()
