@@ -18,9 +18,72 @@ CAPTURE = load('fresh_capture', ROOT / 'scripts/capture-core62-target.py')
 CONTRACT = load('fresh_contract', ROOT / 'scripts/test-commerce-self-purchase.py')
 
 
+class CreditQuoteCaptureTests(unittest.TestCase):
+    def setUp(self):
+        import hashlib
+        self.components, _, self.manifest = CONTRACT.source_contract()
+        self.quote_sha = hashlib.sha256(b'\n'.join(
+            (ROOT / name).read_bytes() for name in CAPTURE.CREDIT_QUOTE_FILES
+        )).hexdigest()
+
+    def validate(self, manifest=None, quote_sha=None):
+        CAPTURE.validate_credit_quote_lineage(
+            self.manifest if manifest is None else manifest, CONTRACT.manifest_hash,
+            self.quote_sha if quote_sha is None else quote_sha,
+        )
+
+    def test_exact_double_sql_and_unchanged_reviewed_prefix(self):
+        import hashlib
+        self.validate()
+        self.assertEqual(hashlib.sha256(self.components[-1][1].encode()).hexdigest(), self.quote_sha)
+        self.assertEqual(CAPTURE.final_component_count(self.components, credit_quote_update=True), 66)
+        with self.assertRaisesRegex(ValueError, 'exact final assembly'):
+            CAPTURE.final_component_count(self.components)
+
+    def test_prefix_or_identity_change_is_rejected(self):
+        for field in ('components', 'identity', 'catalog', 'installer'):
+            changed = copy.deepcopy(self.manifest)
+            if field == 'components':
+                changed[field][0]['raw_schema_sha256'] = 'ab' * 32
+            else:
+                changed[field] = {}
+            with self.assertRaisesRegex(ValueError, '65-component prefix'):
+                self.validate(changed)
+
+    def test_missing_extra_or_reordered_component_is_rejected(self):
+        for components in (self.manifest['components'][:-1], self.manifest['components'] + [self.manifest['components'][-1]],
+                           list(reversed(self.manifest['components']))):
+            changed = copy.deepcopy(self.manifest)
+            changed['components'] = components
+            with self.assertRaisesRegex(ValueError, 'exact 66th component'):
+                self.validate(changed)
+
+    def test_base_only_or_swapped_quote_sql_is_rejected(self):
+        import hashlib
+        files = [ROOT / name for name in CAPTURE.CREDIT_QUOTE_FILES]
+        for sql in (files[0].read_bytes(), b'\n'.join(path.read_bytes() for path in reversed(files))):
+            with self.assertRaisesRegex(ValueError, 'exact two frozen SQL files'):
+                self.validate(quote_sha=hashlib.sha256(sql).hexdigest())
+
+    def test_capture_resolver_rejects_changed_constant_paths_or_separator(self):
+        from unittest.mock import patch
+        original_read = Path.read_text
+        producer = CONTRACT.CORE / 'src/payments.rs'
+        for before, after in (('payment_credit_quote_referrals.sql', 'ledger.sql'), ('"\\n"', '""')):
+            def changed_read(path, *args, **kwargs):
+                raw = original_read(path, *args, **kwargs)
+                return raw.replace(before, after) if path == producer else raw
+            with patch.object(Path, 'read_text', changed_read):
+                with self.assertRaisesRegex(AssertionError, 'credit quote composite constant changed'):
+                    CONTRACT.source_contract()
+
+
 class CurrentLedgerLineageTests(unittest.TestCase):
     def setUp(self):
         _, _, self.manifest = CONTRACT.source_contract()
+        # Keep the historical65 ledger fixture when the live registry adds66.
+        if self.manifest['components'][-1]['name'] == 'payment-credit-quotes':
+            self.manifest['components'].pop()
         import json
         self.predecessor = json.loads((ROOT / 'services/core/src/core_schema/upgrade/subscription_epay_target.json').read_text())
         self.ledger = {item['name']: item['raw_schema_sha256'] for item in self.manifest['components']
