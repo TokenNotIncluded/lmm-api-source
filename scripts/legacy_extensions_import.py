@@ -58,6 +58,18 @@ def sha(*parts: Any) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def endpoint_identity_sql() -> str:
+    import financial_import as F
+    expression = F.IDENTITY.IDENTITY_SQL.removeprefix("SELECT ").removesuffix(";")
+    # The shared identity SQL omits these fields on Unix. Read them from the
+    # actual session for both the initial check and every transaction guard.
+    return ("SELECT (" + expression + ") || jsonb_build_object("
+            "'server_address',host(inet_server_addr()),'client_address',host(inet_client_addr()),"
+            "'listen_addresses',current_setting('listen_addresses'),"
+            "'session_role_privileged',(SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=session_user),"
+            "'effective_role_privileged',(SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=current_user));")
+
+
 class Db(CUTOVER.Db):
     def __init__(self, socket: str, port: int, database: str, user: str, *, role: str | None,
                  readonly: bool, connection: dict | None = None, endpoint: dict | None = None):
@@ -66,8 +78,11 @@ class Db(CUTOVER.Db):
         super().__init__(Path(socket), port, database, user, role=role, readonly=readonly, connection=connection)
         if endpoint is not None:
             import financial_import as F
-            actual = json.loads(super().run(F.IDENTITY.IDENTITY_SQL))
+            actual = json.loads(super().run(endpoint_identity_sql()))
             F.IDENTITY.verify_instance(actual, connection, endpoint["instance_identity"], source=False)
+            if (actual["session_role_privileged"] or actual["effective_role_privileged"]
+                    or actual["listen_addresses"] != endpoint["instance_identity"].get("listen_addresses")):
+                fail("target_endpoint_privilege_or_listener_mismatch")
             keys = ("database", "role", "session_user", "effective_role_can_login", "database_oid", "database_owner",
                     "server_version_num", "postmaster_started_at", "server_instance_nonce", "port", "tcp_connection",
                     "server_address", "client_address", "listen_addresses", "session_role_privileged", "effective_role_privileged")
@@ -75,8 +90,7 @@ class Db(CUTOVER.Db):
 
     def run(self, sql: str) -> str:
         if self.endpoint_identity is not None:
-            import financial_import as F
-            expression = F.IDENTITY.IDENTITY_SQL.removeprefix("SELECT ").removesuffix(";")
+            expression = endpoint_identity_sql().removeprefix("SELECT ").removesuffix(";")
             checks = " OR ".join(f"actual->{lit(key)} IS DISTINCT FROM {jlit(value)}"
                                  for key, value in self.endpoint_identity.items())
             guard = ("DO $endpoint$ DECLARE actual jsonb; BEGIN actual := (" + expression + "); IF " + checks
@@ -100,7 +114,11 @@ def endpoint_db(args, path: Path, *, database: str | None = None,
         fail("target_endpoint_source_mismatch")
     connection = endpoint["connection"]
     owner, login = F.IDENTITY.connection_roles(connection)
-    if (connection.get("transport") != "loopback-tcp" or "login_role" not in connection
+    transport = connection.get("transport", "unix")
+    # Identity provenance is read through the same private Unix endpoint contract
+    # as the financial importer. Module writes retain loopback SCRAM transport.
+    if ((transport != "loopback-tcp" and not (readonly and transport == "unix"))
+            or "login_role" not in connection
             or any(actual is not None and actual != expected for actual, expected in
                    ((database, connection["database"]), (user, login), (role, owner)))):
         fail("target_connection_binding_mismatch")

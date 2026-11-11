@@ -10,6 +10,59 @@ import legacy_cutover_import as CUTOVER
 import legacy_extensions_import as IMPORT
 
 
+class EndpointTransportTests(unittest.TestCase):
+    def endpoint(self, connection, *, readonly, database=None, user=None, role=None):
+        import financial_import as F
+        from pathlib import Path
+        from unittest.mock import Mock
+        endpoint = {"source_archive_sha256": "a" * 64,
+                    "connection": connection, "instance_identity": {"marker": "bound"}}
+        private = Mock()
+        private.read_text.return_value = json.dumps(endpoint)
+        args = SimpleNamespace(archive_sha256="a" * 64, socket="/unused", port=1234)
+        with patch.object(F.IDENTITY, "private_backup_path", return_value=private), patch.object(IMPORT, "Db") as db:
+            value = IMPORT.endpoint_db(args, Path("/unused/receipt"), readonly=readonly,
+                                       database=database, user=user, role=role)
+            return value, db.call_args.kwargs
+
+    def connection(self, transport="unix"):
+        value = {"transport": transport, "port": 1234, "database": "identity_target",
+                 "role": "target_owner", "login_role": "target_installer", "set_role": "target_owner"}
+        if transport == "unix":
+            value["socket_directory"] = "/private/socket"
+        else:
+            value["host"] = "127.0.0.1"
+        return value
+
+    def test_readonly_unix_retains_bound_endpoint_and_role_pair(self):
+        for explicit_transport in (True, False):
+            connection = self.connection()
+            if not explicit_transport:
+                del connection["transport"]
+            _, arguments = self.endpoint(connection, readonly=True)
+            self.assertTrue(arguments["readonly"])
+            self.assertEqual(arguments["role"], "target_owner")
+            self.assertEqual(arguments["connection"], connection)
+            self.assertEqual(arguments["endpoint"]["instance_identity"], {"marker": "bound"})
+
+    def test_unix_module_writes_and_unknown_transports_rejected(self):
+        for transport, readonly in (("unix", False), ("remote-tcp", True), ("remote-tcp", False)):
+            with self.assertRaisesRegex(SystemExit, "target_connection_binding_mismatch"):
+                self.endpoint(self.connection(transport), readonly=readonly)
+
+    def test_loopback_writes_and_identity_binding_checks_preserved(self):
+        _, arguments = self.endpoint(self.connection("loopback-tcp"), readonly=False)
+        self.assertFalse(arguments["readonly"])
+        for field in ("database", "user", "role"):
+            with self.assertRaisesRegex(SystemExit, "target_connection_binding_mismatch"):
+                self.endpoint(self.connection(), readonly=True, **{field: "different"})
+        connection = self.connection()
+        del connection["login_role"]
+        del connection["set_role"]
+        with self.assertRaisesRegex(SystemExit, "target_connection_binding_mismatch"):
+            self.endpoint(connection, readonly=True)
+
+
 class Context:
     def __init__(self):
         self.args = SimpleNamespace(identity_binding={"accounts": {11: 902, 12: 901, 13: 903}})
