@@ -292,3 +292,184 @@ test('check-in success uses the newly selected currency without remounting', asy
       .setPreference(previousPreference)
   }
 })
+
+const nativeZeroRecord = {
+  checkin_date: '2030-01-01',
+  quota_awarded: '0',
+  created_at: 1893427200,
+  journal_id: null,
+  origin: 'history',
+  policy_revision: null,
+  trust_level: null,
+}
+function nativeStatus(checked: boolean, month = '2030-01') {
+  return {
+    enabled: true,
+    today: '2030-01-01',
+    month,
+    calendar_offset_seconds: 28800,
+    policy_revision: 1,
+    checked_in_today: checked,
+    reward_range: {
+      trust_level: 0,
+      reward_multiplier: 0,
+      base_min_quota: '1',
+      base_max_quota: '500000',
+      min_quota: '0',
+      max_quota: '0',
+    },
+    today_record: checked ? nativeZeroRecord : null,
+    records: checked && month === '2030-01' ? [nativeZeroRecord] : [],
+    total_checkins: checked ? 1 : 0,
+    total_quota_awarded: '0',
+  }
+}
+async function mountNativeCalendar() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <CheckinCalendarCard
+            checkinEnabled
+            turnstileEnabled={false}
+            turnstileSiteKey=''
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  )
+  await act(async () =>
+    waitForCondition(
+      () => host.querySelector('button[aria-expanded]') !== null,
+      'Native calendar did not load'
+    )
+  )
+  return {
+    host,
+    close: async () => {
+      await act(async () => root.unmount())
+      client.clear()
+      host.remove()
+    },
+  }
+}
+
+test('Native history zero blocks today and uses server month instead of browser month', async () => {
+  const urls: string[] = []
+  api.get = (async (url) => {
+    urls.push(String(url))
+    const month =
+      new URL(String(url), 'http://local').searchParams.get('month') ??
+      '2030-01'
+    return { data: { success: true, data: nativeStatus(true, month) } }
+  }) as typeof api.get
+  const calendar = await mountNativeCalendar()
+  try {
+    assert.equal(urls[0], '/api/user/checkin')
+    const button = [
+      ...calendar.host.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((element) => element.textContent?.trim() === '已签到')
+    assert.ok(button?.disabled)
+    const toggle = calendar.host.querySelector<HTMLButtonElement>(
+      'button[aria-expanded]'
+    )
+    assert.ok(toggle)
+    await act(async () => toggle.click())
+    const current = calendar.host.querySelector('[aria-current="date"]')
+    assert.equal(current?.textContent?.trim(), '1')
+    assert.match(current?.getAttribute('aria-label') ?? '', /2030.*已签到/)
+    assert.match(calendar.host.textContent ?? '', /2030/)
+    const previous = calendar.host.querySelector<HTMLButtonElement>(
+      'button[aria-label="上个月"]'
+    )
+    assert.ok(previous)
+    await act(async () => {
+      previous.click()
+      await waitForCondition(
+        () => urls.some((url) => url.endsWith('month=2029-12')),
+        'server month navigation failed'
+      )
+    })
+  } finally {
+    await calendar.close()
+  }
+})
+
+test('Native lost ACK retry keeps operation key, prevents double click and reads original zero result', async () => {
+  const originalPost = api.post
+  const originalError = toast.error
+  const originalSuccess = toast.success
+  let errors = 0
+  let success = ''
+  const bodies: unknown[] = []
+  toast.error = (() => {
+    errors += 1
+    return 1
+  }) as typeof toast.error
+  toast.success = ((message: unknown) => {
+    success = String(message)
+    return 1
+  }) as typeof toast.success
+  api.get = (async () => ({
+    data: { success: true, data: nativeStatus(false) },
+  })) as typeof api.get
+  api.post = (async (_url, body) => {
+    bodies.push(body)
+    if (bodies.length === 1) throw new Error('ACK lost')
+    return {
+      data: {
+        success: true,
+        data: {
+          already_claimed: false,
+          record: {
+            ...nativeZeroRecord,
+            origin: 'native',
+            policy_revision: 1,
+            trust_level: 0,
+          },
+        },
+      },
+    }
+  }) as typeof api.post
+  const calendar = await mountNativeCalendar()
+  try {
+    const button = [
+      ...calendar.host.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((element) => element.textContent?.trim() === 'Check in now')
+    assert.ok(button)
+    await act(async () => {
+      button.click()
+      button.click()
+      await waitForCondition(() => errors === 1, 'lost ACK error not shown')
+    })
+    assert.equal(bodies.length, 1)
+    await act(async () => {
+      button.click()
+      await waitForCondition(() => success !== '', 'retry result not shown')
+    })
+    assert.match(success, /Check-in successful! Received/)
+    assert.equal(bodies.length, 2)
+    assert.deepEqual(bodies[0], bodies[1])
+    assert.ok(
+      bodies[0] && typeof bodies[0] === 'object' && 'operation_key' in bodies[0]
+    )
+    assert.equal(button.disabled, true)
+    assert.match(
+      calendar.host
+        .querySelector('[aria-current="date"]')
+        ?.getAttribute('aria-label') ?? '',
+      /已签到/
+    )
+  } finally {
+    await calendar.close()
+    api.post = originalPost
+    toast.error = originalError
+    toast.success = originalSuccess
+  }
+})

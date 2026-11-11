@@ -24,6 +24,7 @@ import { api } from '@/lib/api'
 import {
   getProfileUsageWindow,
   performCheckin,
+  getCheckinStatus,
   enableProfileShare,
   getProfileShareState,
   updateProfileAggregate,
@@ -120,6 +121,40 @@ describe('profile activity API', () => {
 })
 
 describe('profile check-in API', () => {
+  test('Native default month is server-owned and explicit month is bound to response', async () => {
+    const urls: string[] = []
+    api.get = (async (url) => {
+      urls.push(String(url))
+      return {
+        data: {
+          success: true,
+          data: {
+            enabled: false,
+            today: '2030-01-01',
+            month: '2030-01',
+            calendar_offset_seconds: 28800,
+            policy_revision: null,
+            checked_in_today: false,
+            reward_range: null,
+            today_record: null,
+            records: [],
+            total_checkins: 0,
+            total_quota_awarded: '0',
+          },
+        },
+      }
+    }) as typeof api.get
+    const response = await getCheckinStatus()
+    assert.ok(response.success && response.data.kind === 'native')
+    assert.equal(response.data.month, '2030-01')
+    assert.equal(urls[0], '/api/user/checkin')
+    await assert.rejects(
+      getCheckinStatus('2029-12'),
+      /Invalid check-in status month/
+    )
+    assert.equal(urls[1], '/api/user/checkin?month=2029-12')
+  })
+
   test('suppresses the global business toast for an explicit Turnstile result', async () => {
     let request: {
       url: string
@@ -135,7 +170,10 @@ describe('profile check-in API', () => {
 
     assert.deepEqual(request, {
       url: '/api/user/checkin?turnstile=turnstile-token',
-      config: { skipBusinessError: true },
+      config: {
+        skipBusinessError: true,
+        authScope: { userId: undefined, sessionId: undefined },
+      },
     })
   })
 })

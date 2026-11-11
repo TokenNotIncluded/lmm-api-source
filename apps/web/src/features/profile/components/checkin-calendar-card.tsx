@@ -25,7 +25,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -45,9 +45,10 @@ import {
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getCheckinStatus, performCheckin } from '../api'
-import type { CheckinRecord } from '../types'
+import type { CheckinResponse } from '../checkin-schema'
 
 interface CheckinCalendarCardProps {
   checkinEnabled: boolean
@@ -55,60 +56,60 @@ interface CheckinCalendarCardProps {
   turnstileSiteKey: string
 }
 
-export function CheckinCalendarCard({
+export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return (
+    <CheckinCalendar key={JSON.stringify([userId, sessionId])} {...props} />
+  )
+}
+
+function CheckinCalendar({
   checkinEnabled,
   turnstileEnabled,
   turnstileSiteKey,
 }: CheckinCalendarCardProps) {
   const { t, i18n } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
-  const [today] = useState(() => new Date())
-  const [currentMonth, setCurrentMonth] = useState(
-    () => new Date(today.getFullYear(), today.getMonth(), 1)
-  )
+  const { formatExactQuota: formatQuota } = useWalletCurrency()
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const [selectedMonth, setSelectedMonth] = useState<string>()
+  const [claim, setClaim] = useState<CheckinResponse | null>(null)
+  const pendingOperation = useRef<{ day: string; key: string } | null>(null)
+  const inFlight = useRef(false)
   const [checkinLoading, setCheckinLoading] = useState(false)
   const [turnstileModalVisible, setTurnstileModalVisible] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(false)
 
-  const currentMonthStr = `${currentMonth.getFullYear()}-${String(
-    currentMonth.getMonth() + 1
-  ).padStart(2, '0')}`
-  const latestMonthTimestamp = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    1
-  ).getTime()
-  const canGoNext = currentMonth.getTime() < latestMonthTimestamp
   const intlLocale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const calendarFormatters = useMemo(() => {
     const month = new Intl.DateTimeFormat(intlLocale, {
       month: 'long',
       year: 'numeric',
+      timeZone: 'UTC',
     })
     const date = new Intl.DateTimeFormat(intlLocale, {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
+      timeZone: 'UTC',
     })
     const weekdayShort = new Intl.DateTimeFormat(intlLocale, {
       weekday: 'short',
+      timeZone: 'UTC',
     })
     const weekdayLong = new Intl.DateTimeFormat(intlLocale, {
       weekday: 'long',
+      timeZone: 'UTC',
     })
-    const sunday = new Date(2024, 0, 7)
 
     return {
       date,
       month,
       weekDays: Array.from({ length: 7 }, (_, index) => {
-        const referenceDate = new Date(
-          sunday.getFullYear(),
-          sunday.getMonth(),
-          sunday.getDate() + index
-        )
+        const referenceDate = new Date(Date.UTC(2024, 0, 7 + index))
         return {
           long: weekdayLong.format(referenceDate),
           short: weekdayShort.format(referenceDate),
@@ -116,51 +117,80 @@ export function CheckinCalendarCard({
       }),
     }
   }, [intlLocale])
-  const monthLabel = calendarFormatters.month.format(currentMonth)
 
   // Fetch checkin status
   /* eslint-disable @tanstack/query/exhaustive-deps */
   const {
     data: checkinData,
     isLoading,
+    isError,
     refetch,
   } = useQuery({
-    queryKey: ['checkin-status', currentMonthStr],
+    queryKey: ['checkin-status', userId, sessionId, selectedMonth],
     queryFn: async () => {
-      const res = await getCheckinStatus(currentMonthStr)
-      if (res.success && res.data) {
+      const res = await getCheckinStatus(selectedMonth)
+      if (res.success) {
         return res.data
       }
       throw new Error(res.message || t('Failed to fetch checkin status'))
     },
     enabled: checkinEnabled,
     staleTime: 30000,
+    refetchInterval: 60000,
   })
   /* eslint-enable @tanstack/query/exhaustive-deps */
 
-  const checkinRecordsMap = useMemo(() => {
-    const map: Record<string, number> = {}
-    const records = checkinData?.stats?.records || []
-    records.forEach((record: CheckinRecord) => {
-      map[record.checkin_date] = record.quota_awarded
-    })
-    return map
-  }, [checkinData?.stats?.records])
-
-  const monthlyQuota = useMemo(() => {
-    const records = checkinData?.stats?.records || []
-    return records.reduce(
-      (sum: number, record: CheckinRecord) => sum + (record.quota_awarded || 0),
-      0
-    )
-  }, [checkinData?.stats?.records])
-
-  const todayString = `${today.getFullYear()}-${String(
-    today.getMonth() + 1
-  ).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-
-  const checkedToday = checkinData?.stats?.checked_in_today === true
-  const todayAward = checkinRecordsMap[todayString]
+  // Native days and the default month come from the server. The original Go
+  // response has no calendar fields, so its existing browser fallback remains.
+  const browserToday = new Date()
+  const legacyToday = `${browserToday.getFullYear()}-${String(
+    browserToday.getMonth() + 1
+  ).padStart(2, '0')}-${String(browserToday.getDate()).padStart(2, '0')}`
+  const serverToday =
+    checkinData?.kind === 'native' ? checkinData.today : legacyToday
+  const claimDay =
+    claim?.kind === 'native' ? claim.record.checkin_date : claim?.checkin_date
+  const todayString =
+    claimDay && claimDay > serverToday ? claimDay : serverToday
+  const defaultMonth =
+    checkinData?.kind === 'native' && todayString === checkinData.today
+      ? checkinData.month
+      : todayString.slice(0, 7)
+  const currentMonthStr = selectedMonth ?? defaultMonth
+  const currentMonth = useMemo(
+    () => new Date(`${currentMonthStr}-01T00:00:00Z`),
+    [currentMonthStr]
+  )
+  const latestMonth = todayString.slice(0, 7)
+  const canGoNext = currentMonthStr < latestMonth
+  const monthLabel = calendarFormatters.month.format(currentMonth)
+  const rewardRange = checkinData?.reward_range
+  const claimedToday = claimDay === todayString
+  const checkedToday =
+    claimedToday || checkinData?.stats.checked_in_today === true
+  const records = (checkinData?.stats.records ?? []).map(
+    ({ checkin_date, quota_awarded }) => ({ checkin_date, quota_awarded })
+  )
+  const claimAmount =
+    claim?.kind === 'native' ? claim.record.quota_awarded : claim?.quota_awarded
+  if (
+    claimDay?.startsWith(currentMonthStr) &&
+    claimAmount !== undefined &&
+    !records.some((record) => record.checkin_date === claimDay)
+  ) {
+    records.push({ checkin_date: claimDay, quota_awarded: claimAmount })
+  }
+  const checkinRecordsMap = Object.fromEntries(
+    records.map((record) => [record.checkin_date, record.quota_awarded])
+  )
+  const monthlyQuota = records
+    .reduce((sum, record) => sum + BigInt(record.quota_awarded), 0n)
+    .toString()
+  const todayAward = claimedToday
+    ? claimAmount
+    : checkinData?.kind === 'native'
+      ? checkinData.today_record?.quota_awarded
+      : checkinRecordsMap[todayString]
 
   useEffect(() => {
     if (initialLoaded) return
@@ -190,12 +220,39 @@ export function CheckinCalendarCard({
         return
       }
 
+      if (inFlight.current) return
+      inFlight.current = true
       setCheckinLoading(true)
       try {
-        const res = await performCheckin(token)
-        if (res.success && res.data) {
+        let operationKey: string | undefined
+        if (checkinData?.kind === 'native') {
+          if (pendingOperation.current?.day !== todayString) {
+            pendingOperation.current = {
+              day: todayString,
+              key: crypto.randomUUID(),
+            }
+          }
+          operationKey = pendingOperation.current.key
+        }
+        const res = await performCheckin(token, operationKey)
+        if (res.success) {
+          setClaim(
+            res.data.kind === 'legacy'
+              ? {
+                  ...res.data,
+                  checkin_date: res.data.checkin_date ?? todayString,
+                }
+              : res.data
+          )
+          pendingOperation.current = null
+          const amount =
+            res.data.kind === 'native'
+              ? res.data.record.quota_awarded
+              : res.data.quota_awarded
           toast.success(
-            `${t('Check-in successful! Received')} ${formatQuota(res.data.quota_awarded)}`
+            res.data.kind === 'native' && res.data.already_claimed
+              ? t('Checked in')
+              : `${t('Check-in successful! Received')} ${formatQuota(amount)}`
           )
           void refetch()
           setTurnstileModalVisible(false)
@@ -214,8 +271,10 @@ export function CheckinCalendarCard({
           toast.error(res.message || t('Check-in failed'))
         }
       } catch {
+        void refetch()
         toast.error(t('Check-in failed'))
       } finally {
+        inFlight.current = false
         setCheckinLoading(false)
       }
     },
@@ -226,6 +285,8 @@ export function CheckinCalendarCard({
       turnstileEnabled,
       turnstileSiteKey,
       formatQuota,
+      checkinData?.kind,
+      todayString,
     ]
   )
 
@@ -242,45 +303,51 @@ export function CheckinCalendarCard({
   }, [doCheckin, t, turnstileEnabled, turnstileSiteKey])
 
   const handlePrevMonth = () => {
-    setCurrentMonth(
-      (month) => new Date(month.getFullYear(), month.getMonth() - 1, 1)
-    )
+    const previous = new Date(currentMonth)
+    previous.setUTCMonth(previous.getUTCMonth() - 1)
+    setSelectedMonth(previous.toISOString().slice(0, 7))
   }
 
   const handleNextMonth = () => {
-    setCurrentMonth((month) => {
-      const nextMonth = new Date(month.getFullYear(), month.getMonth() + 1, 1)
-      return nextMonth.getTime() <= latestMonthTimestamp ? nextMonth : month
-    })
+    const next = new Date(currentMonth)
+    next.setUTCMonth(next.getUTCMonth() + 1)
+    const month = next.toISOString().slice(0, 7)
+    if (month <= latestMonth) setSelectedMonth(month)
   }
 
   // Build calendar grid
   const calendarDays = useMemo(() => {
-    const year = currentMonth.getFullYear()
-    const month = currentMonth.getMonth()
-    const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
-    const daysInMonth = lastDay.getDate()
-    const startDayOfWeek = firstDay.getDay() // 0 = Sunday
+    const year = currentMonth.getUTCFullYear()
+    const month = currentMonth.getUTCMonth()
+    const firstDay = new Date(Date.UTC(year, month, 1))
+    const lastDay = new Date(Date.UTC(year, month + 1, 0))
+    const daysInMonth = lastDay.getUTCDate()
+    const startDayOfWeek = firstDay.getUTCDay() // 0 = Sunday
 
     const days: Array<{ date: Date; isCurrentMonth: boolean }> = []
 
     // Fill leading empty days
     for (let i = 0; i < startDayOfWeek; i++) {
-      const d = new Date(year, month, -startDayOfWeek + i + 1)
+      const d = new Date(Date.UTC(year, month, -startDayOfWeek + i + 1))
       days.push({ date: d, isCurrentMonth: false })
     }
 
     // Fill current month days
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push({ date: new Date(year, month, i), isCurrentMonth: true })
+      days.push({
+        date: new Date(Date.UTC(year, month, i)),
+        isCurrentMonth: true,
+      })
     }
 
     // Fill trailing empty days to complete the grid
     const remaining = 7 - (days.length % 7)
     if (remaining < 7) {
       for (let i = 1; i <= remaining; i++) {
-        days.push({ date: new Date(year, month + 1, i), isCurrentMonth: false })
+        days.push({
+          date: new Date(Date.UTC(year, month + 1, i)),
+          isCurrentMonth: false,
+        })
       }
     }
 
@@ -390,14 +457,12 @@ export function CheckinCalendarCard({
                     ? `${t('Today')} +${formatQuota(todayAward)}`
                     : t('Check in daily to receive random quota rewards')}
                 </p>
-                {checkinData?.trust_level !== undefined &&
-                checkinData.min_quota !== undefined &&
-                checkinData.max_quota !== undefined ? (
+                {rewardRange ? (
                   <p className='text-muted-foreground mt-1 text-[11px] sm:text-xs'>
                     {t('Reward range for level {{level}}: {{min}}–{{max}}', {
-                      level: checkinData.trust_level,
-                      min: formatQuota(checkinData.min_quota),
-                      max: formatQuota(checkinData.max_quota),
+                      level: rewardRange.trust_level,
+                      min: formatQuota(rewardRange.min_quota),
+                      max: formatQuota(rewardRange.max_quota),
                     })}
                   </p>
                 ) : null}
@@ -405,7 +470,12 @@ export function CheckinCalendarCard({
             </button>
             <Button
               onClick={handleCheckinClick}
-              disabled={checkinLoading || checkedToday}
+              disabled={
+                checkinLoading ||
+                checkedToday ||
+                !checkinData?.enabled ||
+                isError
+              }
               size='sm'
               className='h-11 w-full shrink-0 sm:h-7 sm:w-auto sm:min-w-24'
             >
@@ -414,6 +484,15 @@ export function CheckinCalendarCard({
             </Button>
           </div>
         </div>
+
+        {isError ? (
+          <div role='alert' className='p-4 text-sm'>
+            <p>{t('Failed to fetch checkin status')}</p>
+            <Button variant='outline' onClick={() => void refetch()}>
+              {t('Retry')}
+            </Button>
+          </div>
+        ) : null}
 
         {!collapsed ? (
           <>
@@ -429,7 +508,7 @@ export function CheckinCalendarCard({
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
                 <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
-                  {formatQuota(monthlyQuota, { digitsLarge: 0 })}
+                  {formatQuota(monthlyQuota)}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
                   {t('This month')}
@@ -437,9 +516,7 @@ export function CheckinCalendarCard({
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
                 <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
-                  {formatQuota(checkinData?.stats?.total_quota || 0, {
-                    digitsLarge: 0,
-                  })}
+                  {formatQuota(checkinData?.stats.total_quota ?? '0')}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
                   {t('Total earned')}
@@ -498,15 +575,15 @@ export function CheckinCalendarCard({
 
                   {/* Calendar days */}
                   {calendarDays.map((dayObj) => {
-                    const dateStr = `${dayObj.date.getFullYear()}-${String(
-                      dayObj.date.getMonth() + 1
+                    const dateStr = `${dayObj.date.getUTCFullYear()}-${String(
+                      dayObj.date.getUTCMonth() + 1
                     ).padStart(2, '0')}-${String(
-                      dayObj.date.getDate()
+                      dayObj.date.getUTCDate()
                     ).padStart(2, '0')}`
                     const isToday = dateStr === todayString
                     const quotaAwarded = checkinRecordsMap[dateStr]
                     const isCheckedIn = quotaAwarded !== undefined
-                    const dayNum = dayObj.date.getDate()
+                    const dayNum = dayObj.date.getUTCDate()
                     const dateLabel = calendarFormatters.date.format(
                       dayObj.date
                     )

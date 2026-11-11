@@ -26,6 +26,11 @@ import type { CustomOAuthBinding } from '@/lib/oauth'
 import { useAuthStore } from '@/stores/auth-store'
 import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
+import {
+  checkinClaimResponseSchema,
+  checkinMonthSchema,
+  checkinStatusResponseSchema,
+} from './checkin-schema'
 import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
 import type {
   ApiResponse,
@@ -33,8 +38,6 @@ import type {
   UpdateUserRequest,
   UpdateUserSettingsRequest,
   DeleteAccountRequest,
-  CheckinStatusResponse,
-  CheckinResponse,
   GiftItem,
   GiftClaimResponse,
   SettlementCurrencyPreference,
@@ -561,28 +564,49 @@ export async function unbindBuiltInOAuth(
 /**
  * Get checkin status for a specific month
  */
-export async function getCheckinStatus(
-  month: string
-): Promise<ApiResponse<CheckinStatusResponse>> {
-  const res = await api.get(`/api/user/checkin?month=${month}`)
-  return res.data
+export async function getCheckinStatus(month?: string) {
+  const url =
+    month === undefined
+      ? '/api/user/checkin'
+      : `/api/user/checkin?month=${checkinMonthSchema.parse(month)}`
+  const { user, session } = useAuthStore.getState().auth
+  const res = await api.get<unknown>(url, {
+    authScope: { userId: user?.id, sessionId: session?.sid },
+  })
+  const parsed = checkinStatusResponseSchema.parse(res.data)
+  if (
+    parsed.success &&
+    parsed.data.kind === 'native' &&
+    month !== undefined &&
+    parsed.data.month !== month
+  ) {
+    throw new Error('Invalid check-in status month')
+  }
+  return parsed
 }
 
 /**
  * Perform daily checkin
  */
 export async function performCheckin(
-  turnstileToken?: string
-): Promise<ApiResponse<CheckinResponse>> {
+  turnstileToken?: string,
+  operationKey?: string
+) {
   const url = turnstileToken
     ? `/api/user/checkin?turnstile=${encodeURIComponent(turnstileToken)}`
     : '/api/user/checkin'
-  const res = await api.post(url, undefined, {
-    // The check-in card presents verification failures itself so that the
-    // challenge flow does not produce a duplicate global toast.
-    skipBusinessError: true,
-  })
-  return res.data
+  const { user, session } = useAuthStore.getState().auth
+  const res = await api.post<unknown>(
+    url,
+    operationKey ? { operation_key: operationKey } : undefined,
+    {
+      authScope: { userId: user?.id, sessionId: session?.sid },
+      // The check-in card presents verification failures itself so that the
+      // challenge flow does not produce a duplicate global toast.
+      skipBusinessError: true,
+    }
+  )
+  return checkinClaimResponseSchema.parse(res.data)
 }
 
 // ============================================================================
