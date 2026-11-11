@@ -694,7 +694,7 @@ PANCAKE_LANGUAGE_FILE_HASHES = {
     "services/core/schema/subscription_pancake_language_optional.sql": PANCAKE_LANGUAGE_COMPONENT_SHA256,
 }
 PANCAKE_LANGUAGE_REVIEW_FILE = Path(__file__).with_name("reviewed-fresh67-pancake-language.json")
-PANCAKE_LANGUAGE_REVIEW_SHA256 = "0c34e3829e490dee51adde88011f3a875149ed2f3a8683c8f2af9baf475448f1"
+PANCAKE_LANGUAGE_REVIEW_SHA256 = "9d071b265ccf7ce0a557c73b8b0f91bcf8bf4eb1982a8fb93869c42679fa066a"
 REVIEWED_PANCAKE_LANGUAGE = json.loads(PANCAKE_LANGUAGE_REVIEW_FILE.read_text(encoding="utf-8"))
 
 

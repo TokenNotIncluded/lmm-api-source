@@ -3,8 +3,8 @@
   "compiled_manifest_sha256": "346025ff401df105b876edfdbce6aeec41e425c860c39de4fc109f0533063193",
   "fresh_catalog_sha256": "01ffd6e9615b65b2478f3ed13b6954481eed6ccb8d19354ef15a46a83d8fc1af",
   "capture_receipt_sha256": "e487aa6ac400e7b41f1d2c69c15facf6b005021da844a2444a2deebebf50af2e",
-  "actual_init_receipt_sha256": null,
-  "acl_receipt_sha256": null,
+  "actual_init_receipt_sha256": "6c31533ecec03785af0ce550cabaca87b9071a1a7f067fe71da9f05ab0a95e2f",
+  "acl_receipt_sha256": "dd34e640800e1f95ca994ff85aa78f790a7e6101f4d2919ade345a639a3eefaa",
   "components": {
     "humangrant": [
       "include_str!(\"../schema/humangrant.sql\")",
