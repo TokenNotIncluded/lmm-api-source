@@ -44,7 +44,15 @@ func TestCaptureLegacySettlementBasisOffline(t *testing.T) {
 	if !regexp.MustCompile(`^lmm_legacy_quote_oracle_[a-z0-9_]+$`).MatchString(database) {
 		t.Fatal("dedicated disposable clone required")
 	}
-	dsn := fmt.Sprintf("host=%s port=55436 user=postgres dbname=%s search_path=lmm_prod_20260802 sslmode=disable", actualSocket, database)
+	port, schema := 55436, "lmm_prod_20260802"
+	switch os.Getenv("LMM_LEGACY_ORACLE_PROFILE") {
+	case "":
+	case "cc52-v1":
+		port = 55510
+	default:
+		t.Fatal("unsupported original source oracle profile")
+	}
+	dsn := fmt.Sprintf("host=%s port=%d user=postgres dbname=%s search_path=%s sslmode=disable", actualSocket, port, database, schema)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatal("isolated clone connection failed")
