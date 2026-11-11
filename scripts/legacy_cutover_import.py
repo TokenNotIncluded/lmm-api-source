@@ -54,7 +54,7 @@ GOOGLE_SOURCE_CONTRACT = {
     "email_field": "email",
 }
 PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES + ("referrals",)
-MAPPED_PHASES = ("opening", "keys", "subscriptions", "bounties", "wallet", "history")
+MAPPED_PHASES = ("opening", "keys", "subscriptions", "bounties", "wallet", "history", "passkeys")
 
 
 def fail(code: str) -> None:

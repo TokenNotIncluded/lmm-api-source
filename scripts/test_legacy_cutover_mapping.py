@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import tempfile
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -71,6 +72,21 @@ def subscription_data(binding):
 
 
 class MappingTests(unittest.TestCase):
+    def test_passkeys_require_formal_map_before_source_or_target_access(self):
+        argv = ["legacy_cutover_import.py", "--socket", "/tmp/synthetic-only", "--port", "65447",
+                "--source-db", "synthetic_source", "--source-user", "synthetic_reader",
+                "--source-schema", "synthetic", "--target-db", "synthetic_target",
+                "--target-login", "synthetic_installer", "--target-owner", "synthetic_owner",
+                "--archive-sha256", ARCHIVE, "--migration-id", "synthetic-passkeys",
+                "--observed-at", str(OBSERVED), "--phase", "passkeys", "--output", "/tmp/not-created"]
+        for extra in ([], ["--identity-map", str(self.map_path)],
+                      ["--identity-manifest", str(self.manifest_path)]):
+            with self.subTest(arguments=extra), patch.object(sys, "argv", argv + extra), \
+                    patch.object(I, "Db") as database:
+                with self.assertRaisesRegex(SystemExit, "committed_identity_map_and_manifest_required"):
+                    I.main()
+                database.assert_not_called()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="cutover-map-unit-", dir=F.IDENTITY.BACKUP_ROOT)
         self.addCleanup(self.temporary.cleanup)
