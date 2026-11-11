@@ -131,12 +131,21 @@ test('Extore connections render sync controls for imported products', async () =
             redemption: 'extore',
           },
           product: { name: 'Notes' },
-          variants: [{ id: 'basic', name: 'Basic', enabled: true, attributes: {} }],
+          variants: [
+            { id: 'basic', name: 'Basic', enabled: true, attributes: {} },
+          ],
           card_summary: { total: 3, states: { available: 3 } },
         },
       ],
     }) as never
   await mount(<StoreExtoreConnections />)
+  const deadline = Date.now() + 3000
+  while (
+    !document.body.textContent?.includes('Notes') &&
+    Date.now() < deadline
+  ) {
+    await act(flush)
+  }
   assert.match(document.body.textContent || '', /Demo shop/)
   assert.match(document.body.textContent || '', /Notes/)
   assert.match(document.body.textContent || '', /Extore code status/)

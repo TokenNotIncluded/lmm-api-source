@@ -266,7 +266,14 @@ test('fixed-content product edits load private content from the seller endpoint 
   const reads: string[] = []
   const writes: Record<string, unknown>[] = []
   api.get = (async (url: string) => {
+    if (url === '/api/store/extore/connections') {
+      return { data: { success: false, message: 'Extore is not configured' } }
+    }
     reads.push(url)
+    assert.equal(
+      url,
+      `/api/store/products/${product.id}/variants/fixed-default/fixed-content`
+    )
     return result({ content: body })
   }) as typeof api.get
   api.put = (async (_url: string, value: Record<string, unknown>) => {
@@ -392,6 +399,58 @@ test('fixed-content inventory shows guidance without reading or importing stock'
   assert.equal(document.querySelector('input[type="file"]'), null)
   assert.equal(requests, 0)
 })
+
+for (const configured of [false, true]) {
+  test(`seller entrypoint binds inventory import to the configured stock capability (${configured})`, async () => {
+    owner(9)
+    const stockReads: string[] = []
+    const writes: unknown[] = []
+    api.get = (async (url: string) => {
+      if (url === '/api/store/my/products') {
+        return result({ items: [product], has_more: false })
+      }
+      if (url === '/api/store/config') {
+        return result({
+          fee_bps: 0,
+          promotion_quota: 0,
+          platform_payment_methods: [],
+          stock_items_supported: configured,
+        })
+      }
+      if (url === '/api/store/payments/settings') {
+        return result({ items: [], fee_bps: 0 })
+      }
+      if (url === '/api/store/extore/connections') {
+        return { data: { success: false, message: 'Extore is not configured' } }
+      }
+      assert.equal(url, `/api/store/products/${product.id}/inventory`)
+      stockReads.push(url)
+      return result({ items: [], has_more: false })
+    }) as typeof api.get
+    api.post = (async (url: string, body: unknown) => {
+      assert.equal(url, `/api/store/products/${product.id}/inventory`)
+      writes.push(body)
+      return result({ added: 1 })
+    }) as typeof api.post
+    await mount(<StoreSellerPage />)
+    await click(button('Add inventory'))
+    const field = document.querySelector<HTMLTextAreaElement>(
+      '[aria-label="Inventory text"]'
+    )
+    if (!configured) {
+      assert.equal(field, null)
+      assert.match(document.body.textContent || '', /stock key is configured/)
+      assert.deepEqual(stockReads, [])
+      assert.deepEqual(writes, [])
+      return
+    }
+    assert.ok(field)
+    await input(field, 'synthetic-stock')
+    await click(button('Import inventory'))
+    assert.deepEqual(writes, [{ items: ['synthetic-stock'] }])
+    assert.ok(stockReads.length > 0)
+  })
+}
 
 test('unsupported servers omit fixed-content authoring from new product choices', async () => {
   owner(2)
@@ -1818,6 +1877,7 @@ test('variant inventory tabs require confirmation before discarding drafts and i
   try {
     await mount(
       <StoreInventoryImport
+        stockItemsSupported
         product={{
           ...product,
           default_variant_id: 'basic',
@@ -1903,6 +1963,7 @@ test('multi-line custom inventory remains one item and failed import preserves t
   }) as typeof api.post
   await mount(
     <StoreInventoryImport
+      stockItemsSupported
       product={{ ...product, template: 'custom-text' }}
       onClose={() => {}}
       onSaved={async () => {}}
@@ -1939,6 +2000,7 @@ for (const source of ['textarea', 'file']) {
     }) as typeof api.post
     await mount(
       <StoreInventoryImport
+        stockItemsSupported
         product={product}
         onClose={() => {}}
         onSaved={async () => {
@@ -2024,6 +2086,7 @@ for (const template of [
       const [opened, setOpened] = useState(true)
       return opened ? (
         <StoreInventoryImport
+          stockItemsSupported
           product={{ ...product, template }}
           onClose={() => {
             closes++
@@ -2149,6 +2212,7 @@ test('account inventory combines its fields into one item without showing an int
   }) as typeof api.post
   await mount(
     <StoreInventoryImport
+      stockItemsSupported
       product={{ ...product, template: 'account-details' }}
       onClose={() => {}}
       onSaved={async () => {}}

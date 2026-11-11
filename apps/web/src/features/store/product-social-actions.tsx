@@ -80,6 +80,9 @@ function ProductSocialActions({
     enabled: likesSupported,
     initialData: projection?.data,
     initialDataUpdatedAt: projection?.requestedAt,
+    // The list/detail response already supplied this viewer's authoritative
+    // projection. Refresh it through that shared query or an explicit mutation.
+    staleTime: projection ? Infinity : 0,
     refetchOnWindowFocus: false,
     retry: false,
   })

@@ -41,7 +41,7 @@ describe('Forge public navigation', () => {
       translate: (key) => key,
     })
     for (const [title, href] of [
-      ['Home', '/'],
+      ['Tool market', '/'],
       ['Models and pricing', '/pricing'],
       ['Guide', '/guide'],
       ['Challenges', '/challenges'],
