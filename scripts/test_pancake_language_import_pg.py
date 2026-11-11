@@ -80,6 +80,39 @@ class PancakeLanguageUnixPostgreSQLTests(historical_pg.UnixPostgreSQLTests):
         self.assertTrue(self.query('SELECT ' + I.upgrade_receipts_guard_sql(self.contract)))
         self.rejected_unchanged(self.apply_sql, 'financial_upgrade_receipts_not_empty')
 
+    def test_originals_decimal_sql_preserves_unknown_source_and_strict_replay(self):
+        from decimal import Decimal
+        import legacy_pancake_subscriptions as W
+        from test_legacy_pancake_subscriptions import OriginalTests
+
+        source, review, _ = OriginalTests().fixture()
+        archive = self.material['source_archive_sha256']
+        source['source_archive_sha256'] = review['source_archive_sha256'] = archive
+        user = self.material['native_users'][0]
+        row, binding = source['orders'][0], review['orders'][0]
+        row['user_id'] = user['id']
+        row['plan_snapshot'].update(allow_wallet_overflow=True,
+            precise_price=Decimal('1234567890.123456789'), integral_decimal=Decimal('1'))
+        binding.update(account_id=user['personal_account_id'], source_row_sha256=F.digest(row),
+                       disposition='retain-unknown')
+        material = W.prepare_material(self.material, source, review, migration_id='synthetic-originals-decimal')
+        self.assertEqual(material['records'][0]['disposition'], 'UNKNOWN')
+        sql = W.build_apply_sql(material)
+        self.sql(sql)
+        stored = "SELECT manifest->'material' FROM core_migration.import_runs WHERE migration_id='synthetic-originals-decimal'"
+        for key, expected in (('precise_price', '1234567890.123456789'), ('integral_decimal', '1')):
+            self.assertEqual(self.query("SELECT m #>> '{source,orders,0,plan_snapshot," + key + "}' FROM (" + stored + ") q(m)"), expected)
+            self.assertEqual(self.query("SELECT result #>> '{source_snapshot," + key + "}' FROM core_subscriptions.commands"
+                                        " WHERE operation_key=" + F.literal(material['records'][0]['operation_key'])), expected)
+        self.assertEqual(self.query('SELECT count(*) FROM core_subscriptions.pancake_orders'), 0)
+        after = self.full_state()
+        self.sql(sql)
+        self.assertEqual(self.full_state(), after)
+        source['orders'][0]['plan_snapshot']['precise_price'] = Decimal('1234567890.123456788')
+        review['orders'][0]['source_row_sha256'] = F.digest(source['orders'][0])
+        changed = W.prepare_material(self.material, source, review, migration_id=material['migration_id'])
+        self.rejected_unchanged(W.build_apply_sql(changed), 'original_replay_conflict')
+
 
 if __name__ == '__main__':
     unittest.main()
