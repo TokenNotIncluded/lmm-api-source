@@ -16,7 +16,7 @@ class FinancialProfileTests(unittest.TestCase):
     def test_explicit_profiles_seal_all_reviewed_pins(self):
         pins = ("source_schema_revision", "compiled_manifest_sha256",
                 "fresh_catalog_sha256", "seed_query_sha256")
-        for profile in (F.IDENTITY.CORE59_SEED_CONTRACT, F.IDENTITY.CORE65_SEED_CONTRACT):
+        for profile in (F.IDENTITY.CORE59_SEED_CONTRACT, F.IDENTITY.CORE65_SEED_CONTRACT, F.IDENTITY.CURRENT_LEDGER_SEED_CONTRACT):
             with self.subTest(profile=profile):
                 value = {**self.base(), "import_profile": profile,
                          **{name: "synthetic:" + name for name in pins}}
