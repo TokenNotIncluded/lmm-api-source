@@ -639,10 +639,60 @@ def _matches_reviewed_components(root: Path, review: dict) -> bool:
     return True
 
 
+CREDIT_QUOTES_SEED_CONTRACT = "fresh66-credit-quotes-identity6-complete-seeds-v1"
+CREDIT_QUOTES_MANIFEST_SHA256 = "424ab67e21d21b7147b01e5f438a1d5938fa16ad9bc464f05d3aa8223e487d9f"
+CREDIT_QUOTES_CATALOG_SHA256 = "be0b981025782d501487bcc8b9cd9c59bccf9cae2351c77708a1c1ce16b0358e"
+CREDIT_QUOTES_COMPONENT_SHA256 = "a7198b634e7257b92223bf0b2cc37f66c3bc87ad95285fca6494cc1fed13b2d6"
+CREDIT_QUOTES_FILE_HASHES = {
+    "services/core/src/core_schema.rs": "fed957a6e37cab71e92c1a768fe62ebf23391627165f208d2f55666f6c6d0659",
+    "services/core/src/core_schema/upgrade/fresh_target.json": "a5d4aee28841ec1341a3e451881a81a93e4f7006b9fb82a4eb5c8ac881ef64dd",
+    "services/core/src/payments.rs": "4c62700b50abc55a18caa96f10c0d6fe5bb757fdc1e2e64c1aae80c1d63f586a",
+}
+CREDIT_QUOTES_REVIEW_FILE = Path(__file__).with_name("reviewed-fresh66-credit-quotes.json")
+CREDIT_QUOTES_REVIEW_SHA256 = "cc2a8afa5daacd4fa7bf49c5675a3e5ce472fb3ed80a855c5895974dfc6c76c0"
+REVIEWED_CREDIT_QUOTES = json.loads(CREDIT_QUOTES_REVIEW_FILE.read_text(encoding="utf-8"))
+
+
+def reviewed_credit_quotes(*, require_receipts: bool = True) -> dict:
+    # The raw SQL proposal is unadmitted. Actual final CLI init and runtime ACL
+    # evidence remain separate required receipts, with no fallback to65.
+    require(sha256_file(CREDIT_QUOTES_REVIEW_FILE) == CREDIT_QUOTES_REVIEW_SHA256,
+            "credit_quotes_review_file_changed")
+    review = REVIEWED_CREDIT_QUOTES
+    historical = reviewed_current_ledger()
+    require(isinstance(review, dict) and set(review) == set(historical), "credit_quotes_review_incomplete")
+    require(review["source_schema_revision"] == "184569d74ba5481dd23a560087e817f7943783de",
+            "credit_quotes_source_revision_not_reviewed")
+    require(review["compiled_manifest_sha256"] == CREDIT_QUOTES_MANIFEST_SHA256 and
+        review["fresh_catalog_sha256"] == CREDIT_QUOTES_CATALOG_SHA256 and
+        review["capture_receipt_sha256"] == "a9269d127222e18575e54a737aa4dedfa0f312d7fd60d409953affa6e098ea9e",
+        "credit_quotes_target_not_reviewed")
+    components = {name: list(pair) for name, pair in historical["components"].items()}
+    components["payment-credit-quotes"] = ["crate::payments::CREDIT_QUOTE_SCHEMA", CREDIT_QUOTES_COMPONENT_SHA256]
+    require(isinstance(review["components"], dict) and list(review["components"]) == list(components)
+        and review["components"] == components, "credit_quotes_component_not_reviewed")
+    require(review["files"] == {**historical["files"], **CREDIT_QUOTES_FILE_HASHES},
+            "credit_quotes_source_review_incomplete")
+    for key in ("actual_init_receipt_sha256", "acl_receipt_sha256"):
+        if review[key] is None:
+            require(not require_receipts, "credit_quotes_" + key + "_pending")
+        else:
+            require(isinstance(review[key], str) and re.fullmatch(r"[0-9a-f]{64}", review[key]),
+                    "credit_quotes_review_incomplete")
+    return review
+
+
 def reviewed_profile(root: Path | None = None) -> str:
     """An exact reviewed assembly selects a profile; no arbitrary suffixes."""
     root = ROOT if root is None else Path(root)
     digest = sha256_file(root / "services/core/src/core_schema.rs")
+    if digest == CREDIT_QUOTES_FILE_HASHES["services/core/src/core_schema.rs"]:
+        review = reviewed_credit_quotes(require_receipts=False)
+        target = "services/core/src/core_schema/upgrade/fresh_target.json"
+        require(sha256_file(root / target) == review["files"][target] and
+            _matches_reviewed_components(root, review), "credit_quotes_assembly_not_reviewed")
+        reviewed_credit_quotes()
+        return CREDIT_QUOTES_SEED_CONTRACT
     if REVIEWED_CORE65 is not None:
         review = reviewed65()
         if digest == review["files"]["services/core/src/core_schema.rs"]:
@@ -670,6 +720,8 @@ def reviewed_profile(root: Path | None = None) -> str:
 
 
 def reviewed_components(root: Path) -> dict:
+    if reviewed_profile(root) == CREDIT_QUOTES_SEED_CONTRACT:
+        return reviewed_credit_quotes()["components"]
     if reviewed_profile(root) == CURRENT_LEDGER_SEED_CONTRACT:
         return reviewed_current_ledger()["components"]
     if reviewed_profile(root) == CORE65_SEED_CONTRACT:
@@ -680,6 +732,8 @@ def reviewed_components(root: Path) -> dict:
 
 
 def reviewed_files(root: Path) -> dict:
+    if reviewed_profile(root) == CREDIT_QUOTES_SEED_CONTRACT:
+        return reviewed_credit_quotes()["files"]
     if reviewed_profile(root) == CURRENT_LEDGER_SEED_CONTRACT:
         return reviewed_current_ledger()["files"]
     if reviewed_profile(root) == CORE65_SEED_CONTRACT:
@@ -823,14 +877,15 @@ def current_contract(root: Path | None = None) -> dict:
             "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         revision, manifest_pin, catalog_pin = ((CORE54_SCHEMA_REVISION, CORE54_MANIFEST_SHA256, CORE54_CATALOG_SHA256)
             if profile == CORE54_SEED_CONTRACT else (CORE55_SCHEMA_REVISION, CORE55_MANIFEST_SHA256, CORE55_CATALOG_SHA256)
             if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256)
             if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256)
             if profile == CORE58_SEED_CONTRACT else (CORE59_SCHEMA_REVISION, CORE59_MANIFEST_SHA256, CORE59_CATALOG_SHA256))
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
-            review = reviewed65() if profile == CORE65_SEED_CONTRACT else reviewed_current_ledger()
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
+            review = {CORE65_SEED_CONTRACT: reviewed65, CURRENT_LEDGER_SEED_CONTRACT: reviewed_current_ledger,
+                      CREDIT_QUOTES_SEED_CONTRACT: reviewed_credit_quotes}[profile]()
             revision, manifest_pin, catalog_pin = (review["source_schema_revision"],
                 review["compiled_manifest_sha256"], review["fresh_catalog_sha256"])
         # Match serde_json::to_vec(schema_manifest()) plus the CLI's final LF.
@@ -846,11 +901,11 @@ def current_contract(root: Path | None = None) -> dict:
         digest = hashlib.sha256((json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + "\n").encode()).hexdigest()
         pin = json.loads((root / "services/core/src/core_schema/upgrade/fresh_target.json").read_text())
         expected_pin = {"manifest_sha256": manifest_pin, "catalog_sha256": catalog_pin}
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
             expected_pin["component_count"] = len(components)
         require(digest == manifest_pin and pin == expected_pin,
             "compiled_manifest_contract_mismatch")
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
             contract["profile_review_evidence"] = {key: review[key] for key in
                 ("capture_receipt_sha256", "actual_init_receipt_sha256", "acl_receipt_sha256")}
         contract.update(import_profile=profile, source_schema_revision=revision,
@@ -1099,8 +1154,8 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
         "promotion_secret": ("core_promotions.secrets", "singleton"),
         "channel_projection_state": ("core_channels.projection_state", "singleton"),
     }
-    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT), "seed_profile_not_reviewed")
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT), "seed_profile_not_reviewed")
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         # 50--54 add no seed rights: all twelve tables must remain empty.
         # Their whole rows and both new physical sequences are still hashed.
         relations.update({
@@ -1119,15 +1174,15 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             "referral_event_journals": ("core_referrals.event_journals", "event_id"),
             "referral_events_sequence": ("core_referrals.events_id_seq", "last_value"),
         })
-    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         relations["connection_snapshot"] = ("core_history.connection_snapshot", "singleton")
-    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         relations.update({"directory_ad_quotes": ("core_directory_ads.quotes", "id"),
                           "directory_ad_payments": ("core_directory_ads.payments", "id"),
                           "directory_ad_refunds": ("core_directory_ads.refunds", "principal,request_id")})
-    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         relations["commerce_display_rate_upgrades"] = ("core_meta.commerce_display_rate_upgrades", "upgrade_id")
-    if profile in (CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         relations.update({
             "subscription_epay_upgrades": ("core_meta.subscription_epay_upgrades", "upgrade_id"),
             "external_prices": ("core_subscriptions.external_prices", "plan_id,plan_revision,channel_id"),
@@ -1135,7 +1190,7 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             "external_proofs": ("core_subscriptions.external_proofs", "id"),
             "external_grants": ("core_subscriptions.external_grants", "order_id"),
         })
-    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         relations.update({"federated_" + name: ("core_federated_auth." + name, order)
             for name, order in (("providers", "id"), ("identities", "provider_id,subject_digest"),
                 ("flows", "digest"), ("assertions", "digest"), ("operations", "actor_user_id,operation_key"))})
@@ -1166,7 +1221,7 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             row_json += "||jsonb_build_object(" + sql_literal(timestamp) + "," + utc_timestamp_text_sql("t." + timestamp) + ")"
         fields.append(sql_literal(key) + ",COALESCE((SELECT jsonb_agg(" + row_json + " ORDER BY " +
                       order + ") FROM " + relation + " t),'[]'::jsonb)")
-    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         # Keep each call below PG's argument limit; historical seed SQL bytes
         # remain unchanged. Each fields entry contains a key/value pair.
         objects = ["jsonb_build_object(" + ",".join(fields[i:i+40]) + ")"
@@ -1717,7 +1772,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         require(target_contract.get(key) == contract.get(key), "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
-    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT):
+    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT):
         require(catalog_hash == contract["fresh_catalog_sha256"], "target_fresh_catalog_mismatch")
     validate_import_material(plan, source_sha256, manifest)
     require(isinstance(target_identity, dict), "target_identity_incomplete")
