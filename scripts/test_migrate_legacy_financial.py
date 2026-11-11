@@ -337,6 +337,22 @@ class TransferAndPaymentFactsTests(unittest.TestCase):
         self.assertEqual(row["credit_facts"]["pending_credit_rebase_effective_quota"], 2500)
         self.assertEqual(row["historical_wallet_credit_to_apply"], 0)
 
+    def test_failed_checkout_that_can_still_settle_is_not_terminal(self):
+        for provider, reason, terminal in (
+            ("waffo_pancake", "checkout_timeout", False),
+            ("waffo_pancake", "declined", True),
+            ("stripe", "checkout_timeout", True),
+        ):
+            with self.subTest(provider=provider, reason=reason):
+                row = MODULE.map_topups([topup(
+                    status="failed", payment_provider=provider,
+                    failure_reason_code=reason, credited_quota=0,
+                )], {})[0]
+                self.assertEqual(row["terminal"], terminal)
+                self.assertIn("orphan_topup_owner", row["blockers"])
+                self.assertFalse(row["future_refund_authorized"])
+                self.assertEqual(row["historical_wallet_credit_to_apply"], 0)
+
     def test_unknown_status_and_missing_completed_credit_basis_are_explicit(self):
         row = MODULE.map_topups([topup(status="unexpected")], {71: 2})[0]
         self.assertIn("unknown_topup_status", row["blockers"])

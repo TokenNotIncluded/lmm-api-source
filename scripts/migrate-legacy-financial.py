@@ -23,6 +23,7 @@ import sys
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import legacy_financial_preflight as FINANCIAL_PREFLIGHT
+import legacy_cutover_money as PAYMENT_LIFECYCLE
 
 
 _SPEC = importlib.util.spec_from_file_location("legacy_identity_import", Path(__file__).with_name("migrate-legacy-snapshot.py"))
@@ -561,8 +562,8 @@ def map_topups(rows: list[dict], identities: dict[int, int]) -> list[dict]:
                        "provider_event_id": row.get("provider_event_id"),
                        "provider_transaction_id": row.get("provider_transaction_id"),
                        "trade_no": row.get("trade_no"), "status": status,
-                       "terminal": status in ("success", "failed", "expired"),
-                       "terminal_rule_source": "legacy common/constants.go TopUpStatus constants",
+                       "terminal": status in ("success", "failed", "expired") and not PAYMENT_LIFECYCLE.topup_can_settle(row),
+                       "terminal_rule_source": "legacy TopUpStatus and legacy_cutover_money.topup_can_settle",
                        "created_at": integer(row.get("create_time"), "topup_time_invalid"),
                        "completed_at": integer(row.get("complete_time"), "topup_time_invalid"),
                        "discount_snapshot": {field: row.get(field) for field in ("discount_code_id", "discount_percent", "discount_qualifying_amount", "discount_qualifying_unit")},
@@ -980,7 +981,8 @@ def build_full_financial_manifest(plan: dict, tables: dict[str, list[dict]], ide
 def tool_source_hashes(*, source_rights=False, escrow_candidate=False) -> dict:
     result = {"importer_sha256": IDENTITY.sha256_file(Path(__file__)),
               "identity_helper_sha256": IDENTITY.sha256_file(Path(IDENTITY.__file__)),
-              "financial_preflight_helper_sha256": IDENTITY.sha256_file(Path(FINANCIAL_PREFLIGHT.__file__))}
+              "financial_preflight_helper_sha256": IDENTITY.sha256_file(Path(FINANCIAL_PREFLIGHT.__file__)),
+              "payment_lifecycle_helper_sha256": IDENTITY.sha256_file(Path(PAYMENT_LIFECYCLE.__file__))}
     if source_rights:
         result["reconciliation_helper_sha256"] = IDENTITY.sha256_file(Path(__file__).with_name("legacy_financial_reconciliation.py"))
         result["bounty_basis_helper_sha256"] = IDENTITY.sha256_file(Path(__file__).with_name("legacy_bounty_basis.py"))

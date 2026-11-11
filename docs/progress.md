@@ -13,6 +13,7 @@
 
 ## 首发阻塞与已验证候选（2026-11-11）
 
+- 财务预览复用已有支付生命周期规则，`waffo_pancake` 的 `checkout_timeout` 失败订单仍可后续到账，按未终态保留。映射工具证据加入该依赖文件摘要，109 项定向 Python 自测通过。孤儿 owner 阻断及未决退款权限继续保留，真实冻结快照的新版预览待重跑。
 - 实报成本的网关终态统一保存经验证的收据并执行事务内结算，未超额请求也支持已进入 `reconcile` 的迟到终态。工作树组合 6 项隔离 PostgreSQL 定向自测通过，包含实际网关、真实钱包、HTTP 恢复及普通 OpenAI 回归。网关夹具的前两次失败分别来自外部预算合同要求和路由模型映射限制，修正为已支持的本地合成供应商及原模型后通过，失败日志保留。外部供应商实报成本仍要求供应商强制预算合同。证据 `~/.cache/lmm-cost-terminal-model.BHqGQ1zl/run.log`。
 - 实报成本终态结算支持原 worker 在租约过期或进入 `reconcile` 后重新核验当前凭据并补额。工作树组合的 5 项隔离 PostgreSQL 定向自测通过，覆盖真实钱包充值后补扣、不同 Key 拒绝、回滚、退款、团队预算和订阅周期约束。首次测试因过期夹具漏增 revision 被数据库拒绝，改用已有 helper 后复跑通过，失败日志保留。无凭据后台自动补扣仍待实现，未生产部署。证据 `~/.cache/lmm-measured-recovery-fixed.DfW3udJu/run.log`。
 - 新增 `scripts/export_legacy_key_target_observation.py`，从已提交凭据映射所绑定的隔离目标库只读导出原生 Key、付款方、额度与设置。9 项开发自测通过，包含实际 PostgreSQL 的完整入口、私有文件权限、漏项拒绝和读回前后数据库状态一致。输出保留原生事实，未生成旧格式对账清单，未验证批准材料摘要，也未连接生产。证据 `/tmp/lmm-key-observation-entrypoint-test.log`。
