@@ -540,7 +540,9 @@ def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def passkey_json(row) -> tuple[bytes, dict]:
+def passkey_json(row, *, registration_policy="required") -> tuple[bytes, dict]:
+    if registration_policy not in ("required", "preferred"):
+        fail("passkey_source_verification_unsupported")
     cred_id = base64.b64decode(row["credential_id"], validate=True)
     cose = base64.b64decode(row["public_key"], validate=True)
     if not (len(cose) == 77 and cose.startswith(COSE_ES256) and cose[42:45] == bytes.fromhex("225820")):
@@ -552,7 +554,7 @@ def passkey_json(row) -> tuple[bytes, dict]:
                                                           "y": b64url(cose[45:77])}}},
             "counter": row["sign_count"] or 0, "transports": transports or None,
             "user_verified": bool(row["user_verified"]), "backup_eligible": bool(row["backup_eligible"]),
-            "backup_state": bool(row["backup_state"]), "registration_policy": "required",
+            "backup_state": bool(row["backup_state"]), "registration_policy": registration_policy,
             "extensions": {"cred_protect": "NotRequested", "hmac_create_secret": "NotRequested",
                            "appid": "NotRequested", "cred_props": "NotRequested"},
             "attestation": {"data": "None", "metadata": "None"}, "attestation_format": "none"}
@@ -562,12 +564,25 @@ def passkey_json(row) -> tuple[bytes, dict]:
 def plan_passkeys(a, src, tgt):
     rows = query(src, "SELECT * FROM passkey_credentials ORDER BY id", a.source_schema)
     users = {r["id"] for r in query(tgt, "SELECT id FROM core_identity.users")}
+    options = query(src, "SELECT key,value FROM options WHERE key='passkey.user_verification'", a.source_schema)
+    if len(options) > 1:
+        fail("passkey_source_verification_unsupported")
+    # Fixed cc52's PasskeySettings default and its empty-value fallback are
+    # both preferred. Preserve an explicit required policy without downgrading.
+    raw_policy = options[0]["value"] if options else "preferred"
+    if raw_policy == "":
+        raw_policy = "preferred"
+    if raw_policy not in ("preferred", "required"):
+        fail("passkey_source_verification_unsupported")
     stats, sql, handles = Counter(), [], set()
+    source_records = []
     for r in rows:
         if r["user_id"] not in users:
             stats["passkeys_user_missing"] += 1
             continue
-        cred_id, key = passkey_json(r)
+        # Go stores no per-credential registration policy. This is its captured
+        # current authentication policy, not reconstructed registration history.
+        cred_id, key = passkey_json(r, registration_policy=raw_policy)
         name = (r["name"] or "").strip()[:64] or f"Passkey {r['id']}"
         handles.add(r["user_id"])
         sql.append("INSERT INTO core_passkeys.credentials(user_id,credential_id,passkey,name,created_at,last_used_at,"
@@ -577,10 +592,22 @@ def plan_passkeys(a, src, tgt):
         sql.append("INSERT INTO core_history.legacy_passkey_handles(credential_id,user_id,user_handle) VALUES("
                    f"'\\x{cred_id.hex()}'::bytea,{r['user_id']},'\\x{str(r['user_id']).encode().hex()}'::bytea);")
         stats["passkeys_revoked" if r["deleted_at"] else "passkeys_active"] += 1
+        source_records.append({"source_row_sha256": sha(r), "source_user_id": r["user_id"],
+                               "target_user_id": r["user_id"],
+                               "credential_id_sha256": hashlib.sha256(cred_id).hexdigest()})
     sql[:0] = [f"INSERT INTO core_passkeys.user_handles(user_id) VALUES({u}) ON CONFLICT DO NOTHING;"
                for u in sorted(handles)]
     stats["user_handles"] = len(handles)
     stats["legacy_user_handles"] = sum(1 for r in rows if r["user_id"] in users)
+    binding = a.identity_binding["provenance"]
+    manifest = {"scope": "legacy-passkeys.v1", "source_archive_sha256": a.archive_sha256,
+                "observed_at": a.observed_at,
+                "identity_manifest_sha256": binding["identity_manifest_sha256"],
+                "source_policy": {"user_verification": raw_policy, "captured_options": options,
+                                  "compiled_default_revision": "cc52aa195c6f2a01d703a1a407be73c31b89867d"},
+                "records": source_records, "counts": dict(stats), "sessions_issued": 0}
+    sql.append("INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest) "
+               f"VALUES({lit(a.migration_id)},{lit(a.archive_sha256)},{lit(sha(manifest))},{jlit(manifest)});")
     return sql, dict(stats)
 
 
