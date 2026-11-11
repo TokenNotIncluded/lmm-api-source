@@ -398,20 +398,22 @@ async fn fixture(pool: PgPool, amount: i64) -> Fixture {
         .open_wallet(principal.owner_account_id)
         .await
         .unwrap();
-    ledger
-        .execute(&LedgerRequest {
-            scope: "selected-bound-pg".into(),
-            operation_key: "synthetic-funds".into(),
-            actor_user_id: Some(7),
-            reason: "Synthetic funds in disposable selected-bound PostgreSQL".into(),
-            action: Action::Credit {
-                account_id: principal.owner_account_id,
-                amount_units: Credits::try_from(amount).unwrap(),
-                payment_reference: "synthetic:selected-bound".into(),
-            },
-        })
-        .await
-        .unwrap();
+    if amount != 0 {
+        ledger
+            .execute(&LedgerRequest {
+                scope: "selected-bound-pg".into(),
+                operation_key: "synthetic-funds".into(),
+                actor_user_id: Some(7),
+                reason: "Synthetic funds in disposable selected-bound PostgreSQL".into(),
+                action: Action::Credit {
+                    account_id: principal.owner_account_id,
+                    amount_units: Credits::try_from(amount).unwrap(),
+                    payment_reference: "synthetic:selected-bound".into(),
+                },
+            })
+            .await
+            .unwrap();
+    }
     Fixture {
         pool,
         ledger,
@@ -1427,6 +1429,15 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
 
 #[sqlx::test(migrations = false)]
 async fn legacy_wallet_gateway_uses_estimate_then_settles_authorized_debt(pool: PgPool) {
+    legacy_wallet_gateway_debt(pool, false).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn legacy_wallet_gateway_derives_native_bound_then_settles_authorized_debt(pool: PgPool) {
+    legacy_wallet_gateway_debt(pool, true).await;
+}
+
+async fn legacy_wallet_gateway_debt(pool: PgPool, derive_native_reservation: bool) {
     let f = fixture(pool, 6000).await;
     let original = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
     let mut document = original.bridge.routing.catalog_document().unwrap();
@@ -1438,7 +1449,8 @@ async fn legacy_wallet_gateway_uses_estimate_then_settles_authorized_debt(pool: 
         "upstream_id": 1, "upstream_model": "small-provider", "model": "small-model",
         "preconsumed_tokens": 5000, "count_token": true, "get_media_token": true,
         "get_media_token_not_stream": false, "source_free_model": false,
-        "operator_max_billable": 100000
+        "operator_max_billable": if derive_native_reservation { 0 } else { 100000 },
+        "derive_native_reservation": derive_native_reservation
     }))
     .unwrap();
     let g = ModelGateway::new_with_provider_policy(
@@ -1466,6 +1478,28 @@ async fn legacy_wallet_gateway_uses_estimate_then_settles_authorized_debt(pool: 
     let route = g.bridge.select(&context, &request).await.unwrap();
     let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
     let held = receipt(&g, &reservation.id).await;
+    let (_, proof) = g
+        .bridge
+        .charging
+        .reservation_contract(&reservation.id)
+        .await
+        .unwrap();
+    let authorization = proof.legacy_precharge().unwrap();
+    assert_eq!(
+        authorization.derives_native_reservation(),
+        derive_native_reservation
+    );
+    let expected_cap = if derive_native_reservation {
+        held.price
+            .reservation_ceiling(charging::ReservationBasis::Tokens {
+                input: SMALL_INPUT as u64,
+                output: 1,
+            })
+            .unwrap()
+    } else {
+        100000
+    };
+    assert_eq!(authorization.max_billable(), expected_cap);
     assert_eq!(held.reserved, 5001);
     assert_balance(&f, 999, 5001).await;
     g.bridge
@@ -1492,6 +1526,65 @@ async fn legacy_wallet_gateway_uses_estimate_then_settles_authorized_debt(pool: 
         (-1000, -1000, 0)
     );
     assert_balance(&f, -1000, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn derived_legacy_free_gateway_keeps_native_zero_reservation(pool: PgPool) {
+    let f = fixture(pool, 0).await;
+    let original = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
+    let mut document = original.bridge.routing.catalog_document().unwrap();
+    document.routing.routes.truncate(1);
+    document.pricing.rules.truncate(1);
+    document.pricing.rules[0].rates = TokenRates {
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+        request: 0,
+    };
+    document.pricing.rules[0].rounding = Some(routing::TokenRounding::LegacyGoRatioV1);
+    let source = serde_json::from_value(json!({
+        "source_revision": charging::legacy_precharge::SOURCE_REVISION,
+        "upstream_id": 1, "upstream_model": "small-provider", "model": "small-model",
+        "preconsumed_tokens": 5000, "count_token": true, "get_media_token": true,
+        "get_media_token_not_stream": false, "source_free_model": true,
+        "operator_max_billable": 0,
+        "derive_native_reservation": true
+    }))
+    .unwrap();
+    let g = ModelGateway::new_with_provider_policy(
+        f.pool.clone(),
+        Arc::new(
+            routing::Router::new(
+                document.routing,
+                Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+            )
+            .unwrap(),
+        ),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-legacy-precharge-key".into(),
+        }],
+        BTreeMap::from([(f.key_id, "allowed".into())]),
+        original.limits.clone(),
+        original.bridge.policy,
+        ProviderPolicy::new(contexts(SMALL_INPUT), GLOBAL_INPUT).unwrap(),
+    )
+    .unwrap()
+    .with_legacy_precharge(vec![source])
+    .unwrap();
+    let (context, request) = admit(&g, &f, "legacy-derived-free", "small-model", 1).await;
+    let route = g.bridge.select(&context, &request).await.unwrap();
+    let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+    let (held, proof) = g
+        .bridge
+        .charging
+        .reservation_contract(&reservation.id)
+        .await
+        .unwrap();
+    assert_eq!(held.reserved, 0);
+    assert!(proof.legacy_precharge().is_none());
+    assert_balance(&f, 0, 0).await;
 }
 
 #[sqlx::test(migrations = false)]

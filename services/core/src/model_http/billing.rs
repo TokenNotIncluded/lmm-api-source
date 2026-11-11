@@ -433,6 +433,7 @@ impl Bridge {
                         &selected,
                         request,
                         original,
+                        (input_bound, u64::from(request.max_output_tokens)),
                         &secret,
                         peer,
                         oauth_issuer.as_ref(),

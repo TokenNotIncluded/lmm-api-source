@@ -157,6 +157,14 @@ async fn legacy_sse_recovery_prioritizes_terminal_and_promotes_crash_window(pool
 }
 
 fn expression_gateway(f: &Fixture, base: &str) -> ModelGateway {
+    expression_gateway_with_derived_bound(f, base, false)
+}
+
+fn expression_gateway_with_derived_bound(
+    f: &Fixture,
+    base: &str,
+    derive_native_reservation: bool,
+) -> ModelGateway {
     let contracts = if base == EXTERNAL_BASE {
         contexts(SMALL_INPUT)
     } else {
@@ -214,7 +222,8 @@ fn expression_gateway(f: &Fixture, base: &str) -> ModelGateway {
             "upstream_id":1,"upstream_model":"small-provider","model":"small-model",
             "preconsumed_tokens":5000,"count_token":true,"get_media_token":true,
             "get_media_token_not_stream":false,"source_free_model":false,
-            "operator_max_billable":100000,"source_expression":expression
+            "operator_max_billable":if derive_native_reservation { 0 } else { 100000 },
+            "derive_native_reservation":derive_native_reservation,"source_expression":expression
         }))
         .unwrap(),
     ])
@@ -330,7 +339,7 @@ async fn legacy_expression_http_charges_source_float_counterexample(pool: PgPool
         .unwrap();
     });
     let f = fixture(pool, 1000).await;
-    let g = expression_gateway(&f, &base);
+    let g = expression_gateway_with_derived_bound(&f, &base, true);
     let body = json!({"model":"small-model","messages":[{"role":"user","content":"hello"}],"max_tokens":1});
     let (status, response, id) =
         compatibility_call(&g, &f, true, "source-float-http", body.to_string()).await;
@@ -339,6 +348,25 @@ async fn legacy_expression_http_charges_source_float_counterexample(pool: PgPool
     assert_eq!(charge.state, "settled");
     assert_eq!(charge.settled, 124);
     assert_eq!(charge.price.cost(charge.usage).unwrap(), 125);
+    let (frozen, proof) = g.bridge.charging.reservation_contract(&id).await.unwrap();
+    let authorization = proof.legacy_precharge().unwrap();
+    assert!(authorization.derives_native_reservation());
+    let (input, output) = proof.bounds();
+    assert_eq!(
+        authorization.max_billable(),
+        frozen
+            .price
+            .reservation_ceiling(charging::ReservationBasis::Tokens { input, output },)
+            .unwrap()
+    );
+    assert_eq!(
+        g.bridge
+            .charging
+            .terminal_amount(&id, charge.usage)
+            .await
+            .unwrap(),
+        124
+    );
     assert_balance(&f, 876, 0).await;
     server.abort();
 }

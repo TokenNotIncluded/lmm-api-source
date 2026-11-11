@@ -795,6 +795,11 @@ impl Charging {
         };
         if let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge) {
             legacy.verify_trust(effective_request.price.user_trust.as_ref())?;
+            if legacy.derives_native_reservation()
+                && legacy.max_billable() != effective_request.reserve
+            {
+                return Err(Error::Conflict);
+            }
         }
         let request = &effective_request;
         // Existing exact operation receipts above remain safely replayable.

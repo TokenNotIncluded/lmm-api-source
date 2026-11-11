@@ -14,6 +14,7 @@ pub(super) fn authorization(
     prompt_tokens: u32,
     group_ppm: u32,
     trust: Option<FrozenTrustPrice>,
+    operator_max_billable: i64,
 ) -> Result<LegacyPrechargeAuthorization, RelayError> {
     let estimate = LegacyTieredEstimate {
         source_expression: source
@@ -30,7 +31,7 @@ pub(super) fn authorization(
         trust,
     };
     let estimated_hold = estimate.hold().map_err(super::billing::error)?;
-    if estimated_hold > source.operator_max_billable {
+    if estimated_hold > operator_max_billable {
         return Err(RelayError::Limit(
             "legacy precharge exceeds operator maximum",
         ));
@@ -39,7 +40,8 @@ pub(super) fn authorization(
         source_contract_sha256: contract::typed_digest(source).map_err(super::billing::error)?,
         estimate_sha256: contract::typed_digest(&estimate).map_err(super::billing::error)?,
         estimated_hold,
-        operator_max_billable: source.operator_max_billable,
+        operator_max_billable,
+        derive_native_reservation: source.derive_native_reservation,
         estimate,
     })
 }

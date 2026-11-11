@@ -14,11 +14,18 @@ pub(crate) struct SourceContract {
     pub get_media_token: bool,
     pub get_media_token_not_stream: bool,
     pub source_free_model: bool,
+    #[serde(default)]
     pub operator_max_billable: i64,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub derive_native_reservation: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_tariff: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_expression: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl SourceContract {
@@ -28,7 +35,8 @@ impl SourceContract {
             || self.upstream_model.is_empty()
             || self.model.is_empty()
             || (self.source_tariff.is_some() && self.source_expression.is_some())
-            || self.operator_max_billable <= 0
+            || (self.derive_native_reservation && self.operator_max_billable != 0)
+            || (!self.derive_native_reservation && self.operator_max_billable <= 0)
             || self.operator_max_billable > 9_007_199_254_740_991
         {
             return Err(RelayError::Invalid("legacy precharge source contract"));
@@ -60,6 +68,26 @@ impl SourceContract {
         Ok(())
     }
 
+    fn maximum_billable(
+        &self,
+        price: &charging::Price,
+        bounds: (u64, u64),
+        trust: Option<&crate::billing::trust_pricing::FrozenTrustPrice>,
+    ) -> Result<i64, RelayError> {
+        self.validate()?;
+        if !self.derive_native_reservation {
+            return Ok(self.operator_max_billable);
+        }
+        let mut frozen = price.clone();
+        frozen.user_trust = trust.cloned();
+        frozen
+            .reservation_ceiling(charging::ReservationBasis::Tokens {
+                input: bounds.0,
+                output: bounds.1,
+            })
+            .map_err(super::billing::error)
+    }
+
     pub(super) fn options(&self) -> charging::legacy_precharge::SourceOptions {
         charging::legacy_precharge::SourceOptions {
             preconsumed_tokens: self.preconsumed_tokens,
@@ -71,11 +99,13 @@ impl SourceContract {
 }
 
 impl super::Bridge {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn legacy_authorization(
         &self,
         selected: &super::routing::Selected,
         request: &crate::relay::Request,
         body: &[u8],
+        bounds: (u64, u64),
         secret: &str,
         peer: Option<std::net::IpAddr>,
         issuer: Option<&crate::identity::grants::LmmIssuer>,
@@ -145,7 +175,11 @@ impl super::Bridge {
             .legacy_precharge_trust(secret, peer, issuer, &selected.price)
             .await
             .map_err(super::billing::error)?;
-        match authorization(source, request, body, rates.input, group, trust) {
+        let maximum = source.maximum_billable(&selected.price, bounds, trust.as_ref())?;
+        if source.derive_native_reservation && maximum == 0 {
+            return Ok(None);
+        }
+        match authorization(source, request, body, rates.input, group, trust, maximum) {
             Ok(authorization) => Ok(Some(authorization)),
             Err(RelayError::Unsupported(_)) => Ok(None),
             Err(error) => Err(error),
@@ -160,6 +194,7 @@ fn authorization(
     input_rate: u64,
     group: u32,
     trust: Option<crate::billing::trust_pricing::FrozenTrustPrice>,
+    operator_max_billable: i64,
 ) -> Result<charging::contract::LegacyPrechargeAuthorization, RelayError> {
     use charging::contract;
     if source.source_expression.is_some() {
@@ -170,6 +205,7 @@ fn authorization(
             estimated.prompt_tokens,
             group,
             trust,
+            operator_max_billable,
         );
     }
     let (model_ratio, group_ratio) = if let Some(origin) = &source.source_tariff {
@@ -189,6 +225,11 @@ fn authorization(
             discount.numerator() as f64 / discount.denominator() as f64
         });
     let estimated = estimate_text(source, request, body, model_ratio, effective_group)?;
+    if i64::from(estimated.hold) > operator_max_billable {
+        return Err(RelayError::Limit(
+            "legacy precharge exceeds operator maximum",
+        ));
+    }
     let estimate = contract::LegacyOrdinaryEstimate {
         options: source.options(),
         input_rate,
@@ -207,7 +248,8 @@ fn authorization(
                 .map_err(super::billing::error)?,
             estimate_sha256: contract::typed_digest(&estimate).map_err(super::billing::error)?,
             estimated_hold: i64::from(estimated.hold),
-            operator_max_billable: source.operator_max_billable,
+            operator_max_billable,
+            derive_native_reservation: source.derive_native_reservation,
             estimate,
         },
     )

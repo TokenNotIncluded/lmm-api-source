@@ -94,6 +94,8 @@ pub(crate) enum LegacyPrechargeAuthorization {
         estimate_sha256: String,
         estimated_hold: i64,
         operator_max_billable: i64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        derive_native_reservation: bool,
         estimate: LegacyOrdinaryEstimate,
     },
     Cc52TieredWalletV1 {
@@ -101,6 +103,8 @@ pub(crate) enum LegacyPrechargeAuthorization {
         estimate_sha256: String,
         estimated_hold: i64,
         operator_max_billable: i64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        derive_native_reservation: bool,
         estimate: LegacyTieredEstimate,
     },
 }
@@ -205,6 +209,10 @@ pub(crate) fn verify_legacy_trust(
         _ => Err(Error::Conflict),
     }
 }
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl LegacyPrechargeAuthorization {
     fn validate(&self) -> Result<(), Error> {
         let (source, digest, estimated_hold, max, hold) = match self {
@@ -214,6 +222,7 @@ impl LegacyPrechargeAuthorization {
                 estimated_hold,
                 operator_max_billable,
                 estimate,
+                ..
             } => (
                 source_contract_sha256,
                 estimate_sha256,
@@ -227,6 +236,7 @@ impl LegacyPrechargeAuthorization {
                 estimated_hold,
                 operator_max_billable,
                 estimate,
+                ..
             } => (
                 source_contract_sha256,
                 estimate_sha256,
@@ -262,6 +272,34 @@ impl LegacyPrechargeAuthorization {
                 ..
             } => *operator_max_billable,
         }
+    }
+    pub(crate) fn derives_native_reservation(&self) -> bool {
+        match self {
+            Self::Cc52OrdinaryWalletV1 {
+                derive_native_reservation,
+                ..
+            }
+            | Self::Cc52TieredWalletV1 {
+                derive_native_reservation,
+                ..
+            } => *derive_native_reservation,
+        }
+    }
+    fn verify_native_cap(
+        &self,
+        price: &super::Price,
+        bounds: &ReservationBounds,
+    ) -> Result<(), Error> {
+        if self.derives_native_reservation()
+            && self.max_billable()
+                != price.reservation_ceiling(ReservationBasis::Tokens {
+                    input: bounds.input,
+                    output: bounds.output,
+                })?
+        {
+            return Err(Error::Conflict);
+        }
+        Ok(())
     }
     pub(crate) fn verify_price(&self, price: &super::Price) -> Result<(), Error> {
         match self {
@@ -811,6 +849,7 @@ impl PreparedReservation {
         if let Some(legacy) = self.legacy_precharge() {
             legacy.verify_price(&charge.price)?;
             legacy.verify_trust(charge.price.user_trust.as_ref())?;
+            legacy.verify_native_cap(&charge.price, &self.fields.bounds)?;
             if charge.source == super::Source::Wallet
                 && (charge.reserved < legacy.estimated_hold()
                     || charge.reserved > legacy.max_billable())
@@ -1077,6 +1116,9 @@ pub(crate) fn read_attribution(
     };
     proof.validate()?;
     proof.validate_native_price(price)?;
+    if let Some(legacy) = proof.legacy_precharge() {
+        legacy.verify_native_cap(price, &proof.fields.bounds)?;
+    }
     let marker: AdmissionMarker = serde_json::from_value(marker).map_err(|_| Error::Invalid)?;
     if marker != contract.admission_marker()
         || contract.fields.request_fingerprint != hex_digest(fingerprint)
@@ -1244,7 +1286,15 @@ mod tests {
             estimate,
             estimated_hold: 400,
             operator_max_billable: 210_944,
+            derive_native_reservation: false,
         });
+        let old_wire =
+            serde_json::to_value(legacy.fields.legacy_precharge.as_ref().unwrap()).unwrap();
+        assert!(old_wire.get("derive_native_reservation").is_none());
+        let decoded: LegacyPrechargeAuthorization =
+            serde_json::from_value(old_wire.clone()).unwrap();
+        assert!(!decoded.derives_native_reservation());
+        assert_eq!(serde_json::to_value(decoded).unwrap(), old_wire);
         assert!(legacy.validate().is_err()); // original native digest cannot authorize the new policy
         legacy.prepared_sha256 = typed_digest(&legacy.fields).unwrap();
         legacy.validate().unwrap();

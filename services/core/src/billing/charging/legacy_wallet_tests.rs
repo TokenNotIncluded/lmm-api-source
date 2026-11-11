@@ -66,6 +66,7 @@ fn prepared_legacy(id: &str, max: i64) -> (Request, ReservationBasis, PreparedRe
         estimate_sha256: contract::typed_digest(&estimate).unwrap(),
         estimated_hold: 5,
         operator_max_billable: max,
+        derive_native_reservation: false,
         estimate,
     })
     .unwrap();
@@ -418,6 +419,7 @@ fn prepared_expression(id: &str) -> (Request, ReservationBasis, PreparedReservat
             estimate_sha256: contract::typed_digest(&estimate).unwrap(),
             estimated_hold: 45,
             operator_max_billable: 125,
+            derive_native_reservation: false,
             estimate,
         })
         .unwrap();
@@ -790,6 +792,7 @@ async fn legacy_expression_terminal_float_differs_from_native_exact(pool: PgPool
             estimate_sha256: contract::typed_digest(&estimate).unwrap(),
             estimated_hold: estimate.hold().unwrap(),
             operator_max_billable: 125,
+            derive_native_reservation: false,
             estimate,
         })
         .unwrap();
@@ -832,4 +835,303 @@ async fn legacy_expression_terminal_float_differs_from_native_exact(pool: PgPool
         .unwrap();
     let balance = wallet.balance(102).await.unwrap();
     assert_eq!((balance.spendable_units, balance.debt_units), (50, 0));
+}
+
+fn prepared_derived_expression(
+    id: &str,
+    trust: Option<crate::billing::trust_pricing::FrozenTrustPrice>,
+) -> (Request, ReservationBasis, PreparedReservation) {
+    let (spec, basis, proof) = prepared_expression(id);
+    let LegacyPrechargeAuthorization::Cc52TieredWalletV1 { mut estimate, .. } =
+        proof.legacy_precharge().unwrap().clone()
+    else {
+        unreachable!()
+    };
+    estimate.trust = trust.clone();
+    let mut frozen_price = spec.price.clone();
+    frozen_price.user_trust = trust;
+    let cap = frozen_price.reservation_ceiling(basis).unwrap();
+    let proof = proof
+        .with_legacy_precharge(LegacyPrechargeAuthorization::Cc52TieredWalletV1 {
+            source_contract_sha256: "05".repeat(32),
+            estimate_sha256: contract::typed_digest(&estimate).unwrap(),
+            estimated_hold: estimate.hold().unwrap(),
+            operator_max_billable: cap,
+            derive_native_reservation: true,
+            estimate,
+        })
+        .unwrap();
+    (spec, basis, proof)
+}
+
+fn forged_derived_cap(proof: &PreparedReservation) -> PreparedReservation {
+    let mut authorization = proof.legacy_precharge().unwrap().clone();
+    let LegacyPrechargeAuthorization::Cc52TieredWalletV1 {
+        operator_max_billable,
+        ..
+    } = &mut authorization
+    else {
+        unreachable!()
+    };
+    *operator_max_billable += 1;
+    proof.clone().with_legacy_precharge(authorization).unwrap()
+}
+
+#[sqlx::test(migrations = false)]
+async fn legacy_derived_cap_preserves_native_bound_with_estimated_wallet_hold(pool: PgPool) {
+    fixture(&pool).await;
+    let wallet = WalletLedger::from_pool(pool.clone());
+    wallet.open_wallet(102).await.unwrap();
+    credit_wallet(&wallet, "derived-native", 50).await;
+    let engine = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
+    let (overhold_spec, overhold_basis, ordinary) = prepared_legacy("derived-overhold", 120);
+    let LegacyPrechargeAuthorization::Cc52OrdinaryWalletV1 { mut estimate, .. } =
+        ordinary.legacy_precharge().unwrap().clone()
+    else {
+        unreachable!()
+    };
+    estimate.options.preconsumed_tokens = 2000;
+    let source_hold = super::super::legacy_precharge::ordinary_text(
+        estimate.options,
+        estimate.prompt_tokens,
+        estimate.explicit_max_tokens,
+        estimate.model_ratio_bits,
+        estimate.group_ratio_bits,
+        estimate.source_free_model,
+    )
+    .unwrap()
+    .hold;
+    let original_cap = overhold_spec
+        .price
+        .reservation_ceiling(overhold_basis)
+        .unwrap();
+    assert_eq!((i64::from(source_hold), original_cap), (2000, 120));
+    assert!(matches!(
+        ordinary.with_legacy_precharge(LegacyPrechargeAuthorization::Cc52OrdinaryWalletV1 {
+            source_contract_sha256: "04".repeat(32),
+            estimate_sha256: contract::typed_digest(&estimate).unwrap(),
+            estimated_hold: i64::from(source_hold),
+            operator_max_billable: original_cap,
+            derive_native_reservation: true,
+            estimate,
+        }),
+        Err(Error::Invalid)
+    ));
+    assert!(engine.resolve(&overhold_spec.id).await.unwrap().is_none());
+    let commands: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.ledger_commands WHERE request_id=$1",
+    )
+    .bind(&overhold_spec.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(commands, 0);
+    assert_eq!(wallet.balance(102).await.unwrap().spendable_units, 50);
+    let (spec, basis, proof) = prepared_derived_expression("derived-native", None);
+    let native_cap = spec.price.reservation_ceiling(basis).unwrap();
+    assert_eq!(proof.legacy_precharge().unwrap().max_billable(), native_cap);
+    assert!(proof.legacy_precharge().unwrap().estimated_hold() < native_cap);
+    assert_eq!(
+        engine
+            .reserve_prepared_model_with_context(
+                PERSONAL,
+                &spec,
+                &WORKER,
+                None,
+                None,
+                basis,
+                &forged_derived_cap(&proof)
+            )
+            .await,
+        Err(Error::Conflict)
+    );
+    assert!(engine.resolve(&spec.id).await.unwrap().is_none());
+    assert_eq!(wallet.balance(102).await.unwrap().spendable_units, 50);
+    let charge = engine
+        .reserve_prepared_model_with_context(PERSONAL, &spec, &WORKER, None, None, basis, &proof)
+        .await
+        .unwrap();
+    assert_eq!((charge.source, charge.reserved), (Source::Wallet, 45));
+    let (_, frozen) = engine.reservation_contract(&spec.id).await.unwrap();
+    let legacy = frozen.legacy_precharge().unwrap();
+    assert!(legacy.derives_native_reservation());
+    assert_eq!(legacy.max_billable(), native_cap);
+    engine.start(&spec.id, &WORKER).await.unwrap();
+    let usage = Usage {
+        input: 80,
+        output: 20,
+        ..Usage::default()
+    };
+    terminal(&pool, &spec, usage).await;
+    let settled = engine
+        .settle_legacy_wallet_terminal(&spec.id, &WORKER, usage, Outcome::Completed)
+        .await
+        .unwrap();
+    assert_eq!(settled.settled, 120);
+    assert_eq!(
+        engine
+            .settle_legacy_wallet_terminal(&spec.id, &WORKER, usage, Outcome::Completed)
+            .await
+            .unwrap(),
+        settled
+    );
+    assert_eq!(wallet.balance(102).await.unwrap().debt_units, -70);
+    assert!(
+        read_derived_attribution(&pool, &settled)
+            .await
+            .legacy_precharge()
+            .unwrap()
+            .derives_native_reservation()
+    );
+}
+
+async fn read_derived_attribution(pool: &PgPool, charge: &Charge) -> contract::ReservationContract {
+    let (proof,marker,fingerprint,spec): (serde_json::Value,serde_json::Value,Vec<u8>,Vec<u8>) = sqlx::query_as(
+        "SELECT p.detail,a.detail,r.fingerprint,r.spec_digest FROM core_charging.requests r \
+         JOIN core_charging.usage_events p ON p.request_id=r.id AND p.event_id='reservation-contract:v1' \
+         JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='reservation-admission:v1' WHERE r.id=$1"
+    ).bind(&charge.id).fetch_one(pool).await.unwrap();
+    contract::read_attribution(
+        Some(proof),
+        Some(marker),
+        &charge.price,
+        &fingerprint,
+        &spec,
+    )
+    .unwrap()
+    .unwrap()
+}
+
+#[sqlx::test(migrations = false)]
+async fn legacy_derived_cap_revalidates_trust_and_rejects_concurrent_change(pool: PgPool) {
+    fixture(&pool).await;
+    owner_seed_sql(&pool,
+        "INSERT INTO core_trust_pricing.user_bases(user_id,original_created_at,console_activated_at,last_api_activity_at,override_level,projection_known,order_count,revision,source_digest) \
+         SELECT 2,floor(extract(epoch FROM created_at))::bigint,0,0,4,true,0,1,decode(repeat('01',32),'hex') FROM core_identity.accounts WHERE id=102"
+    ).await.unwrap();
+    let wallet = WalletLedger::from_pool(pool.clone());
+    wallet.open_wallet(102).await.unwrap();
+    credit_wallet(&wallet, "derived-trust", 50).await;
+    let engine = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
+    engine.enable_trust_pricing();
+    let (untrusted_spec, basis, dropped_trust) = prepared_derived_expression("derived-trust", None);
+    let trust = engine
+        .legacy_precharge_trust(PERSONAL, None, None, &untrusted_spec.price)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (trust.discount().numerator(), trust.discount().denominator()),
+        (9, 10)
+    );
+    let (spec, _, proof) = prepared_derived_expression("derived-trust", Some(trust));
+    assert_eq!(proof.legacy_precharge().unwrap().max_billable(), 126);
+    for invalid in [dropped_trust, forged_derived_cap(&proof)] {
+        assert_eq!(
+            engine
+                .reserve_prepared_model_with_context(
+                    PERSONAL, &spec, &WORKER, None, None, basis, &invalid
+                )
+                .await,
+            Err(Error::Conflict)
+        );
+    }
+    // Change the real authority after preparation and before its reserve TX.
+    owner_seed_sql(&pool,"UPDATE core_trust_pricing.user_bases SET override_level=3,revision=revision+1 WHERE user_id=2").await.unwrap();
+    assert_eq!(
+        engine
+            .reserve_prepared_model_with_context(
+                PERSONAL, &spec, &WORKER, None, None, basis, &proof
+            )
+            .await,
+        Err(Error::Conflict)
+    );
+    assert!(engine.resolve(&spec.id).await.unwrap().is_none());
+    assert_eq!(wallet.balance(102).await.unwrap().spendable_units, 50);
+    let fresh = engine
+        .legacy_precharge_trust(PERSONAL, None, None, &spec.price)
+        .await
+        .unwrap()
+        .unwrap();
+    let (spec, _, proof) = prepared_derived_expression("derived-trust", Some(fresh));
+    let charge = engine
+        .reserve_prepared_model_with_context(PERSONAL, &spec, &WORKER, None, None, basis, &proof)
+        .await
+        .unwrap();
+    let cap = charge.price.reservation_ceiling(basis).unwrap();
+    assert_eq!(cap, 132);
+    assert!(charge.reserved < cap);
+    let (_, frozen) = engine.reservation_contract(&spec.id).await.unwrap();
+    assert_eq!(frozen.legacy_precharge().unwrap().max_billable(), cap);
+    engine.start(&spec.id, &WORKER).await.unwrap();
+    engine
+        .record_route_dispatch(
+            &spec.id,
+            &WORKER,
+            1,
+            "legacy-route",
+            "default",
+            &"03".repeat(32),
+        )
+        .await
+        .unwrap();
+    let usage = Usage {
+        input: 50,
+        output: 5,
+        ..Usage::default()
+    };
+    let observed = crate::relay::Usage {
+        input_tokens: Some(50),
+        output_tokens: Some(5),
+        ..Default::default()
+    };
+    engine
+        .record_provider_observation(
+            &spec.id,
+            &WORKER,
+            "legacy-route",
+            &serde_json::to_value(&observed).unwrap(),
+            100,
+            20,
+        )
+        .await
+        .unwrap();
+    owner_seed_query(&pool,sqlx::query(
+        "INSERT INTO core_model.output_checkpoints(request_id,sequence,packet_sha256,packet_bytes,prepared_bytes,provider_usage,terminal_observed) VALUES($1,1,$2,1,1,$3,true)"
+    ).bind(&spec.id).bind(vec![1_u8;32]).bind(serde_json::to_value(observed.checkpoint_usage()).unwrap())).await.unwrap();
+    engine.mark_unknown(&spec.id, &WORKER).await.unwrap();
+    let pending = engine.resolve(&spec.id).await.unwrap().unwrap();
+    let missing:bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM core_charging.usage_events WHERE request_id=$1 AND event_id='model-provider-terminal:v1')")
+        .bind(&spec.id).fetch_one(&pool).await.unwrap();
+    assert!(missing);
+    assert_eq!(pending.price.cost(usage), Ok(56)); // Native tiered settlement also rounds half up.
+    let settled = engine
+        .reconcile_legacy_wallet_observation(
+            &spec.id,
+            pending.revision,
+            "legacy-route",
+            usage,
+            Outcome::Completed,
+            "derived-trust-crash",
+        )
+        .await
+        .unwrap();
+    assert_eq!(settled.settled, 56); // Frozen source float rounds 56.4 after the trust discount.
+    assert_eq!(
+        engine
+            .reconcile_legacy_wallet_observation(
+                &spec.id,
+                pending.revision,
+                "legacy-route",
+                usage,
+                Outcome::Completed,
+                "derived-trust-crash"
+            )
+            .await
+            .unwrap(),
+        settled
+    );
+    assert_eq!(wallet.balance(102).await.unwrap().debt_units, -6);
+    let receipt = read_derived_attribution(&pool, &settled).await;
+    assert_eq!(receipt.legacy_precharge().unwrap().max_billable(), 132);
 }
