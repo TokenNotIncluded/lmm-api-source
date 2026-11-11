@@ -85,12 +85,74 @@ class CheckinsUnixPostgreSQLTests(historical_pg.UnixPostgreSQLTests):
         self.assertFalse(self.query(guard))
         self.assertEqual(self.full_state(), self.before)
         archive = self.material['source_archive_sha256']
-        self.sql('INSERT INTO core_checkins.seed_receipts(seed_id,migration_id,identity_migration_id,'
+        self.sql('INSERT INTO core_checkins.seed_receipts(seed_id,history_migration_id,identity_migration_id,'
                  'source_archive_sha256,mapping_sha256,source_cutoff,source_options_sha256,settings,result) VALUES('
                  "'synthetic-seed','synthetic-identity','synthetic-identity'," + F.literal(archive) +
                  ",repeat('a',64),1,repeat('b',64),'{}'::jsonb,'{}'::jsonb)")
         with self.assertRaisesRegex(F.Error, 'fresh49_business_or_upgrade_records_not_empty'):
             self.capture_material()
+
+    def test_originals_37_bound_unknown_decimal_empty_language_and_replay(self):
+        from decimal import Decimal
+        import legacy_pancake_subscriptions as W
+        from test_legacy_pancake_subscriptions import OriginalTests
+
+        source, review, _ = OriginalTests().fixture()
+        archive = self.material['source_archive_sha256']
+        source['source_archive_sha256'] = review['source_archive_sha256'] = archive
+        user = self.material['native_users'][0]
+        original_row, original_binding = source['orders'][0], review['orders'][0]
+        terms = original_binding['plan']['terms']
+        self.sql('BEGIN; INSERT INTO core_subscriptions.plans(id,revision) OVERRIDING SYSTEM VALUE VALUES(9,2);'
+                 'INSERT INTO core_subscriptions.plan_revisions(plan_id,revision,terms,actor_user_id,created_at) VALUES('
+                 '9,2,' + F.literal(terms) + '::jsonb,' + str(user['id']) + ',1700000000);'
+                 "SELECT setval(pg_get_serial_sequence('core_subscriptions.plans','id')::regclass,10,false); COMMIT;")
+        self.material = self.capture_material()
+        source['orders'], review['orders'] = [], []
+        for number in range(1, 38):
+            row, binding = deepcopy(original_row), deepcopy(original_binding)
+            row.update(id=number, user_id=user['id'], trade_no='WAFFO_PANCAKE_SUB-original-' + str(number),
+                       provider_subscription_id='ORD_original_' + str(number))
+            row['plan_snapshot'].update(precise_price=Decimal('1234567890.123456789'),
+                                        integral_decimal=Decimal('1'))
+            binding.update(source_order_id=number, account_id=user['personal_account_id'],
+                           provider_order_id=row['provider_subscription_id'])
+            binding['binding']['price']['checkout_language'] = ''
+            binding['terms_review']['source_snapshot_sha256'] = F.digest(row['plan_snapshot'])
+            if number > 18:
+                for key in ('expected_amount_micros', 'settlement_currency', 'provider_product_id', 'provider_store_id'):
+                    row[key] = None
+                row['plan_snapshot'] = ''
+                binding['disposition'] = 'retain-unknown'
+                del binding['plan'], binding['binding']
+            binding['source_row_sha256'] = F.digest(row)
+            source['orders'].append(row)
+            review['orders'].append(binding)
+        material = W.prepare_material(self.material, source, review, migration_id='synthetic-originals-37')
+        self.assertEqual(sum('order_id' in row for row in material['records']), 18)
+        self.assertEqual(sum(row.get('disposition') == 'UNKNOWN' for row in material['records']), 19)
+        sql = W.build_apply_sql(material)
+        self.sql(sql)
+        self.assertEqual(self.query('SELECT count(*) FROM core_subscriptions.pancake_orders'), 18)
+        self.assertEqual(self.query("SELECT count(*) FROM core_subscriptions.commands WHERE result->>'state'='UNKNOWN'"), 19)
+        self.assertEqual(self.query("SELECT checkout_language FROM core_subscriptions.pancake_prices"), '')
+        self.assertTrue(self.query("SELECT bool_and(account_id=" + str(user['personal_account_id']) +
+                                   ' AND actor_user_id=' + str(user['id']) + ' AND amount_minor=123)'
+                                   ' FROM core_subscriptions.external_orders'))
+        stored = "SELECT manifest->'material' FROM core_migration.import_runs WHERE migration_id='synthetic-originals-37'"
+        self.assertEqual(self.query("SELECT m #>> '{source,orders,0,plan_snapshot,precise_price}' FROM (" + stored + ") q(m)"),
+                         '1234567890.123456789')
+        self.assertEqual(self.query("SELECT m #>> '{source,orders,0,plan_snapshot,integral_decimal}' FROM (" + stored + ") q(m)"), '1')
+        self.assertEqual(self.query('SELECT count(*) FROM core_billing.ledger_journals'), 0)
+        after = self.full_state()
+        self.sql(sql)
+        self.assertEqual(self.full_state(), after)
+        row = source['orders'][0]
+        row['plan_snapshot']['precise_price'] = Decimal('1234567890.123456788')
+        review['orders'][0]['source_row_sha256'] = F.digest(row)
+        review['orders'][0]['terms_review']['source_snapshot_sha256'] = F.digest(row['plan_snapshot'])
+        changed = W.prepare_material(self.material, source, review, migration_id=material['migration_id'])
+        self.rejected_unchanged(W.build_apply_sql(changed), 'original_replay_conflict')
 
 
 if __name__ == '__main__':
