@@ -116,10 +116,11 @@ class MappingPostgreSQLTests(unittest.TestCase):
             "FROM core_billing.balance_state b),'seq',(SELECT json_build_object('last_value',last_value,"
             "'is_called',is_called) FROM core_identity.credentials_id_seq))")
 
-    def invoke(self, phase, data, *, apply=True, extra=()):
+    def invoke(self, phase, data, *, apply=True, extra=(), source_database="synthetic-source",
+               source_user="synthetic-reader"):
         out = self.root / (self.database + "-" + phase + "-" + str(len(list(self.root.glob(self.database + '-*')))))
         argv = ["legacy_cutover_import.py", "--socket", str(self.socket), "--port", str(self.port),
-                "--source-db", "synthetic-source", "--source-user", "synthetic-reader",
+                "--source-db", source_database, "--source-user", source_user,
                 "--source-schema", "lmm_prod_20260802", "--target-db", self.database,
                 "--target-login", "cutover_installer", "--target-owner", "cutover_owner",
                 "--archive-sha256", ARCHIVE, "--observed-at", str(OBSERVED), "--migration-id", phase + "-phase",
@@ -127,12 +128,78 @@ class MappingPostgreSQLTests(unittest.TestCase):
                 "--phase", phase, "--output", str(out), *extra]
         if apply:
             argv.append("--apply")
+        if phase == "routing_groups":
+            # Both source SELECTs and target transaction use actual private PG.
+            with patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+                I.main()
+            return out
         # Only the source-reader boundary is substituted by synthetic payloads.
         # Argument parsing, target reads, guards, generated SQL and apply are real.
         with patch.object(sys, "argv", argv), patch.object(I, "load_source", return_value=data), \
              patch.object(M, "load_source", return_value=data), contextlib.redirect_stdout(io.StringIO()):
             I.main()
         return out
+
+    def routing_source(self):
+        database = "routing_source_" + str(self.serial)
+        self.psql(f"CREATE DATABASE {database} OWNER cutover_owner", admin=True)
+        self.addCleanup(self.psql, f"DROP DATABASE {database}", admin=True)
+        self.psql("CREATE SCHEMA lmm_prod_20260802; SET search_path=lmm_prod_20260802;"
+                  "CREATE TABLE users(id bigint PRIMARY KEY,\"group\" text);"
+                  "CREATE TABLE options(key text PRIMARY KEY,value text);"
+                  "CREATE TABLE tokens(id bigint,\"group\" text);"
+                  "INSERT INTO users VALUES(2,' vip '),(3,'');"
+                  "INSERT INTO options VALUES('UserUsableGroups','{\"default\":\"Default\",\"paid\":\"Paid\"}');"
+                  "INSERT INTO tokens VALUES(40,'private-only');"
+                  "GRANT USAGE ON SCHEMA lmm_prod_20260802 TO cutover_runtime;"
+                  "GRANT SELECT ON users,options TO cutover_runtime;", database=database)
+        return database
+
+    def routing_state(self):
+        return self.query("SELECT json_build_object('groups',(SELECT coalesce(json_agg(to_jsonb(g) ORDER BY user_id,group_name),'[]') "
+                          "FROM core_identity.user_routing_groups g),'runs',(SELECT count(*) FROM core_migration.import_runs "
+                          "WHERE manifest->>'scope'='legacy-cutover-routing-groups.v1'))")
+
+    def test_routing_groups_real_source_normal_cli_grants_only_source_user_rights(self):
+        source = self.routing_source()
+        snapshot = "SELECT json_build_object('users',(SELECT json_agg(to_jsonb(u)) FROM lmm_prod_20260802.users u)," \
+                   "'options',(SELECT json_agg(to_jsonb(o)) FROM lmm_prod_20260802.options o)," \
+                   "'tokens',(SELECT json_agg(to_jsonb(t)) FROM lmm_prod_20260802.tokens t))"
+        before_source = self.psql(snapshot, database=source).stdout
+        before = self.state()
+        out = self.invoke("routing_groups", None, source_database=source, source_user="cutover_runtime")
+        rows = self.routing_state()
+        self.assertEqual([(r["user_id"], r["group_name"]) for r in rows["groups"]],
+                         [(2, "default"), (2, "paid"), (2, "vip"), (3, "default"), (3, "paid")])
+        self.assertEqual(rows["runs"], 1)
+        self.assertEqual(json.loads((out / "routing_groups-report.json").read_text())["stats"]["grants"], 5)
+        self.assertEqual(before, self.state())
+        self.assertEqual(before_source, self.psql(snapshot, database=source).stdout)
+        with self.assertRaisesRegex(SystemExit, "psql_failed"):
+            self.invoke("routing_groups", None, source_database=source, source_user="cutover_runtime")
+        self.assertEqual(rows, self.routing_state())
+
+    def test_routing_groups_target_failure_rolls_back_all_grants_and_receipt(self):
+        source = self.routing_source()
+        self.psql("CREATE FUNCTION core_identity.synthetic_group_failure() RETURNS trigger LANGUAGE plpgsql AS $$"
+                  "BEGIN IF NEW.group_name='vip' THEN RAISE EXCEPTION 'synthetic late failure'; END IF; RETURN NEW; END $$;"
+                  "CREATE TRIGGER synthetic_group_failure BEFORE INSERT ON core_identity.user_routing_groups "
+                  "FOR EACH ROW EXECUTE FUNCTION core_identity.synthetic_group_failure();", database=self.database)
+        before = self.state()
+        with self.assertRaisesRegex(SystemExit, "psql_failed"):
+            self.invoke("routing_groups", None, source_database=source, source_user="cutover_runtime")
+        self.assertEqual(self.routing_state(), dict(groups=[], runs=0))
+        self.assertEqual(before, self.state())
+
+    def test_routing_groups_planned_identity_cohort_change_rejected_inside_transaction(self):
+        source = self.routing_source()
+        out = self.invoke("routing_groups", None, apply=False, source_database=source, source_user="cutover_runtime")
+        self.psql("INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES(99,'personal');"
+                  "INSERT INTO core_identity.users(id,personal_account_id) VALUES(99,99);", database=self.database)
+        result = self.psql((out / "routing_groups.sql").read_text(), database=self.database, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("target_identity_account_map_mismatch", result.stderr)
+        self.assertEqual(self.routing_state(), dict(groups=[], runs=0))
 
     def test_normal_keys_entry_reads_back_mapped_owner_payer_and_rejects_replay(self):
         before = self.state()

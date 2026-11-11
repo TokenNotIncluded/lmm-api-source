@@ -53,8 +53,8 @@ GOOGLE_SOURCE_CONTRACT = {
     "display_name_field": "name",
     "email_field": "email",
 }
-PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES + ("referrals",)
-MAPPED_PHASES = ("opening", "keys", "subscriptions", "bounties", "wallet", "history", "passkeys")
+PHASES = ("identity", "opening", "routing_groups") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES + ("referrals",)
+MAPPED_PHASES = ("opening", "routing_groups", "keys", "subscriptions", "bounties", "wallet", "history", "passkeys")
 
 
 def fail(code: str) -> None:
@@ -176,6 +176,48 @@ def load_source(src: Db, schema: str) -> dict:
         "options": {r["key"]: r["value"] for r in q("SELECT key,value FROM options")},
         **KEYS.load_source(q),
     }
+
+
+def load_routing_source(src: Db, schema: str) -> dict:
+    # This continuation needs no passwords, token secrets or provider settings.
+    return json.loads(src.run(f"SET search_path={schema};SELECT json_build_object("
+        "'users',(SELECT coalesce(json_agg(u ORDER BY id),'[]') FROM (SELECT id,\"group\" FROM users) u),"
+        "'options',(SELECT coalesce(json_object_agg(key,value),'{}') FROM options "
+        "WHERE key='UserUsableGroups'))"))
+
+
+def routing_group_rows(user: dict, usable: dict) -> list[dict]:
+    if type(usable) is not dict or type(user["id"]) is not int or user["id"] < 1:
+        fail("routing_groups_source_invalid")
+    own = (user.get("group") or "default").strip() or "default"
+    rows = []
+    for group in dict.fromkeys([*usable, own]):
+        if type(group) is not str or not 1 <= len(group) <= 64 or group == "auto":
+            fail("routing_group_name_invalid")
+        rows.append(dict(user_id=user["id"], group_name=group, enabled=True,
+                         source_reference="legacy:UserUsableGroups" if group in usable else "legacy:user_group"))
+    return rows
+
+
+def routing_group_sql(row: dict) -> str:
+    return ("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) "
+            f"VALUES({row['user_id']},{lit(row['group_name'])},TRUE,{lit(row['source_reference'])});")
+
+
+def plan_routing_groups(data: dict, archive_sha: str, migration_id: str) -> tuple[list[str], dict]:
+    usable = json.loads(data["options"].get("UserUsableGroups") or "{}")
+    rows = [row for user in data["users"] for row in routing_group_rows(user, usable)]
+    proof = data["identity_binding"]["provenance"]
+    manifest = dict(scope="legacy-cutover-routing-groups.v1", source_archive_sha256=archive_sha,
+                    identity_mapping_sha256=proof["identity_mapping_sha256"],
+                    identity_map_file_sha256=proof["identity_map_file_sha256"],
+                    identity_manifest_sha256=proof["identity_manifest_sha256"],
+                    source_user_groups_sha256=digest([{k: user.get(k) for k in ("id", "group")} for user in data["users"]]),
+                    source_usable_groups_sha256=digest(usable), grants_sha256=digest(rows), grants=len(rows))
+    sql = [routing_group_sql(row) for row in rows]
+    sql.append("INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest) "
+               f"VALUES({lit(migration_id)},{lit(archive_sha)},{lit(digest(rows))},{jlit(manifest)});")
+    return sql, dict(users=len(data["users"]), grants=len(rows), grants_sha256=digest(rows))
 
 
 def developer_decision(user: dict) -> tuple[bool, str]:
@@ -371,11 +413,7 @@ def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
         sql.append("INSERT INTO core_identity.developer_access(user_id,granted,source_reference,revision) "
                    f"VALUES({uid},{lit(granted)},{lit('legacy:' + reason)},1);")
         # Legacy keys may use the user's own group as well as every usable group.
-        own = (u.get("group") or "default").strip() or "default"
-        for group in dict.fromkeys([*usable, own]):
-            sql.append("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) "
-                       f"VALUES({uid},{lit(group)},TRUE,"
-                       f"{lit('legacy:UserUsableGroups' if group in usable else 'legacy:user_group')});")
+        sql.extend(routing_group_sql(row) for row in routing_group_rows(u, usable))
         if uid in mfa:
             stats["second_factor_required"] += 1
     for login, uid in logins.items():
@@ -430,6 +468,7 @@ def plan_opening(data: dict, archive_sha: str, migration_id: str, observed_at: i
 
 GUARDS = {
     "identity": "SELECT count(*) FROM core_identity.users",
+    "routing_groups": "SELECT count(*) FROM core_identity.user_routing_groups",
     "opening": "SELECT count(*) FROM core_billing.opening_imports",
     **KEYS.GUARDS,
     **MONEY.GUARDS,
@@ -496,7 +535,8 @@ def main() -> int:
                  "executable_pending": len(review["pending"])}
     else:
         src = Db(a.socket, a.port, a.source_db, a.source_user, readonly=True)
-        data = load_source(src, a.source_schema)
+        data = (load_routing_source(src, a.source_schema) if a.phase == "routing_groups"
+                else load_source(src, a.source_schema))
         target = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner,
                     readonly=True, connection=target_connection)
         guards = []
@@ -520,6 +560,8 @@ def main() -> int:
                 sql, stats = MONEY.plan(a.phase, data, a.archive_sha256, a.migration_id, a.observed_at)
         elif a.phase in HISTORY.PHASES:
             sql, stats = HISTORY.plan(a.phase, a, src, target)
+        elif a.phase == "routing_groups":
+            sql, stats = plan_routing_groups(data, a.archive_sha256, a.migration_id)
         elif a.phase == "identity":
             sql, stats = plan_identity(data, a.archive_sha256)
         else:
