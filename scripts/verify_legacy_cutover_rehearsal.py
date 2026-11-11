@@ -15,6 +15,7 @@ import re
 import subprocess
 from fractions import Fraction
 import financial_import as F
+from legacy_cutover_money import TOPUP_PAYABLE_SQL
 
 
 def compare_rows(source, target, key='id'):
@@ -120,6 +121,14 @@ def reconcile_discount_facts(query, schema, archive_sha256, observed_at, compare
                   f"(r->>'source_user_id')::bigint AS source_user_id "
                   f"FROM core_migration.import_runs i CROSS JOIN LATERAL "
                   f"jsonb_array_elements(i.manifest->'capacity_holds') r WHERE {selector}"))
+
+
+def payable_topup_orphan_gaps(query, schema):
+    return query(
+        f"SELECT count(*) AS payable_topup_orphan_rows_not_mapped "
+        f"FROM {schema}.top_ups t WHERE {TOPUP_PAYABLE_SQL} "
+        f"AND NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=t.user_id)",
+        True)[0]
 
 
 def reconciliation_status(checks, gaps):
@@ -253,7 +262,7 @@ def reconcile(args):
     compare('late_payable_topup_liabilities',
         query(f"SELECT t.id,t.user_id,t.status,t.payment_provider,t.failure_reason_code,t.money::text AS money,t.credited_quota,t.discount_code_id,t.discount_percent,t.discount_qualifying_amount,t.discount_qualifying_unit,t.settlement_currency,t.expected_amount_micros,false AS spendable,0::bigint AS spendable_units FROM {schema}.top_ups t WHERE {late} AND EXISTS(SELECT FROM {schema}.users u WHERE u.id=t.user_id)",True),
         query(f"SELECT source_row_key::bigint AS id,owner_user_id AS user_id,status,payload_json->>'payment_provider' AS payment_provider,payload_json->>'failure_reason_code' AS failure_reason_code,payload_json->>'money' AS money,(payload_json->>'credited_quota')::bigint AS credited_quota,(payload_json->>'discount_code_id')::bigint AS discount_code_id,(payload_json->>'discount_percent')::bigint AS discount_percent,payload_json->>'discount_qualifying_amount' AS discount_qualifying_amount,payload_json->>'discount_qualifying_unit' AS discount_qualifying_unit,payload_json->>'settlement_currency' AS settlement_currency,(payload_json->>'expected_amount_micros')::bigint AS expected_amount_micros,spendable,spendable_units FROM core_billing.legacy_pending_liabilities WHERE source_table='top_ups' AND source_archive_sha256='{args.archive_sha256}' AND observed_at={args.observed_at} AND settlement_state='unknown' AND payload_json->>'status'='failed' AND payload_json->>'payment_provider'='waffo_pancake' AND payload_json->>'failure_reason_code'='checkout_timeout'"))
-    gaps.update(query(f"SELECT count(*) AS payable_topup_orphan_rows_not_mapped FROM {schema}.top_ups t WHERE ({late}) AND NOT EXISTS(SELECT FROM {schema}.users u WHERE u.id=t.user_id)",True)[0])
+    gaps.update(payable_topup_orphan_gaps(query, schema))
     gaps['discount_capacity_holds_not_imported']=query(f"WITH payable AS(SELECT trade_no,discount_code_id FROM {schema}.top_ups WHERE status='pending' OR(status='failed' AND payment_provider='waffo_pancake' AND failure_reason_code='checkout_timeout')),closed AS(SELECT trade_no FROM {schema}.top_ups WHERE trade_no IS NOT NULL AND(status='expired' OR(status='failed' AND(COALESCE(payment_provider,'')<>'waffo_pancake' OR failure_reason_code<>'checkout_timeout')))) SELECT (SELECT count(*) FROM {schema}.discount_code_reservations r WHERE(r.status='reserved' AND r.top_up_trade_no NOT IN(SELECT trade_no FROM closed)) OR(r.status='released' AND r.top_up_trade_no IN(SELECT trade_no FROM payable)))+(SELECT count(*) FROM payable t WHERE discount_code_id>0 AND NOT EXISTS(SELECT FROM {schema}.discount_code_reservations r WHERE r.top_up_trade_no=t.trade_no)) AS holds",True)[0]['holds']
     gaps['legacy_late_payment_callback_not_verified']=1
     basis_scope="legacy-topup-settlement-facts.v1"
