@@ -13,6 +13,7 @@
 
 ## 首发阻塞与已验证候选（2026-11-11）
 
+- 最终 Core `6283afc` 可执行文件 SHA-256 `a69458e7729a01b92f1142d0c6d69ef6dbf53fc22e1fc39b2cd56cd54e2a3d6f` 已构建，实际两机 308 项动态符号及版本核对通过。固定 Go `26162a4` 的原八组真实业务联测全部通过，一 CPU/1 GiB/swap0，完整拓扑峰值 347,652,096 字节（331.55 MiB）、零 OOM，979 项冻结输入前后无漂移。回执 `~/.cache/lmm-subscription-6283-rsa-fgmpn2lr/acceptance-receipt.private.json`，正式 Core preview 分发及 Arch/DEB 包已验证。Go 保留原 `0.1.0-preview.20261111.26162a4` 身份，Native 版本转换支持该完整标识，22 项包装检查通过。实际历史迁移和生产切换继续进行。
 - Native 包装工具已显式识别 OpenSSL 3 的 SONAME，并从实际 ELF 符号版本提取最低依赖版本，Arch 使用真实 SONAME provider、DEB 使用 libssl3t64，OpenSSL 4 继续由未知依赖保护拒绝。21 项包装检查通过。Core 制品源码固定 `6283afc`，包装工具修订单独记录；最终正式 ELF、分发归档与两种本地包验证继续进行。
 - image2 原源码的缓存字段全缺省行为已通过显式冻结合同接通，默认 Native strict 和旧已存报价保持原义，正缓存缺分类仍保留未决。269 项 Core 定向及集成检查通过、1 项私有旧 VM 检查跳过，677 项输入无漂移；真实 HTTP/PG 验证旧报价恢复、原始 usage 留存、正常计费与拒绝注入。证据 `~/.cache/lmm-image-source-api-noidea.6ocu0v4y/summary.private.json`。另一次扩展绘图检查保留一项旧 Cookie 数量断言失败，两相关文件与 `114e181` 字节一致，现有身份专门测试明确双路径各设 Cookie；该检查未纳入本轮图片 API 通过范围。
 - 供应商输出元数据保留完整上界，实际请求继续取现有安装限额与供应商上界的较小值；已移除两处将 128K 元数据误拒的额外限制。完整路由映射脚本 55 项检查通过，OpenSSL 3/目标 IDEA 排除配置下 214 项 Core 定向及集成检查通过，1 项私有旧 VM 检查跳过，677 项输入无漂移。证据 `~/.cache/lmm-provider-bound-noidea.ojwqtusq/summary.private.json`。此前 NoIDEA debug 对两台生产主机的 1,011 项动态依赖符号比对通过，正式 release 的独立 ABI 核对待完成。

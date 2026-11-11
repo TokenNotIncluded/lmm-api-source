@@ -314,6 +314,19 @@ Name: OPENSSL_3.3.0"""
         with self.assertRaises(ValueError):
             PKG.native_version("1.2.3-unreviewed", 1, "apk")
 
+    def test_preview_build_identity_is_preserved_in_native_versions(self):
+        version = "0.1.0-preview.20261111.26162a4"
+        self.assertEqual(PKG.native_version(version, 1, "deb"),
+                         ("0.1.0~preview.20261111.26162a4", "1"))
+        self.assertEqual(PKG.native_version(version, 1, "archlinux"),
+                         ("0.1.0pre20261111.26162a4", "1"))
+        self.assertEqual(PKG.native_version(version, 1, "rpm"),
+                         ("0.1.0", "0.preview.20261111.26162a4.1"))
+        with self.assertRaises(ValueError):
+            PKG.native_version(version, 1, "apk")
+        with self.assertRaises(ValueError):
+            PKG.native_version("0.1.0-preview.20261111/26162a4", 1, "deb")
+
     def test_release_and_format_validation(self):
         archive = self.archive()
         for args in ({"release": 0}, {"release": -1}, {"fmt": "exe"}, {"expected_hash": "bad"}):

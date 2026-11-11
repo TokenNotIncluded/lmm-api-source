@@ -106,9 +106,12 @@ def dependencies(reports: list[dict], fmt: str, service: bool, network: bool) ->
 
 def native_version(version: str, release: int, fmt: str) -> tuple[str, str]:
     """Keep prereleases older than a stable release in each package manager."""
-    match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:-(alpha|beta|rc|preview)(?:\.(\d+))?)?", version)
+    match = re.fullmatch(
+        r"(\d+\.\d+\.\d+)(?:-(alpha|beta|rc|preview)(?:\.([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?)?",
+        version,
+    )
     if not match:
-        raise ValueError("native packages require a stable version or alpha/beta/rc/preview[.number]")
+        raise ValueError("native packages require a stable version or alpha/beta/rc/preview with dotted identifiers")
     base, tag, number = match.groups()
     if not tag:
         return base, str(release)
@@ -119,6 +122,8 @@ def native_version(version: str, release: int, fmt: str) -> tuple[str, str]:
         return base, f"0.{tag}.{number}.{release}"
     tag = "pre" if tag == "preview" else tag
     if fmt == "apk":
+        if not number.isdecimal():
+            raise ValueError("Alpine prerelease identifiers must be numeric")
         return f"{base}_{tag}{number}", str(release)
     return f"{base}{tag}{number}", str(release)
 
