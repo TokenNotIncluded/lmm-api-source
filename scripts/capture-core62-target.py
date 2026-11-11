@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture a reviewed fresh Core65/66 SQL catalog in one empty isolated PG18 DB.
+"""Capture a reviewed fresh Core65/66/67 SQL catalog in one empty isolated PG18 DB.
 
 No PG launcher, build, runtime-grants application, native upgrade authorization,
 production access, or tracked target writes. Requires frozen source + reviewed
@@ -9,6 +9,8 @@ restores only the three reviewed predecessor ledger-producer digests for histori
 checks, and captures a fresh-install successor without upgrade authorization.
 --credit-quote-update requires the unchanged reviewed65 prefix and the exact
 two-file credit quote component66. Its proposal remains unadmitted.
+--pancake-language-update requires the unchanged reviewed66 prefix and the exact
+single-file optional-language component67. Its proposal remains unadmitted.
 Run --help for the one-shot entry; root owns PG lifetime and runtime ACL tests.
 All SQL/stdout/stderr (including the deliberate rollback failure) are retained.
 """
@@ -46,6 +48,9 @@ PRIOR_FRESH_MANIFEST_SHA256 = '62c8f7e32b0c831dfea5a11311d94193d6625fc9f7e356475
 CURRENT_LEDGER_MANIFEST_SHA256 = '67e2cdf264bcfecbb0ca882fc1f4799a9bfa9349366f87d1d7523516e0bc8a06'
 CREDIT_QUOTE_FILES = ('services/core/schema/payment_credit_quotes.sql',
                       'services/core/schema/payment_credit_quote_referrals.sql')
+CREDIT_QUOTE_MANIFEST_SHA256 = '424ab67e21d21b7147b01e5f438a1d5938fa16ad9bc464f05d3aa8223e487d9f'
+PANCAKE_LANGUAGE_COMPONENT = 'subscription-pancake-language-optional'
+PANCAKE_LANGUAGE_FILE = 'services/core/schema/subscription_pancake_language_optional.sql'
 HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -110,10 +115,12 @@ class Pg:
         return result.stdout.strip()
 
 
-def final_component_count(components, *, credit_quote_update=False):
+def final_component_count(components, *, credit_quote_update=False, pancake_language_update=False):
     # Count the actual source registry; the exact launch suffix is still closed.
     names = [name for name, _ in components]
-    suffix = NAMES + (['payment-credit-quotes'] if credit_quote_update else [])
+    suffix = NAMES + (['payment-credit-quotes'] if credit_quote_update or pancake_language_update else [])
+    if pancake_language_update:
+        suffix += [PANCAKE_LANGUAGE_COMPONENT]
     need(len(names) == 59 + len(suffix) and names[59:] == suffix,
          'not the exact final assembly; reviewed launch suffix and component count are required')
     return len(names)
@@ -128,6 +135,17 @@ def validate_credit_quote_lineage(compiled, manifest_hash, quote_sha256):
     prefix['components'] = prefix['components'][:65]
     need(manifest_hash(prefix) == CURRENT_LEDGER_MANIFEST_SHA256,
          'credit quote capture changed the reviewed 65-component prefix')
+
+
+def validate_pancake_language_lineage(compiled, manifest_hash, language_sha256):
+    need(len(compiled['components']) == 67 and compiled['components'][-1]['name'] == PANCAKE_LANGUAGE_COMPONENT,
+         'pancake language capture requires the exact 67th component')
+    need(HEX.fullmatch(language_sha256) and compiled['components'][-1]['raw_schema_sha256'] == language_sha256,
+         'pancake language compiled bytes differ from the frozen SQL file')
+    prefix = copy.deepcopy(compiled)
+    prefix['components'] = prefix['components'][:66]
+    need(manifest_hash(prefix) == CREDIT_QUOTE_MANIFEST_SHA256,
+         'pancake language capture changed the reviewed 66-component prefix')
 
 
 def validate_current_ledger_lineage(compiled, predecessor, manifest_hash, component_sha256):
@@ -158,7 +176,7 @@ def validate(args, output):
          'source root must be a private frozen cache/state snapshot, not the live workspace')
     freeze = json.loads(args.freeze.read_text())
     files = freeze['files']
-    if args.current_ledger_update or args.credit_quote_update:
+    if args.current_ledger_update or args.credit_quote_update or args.pancake_language_update:
         required_capture = (
             'scripts/capture-core62-target.py', 'scripts/test-commerce-self-purchase.py',
             'services/core/src/core_schema.rs', 'services/core/src/core_schema/manifest.rs',
@@ -168,9 +186,11 @@ def validate(args, output):
         )
         for name in required_capture:
             need(name in files, 'required frozen input absent: ' + name)
-        if args.credit_quote_update:
+        if args.credit_quote_update or args.pancake_language_update:
             for name in (*CREDIT_QUOTE_FILES, 'services/core/src/payments.rs'):
                 need(name in files, 'credit quote input not frozen: ' + name)
+        if args.pancake_language_update:
+            need(PANCAKE_LANGUAGE_FILE in files, 'pancake language input not frozen')
     else:
         for name in NAMES:
             need('services/core/schema/' + name.replace('-', '_') + '.sql' in files, 'component SQL not frozen: ' + name)
@@ -222,11 +242,14 @@ def validate(args, output):
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     components, metadata, manifest = helper.source_contract()
-    component_count = final_component_count(components, credit_quote_update=args.credit_quote_update)
+    component_count = final_component_count(components, credit_quote_update=args.credit_quote_update,
+                                            pancake_language_update=args.pancake_language_update)
     need(component_count == len(compiled['components']), 'registry/compiled component count mismatch')
     need(compiled == manifest, 'actual binary manifest differs from frozen source contract')
     predecessor = json.loads((root/'services/core/src/core_schema/upgrade/subscription_epay_target.json').read_text())
-    if args.credit_quote_update:
+    if args.pancake_language_update:
+        validate_pancake_language_lineage(compiled, helper.manifest_hash, before[PANCAKE_LANGUAGE_FILE])
+    elif args.credit_quote_update:
         quote_bytes = b'\n'.join((root / name).read_bytes() for name in CREDIT_QUOTE_FILES)
         validate_credit_quote_lineage(compiled, helper.manifest_hash, hashlib.sha256(quote_bytes).hexdigest())
     elif args.current_ledger_update:
@@ -286,9 +309,11 @@ def capture(args, output):
          observed_acl_sha256=f.framed(fresh_acl), native_upgrade=False, importer_admitted=False,
          table_count=len(tables), sequence_count=len(seqs), seed_scope='raw SQL seeds only; native init contract rows absent',
          scope='empty synthetic SQL install/rollback/catalog/owner-ACL observation; no native init or business acceptance',
-         capture_mode=('credit-quote-66' if args.credit_quote_update else
+         capture_mode=('pancake-language-67' if args.pancake_language_update else
+                       'credit-quote-66' if args.credit_quote_update else
                        'current-ledger-update' if args.current_ledger_update else 'original-65-assembly'),
          credit_quote_65_prefix_manifest_sha256=CURRENT_LEDGER_MANIFEST_SHA256 if args.credit_quote_update else None,
+         pancake_language_66_prefix_manifest_sha256=CREDIT_QUOTE_MANIFEST_SHA256 if args.pancake_language_update else None,
          prior_ledger_components={name: {'path': path, 'sha256': prior}
              for name, (path, prior) in PRIOR_LEDGER_COMPONENTS.items()} if args.current_ledger_update else None,
          prior_fresh_manifest_sha256=PRIOR_FRESH_MANIFEST_SHA256 if args.current_ledger_update else None,
@@ -304,6 +329,8 @@ def main():
                         help='Capture only the reviewed fresh ledger replacement; preserve historical upgrade targets')
     modes.add_argument('--credit-quote-update', action='store_true',
                        help='Capture exact fresh66 credit quotes over the unchanged reviewed current-ledger65 prefix')
+    modes.add_argument('--pancake-language-update', action='store_true',
+                       help='Capture exact fresh67 optional language over the unchanged reviewed credit-quote66 prefix')
     parser.add_argument('--source-root', type=Path, required=True)
     parser.add_argument('--freeze', type=Path, required=True)
     parser.add_argument('--binary', type=Path, required=True)

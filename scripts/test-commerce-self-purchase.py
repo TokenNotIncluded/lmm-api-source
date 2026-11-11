@@ -53,6 +53,13 @@ def source_contract():
         "channel-observations": ["channel_observations.sql", "channel_observations_upgrade.sql"],
         "payment-credit-quotes": ["payment_credit_quotes.sql", "payment_credit_quote_referrals.sql"],
     }
+    language_component = 'subscription-pancake-language-optional'
+    if language_component in names:
+        registry = re.findall(
+            r'\(\s*"subscription-pancake-language-optional"\s*,\s*include_str!\(\s*"([^"]+)"\s*\)\s*,?\s*\)',
+            declarations)
+        need(registry == ['../schema/subscription_pancake_language_optional.sql'],
+             'pancake language registry expression changed')
     if "payment-credit-quotes" in names:
         registry = re.findall(r'\(\s*"payment-credit-quotes"\s*,\s*([^)]*)\)', declarations)
         need(len(registry) == 1 and re.sub(r'\s+', '', registry[0]).rstrip(',') ==

@@ -22,6 +22,9 @@ class CreditQuoteCaptureTests(unittest.TestCase):
     def setUp(self):
         import hashlib
         self.components, _, self.manifest = CONTRACT.source_contract()
+        # Preserve the exact historical66 fixture when the live registry adds67.
+        self.components = self.components[:66]
+        self.manifest['components'] = self.manifest['components'][:66]
         self.quote_sha = hashlib.sha256(b'\n'.join(
             (ROOT / name).read_bytes() for name in CAPTURE.CREDIT_QUOTE_FILES
         )).hexdigest()
@@ -78,12 +81,62 @@ class CreditQuoteCaptureTests(unittest.TestCase):
                     CONTRACT.source_contract()
 
 
+class PancakeLanguageCaptureTests(unittest.TestCase):
+    def setUp(self):
+        import hashlib
+        self.components, _, self.manifest = CONTRACT.source_contract()
+        self.language_sha = hashlib.sha256((ROOT / CAPTURE.PANCAKE_LANGUAGE_FILE).read_bytes()).hexdigest()
+
+    def validate(self, manifest=None, language_sha=None):
+        CAPTURE.validate_pancake_language_lineage(
+            self.manifest if manifest is None else manifest, CONTRACT.manifest_hash,
+            self.language_sha if language_sha is None else language_sha,
+        )
+
+    def test_exact_sql_and_unchanged_reviewed_prefix(self):
+        self.validate()
+        self.assertEqual(CAPTURE.final_component_count(self.components, pancake_language_update=True), 67)
+        for flags in ({}, {'credit_quote_update': True}):
+            with self.assertRaisesRegex(ValueError, 'exact final assembly'):
+                CAPTURE.final_component_count(self.components, **flags)
+
+    def test_missing_extra_or_reordered_component_is_rejected(self):
+        for components in (self.manifest['components'][:-1], self.manifest['components'] + [self.manifest['components'][-1]],
+                           list(reversed(self.manifest['components']))):
+            changed = copy.deepcopy(self.manifest)
+            changed['components'] = components
+            with self.assertRaisesRegex(ValueError, 'exact 67th component'):
+                self.validate(changed)
+
+    def test_changed_prefix_identity_catalog_or_installer_is_rejected(self):
+        for field in ('components', 'identity', 'catalog', 'installer'):
+            changed = copy.deepcopy(self.manifest)
+            if field == 'components':
+                changed[field][0]['raw_schema_sha256'] = 'ab' * 32
+            else:
+                changed[field] = {}
+            with self.assertRaisesRegex(ValueError, '66-component prefix'):
+                self.validate(changed)
+
+    def test_changed_sql_or_registry_path_is_rejected(self):
+        from unittest.mock import patch
+        with self.assertRaisesRegex(ValueError, 'frozen SQL file'):
+            self.validate(language_sha='ab' * 32)
+        original_read = Path.read_text
+        registry = CONTRACT.CORE / 'src/core_schema.rs'
+        def changed_read(path, *args, **kwargs):
+            raw = original_read(path, *args, **kwargs)
+            return raw.replace('subscription_pancake_language_optional.sql', 'ledger.sql') if path == registry else raw
+        with patch.object(Path, 'read_text', changed_read):
+            with self.assertRaisesRegex(AssertionError, 'pancake language registry expression changed'):
+                CONTRACT.source_contract()
+
+
 class CurrentLedgerLineageTests(unittest.TestCase):
     def setUp(self):
         _, _, self.manifest = CONTRACT.source_contract()
-        # Keep the historical65 ledger fixture when the live registry adds66.
-        if self.manifest['components'][-1]['name'] == 'payment-credit-quotes':
-            self.manifest['components'].pop()
+        # Preserve the exact historical65 fixture when the live registry grows.
+        self.manifest['components'] = self.manifest['components'][:65]
         import json
         self.predecessor = json.loads((ROOT / 'services/core/src/core_schema/upgrade/subscription_epay_target.json').read_text())
         self.ledger = {item['name']: item['raw_schema_sha256'] for item in self.manifest['components']
