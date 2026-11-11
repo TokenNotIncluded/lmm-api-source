@@ -20,6 +20,28 @@ ORDER_FIELDS = ("id", "buyer_id", "seller_id", "quantity", "unit_price_quota", "
                 "payment_method", "status", "paid_at", "amount_minor", "fee_quota", "fee_held")
 SALE_FIELDS = ("id", "order_id", "kind", "from_user_id", "to_user_id", "quota")
 SCOPE = "legacy-store-full-refund-candidate-only-v1"
+SOURCE_TABLES = {"orders": "merchant_store_orders", "transfers": "merchant_store_transfers",
+                 "refunds": "merchant_store_refunds"}
+
+
+def normalize_source_dto(value):
+    """Adapt complete SQL Source DTO tables, preserving every original row field."""
+    F.require(type(value) is dict and set(value) == {"scope", "source_archive_sha256", "mapping_sha256", "tables", "table_counts"}
+              and value["scope"] == "legacy-store-source-dto-v1", "store_source_dto_shape")
+    F.require(type(value["tables"]) is dict and type(value["table_counts"]) is dict
+              and set(value["tables"]) == set(SOURCE_TABLES.values())
+              and set(value["table_counts"]) == set(SOURCE_TABLES.values()), "store_source_dto_tables")
+    result = {key: value[key] for key in ("source_archive_sha256", "mapping_sha256")}
+    for name, table in SOURCE_TABLES.items():
+        rows = value["tables"][table]
+        count = value["table_counts"][table]
+        F.require(type(rows) is list and type(count) is int and count == len(rows)
+                  and all(type(row) is dict for row in rows), "store_source_dto_count")
+        fields = {"orders": ORDER_FIELDS, "transfers": SALE_FIELDS,
+                  "refunds": ("id", "order_id", "status")}[name]
+        F.require(all(set(fields) <= set(row) for row in rows), "store_source_dto_row")
+        result[name] = rows
+    return result
 
 
 def candidate(source, material, identities, input_hashes):
@@ -40,15 +62,29 @@ def candidate(source, material, identities, input_hashes):
         ids = [r["id"] for r in source[table]]
         F.require(len(ids) == len(set(ids)), "store_source_duplicate")
     grants = []
+    history = []
     for order in sorted(source["orders"], key=lambda r: r["id"]):
         F.require(order["status"] in ("paid", "refunded"), "store_source_unsettled_order")
-        if order["status"] == "refunded":
-            continue  # Preserve history only: no fresh authorization or money.
         F.checked_hash(order["id"])
+        if order["status"] == "refunded":
+            history.append({"order_id": order["id"], "reason": "already_refunded",
+                            "source_row_sha256": F.digest(order)})
+            continue  # Preserve history only: no fresh authorization or money.
         projection = {key: order[key] for key in ORDER_FIELDS}
+        amount = F.PLANNER.integer(order["price_quota"], "store_principal_invalid", minimum=0, maximum=F.PLANNER.JS_SAFE_MAX)
+        if order["payment_method"] != "balance":
+            history.append({"order_id": order["id"], "reason": "noncash_no_balance_basis",
+                            "source_row_sha256": F.digest(order)})
+            continue
+        if amount == 0:
+            F.require(order["unit_price_quota"] == 0 and order["fee_quota"] == 0
+                      and order["amount_minor"] == 0 and order["fee_held"] is False,
+                      "store_zero_basis_inconsistent")
+            history.append({"order_id": order["id"], "reason": "zero_balance_basis",
+                            "source_row_sha256": F.digest(order)})
+            continue
         F.require(order["payment_method"] == "balance" and order["amount_minor"] == 0
                   and order["fee_held"] is False, "store_balance_sale_required")
-        amount = F.PLANNER.integer(order["price_quota"], "store_principal_invalid", minimum=1, maximum=F.PLANNER.JS_SAFE_MAX)
         qty = F.PLANNER.integer(order["quantity"], "store_quantity_invalid", minimum=1, maximum=F.PLANNER.JS_SAFE_MAX)
         unit = F.PLANNER.integer(order["unit_price_quota"], "store_unit_invalid", minimum=1, maximum=F.PLANNER.JS_SAFE_MAX)
         F.require(amount == unit * qty, "store_original_principal_mismatch")
@@ -74,7 +110,7 @@ def candidate(source, material, identities, input_hashes):
                           for r in source["transfers"]), "store_original_refund_transfer_exists")
         grants.append({"migration_id": material["migration_id"], "source_archive_sha256": source["source_archive_sha256"],
                        "mapping_sha256": source["mapping_sha256"], "observed_at": observed,
-                       "shop_id": STORE.legacy_shop_id(order["seller_id"]),
+                       "shop_id": STORE.legacy_shop_id(mapping[order["seller_id"]]["target_personal_account_id"]),
                        "source_row_sha256": hashlib.sha256(STORE.jdump(order).encode()).hexdigest(),
                        "source_sale_sha256": hashlib.sha256(STORE.jdump(sale).encode()).hexdigest(),
                        "source_order": projection, "source_sale": {k: sale[k] for k in SALE_FIELDS},
@@ -82,7 +118,8 @@ def candidate(source, material, identities, input_hashes):
                                            "source_row_sha256": hashlib.sha256(STORE.jdump(r).encode()).hexdigest()} for r in refunds],
                        "buyer_user_id": parties[0], "seller_user_id": parties[1]})
     return {"scope": SCOPE, "inputs": input_hashes, "grants": grants,
-            "history_only_refunded": sum(r["status"] == "refunded" for r in source["orders"])}
+            "history_only_refunded": sum(r["status"] == "refunded" for r in source["orders"]),
+            "history_only": history}
 
 
 def reviewed_sql(value, review):
@@ -114,8 +151,11 @@ def main():
     for name in ("source-export", "financial-material", "identities", "output"):
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--review", type=Path)
+    p.add_argument("--source-format", choices=("normalized", "source-dto"), default="normalized")
     args = p.parse_args()
     source, source_hash = private_json(args.source_export)
+    if args.source_format == "source-dto":
+        source = normalize_source_dto(source)
     material, material_hash = private_json(args.financial_material)
     identities, identities_hash = private_json(args.identities, json_lines=True)
     value = candidate(source, material, identities, {"source_export_sha256": source_hash,
@@ -123,6 +163,9 @@ def main():
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     target = args.output / "candidate.json"
     target.write_text(STORE.jdump(value) + "\n"); target.chmod(0o600)
+    if args.source_format == "source-dto":
+        normalized = args.output / "normalized-source.private.json"
+        normalized.write_text(STORE.jdump(source) + "\n"); normalized.chmod(0o600)
     if args.review:
         review, _ = private_json(args.review)
         sql = args.output / "owner-import.sql"
