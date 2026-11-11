@@ -2,7 +2,37 @@
 //! Media must be counted separately before this projection can authorize a hold.
 use serde_json::value::RawValue;
 
-use super::{Error, openai_tokens};
+use super::{Error, Estimate, SourceOptions, openai_tokens, ordinary_text};
+
+/// Estimate the fixed source's ordinary-ratio hold from the original body
+/// and its validated request. The selected group ratio already includes the
+/// source actor's trust discount. A tiered or per-request price must use its
+/// own calculation.
+pub(crate) fn estimate_ordinary(
+    options: SourceOptions,
+    request: &crate::relay::Request,
+    body: &[u8],
+    model_ratio_bits: u64,
+    effective_group_ratio_bits: u64,
+    source_free_model: bool,
+) -> Result<Estimate, Error> {
+    if request.client != crate::relay::ClientProtocol::Responses {
+        return Err(Error::Invalid);
+    }
+    let prompt = if options.count_token {
+        count(&request.model, body)?.ok_or(Error::Invalid)?
+    } else {
+        0
+    };
+    ordinary_text(
+        options,
+        prompt,
+        request.explicit_max_output_tokens,
+        model_ratio_bits,
+        effective_group_ratio_bits,
+        source_free_model,
+    )
+}
 
 #[derive(serde::Deserialize)]
 struct Request<'a> {
@@ -54,7 +84,7 @@ fn present_raw<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<&'de Ra
 
 /// Count from the original validated body, preserving the tool JSON bytes
 /// that the source DTO counted. The caller handles other model estimators.
-pub(crate) fn count(original_model: &str, body: &[u8]) -> Result<Option<u32>, Error> {
+fn count(original_model: &str, body: &[u8]) -> Result<Option<u32>, Error> {
     openai_tokens::count(original_model, &combined_text(body)?)
 }
 
@@ -161,6 +191,38 @@ fn unicode_escape(raw: &str) -> Option<(char, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn estimate_uses_source_output_limit_and_source_token_count() {
+        use crate::relay::{ClientProtocol, Limits, Request};
+        let options = SourceOptions {
+            preconsumed_tokens: 5000,
+            count_token: true,
+            get_media_token: false,
+            get_media_token_not_stream: false,
+        };
+        let implicit = br#"{"model":"gpt-6.1-sol","input":"hello"}"#;
+        let explicit = br#"{"model":"gpt-6.1-sol","input":"hello","max_output_tokens":100}"#;
+        for (body, completion, hold) in [
+            (implicit.as_slice(), 0, 400),
+            (explicit.as_slice(), 100, 408),
+        ] {
+            let request =
+                Request::parse(ClientProtocol::Responses, body, &Limits::default()).unwrap();
+            let estimate = estimate_ordinary(
+                options,
+                &request,
+                body,
+                2_f64.to_bits(),
+                0.04_f64.to_bits(),
+                false,
+            )
+            .unwrap();
+            assert_eq!(estimate.prompt_tokens, 1);
+            assert_eq!(estimate.completion_tokens, completion);
+            assert_eq!(estimate.hold, hold);
+        }
+    }
 
     #[test]
     fn source_text_preserves_raw_tool_spacing_and_excludes_encrypted_reasoning() {

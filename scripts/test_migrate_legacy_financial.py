@@ -503,7 +503,7 @@ class IdentityProvenanceTests(unittest.TestCase):
 
 
 class SourceEvidenceTests(unittest.TestCase):
-    def test_preview_rejects_misplaced_evidence_before_source_read(self):
+    def test_preview_rejects_invalid_evidence_before_source_read(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             backups = base / "backups"
@@ -512,10 +512,15 @@ class SourceEvidenceTests(unittest.TestCase):
             inputs.mkdir(mode=0o700)
             evidence = base / "misplaced.private.json"
             evidence.write_text("{}")
+            wrong_shape = inputs / "archive-options.private.json"
+            wrong_shape.write_text('{"scope":"raw-archive-options","rows":[]}')
+            wrong_shape.chmod(0o600)
             flags = ("--target-key-inventory", "--target-wallet-inventory",
                      "--escrow-unit-evidence", "--escrow-post-parent-claim-evidence")
-            for index, flag in enumerate(flags):
-                with self.subTest(flag=flag):
+            cases = [(flag, evidence, "private_artifact_outside_backups") for flag in flags]
+            cases.append(("--escrow-unit-evidence", wrong_shape, "escrow_unit_evidence_shape_invalid"))
+            for index, (flag, path, error) in enumerate(cases):
+                with self.subTest(flag=flag, error=error):
                     output = inputs / f"preview-{index}"
                     argv = ["financial", "--migration-id", "synthetic-preview",
                             "--source-receipt", str(inputs / "source.json"),
@@ -523,13 +528,13 @@ class SourceEvidenceTests(unittest.TestCase):
                             "--identity-manifest", str(inputs / "identity.json"),
                             "--reuse-export-proof", str(inputs / "proof.json"),
                             "--source-rights-preview", "--escrow-candidate-preview",
-                            "--output", str(output), flag, str(evidence)]
+                            "--output", str(output), flag, str(path)]
                     with patch.object(MODULE.IDENTITY, "BACKUP_ROOT", backups), \
                          patch.object(MODULE.IDENTITY, "load_receipt", side_effect=AssertionError("source read")), \
                          patch.object(sys, "argv", argv), patch.object(sys, "stderr", io.StringIO()):
                         self.assertEqual(MODULE.main(), 1)
                     failure = json.loads((output / "failure.private.json").read_text())
-                    self.assertEqual(failure["error_code"], "private_artifact_outside_backups")
+                    self.assertEqual(failure["error_code"], error)
 
     def test_composite_and_quoted_primary_keys_are_actual_catalog_keys(self):
         columns = {"abilities": {"group", "model", "channel_id"}}

@@ -1184,9 +1184,17 @@ def main() -> int:
         # Reject misplaced preview evidence before reading the frozen export.
         # Recheck the path when opening each artifact after the export read.
         for path in (args.target_key_inventory, args.target_wallet_inventory,
-                     args.escrow_unit_evidence, args.escrow_post_parent_claim_evidence):
+                     args.escrow_post_parent_claim_evidence):
             if path is not None:
                 IDENTITY.private_backup_path(path)
+        unit_evidence, unit_bytes = None, None
+        if args.escrow_candidate_preview:
+            import legacy_escrow_mapping
+            if args.escrow_unit_evidence is not None:
+                unit_path = IDENTITY.private_backup_path(args.escrow_unit_evidence)
+                unit_bytes = unit_path.read_bytes()
+                unit_evidence = parse_json(unit_bytes.decode("utf-8"))
+                legacy_escrow_mapping.validate_unit_evidence_format(require, unit_evidence)
         source = IDENTITY.load_receipt(args.source_receipt)
         map_path = IDENTITY.private_backup_path(args.identity_map)
         identity_manifest_path = IDENTITY.private_backup_path(args.identity_manifest)
@@ -1253,13 +1261,8 @@ def main() -> int:
                 identity_manifest_file_sha256=manifest["identity_manifest_file_sha256"], tool_hashes=tool_hashes,
                 target_key_inventory=inventory, target_wallet_inventory=wallet_inventory)
             if args.escrow_candidate_preview:
-                import legacy_escrow_mapping
-                unit_evidence, unit_bytes = None, None
                 post_parent_evidence, post_parent_bytes = None, None
-                if args.escrow_unit_evidence is not None:
-                    unit_path = IDENTITY.private_backup_path(args.escrow_unit_evidence)
-                    unit_bytes = unit_path.read_bytes()
-                    unit_evidence = parse_json(unit_bytes.decode("utf-8"))
+                if unit_evidence is not None:
                     reject_known_key_secrets(unit_evidence, tokens)
                 if args.escrow_post_parent_claim_evidence is not None:
                     post_path = IDENTITY.private_backup_path(args.escrow_post_parent_claim_evidence)

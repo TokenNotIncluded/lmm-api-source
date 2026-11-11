@@ -62,17 +62,22 @@ def _identities(F, records, plan):
     return result
 
 
+def validate_unit_evidence_format(require, evidence):
+    """Validate the standalone artifact before scanning the source export."""
+    require(type(evidence) is dict and set(evidence) == UNIT_FIELDS,
+            "escrow_unit_evidence_shape_invalid")
+    require(type(evidence["format_version"]) is int and evidence["format_version"] == 1
+            and evidence["scope"] == "legacy-escrow-source-unit-evidence"
+            and evidence["unit"] == UNIT and type(evidence["credits_per_usd"]) is int
+            and evidence["credits_per_usd"] == 500000 and evidence["conversion_policy"] == POLICY,
+            "escrow_unit_evidence_policy_invalid")
+
+
 def _bound_unit_evidence(F, evidence, *, plan, source_proof, identity_hash, binding):
     """Bind supplied evidence bytes semantically; do not attest their authority."""
     if evidence is None:
         return False
-    F.require(type(evidence) is dict and set(evidence) == UNIT_FIELDS,
-              "escrow_unit_evidence_shape_invalid")
-    F.require(type(evidence["format_version"]) is int and evidence["format_version"] == 1
-              and evidence["scope"] == "legacy-escrow-source-unit-evidence"
-              and evidence["unit"] == UNIT and type(evidence["credits_per_usd"]) is int
-              and evidence["credits_per_usd"] == 500000 and evidence["conversion_policy"] == POLICY,
-              "escrow_unit_evidence_policy_invalid")
+    validate_unit_evidence_format(F.require, evidence)
     expected = {"source_archive_sha256": plan["source_archive_sha256"],
         "mapping_sha256": plan["mapping_sha256"], "source_export_sha256": source_proof["source_export_sha256"],
         "identity_records_sha256": identity_hash, "parent_plan_sha256": binding["plan_sha256"],
