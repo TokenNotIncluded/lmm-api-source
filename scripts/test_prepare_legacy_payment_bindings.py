@@ -32,6 +32,32 @@ def synthetic(mixed_openings=False):
 
 
 class BindingsTest(unittest.TestCase):
+    def test_nullable_discount_matches_original_go_integer_without_rewriting_source(self):
+        for value in (None,0,19):
+            with self.subTest(value=value):
+                facts,review=synthetic()
+                row=facts['tables']['top_ups'][0]
+                row['discount_code_id']=value
+                original=copy.deepcopy(row)
+                review['facts_sha256']=digest(facts)
+                review['orders'][0]['source_row_sha256']=digest(row)
+                plan=prepare(facts,review)
+                self.assertEqual(plan['bases'][0]['discount_code_id'],0 if value is None else value)
+                self.assertEqual(row,original)
+                self.assertEqual(plan['bases'][0]['source_row_sha256'],digest(original))
+        facts,review=synthetic()
+        facts['tables']['top_ups'][0].pop('discount_code_id',None)
+        review['facts_sha256']=digest(facts)
+        review['orders'][0]['source_row_sha256']=digest(facts['tables']['top_ups'][0])
+        self.assertEqual(prepare(facts,review)['bases'][0]['discount_code_id'],0)
+        for value in (True,-1,'0',1.5,2**63):
+            facts,review=synthetic()
+            facts['tables']['top_ups'][0]['discount_code_id']=value
+            review['facts_sha256']=digest(facts)
+            review['orders'][0]['source_row_sha256']=digest(facts['tables']['top_ups'][0])
+            with self.subTest(invalid_type=type(value).__name__),self.assertRaisesRegex(ValueError,'discount_invalid'):
+                prepare(facts,review)
+
     def test_frozen_quote_and_append_review_are_stable(self):
         facts, review = synthetic()
         first = copy.deepcopy(review);first['orders'] = first['orders'][:1]

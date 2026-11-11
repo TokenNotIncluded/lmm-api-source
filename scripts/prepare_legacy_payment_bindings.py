@@ -79,7 +79,8 @@ def prepare(facts, bindings):
         require((row.get('provider_product_id') or None) == binding['source_product_id'], 'binding_original_product_changed')
         product = binding['source_product_id']
         require(product is None or type(product) is str and 1 <= len(product) <= 128, 'binding_product_invalid')
-        discount = row.get('discount_code_id', 0)
+        # Original Go scans this nullable column into an int, where NULL is zero.
+        discount = 0 if row.get('discount_code_id') is None else row['discount_code_id']
         require(type(discount) is int and 0 <= discount <= 2**63-1, 'binding_discount_invalid')
         basis = dict(binding)
         basis.update(id='legacy_' + digest([facts['source_archive_sha256'], oid]),
