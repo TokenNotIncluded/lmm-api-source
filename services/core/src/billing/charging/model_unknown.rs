@@ -2,6 +2,92 @@
 //! its entire hold. Only its original worker can persist this UNKNOWN marker.
 use super::*;
 impl Charging {
+    /// Record normalized supplier usage before a funding attempt. This receipt
+    /// carries no permission to increase a hold or debit a wallet.
+    pub(crate) async fn record_model_terminal(
+        &self,
+        id: &str,
+        worker: &[u8; 32],
+        route_id: &str,
+        usage: Usage,
+    ) -> Result<()> {
+        let mut tx = self.begin().await?;
+        lock(&mut tx, id).await?;
+        let stored = load(&mut tx, id).await?;
+        worker_matches(&stored, worker)?;
+        let charge = &stored.charge;
+        let proof = contract::load(&mut tx, charge)
+            .await?
+            .ok_or(Error::Invalid)?;
+        proof.check_usage(charge, usage)?;
+        if !usage.follows(charge.usage) || charge.price.audio.is_some() {
+            return Err(Error::Invalid);
+        }
+        let (dispatch_id, dispatch): (String, Value) = sqlx::query_as(
+            "SELECT event_id,detail FROM core_charging.usage_events \
+             WHERE request_id=$1 AND event_id BETWEEN 'route-dispatch:1' AND 'route-dispatch:8' \
+             ORDER BY event_id DESC LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Conflict)?;
+        let wire = dispatch["wire_sha256"].as_str().ok_or(Error::Invalid)?;
+        if dispatch["kind"] != "model_route_dispatch"
+            || dispatch["route_id"].as_str() != Some(route_id)
+            || !proof.permits_dispatch(route_id, wire)
+        {
+            return Err(Error::Conflict);
+        }
+        let (observation, observed_at, failed): (Value, i64, bool) = sqlx::query_as(
+            "SELECT detail,floor(extract(epoch FROM created_at))::bigint, \
+             EXISTS(SELECT 1 FROM core_charging.usage_events WHERE request_id=$1 AND event_id=$2) \
+             FROM core_charging.usage_events \
+             WHERE request_id=$1 AND event_id='provider-observation:terminal'",
+        )
+        .bind(id)
+        .bind(dispatch_id.replace("route-dispatch:", "route-failure:"))
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Conflict)?;
+        if failed
+            || observation["kind"] != "provider_observation"
+            || observation["provider_complete"] != true
+            || observation["route_id"].as_str() != Some(route_id)
+        {
+            return Err(Error::Conflict);
+        }
+        let event_id = "model-provider-terminal:v1";
+        let detail = json!({
+            "kind": "model_provider_terminal",
+            "normalized_usage": usage,
+            "route_id": route_id,
+            "dispatch_event": dispatch_id,
+            "wire_sha256": wire,
+            "price_sha256": contract::typed_digest(&charge.price)?,
+            "observation_sha256": contract::typed_digest(&observation)?,
+            "observed_at": observed_at,
+        });
+        let previous: Option<Value> = sqlx::query_scalar(
+            "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id=$2",
+        )
+        .bind(id)
+        .bind(event_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(previous) = previous {
+            if previous != detail {
+                return Err(Error::Conflict);
+            }
+            return commit(tx).await;
+        }
+        if !matches!(charge.state.as_str(), "streaming" | "reconcile") {
+            return Err(Error::WrongState);
+        }
+        event(&mut tx, id, event_id, detail).await?;
+        commit(tx).await
+    }
+
     /// Audit only: never feeds accepted usage, provider cost or recovery.
     pub(crate) async fn record_provider_observation(
         &self,

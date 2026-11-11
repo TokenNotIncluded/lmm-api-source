@@ -164,15 +164,19 @@ impl Bridge {
                  AND r.price->'text_request' IS NULL AND e.detail->>'kind'='usage' \
                  AND a.detail->>'kind'='model_no_acceptance' \
                UNION ALL \
-               SELECT r.id,r.revision,jsonb_build_object('usage',e.detail->'usage','evidence',a.detail,'dispatch',d.detail),-2::bigint \
+               SELECT r.id,r.revision,jsonb_build_object('usage',coalesce(t.detail->'normalized_usage',e.detail->'usage'), \
+                 'evidence',a.detail,'dispatch',d.detail,'dispatch_event',d.event_id,'terminal',t.detail, \
+                 'observed_at',floor(extract(epoch FROM a.created_at))::bigint),-2::bigint \
                FROM core_charging.requests r \
-               JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' \
+               LEFT JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' AND e.detail->>'kind'='usage' \
+               LEFT JOIN core_charging.usage_events t ON t.request_id=r.id AND t.event_id='model-provider-terminal:v1' \
                JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='provider-observation:terminal' \
                JOIN LATERAL (SELECT ev.event_id,ev.detail FROM core_charging.usage_events ev \
                    WHERE ev.request_id=r.id AND ev.event_id BETWEEN 'route-dispatch:1' AND 'route-dispatch:8' \
                    ORDER BY ev.event_id DESC LIMIT 1) d ON true \
                WHERE r.state='reconcile' AND ($2::text IS NULL OR r.id>$2) \
-                 AND e.detail->>'kind'='usage' AND a.detail->>'kind'='provider_observation' \
+                 AND (e.event_id IS NOT NULL OR t.event_id IS NOT NULL) AND a.detail->>'kind'='provider_observation' \
+                 AND (e.event_id IS NULL OR t.event_id IS NULL OR e.detail->'usage'=t.detail->'normalized_usage') \
                  AND a.detail->'provider_complete'='true'::jsonb \
                  AND NOT EXISTS (SELECT 1 FROM core_charging.usage_events failed \
                    WHERE failed.request_id=r.id AND failed.event_id=replace(d.event_id,'route-dispatch:','route-failure:')) \
@@ -241,6 +245,28 @@ impl Bridge {
                 if dispatch["kind"] != "model_route_dispatch"
                     || evidence["route_id"].as_str() != Some(route)
                     || !contract.permits_dispatch(route, wire)
+                {
+                    continue;
+                }
+                let terminal = &value["terminal"];
+                if !terminal.is_null()
+                    && (terminal["kind"] != "model_provider_terminal"
+                        || terminal["dispatch_event"] != value["dispatch_event"]
+                        || terminal["observed_at"] != value["observed_at"]
+                        || terminal["wire_sha256"].as_str() != Some(wire)
+                        || terminal["route_id"].as_str() != Some(route)
+                        || terminal["price_sha256"].as_str()
+                            != Some(
+                                charging::contract::typed_digest(&frozen.price)
+                                    .map_err(super::billing::error)?
+                                    .as_str(),
+                            )
+                        || terminal["observation_sha256"].as_str()
+                            != Some(
+                                charging::contract::typed_digest(evidence)
+                                    .map_err(super::billing::error)?
+                                    .as_str(),
+                            ))
                 {
                     continue;
                 }

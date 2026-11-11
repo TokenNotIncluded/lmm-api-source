@@ -1425,11 +1425,12 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
 
 #[sqlx::test(migrations = false)]
 async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(pool: PgPool) {
-    let f = fixture(pool, 300_000).await;
+    let f = fixture(pool, 400_000).await;
     let g = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
     let mut ids = Vec::new();
     for (name, checkpoint_tokens, matching_route) in [
         ("http-terminal-matched", Some(17), true),
+        ("http-terminal-before-funding", None, true),
         ("http-terminal-audit-only", None, true),
         ("http-terminal-mismatch", Some(18), true),
         ("http-terminal-wrong-route", Some(17), false),
@@ -1458,7 +1459,18 @@ async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(
             )
             .await
             .unwrap();
-        if let Some(tokens) = checkpoint_tokens {
+        if name == "http-terminal-before-funding" {
+            let (charge, proof) = g.bridge.charging.reservation_contract(&id).await.unwrap();
+            let normalized =
+                super::billing::frozen_priced_usage(&proof, &charge, usage(17)).unwrap();
+            for _ in 0..2 {
+                g.bridge
+                    .charging
+                    .record_model_terminal(&id, &worker, &route.id, normalized)
+                    .await
+                    .unwrap();
+            }
+        } else if let Some(tokens) = checkpoint_tokens {
             let (charge, proof) = g.bridge.charging.reservation_contract(&id).await.unwrap();
             let normalized =
                 super::billing::frozen_priced_usage(&proof, &charge, usage(tokens)).unwrap();
@@ -1478,11 +1490,13 @@ async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(
             .reconcile_completed_streams_page(10, None)
             .await
             .unwrap(),
-        (1, None)
+        (2, None)
     );
-    let settled = receipt(&restarted, &ids[0]).await;
-    assert_eq!((settled.state.as_str(), settled.settled), ("settled", 17));
-    for id in &ids[1..] {
+    for id in &ids[..2] {
+        let settled = receipt(&restarted, id).await;
+        assert_eq!((settled.state.as_str(), settled.settled), ("settled", 17));
+    }
+    for id in &ids[2..] {
         let pending = receipt(&restarted, id).await;
         assert_eq!(
             (pending.state.as_str(), pending.reserved, pending.settled),
@@ -1496,7 +1510,7 @@ async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(
             .unwrap(),
         (0, None)
     );
-    assert_balance(&f, 300_000 - 17 - 3 * SMALL_INPUT, 3 * SMALL_INPUT).await;
+    assert_balance(&f, 400_000 - 34 - 3 * SMALL_INPUT, 3 * SMALL_INPUT).await;
 }
 
 // @context-fold begin prepared-reservation-pg-tests

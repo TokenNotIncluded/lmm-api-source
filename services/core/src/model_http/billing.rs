@@ -850,6 +850,16 @@ impl Billing for Bridge {
                         .map_err(error)?
                         .ok_or(RelayError::SettlementPending)?;
                     if amount > charge.reserved {
+                        retry(|| {
+                            self.charging.record_model_terminal(
+                                &reservation.id,
+                                &worker,
+                                &selected.route_id,
+                                usage,
+                            )
+                        })
+                        .await
+                        .map_err(error)?;
                         retry(|| async {
                             if let Some(issuer) = &oauth_issuer {
                                 self.charging
