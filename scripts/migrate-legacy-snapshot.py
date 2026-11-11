@@ -2329,6 +2329,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source-receipt", type=Path, required=True)
     parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned reviewed fresh receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role:NOLOGIN-owner,login_role:independent-installer,set_role:owner,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses:empty_or_loopback}; contract=current_contract() plus catalog_fingerprint_sha256, allow_initialized_core_seed:true, initialized_core_seed_contract:CORE_SEED_CONTRACT, initialized_core_seed_sha256:fresh_seed_hash_query() result, trust_policy_seed:trust_policy_seed_query() result; application_or_worker_started:false; registry_provisioned:true. Capture and review fresh values; never relabel an old receipt.")
+    parser.add_argument("--target-endpoint-receipt", type=Path,
+                        help="OAuth only: separately captured current endpoint after a persistent restart; original identity target receipt remains unchanged")
     parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/.local/state/lmm-api; must not already exist")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true", help="Execute the matching phase plan: identity requires an empty initialized target; oauth requires the exact original identity receipt")
@@ -2339,6 +2341,8 @@ def main() -> int:
     parser.add_argument("--identity-manifest", type=Path, help="OAuth: original manifest.private.json, unchanged")
     parser.add_argument("--identity-migration-id", help="OAuth: original committed identity operation; --migration-id is a new immutable OAuth operation")
     args = parser.parse_args()
+    if args.target_endpoint_receipt is not None and (args.phase != "oauth" or args.target_receipt is None):
+        parser.error("--target-endpoint-receipt requires --phase oauth and the original --target-receipt")
     output = None
     apply_attempted = False
     try:

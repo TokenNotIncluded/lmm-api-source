@@ -63,6 +63,72 @@ class SnapshotOAuthTests(unittest.TestCase):
         return O.build_sql(I,plan,self.manifest(plan),self.original,operation='oauth-original',
                            identity_operation='identity-original',target=self.target,contract=self.contract)
 
+    def endpoint(self):
+        target_path = self.write('original-target.json', self.target)
+        endpoint = copy.deepcopy(self.target)
+        endpoint['migration_id'] = 'financial-opening-operation'
+        endpoint['instance_identity']['postmaster_started_at'] = '2026-11-02 00:00:00+00'
+        endpoint['instance_identity']['system_identifier'] = '123456789'
+        return target_path, endpoint
+
+    def resolve(self, target_path, endpoint, *, system='123456789', origin=None):
+        self.endpoint_attempt = getattr(self, 'endpoint_attempt', 0) + 1
+        endpoint_path = self.write(f'current-endpoint-{self.endpoint_attempt}.json', endpoint)
+        encoded = int(system).to_bytes(8, 'big').hex() + '00' * 24
+        probe = {'system_identifier': system, 'origin_system_ids': [encoded] if origin is None else origin}
+        with patch.object(I, 'psql', return_value=I.canonical(probe)) as call:
+            result = O.resolve_target_endpoint(I, self.target, target_path, endpoint_path, output=self.root)
+        self.assertTrue(call.call_args.kwargs['readonly'])
+        return result, endpoint_path
+
+    def test_endpoint_restart_keeps_historical_identity_and_binds_both_hashes(self):
+        path, endpoint = self.endpoint()
+        original_bytes = path.read_bytes()
+        (resolved, binding), endpoint_path = self.resolve(path, endpoint)
+        self.assertEqual(path.read_bytes(), original_bytes)
+        self.assertEqual(resolved['migration_id'], 'identity-original')
+        self.assertEqual(resolved['status'], 'initialized-empty-identity-target')
+        self.assertEqual(resolved['instance_identity'], endpoint['instance_identity'])
+        self.assertEqual(binding['original_identity_target_receipt_sha256'], I.sha256_file(path))
+        self.assertEqual(binding['current_endpoint_receipt_sha256'], I.sha256_file(endpoint_path))
+
+    def test_endpoint_rejects_other_identity_connection_locale_role_and_version_changes(self):
+        path, original = self.endpoint()
+        for field in ('database_oid', 'database_owner', 'role', 'session_user', 'server_instance_nonce',
+                      'server_version_num', 'datcollate', 'datctype', 'datcollversion', 'port'):
+            with self.subTest(field=field):
+                endpoint = copy.deepcopy(original)
+                endpoint['instance_identity'][field] = 'changed'
+                with self.assertRaisesRegex(I.MappingError, 'stable_identity_mismatch'):
+                    self.resolve(path, endpoint)
+        for field in ('role', 'login_role', 'set_role', 'database', 'port'):
+            with self.subTest(connection=field):
+                endpoint = copy.deepcopy(original)
+                endpoint['connection'][field] = 'changed'
+                with self.assertRaisesRegex(I.MappingError, 'connection_mismatch'):
+                    self.resolve(path, endpoint)
+
+    def test_endpoint_rejects_unproven_origin_and_wrong_live_system(self):
+        path, endpoint = self.endpoint()
+        with self.assertRaisesRegex(I.MappingError, 'origin_system_unproven'):
+            self.resolve(path, endpoint, origin=[])
+        with self.assertRaisesRegex(I.MappingError, 'system_identifier_mismatch'):
+            self.resolve(path, endpoint, system='987654321')
+        self.target['instance_identity']['system_identifier'] = '111111111'
+        path = self.write('different-system-original-target.json', self.target)
+        with self.assertRaisesRegex(I.MappingError, 'origin_system_mismatch'):
+            self.resolve(path, endpoint)
+
+    def test_normal_cli_endpoint_branch_writes_complete_manifest_once_and_applies(self):
+        code,output,calls,stdout,stderr=self.cli(endpoint_restart=True)
+        self.assertEqual(code,0,stderr)
+        manifest=json.loads((output/'oauth-manifest.private.json').read_text())
+        binding=manifest['target_endpoint_binding']
+        self.assertEqual(binding['original_identity_target_receipt_sha256'],I.sha256_file(self.root/'target.json'))
+        self.assertEqual(binding['current_endpoint_receipt_sha256'],I.sha256_file(self.root/'endpoint.json'))
+        self.assertEqual(sum(label=='oauth-target-import' for label,_,_ in calls),1)
+        self.assertTrue(json.loads(stdout)['apply'])
+
     def test_full_provider_cohort_exact_subjects_and_old_usernames(self):
         plan = self.plan()
         self.assertEqual(plan['counts'], {'oauth':4,'telegram':1})
@@ -194,7 +260,7 @@ class SnapshotOAuthTests(unittest.TestCase):
     def write(self,name,data):
         return I.write_private(self.root,name,I.canonical(data)+'\n')
 
-    def cli(self, *, reader_safe=True, failure=None, bad_ack=False):
+    def cli(self, *, reader_safe=True, failure=None, bad_ack=False, endpoint_restart=False):
         baseline=self.write('native-table-row-count-baseline.jsonl',
                             {'table':'users','row_count':len(self.users)})
         with baseline.open('a') as f:
@@ -210,6 +276,12 @@ class SnapshotOAuthTests(unittest.TestCase):
         identity_path=self.write('identity.json',self.identity)
         manifest_path=self.write('manifest.json',self.original)
         output=self.root/'oauth-output'
+        endpoint=None
+        if endpoint_restart:
+            endpoint=copy.deepcopy(self.target)
+            endpoint['instance_identity']['postmaster_started_at']='2026-11-02 00:00:00+00'
+            endpoint['instance_identity']['system_identifier']='123456789'
+            endpoint_path=self.write('endpoint.json',endpoint)
         calls=[]
         def psql(connection,sql,*,readonly,private_dir,label):
             calls.append((label,sql,readonly))
@@ -223,7 +295,10 @@ class SnapshotOAuthTests(unittest.TestCase):
                 tagged += [('oauth_provider',p) for p in self.exported['providers']]
                 tagged += [('oauth_binding',b) for b in self.exported['bindings']]
                 return '\n'.join(I.canonical({'kind':k,'row':r}) for k,r in tagged)+'\n'
-            if label=='oauth-target-identity': return I.canonical(self.target['instance_identity'])
+            if label=='oauth-target-system':
+                return I.canonical({'system_identifier':'123456789','origin_system_ids':[int(123456789).to_bytes(8,'big').hex()+'00'*24]})
+            if label=='oauth-target-identity':
+                return I.canonical((endpoint or self.target)['instance_identity'])
             if label=='oauth-target-import':
                 if failure: raise I.MappingError(failure)
                 plan=self.plan()
@@ -235,6 +310,8 @@ class SnapshotOAuthTests(unittest.TestCase):
               '--identity-mapping',str(identity_path),'--identity-manifest',str(manifest_path),
               '--identity-migration-id','identity-original','--migration-id','oauth-original','--output',str(output),
               '--apply','--confirm-source-sha256',self.sha]
+        if endpoint_restart:
+            argv += ['--target-endpoint-receipt',str(endpoint_path)]
         stdout,stderr=io.StringIO(),io.StringIO()
         with patch.object(I,'BACKUP_ROOT',self.root.parent),patch.object(I,'current_contract',return_value=self.contract),\
              patch.object(I,'identity_contract',return_value={}),patch.object(I,'verify_instance'),\

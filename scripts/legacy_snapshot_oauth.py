@@ -200,6 +200,52 @@ COMMIT;
     return prefix + 'END ' + delimiter + ';' + suffix
 
 
+def resolve_target_endpoint(I, target, original_path, endpoint_path, *, output):
+    """Keep historical identity authority separate from a current live frame."""
+    endpoint = I.load_receipt(endpoint_path, private=True)
+    I.require(endpoint.get('source_archive_sha256') == target.get('source_archive_sha256')
+              and endpoint.get('application_or_worker_started') is False
+              and endpoint.get('connection') == target.get('connection'),
+              'oauth_endpoint_connection_mismatch')
+    old, new = target['instance_identity'], endpoint.get('instance_identity')
+    I.require(type(new) is dict, 'oauth_endpoint_instance_invalid')
+    # read_only describes the capture transaction. The financial capturer also
+    # records system_identifier, which is checked against the actual server and
+    # the immutable original identity facts below.
+    observations = {'postmaster_started_at', 'read_only', 'system_identifier'}
+    I.require({k:v for k,v in old.items() if k not in observations}
+              == {k:v for k,v in new.items() if k not in observations},
+              'oauth_endpoint_stable_identity_mismatch')
+    identifier = str(new.get('system_identifier', ''))
+    I.require(re.fullmatch(r'[1-9][0-9]{0,19}', identifier) is not None,
+              'oauth_endpoint_system_identifier_missing')
+    I.require(int(identifier) < 1 << 64, 'oauth_endpoint_system_identifier_invalid')
+    I.require(isinstance(new.get('postmaster_started_at'), str)
+              and bool(new['postmaster_started_at']), 'oauth_endpoint_instance_invalid')
+    connection = endpoint['connection']
+    probe = json.loads(I.psql(connection, "BEGIN READ ONLY; SELECT json_build_object("
+        "'system_identifier',(SELECT system_identifier::text FROM pg_catalog.pg_control_system()),"
+        "'origin_system_ids',(SELECT coalesce(jsonb_agg(DISTINCT encode(system_id,'hex')),'[]'::jsonb) "
+        "FROM core_identity.privileged_import_facts WHERE migration_id="
+        + I.sql_literal(target['migration_id']) + " AND encode(archive_sha256,'hex')="
+        + I.sql_literal(target['source_archive_sha256']) + ")); COMMIT;",
+        readonly=True, private_dir=output, label='oauth-target-system'))
+    I.require(probe.get('system_identifier') == identifier, 'oauth_endpoint_system_identifier_mismatch')
+    expected_system_id = int(identifier).to_bytes(8, 'big').hex() + '00' * 24
+    if old.get('system_identifier') is not None:
+        I.require(str(old['system_identifier']) == identifier, 'oauth_endpoint_origin_system_mismatch')
+    else:
+        I.require(probe.get('origin_system_ids') == [expected_system_id],
+                  'oauth_endpoint_origin_system_unproven')
+    resolved = dict(target, connection=connection, instance_identity=new)
+    binding = {'original_identity_target_receipt_sha256': I.sha256_file(original_path),
+               'current_endpoint_receipt_sha256': I.sha256_file(endpoint_path),
+               'original_postmaster_started_at': old['postmaster_started_at'],
+               'current_postmaster_started_at': new['postmaster_started_at'],
+               'system_identifier': identifier}
+    return resolved, binding
+
+
 def run_cli(I, args, output, source, source_identity, users):
     attempted = False
     try:
@@ -217,17 +263,26 @@ def run_cli(I, args, output, source, source_identity, users):
                         validation_tool_sha256=I.sha256_file(Path(SOURCE.__file__).resolve()),
                         import_tool_sha256=I.sha256_file(Path(I.__file__).resolve()),
                         oauth_tool_sha256=I.sha256_file(Path(__file__).resolve()))
-        I.write_private(output, 'oauth-mapping.private.json', I.canonical(plan) + '\n')
-        I.write_private(output, 'oauth-manifest.private.json', I.canonical(manifest) + '\n')
-        public = dict(status='oauth-dry-run-mapped', operation_id=args.migration_id,
-                      source_archive_sha256=source_sha, mapping_sha256=manifest['mapping_sha256'],
-                      **plan['counts'], google_count=plan['google_count'], apply=False)
+        target = None
+        endpoint_path = getattr(args, 'target_endpoint_receipt', None)
         if args.target_receipt:
             target = I.load_receipt(args.target_receipt, private=True)
             I.require(target.get('status') == 'initialized-empty-identity-target'
                       and target.get('migration_id') == args.identity_migration_id
                       and target.get('source_archive_sha256') == source_sha
                       and target.get('registry_provisioned') is True, 'oauth_target_receipt_invalid')
+            if endpoint_path is not None:
+                target, binding = resolve_target_endpoint(I, target, args.target_receipt,
+                                                         endpoint_path, output=output)
+                manifest['target_endpoint_binding'] = binding
+        I.write_private(output, 'oauth-mapping.private.json', I.canonical(plan) + '\n')
+        I.write_private(output, 'oauth-manifest.private.json', I.canonical(manifest) + '\n')
+        public = dict(status='oauth-dry-run-mapped', operation_id=args.migration_id,
+                      source_archive_sha256=source_sha, mapping_sha256=manifest['mapping_sha256'],
+                      **plan['counts'], google_count=plan['google_count'], apply=False)
+        if endpoint_path is not None:
+            public['target_endpoint_binding'] = binding
+        if target is not None:
             contract = I.current_contract()
             sql = build_sql(I, plan, manifest, original, operation=args.migration_id,
                             identity_operation=args.identity_migration_id, target=target, contract=contract)
