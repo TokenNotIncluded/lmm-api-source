@@ -35,6 +35,7 @@ macro_rules! reject_suffix {
             "core-commerce-display-rate-v1" => concat!("COMMERCE_DISPLAY_RATE_", $code),
             "core-59-to-62-v1" => concat!("CORE62_", $code),
             "core-subscription-epay-v1" => concat!("SUBSCRIPTION_EPAY_", $code),
+            "core-subscription-pancake-language-optional-v1" => concat!("PANCAKE_LANGUAGE_", $code),
             _ => concat!("CHANNEL_PROJECTION_", $code),
         })
     };

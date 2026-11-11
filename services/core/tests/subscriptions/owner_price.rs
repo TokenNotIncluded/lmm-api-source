@@ -68,7 +68,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
             "channel_id":"5003","currency":"CNY","amount_minor":"990",
             "store_id":"STO_fixture","product_id":"PROD_fixture","product_type":"one_time",
             "billing_period":"","provider_plan_reference":"PLAN_fixture_owner","return_url":"https://example.test/return",
-            "checkout_region":"china","checkout_language":"zh","tax_category":"digital_goods"}
+            "checkout_region":"china","checkout_language":"","tax_category":"digital_goods"}
     })).unwrap();
     let price = request.price.clone();
     let mut http_price = price.clone();
@@ -111,12 +111,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
             .await,
         Err(Error::Invalid)
     );
-    for field in [
-        "provider_plan_reference",
-        "checkout_region",
-        "checkout_language",
-        "tax_category",
-    ] {
+    for field in ["provider_plan_reference", "checkout_region", "tax_category"] {
         let mut raw = serde_json::to_value(&price).unwrap();
         raw[field] = "".into();
         let mut invalid = request.clone();
@@ -139,6 +134,14 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
             Err(Error::Invalid)
         );
     }
+    let mut oversized = request.clone();
+    oversized.price.checkout_language = "x".repeat(33);
+    assert_eq!(
+        f.store
+            .publish_pancake_price_as_owner(&payments, &oversized)
+            .await,
+        Err(Error::Invalid)
+    );
     sqlx::raw_sql(&format!("GRANT CONNECT ON DATABASE \"{database}\" TO {runtime}; GRANT USAGE ON SCHEMA core_identity,core_subscriptions TO {runtime}; GRANT EXECUTE ON FUNCTION core_identity.is_identity_relation_owner() TO {runtime};"))
         .execute(&pool).await.unwrap();
     let runtime_pool = PgPoolOptions::new()
@@ -214,6 +217,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
         );
         let reply: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(reply["status"], "published");
+        assert_eq!(reply["price"]["checkout_language"], "");
     }
     wrong = request.clone();
     wrong.price.amount_minor = "991".into();

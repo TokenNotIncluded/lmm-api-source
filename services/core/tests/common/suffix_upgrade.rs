@@ -15,7 +15,9 @@ fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 fn target_count() -> usize {
-    if PROCEDURE == "core-commerce-display-rate-v1" {
+    if PROCEDURE == "core-subscription-pancake-language-optional-v1" {
+        67
+    } else if PROCEDURE == "core-commerce-display-rate-v1" {
         58
     } else if PROCEDURE == "core-navigation-options-v1" {
         47

@@ -191,6 +191,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "payment-credit-quotes",
         crate::payments::CREDIT_QUOTE_SCHEMA,
     ),
+    (
+        "subscription-pancake-language-optional",
+        include_str!("../schema/subscription_pancake_language_optional.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

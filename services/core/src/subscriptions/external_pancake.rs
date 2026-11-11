@@ -114,7 +114,7 @@ fn validate_price(payments: &PaymentsStore, p: &PancakePrice) -> Result<i64> {
         || !(1..=128).contains(&p.provider_plan_reference.chars().count())
         || p.return_url.chars().count() > 2048
         || !matches!(p.checkout_region.as_str(), "global" | "china")
-        || !(1..=32).contains(&p.checkout_language.chars().count())
+        || p.checkout_language.chars().count() > 32
         || !matches!(
             p.tax_category.as_str(),
             "digital_goods"
