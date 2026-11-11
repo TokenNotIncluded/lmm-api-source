@@ -93,6 +93,10 @@ GUARDS = {
               "+(SELECT count(*) FROM core_wallet.legacy_transfer_history)"
               "+(SELECT count(*) FROM core_billing.legacy_pending_liabilities WHERE source_table='top_ups')",
 }
+SUBSCRIPTION_PLANS_PENDING_GUARD = (
+    "SELECT (SELECT count(*) FROM core_subscriptions.plans)"
+    "+(SELECT count(*) FROM core_billing.legacy_pending_liabilities WHERE source_table='subscription_orders')"
+)
 CREDITS_PER_USD = 500000
 MAX_TIME = 253402300799
 MAX_UNITS = 1_000_000_000_000
@@ -320,7 +324,7 @@ def subscription_order_links(data):
     return results
 
 
-def plan_subscriptions(data, archive_sha, migration_id, observed_at):
+def plan_subscriptions(data, archive_sha, migration_id, observed_at, *, plans_pending_only=False):
     sql, stats = [], Counter()
     actor = superadmin(data)
     plans = {p["id"]: p for p in data["subscription_plans"]}
@@ -336,7 +340,11 @@ def plan_subscriptions(data, archive_sha, migration_id, observed_at):
     if plans:
         sql.append(f"SELECT setval(pg_get_serial_sequence('core_subscriptions.plans','id'),{max(plans)});")
     users = {u["id"] for u in data["users"]}
-    for s in data["user_subscriptions"]:
+    # Formal opening owns charging grants and their opening consumption when selected.
+    subscriptions = [] if plans_pending_only else data["user_subscriptions"]
+    if plans_pending_only:
+        stats["user_subscriptions_deferred_to_formal_opening"] = len(data["user_subscriptions"])
+    for s in subscriptions:
         if s["user_id"] not in users or s["plan_id"] not in plans:
             fail("subscription_orphan")
         r = subscription_record(s, plans[s["plan_id"]], observed_at, migration_id,

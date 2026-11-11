@@ -453,6 +453,8 @@ def main() -> int:
     p.add_argument("--phase", choices=PHASES, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--subscriptions-plans-pending-only", action="store_true",
+                   help="subscriptions: import plans/pending liabilities; defer grants/consumption to formal subscription opening")
     p.add_argument("--api-key-encryption-key-file", type=Path, help="keys: Core 32-byte recovery key")
     p.add_argument("--identity-map", type=Path, help="Original safe source-target-id-map.private.jsonl")
     p.add_argument("--identity-manifest", type=Path, help="Original committed identity-only manifest.private.json")
@@ -462,6 +464,10 @@ def main() -> int:
     p.add_argument("--referral-review", type=Path, help="referrals: source-bound reviewed credit terms")
     HISTORY.add_arguments(p)
     a = p.parse_args()
+    if a.subscriptions_plans_pending_only and a.phase != "subscriptions":
+        fail("subscriptions_plans_pending_only_requires_subscriptions_phase")
+    phase_guard = (MONEY.SUBSCRIPTION_PLANS_PENDING_GUARD
+                   if a.subscriptions_plans_pending_only else GUARDS[a.phase])
     if not re.fullmatch(r"[0-9a-f]{64}", a.archive_sha256):
         fail("archive_sha256_invalid")
     if a.phase in MAPPED_PHASES and (a.identity_map is None or a.identity_manifest is None):
@@ -507,7 +513,11 @@ def main() -> int:
             if a.phase in ("subscriptions", "bounties", "wallet"):
                 MONEY.bind_opening(data, target, a.archive_sha256, a.observed_at)
                 guards.append(MONEY.opening_guard_sql(data))
-            sql, stats = MONEY.plan(a.phase, data, a.archive_sha256, a.migration_id, a.observed_at)
+            if a.subscriptions_plans_pending_only:
+                sql, stats = MONEY.plan_subscriptions(data, a.archive_sha256, a.migration_id, a.observed_at,
+                                                      plans_pending_only=True)
+            else:
+                sql, stats = MONEY.plan(a.phase, data, a.archive_sha256, a.migration_id, a.observed_at)
         elif a.phase in HISTORY.PHASES:
             sql, stats = HISTORY.plan(a.phase, a, src, target)
         elif a.phase == "identity":
@@ -516,7 +526,7 @@ def main() -> int:
             sql, stats = plan_opening(data, a.archive_sha256, a.migration_id, a.observed_at)
         script = ("BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL synchronous_commit=on;\n"
                   + "\n".join(guards) + "\n"
-                  f"DO $$BEGIN IF ({GUARDS[a.phase]})<>0 THEN RAISE EXCEPTION 'phase target not empty'; END IF; END$$;\n"
+                  f"DO $$BEGIN IF ({phase_guard})<>0 THEN RAISE EXCEPTION 'phase target not empty'; END IF; END$$;\n"
                   + "\n".join(sql) + "\nCOMMIT;\n")
     if target_connection is not None:
         # Persist and execute the exact same endpoint-bound SQL.
@@ -532,6 +542,8 @@ def main() -> int:
         stream.write(script)
     report = {"phase": a.phase, "migration_id": a.migration_id, "statements": len(sql),
               "plan_sha256": hashlib.sha256(script.encode()).hexdigest(), "stats": stats}
+    if a.subscriptions_plans_pending_only:
+        report["subscription_grants"] = "deferred-to-formal-subscription-opening"
     if a.apply:
         Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner,
            readonly=False, connection=target_connection).run(script)

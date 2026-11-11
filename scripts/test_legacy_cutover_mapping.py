@@ -123,6 +123,19 @@ class MappingTests(unittest.TestCase):
         self.assertEqual([(r["target_user_id"], r["target_account_id"]) for r in receipt["records"]], [(2, 1), (3, 2)])
         K._pending.pop("keys")
 
+    def test_subscriptions_plans_pending_only_defers_all_grants(self):
+        data = subscription_data(self.binding)
+        full, full_stats = M.plan_subscriptions(data, ARCHIVE, "subs", OBSERVED)
+        self.assertEqual((full, full_stats),
+                         M.plan_subscriptions(data, ARCHIVE, "subs", OBSERVED, plans_pending_only=False))
+        planned, stats = M.plan_subscriptions(data, ARCHIVE, "subs", OBSERVED, plans_pending_only=True)
+        self.assertEqual(planned, [line for line in full if not line.startswith("INSERT INTO core_charging.")])
+        self.assertEqual(stats["plans"], full_stats["plans"])
+        self.assertEqual(stats["user_subscriptions_deferred_to_formal_opening"], 1)
+        self.assertNotIn("user_subscriptions", stats)
+        self.assertNotIn("core_charging.subscriptions", M.SUBSCRIPTION_PLANS_PENDING_GUARD)
+        self.assertIn("legacy-sub:%", M.GUARDS["subscriptions"])
+
     def test_subscriptions_map_account_keep_plan_actor_user(self):
         sql, _ = M.plan_subscriptions(subscription_data(self.binding), ARCHIVE, "subs", OBSERVED)
         text = "\n".join(sql)

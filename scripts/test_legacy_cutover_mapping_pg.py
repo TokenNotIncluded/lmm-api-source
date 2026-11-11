@@ -164,6 +164,34 @@ class MappingPostgreSQLTests(unittest.TestCase):
             self.invoke("subscriptions", subscription_data(self.binding))
         self.assertEqual(after, self.state())
 
+    def test_subscriptions_plans_pending_only_preserves_existing_formal_grants(self):
+        data = subscription_data(self.binding)
+        # Existing grants are outside the new mode's ownership. Formal writer
+        # receipt generation remains covered by the subscription-opening PG suite.
+        grants, _ = M.plan_subscriptions(data, ARCHIVE, "formal-subscription", OBSERVED)
+        self.psql("BEGIN ISOLATION LEVEL SERIALIZABLE;\n"
+                  + "\n".join(line for line in grants if line.startswith("INSERT INTO core_charging."))
+                  + "\nCOMMIT;",
+                  database=self.database)
+        before = self.state()
+        data["subscription_orders"] = [{"id": 31, "user_id": 2, "plan_id": 9,
+            "status": "pending", "trade_no": "synthetic_pending_subscription_31",
+            "money": "2", "expected_amount_micros": 2000000,
+            "settlement_currency": "USD", "plan_currency": "USD"}]
+        out = self.invoke("subscriptions", data, extra=("--subscriptions-plans-pending-only",))
+        after = self.state()
+        self.assertEqual(before["subscriptions"], after["subscriptions"])
+        self.assertEqual(before["balances"], after["balances"])
+        self.assertEqual(self.query("SELECT json_build_object('plans',(SELECT count(*) FROM core_subscriptions.plans),"
+            "'usage',(SELECT count(*) FROM core_charging.subscription_opening_consumption),"
+            "'pending',(SELECT count(*) FROM core_billing.legacy_pending_liabilities WHERE source_table='subscription_orders'))"),
+            {"plans": 1, "usage": 1, "pending": 1})
+        report = json.loads((out / "subscriptions-report.json").read_text())
+        self.assertEqual(report["subscription_grants"], "deferred-to-formal-subscription-opening")
+        with self.assertRaisesRegex(SystemExit, "psql_failed"):
+            self.invoke("subscriptions", data, extra=("--subscriptions-plans-pending-only",))
+        self.assertEqual(after, self.state())
+
     def test_native_map_change_after_planning_rolls_back_prior_write_and_sequence(self):
         I.verify_identity_binding(self.target, self.binding)
         guard = I.identity_guard_sql(self.binding)
