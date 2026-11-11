@@ -9,6 +9,9 @@ use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgConnection, Row};
 use std::io::Read;
 
+#[path = "admin_key_continuity.rs"]
+pub mod key_continuity;
+
 use super::permissions::{
     self, CONTRACT_VERSION, PlatformRole, PolicySnapshot, PolicySnapshotError,
     complete_policy_snapshot, policy_sha256,
@@ -951,6 +954,14 @@ pub async fn apply_admin_activation(
     connection: &mut PgConnection,
     request: &ApplyAdminActivationRequest,
 ) -> Result<ApplyAdminActivationResponse, ApprovalError> {
+    apply_admin_activation_inner(connection, request, None).await
+}
+
+async fn apply_admin_activation_inner(
+    connection: &mut PgConnection,
+    request: &ApplyAdminActivationRequest,
+    continuity: Option<&key_continuity::ApplyRequest>,
+) -> Result<ApplyAdminActivationResponse, ApprovalError> {
     require_relation_owner(connection).await?;
     let approval = dto_to_approval(&request.approval)?;
     let expected = decode_hex_32(&request.confirmation_sha256)?;
@@ -964,6 +975,10 @@ pub async fn apply_admin_activation(
         .await
         .map_err(db)?;
     require_relation_owner(&mut tx).await?;
+    let continuity_replay = match continuity {
+        Some(request) => key_continuity::replay(&mut tx, &approval, request).await?,
+        None => false,
+    };
     // Exact same id+payload replay is read-only success even after activation or
     // expiry; a different payload for the same id is refused before source gates.
     let prior = sqlx::query(
@@ -974,6 +989,10 @@ pub async fn apply_admin_activation(
     .await
     .map_err(db)?;
     if let Some(row) = &prior {
+        // A plain activation cannot be retroactively given continuity rights.
+        if continuity.is_some() && !continuity_replay {
+            return Err(ApprovalError::ConfirmationMismatch);
+        }
         let prior_payload = array32(
             row.try_get("payload_sha256")
                 .map_err(|_| ApprovalError::Storage)?,
@@ -1013,6 +1032,9 @@ pub async fn apply_admin_activation(
             auth_version: None,
         });
     }
+    if continuity_replay {
+        return Err(ApprovalError::SourceMismatch);
+    }
     let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_identity.admin_activation_receipts WHERE user_id=$1 AND expected_auth_version=$2 AND approval_id<>$3)")
         .bind(approval.source.user_id).bind(approval.source.auth_version).bind(approval.id.as_slice())
         .fetch_one(&mut *tx).await.map_err(db)?;
@@ -1024,6 +1046,10 @@ pub async fn apply_admin_activation(
     if source != approval.source {
         return Err(ApprovalError::SourceMismatch);
     }
+    let retained_keys = match continuity {
+        Some(request) => key_continuity::check_apply(&mut tx, &approval, request).await?,
+        None => Vec::new(),
+    };
     if target != approval.target {
         return Err(ApprovalError::TargetMismatch);
     }
@@ -1180,9 +1206,10 @@ pub async fn apply_admin_activation(
         return Err(ApprovalError::VersionConflict);
     }
     sqlx::query(
-        "UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE user_id=$1 AND revoked_at IS NULL",
+        "UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE user_id=$1 AND revoked_at IS NULL AND NOT (id=ANY($2))",
     )
     .bind(approval.source.user_id)
+    .bind(&retained_keys)
     .execute(&mut *tx)
     .await
     .map_err(db)?;
@@ -1211,6 +1238,9 @@ pub async fn apply_admin_activation(
     permissions::load_complete_policy(&mut tx, approval.source.user_id)
         .await
         .map_err(|_| ApprovalError::PolicyMismatch)?;
+    if let Some(request) = continuity {
+        key_continuity::persist(&mut tx, &approval, request).await?;
+    }
     tx.commit().await.map_err(db)?;
     Ok(ApplyAdminActivationResponse {
         status: "applied",

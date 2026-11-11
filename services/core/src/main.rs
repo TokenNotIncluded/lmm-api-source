@@ -18,7 +18,7 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | publish-subscription-pancake-price | seed-checkin-history | publish-checkin-policy | schema-manifest | check-db | trust-policy-editor]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | seed-checkin-history | publish-checkin-policy | schema-manifest | check-db | trust-policy-editor]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
@@ -75,6 +75,8 @@ enum Command {
     RebuildChannelUsage,
     PlanAdminActivation,
     ApplyAdminActivation,
+    PlanAdminKeyContinuity,
+    ApplyAdminKeyContinuity,
     PublishSubscriptionPancakePrice,
     SeedCheckinHistory,
     PublishCheckinPolicy,
@@ -125,6 +127,8 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "rebuild-channel-usage"
                 | "plan-admin-activation"
                 | "apply-admin-activation"
+                | "plan-admin-key-continuity"
+                | "apply-admin-key-continuity"
                 | "publish-subscription-pancake-price"
                 | "seed-checkin-history"
                 | "publish-checkin-policy"
@@ -145,6 +149,8 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     Some("rebuild-channel-usage") => Command::RebuildChannelUsage,
                     Some("plan-admin-activation") => Command::PlanAdminActivation,
                     Some("apply-admin-activation") => Command::ApplyAdminActivation,
+                    Some("plan-admin-key-continuity") => Command::PlanAdminKeyContinuity,
+                    Some("apply-admin-key-continuity") => Command::ApplyAdminKeyContinuity,
                     Some("publish-subscription-pancake-price") => {
                         Command::PublishSubscriptionPancakePrice
                     }
@@ -330,6 +336,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                 io::stdin().lock(),
             )?)
         }
+        Command::PlanAdminKeyContinuity | Command::ApplyAdminKeyContinuity => {
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "admin key continuity requires explicit owner --config",
+                )
+                .into());
+            }
+            Some(match arguments.command {
+                Command::PlanAdminKeyContinuity => {
+                    admin::Operation::plan_admin_key_continuity(io::stdin().lock())?
+                }
+                _ => admin::Operation::apply_admin_key_continuity(io::stdin().lock())?,
+            })
+        }
         Command::PlanAdminActivation => {
             if arguments.config.is_none() || arguments.legacy_env {
                 return Err(io::Error::new(
@@ -376,7 +397,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let legacy_config = config::legacy_auth()?;
     let federated_auth = config::federated_auth_configured()?;
     if federated_auth && (database_url.is_none() || legacy_config.is_none()) {
-        return Err("federated authentication requires a database and native Web authentication".into());
+        return Err(
+            "federated authentication requires a database and native Web authentication".into(),
+        );
     }
     let console_enabled = config::console_enabled()?;
     let mut capabilities = lmm_core::http::Capabilities::default();
@@ -616,7 +639,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 .merge(lmm_core::pricing_http::PricingHttp::unavailable(pool.clone()).router());
         }
         if config::directory_ads_configured() {
-            routes = routes.merge(config::directory_ads_browser_router(lmm_core::directory_ads::Store::new(pool.clone()))?);
+            routes = routes.merge(config::directory_ads_browser_router(
+                lmm_core::directory_ads::Store::new(pool.clone()),
+            )?);
         }
         if config::wallet_configured() {
             let wallet = lmm_core::wallet::Store::new(pool.clone());
@@ -709,7 +734,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 }
                 let financial = config::financial_rpcs(url, &token).await?;
                 if let Some(subscriptions) = financial.epay_subscriptions {
-                    if console_enabled { app = app.merge(subscriptions.price_router()); }
+                    if console_enabled {
+                        app = app.merge(subscriptions.price_router());
+                    }
                     server = server.with_epay_subscriptions(subscriptions);
                 }
                 if let Some(payments) = financial.payments {

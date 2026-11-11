@@ -347,6 +347,13 @@ GRANT USAGE ON SEQUENCE core_promotions.red_packets_id_seq,core_promotions.red_p
 \endif
 
 \if :enable_models
+-- Imported administrator keys may have one owner-attested generation bridge.
+-- Native partial-schema fixtures have no migration registry or such keys.
+SELECT to_regclass('core_migration.import_runs') IS NOT NULL AS has_key_continuity_registry \gset
+\if :has_key_continuity_registry
+GRANT USAGE ON SCHEMA core_migration TO :"runtime_role";
+GRANT SELECT(migration_id,manifest) ON core_migration.import_runs TO :"runtime_role";
+\endif
 -- BEGIN channel-accounting runtime grants
 GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO :"runtime_role";
 GRANT USAGE ON SCHEMA core_channels TO :"runtime_role";

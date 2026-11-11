@@ -41,6 +41,8 @@ pub enum Operation {
     UpgradeDatabase(Box<lmm_core::core_schema::UpgradeRequest>),
     PlanAdminActivation(PlanAdminActivationRequest),
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
+    PlanAdminKeyContinuity(admin_approval::key_continuity::PlanRequest),
+    ApplyAdminKeyContinuity(Box<admin_approval::key_continuity::ApplyRequest>),
     PublishSubscriptionPancakePrice(lmm_core::subscriptions::PublishPancakePrice),
     SeedCheckinHistory(lmm_core::checkins::SeedHistory),
     PublishCheckinPolicy(lmm_core::checkins::PublishPolicy),
@@ -48,6 +50,17 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub fn plan_admin_key_continuity(input: impl Read) -> io::Result<Self> {
+        admin_approval::read_bounded_json(input)
+            .map(Self::PlanAdminKeyContinuity)
+            .map_err(approval_io)
+    }
+
+    pub fn apply_admin_key_continuity(input: impl Read) -> io::Result<Self> {
+        admin_approval::read_bounded_json(input)
+            .map(|request| Self::ApplyAdminKeyContinuity(Box::new(request)))
+            .map_err(approval_io)
+    }
     pub fn trust_policy_editor(input: impl Read) -> io::Result<Self> {
         trust_policy_editor::read(input).map(Self::TrustPolicyEditor)
     }
@@ -342,6 +355,20 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
             lmm_core::core_schema::check(&pool).await?;
             let mut connection = pool.acquire().await?;
             let response = admin_approval::plan_admin_activation(&mut connection, &request).await?;
+            serde_json::to_writer(io::stdout().lock(), &response)?;
+            println!();
+        }
+        Operation::PlanAdminKeyContinuity(request) => {
+            lmm_core::core_schema::check(&pool).await?;
+            let mut connection = pool.acquire().await?;
+            let response = admin_approval::key_continuity::plan(&mut connection, &request).await?;
+            serde_json::to_writer(io::stdout().lock(), &response)?;
+            println!();
+        }
+        Operation::ApplyAdminKeyContinuity(request) => {
+            lmm_core::core_schema::check(&pool).await?;
+            let mut connection = pool.acquire().await?;
+            let response = admin_approval::key_continuity::apply(&mut connection, &request).await?;
             serde_json::to_writer(io::stdout().lock(), &response)?;
             println!();
         }

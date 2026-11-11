@@ -13,13 +13,13 @@ pub use permissions::{
 };
 mod auth;
 mod browser;
-pub(crate) use browser::{FederatedLoginOutcome, FederatedBindOutcome};
 pub use browser::{
     ACCOUNT_APPEALS_SCHEMA, ACCOUNT_LIFECYCLE_SCHEMA, AccountAppealContext, AccountAppealGrant,
     AccountAppealReceipt, AccountClosureOutcome, AccountClosurePreview, AccountClosureReceipt,
     AccountClosureRequest, BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration,
     BrowserSessionMetadata, PASSKEY_SCHEMA, PasskeyChallenge, PasskeyConfig,
 };
+pub(crate) use browser::{FederatedBindOutcome, FederatedLoginOutcome};
 mod company;
 pub use browser::{
     ACCOUNT_LINKS_SCHEMA, AccountBindFinish, AccountBindStart, AccountLinkProvider,
@@ -73,7 +73,7 @@ use std::{fmt, time::Duration};
 
 const MAX_TTL: i64 = 31_536_000;
 const SESSION_TTL: i64 = 604_800;
-const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND c.user_version=u.auth_version AND NOT EXISTS (SELECT 1 FROM core_identity.api_key_settings ks WHERE ks.credential_id=c.id AND NOT ks.enabled) AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
+const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,u.auth_version AS current_user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND NOT EXISTS (SELECT 1 FROM core_identity.api_key_settings ks WHERE ks.credential_id=c.id AND NOT ks.enabled) AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityError {
@@ -142,6 +142,12 @@ pub struct Principal {
     pub funding_account_ids: Vec<i64>,
     #[serde(skip)]
     user_version: i64,
+}
+impl Principal {
+    /// Immutable issuing generation, after current authority was revalidated.
+    pub(crate) fn credential_generation(&self) -> i64 {
+        self.user_version
+    }
 }
 /// Returned once. Deliberately no Debug implementation.
 #[derive(Serialize)]
@@ -244,6 +250,17 @@ async fn principal_with_assurance_mode(
 ) -> Result<Principal> {
     let user_id: i64 = row.try_get("user_id")?;
     let id: i64 = row.try_get("id")?;
+    if !admin_approval::key_continuity::generation_matches(
+        c,
+        id,
+        &row.try_get::<String, _>("kind")?,
+        row.try_get("user_version")?,
+        row.try_get("current_user_version")?,
+    )
+    .await?
+    {
+        return Err(IdentityError::Unauthorized);
+    }
     let owner_account_id: i64 = row.try_get("owner_account_id")?;
     let team_id: Option<i64> = row.try_get("team_id")?;
     let kind = match row.try_get::<String, _>("kind")?.as_str() {

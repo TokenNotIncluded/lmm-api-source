@@ -120,12 +120,10 @@ impl ImageService {
         if !claim {
             return Err(Error::Pending);
         }
-        let version: i64 = sqlx::query_scalar(
-            "SELECT auth_version FROM core_identity.users WHERE id=$1 FOR SHARE",
-        )
-        .bind(actor.user_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        // The canonical authority above has already locked and validated the
+        // current user generation. Image receipts bind the immutable issuing
+        // credential generation, including an explicitly bridged legacy key.
+        let version = actor.credential_generation();
         let existing = sqlx::query("SELECT * FROM core_image.operations WHERE id=$1 FOR UPDATE")
             .bind(&id)
             .fetch_optional(&mut *tx)

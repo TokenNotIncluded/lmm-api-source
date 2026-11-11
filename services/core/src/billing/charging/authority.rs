@@ -36,18 +36,29 @@ pub(super) fn worker_digest(worker: &[u8; 32]) -> Result<Vec<u8>> {
 
 pub(super) async fn authenticate(c: &mut PgConnection, secret: &str) -> Result<Actor> {
     let row = sqlx::query(
-        "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id \
+        "SELECT c.id,c.kind,c.user_id,c.user_version,u.auth_version AS current_user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id \
          FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id \
          JOIN core_identity.accounts a ON a.id=c.owner_account_id \
          JOIN core_identity.accounts p ON p.id=u.personal_account_id \
          WHERE c.digest=$1 AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp() \
-         AND c.user_version=u.auth_version AND u.active AND a.active AND p.active \
+         AND u.active AND a.active AND p.active \
          FOR SHARE OF c,u,a,p",
     )
     .bind(digest(secret)?)
     .fetch_optional(&mut *c)
     .await?
     .ok_or(Error::Unauthorized)?;
+    if !crate::identity::admin_approval::key_continuity::generation_matches(
+        c,
+        row.try_get("id")?,
+        &row.try_get::<String, _>("kind")?,
+        row.try_get("user_version")?,
+        row.try_get("current_user_version")?,
+    )
+    .await?
+    {
+        return Err(Error::Unauthorized);
+    }
     let actor = Actor {
         user: row.try_get("user_id")?,
         key: row.try_get("id")?,

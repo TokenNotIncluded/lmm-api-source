@@ -162,10 +162,12 @@ impl IdentityStore {
             !matches!(
                 method.as_str(),
                 "google" | "github" | "linuxdo" | "discord" | "telegram" | "oidc" | "wechat"
-            )
-            && !method.strip_prefix("custom:").is_some_and(|slug| {
-                !slug.is_empty() && slug.len() <= 64
-                    && slug.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            ) && !method.strip_prefix("custom:").is_some_and(|slug| {
+                !slug.is_empty()
+                    && slug.len() <= 64
+                    && slug
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
             })
         }) {
             return Err(IdentityError::Invalid);
@@ -723,22 +725,29 @@ impl IdentityStore {
         } else {
             (None, false)
         };
-        let rows = sqlx::query("SELECT c.id,c.kind,c.user_id,c.owner_account_id,EXTRACT(EPOCH FROM c.expires_at)::bigint AS expires,(c.revoked_at IS NOT NULL OR c.user_version<>u.auth_version) AS revoked,EXTRACT(EPOCH FROM c.created_at)::bigint AS created FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id WHERE c.id>$1 AND ($2::bigint IS NULL OR c.owner_account_id=$2) AND ($3 OR c.user_id=$4) ORDER BY c.id LIMIT 100")
+        let rows = sqlx::query("SELECT c.id,c.kind,c.user_id,c.owner_account_id,c.user_version,u.auth_version AS current_user_version,EXTRACT(EPOCH FROM c.expires_at)::bigint AS expires,(c.revoked_at IS NOT NULL) AS revoked,EXTRACT(EPOCH FROM c.created_at)::bigint AS created FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id WHERE c.id>$1 AND ($2::bigint IS NULL OR c.owner_account_id=$2) AND ($3 OR c.user_id=$4) ORDER BY c.id LIMIT 100")
             .bind(after).bind(owner).bind(all_members).bind(actor.user_id).fetch_all(&mut *tx).await?;
-        let result = rows
-            .into_iter()
-            .map(|r| {
-                Ok(CredentialSummary {
-                    id: r.try_get("id")?,
-                    kind: r.try_get("kind")?,
-                    user_id: r.try_get("user_id")?,
-                    owner_account_id: r.try_get("owner_account_id")?,
-                    expires_at: r.try_get("expires")?,
-                    revoked: r.try_get("revoked")?,
-                    created_at: r.try_get("created")?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let mut result = Vec::with_capacity(rows.len());
+        for r in rows {
+            let revoked = r.try_get::<bool, _>("revoked")?
+                || !admin_approval::key_continuity::generation_matches(
+                    &mut tx,
+                    r.try_get("id")?,
+                    &r.try_get::<String, _>("kind")?,
+                    r.try_get("user_version")?,
+                    r.try_get("current_user_version")?,
+                )
+                .await?;
+            result.push(CredentialSummary {
+                id: r.try_get("id")?,
+                kind: r.try_get("kind")?,
+                user_id: r.try_get("user_id")?,
+                owner_account_id: r.try_get("owner_account_id")?,
+                expires_at: r.try_get("expires")?,
+                revoked,
+                created_at: r.try_get("created")?,
+            });
+        }
         tx.commit().await?;
         Ok(result)
     }
