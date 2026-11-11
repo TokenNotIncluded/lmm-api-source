@@ -16,4 +16,4 @@ pub(crate) use provider::{FederatedProvider, ProviderConfiguration, ProviderKind
 pub(crate) use service::FederatedAuth;
 pub(crate) use service::public_catalog;
 
-pub(crate) const SCHEMA: &str = include_str!("../../../schema/federated_auth.sql");
+pub(crate) const SCHEMA: &str = include_str!("../../schema/federated_auth.sql");
