@@ -741,7 +741,7 @@ CHECKINS_FILE_HASHES = {
     "services/core/src/runtime_checkins.rs": "c988c28c100d14181b055c684c67560257c2cc94ead1b815501ede7493a4b0da",
 }
 CHECKINS_REVIEW_FILE = Path(__file__).with_name("reviewed-fresh68-checkins.json")
-CHECKINS_REVIEW_SHA256 = "92bbde3286f8b870cba26aa5533c9ff8d9eb0beccae5edb546612f543e6cc3be"
+CHECKINS_REVIEW_SHA256 = "1133243d5015487863ecd3d9a74e0f489047cf5724c2104d4db9f7753ca38634"
 REVIEWED_CHECKINS = json.loads(CHECKINS_REVIEW_FILE.read_text(encoding="utf-8"))
 REVIEWED_SCHEMA_ALIASES['crate::checkins::SCHEMA'] = (
     'services/core/src/checkins.rs', 'SCHEMA', 'include_str!("../schema/checkins.sql")')
