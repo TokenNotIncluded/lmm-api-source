@@ -2017,6 +2017,8 @@ struct GatewayPaymentChannel {
     environment: String,
     currency: String,
     credits_per_minor: i64,
+    #[serde(default)]
+    credit_quote: Option<crate::payments::credit_quote::CreditQuotePolicy>,
     max_amount_minor: i64,
     webhook_secret_file: PathBuf,
     #[serde(default)]
@@ -2074,11 +2076,24 @@ impl PaymentConfig {
                                 c.inquiry_api_key_file.is_none()
                                     && c.inquiry_private_key_file.is_none()
                             }
-                            && c.credits_per_minor > 0
                             && c.max_amount_minor > 0
-                            && c.credits_per_minor
-                                .checked_mul(c.max_amount_minor)
-                                .is_some()
+                            && match &c.credit_quote {
+                                None => {
+                                    c.credits_per_minor > 0
+                                        && c.credits_per_minor
+                                            .checked_mul(c.max_amount_minor)
+                                            .is_some()
+                                }
+                                Some(policy) => {
+                                    c.provider == "waffo_pancake"
+                                        && matches!(c.currency.as_str(), "USD" | "CNY")
+                                        && c.credits_per_minor == 0
+                                        && (c.currency != "USD"
+                                            || policy.settlement_per_usd_numerator
+                                                == policy.settlement_per_usd_denominator)
+                                        && policy.valid()
+                                }
+                            }
                     })
             }
         };
@@ -2156,6 +2171,7 @@ impl PaymentConfig {
                             environment: channel.environment,
                             currency: channel.currency,
                             credits_per_minor: channel.credits_per_minor,
+                            credit_quote: channel.credit_quote,
                             max_amount_minor: channel.max_amount_minor,
                             webhook_secrets: vec![secret(&channel.webhook_secret_file)?],
                             verification: crate::payments::ProviderVerification {
@@ -4027,6 +4043,118 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
             )
             .is_err()
         );
+    }
+    #[test]
+    fn payment_configuration_v2_credit_quantity_is_explicit_and_exclusive() {
+        let document = "version=2\n[[channels]]\nid=5001\nprovider='waffo_pancake'\nmerchant='merchant_fixture'\nenvironment='live'\ncurrency='CNY'\ncredits_per_minor=0\nmax_amount_minor=10000\nwebhook_secret_file='/synthetic/public-key'\ncredit_quote={settlement_per_usd_numerator=34,settlement_per_usd_denominator=5}\n[permissions]\nprepare=true\n";
+        let config: PaymentConfig = parse_document(document.as_bytes()).unwrap();
+        assert!(config.validate().is_ok());
+        for changed in [
+            document.replace("credits_per_minor=0", "credits_per_minor=1"),
+            document.replace("currency='CNY'", "currency='EUR'"),
+            document.replace("currency='CNY'", "currency='USD'"),
+            document.replace(
+                "settlement_per_usd_numerator=34",
+                "settlement_per_usd_numerator=0",
+            ),
+            document.replace(
+                "settlement_per_usd_numerator=34",
+                "settlement_per_usd_numerator=-1",
+            ),
+            document.replace(
+                "settlement_per_usd_denominator=5",
+                "settlement_per_usd_denominator=0",
+            ),
+            document.replace(
+                "settlement_per_usd_denominator=5",
+                "settlement_per_usd_denominator=-1",
+            ),
+            document.replace("max_amount_minor=10000", "max_amount_minor=0"),
+        ] {
+            let config: PaymentConfig = parse_document(changed.as_bytes()).unwrap();
+            assert!(config.validate().is_err());
+        }
+        let usd = document
+            .replace("currency='CNY'", "currency='USD'")
+            .replace(
+                "settlement_per_usd_numerator=34",
+                "settlement_per_usd_numerator=1",
+            )
+            .replace(
+                "settlement_per_usd_denominator=5",
+                "settlement_per_usd_denominator=1",
+            );
+        let config: PaymentConfig = parse_document(usd.as_bytes()).unwrap();
+        assert!(config.validate().is_ok());
+        let discounted = document.replace(
+            "settlement_per_usd_denominator=5}",
+            "settlement_per_usd_denominator=5,discounts={500000={numerator=1,denominator=1},1000000={numerator=99,denominator=100}}}",
+        );
+        let config: PaymentConfig = parse_document(discounted.as_bytes()).unwrap();
+        assert!(config.validate().is_ok());
+        for changed in [
+            discounted.replace("numerator=99", "numerator=0"),
+            discounted.replace("numerator=99", "numerator=101"),
+            discounted.replace("denominator=100", "denominator=0"),
+            document.replace(
+                "settlement_per_usd_numerator=34",
+                "settlement_per_usd_numerator=1000000001",
+            ),
+            document.replace(
+                "settlement_per_usd_denominator=5",
+                "settlement_per_usd_denominator=1000000001",
+            ),
+        ] {
+            let config: PaymentConfig = parse_document(changed.as_bytes()).unwrap();
+            assert!(config.validate().is_err());
+        }
+        assert!(
+            parse_document::<PaymentConfig>(
+                discounted
+                    .replace("numerator=99", "numerator=99,unknown=true")
+                    .as_bytes()
+            )
+            .is_err()
+        );
+        for provider in ["stripe", "epay", "creem", "coinbase", "waffo"] {
+            let changed = document.replace(
+                "provider='waffo_pancake'",
+                &format!("provider='{provider}'"),
+            );
+            let config: PaymentConfig = parse_document(changed.as_bytes()).unwrap();
+            assert!(config.validate().is_err());
+        }
+        assert!(
+            parse_document::<PaymentConfig>(
+                document
+                    .replace(
+                        "settlement_per_usd_denominator=5",
+                        "settlement_per_usd_denominator=5,unknown=true"
+                    )
+                    .as_bytes()
+            )
+            .is_err()
+        );
+        let linear = document.replace(
+            "credit_quote={settlement_per_usd_numerator=34,settlement_per_usd_denominator=5}\n",
+            "",
+        );
+        let config: PaymentConfig = parse_document(linear.as_bytes()).unwrap();
+        assert!(config.validate().is_err());
+        let linear = linear.replace("credits_per_minor=0", "credits_per_minor=5000");
+        let config: PaymentConfig = parse_document(linear.as_bytes()).unwrap();
+        assert!(config.validate().is_ok());
+        let PaymentConfig::Gateways(config) = config else {
+            panic!("expected gateway configuration")
+        };
+        assert!(config.channels[0].credit_quote.is_none());
+        assert_eq!(config.channels[0].credits_per_minor, 5000);
+        let overflow = linear.replace(
+            "max_amount_minor=10000",
+            "max_amount_minor=9223372036854775807",
+        );
+        let config: PaymentConfig = parse_document(overflow.as_bytes()).unwrap();
+        assert!(config.validate().is_err());
     }
     #[test]
     fn payment_configuration_v2_requires_private_inquiry_in_both_waffo_environments() {

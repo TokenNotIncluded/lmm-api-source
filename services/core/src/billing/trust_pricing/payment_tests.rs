@@ -113,6 +113,7 @@ async fn real_new_credit_and_partial_full_refund_recompute_entitlement(pool: PgP
         .prepare(
             &session.secret,
             pb::PrepareTopupRequest {
+                requested_credit_units: 0,
                 mutation: mutation("trust_prepare_0001"),
                 account_id: account,
                 payment_channel_id: 1,
@@ -225,6 +226,7 @@ async fn real_new_credit_and_partial_full_refund_recompute_entitlement(pool: PgP
             .prepare(
                 who,
                 pb::PrepareTopupRequest {
+                    requested_credit_units: 0,
                     mutation: mutation(&operation),
                     account_id: beneficiary,
                     payment_channel_id: 1,

@@ -187,6 +187,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "image-native-usage",
         include_str!("../schema/image_native_usage.sql"),
     ),
+    (
+        "payment-credit-quotes",
+        crate::payments::CREDIT_QUOTE_SCHEMA,
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

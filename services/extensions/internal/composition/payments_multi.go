@@ -21,6 +21,7 @@ type multiPaymentDocument struct {
 }
 
 type multiPaymentChannel struct {
+	CreditQuantity      bool   `toml:"credit_quantity"`
 	ID                  int64  `toml:"id"`
 	Provider            string `toml:"provider"`
 	Merchant            string `toml:"merchant"`
@@ -84,7 +85,7 @@ func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheck
 	}
 	// TOML accepts case-insensitive Go field matches; the public contract does not.
 	allowed := map[string]bool{"version": true, "channels": true}
-	for _, field := range strings.Fields("id provider merchant environment currency enabled subscription_enabled api_key_file api_version private_key_file success_url cancel_url endpoint notify_url return_url payment_type product_id product_amount_minor store_id pay_method_type pay_method_name checkout_region checkout_language tax_category") {
+	for _, field := range strings.Fields("id provider merchant environment currency enabled credit_quantity subscription_enabled api_key_file api_version private_key_file success_url cancel_url endpoint notify_url return_url payment_type product_id product_amount_minor store_id pay_method_type pay_method_name checkout_region checkout_language tax_category") {
 		allowed["channels."+field] = true
 	}
 	for _, key := range meta.Keys() {
@@ -105,7 +106,7 @@ func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheck
 		if admission != nil && (c.Provider == "stripe" || c.Provider == "waffo_pancake") {
 			admission[c.ID] = c.SubscriptionEnabled
 		}
-		channel := payments.Channel{ID: c.ID, Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled}
+		channel := payments.Channel{CreditQuantity: c.CreditQuantity, ID: c.ID, Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled}
 		var apiKey, privateKey string
 		switch c.Provider {
 		case "stripe", "creem", "waffo", "coinbase":

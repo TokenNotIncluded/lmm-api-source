@@ -1,6 +1,7 @@
 //! Real PostgreSQL payment acceptance with synthetic endpoint signatures only.
 //! SQLx creates a new owned database per test; never point DATABASE_URL at live data.
 #![cfg(unix)]
+use base64::{Engine, engine::general_purpose::STANDARD};
 use hmac::{Hmac, Mac};
 use lmm_core::{
     billing::{
@@ -9,12 +10,18 @@ use lmm_core::{
     },
     identity::IdentityStore,
     internal_rpc::pb,
-    payments::{Channel, Error, PaymentsStore},
+    payments::{Channel, CreditQuotePolicy, CreditQuoteRatio, Error, PaymentsStore},
 };
+use rand::{SeedableRng, rngs::StdRng};
+use rsa::{Pkcs1v15Sign, RsaPrivateKey, pkcs8::EncodePublicKey};
 use serde_json::{Value, json};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeMap,
+    sync::OnceLock,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 const SECRET: &str = "whsec_local_synthetic_endpoint_only";
 const MERCHANT: &str = "acct_local_synthetic";
@@ -137,6 +144,7 @@ fn prepare_request(f: &Fixture, key: &str, amount: i64) -> pb::PrepareTopupReque
         payment_channel_id: 1,
         currency: "USD".into(),
         amount_minor: amount,
+        requested_credit_units: 0,
     }
 }
 async fn prepare(f: &Fixture, key: &str, amount: i64) -> pb::PaymentIntent {
@@ -2655,4 +2663,402 @@ async fn capacity_quarantine_recovers_after_bound_retry_failure_resolve_first(po
 #[sqlx::test]
 async fn capacity_quarantine_recovers_after_bound_retry_failure_external_first(pool: PgPool) {
     failed_refund_retry_capacity(pool, true, true).await;
+}
+
+// Reuse the providers module's deterministic synthetic RSA fixture identity.
+fn quantity_fixture_rsa() -> &'static RsaPrivateKey {
+    static KEY: OnceLock<RsaPrivateKey> = OnceLock::new();
+    KEY.get_or_init(|| RsaPrivateKey::new(&mut StdRng::seed_from_u64(42), 2048).unwrap())
+}
+fn quantity_policy(numerator: i64, denominator: i64) -> CreditQuotePolicy {
+    CreditQuotePolicy {
+        settlement_per_usd_numerator: numerator,
+        settlement_per_usd_denominator: denominator,
+        discounts: BTreeMap::from([(
+            1_000_000,
+            CreditQuoteRatio {
+                numerator: 99,
+                denominator: 100,
+            },
+        )]),
+    }
+}
+fn quantity_channel(id: i64, currency: &str, policy: CreditQuotePolicy) -> Channel {
+    let mut channel = Channel::pancake_isolated_test(
+        id,
+        "merchant_fixture".into(),
+        quantity_fixture_rsa()
+            .to_public_key()
+            .to_public_key_pem(Default::default())
+            .unwrap(),
+        "STO_fixture".into(),
+        "PROD_fixture".into(),
+        currency.into(),
+        100_000,
+    )
+    .unwrap();
+    channel.credits_per_minor = 0;
+    channel.credit_quote = Some(policy);
+    channel
+}
+fn quantity_request(f: &Fixture, key: &str, credits: i64) -> pb::PrepareTopupRequest {
+    pb::PrepareTopupRequest {
+        mutation: mutation(key),
+        account_id: f.account,
+        payment_channel_id: 5003,
+        currency: "CNY".into(),
+        amount_minor: 0,
+        requested_credit_units: credits,
+    }
+}
+fn quantity_store(pool: &PgPool, policy: CreditQuotePolicy) -> IngressStore {
+    IngressStore(
+        PaymentsStore::new(pool.clone(), vec![quantity_channel(5003, "CNY", policy)]).unwrap(),
+    )
+}
+
+#[sqlx::test]
+async fn credit_quantity_prepare_freezes_cny_discount_and_prior_policy(pool: PgPool) {
+    let mut f = fresh(&pool).await;
+    f.store = quantity_store(&pool, quantity_policy(418_769, 62_500));
+    let mut wrong = quantity_request(&f, "quantity_wrong_candidate_01", 1_000_000);
+    wrong.amount_minor = 1326;
+    assert_eq!(
+        f.store.prepare(&f.secret, wrong).await.unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_payments.intents")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+
+    let request = quantity_request(&f, "quantity_frozen_policy_01", 1_000_000);
+    let original = f.store.prepare(&f.secret, request.clone()).await.unwrap();
+    assert_eq!(
+        (
+            original.amount_minor,
+            original.credit_units,
+            original.currency.as_str()
+        ),
+        (1327, 1_000_000, "CNY")
+    );
+    let (rate, quote): (i64, Value) = sqlx::query_as(
+        "SELECT credits_per_minor,credit_quote FROM core_payments.intents WHERE id=$1",
+    )
+    .bind(original.intent_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rate, 0);
+    assert_eq!(
+        quote,
+        json!({"kind":"credit_quantity_v1","settlement_per_usd_numerator":418769,"settlement_per_usd_denominator":62500,"discount_numerator":99,"discount_denominator":100})
+    );
+
+    f.store = quantity_store(&pool, quantity_policy(7, 1));
+    assert_eq!(
+        f.store.prepare(&f.secret, request.clone()).await.unwrap(),
+        original
+    );
+    let stored: Value =
+        sqlx::query_scalar("SELECT credit_quote FROM core_payments.intents WHERE id=$1")
+            .bind(original.intent_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, quote);
+    let next = f
+        .store
+        .prepare(
+            &f.secret,
+            quantity_request(&f, "quantity_new_fx_policy_01", 1_000_000),
+        )
+        .await
+        .unwrap();
+    assert_eq!((next.amount_minor, next.credit_units), (1386, 1_000_000));
+    let mut changed = request;
+    changed.requested_credit_units += 1;
+    assert_eq!(
+        f.store.prepare(&f.secret, changed).await.unwrap_err(),
+        Error::Conflict
+    );
+    assert!(matches!(
+        f.ledger.balance(f.account).await,
+        Err(ledger::Error::NotFound)
+    ));
+    assert_eq!(journals(&pool).await, 0);
+}
+
+#[sqlx::test]
+async fn credit_quantity_personal_prepare_and_legacy_linear_contract(pool: PgPool) {
+    let mut f = fresh(&pool).await;
+    f.store = IngressStore(
+        PaymentsStore::new(
+            pool.clone(),
+            vec![
+                Channel::stripe_test(1, MERCHANT.into(), SECRET.into(), 100_000),
+                quantity_channel(5001, "USD", quantity_policy(1, 1)),
+                quantity_channel(5003, "CNY", quantity_policy(418_769, 62_500)),
+            ],
+        )
+        .unwrap(),
+    );
+    let cny = f
+        .store
+        .prepare_personal(
+            &f.secret,
+            pb::PreparePersonalTopupRequest {
+                mutation: mutation("personal_quantity_cny_01"),
+                payment_channel_id: 5003,
+                currency: "CNY".into(),
+                amount_minor: 0,
+                requested_credit_units: 1_000_000,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (cny.account_id, cny.amount_minor, cny.credit_units),
+        (f.account, 1327, 1_000_000)
+    );
+    let usd = f
+        .store
+        .prepare_personal(
+            &f.secret,
+            pb::PreparePersonalTopupRequest {
+                mutation: mutation("personal_quantity_usd_01"),
+                payment_channel_id: 5001,
+                currency: "USD".into(),
+                amount_minor: 0,
+                requested_credit_units: 1_000_000,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!((usd.amount_minor, usd.credit_units), (198, 1_000_000));
+    let legacy = f
+        .store
+        .prepare_personal(
+            &f.secret,
+            pb::PreparePersonalTopupRequest {
+                mutation: mutation("personal_legacy_linear_01"),
+                payment_channel_id: 1,
+                currency: "USD".into(),
+                amount_minor: 20,
+                requested_credit_units: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!((legacy.amount_minor, legacy.credit_units), (20, 100_000));
+    let quote: Option<Value> =
+        sqlx::query_scalar("SELECT credit_quote FROM core_payments.intents WHERE id=$1")
+            .bind(legacy.intent_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(quote.is_none());
+    let mut bad = prepare_request(&f, "quantity_on_linear_0001", 20);
+    bad.requested_credit_units = 1_000_000;
+    assert_eq!(
+        f.store.prepare(&f.secret, bad).await.unwrap_err(),
+        Error::Invalid
+    );
+    let mut bad = quantity_request(&f, "amount_without_quantity_01", 0);
+    bad.amount_minor = 1327;
+    assert_eq!(
+        f.store.prepare(&f.secret, bad).await.unwrap_err(),
+        Error::Invalid
+    );
+}
+
+#[sqlx::test]
+async fn credit_quantity_sql_quote_constraints_and_immutability(pool: PgPool) {
+    let mut f = fresh(&pool).await;
+    let legacy = prepare(&f, "quantity_old_linear_base_01", 20).await;
+    f.store = quantity_store(&pool, quantity_policy(418_769, 62_500));
+    let intent = f
+        .store
+        .prepare(
+            &f.secret,
+            quantity_request(&f, "quantity_sql_frozen_0001", 1_000_000),
+        )
+        .await
+        .unwrap();
+    let quote: Value =
+        sqlx::query_scalar("SELECT credit_quote FROM core_payments.intents WHERE id=$1")
+            .bind(intent.intent_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let mut unknown = quote.clone();
+    unknown["untrusted_field"] = json!(true);
+    let mut unknown_kind = quote.clone();
+    unknown_kind["kind"] = json!("client_quantity_v1");
+    let mut missing = quote.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("discount_numerator");
+    let mut fractional = quote.clone();
+    fractional["settlement_per_usd_denominator"] = json!(62500.5);
+    for (suffix, candidate, credits, amount, rate) in [
+        ("absent", None, 1_000_000_i64, 1327_i64, 0_i64),
+        ("empty", Some(json!({})), 1_000_000, 1327, 0),
+        ("unknown", Some(unknown), 1_000_000, 1327, 0),
+        ("kind", Some(unknown_kind), 1_000_000, 1327, 0),
+        ("missing", Some(missing), 1_000_000, 1327, 0),
+        ("fractional", Some(fractional), 1_000_000, 1327, 0),
+        ("forged_credit", Some(quote.clone()), 2_000_000, 1327, 0),
+        ("forged_amount", Some(quote.clone()), 1_000_000, 1328, 0),
+        ("linear_rate", Some(quote.clone()), 1_000_000, 1327, 5000),
+    ] {
+        let error = sqlx::query("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash,credit_quote) SELECT account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,$2,$3,$4,$5,prepare_hash,$6 FROM core_payments.intents WHERE id=$1")
+            .bind(intent.intent_id).bind(amount).bind(credits).bind(rate).bind(format!("quantity_sql_invalid_{suffix}"))
+            .bind(candidate.map(sqlx::types::Json)).execute(&pool).await.unwrap_err();
+        assert_eq!(
+            error.as_database_error().and_then(|e| e.code()).as_deref(),
+            Some("23514"),
+            "{suffix}"
+        );
+    }
+    for (field, value) in [
+        ("credit_quote", json!({})),
+        ("credit_units", json!(1_000_001)),
+    ] {
+        let sql = if field == "credit_quote" {
+            "UPDATE core_payments.intents SET credit_quote=$2 WHERE id=$1"
+        } else {
+            "UPDATE core_payments.intents SET credit_units=($2::jsonb #>> '{}')::bigint WHERE id=$1"
+        };
+        let error = sqlx::query(sql)
+            .bind(intent.intent_id)
+            .bind(sqlx::types::Json(value))
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().and_then(|e| e.code()).as_deref(),
+            Some("23514")
+        );
+    }
+    sqlx::query("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash,credit_quote) SELECT account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,'quantity_raw_old_linear_01',prepare_hash,NULL FROM core_payments.intents WHERE id=$1")
+        .bind(legacy.intent_id).execute(&pool).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_payments.intents")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        3
+    );
+}
+
+fn quantity_paid_proof(intent: &pb::PaymentIntent) -> pb::ProviderEvidence {
+    let payment_id = format!("PAY_quantity_{}", intent.intent_id);
+    let event_id = format!("delivery_quantity_{}", intent.intent_id);
+    let amount = format!(
+        "{}.{:02}",
+        intent.amount_minor / 100,
+        intent.amount_minor % 100
+    );
+    let value = json!({"id":event_id,"eventId":format!("payment_quantity_{}",intent.intent_id),"eventType":"order.completed","mode":"test","storeId":"STO_fixture","data":{
+        "orderMerchantExternalId":format!("top_{}",intent.intent_id),"orderId":format!("ORD_quantity_{}",intent.intent_id),"paymentId":payment_id,"orderStatus":"completed","paymentStatus":"succeeded","chargedAmount":amount,"amount":amount,"currency":intent.currency,
+        "orderMetadata":{"lmm_product_id":"PROD_fixture","lmm_merchant":"merchant_fixture"}}});
+    let payload = serde_json::to_vec(&value).unwrap();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let mut signed = format!("{timestamp}.").into_bytes();
+    signed.extend_from_slice(&payload);
+    let signature = quantity_fixture_rsa()
+        .sign(Pkcs1v15Sign::new::<Sha256>(), &Sha256::digest(&signed))
+        .unwrap();
+    pb::ProviderEvidence {
+        payment: Some(pb::ExternalPaymentReference {
+            provider: "waffo_pancake".into(),
+            merchant: "merchant_fixture".into(),
+            environment: "test".into(),
+            transaction: payment_id,
+        }),
+        signed_payload: payload,
+        signature: format!("t={timestamp},v1={}", STANDARD.encode(signature)).into_bytes(),
+        provider_event_id: event_id,
+        accepted_proof_id: String::new(),
+    }
+}
+
+#[sqlx::test]
+async fn credit_quantity_signed_credit_and_controlled_remaining_hold(pool: PgPool) {
+    let mut f = fresh(&pool).await;
+    f.store = quantity_store(&pool, quantity_policy(418_769, 62_500));
+    let intent = f
+        .store
+        .prepare(
+            &f.secret,
+            quantity_request(&f, "quantity_hold_prepare_01", 500_000),
+        )
+        .await
+        .unwrap();
+    assert_eq!((intent.amount_minor, intent.credit_units), (670, 500_000));
+    let credited = f
+        .store
+        .credit(credit_request(
+            &intent,
+            "quantity_hold_credit_01",
+            quantity_paid_proof(&intent),
+        ))
+        .await
+        .unwrap();
+    balance(&f, 500_000, 0).await;
+
+    // Owner-controlled fixture of two completed one-cent refunds. The provider
+    // currently admits Pancake credit events only, so no signed refund is claimed.
+    let deltas:(i64,i64) = sqlx::query_as("SELECT div(500000::numeric+335,670)::bigint,(div(1000000::numeric+335,670)-div(500000::numeric+335,670))::bigint")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(deltas, (746, 747));
+    for (index, amount) in [deltas.0, deltas.1].into_iter().enumerate() {
+        let result = f
+            .ledger
+            .execute(&ledger::Request {
+                scope: "quantity-controlled-refund-fixture".into(),
+                operation_key: format!("quantity_prior_refund_{index}"),
+                actor_user_id: Some(101),
+                reason: "owner-controlled prior refund fixture".into(),
+                action: Action::RefundTopup {
+                    journal_id: credited.journal_id,
+                    amount_units: Credits::try_from(amount).unwrap(),
+                    refund_reference: format!("quantity_controlled_refund_{index}"),
+                },
+            })
+            .await
+            .unwrap();
+        assert!(matches!(result, Outcome::Posted { .. }));
+    }
+    sqlx::query("UPDATE core_payments.intents SET refunded_minor=2,refund_fenced=TRUE WHERE id=$1")
+        .bind(intent.intent_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    balance(&f, 498_507, 0).await;
+    let request = pb::HoldRefundRequest {
+        mutation: mutation("quantity_remaining_hold_01"),
+        intent_id: intent.intent_id,
+        refund_amount_minor: 668,
+    };
+    let hold = f.store.hold(&f.secret, request.clone()).await.unwrap();
+    assert_eq!(hold.state, 2);
+    let held: i64 = sqlx::query_scalar(
+        "SELECT credit_units FROM core_payments.refund_holds WHERE receipt_id=$1",
+    )
+    .bind(&hold.receipt_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(held, 498_507);
+    assert_eq!(f.store.hold(&f.secret, request).await.unwrap(), hold);
+    balance(&f, 0, 498_507).await;
 }

@@ -22,12 +22,13 @@ type PaymentCheckoutService interface {
 }
 
 type paymentCheckoutInput struct {
-	ChannelID           string `json:"channel_id"`
-	AmountMinor         string `json:"amount_minor"`
-	Currency            string `json:"currency"`
-	RequestKey          string `json:"request_key"`
-	OrderID             string `json:"order_id"`
-	ExpectedCreditUnits string `json:"expected_credit_units"`
+	RequestedCreditUnits string `json:"requested_credit_units"`
+	ChannelID            string `json:"channel_id"`
+	AmountMinor          string `json:"amount_minor"`
+	Currency             string `json:"currency"`
+	RequestKey           string `json:"request_key"`
+	OrderID              string `json:"order_id"`
+	ExpectedCreditUnits  string `json:"expected_credit_units"`
 }
 
 type paymentQuoteView struct {
@@ -96,6 +97,7 @@ func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service Pa
 			return
 		}
 		type channelView struct {
+			CreditQuantity   bool   `json:"credit_quantity,omitempty"`
 			ID               string `json:"id"`
 			Provider         string `json:"provider"`
 			Environment      string `json:"environment"`
@@ -106,7 +108,7 @@ func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service Pa
 		}
 		channels := make([]channelView, 0)
 		for _, c := range service.Catalog() {
-			view := channelView{ID: strconv.FormatInt(c.ID, 10), Provider: c.Provider, Environment: c.Environment, Currency: c.Currency, PaymentType: c.PaymentType, ProductID: c.ProductID}
+			view := channelView{CreditQuantity: c.CreditQuantity, ID: strconv.FormatInt(c.ID, 10), Provider: c.Provider, Environment: c.Environment, Currency: c.Currency, PaymentType: c.PaymentType, ProductID: c.ProductID}
 			if c.FixedAmountMinor > 0 {
 				view.FixedAmountMinor = strconv.FormatInt(c.FixedAmountMinor, 10)
 			}
@@ -121,7 +123,7 @@ func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service Pa
 				return
 			}
 			var input paymentCheckoutInput
-			fields := []string{"channel_id", "amount_minor", "currency", "request_key"}
+			fields := []string{"channel_id", "amount_minor", "currency", "request_key", "requested_credit_units"}
 			if confirm {
 				fields = append(fields, "order_id", "expected_credit_units")
 			}
@@ -131,11 +133,19 @@ func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service Pa
 			}
 			channelID, okChannel := paymentDecimalID(input.ChannelID)
 			amount, okAmount := paymentDecimalID(input.AmountMinor)
-			if !okChannel || !okAmount || !validPaymentCurrency(input.Currency) {
+			var requestedCredits int64
+			validCredits := true
+			if input.RequestedCreditUnits != "" {
+				requestedCredits, validCredits = paymentDecimalID(input.RequestedCreditUnits)
+			}
+			if input.AmountMinor == "0" && requestedCredits > 0 {
+				okAmount = true
+			}
+			if !okChannel || !okAmount || !validCredits || !validPaymentCurrency(input.Currency) {
 				writePayment(w, http.StatusBadRequest, "PAYMENT_INVALID", "Invalid payment amount or channel.")
 				return
 			}
-			req := payments.PrepareRequest{Key: input.RequestKey, ChannelID: channelID, Currency: input.Currency, AmountMinor: amount}
+			req := payments.PrepareRequest{Key: input.RequestKey, ChannelID: channelID, Currency: input.Currency, AmountMinor: amount, RequestedCreditUnits: requestedCredits}
 			intent, err := service.Preview(r.Context(), token, req)
 			if err != nil {
 				writePaymentError(w, err)

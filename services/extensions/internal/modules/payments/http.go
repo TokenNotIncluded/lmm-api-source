@@ -52,16 +52,17 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		var body struct {
-			AccountID int64  `json:"account_id"`
-			ChannelID int64  `json:"channel_id"`
-			Currency  string `json:"currency"`
-			Amount    int64  `json:"amount_minor"`
+			RequestedCreditUnits int64  `json:"requested_credit_units"`
+			AccountID            int64  `json:"account_id"`
+			ChannelID            int64  `json:"channel_id"`
+			Currency             string `json:"currency"`
+			Amount               int64  `json:"amount_minor"`
 		}
 		if decodeUser(w, r, &body) != nil || len(r.Header.Values("Idempotency-Key")) != 1 {
 			paymentError(w, ErrInvalid)
 			return
 		}
-		o, err := s.Create(r.Context(), credential, PrepareRequest{Key: r.Header.Get("Idempotency-Key"), AccountID: body.AccountID, ChannelID: body.ChannelID, Currency: body.Currency, AmountMinor: body.Amount})
+		o, err := s.Create(r.Context(), credential, PrepareRequest{Key: r.Header.Get("Idempotency-Key"), AccountID: body.AccountID, ChannelID: body.ChannelID, Currency: body.Currency, AmountMinor: body.Amount, RequestedCreditUnits: body.RequestedCreditUnits})
 		if err != nil {
 			paymentError(w, err)
 			return

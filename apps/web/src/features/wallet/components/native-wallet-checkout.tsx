@@ -16,6 +16,7 @@ import { useCheckoutOwnerKey } from '../hooks/use-checkout-scope'
 import {
   nativeAmountDisplay,
   nativeAmountMinor,
+  nativeRequestedCreditUnits,
   nativeCheckoutFinished,
   nativeCheckoutURL,
   readNativeCheckout,
@@ -160,7 +161,12 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   const review = () =>
     run(async () => {
       if (!selected) return
-      const minor = selected.fixed_amount_minor ?? nativeAmountMinor(amount)
+      const credits = selected.credit_quantity
+        ? nativeRequestedCreditUnits(amount)
+        : undefined
+      const minor = selected.credit_quantity
+        ? credits && '0'
+        : selected.fixed_amount_minor ?? nativeAmountMinor(amount)
       if (!minor) return
       const next = pending ?? {
         channel: selected,
@@ -168,6 +174,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           channel_id: selected.id,
           currency: selected.currency,
           amount_minor: minor,
+          ...(credits ? { requested_credit_units: credits } : {}),
           request_key: crypto.randomUUID(),
         },
         submitted: false,
@@ -317,7 +324,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               </div>
               <div className='space-y-2'>
                 <Label htmlFor='native-payment-amount'>
-                  {t('Amount')} · {selected && paymentCurrency(selected)}
+                  {t('Amount')} · {selected?.credit_quantity ? 'USD' : selected && paymentCurrency(selected)}
                 </Label>
                 <Input
                   id='native-payment-amount'
@@ -351,7 +358,10 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               disabled={
                 busy ||
                 !selected ||
-                (!selected.fixed_amount_minor && !nativeAmountMinor(amount))
+                (!selected.fixed_amount_minor &&
+                  !(selected.credit_quantity
+                    ? nativeRequestedCreditUnits(amount)
+                    : nativeAmountMinor(amount)))
               }
             >
               {t('Review payment')}

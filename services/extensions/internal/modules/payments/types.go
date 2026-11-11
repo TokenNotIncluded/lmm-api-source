@@ -26,12 +26,13 @@ const MaxEvidence = 32 << 10 // Fits the core's 64 KiB RPC limit, with overhead.
 const maxAmount int64 = 9_000_000_000_000
 
 type Channel struct {
-	ID          int64  `json:"id"`
-	Provider    string `json:"provider"`
-	Merchant    string `json:"merchant"`
-	Environment string `json:"environment"`
-	Currency    string `json:"currency"`
-	Enabled     bool   `json:"enabled"` // A disabled channel still accepts existing callbacks.
+	CreditQuantity bool   `json:"credit_quantity,omitempty"`
+	ID             int64  `json:"id"`
+	Provider       string `json:"provider"`
+	Merchant       string `json:"merchant"`
+	Environment    string `json:"environment"`
+	Currency       string `json:"currency"`
+	Enabled        bool   `json:"enabled"` // A disabled channel still accepts existing callbacks.
 }
 
 func (c Channel) valid() bool {
@@ -72,25 +73,27 @@ func stableKey(parts ...string) string {
 }
 
 type PrepareRequest struct {
-	Key         string `json:"key"`
-	AccountID   int64  `json:"account_id"` // Explicit Rust personal OR team account ID.
-	ChannelID   int64  `json:"channel_id"`
-	Currency    string `json:"currency"`
-	AmountMinor int64  `json:"amount_minor"`
+	RequestedCreditUnits int64  `json:"requested_credit_units,omitempty"`
+	Key                  string `json:"key"`
+	AccountID            int64  `json:"account_id"` // Explicit Rust personal OR team account ID.
+	ChannelID            int64  `json:"channel_id"`
+	Currency             string `json:"currency"`
+	AmountMinor          int64  `json:"amount_minor"`
 }
 type Intent struct {
-	ID          int64  `json:"id"`
-	AccountID   int64  `json:"account_id"`
-	CreatedBy   int64  `json:"created_by"`
-	Provider    string `json:"provider"`
-	Merchant    string `json:"merchant"`
-	Environment string `json:"environment"`
-	Currency    string `json:"currency"`
-	AmountMinor int64  `json:"amount_minor"`
-	CreditUnits int64  `json:"credit_units"` // An opaque frozen quote returned by Rust.
-	CreditUnit  string `json:"credit_unit"`
-	Key         string `json:"key"`
-	RequestHash []byte `json:"request_hash"`
+	RequestedCreditUnits int64  `json:"requested_credit_units,omitempty"`
+	ID                   int64  `json:"id"`
+	AccountID            int64  `json:"account_id"`
+	CreatedBy            int64  `json:"created_by"`
+	Provider             string `json:"provider"`
+	Merchant             string `json:"merchant"`
+	Environment          string `json:"environment"`
+	Currency             string `json:"currency"`
+	AmountMinor          int64  `json:"amount_minor"`
+	CreditUnits          int64  `json:"credit_units"` // An opaque frozen quote returned by Rust.
+	CreditUnit           string `json:"credit_unit"`
+	Key                  string `json:"key"`
+	RequestHash          []byte `json:"request_hash"`
 }
 
 type Receipt struct {
@@ -122,9 +125,9 @@ func receiptMatches(r Receipt, intent int64, key, state string) bool {
 	if r.State != state {
 		return false
 	}
-	// A fully refunded payment observed before credit is durably fenced without
-	// posting money. This state proves no top-up credit; no fake journal is needed.
-	if state == ExternalRefundApplied {
+	// A fractional refund may consume no integer credits. Core still freezes its
+	// proof and receipt without a journal. Credit and holds require actual journals.
+	if state == ExternalRefundApplied || state == RefundCommitted {
 		return r.JournalID >= 0
 	}
 	return r.JournalID > 0

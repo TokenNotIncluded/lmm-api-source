@@ -24,6 +24,7 @@ export const nativeChannelSchema = z
     payment_type: z.string().optional(),
     product_id: z.string().optional(),
     fixed_amount_minor: integer.optional(),
+    credit_quantity: z.boolean().optional(),
   })
   .refine(
     (channel) =>
@@ -35,11 +36,13 @@ export const nativeChannelSchema = z
   )
 const requestSchema = z.object({
   channel_id: z.string().min(1),
-  amount_minor: integer,
+  amount_minor: z.union([integer, z.literal('0')]),
+  requested_credit_units: integer.optional(),
   currency,
   request_key: z.string().min(1).max(128),
 })
 export const nativeQuoteSchema = requestSchema.extend({
+  amount_minor: integer,
   order_id: z.string().regex(/^top_[1-9]\d*$/),
   account_id: z.string().min(1),
   provider: nativeChannelSchema.shape.provider,
@@ -90,6 +93,16 @@ export function nativeAmountMinor(value: string): string | null {
   return integer.safeParse(minor).success ? minor : null
 }
 
+// Source USD quantity uses the fixed credit_500k_usd denomination. Pricing,
+// discounts and settlement-currency conversion belong to Core.
+export function nativeRequestedCreditUnits(value: string): string | null {
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(value.trim())
+  if (!match) return null
+  const micros = BigInt(`${match[1]}${(match[2] ?? '').padEnd(6, '0')}`)
+  const credits = ((micros * 500000n) / 1000000n).toString()
+  return integer.safeParse(credits).success ? credits : null
+}
+
 export function nativeAmountDisplay(minor: string): string {
   const digits = minor.padStart(3, '0')
   return `${digits.slice(0, -2)}.${digits.slice(-2)}`
@@ -104,7 +117,10 @@ export function validateNativeQuote(
     quote.channel_id !== request.channel_id ||
     quote.request_key !== request.request_key ||
     quote.currency !== request.currency ||
-    quote.amount_minor !== request.amount_minor ||
+    (request.amount_minor !== '0' && quote.amount_minor !== request.amount_minor) ||
+    (request.amount_minor === '0' && !request.requested_credit_units) ||
+    (request.requested_credit_units !== undefined &&
+      quote.credit_units !== request.requested_credit_units) ||
     quote.provider !== channel.provider ||
     quote.environment !== channel.environment
   ) {

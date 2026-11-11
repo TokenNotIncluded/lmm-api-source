@@ -43,25 +43,25 @@ func (b *Bridge) PreparePersonal(ctx context.Context, user string, r p.PrepareRe
 	if r.AccountID != 0 {
 		return p.Intent{}, p.ErrInvalid
 	}
-	v, err := b.client.PreparePersonalTopup(ctx, user, &pb.PreparePersonalTopupRequest{Mutation: mutation(r.Key), PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor})
+	v, err := b.client.PreparePersonalTopup(ctx, user, &pb.PreparePersonalTopupRequest{Mutation: mutation(r.Key), PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor, RequestedCreditUnits: r.RequestedCreditUnits})
 	if err != nil {
 		return p.Intent{}, mapError(err)
 	}
 	if v == nil {
 		return p.Intent{}, p.ErrUnavailable
 	}
-	return p.Intent{ID: v.IntentId, AccountID: v.AccountId, CreatedBy: v.CreatedByUserId, Provider: v.Provider, Merchant: v.Merchant, Environment: v.Environment, Currency: v.Currency, AmountMinor: v.AmountMinor, CreditUnits: v.CreditUnits, CreditUnit: v.CreditUnit, Key: v.IdempotencyKey, RequestHash: append([]byte(nil), v.RequestSha256...)}, nil
+	return p.Intent{RequestedCreditUnits: r.RequestedCreditUnits, ID: v.IntentId, AccountID: v.AccountId, CreatedBy: v.CreatedByUserId, Provider: v.Provider, Merchant: v.Merchant, Environment: v.Environment, Currency: v.Currency, AmountMinor: v.AmountMinor, CreditUnits: v.CreditUnits, CreditUnit: v.CreditUnit, Key: v.IdempotencyKey, RequestHash: append([]byte(nil), v.RequestSha256...)}, nil
 }
 
 func (b *Bridge) Prepare(ctx context.Context, user string, r p.PrepareRequest) (p.Intent, error) {
-	v, err := b.client.PrepareTopup(ctx, user, &pb.PrepareTopupRequest{Mutation: mutation(r.Key), AccountId: r.AccountID, PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor})
+	v, err := b.client.PrepareTopup(ctx, user, &pb.PrepareTopupRequest{Mutation: mutation(r.Key), AccountId: r.AccountID, PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor, RequestedCreditUnits: r.RequestedCreditUnits})
 	if err != nil {
 		return p.Intent{}, mapError(err)
 	}
 	if v == nil {
 		return p.Intent{}, p.ErrUnavailable
 	}
-	return p.Intent{ID: v.IntentId, AccountID: v.AccountId, CreatedBy: v.CreatedByUserId, Provider: v.Provider, Merchant: v.Merchant, Environment: v.Environment, Currency: v.Currency, AmountMinor: v.AmountMinor, CreditUnits: v.CreditUnits, CreditUnit: v.CreditUnit, Key: v.IdempotencyKey, RequestHash: append([]byte(nil), v.RequestSha256...)}, nil
+	return p.Intent{RequestedCreditUnits: r.RequestedCreditUnits, ID: v.IntentId, AccountID: v.AccountId, CreatedBy: v.CreatedByUserId, Provider: v.Provider, Merchant: v.Merchant, Environment: v.Environment, Currency: v.Currency, AmountMinor: v.AmountMinor, CreditUnits: v.CreditUnits, CreditUnit: v.CreditUnit, Key: v.IdempotencyKey, RequestHash: append([]byte(nil), v.RequestSha256...)}, nil
 }
 func (b *Bridge) Read(ctx context.Context, user string, intent p.Intent) error {
 	// Read must be checked by Rust even before credit. Task 06 must expose the

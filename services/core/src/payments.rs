@@ -1,6 +1,7 @@
 //! Core-owned payment intents and independently verified provider transitions.
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
+pub(crate) mod credit_quote;
 pub(crate) mod identifiers;
 mod legacy;
 mod legacy_pancake;
@@ -11,6 +12,7 @@ mod stripe;
 pub(crate) mod subscription_epay;
 pub(crate) mod subscription_stripe;
 pub(crate) mod waffo;
+pub use credit_quote::{CreditQuotePolicy, CreditQuoteRatio};
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};
 pub use legacy_pancake::{FrozenPancakeQuote, VerifiedLegacyPancake, verify_legacy_pancake};
 pub use legacy_store::{LegacyPaymentReceipt, LegacyProofReceipt};
@@ -43,7 +45,14 @@ pub const SCHEMA: &str = concat!(
     "\n",
     include_str!("../schema/legacy_payments.sql"),
     "\n",
-    include_str!("../schema/legacy_payment_opening_identity.sql")
+    include_str!("../schema/legacy_payment_opening_identity.sql"),
+    "\n",
+    include_str!("../schema/payment_credit_quotes.sql")
+);
+pub const CREDIT_QUOTE_SCHEMA: &str = concat!(
+    include_str!("../schema/payment_credit_quotes.sql"),
+    "\n",
+    include_str!("../schema/payment_credit_quote_referrals.sql")
 );
 const CREDIT_UNIT: &str = "credit_500k_usd";
 const PREPARED: i32 = 7;
@@ -59,6 +68,7 @@ pub struct Channel {
     pub currency: String,
     pub webhook_secrets: Vec<String>,
     pub credits_per_minor: i64,
+    pub credit_quote: Option<credit_quote::CreditQuotePolicy>,
     pub max_amount_minor: i64,
     pub(crate) verification: ProviderVerification,
 }
@@ -76,6 +86,37 @@ pub(crate) struct ProviderVerification {
     pub waffo_inquiry: Option<Arc<waffo::Inquiry>>,
 }
 impl Channel {
+    pub fn pancake_isolated_test(
+        id: i64,
+        merchant: String,
+        provider_public_key: String,
+        store_id: String,
+        product_id: String,
+        currency: String,
+        maximum: i64,
+    ) -> Result<Self> {
+        let channel = Self {
+            id,
+            provider: "waffo_pancake".into(),
+            merchant,
+            environment: "test".into(),
+            currency,
+            webhook_secrets: vec![provider_public_key],
+            credits_per_minor: 5000,
+            credit_quote: None,
+            max_amount_minor: maximum,
+            verification: ProviderVerification {
+                store_id,
+                product_id,
+                ..Default::default()
+            },
+        };
+        if !channel.validate() {
+            return Err(Error::Invalid);
+        }
+        Ok(channel)
+    }
+
     /// Synthetic Waffo integration fixture, analogous to stripe_test. It has
     /// no live mode and no production configuration path; inquiry accepts only
     /// an explicit loopback IP and port owned by the test process.
@@ -96,6 +137,7 @@ impl Channel {
             currency: "USD".into(),
             webhook_secrets: vec![provider_public_key],
             credits_per_minor: 5000,
+            credit_quote: None,
             max_amount_minor: maximum,
             verification: ProviderVerification {
                 waffo_inquiry: Some(Arc::new(inquiry)),
@@ -131,6 +173,7 @@ impl Channel {
             currency: "USD".into(),
             webhook_secrets: vec![secret],
             credits_per_minor: 5000,
+            credit_quote: None,
             max_amount_minor: maximum,
             verification: ProviderVerification::default(),
         }
@@ -141,12 +184,25 @@ impl Channel {
             && matches!(self.environment.as_str(), "test" | "live")
             && self.currency.len() == 3
             && self.currency.bytes().all(|b| b.is_ascii_uppercase())
-            && self.credits_per_minor > 0
             && self.max_amount_minor > 0
-            && self
-                .max_amount_minor
-                .checked_mul(self.credits_per_minor)
-                .is_some()
+            && match &self.credit_quote {
+                None => {
+                    self.credits_per_minor > 0
+                        && self
+                            .max_amount_minor
+                            .checked_mul(self.credits_per_minor)
+                            .is_some()
+                }
+                Some(policy) => {
+                    self.credits_per_minor == 0
+                        && self.provider == "waffo_pancake"
+                        && matches!(self.currency.as_str(), "USD" | "CNY")
+                        && (self.currency != "USD"
+                            || policy.settlement_per_usd_numerator
+                                == policy.settlement_per_usd_denominator)
+                        && policy.valid()
+                }
+            }
             && (1..=2).contains(&self.webhook_secrets.len())
             && providers::valid_channel(self)
     }
@@ -207,7 +263,6 @@ struct IntentRow {
     currency: String,
     amount_minor: i64,
     credit_units: i64,
-    credits_per_minor: i64,
     credit_journal_id: Option<i64>,
     provider_transaction: Option<String>,
     refund_fenced: bool,
@@ -217,7 +272,6 @@ struct IntentRow {
 struct HoldRow {
     receipt_id: String,
     amount_minor: i64,
-    credit_units: i64,
     reservation_journal_id: i64,
     state: String,
     provider_refund_id: Option<String>,
@@ -341,6 +395,7 @@ impl PaymentsStore {
                     channel.provider.clone(),
                     channel.merchant.clone(),
                     channel.environment.clone(),
+                    channel.currency.clone(),
                     channel.verification.payment_type.clone(),
                     channel.verification.store_id.clone(),
                     channel.verification.product_id.clone(),
@@ -392,29 +447,12 @@ impl PaymentsStore {
             channel.merchant.as_str(),
             channel.environment.as_str(),
             channel.currency.as_str(),
-            channel.credits_per_minor,
         ) != (
             intent.provider.as_str(),
             intent.merchant.as_str(),
             intent.environment.as_str(),
             intent.currency.as_str(),
-            intent.credits_per_minor,
         ) {
-            return Err(Error::Conflict);
-        }
-        Ok(channel)
-    }
-    fn channel_by_namespace(
-        &self,
-        provider: &str,
-        merchant: &str,
-        environment: &str,
-    ) -> Result<&Channel> {
-        let mut channels = self.channels.values().filter(|c| {
-            c.provider == provider && c.merchant == merchant && c.environment == environment
-        });
-        let channel = channels.next().ok_or(Error::Unavailable)?;
-        if channels.next().is_some() {
             return Err(Error::Conflict);
         }
         Ok(channel)
@@ -677,15 +715,12 @@ impl PaymentsStore {
             Self::intent(&mut tx, request.intent_id).await?
         } else {
             let payment = evidence.payment.as_ref().ok_or(Error::Invalid)?;
-            let channel = self.channel_by_namespace(
-                &payment.provider,
-                &payment.merchant,
-                &payment.environment,
-            )?;
             sqlx::query_as(
-                "SELECT * FROM core_payments.intents WHERE channel_id=$1 AND provider_transaction=$2 FOR UPDATE",
+                "SELECT * FROM core_payments.intents WHERE provider=$1 AND merchant=$2 AND environment=$3 AND provider_transaction=$4 FOR UPDATE",
             )
-            .bind(channel.id)
+            .bind(&payment.provider)
+            .bind(&payment.merchant)
+            .bind(&payment.environment)
             .bind(&payment.transaction)
             .fetch_optional(&mut *tx)
             .await?
@@ -909,6 +944,7 @@ impl PaymentsStore {
                 payment_channel_id: request.payment_channel_id,
                 currency: request.currency,
                 amount_minor: request.amount_minor,
+                requested_credit_units: request.requested_credit_units,
             },
         )
         .await
@@ -924,22 +960,25 @@ impl PaymentsStore {
             .channels
             .get(&request.payment_channel_id)
             .ok_or(Error::Unavailable)?;
-        if request.currency != channel.currency
-            || request.amount_minor <= 0
-            || request.amount_minor > channel.max_amount_minor
-        {
+        if request.currency != channel.currency {
             return Err(Error::Invalid);
         }
-        let credit_units = request
-            .amount_minor
-            .checked_mul(channel.credits_per_minor)
-            .ok_or(Error::Invalid)?;
-        let request_hash = hash(json!([
-            request.account_id,
-            request.payment_channel_id,
-            request.currency,
-            request.amount_minor
-        ]));
+        let request_hash = if request.requested_credit_units == 0 {
+            hash(json!([
+                request.account_id,
+                request.payment_channel_id,
+                request.currency,
+                request.amount_minor
+            ]))
+        } else {
+            hash(json!([
+                request.account_id,
+                request.payment_channel_id,
+                request.currency,
+                request.amount_minor,
+                request.requested_credit_units
+            ]))
+        };
         let mut tx = self.begin().await?;
         let actor = Self::authorize(&mut tx, credential, request.account_id).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
@@ -959,13 +998,11 @@ impl PaymentsStore {
                 intent.merchant.as_str(),
                 intent.environment.as_str(),
                 intent.currency.as_str(),
-                intent.credit_units,
             ) != (
                 channel.provider.as_str(),
                 channel.merchant.as_str(),
                 channel.environment.as_str(),
                 channel.currency.as_str(),
-                credit_units,
             ) {
                 return Err(Error::Conflict);
             }
@@ -980,8 +1017,35 @@ impl PaymentsStore {
             identity::NewResourceAction::PaymentIntent,
         )
         .await?;
-        let id: i64 = sqlx::query_scalar("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id")
-            .bind(request.account_id).bind(actor).bind(channel.id).bind(&channel.provider).bind(&channel.merchant).bind(&channel.environment).bind(&channel.currency).bind(request.amount_minor).bind(credit_units).bind(channel.credits_per_minor).bind(key).bind(&request_hash).fetch_one(&mut *tx).await?;
+        let (amount_minor, credit_units, quote) = match &channel.credit_quote {
+            Some(policy) => {
+                units(request.requested_credit_units)?;
+                let quote = policy.freeze(request.requested_credit_units)?;
+                let amount = quote.amount_minor(request.requested_credit_units)?;
+                if request.amount_minor < 0
+                    || (request.amount_minor != 0 && request.amount_minor != amount)
+                {
+                    return Err(Error::Invalid);
+                }
+                (amount, request.requested_credit_units, Some(Json(quote)))
+            }
+            None => {
+                if request.requested_credit_units != 0 || request.amount_minor <= 0 {
+                    return Err(Error::Invalid);
+                }
+                let credits = request
+                    .amount_minor
+                    .checked_mul(channel.credits_per_minor)
+                    .ok_or(Error::Invalid)?;
+                units(credits)?;
+                (request.amount_minor, credits, None)
+            }
+        };
+        if amount_minor > channel.max_amount_minor || credit_units < amount_minor {
+            return Err(Error::Invalid);
+        }
+        let id: i64 = sqlx::query_scalar("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash,credit_quote) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id")
+            .bind(request.account_id).bind(actor).bind(channel.id).bind(&channel.provider).bind(&channel.merchant).bind(&channel.environment).bind(&channel.currency).bind(amount_minor).bind(credit_units).bind(channel.credits_per_minor).bind(key).bind(&request_hash).bind(quote).fetch_one(&mut *tx).await?;
         let intent = pb::PaymentIntent {
             intent_id: id,
             account_id: request.account_id,
@@ -990,7 +1054,7 @@ impl PaymentsStore {
             merchant: channel.merchant.clone(),
             environment: channel.environment.clone(),
             currency: channel.currency.clone(),
-            amount_minor: request.amount_minor,
+            amount_minor,
             credit_units,
             credit_unit: CREDIT_UNIT.into(),
             idempotency_key: key.into(),
@@ -1124,10 +1188,12 @@ impl PaymentsStore {
         if request.refund_amount_minor > Self::refund_capacity(&mut tx, &intent).await? {
             return Err(Error::Conflict);
         }
-        let amount = request
-            .refund_amount_minor
-            .checked_mul(intent.credits_per_minor)
-            .ok_or(Error::Invalid)?;
+        let amount = credit_quote::refund_hold_credits(
+            intent.credit_units,
+            intent.amount_minor,
+            intent.refunded_minor,
+            request.refund_amount_minor,
+        )?;
         let outcome = Self::post(
             &mut tx,
             intent.id,
@@ -1314,23 +1380,32 @@ impl PaymentsStore {
             Self::release_hold(&mut tx, &intent, key, &hold).await?;
         }
         let receipt = if commit {
-            let outcome = Self::post(
-                &mut tx,
-                intent.id,
-                key,
-                "refund",
-                None,
-                Action::RefundTopup {
-                    journal_id: intent.credit_journal_id.ok_or(Error::Conflict)?,
-                    amount_units: units(hold.credit_units)?,
-                    refund_reference: topup_refund_reference(&intent, refund_id)?,
-                },
-            )
-            .await?;
-            // Failure of the compensation rolls back the RELEASE as well. Never
-            // leave the provider refund confirmed while its money becomes free.
-            let Outcome::Posted { journal_id, .. } = outcome else {
-                return Err(Error::Conflict);
+            let amount = credit_quote::refund_credit_delta(
+                intent.credit_units,
+                intent.amount_minor,
+                intent.refunded_minor,
+                hold.amount_minor,
+            )?;
+            let journal_id = if amount == 0 {
+                0
+            } else {
+                let outcome = Self::post(
+                    &mut tx,
+                    intent.id,
+                    key,
+                    "refund",
+                    None,
+                    Action::RefundTopup {
+                        journal_id: intent.credit_journal_id.ok_or(Error::Conflict)?,
+                        amount_units: units(amount)?,
+                        refund_reference: topup_refund_reference(&intent, refund_id)?,
+                    },
+                )
+                .await?;
+                let Outcome::Posted { journal_id, .. } = outcome else {
+                    return Err(Error::Conflict);
+                };
+                journal_id
             };
             sqlx::query("UPDATE core_payments.intents SET refunded_minor=refunded_minor+$2,refund_fenced=TRUE WHERE id=$1")
                 .bind(intent.id).bind(hold.amount_minor).execute(&mut *tx).await?;
@@ -1577,51 +1652,55 @@ impl PaymentsStore {
                 tx.commit().await?;
                 return Err(Error::Conflict);
             }
-            let amount = verified
-                .amount_minor
-                .checked_mul(intent.credits_per_minor)
-                .ok_or(Error::Invalid)?;
-            let outcome = Self::post(
-                &mut tx,
-                intent.id,
-                key,
-                "refund",
-                None,
-                Action::RefundTopup {
-                    journal_id: credit,
-                    amount_units: units(amount)?,
-                    refund_reference: topup_refund_reference(&intent, refund_id)?,
-                },
-            )
-            .await?;
-            let Outcome::Posted {
-                journal_id: posted, ..
-            } = outcome
-            else {
-                // Roll back a matched hold transition and any release on failure.
-                // A duplicate refund must not become another unresolved debt fact.
-                if verified.hold_receipt_id.is_some()
-                    || matches!(
-                        outcome,
-                        Outcome::Rejected {
-                            code: Rejection::DuplicateRefund
-                        }
-                    )
-                {
-                    return Err(Error::Conflict);
-                }
-                Self::block_external(
+            let amount = credit_quote::refund_credit_delta(
+                intent.credit_units,
+                intent.amount_minor,
+                intent.refunded_minor,
+                verified.amount_minor,
+            )?;
+            if amount > 0 {
+                let outcome = Self::post(
                     &mut tx,
-                    &intent,
-                    evidence,
-                    &verified,
-                    "refund_debt_recovery_required",
+                    intent.id,
+                    key,
+                    "refund",
+                    None,
+                    Action::RefundTopup {
+                        journal_id: credit,
+                        amount_units: units(amount)?,
+                        refund_reference: topup_refund_reference(&intent, refund_id)?,
+                    },
                 )
                 .await?;
-                tx.commit().await?;
-                return Err(Error::Conflict);
-            };
-            journal_id = posted;
+                let Outcome::Posted {
+                    journal_id: posted, ..
+                } = outcome
+                else {
+                    // Roll back a matched hold transition and any release on failure.
+                    // A duplicate refund must not become another unresolved debt fact.
+                    if verified.hold_receipt_id.is_some()
+                        || matches!(
+                            outcome,
+                            Outcome::Rejected {
+                                code: Rejection::DuplicateRefund
+                            }
+                        )
+                    {
+                        return Err(Error::Conflict);
+                    }
+                    Self::block_external(
+                        &mut tx,
+                        &intent,
+                        evidence,
+                        &verified,
+                        "refund_debt_recovery_required",
+                    )
+                    .await?;
+                    tx.commit().await?;
+                    return Err(Error::Conflict);
+                };
+                journal_id = posted;
+            }
         }
         // Before-credit refunds never create a fake ledger journal. A durable
         // fence prevents any later stale payment-success event from crediting.

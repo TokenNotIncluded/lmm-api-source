@@ -459,6 +459,7 @@ mod tests {
             currency: "USD".into(),
             webhook_secrets: vec![SECRET.into()],
             credits_per_minor: 5000,
+            credit_quote: None,
             max_amount_minor: 1_000_000,
             verification: super::super::ProviderVerification::default(),
         }

@@ -165,3 +165,60 @@ tax_category='saas'
 		t.Fatal("EPay configured without Core signing")
 	}
 }
+
+func TestPaymentV2CreditQuantityConfiguration(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey := paymentPrivate(t, "quantity-signing-key", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})))
+	template := `version=2
+[[channels]]
+id=%d
+provider='waffo_pancake'
+merchant='MER_0123456789abcdefghijkl'
+environment='test'
+currency='%s'
+enabled=%t
+private_key_file='%s'
+store_id='STO_0123456789abcdefghijkl'
+product_id='PROD_0123456789abcdefghijkl'
+tax_category='saas'
+%s
+`
+	for _, test := range []struct {
+		name     string
+		id       int64
+		currency string
+		enabled  bool
+		field    string
+		quantity bool
+	}{
+		{"usd_quantity", 5001, "USD", true, "credit_quantity=true", true},
+		{"cny_quantity", 5003, "CNY", true, "credit_quantity=true", true},
+		{"disabled_source_channel", 5002, "USD", false, "credit_quantity=false", false},
+		{"legacy_field_absent", 71, "USD", true, "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw := fmt.Sprintf(template, test.id, test.currency, test.enabled, privateKey, test.field)
+			adapters, err := loadMultiPaymentAdapters([]byte(raw), nil)
+			if err != nil || len(adapters) != 1 {
+				t.Fatal("normal v2 configuration", err)
+			}
+			channel := adapters[0].Channel()
+			if channel.ID != test.id || channel.Currency != test.currency || channel.Enabled != test.enabled || channel.CreditQuantity != test.quantity {
+				t.Fatalf("channel mode changed: %+v", channel)
+			}
+		})
+	}
+	for _, field := range []string{"credit_quantity='true'", "credit_quantities=true", "CreditQuantity=true", "credit_quantity=true\ncredits_per_minor=5000"} {
+		raw := fmt.Sprintf(template, int64(5001), "USD", true, privateKey, field)
+		if _, err = loadMultiPaymentAdapters([]byte(raw), nil); err == nil {
+			t.Fatalf("invalid configuration accepted: %s", field)
+		}
+	}
+}

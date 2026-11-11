@@ -33,6 +33,7 @@ async fn fixture(pool: &PgPool, max: i64) -> Fixture {
         currency: "CNY".into(),
         webhook_secrets: vec![SECRET.into()],
         credits_per_minor: 1,
+        credit_quote: None,
         max_amount_minor: 10000,
         verification: ProviderVerification {
             payment_type: "alipay".into(),
@@ -420,6 +421,7 @@ async fn wallet_and_subscription_payment_proof_cannot_share_transaction(pool: Pg
         .prepare(
             &f.user,
             pb::PrepareTopupRequest {
+                requested_credit_units: 0,
                 mutation: Some(pb::MutationContext {
                     idempotency_key: "namespace_native_order".into(),
                     ..Default::default()

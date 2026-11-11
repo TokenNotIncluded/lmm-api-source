@@ -435,14 +435,15 @@ func (x *ProviderProofReceipt) GetAcceptedUnixSeconds() int64 {
 }
 
 type PrepareTopupRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Mutation         *MutationContext       `protobuf:"bytes,1,opt,name=mutation,proto3" json:"mutation,omitempty"`
-	AccountId        int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`                        // core_identity.accounts.id; explicit personal/team account.
-	PaymentChannelId int64                  `protobuf:"varint,3,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"` // Core-owned allowlisted merchant configuration.
-	Currency         string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                                            // ISO code, e.g. USD. Core validates channel and currency.
-	AmountMinor      int64                  `protobuf:"varint,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`                  // Requested positive external smallest units, not credit.
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Mutation             *MutationContext       `protobuf:"bytes,1,opt,name=mutation,proto3" json:"mutation,omitempty"`
+	AccountId            int64                  `protobuf:"varint,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`                                    // core_identity.accounts.id; explicit personal/team account.
+	PaymentChannelId     int64                  `protobuf:"varint,3,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`             // Core-owned allowlisted merchant configuration.
+	Currency             string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`                                                        // ISO code, e.g. USD. Core validates channel and currency.
+	AmountMinor          int64                  `protobuf:"varint,5,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`                              // External minor units; zero requests Core credit-quantity pricing.
+	RequestedCreditUnits int64                  `protobuf:"varint,6,opt,name=requested_credit_units,json=requestedCreditUnits,proto3" json:"requested_credit_units,omitempty"` // Zero preserves the existing amount-based contract.
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *PrepareTopupRequest) Reset() {
@@ -510,14 +511,22 @@ func (x *PrepareTopupRequest) GetAmountMinor() int64 {
 	return 0
 }
 
+func (x *PrepareTopupRequest) GetRequestedCreditUnits() int64 {
+	if x != nil {
+		return x.RequestedCreditUnits
+	}
+	return 0
+}
+
 type PreparePersonalTopupRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Mutation         *MutationContext       `protobuf:"bytes,1,opt,name=mutation,proto3" json:"mutation,omitempty"`
-	PaymentChannelId int64                  `protobuf:"varint,2,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
-	Currency         string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
-	AmountMinor      int64                  `protobuf:"varint,4,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Mutation             *MutationContext       `protobuf:"bytes,1,opt,name=mutation,proto3" json:"mutation,omitempty"`
+	PaymentChannelId     int64                  `protobuf:"varint,2,opt,name=payment_channel_id,json=paymentChannelId,proto3" json:"payment_channel_id,omitempty"`
+	Currency             string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
+	AmountMinor          int64                  `protobuf:"varint,4,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	RequestedCreditUnits int64                  `protobuf:"varint,5,opt,name=requested_credit_units,json=requestedCreditUnits,proto3" json:"requested_credit_units,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *PreparePersonalTopupRequest) Reset() {
@@ -574,6 +583,13 @@ func (x *PreparePersonalTopupRequest) GetCurrency() string {
 func (x *PreparePersonalTopupRequest) GetAmountMinor() int64 {
 	if x != nil {
 		return x.AmountMinor
+	}
+	return 0
+}
+
+func (x *PreparePersonalTopupRequest) GetRequestedCreditUnits() int64 {
+	if x != nil {
+		return x.RequestedCreditUnits
 	}
 	return 0
 }
@@ -3275,19 +3291,21 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\x11provider_event_id\x18\x03 \x01(\tR\x0fproviderEventId\x12%\n" +
 	"\x0epayload_sha256\x18\x04 \x01(\fR\rpayloadSha256\x12?\n" +
 	"\apayment\x18\x05 \x01(\v2%.lmm.core.v1.ExternalPaymentReferenceR\apayment\x122\n" +
-	"\x15accepted_unix_seconds\x18\x06 \x01(\x03R\x13acceptedUnixSeconds\"\xdb\x01\n" +
+	"\x15accepted_unix_seconds\x18\x06 \x01(\x03R\x13acceptedUnixSeconds\"\x91\x02\n" +
 	"\x13PrepareTopupRequest\x128\n" +
 	"\bmutation\x18\x01 \x01(\v2\x1c.lmm.core.v1.MutationContextR\bmutation\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x02 \x01(\x03R\taccountId\x12,\n" +
 	"\x12payment_channel_id\x18\x03 \x01(\x03R\x10paymentChannelId\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12!\n" +
-	"\famount_minor\x18\x05 \x01(\x03R\vamountMinor\"\xc4\x01\n" +
+	"\famount_minor\x18\x05 \x01(\x03R\vamountMinor\x124\n" +
+	"\x16requested_credit_units\x18\x06 \x01(\x03R\x14requestedCreditUnits\"\xfa\x01\n" +
 	"\x1bPreparePersonalTopupRequest\x128\n" +
 	"\bmutation\x18\x01 \x01(\v2\x1c.lmm.core.v1.MutationContextR\bmutation\x12,\n" +
 	"\x12payment_channel_id\x18\x02 \x01(\x03R\x10paymentChannelId\x12\x1a\n" +
 	"\bcurrency\x18\x03 \x01(\tR\bcurrency\x12!\n" +
-	"\famount_minor\x18\x04 \x01(\x03R\vamountMinor\"\xc4\x03\n" +
+	"\famount_minor\x18\x04 \x01(\x03R\vamountMinor\x124\n" +
+	"\x16requested_credit_units\x18\x05 \x01(\x03R\x14requestedCreditUnits\"\xc4\x03\n" +
 	"\rPaymentIntent\x12\x1b\n" +
 	"\tintent_id\x18\x01 \x01(\x03R\bintentId\x12\x1d\n" +
 	"\n" +

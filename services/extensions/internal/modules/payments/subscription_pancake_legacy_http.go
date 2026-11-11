@@ -63,6 +63,11 @@ func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handle
 			// Legacy originals are resolved by Core's reviewed channel/reference basis;
 			// never guess wallet account/credits from signed provider metadata.
 			err = ErrNotFound
+			if len(ids) == 0 {
+				// An unknown currency/store has no reviewed channel binding. Keep
+				// its exact evidence unbound; channel zero cannot admit wallet credit.
+				err = s.receiveWallet(r.Context(), wallet, 0, request())
+			}
 			for _, id := range ids {
 				err = wallet.Receive(r.Context(), id, request())
 				if err == nil || !errors.Is(err, ErrNotFound) {

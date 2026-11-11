@@ -753,6 +753,7 @@ mod tests {
             currency: "USD".into(),
             webhook_secrets: vec![SECRET.into()],
             credits_per_minor: 5000,
+            credit_quote: None,
             max_amount_minor: 10000,
             verification: ProviderVerification::default(),
         };
@@ -1599,6 +1600,7 @@ mod tests {
             .prepare_personal(
                 &session.secret,
                 pb::PreparePersonalTopupRequest {
+                    requested_credit_units: 0,
                     mutation: Some(pb::MutationContext {
                         idempotency_key: "native_collision_prepare".into(),
                         expected_version: None,
@@ -1698,6 +1700,7 @@ mod tests {
                 .prepare_personal(
                     &session.secret,
                     pb::PreparePersonalTopupRequest {
+                        requested_credit_units: 0,
                         mutation: mutation(format!("gateway_personal_quote_{profile}")),
                         payment_channel_id: c.id,
                         currency: c.currency.clone(),
@@ -1713,6 +1716,7 @@ mod tests {
                     .prepare_personal(
                         &session.secret,
                         pb::PreparePersonalTopupRequest {
+                            requested_credit_units: 0,
                             mutation: mutation(format!("gateway_personal_quote_{profile}")),
                             payment_channel_id: c.id,
                             currency: c.currency.clone(),
@@ -1884,6 +1888,7 @@ mod tests {
                 .prepare_personal(
                     &session.secret,
                     pb::PreparePersonalTopupRequest {
+                        requested_credit_units: 0,
                         mutation: mutation(format!("gateway_other_quote_{profile}")),
                         payment_channel_id: c.id,
                         currency: c.currency.clone(),
@@ -1960,6 +1965,7 @@ mod tests {
                 .prepare_personal(
                     &session.secret,
                     pb::PreparePersonalTopupRequest {
+                        requested_credit_units: 0,
                         mutation: mutation("gateway_personal_quote_epay".into()),
                         payment_channel_id: 1,
                         currency: "CNY".into(),
@@ -2045,6 +2051,7 @@ mod tests {
             .prepare(
                 &payer_secret,
                 pb::PrepareTopupRequest {
+                    requested_credit_units: 0,
                     mutation: Some(pb::MutationContext {
                         idempotency_key: "referral-ldc-prepare-01".into(),
                         expected_version: None,

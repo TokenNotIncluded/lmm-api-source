@@ -53,7 +53,7 @@ impl PaymentsStore {
             "platform:linuxdo"=>c.provider=="epay" && c.currency=="LDC",
             _=>false,
         };
-        if !supported {return Err(Error::Invalid)}
+        if !supported || c.credit_quote.is_some() {return Err(Error::Invalid)}
         Ok(StoreChannelScope{channel_id:id,method:method.into(),provider:c.provider.clone(),
             merchant:c.merchant.clone(),environment:c.environment.clone(),currency:c.currency.clone(),
             store_id:c.verification.store_id.clone(),product_id:c.verification.product_id.clone(),

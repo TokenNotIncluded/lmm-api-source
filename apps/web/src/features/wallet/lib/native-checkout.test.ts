@@ -4,6 +4,7 @@ import { test } from 'node:test'
 
 import {
   nativeAmountMinor,
+  nativeRequestedCreditUnits,
   nativeAmountDisplay,
   nativeChannelSchema,
   nativeQuoteSchema,
@@ -184,3 +185,59 @@ test('Coinbase channels keep USD quote units while accepting test and live profi
     )
   }
 })
+
+test('credit quantity preserves source USD units and trusts Core CNY pricing', () => {
+  assert.equal(nativeRequestedCreditUnits('1'), '500000');
+  assert.equal(nativeRequestedCreditUnits('3.5'), '1750000');
+  assert.equal(nativeRequestedCreditUnits('100'), '50000000');
+  assert.equal(nativeRequestedCreditUnits('0.000003'), '1');
+  for (const value of ['0', '-1', '1e2', '1.0000001']) {
+    assert.equal(nativeRequestedCreditUnits(value), null);
+  }
+  const saved: PendingNativeCheckout = {
+    channel: {
+      id: '5003',
+      provider: 'waffo_pancake',
+      environment: 'test',
+      currency: 'CNY',
+      credit_quantity: true,
+    },
+    request: {
+      channel_id: '5003',
+      amount_minor: '0',
+      requested_credit_units: '1000000',
+      currency: 'CNY',
+      request_key: 'quantity_browser_fixture_01',
+    },
+    submitted: false,
+  };
+  const quote = nativeQuoteSchema.parse({
+    ...saved.request,
+    amount_minor: '1327',
+    order_id: 'top_31',
+    account_id: '42',
+    provider: 'waffo_pancake',
+    environment: 'test',
+    credit_units: '1000000',
+    credit_unit: 'credit_500k_usd',
+  });
+  assert.equal(validateNativeQuote(quote, saved).amount_minor, '1327');
+  assert.throws(() =>
+    validateNativeQuote({ ...quote, credit_units: '999999' }, saved),
+  );
+  const values = new Map<string, string>();
+  const storage = {
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  saveNativeCheckout('quantity-owner', { ...saved, quote }, storage);
+  assert.deepEqual(readNativeCheckout('quantity-owner', storage), {
+    ...saved,
+    quote,
+  });
+});

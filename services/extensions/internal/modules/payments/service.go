@@ -29,9 +29,9 @@ func New(store Store, core Core, adapters ...Adapter) (*Service, error) {
 			return nil, ErrInvalid
 		}
 		c := a.Channel()
-		binding := c.namespace()
+		binding := c.namespace() + "/" + c.Currency
 		if scoped, ok := a.(interface{ channelBinding() string }); ok {
-			binding += "/" + c.Currency + "/" + scoped.channelBinding()
+			binding += "/" + scoped.channelBinding()
 		}
 		if !c.valid() || s.adapters[c.ID] != nil || namespaces[binding] {
 			return nil, ErrInvalid
@@ -74,13 +74,21 @@ func (s *Service) Catalog() []PublicChannel {
 
 func (s *Service) requestedAdapter(req PrepareRequest) (Adapter, error) {
 	a := s.adapters[req.ChannelID]
-	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || !validAmount(req.AmountMinor) || req.Currency != a.Channel().Currency {
+	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || (req.RequestedCreditUnits < 0 || !validAmount(req.AmountMinor) && !(req.AmountMinor == 0 && req.RequestedCreditUnits > 0)) || req.Currency != a.Channel().Currency {
 		return nil, ErrInvalid
 	}
 	if fixed, ok := a.(interface{ FixedAmountMinor() int64 }); ok && req.AmountMinor != fixed.FixedAmountMinor() {
 		return nil, ErrInvalid
 	}
 	return a, nil
+}
+
+// Core owns pricing. A credit-quantity request may omit its charge, but the
+// returned intent must preserve the exact requested credit and a positive charge.
+func matchesRequestedQuote(req PrepareRequest, intent Intent) bool {
+	return validAmount(intent.AmountMinor) &&
+		(req.AmountMinor == 0 || intent.AmountMinor == req.AmountMinor) &&
+		(req.RequestedCreditUnits == 0 || intent.CreditUnits == req.RequestedCreditUnits)
 }
 
 // Preview freezes Core's personal-account quote without queuing provider I/O.
@@ -101,10 +109,11 @@ func (s *Service) Preview(ctx context.Context, credential string, req PrepareReq
 		return Intent{}, err
 	}
 	c := a.Channel()
-	if intent.ID <= 0 || intent.AccountID <= 0 || intent.CreatedBy <= 0 || intent.AmountMinor != req.AmountMinor || intent.Currency != req.Currency || intent.Key != req.Key ||
+	if intent.ID <= 0 || intent.AccountID <= 0 || intent.CreatedBy <= 0 || !matchesRequestedQuote(req, intent) || intent.Currency != req.Currency || intent.Key != req.Key ||
 		intent.Provider != c.Provider || intent.Merchant != c.Merchant || intent.Environment != c.Environment || len(intent.RequestHash) != 32 || intent.CreditUnits <= 0 || intent.CreditUnit != "credit_500k_usd" {
 		return Intent{}, ErrConflict
 	}
+	intent.RequestedCreditUnits = req.RequestedCreditUnits
 	return intent, nil
 }
 
@@ -137,10 +146,11 @@ func (s *Service) Create(ctx context.Context, credential string, req PrepareRequ
 		return Order{}, err
 	}
 	c := a.Channel()
-	if intent.ID <= 0 || intent.CreatedBy <= 0 || intent.AccountID != req.AccountID || intent.AmountMinor != req.AmountMinor || intent.Currency != req.Currency || intent.Key != req.Key ||
+	if intent.ID <= 0 || intent.CreatedBy <= 0 || intent.AccountID != req.AccountID || !matchesRequestedQuote(req, intent) || intent.Currency != req.Currency || intent.Key != req.Key ||
 		intent.Provider != c.Provider || intent.Merchant != c.Merchant || intent.Environment != c.Environment || len(intent.RequestHash) != 32 || intent.CreditUnits <= 0 || intent.CreditUnit != "credit_500k_usd" {
 		return Order{}, ErrConflict
 	}
+	intent.RequestedCreditUnits = req.RequestedCreditUnits
 	id := "top_" + strconv.FormatInt(intent.ID, 10)
 	o := Order{ID: id, ChannelID: c.ID, Namespace: c.namespace(), Intent: intent, CreditState: "pending", Refunds: map[string]Refund{}, Jobs: map[string]Job{}}
 	checkoutKey := stableKey("checkout", id)

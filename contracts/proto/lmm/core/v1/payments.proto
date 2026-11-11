@@ -70,13 +70,15 @@ message PrepareTopupRequest {
   int64 account_id = 2; // core_identity.accounts.id; explicit personal/team account.
   int64 payment_channel_id = 3; // Core-owned allowlisted merchant configuration.
   string currency = 4; // ISO code, e.g. USD. Core validates channel and currency.
-  int64 amount_minor = 5; // Requested positive external smallest units, not credit.
+  int64 amount_minor = 5; // External minor units; zero requests Core credit-quantity pricing.
+  int64 requested_credit_units = 6; // Zero preserves the existing amount-based contract.
 }
 message PreparePersonalTopupRequest {
   MutationContext mutation = 1;
   int64 payment_channel_id = 2;
   string currency = 3;
   int64 amount_minor = 4;
+  int64 requested_credit_units = 5;
 }
 message PaymentIntent {
   int64 intent_id = 1;
