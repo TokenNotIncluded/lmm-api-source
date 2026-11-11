@@ -97,6 +97,93 @@ async fn price(c: &mut PgConnection, plan: i64, channel: i64) -> Result<PancakeP
     let v:Value=sqlx::query_scalar("SELECT to_jsonb(p)||jsonb_build_object('currency',e.currency,'amount_minor',e.amount_minor::text) FROM core_subscriptions.pancake_prices p JOIN core_subscriptions.external_prices e USING(plan_id,plan_revision,channel_id) JOIN core_subscriptions.plans r ON r.id=p.plan_id AND r.revision=p.plan_revision WHERE p.plan_id=$1 AND p.channel_id=$2").bind(plan).bind(channel).fetch_optional(c).await?.ok_or(Error::NotFound)?;
     decode(v)
 }
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublishPancakePrice {
+    pub operation_key: String,
+    pub expected_plan: Plan,
+    pub price: PancakePrice,
+}
+
+fn validate_price(payments: &PaymentsStore, p: &PancakePrice) -> Result<i64> {
+    let amount = p.amount_minor.parse::<i64>().map_err(|_| Error::Invalid)?;
+    if !(1..=9_000_000_000_000).contains(&amount)
+        || amount.to_string() != p.amount_minor
+        || !matches!(p.currency.as_str(), "USD" | "CNY")
+        || !matches!(p.product_type.as_str(), "one_time" | "subscription")
+        || !(1..=128).contains(&p.provider_plan_reference.chars().count())
+        || p.return_url.chars().count() > 2048
+        || !matches!(p.checkout_region.as_str(), "global" | "china")
+        || !(1..=32).contains(&p.checkout_language.chars().count())
+        || !matches!(
+            p.tax_category.as_str(),
+            "digital_goods"
+                | "saas"
+                | "software"
+                | "ebook"
+                | "online_course"
+                | "consulting"
+                | "professional_service"
+        )
+    {
+        return Err(Error::Invalid);
+    }
+    let url = reqwest::Url::parse(&p.return_url).map_err(|_| Error::Invalid)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(Error::Invalid);
+    }
+    let _ = payments
+        .pancake_subscription_binding(p.clone())
+        .map_err(pay_error)?;
+    Ok(amount)
+}
+
+async fn register_price(
+    c: &mut PgConnection,
+    actor_id: i64,
+    key: &str,
+    p: &PancakePrice,
+    amount: i64,
+    request: &Value,
+    expected: Option<&Plan>,
+) -> Result<PancakePrice> {
+    lock(c, actor_id).await?;
+    if let Some(old) = prior(c, actor_id, key, request).await? {
+        return Ok(old);
+    }
+    let current = plan(c, p.plan_id, true).await?;
+    if expected.is_some_and(|expected| expected != &current) {
+        return Err(Error::Conflict);
+    }
+    if current.archived || current.revision != p.plan_revision {
+        return Err(Error::Conflict);
+    }
+    let duration = match p.billing_period.as_str() {
+        "weekly" => current.terms.duration_months == 0 && current.terms.duration_seconds == 604800,
+        "monthly" => current.terms.duration_months == 1,
+        "quarterly" => current.terms.duration_months == 3,
+        "yearly" => current.terms.duration_months == 12,
+        "" => p.product_type == "one_time",
+        _ => false,
+    };
+    if !duration
+        || (p.product_type == "subscription"
+            && (p.billing_period.is_empty() || p.currency != "USD"))
+        || (p.product_type == "one_time" && !p.billing_period.is_empty())
+    {
+        return Err(Error::Invalid);
+    }
+    sqlx::query("INSERT INTO core_subscriptions.external_prices(plan_id,plan_revision,channel_id,currency,amount_minor,actor_user_id) VALUES($1,$2,$3,$4,$5,$6)").bind(p.plan_id).bind(p.plan_revision).bind(p.channel_id).bind(&p.currency).bind(amount).bind(actor_id).execute(&mut *c).await?;
+    sqlx::query("INSERT INTO core_subscriptions.pancake_prices(plan_id,plan_revision,channel_id,store_id,product_id,product_type,billing_period,provider_plan_reference,return_url,checkout_region,checkout_language,tax_category) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)").bind(p.plan_id).bind(p.plan_revision).bind(p.channel_id).bind(&p.store_id).bind(&p.product_id).bind(&p.product_type).bind(&p.billing_period).bind(&p.provider_plan_reference).bind(&p.return_url).bind(&p.checkout_region).bind(&p.checkout_language).bind(&p.tax_category).execute(&mut *c).await?;
+    remember(c, actor_id, key, request, p).await?;
+    Ok(p.clone())
+}
+
 impl SubscriptionStore {
     pub async fn save_pancake_price(
         &self,
@@ -106,60 +193,75 @@ impl SubscriptionStore {
         p: &PancakePrice,
     ) -> Result<PancakePrice> {
         operation_key(key)?;
-        let amount = p.amount_minor.parse::<i64>().map_err(|_| Error::Invalid)?;
-        if !(1..=9_000_000_000_000).contains(&amount)
-            || amount.to_string() != p.amount_minor
-            || !matches!(p.currency.as_str(), "USD" | "CNY")
-            || !matches!(p.product_type.as_str(), "one_time" | "subscription")
-        {
-            return Err(Error::Invalid);
-        }
-        let url = reqwest::Url::parse(&p.return_url).map_err(|_| Error::Invalid)?;
-        if url.scheme() != "https"
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-        {
-            return Err(Error::Invalid);
-        }
-        let _ = payments
-            .pancake_subscription_binding(p.clone())
-            .map_err(pay_error)?;
+        let amount = validate_price(payments, p)?;
         let mut tx = self.begin().await?;
         let a = actor(&mut tx, secret, true).await?;
-        lock(&mut tx, a.user_id).await?;
         let request = json!(["pancake_price", p]);
-        if let Some(old) = prior(&mut tx, a.user_id, key, &request).await? {
-            tx.commit().await?;
-            return Ok(old);
-        }
-        let current = plan(&mut tx, p.plan_id, true).await?;
-        if current.archived || current.revision != p.plan_revision {
-            return Err(Error::Conflict);
-        }
-        let duration = match p.billing_period.as_str() {
-            "weekly" => {
-                current.terms.duration_months == 0 && current.terms.duration_seconds == 604800
-            }
-            "monthly" => current.terms.duration_months == 1,
-            "quarterly" => current.terms.duration_months == 3,
-            "yearly" => current.terms.duration_months == 12,
-            "" => p.product_type == "one_time",
-            _ => false,
-        };
-        if !duration
-            || (p.product_type == "subscription"
-                && (p.billing_period.is_empty() || p.currency != "USD"))
-            || (p.product_type == "one_time" && !p.billing_period.is_empty())
+        let result = register_price(&mut tx, a.user_id, key, p, amount, &request, None).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    /// Offline publication uses database ownership, without constructing a user credential.
+    pub async fn publish_pancake_price_as_owner(
+        &self,
+        payments: &PaymentsStore,
+        input: &PublishPancakePrice,
+    ) -> Result<PancakePrice> {
+        operation_key(&input.operation_key)?;
+        input.expected_plan.terms.validate()?;
+        if input.expected_plan.archived
+            || !input.expected_plan.terms.enabled
+            || input.expected_plan.id != input.price.plan_id
+            || input.expected_plan.revision != input.price.plan_revision
         {
             return Err(Error::Invalid);
         }
-        sqlx::query("INSERT INTO core_subscriptions.external_prices(plan_id,plan_revision,channel_id,currency,amount_minor,actor_user_id) VALUES($1,$2,$3,$4,$5,$6)").bind(p.plan_id).bind(p.plan_revision).bind(p.channel_id).bind(&p.currency).bind(amount).bind(a.user_id).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO core_subscriptions.pancake_prices(plan_id,plan_revision,channel_id,store_id,product_id,product_type,billing_period,provider_plan_reference,return_url,checkout_region,checkout_language,tax_category) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)").bind(p.plan_id).bind(p.plan_revision).bind(p.channel_id).bind(&p.store_id).bind(&p.product_id).bind(&p.product_type).bind(&p.billing_period).bind(&p.provider_plan_reference).bind(&p.return_url).bind(&p.checkout_region).bind(&p.checkout_language).bind(&p.tax_category).execute(&mut *tx).await?;
-        remember(&mut tx, a.user_id, key, &request, p).await?;
+        let amount = validate_price(payments, &input.price)?;
+        let mut tx = self.begin().await?;
+        let owner: bool = sqlx::query_scalar(
+            "SELECT core_identity.is_identity_relation_owner() AND \
+             (current_user=session_user OR EXISTS(SELECT FROM pg_roles r \
+              WHERE r.rolname=current_user AND NOT r.rolcanlogin \
+              AND pg_has_role(session_user,r.rolname,'MEMBER'))) AND \
+             NOT EXISTS(SELECT FROM pg_class WHERE oid IN \
+              ('core_subscriptions.external_prices'::regclass, \
+               'core_subscriptions.pancake_prices'::regclass, \
+               'core_subscriptions.commands'::regclass) \
+              AND pg_get_userbyid(relowner)<>current_user)",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !owner {
+            return Err(Error::Forbidden);
+        }
+        // Attribute the publication to the real publisher of this existing revision.
+        // The database owner is the authority; this row is not a login or Session.
+        let actor_id: i64 = sqlx::query_scalar(
+            "SELECT r.actor_user_id FROM core_subscriptions.plan_revisions r \
+             JOIN core_identity.users u ON u.id=r.actor_user_id \
+             JOIN core_identity.accounts a ON a.id=u.personal_account_id AND a.kind='personal' \
+             WHERE r.plan_id=$1 AND r.revision=$2 AND u.platform_role='superadmin' \
+             FOR SHARE OF u",
+        )
+        .bind(input.price.plan_id)
+        .bind(input.price.plan_revision)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Forbidden)?;
+        let request = json!(["owner_pancake_price", input.expected_plan, input.price]);
+        let result = register_price(
+            &mut tx,
+            actor_id,
+            &input.operation_key,
+            &input.price,
+            amount,
+            &request,
+            Some(&input.expected_plan),
+        )
+        .await?;
         tx.commit().await?;
-        Ok(p.clone())
+        Ok(result)
     }
     pub async fn pancake_prices(
         &self,

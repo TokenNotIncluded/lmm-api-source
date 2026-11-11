@@ -18,6 +18,8 @@ use sqlx::PgPool;
 use std::sync::Arc;
 #[path = "subscriptions/admin.rs"]
 mod admin;
+#[path = "subscriptions/owner_price.rs"]
+mod owner_price;
 #[path = "common/runtime.rs"]
 mod runtime;
 

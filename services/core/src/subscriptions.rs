@@ -6,7 +6,9 @@ mod external_pancake;
 mod pancake_http;
 mod pancake_rpc;
 pub use balance_read::BalancePurchaseStatus;
-pub use external_pancake::{PANCAKE_SCHEMA, PancakeEventReceipt, PancakeOrder};
+pub use external_pancake::{
+    PANCAKE_SCHEMA, PancakeEventReceipt, PancakeOrder, PublishPancakePrice,
+};
 pub mod epay_rpc;
 mod external_epay;
 mod external_stripe;

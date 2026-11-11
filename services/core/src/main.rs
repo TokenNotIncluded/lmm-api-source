@@ -18,7 +18,7 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | schema-manifest | check-db | trust-policy-editor]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | publish-subscription-pancake-price | schema-manifest | check-db | trust-policy-editor]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
@@ -45,6 +45,7 @@ Commands:\n\
   install-usage-receipt-index  Offline owner-only index installation; requires explicit --config.\n\
   plan-admin-activation  Read-only candidate binding for one imported admin; requires explicit --config (not --legacy-env).\n\
   apply-admin-activation Owner-only apply of one human-confirmed activation; requires explicit --config (not --legacy-env).\n\n\
+  publish-subscription-pancake-price  Publish one price for an existing exact plan revision as offline owner; reads private stdin JSON.\n\
 Options:\n\
   --config PATH  Read one absolute TOML file (default /etc/lmm.conf.d/core.toml).\n\
   --legacy-env   Explicit temporary environment compatibility; conflicts with --config.\n\
@@ -72,6 +73,7 @@ enum Command {
     RebuildChannelUsage,
     PlanAdminActivation,
     ApplyAdminActivation,
+    PublishSubscriptionPancakePrice,
     SchemaManifest,
     CheckDb,
     TrustPolicyEditor,
@@ -119,6 +121,7 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "rebuild-channel-usage"
                 | "plan-admin-activation"
                 | "apply-admin-activation"
+                | "publish-subscription-pancake-price"
                 | "schema-manifest"
                 | "check-db"
                 | "trust-policy-editor",
@@ -136,6 +139,9 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     Some("rebuild-channel-usage") => Command::RebuildChannelUsage,
                     Some("plan-admin-activation") => Command::PlanAdminActivation,
                     Some("apply-admin-activation") => Command::ApplyAdminActivation,
+                    Some("publish-subscription-pancake-price") => {
+                        Command::PublishSubscriptionPancakePrice
+                    }
                     Some("schema-manifest") => Command::SchemaManifest,
                     Some("check-db") => Command::CheckDb,
                     Some("trust-policy-editor") => Command::TrustPolicyEditor,
@@ -291,6 +297,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .into());
             }
             Some(admin::Operation::RebuildChannelUsage)
+        }
+        Command::PublishSubscriptionPancakePrice => {
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                    "publish-subscription-pancake-price requires explicit owner --config and cannot use --legacy-env").into());
+            }
+            Some(admin::Operation::publish_subscription_pancake_price(
+                io::stdin().lock(),
+            )?)
         }
         Command::PlanAdminActivation => {
             if arguments.config.is_none() || arguments.legacy_env {
@@ -944,6 +959,30 @@ mod check_db_parser_tests {
     use super::*;
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+    #[test]
+    fn owner_pancake_command_accepts_explicit_config_and_rejects_duplicates() {
+        let parsed = command(args(&[
+            "publish-subscription-pancake-price",
+            "--config",
+            "/private/owner.toml",
+        ]))
+        .unwrap();
+        assert!(matches!(
+            parsed.command,
+            Command::PublishSubscriptionPancakePrice
+        ));
+        assert_eq!(parsed.config, Some(PathBuf::from("/private/owner.toml")));
+        assert!(command(args(&["publish-subscription-pancake-price", "serve"])).is_err());
+        assert!(
+            command(args(&[
+                "--legacy-env",
+                "--config",
+                "/private/owner.toml",
+                "publish-subscription-pancake-price"
+            ]))
+            .is_err()
+        );
     }
     #[test]
     fn check_db_is_explicit_and_accepts_both_config_positions() {

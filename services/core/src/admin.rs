@@ -41,6 +41,7 @@ pub enum Operation {
     UpgradeDatabase(Box<lmm_core::core_schema::UpgradeRequest>),
     PlanAdminActivation(PlanAdminActivationRequest),
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
+    PublishSubscriptionPancakePrice(lmm_core::subscriptions::PublishPancakePrice),
     TrustPolicyEditor(trust_policy_editor::Request),
 }
 
@@ -110,6 +111,11 @@ impl Operation {
     pub fn plan_admin_activation(input: impl Read) -> io::Result<Self> {
         let request = admin_approval::read_bounded_json(input).map_err(approval_io)?;
         Ok(Self::PlanAdminActivation(request))
+    }
+
+    pub fn publish_subscription_pancake_price(input: impl Read) -> io::Result<Self> {
+        let request = admin_approval::read_bounded_json(input).map_err(approval_io)?;
+        Ok(Self::PublishSubscriptionPancakePrice(request))
     }
 
     pub fn apply_admin_activation(input: impl Read) -> io::Result<Self> {
@@ -249,6 +255,36 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
                 "Core setup completion recorded. Existing initialization facts were preserved."
             );
         }
+        Operation::PublishSubscriptionPancakePrice(request) => {
+            lmm_core::core_schema::check(&pool).await?;
+            let channels = config::configured_payment_channels()?;
+            let payments = lmm_core::payments::PaymentsStore::new(pool.clone(), channels)
+                .map_err(|_| io::Error::other("invalid payment channel configuration"))?;
+            let subscriptions = lmm_core::subscriptions::SubscriptionStore::new(pool.clone());
+            match subscriptions
+                .publish_pancake_price_as_owner(&payments, &request)
+                .await
+            {
+                Ok(price) => {
+                    serde_json::to_writer(
+                        io::stdout().lock(),
+                        &serde_json::json!({"status":"published","price":price}),
+                    )?;
+                    println!();
+                }
+                Err(error) => {
+                    serde_json::to_writer(
+                        io::stdout().lock(),
+                        &serde_json::json!({"status":"unconfirmed","code":format!("{error:?}"),"retry_allowed":false}),
+                    )?;
+                    println!();
+                    return Err(io::Error::other(
+                        "owner price publication failed; inspect private receipt",
+                    )
+                    .into());
+                }
+            }
+        }
         Operation::PlanAdminActivation(request) => {
             lmm_core::core_schema::check(&pool).await?;
             let mut connection = pool.acquire().await?;
@@ -266,4 +302,42 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod owner_price_input_tests {
+    use super::*;
+
+    #[test]
+    fn owner_pancake_price_input_is_bounded_and_rejects_credentials() {
+        let request = serde_json::json!({
+            "operation_key":"owner_price_request_01",
+            "expected_plan":{"id":1,"revision":1,"archived":false,"terms":{
+                "title":"Imported","price_units":"1","duration_seconds":3600,"duration_months":0,
+                "reset_period":"grant","reset_seconds":0,"limit_units":"1000",
+                "models":["*"],"groups":["*"],"max_purchases_per_user":0,"enabled":true,"allow_balance_pay":false}},
+            "price":{"plan_id":"1","plan_revision":"1","channel_id":"5003","currency":"CNY",
+                "amount_minor":"990","store_id":"source-store","product_id":"source-product",
+                "product_type":"one_time","billing_period":"","provider_plan_reference":"PLAN_fixture_owner",
+                "return_url":"https://example.test/return","checkout_region":"china","checkout_language":"zh","tax_category":"digital_goods"}
+        });
+        assert!(matches!(
+            Operation::publish_subscription_pancake_price(
+                serde_json::to_vec(&request).unwrap().as_slice()
+            )
+            .unwrap(),
+            Operation::PublishSubscriptionPancakePrice(_)
+        ));
+        let mut extra = request;
+        extra["session"] = "not-a-credential".into();
+        assert!(
+            Operation::publish_subscription_pancake_price(
+                serde_json::to_vec(&extra).unwrap().as_slice()
+            )
+            .is_err()
+        );
+        assert!(
+            Operation::publish_subscription_pancake_price(vec![b' '; 65_537].as_slice()).is_err()
+        );
+    }
 }

@@ -1372,6 +1372,16 @@ pub fn console_enabled() -> io::Result<bool> {
     bool_setting("LMM_CORE_CONSOLE_ENABLED")
 }
 
+/// Load the same payment channel configuration used by normal runtime startup.
+pub fn configured_payment_channels() -> io::Result<Vec<crate::payments::Channel>> {
+    let path = setting_os("LMM_CORE_PAYMENTS_CONFIG_FILE")
+        .ok_or_else(|| invalid_config("payment channel configuration required"))?;
+    let document = configuration_file(Path::new(&path), 64 * 1024)?;
+    let config: PaymentConfig = parse_document(&document)
+        .map_err(|_| invalid_config("invalid payment configuration"))?;
+    config.load().map(|(channels, _)| channels)
+}
+
 pub fn payments_configured() -> bool {
     setting_os("LMM_CORE_PAYMENTS_CONFIG_FILE").is_some()
         || setting_os("LMM_CORE_PAYMENTS_TOKEN_FILE").is_some()
