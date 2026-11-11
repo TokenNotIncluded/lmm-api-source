@@ -30,7 +30,7 @@ class Fresh49IdentityTests(unittest.TestCase):
         target = {**contract,
             'catalog_fingerprint_sha256': self.client.query(pg.F.IDENTITY.catalog_hash_sql(contract)),
             'allow_initialized_core_seed': True,
-            'initialized_core_seed_contract': pg.F.IDENTITY.CORE_SEED_CONTRACT,
+            'initialized_core_seed_contract': contract.get('import_profile', pg.F.IDENTITY.CORE_SEED_CONTRACT),
             'initialized_core_seed_sha256': self.client.query(pg.F.IDENTITY.fresh_seed_hash_query()),
             'trust_policy_seed': self.client.query(pg.F.IDENTITY.trust_policy_seed_query()),
         }

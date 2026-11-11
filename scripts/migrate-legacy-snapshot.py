@@ -649,7 +649,7 @@ CREDIT_QUOTES_FILE_HASHES = {
     "services/core/src/payments.rs": "4c62700b50abc55a18caa96f10c0d6fe5bb757fdc1e2e64c1aae80c1d63f586a",
 }
 CREDIT_QUOTES_REVIEW_FILE = Path(__file__).with_name("reviewed-fresh66-credit-quotes.json")
-CREDIT_QUOTES_REVIEW_SHA256 = "cc2a8afa5daacd4fa7bf49c5675a3e5ce472fb3ed80a855c5895974dfc6c76c0"
+CREDIT_QUOTES_REVIEW_SHA256 = "bb76fe088c7925370043246a64bbd179f1642f520d4ba9ee9c96753920a7152e"
 REVIEWED_CREDIT_QUOTES = json.loads(CREDIT_QUOTES_REVIEW_FILE.read_text(encoding="utf-8"))
 
 

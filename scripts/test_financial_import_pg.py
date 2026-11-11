@@ -649,6 +649,7 @@ class UnixPostgreSQLTests(PostgreSQLTests):
             # Only the instrumented sql() path delays SET ROLE. Direct Popen
             # callers retain their existing owner execution context.
             options = F.IDENTITY.psql_options({"role": login}, readonly=False) + " -c role=none"
+        options += " -c timezone=UTC"
         env = ["env", "-i", "PATH=" + os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL=C.UTF-8",
                "PGAPPNAME=" + application_name, "PGPASSFILE=" + connection["pgpass_file"],
                "PGOPTIONS=" + options]

@@ -18,16 +18,17 @@ class CreditQuoteImportProfileTests(unittest.TestCase):
         review.update(actual_init_receipt_sha256='ab' * 32, acl_receipt_sha256='cd' * 32)
         return patch.object(I, 'REVIEWED_CREDIT_QUOTES', review)
 
-    def test_actual_profile_remains_pending_init(self):
-        review = I.reviewed_credit_quotes(require_receipts=False)
-        self.assertIsNone(review['actual_init_receipt_sha256'])
-        self.assertIsNone(review['acl_receipt_sha256'])
-        with self.assertRaisesRegex(I.MappingError, 'credit_quotes_actual_init_receipt_sha256_pending'):
-            I.current_contract()
+    def test_missing_init_receipt_remains_pending(self):
+        review = copy.deepcopy(I.REVIEWED_CREDIT_QUOTES)
+        review.update(actual_init_receipt_sha256=None, acl_receipt_sha256=None)
+        with patch.object(I, 'REVIEWED_CREDIT_QUOTES', review):
+            with self.assertRaisesRegex(I.MappingError, 'credit_quotes_actual_init_receipt_sha256_pending'):
+                I.current_contract()
 
     def test_init_alone_does_not_admit_without_actual_acl(self):
         review = copy.deepcopy(I.REVIEWED_CREDIT_QUOTES)
         review['actual_init_receipt_sha256'] = 'ab' * 32
+        review['acl_receipt_sha256'] = None
         with patch.object(I, 'REVIEWED_CREDIT_QUOTES', review):
             with self.assertRaisesRegex(I.MappingError, 'credit_quotes_acl_receipt_sha256_pending'):
                 I.current_contract()
