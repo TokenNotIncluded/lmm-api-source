@@ -2,6 +2,71 @@
 //! its entire hold. Only its original worker can persist this UNKNOWN marker.
 use super::*;
 impl Charging {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn settle_measured_cost_with_supplement(
+        &self,
+        id: &str,
+        worker: &[u8; 32],
+        secret: &str,
+        peer: Option<IpAddr>,
+        issuer: Option<&crate::identity::grants::LmmIssuer>,
+        usage: Usage,
+        outcome: Outcome,
+    ) -> Result<Charge> {
+        let mut tx = self.begin().await?;
+        lock(&mut tx, id).await?;
+        let stored = load(&mut tx, id).await?;
+        worker_matches(&stored, worker)?;
+        let charge = stored.charge;
+        if charge.price.upstream_cost_group_ppm.is_none() || usage.upstream_cost_atto_usd.is_none()
+        {
+            return Err(Error::Invalid);
+        }
+        let evidence: Value = sqlx::query_scalar(
+            "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='model-provider-terminal:v1'",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Conflict)?;
+        if evidence["kind"] != "model_provider_terminal"
+            || evidence["normalized_usage"] != json(&usage)?
+            || evidence["price_sha256"].as_str()
+                != Some(contract::typed_digest(&charge.price)?.as_str())
+        {
+            return Err(Error::Conflict);
+        }
+        if charge.state == "settled" {
+            if charge.usage != usage || charge.outcome.as_deref() != Some(outcome.text()) {
+                return Err(Error::Conflict);
+            }
+            commit(tx).await?;
+            return Ok(charge);
+        }
+        live(&charge, now(&mut tx).await?)?;
+        if charge.state != "streaming" {
+            return Err(Error::WrongState);
+        }
+        let amount = charge.price.cost(usage)?;
+        let charge = if amount > charge.reserved {
+            self.increase_in_transaction(&mut tx, charge, secret, amount, peer, issuer)
+                .await?
+        } else {
+            charge
+        };
+        let charge = self
+            .finish(
+                &mut tx,
+                charge,
+                usage,
+                outcome,
+                Some("model-provider-terminal:v1"),
+            )
+            .await?;
+        commit(tx).await?;
+        Ok(charge)
+    }
+
     /// Record normalized supplier usage before a funding attempt. This receipt
     /// carries no permission to increase a hold or debit a wallet.
     pub(crate) async fn record_model_terminal(

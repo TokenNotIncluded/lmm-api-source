@@ -841,6 +841,7 @@ impl Billing for Bridge {
                         (usage, Outcome::Completed)
                     }
                 };
+                let mut supplement = false;
                 if upstream_cost {
                     let amount = price.cost(usage).map_err(error)?;
                     let charge = self
@@ -849,7 +850,8 @@ impl Billing for Bridge {
                         .await
                         .map_err(error)?
                         .ok_or(RelayError::SettlementPending)?;
-                    if amount > charge.reserved {
+                    supplement = amount > charge.reserved;
+                    if supplement {
                         retry(|| {
                             self.charging.record_model_terminal(
                                 &reservation.id,
@@ -860,56 +862,47 @@ impl Billing for Bridge {
                         })
                         .await
                         .map_err(error)?;
-                        retry(|| async {
-                            if let Some(issuer) = &oauth_issuer {
-                                self.charging
-                                    .increase_oauth_with_context(
-                                        issuer,
-                                        &secret,
-                                        &reservation.id,
-                                        &worker,
-                                        amount,
-                                        peer,
-                                    )
-                                    .await
-                            } else {
-                                self.charging
-                                    .increase_with_context(
-                                        &secret,
-                                        &reservation.id,
-                                        &worker,
-                                        amount,
-                                        peer,
-                                    )
-                                    .await
-                            }
-                        })
-                        .await
-                        .map_err(error)?;
                     }
                 }
-                // Non-streaming relay exposes the body only after this durable final
-                // transaction. The checkpoint records the provider observation.
-                // Both finalization stages share one start window; neither stage
-                // cancels an in-flight transaction or replays an unknown commit.
-                stage = "provider_checkpoint";
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-                retry_finalize(
-                    deadline,
-                    &reservation.id,
-                    FinalizeStage::ProviderFinal,
-                    || {
-                        self.charging
-                            .checkpoint(&reservation.id, &worker, "provider-final", usage)
-                    },
-                )
-                .await
-                .map_err(error)?;
+                if !supplement {
+                    stage = "provider_checkpoint";
+                    retry_finalize(
+                        deadline,
+                        &reservation.id,
+                        FinalizeStage::ProviderFinal,
+                        || {
+                            self.charging.checkpoint(
+                                &reservation.id,
+                                &worker,
+                                "provider-final",
+                                usage,
+                            )
+                        },
+                    )
+                    .await
+                    .map_err(error)?;
+                }
                 stage = "settle";
                 let settlement =
-                    retry_finalize(deadline, &reservation.id, FinalizeStage::Settle, || {
-                        self.charging
-                            .settle(&reservation.id, &worker, usage, outcome)
+                    retry_finalize(deadline, &reservation.id, FinalizeStage::Settle, || async {
+                        if supplement {
+                            self.charging
+                                .settle_measured_cost_with_supplement(
+                                    &reservation.id,
+                                    &worker,
+                                    &secret,
+                                    peer,
+                                    oauth_issuer.as_ref(),
+                                    usage,
+                                    outcome,
+                                )
+                                .await
+                        } else {
+                            self.charging
+                                .settle(&reservation.id, &worker, usage, outcome)
+                                .await
+                        }
                     })
                     .await;
                 match settlement {

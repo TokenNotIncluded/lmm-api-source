@@ -921,9 +921,25 @@ impl Charging {
         lock(&mut tx, id).await?;
         let stored = load(&mut tx, id).await?;
         worker_matches(&stored, worker)?;
-        let at = now(&mut tx).await?;
-        live(&stored.charge, at)?;
-        let old = stored.charge;
+        let charge = self
+            .increase_in_transaction(&mut tx, stored.charge, secret, total, peer, issuer)
+            .await?;
+        commit(tx).await?;
+        Ok(charge)
+    }
+
+    async fn increase_in_transaction(
+        &self,
+        c: &mut PgConnection,
+        old: Charge,
+        secret: &str,
+        total: i64,
+        peer: Option<IpAddr>,
+        issuer: Option<&crate::identity::grants::LmmIssuer>,
+    ) -> Result<Charge> {
+        let id = &old.id;
+        let at = now(c).await?;
+        live(&old, at)?;
         if !matches!(old.state.as_str(), "reserved" | "streaming") {
             return Err(Error::WrongState);
         }
@@ -931,7 +947,7 @@ impl Charging {
             (Some(original), Some(issuer)) => {
                 let current = issuer
                     .authorize_model_in_transaction(
-                        &mut tx,
+                        &mut *c,
                         secret,
                         Some(&old.price.model),
                         Some(&old.price.group),
@@ -952,21 +968,21 @@ impl Charging {
                 {
                     return Err(Error::Forbidden);
                 }
-                let _ = authority::oauth_payer(&mut tx, &current).await?;
+                let _ = authority::oauth_payer(&mut *c, &current).await?;
                 if total > old.reserved {
-                    authority::reject_new_model(&mut tx, current.user_id).await?;
+                    authority::reject_new_model(&mut *c, current.user_id).await?;
                 }
             }
             (None, None) => {
-                let actor = authority::authenticate(&mut tx, secret).await?;
+                let actor = authority::authenticate(&mut *c, secret).await?;
                 if Some(actor.key) != old.key_id
                     || actor.user != old.actor_user_id
                     || actor.owner != old.owner_account_id
                 {
                     return Err(Error::Forbidden);
                 }
-                authority::model_policy(&mut tx, secret, &old.price, peer).await?;
-                if !authority::funding(&mut tx, &actor)
+                authority::model_policy(&mut *c, secret, &old.price, peer).await?;
+                if !authority::funding(&mut *c, &actor)
                     .await?
                     .iter()
                     .any(|p| p.id == old.payer_account_id)
@@ -980,7 +996,6 @@ impl Charging {
             return Err(Error::Invalid);
         }
         if total == old.reserved {
-            commit(tx).await?;
             return Ok(old);
         }
         sqlx::query(
@@ -988,11 +1003,10 @@ impl Charging {
         )
         .bind(id)
         .bind(total)
-        .execute(&mut *tx)
+        .execute(&mut *c)
         .await?;
-        let charge = load(&mut tx, id).await?.charge;
-        self.hold(&mut tx, &charge, at).await?;
-        commit(tx).await?;
+        let charge = load(&mut *c, id).await?.charge;
+        self.hold(&mut *c, &charge, at).await?;
         Ok(charge)
     }
     /// Persist cumulative usage BEFORE exposing corresponding output. Never use
