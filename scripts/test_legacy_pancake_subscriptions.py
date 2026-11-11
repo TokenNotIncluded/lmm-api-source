@@ -19,6 +19,15 @@ class OriginalTests(unittest.TestCase):
         material = {'z': [1, False, None], 'a': "owner's 套餐"}
         self.assertEqual(W.material_json(material), W.F.canonical(material))
 
+    def test_material_json_preserves_integral_decimal_type_and_signed_zero(self):
+        for raw in ('1e0', '-0e0', '100e0'):
+            with self.subTest(raw=raw):
+                material = json.loads('{"amount":' + raw + '}', parse_float=Decimal)
+                decoded = json.loads(W.material_json(material), parse_float=Decimal)
+                self.assertIsInstance(decoded['amount'], Decimal)
+                self.assertEqual(str(decoded['amount']), str(material['amount']))
+                self.assertEqual(W.F.digest(decoded), W.F.digest(material))
+
     def test_material_json_rejects_binary_float_and_nonfinite_decimal(self):
         for value in (0.1, Decimal('NaN'), Decimal('Infinity')):
             with self.subTest(value=str(value)):

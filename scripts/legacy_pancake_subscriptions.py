@@ -25,7 +25,8 @@ def material_json(value):
     """Serialize private material without changing raw JSON decimal values."""
     if isinstance(value, Decimal):
         require(value.is_finite(), 'original_non_finite_decimal')
-        return str(value)
+        encoded = str(value)
+        return encoded if any(marker in encoded for marker in ('.', 'e', 'E')) else encoded + 'E+0'
     if isinstance(value, dict):
         require(all(type(key) is str for key in value), 'original_json_key_invalid')
         return '{' + ','.join(
