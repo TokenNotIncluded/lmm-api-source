@@ -14,7 +14,8 @@ restored snapshot and its dump remain the archival evidence.
 Rows that only Core can own are never written here. Where a phase needs them it
 emits a separate SQL file (core-<phase>.sql) for the coordinator's Core phase.
 
-Connections use local Unix sockets only (libpq environment). Plans and reports
+Source connections use private offline Unix sockets. Target receipts bind
+independent loopback installer connections and their private password files. Plans and reports
 are written below --output (0700, under ~/.local/state/lmm-api). Dry-run is the default.
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from legacy_sql import literal as lit
+import legacy_cutover_import as CUTOVER
 
 BACKUP_ROOT = Path.home() / ".local/state/lmm-api"
 
@@ -56,27 +58,54 @@ def sha(*parts: Any) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-class Db:
-    def __init__(self, socket: str, port: int, database: str, user: str, *, role: str | None, readonly: bool):
+class Db(CUTOVER.Db):
+    def __init__(self, socket: str, port: int, database: str, user: str, *, role: str | None,
+                 readonly: bool, connection: dict | None = None, endpoint: dict | None = None):
         self.database = database
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
-        self.env.update(PGHOST=socket, PGPORT=str(port), PGDATABASE=database, PGUSER=user,
-                        PGAPPNAME="lmm-legacy-extensions-import", PGCONNECT_TIMEOUT="5")
-        options = "-c default_transaction_read_only=" + ("on" if readonly else "off")
-        if role:
-            options += " -c role=" + role
-        self.env["PGOPTIONS"] = options
+        self.endpoint_identity = None
+        super().__init__(Path(socket), port, database, user, role=role, readonly=readonly, connection=connection)
+        if endpoint is not None:
+            import financial_import as F
+            actual = json.loads(super().run(F.IDENTITY.IDENTITY_SQL))
+            F.IDENTITY.verify_instance(actual, connection, endpoint["instance_identity"], source=False)
+            keys = ("database", "role", "session_user", "effective_role_can_login", "database_oid", "database_owner",
+                    "server_version_num", "postmaster_started_at", "server_instance_nonce", "port", "tcp_connection",
+                    "server_address", "client_address", "listen_addresses", "session_role_privileged", "effective_role_privileged")
+            self.endpoint_identity = {key: actual[key] for key in keys}
 
     def run(self, sql: str) -> str:
-        r = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1"],
-                           input=sql, text=True, capture_output=True, env=self.env, check=False)
-        if r.returncode:
-            sys.stderr.write(r.stderr[-4000:])
-            fail(f"psql_failed:{self.database}")
-        return r.stdout
+        if self.endpoint_identity is not None:
+            import financial_import as F
+            expression = F.IDENTITY.IDENTITY_SQL.removeprefix("SELECT ").removesuffix(";")
+            checks = " OR ".join(f"actual->{lit(key)} IS DISTINCT FROM {jlit(value)}"
+                                 for key, value in self.endpoint_identity.items())
+            guard = ("DO $endpoint$ DECLARE actual jsonb; BEGIN actual := (" + expression + "); IF " + checks
+                     + " THEN RAISE EXCEPTION 'target_endpoint_changed'; END IF; END $endpoint$;")
+            if sql.lstrip().startswith("BEGIN;"):
+                prefix = re.match(r"\s*BEGIN;\s*(?:SET TRANSACTION [^;]+;\s*)*", sql).end()
+                sql = sql[:prefix] + guard + "\n" + sql[prefix:]
+            else:
+                sql = "BEGIN;\n" + guard + "\n" + sql.rstrip().rstrip(";") + ";\nCOMMIT;"
+        return super().run(sql)
 
     def scalar(self, sql: str) -> str:
         return self.run(sql).strip()
+
+
+def endpoint_db(args, path: Path, *, database: str | None = None,
+                user: str | None = None, role: str | None = None, readonly: bool) -> Db:
+    import financial_import as F
+    endpoint = F.PLANNER.parse_json(F.IDENTITY.private_backup_path(path).read_text())
+    if endpoint.get("source_archive_sha256") != args.archive_sha256:
+        fail("target_endpoint_source_mismatch")
+    connection = endpoint["connection"]
+    owner, login = F.IDENTITY.connection_roles(connection)
+    if (connection.get("transport") != "loopback-tcp" or "login_role" not in connection
+            or any(actual is not None and actual != expected for actual, expected in
+                   ((database, connection["database"]), (user, login), (role, owner)))):
+        fail("target_connection_binding_mismatch")
+    return Db(args.socket, args.port, connection["database"], login, role=owner,
+              readonly=readonly, connection=connection, endpoint=endpoint)
 
 
 @dataclass
@@ -1474,6 +1503,12 @@ def plan_other(ctx: Ctx) -> Plan:
 
 def target_db(args, name: str, database: str) -> Db:
     override = dict(x.split("=", 1) for x in args.target or [])
+    endpoints = dict(x.split("=", 1) for x in args.target_receipt or [])
+    if name in endpoints:
+        return endpoint_db(args, Path(endpoints[name]), database=override.get(name), user=args.login,
+                           role=args.owner_role, readonly=False)
+    if args.target_receipt:
+        fail("component_target_receipt_missing")
     database = override.get(name, database)
     base = database.split("_")[0] + "_" + database.split("_")[1]
     return Db(args.socket, args.port, database, args.login or f"{base}_installer",
@@ -1489,7 +1524,7 @@ def table_counts(db: Db, tables) -> dict[str, int]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--socket", required=True, help="PostgreSQL socket directory")
+    p.add_argument("--socket", required=True, help="Offline source PostgreSQL socket directory")
     p.add_argument("--port", type=int, default=5432)
     p.add_argument("--source-db", default="legacy")
     p.add_argument("--source-user", default="postgres")
@@ -1507,8 +1542,10 @@ def main() -> None:
     p.add_argument("--identity-map", type=Path, help="Original formal source-target-id-map.private.jsonl")
     p.add_argument("--identity-manifest", type=Path, help="Committed identity-only manifest.private.json")
     p.add_argument("--archive-sha256", help="Exact restored source archive digest")
-    p.add_argument("--identity-db", default="lmm_core", help="Core identity database for formal map readback")
-    p.add_argument("--identity-login", default="postgres", help="Read-only identity provenance inspection login")
+    p.add_argument("--identity-db", help="Core identity database for formal map readback")
+    p.add_argument("--identity-login", help="Read-only identity provenance inspection login")
+    p.add_argument("--target-receipt", action="append", help="PHASE=private loopback SCRAM endpoint receipt")
+    p.add_argument("--identity-receipt", type=Path, help="Core non-super installer endpoint receipt for identity readback")
     p.add_argument("--apply", action="store_true")
     args = p.parse_args()
     out = args.output.expanduser().resolve()
@@ -1518,6 +1555,14 @@ def main() -> None:
     os.chmod(out, 0o700)
     src = Db(args.socket, args.port, args.source_db, args.source_user, role=None, readonly=True)
     ctx = Ctx(src, args.schema, args)
+    if args.target_receipt or args.identity_receipt:
+        if not args.target_receipt or args.identity_receipt is None:
+            fail("core_identity_endpoint_receipt_required")
+        source_fact = json.loads(src.run("SELECT json_build_object('tcp',inet_server_addr() IS NOT NULL,"
+            "'listeners',current_setting('listen_addresses'),'readonly',current_setting('transaction_read_only'),"
+            "'privileged',(SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=session_user))"))
+        if source_fact != {"tcp": False, "listeners": "", "readonly": "on", "privileged": False}:
+            fail("source_offline_restricted_reader_required")
     identity_db = None
     if {"store", "support"} & set(args.phase or PHASES):
         import legacy_cutover_import as CUTOVER
@@ -1525,7 +1570,12 @@ def main() -> None:
             fail("store_formal_identity_binding_required")
         args.identity_binding = CUTOVER.load_identity_binding(args.identity_map, args.identity_manifest,
             args.archive_sha256, [u["id"] for u in ctx.rows("users", "id")])
-        identity_db = Db(args.socket, args.port, args.identity_db, args.identity_login, role=None, readonly=True)
+        if args.identity_receipt is not None:
+            identity_db = endpoint_db(args, args.identity_receipt, database=args.identity_db,
+                                      user=args.identity_login, readonly=True)
+        else:
+            identity_db = Db(args.socket, args.port, args.identity_db or "lmm_core",
+                             args.identity_login or "postgres", role=None, readonly=True)
         CUTOVER.verify_identity_binding(identity_db, args.identity_binding)
     previous = out / "report.json"
     report: dict[str, Any] = json.loads(previous.read_text()) if previous.exists() else {}
@@ -1534,12 +1584,13 @@ def main() -> None:
         if name in {"store", "support"}:
             CUTOVER.verify_identity_binding(identity_db, args.identity_binding)
         plan = fn(ctx)
+        target = target_db(args, name, database) if args.target_receipt and database else None
         body = "\n".join(plan.sql)
         (out / f"{name}.sql").write_text("BEGIN;\nSET TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n" + body + "\nCOMMIT;\n")
         if plan.core_sql:
             (out / f"core-{name}.sql").write_text("-- run in Core phase order by the coordinator\n"
                                                     + "\n".join(plan.core_sql) + "\n")
-        entry: dict[str, Any] = {"database": database, "expect": plan.expect, "stats": dict(plan.stats),
+        entry: dict[str, Any] = {"database": target.database if target is not None else database, "expect": plan.expect, "stats": dict(plan.stats),
                                  "mapping": {k: list(v) for k, v in plan.mapping.items()},
                                  "core_sql_statements": len(plan.core_sql)}
         if args.apply and database == "":
@@ -1547,7 +1598,7 @@ def main() -> None:
                 fail(f"phase_without_database_has_rows:{name}")
             entry["reconciled"] = True
         elif args.apply:
-            db = target_db(args, name, database)
+            db = target or target_db(args, name, database)
             before = table_counts(db, plan.expect)
             if any(before.values()):
                 fail(f"target_not_empty:{name}:{before}")
@@ -1565,6 +1616,10 @@ def main() -> None:
             CUTOVER.verify_identity_binding(identity_db, args.identity_binding)
             entry["identity_binding"] = {**args.identity_binding["provenance"], "cross_database_atomic": False}
             entry["sql_sha256"] = hashlib.sha256(body.encode()).hexdigest()
+            if identity_db.endpoint_identity is not None:
+                entry["identity_instance_identity"] = identity_db.endpoint_identity
+        if target is not None:
+            entry["target_instance_identity"] = target.endpoint_identity
         report[name] = entry
         print(f"{name}: {'applied' if args.apply else 'planned'} {plan.expect} {dict(plan.stats)}")
     (out / "report.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))

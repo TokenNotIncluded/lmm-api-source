@@ -450,8 +450,8 @@ def validate_material(material: dict) -> None:
     expected = target["instance"]
     alias_target(expected)
     require(expected.get("database_owner") == expected.get("role") != expected.get("session_user")
-        and expected.get("effective_role_can_login") is False and expected.get("tcp_connection") is False
-        and expected.get("listen_addresses") == "", "credential_target_not_offline_owner")
+        and expected.get("effective_role_can_login") is False
+        and IDENTITY.local_target_transport(expected), "credential_target_not_offline_owner")
     roles = material["runtime_roles"]
     require(type(roles) is list and roles and roles == sorted(set(roles))
         and all(type(r) is str and IDENTITY.IDENTIFIER.fullmatch(r) for r in roles)

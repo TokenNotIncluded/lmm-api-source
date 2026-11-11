@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Offline identity import from an owned, immutable PostgreSQL snapshot.
 
-Run through mise. Dry-run is the default. Receipts describe local Unix sockets;
-this tool never connects over TCP, creates a schema, or imports funds, sessions,
+Run through mise. Dry-run is the default. Sources use owned private Unix sockets;
+targets also support explicitly bound loopback SCRAM with a private passfile.
+The identity phase preserves existing identities separately from funds, sessions,
 API keys, passkeys, or second-factor secrets. The default identity phase does not
 import OAuth links. Explicit --phase oauth continues the original identity import
 with verified existing-user OAuth/Telegram bindings and a separate immutable receipt.
@@ -132,6 +133,9 @@ REVIEWED_SCHEMA_ALIASES = {
     'crate::identity::ACCOUNT_APPEALS_SCHEMA': ('services/core/src/identity/browser/account_appeals.rs', 'ACCOUNT_APPEALS_SCHEMA', 'include_str!("../../../schema/account_appeals.sql")'),
     'crate::subscriptions::SCHEMA': ('services/core/src/subscriptions.rs', 'SCHEMA', 'include_str!("../schema/subscriptions.sql")'),
     'crate::subscriptions::EPAY_SCHEMA': ('services/core/src/subscriptions/external_epay.rs', 'EPAY_SCHEMA', 'include_str!("../../schema/subscription_epay.sql")'),
+    'crate::payments::CREDIT_QUOTE_SCHEMA': (
+        'services/core/src/payments.rs', 'CREDIT_QUOTE_SCHEMA',
+        'concat!(include_str!("../schema/payment_credit_quotes.sql"),"\\n",include_str!("../schema/payment_credit_quote_referrals.sql"))'),
     'crate::promotions::SCHEMA': ('services/core/src/promotions.rs', 'SCHEMA', 'include_str!("../schema/promotions.sql")'),
     'crate::promotions::red_packets::SCHEMA': ('services/core/src/promotions/red_packets.rs', 'SCHEMA', 'include_str!("../../schema/red_packets.sql")'),
 }
@@ -1431,20 +1435,51 @@ def load_receipt(path: Path, private: bool = False) -> dict:
 
 def socket_connection(connection: dict) -> dict:
     require(isinstance(connection, dict), "connection_receipt_invalid")
+    port = connection.get("port")
+    require(type(port) is int and 1 <= port <= 65535, "socket_port_missing_or_invalid")
+    pgpass = private_backup_path(Path(connection.get("pgpass_file", "")))
+    require(IDENTIFIER.fullmatch(connection.get("database", "")) is not None, "database_name_invalid")
+    _, login = connection_roles(connection)
+    variables = {"PGPORT": str(port), "PGDATABASE": connection["database"],
+                 "PGUSER": login, "PGPASSFILE": str(pgpass)}
+    if connection.get("transport") == "loopback-tcp":
+        host = connection.get("host")
+        require(host in ("127.0.0.1", "::1") and "socket_directory" not in connection,
+                "loopback_tcp_endpoint_invalid")
+        require("login_role" in connection, "target_independent_installer_required")
+        return {**variables, "PGHOST": host, "PGHOSTADDR": host, "PGREQUIREAUTH": "scram-sha-256"}
+    require(connection.get("transport", "unix") == "unix", "connection_transport_invalid")
     socket_dir = Path(connection.get("socket_directory", ""))
     require(socket_dir.is_absolute(), "tcp_connection_rejected")
     owned_path(socket_dir, private=True, directory=True)
-    port = connection.get("port")
-    require(type(port) is int and 1 <= port <= 65535, "socket_port_missing_or_invalid")
     socket_file = socket_dir / (".s.PGSQL." + str(port))
     require(not socket_file.is_symlink(), "socket_symlink_rejected")
     socket_stat = socket_file.stat()
     require(stat.S_ISSOCK(socket_stat.st_mode) and socket_stat.st_uid == os.getuid(), "socket_owner_mismatch")
-    pgpass = private_backup_path(Path(connection.get("pgpass_file", "")))
-    require(IDENTIFIER.fullmatch(connection.get("database", "")) is not None, "database_name_invalid")
-    _, login = connection_roles(connection)
-    return {"PGHOST": str(socket_dir), "PGPORT": str(port), "PGDATABASE": connection["database"],
-            "PGUSER": login, "PGPASSFILE": str(pgpass)}
+    return {**variables, "PGHOST": str(socket_dir)}
+
+
+def local_target_transport(identity: dict) -> bool:
+    """A TCP target must attest both actual endpoints and loopback-only listeners."""
+    if identity.get("tcp_connection") is False:
+        return identity.get("listen_addresses") == ""
+    listeners = identity.get("listen_addresses")
+    return (identity.get("tcp_connection") is True and isinstance(listeners, str)
+            and bool(listeners.strip())
+            and all(part.strip() in ("localhost", "127.0.0.1", "::1") for part in listeners.split(","))
+            and identity.get("server_address") in ("127.0.0.1", "::1")
+            and identity.get("client_address") in ("127.0.0.1", "::1")
+            and identity.get("session_role_privileged") is False
+            and identity.get("effective_role_privileged") is False)
+
+
+def target_transport_guard_sql(identity: dict) -> str:
+    if identity.get("tcp_connection") is True:
+        require(local_target_transport(identity), "target_loopback_transport_invalid")
+        return (f"inet_server_addr() IS DISTINCT FROM {sql_literal(identity['server_address'])}::inet"
+                f" OR inet_client_addr() IS DISTINCT FROM {sql_literal(identity['client_address'])}::inet"
+                f" OR current_setting('listen_addresses') IS DISTINCT FROM {sql_literal(identity['listen_addresses'])}")
+    return "inet_server_addr() IS NOT NULL OR current_setting('listen_addresses') NOT IN ('','localhost','127.0.0.1')"
 
 
 def connection_roles(connection: dict) -> tuple[str, str]:
@@ -1509,11 +1544,19 @@ IDENTITY_SQL = """SELECT json_build_object(
  'datcollate',(SELECT datcollate FROM pg_database WHERE datname=current_database()),
  'datctype',(SELECT datctype FROM pg_database WHERE datname=current_database()),
  'datcollversion',(SELECT datcollversion FROM pg_database WHERE datname=current_database()));"""
+IDENTITY_SQL = IDENTITY_SQL.removesuffix(";") + """::jsonb || CASE WHEN inet_server_addr() IS NULL
+ THEN '{}'::jsonb ELSE jsonb_build_object('server_address',host(inet_server_addr()),
+ 'client_address',host(inet_client_addr()),'listen_addresses',current_setting('listen_addresses'),
+ 'session_role_privileged',(SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls
+  FROM pg_roles WHERE rolname=session_user),
+ 'effective_role_privileged',(SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls
+  FROM pg_roles WHERE rolname=current_user)) END;"""
 
 
 def verify_instance(identity: dict, connection: dict, expected: dict, *, source: bool) -> None:
     if source:
         require("login_role" not in connection and "set_role" not in connection, "source_role_switch_forbidden")
+        require(connection.get("transport", "unix") == "unix", "source_tcp_connection_forbidden")
     require(isinstance(expected, dict), "instance_receipt_incomplete")
     expected = dict(expected)
     if "postmaster_started_at" not in expected:
@@ -1521,8 +1564,15 @@ def verify_instance(identity: dict, connection: dict, expected: dict, *, source:
     require(identity.get("database") == connection["database"] and identity.get("role") == connection["role"], "database_identity_mismatch")
     # unix_socket_directories is a privileged setting. The owner attests the
     # offline listener in the receipt; libpq uses our checked owned Unix socket.
-    listeners = ("",) if source else ("", "127.0.0.1")
-    require(identity.get("tcp_connection") is False and expected.get("listen_addresses") in listeners, "database_not_offline")
+    if not source and connection.get("transport") == "loopback-tcp":
+        require(local_target_transport(identity) and identity["server_address"] == connection["host"]
+                and all(identity.get(key) == expected.get(key) for key in
+                        ("tcp_connection", "server_address", "client_address", "listen_addresses")),
+                "target_loopback_transport_mismatch")
+    else:
+        listeners = ("",) if source else ("", "127.0.0.1")
+        require(identity.get("tcp_connection") is False and expected.get("listen_addresses") in listeners,
+                "database_not_offline")
     require(identity.get("port") == connection["port"], "database_socket_mismatch")
     require(isinstance(expected, dict) and all(key in expected for key in ("database_oid", "postmaster_started_at", "server_version_num")), "instance_receipt_incomplete")
     for key in ("database_oid", "server_version_num"):
@@ -1847,8 +1897,7 @@ BEGIN
  OR pg_postmaster_start_time()<>{sql_literal(target_identity['postmaster_started_at'])}::timestamptz
  OR current_setting('server_version_num')<>{sql_literal(str(target_identity['server_version_num']))}
  OR current_setting('lmm.migration_instance_nonce',true) IS DISTINCT FROM {sql_literal(target_identity['server_instance_nonce'])}
- OR current_setting('port')::int<>{target_identity['port']} OR inet_server_addr() IS NOT NULL
- OR current_setting('listen_addresses') NOT IN ('','localhost','127.0.0.1') THEN
+ OR current_setting('port')::int<>{target_identity['port']} OR {target_transport_guard_sql(target_identity)} THEN
   RAISE EXCEPTION 'target instance identity mismatch';
  END IF;
  IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid()) THEN

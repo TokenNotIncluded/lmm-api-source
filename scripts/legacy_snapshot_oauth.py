@@ -143,8 +143,7 @@ BEGIN
  OR current_setting('server_version_num')<>{literal(str(instance['server_version_num']))}
  OR current_setting('lmm.migration_instance_nonce',true) IS DISTINCT FROM {literal(instance['server_instance_nonce'])}
  OR current_setting('port')::int<>{connection['port']}
- OR current_setting('listen_addresses') NOT IN ('','localhost','127.0.0.1')
- OR inet_server_addr() IS NOT NULL THEN RAISE EXCEPTION 'oauth owner or instance mismatch'; END IF;
+ OR {I.target_transport_guard_sql(instance)} THEN RAISE EXCEPTION 'oauth owner or instance mismatch'; END IF;
  PERFORM pg_stat_clear_snapshot();
  IF EXISTS(SELECT FROM pg_stat_activity WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid())
  THEN RAISE EXCEPTION 'oauth target has other database clients'; END IF;

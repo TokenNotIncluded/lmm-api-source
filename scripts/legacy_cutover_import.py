@@ -7,7 +7,8 @@ refuses a non-empty target for the tables it owns, so a phase cannot run twice.
 Continuation phases consume the committed safe identity map. Native user IDs
 are preserved; personal accounts are resolved independently through that map.
 
-Connections use local Unix sockets only (libpq environment), never DSNs in argv.
+Sources use private Unix sockets. Targets support receipt-bound loopback SCRAM
+with private passfiles and an independent installer LOGIN.
 Private SQL plans and reports are written under --output (0700, under ~/.local/state/lmm-api).
 """
 from __future__ import annotations
@@ -133,8 +134,17 @@ END $identity_binding$;"""
 
 class Db:
     def __init__(self, socket: Path, port: int, database: str, user: str, *, role: str | None = None,
-                 readonly: bool):
+                 readonly: bool, connection: dict | None = None):
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
+        if connection is not None:
+            import financial_import as F
+            owner, login = F.IDENTITY.connection_roles(connection)
+            if (database, user, role) != (connection["database"], login, owner):
+                fail("target_connection_binding_mismatch")
+            self.env.update(F.IDENTITY.socket_connection(connection))
+            self.env.update(PGAPPNAME="lmm-legacy-cutover-import", PGCONNECT_TIMEOUT="5",
+                            PGOPTIONS=F.IDENTITY.psql_options(connection, readonly=readonly))
+            return
         self.env.update(PGHOST=str(socket), PGPORT=str(port), PGDATABASE=database, PGUSER=user,
                         PGAPPNAME="lmm-legacy-cutover-import", PGCONNECT_TIMEOUT="5")
         options = "-c default_transaction_read_only=" + ("on" if readonly else "off")
@@ -446,6 +456,8 @@ def main() -> int:
     p.add_argument("--api-key-encryption-key-file", type=Path, help="keys: Core 32-byte recovery key")
     p.add_argument("--identity-map", type=Path, help="Original safe source-target-id-map.private.jsonl")
     p.add_argument("--identity-manifest", type=Path, help="Original committed identity-only manifest.private.json")
+    p.add_argument("--target-receipt", type=Path,
+                   help="Actual endpoint receipt with connection and instance_identity; supports bound loopback SCRAM")
     p.add_argument("--referral-source", type=Path, help="referrals: private frozen source export")
     p.add_argument("--referral-review", type=Path, help="referrals: source-bound reviewed credit terms")
     HISTORY.add_arguments(p)
@@ -454,6 +466,17 @@ def main() -> int:
         fail("archive_sha256_invalid")
     if a.phase in MAPPED_PHASES and (a.identity_map is None or a.identity_manifest is None):
         fail("committed_identity_map_and_manifest_required")
+    target_connection = None
+    if a.target_receipt is not None:
+        import financial_import as F
+        endpoint = F.PLANNER.parse_json(F.IDENTITY.private_backup_path(a.target_receipt).read_text())
+        if endpoint.get("source_archive_sha256") != a.archive_sha256:
+            fail("target_endpoint_source_mismatch")
+        target_connection = endpoint["connection"]
+        target_probe = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner,
+                          readonly=True, connection=target_connection)
+        actual = json.loads(target_probe.run(F.IDENTITY.IDENTITY_SQL))
+        F.IDENTITY.verify_instance(actual, target_connection, endpoint["instance_identity"], source=False)
     a.output.mkdir(mode=0o700, parents=False, exist_ok=True)
     if a.phase == "referrals":
         if a.referral_source is None or a.referral_review is None:
@@ -468,7 +491,8 @@ def main() -> int:
     else:
         src = Db(a.socket, a.port, a.source_db, a.source_user, readonly=True)
         data = load_source(src, a.source_schema)
-        target = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner, readonly=True)
+        target = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner,
+                    readonly=True, connection=target_connection)
         guards = []
         if a.phase in MAPPED_PHASES:
             binding = load_identity_binding(a.identity_map, a.identity_manifest, a.archive_sha256,
@@ -494,6 +518,14 @@ def main() -> int:
                   + "\n".join(guards) + "\n"
                   f"DO $$BEGIN IF ({GUARDS[a.phase]})<>0 THEN RAISE EXCEPTION 'phase target not empty'; END IF; END$$;\n"
                   + "\n".join(sql) + "\nCOMMIT;\n")
+    if target_connection is not None:
+        # Persist and execute the exact same endpoint-bound SQL.
+        stable = {key: value for key, value in actual.items() if key != "read_only"}
+        guard = ("DO $$BEGIN IF ((" + F.IDENTITY.IDENTITY_SQL.removesuffix(";").removeprefix("SELECT ")
+                 + ")::jsonb - 'read_only') IS DISTINCT FROM " + jlit(stable)
+                 + " THEN RAISE EXCEPTION 'target_endpoint_changed'; END IF; END$$;\n")
+        script = script.replace("SET LOCAL synchronous_commit=on;",
+                                "SET LOCAL synchronous_commit=on;\n" + guard, 1)
     plan = a.output / f"{a.phase}.sql"
     fd = os.open(plan, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as stream:
@@ -501,7 +533,8 @@ def main() -> int:
     report = {"phase": a.phase, "migration_id": a.migration_id, "statements": len(sql),
               "plan_sha256": hashlib.sha256(script.encode()).hexdigest(), "stats": stats}
     if a.apply:
-        Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner, readonly=False).run(script)
+        Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner,
+           readonly=False, connection=target_connection).run(script)
         report["applied"] = True
         if a.phase in MAPPED_PHASES:
             verify_identity_binding(target, binding)

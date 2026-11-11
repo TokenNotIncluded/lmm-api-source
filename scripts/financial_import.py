@@ -498,7 +498,7 @@ def validate_material(material: dict) -> None:
                 "target_role_invalid")
     require(expected["database_owner"] == expected["role"] != expected["session_user"]
             and expected.get("effective_role_can_login") is False
-            and expected.get("tcp_connection") is False and expected.get("listen_addresses") == "",
+            and IDENTITY.local_target_transport(expected),
             "target_not_offline_owner")
     require(type(expected.get("port")) is int and 0 < expected["port"] <= 65535
             and all(type(expected.get(k)) is str and expected[k] for k in

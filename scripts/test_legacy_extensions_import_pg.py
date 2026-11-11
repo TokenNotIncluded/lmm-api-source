@@ -7,11 +7,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import financial_import as F
 import legacy_extensions_import as IMPORT
+import legacy_cutover_import as CUTOVER
 from test_financial_import_pg import reviewed_fixture_ddl
 from test_legacy_cutover_mapping import ARCHIVE, identity_files
 
@@ -25,17 +27,58 @@ class ProducerPostgresTests(unittest.TestCase):
         admin = lambda database: IMPORT.Db(socket, port, database, "fixture_admin", role=None, readonly=False)
         binding, map_path, manifest_path, manifest = identity_files(root)
         self.assertEqual(binding["accounts"], {2: 1, 3: 2})
-        core = admin("lmm_core_synthetic_test")
+        control = admin("postgres")
+        control.run("CREATE ROLE producer_core_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; "
+                    "CREATE ROLE producer_core_installer LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'synthetic-core'; "
+                    "GRANT producer_core_owner TO producer_core_installer WITH INHERIT FALSE,SET TRUE; "
+                    "ALTER DATABASE lmm_core_synthetic_test OWNER TO producer_core_owner; "
+                    "GRANT CONNECT ON DATABASE lmm_core_synthetic_test TO producer_core_installer;")
+        hba = Path(control.scalar("SHOW hba_file"))
+        hba.write_text("local all all trust\nhost all all 127.0.0.1/32 scram-sha-256\nhost all all ::1/128 scram-sha-256\n")
+        control.run("SELECT pg_reload_conf()")
+        endpoints = {}
+        def endpoint(component, database, owner, login, password):
+            pgpass = root / (component + ".pgpass")
+            pgpass.write_text(f"127.0.0.1:{port}:{database}:{login}:{password}\n")
+            pgpass.chmod(0o600)
+            connection = {"transport": "loopback-tcp", "host": "127.0.0.1", "port": port,
+                "database": database, "role": owner, "login_role": login, "set_role": owner, "pgpass_file": str(pgpass)}
+            db = CUTOVER.Db(Path(socket), port, database, login, role=owner, readonly=False, connection=connection)
+            actual = json.loads(db.run(F.IDENTITY.IDENTITY_SQL))
+            receipt = {"source_archive_sha256": ARCHIVE, "connection": connection, "instance_identity": actual}
+            path = root / (component + "-endpoint.json")
+            path.write_text(json.dumps(receipt))
+            path.chmod(0o600)
+            endpoints[component] = path
+            self.assertTrue(actual["tcp_connection"])
+            self.assertFalse(actual["session_role_privileged"])
+            self.assertFalse(actual["effective_role_privileged"])
+            self.assertEqual(actual["session_user"], login)
+            return IMPORT.Db(socket, port, database, login, role=owner, readonly=False, connection=connection, endpoint=receipt)
+        core = endpoint("core", "lmm_core_synthetic_test", "producer_core_owner", "producer_core_installer", "synthetic-core")
         core.run(reviewed_fixture_ddl(F.IDENTITY.current_contract()))
         for uid, aid in binding["accounts"].items():
             core.run(f"INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES({aid},'personal');"
                      f"INSERT INTO core_identity.users(id,personal_account_id) VALUES({uid},{aid});")
         core.run("INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest) "
                  f"VALUES('synthetic-identity',{IMPORT.lit(ARCHIVE)},{IMPORT.lit(manifest['mapping_sha256'])},{IMPORT.jlit(manifest)});")
-        admin("postgres").run("CREATE DATABASE producer_source")
-        admin("postgres").run("REVOKE ALL ON DATABASE producer_source FROM PUBLIC")
-        source = admin("producer_source")
-        source.run("CREATE SCHEMA synthetic")
+        for component in ("store", "support"):
+            endpoint(component, "lmm_" + component + "_prod", "commerce_" + component + "_owner",
+                     "commerce_" + component + "_installer", "synthetic-only")
+        # A separate offline source instance and genuine SELECT-only reader.
+        source_root = Path(tempfile.mkdtemp(prefix="source-", dir=root))
+        source_socket_temporary = tempfile.TemporaryDirectory(prefix="lmm-producer-source-")
+        self.addCleanup(source_socket_temporary.cleanup)
+        source_socket = Path(source_socket_temporary.name)
+        source_port = 38539
+        subprocess.run(["initdb", "-D", str(source_root / "pgdata"), "-A", "trust", "-U", "fixture_admin", "--no-locale", "-E", "UTF8"], check=True, capture_output=True)
+        subprocess.run(["pg_ctl", "-D", str(source_root / "pgdata"), "-l", str(source_root / "postgres.log"), "-o",
+            f"-h '' -p {source_port} -k {source_socket} -c shared_buffers=16MB -c max_connections=12", "-w", "start"], check=True, capture_output=True)
+        self.addCleanup(lambda: subprocess.run(["pg_ctl", "-D", str(source_root / "pgdata"), "-m", "fast", "-w", "stop"], check=True, capture_output=True))
+        source = IMPORT.Db(str(source_socket), source_port, "postgres", "fixture_admin", role=None, readonly=False)
+        source.run("CREATE DATABASE producer_source")
+        source = IMPORT.Db(str(source_socket), source_port, "producer_source", "fixture_admin", role=None, readonly=False)
+        source.run("CREATE SCHEMA synthetic; CREATE ROLE producer_source_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;")
         secret = "synthetic-source-key-only-" + "s" * 32
         def encrypt(kind, ident, plaintext):
             key = hashlib.sha256(f"merchant-store:{kind}:{ident}:{secret}".encode()).digest()
@@ -108,14 +151,16 @@ class ProducerPostgresTests(unittest.TestCase):
             db = admin("lmm_" + component + "_prod")
             tables = db.scalar(f"SELECT string_agg(quote_ident(schemaname)||'.'||quote_ident(tablename),',') FROM pg_tables WHERE schemaname='lmm_{component}'")
             db.run("TRUNCATE " + tables)
-        base = [sys.executable, str(Path(IMPORT.__file__)), "--socket", socket, "--port", str(port),
-            "--source-db", "producer_source", "--source-user", "fixture_admin", "--schema", "synthetic",
-            "--identity-db", "lmm_core_synthetic_test", "--identity-login", "fixture_admin",
+        source.run("GRANT CONNECT ON DATABASE producer_source TO producer_source_reader; GRANT USAGE ON SCHEMA synthetic TO producer_source_reader; GRANT SELECT ON ALL TABLES IN SCHEMA synthetic TO producer_source_reader")
+        source_before = {table: source.scalar(f"SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) FROM synthetic.{table} t") for table in rows}
+        base = [sys.executable, str(Path(IMPORT.__file__)), "--socket", str(source_socket), "--port", str(source_port),
+            "--source-db", "producer_source", "--source-user", "producer_source_reader", "--schema", "synthetic",
+            "--identity-receipt", str(endpoints["core"]),
             "--identity-map", str(map_path), "--identity-manifest", str(manifest_path), "--archive-sha256", ARCHIVE,
             "--store-key-file", str(secret_path), "--store-stock-key-file", str(stock_key_path)]
         def invoke(component, output, apply=False):
             command = base + ["--phase", component, "--target", component + "=lmm_" + component + "_prod",
-                "--login", "commerce_" + component + "_installer", "--owner-role", "commerce_" + component + "_owner",
+                "--target-receipt", component + "=" + str(endpoints[component]),
                 "--output", str(output)]
             if apply:
                 command.append("--apply")
@@ -126,6 +171,38 @@ class ProducerPostgresTests(unittest.TestCase):
         plan_dir = root / "plan"
         result = invoke("store", plan_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
+        original_endpoint = endpoints["store"].read_text()
+        changed_endpoint = json.loads(original_endpoint)
+        pgpass_path = Path(changed_endpoint["connection"]["pgpass_file"])
+        password = pgpass_path.read_text()
+        pgpass_path.write_text(password.replace("synthetic-only", "wrong-password"))
+        result = invoke("store", root / "wrong-password", True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("password authentication failed", result.stderr)
+        pgpass_path.write_text(password)
+        scram_hba = hba.read_text()
+        hba.write_text(scram_hba.replace("scram-sha-256", "trust"))
+        control.run("SELECT pg_reload_conf(); SELECT pg_sleep(0.1)")
+        result = invoke("store", root / "unexpected-trust", True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("authentication", result.stderr)
+        hba.write_text(scram_hba)
+        control.run("SELECT pg_reload_conf(); SELECT pg_sleep(0.1)")
+        for field, wrong in (("database", "postgres"), ("role", "commerce_support_owner")):
+            changed_endpoint = json.loads(original_endpoint)
+            changed_endpoint["connection"][field] = wrong
+            endpoints["store"].write_text(json.dumps(changed_endpoint))
+            result = invoke("store", root / ("wrong-" + field), True)
+            self.assertNotEqual(result.returncode, 0)
+        endpoints["store"].write_text(original_endpoint)
+        for field, wrong in (("database_oid", 0), ("postmaster_started_at", "2000-01-01 00:00:00+00")):
+            changed_endpoint = json.loads(original_endpoint)
+            changed_endpoint["instance_identity"][field] = wrong
+            endpoints["store"].write_text(json.dumps(changed_endpoint))
+            result = invoke("store", root / ("wrong-" + field), True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("instance_receipt_mismatch", result.stderr)
+        endpoints["store"].write_text(original_endpoint)
         # The original formal file may not be silently replaced, even with the same UIDs.
         original_map = map_path.read_text()
         changed = [json.loads(line) for line in original_map.splitlines()]
@@ -141,7 +218,9 @@ class ProducerPostgresTests(unittest.TestCase):
             core.run("UPDATE core_migration.import_runs SET mapping_sha256='" + "e" * 64 + "' WHERE migration_id='synthetic-identity'")
         self.assertEqual(core.scalar("SELECT mapping_sha256 FROM core_migration.import_runs WHERE migration_id='synthetic-identity'"), manifest["mapping_sha256"])
         # Force a real failure after all generated inserts, preserving an entirely empty target.
-        store_db = IMPORT.Db(socket, port, "lmm_store_prod", "commerce_store_installer", role="commerce_store_owner", readonly=False)
+        store_endpoint = json.loads(endpoints["store"].read_text())
+        store_db = IMPORT.Db(socket, port, "lmm_store_prod", "commerce_store_installer", role="commerce_store_owner", readonly=False,
+                             connection=store_endpoint["connection"], endpoint=store_endpoint)
         failed_sql = (plan_dir / "store.sql").read_text().replace("COMMIT;", "INSERT INTO lmm_store.orders VALUES('failure','failure','[]'); COMMIT;")
         with self.assertRaises(SystemExit):
             store_db.run(failed_sql)
@@ -152,6 +231,10 @@ class ProducerPostgresTests(unittest.TestCase):
         for component in ("store", "support"):
             result = invoke(component, root / (component + "-apply"), True)
             self.assertEqual(result.returncode, 0, result.stderr)
+            applied_report = json.loads((root / (component + "-apply") / "report.json").read_text())[component]
+            self.assertEqual(applied_report["database"], "lmm_" + component + "_prod")
+            self.assertEqual(applied_report["target_instance_identity"]["session_user"], "commerce_" + component + "_installer")
+            self.assertEqual(applied_report["identity_instance_identity"]["session_user"], "producer_core_installer")
             before = admin("lmm_" + component + "_prod").scalar("SELECT count(*) FROM lmm_" + component + (".orders" if component == "store" else ".messages"))
             result = invoke(component, root / (component + "-replay"), True)
             self.assertNotEqual(result.returncode, 0)
@@ -160,11 +243,18 @@ class ProducerPostgresTests(unittest.TestCase):
             self.assertEqual(before, after)
         self.assertEqual(admin("lmm_store_prod").scalar("SELECT count(*) FROM lmm_store.money_operations"), "0")
         self.assertEqual(core.scalar("SELECT count(*) FROM core_billing.ledger_journals"), "0")
+        source_after = {table: source.scalar(f"SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) FROM synthetic.{table} t") for table in rows}
+        self.assertEqual(source_before, source_after)
+        reader = IMPORT.Db(str(source_socket), source_port, "producer_source", "producer_source_reader", role=None, readonly=True)
+        with self.assertRaises(SystemExit):
+            reader.run("SET default_transaction_read_only=off; INSERT INTO synthetic.users VALUES(99)")
         buyer = {"kind": "personal", "id": 1}
         cid = IMPORT.go_id("conversation", 2, buyer, IMPORT.go_id("web-order-support", orders[0]["id"]))
         fixture = {"shop_id": IMPORT.go_id("legacy-web-shop-v1", {"kind": "personal", "id": 2}),
             "order_ids": [o["id"] for o in orders], "stock_ids": [s["id"] for s in stocks],
             "product_id": product_id, "conversation_id": cid,
+            "source_before_sha256": hashlib.sha256(json.dumps(source_before, sort_keys=True).encode()).hexdigest(),
+            "source_after_sha256": hashlib.sha256(json.dumps(source_after, sort_keys=True).encode()).hexdigest(),
             "message_ids": [f"{cid}:{n:020d}" for n in (1, 2)]}
         (root / "fixture.private.json").write_text(json.dumps(fixture))
         for path in root.rglob("*"):
