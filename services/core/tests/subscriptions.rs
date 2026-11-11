@@ -89,6 +89,7 @@ fn terms() -> PlanTerms {
         groups: vec!["*".into()],
         max_purchases_per_user: 0,
         enabled: true,
+        allow_balance_pay: true,
     }
 }
 fn create(key: &str) -> SavePlan {
@@ -528,7 +529,13 @@ async fn legacy_balance_original_is_read_only_and_counts_purchase_limit(pool: Pg
     input.terms.max_purchases_per_user = 1;
     let plan = f.store.save_plan(&f.admin, None, input).await.unwrap();
     let actor = f.identity.authorize(&f.user).await.unwrap();
-    let grant:i64=sqlx::query_scalar("INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups,active) VALUES($1,'legacy-sub:test:1','grant',1000,2000,100,ARRAY['*'],ARRAY['*'],false) RETURNING id").bind(f.account).fetch_one(&pool).await.unwrap();
+    let mut seed = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *seed)
+        .await
+        .unwrap();
+    let grant:i64=sqlx::query_scalar("INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,anchor,ends_at,limit_credits,models,groups,active) VALUES($1,'legacy-sub:test:1','grant',1000,2000,100,ARRAY['*'],ARRAY['*'],false) RETURNING id").bind(f.account).fetch_one(&mut *seed).await.unwrap();
+    seed.commit().await.unwrap();
     let history = serde_json::json!({"reference":"BALANCE_OLD_1","plan":plan,"account_id":f.account,"charge_units":"10","subscription_id":grant,"ends_at":2000,"source":{"source_status":"success"}});
     sqlx::query("INSERT INTO core_subscriptions.commands(actor_user_id,operation_key,request,result) VALUES($1,'legacy_balance_original_0001',$2,$3)").bind(actor.user_id).bind(serde_json::json!({"kind":"legacy_balance_original_v1"})).bind(&history).execute(&pool).await.unwrap();
     let before:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_entries),(SELECT count(*) FROM core_charging.subscriptions)").fetch_one(&pool).await.unwrap();
@@ -553,4 +560,80 @@ async fn legacy_balance_original_is_read_only_and_counts_purchase_limit(pool: Pg
     assert_eq!(f.store.confirm(&f.user, &q.id).await, Err(Error::Conflict));
     let after:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_entries),(SELECT count(*) FROM core_charging.subscriptions)").fetch_one(&pool).await.unwrap();
     assert_eq!(before, after);
+}
+
+#[sqlx::test]
+async fn wallet_payment_disable_blocks_new_spend_and_preserves_posted_replay(pool: PgPool) {
+    let f = fixture(&pool, true).await;
+    let plan = f
+        .store
+        .save_plan(&f.admin, None, create("wallet_policy_plan_01"))
+        .await
+        .unwrap();
+    let posted_quote = f
+        .store
+        .quote(&f.user, quote(plan.id, "wallet_posted_quote_01", None))
+        .await
+        .unwrap();
+    let pending_quote = f
+        .store
+        .quote(&f.user, quote(plan.id, "wallet_pending_quote_01", None))
+        .await
+        .unwrap();
+    let posted = f.store.confirm(&f.user, &posted_quote.id).await.unwrap();
+    assert_eq!(posted.status, "posted");
+    let before: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM core_billing.ledger_journals), (SELECT count(*) FROM core_subscriptions.purchases), (SELECT count(*) FROM core_subscriptions.quotes)"
+    ).fetch_one(&pool).await.unwrap();
+    let mut disabled = plan.terms.clone();
+    disabled.allow_balance_pay = false;
+    let current = f
+        .store
+        .save_plan(
+            &f.admin,
+            Some(plan.id),
+            SavePlan {
+                operation_key: "disable_wallet_plan_01".into(),
+                expected_revision: Some(plan.revision),
+                terms: disabled,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!current.terms.allow_balance_pay);
+    assert_eq!(
+        f.store.confirm(&f.user, &posted_quote.id).await.unwrap(),
+        posted
+    );
+    assert_eq!(
+        f.store.confirm(&f.user, &pending_quote.id).await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        f.store
+            .quote(&f.user, quote(plan.id, "wallet_denied_quote_01", None))
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        f.store
+            .quote(
+                &f.user,
+                quote(plan.id, "wallet_denied_renew_01", posted.purchase_id)
+            )
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        f.store
+            .quote(&f.user, quote(plan.id, "wallet_pending_quote_01", None))
+            .await
+            .unwrap(),
+        pending_quote
+    );
+    let after: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM core_billing.ledger_journals), (SELECT count(*) FROM core_subscriptions.purchases), (SELECT count(*) FROM core_subscriptions.quotes)"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(after, before);
+    balanced(&pool).await;
 }

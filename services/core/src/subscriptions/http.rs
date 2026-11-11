@@ -102,10 +102,26 @@ pub fn router(pool: PgPool) -> Router {
         ))
         .with_state(SubscriptionStore::new(pool))
 }
+pub(super) fn plans_response(plans: &[Plan]) -> Value {
+    let wallet_available = plans.iter().any(|plan| plan.terms.allow_balance_pay);
+    let entries: Vec<_> = plans
+        .iter()
+        .map(|plan| {
+            let payment_methods: &[&str] = if plan.terms.allow_balance_pay {
+                &["wallet"]
+            } else {
+                &[]
+            };
+            json!({"id":plan.id,"revision":plan.revision,"archived":plan.archived,
+            "terms":plan.terms,"payment_methods":payment_methods})
+        })
+        .collect();
+    let payment_methods: &[&str] = if wallet_available { &["wallet"] } else { &[] };
+    json!({"contract":CONTRACT,"plans":entries,"payment_methods":payment_methods,"automatic_renewal":false})
+}
 async fn plans(State(s): State<SubscriptionStore>, h: HeaderMap) -> Result<Json<Value>> {
-    Ok(Json(
-        json!({"contract":CONTRACT,"plans":s.plans(bearer(&h)?,false).await?,"payment_methods":["wallet"],"automatic_renewal":false}),
-    ))
+    let plans = s.plans(bearer(&h)?, false).await?;
+    Ok(Json(plans_response(&plans)))
 }
 async fn admin_plans(State(s): State<SubscriptionStore>, h: HeaderMap) -> Result<Json<Value>> {
     Ok(Json(

@@ -384,7 +384,7 @@ impl SubscriptionStore {
             let quote=read_quote(&mut tx,&id,a.user_id).await?;tx.commit().await?;return Ok(quote);
         }
         let plan = plan(&mut tx, input.plan_id, false).await?;
-        if plan.archived || !plan.terms.enabled {
+        if plan.archived || !plan.terms.enabled || !plan.terms.allow_balance_pay {
             return Err(Error::Conflict);
         }
         let time = now(&mut tx).await?;
@@ -436,6 +436,8 @@ impl SubscriptionStore {
             || q.ends_at <= time
             || current.archived
             || !current.terms.enabled
+            || !q.plan.terms.allow_balance_pay
+            || !current.terms.allow_balance_pay
             || current.revision != q.plan.revision
         {
             return Err(Error::Conflict);

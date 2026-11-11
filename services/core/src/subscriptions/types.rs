@@ -51,7 +51,20 @@ pub struct PlanTerms {
     pub groups: Vec<String>,
     pub max_purchases_per_user: i64,
     pub enabled: bool,
+    #[serde(
+        default = "wallet_payment_default",
+        skip_serializing_if = "wallet_payment_allowed"
+    )]
+    pub allow_balance_pay: bool,
 }
+fn wallet_payment_default() -> bool {
+    true
+}
+
+fn wallet_payment_allowed(value: &bool) -> bool {
+    *value
+}
+
 impl PlanTerms {
     pub(crate) fn ends_at(&self, start: i64) -> Result<i64> {
         use chrono::{Datelike, NaiveDate, TimeDelta};

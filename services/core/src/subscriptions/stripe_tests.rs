@@ -54,6 +54,7 @@ async fn fixture(pool: &PgPool) -> Fixture {
                     groups: vec!["*".into()],
                     max_purchases_per_user: 1,
                     enabled: true,
+                    allow_balance_pay: true,
                 },
             },
         )

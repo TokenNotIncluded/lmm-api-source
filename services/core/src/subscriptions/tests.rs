@@ -60,3 +60,59 @@ fn calendar_terms_follow_legacy_add_date_overflow() {
     terms.duration_seconds = 60;
     assert!(terms.validate().is_err());
 }
+
+#[test]
+fn wallet_plan_terms_preserve_legacy_json_and_explicit_denial() {
+    let legacy = r#"{"title":"Legacy","price_units":"1","duration_seconds":60,"duration_months":0,"reset_period":"grant","reset_seconds":0,"limit_units":"1","models":["*"],"groups":["*"],"max_purchases_per_user":0,"enabled":true}"#;
+    let mut terms: super::PlanTerms = serde_json::from_str(legacy).unwrap();
+    assert!(terms.allow_balance_pay);
+    assert_eq!(serde_json::to_string(&terms).unwrap(), legacy);
+    let mut explicit = serde_json::to_value(&terms).unwrap();
+    explicit["allow_balance_pay"] = true.into();
+    let allowed: super::PlanTerms = serde_json::from_value(explicit).unwrap();
+    assert_eq!(serde_json::to_string(&allowed).unwrap(), legacy);
+    terms.allow_balance_pay = false;
+    terms.validate().unwrap(); // External payment still uses these valid terms.
+    let frozen = serde_json::to_value(&terms).unwrap();
+    assert_eq!(frozen["allow_balance_pay"], false);
+    assert_eq!(
+        serde_json::from_value::<super::PlanTerms>(frozen).unwrap(),
+        terms
+    );
+}
+
+#[test]
+fn wallet_plan_listing_advertises_only_allowed_payment_methods() {
+    let terms: super::PlanTerms = serde_json::from_value(serde_json::json!({
+        "title":"Plan","price_units":"1","duration_seconds":60,"reset_period":"grant",
+        "reset_seconds":0,"limit_units":"1","models":["*"],"groups":["*"],
+        "max_purchases_per_user":0,"enabled":true,"allow_balance_pay":false
+    }))
+    .unwrap();
+    let mut plans = vec![super::Plan {
+        id: 1,
+        revision: 1,
+        archived: false,
+        terms,
+    }];
+    let denied = super::http::plans_response(&plans);
+    assert_eq!(denied["payment_methods"], serde_json::json!([]));
+    assert_eq!(denied["plans"][0]["payment_methods"], serde_json::json!([]));
+    assert_eq!(denied["plans"][0]["terms"]["allow_balance_pay"], false);
+    let mut allowed = plans[0].clone();
+    allowed.id = 2;
+    allowed.terms.allow_balance_pay = true;
+    plans.push(allowed);
+    let mixed = super::http::plans_response(&plans);
+    assert_eq!(mixed["payment_methods"], serde_json::json!(["wallet"]));
+    assert_eq!(mixed["plans"][0]["payment_methods"], serde_json::json!([]));
+    assert_eq!(
+        mixed["plans"][1]["payment_methods"],
+        serde_json::json!(["wallet"])
+    );
+    assert!(
+        mixed["plans"][1]["terms"]
+            .get("allow_balance_pay")
+            .is_none()
+    );
+}
