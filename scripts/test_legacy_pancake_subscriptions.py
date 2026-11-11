@@ -1,8 +1,30 @@
 import copy
+from decimal import Decimal
+import json
 import unittest
 import legacy_pancake_subscriptions as W
 
 class OriginalTests(unittest.TestCase):
+    def test_material_json_preserves_decimal_numbers_and_typed_hash(self):
+        material = {'price': Decimal('1234567890.123456789'),
+                    'nested': [Decimal('2.5000'), True, None, "owner's plan"]}
+        encoded = W.material_json(material)
+        decoded = json.loads(encoded, parse_float=Decimal)
+        self.assertEqual(decoded, material)
+        self.assertEqual(W.F.digest(decoded), W.F.digest(material))
+        self.assertIn('1234567890.123456789', encoded)
+        self.assertNotIn('$decimal', encoded)
+
+    def test_material_json_keeps_existing_integer_material_encoding(self):
+        material = {'z': [1, False, None], 'a': "owner's 套餐"}
+        self.assertEqual(W.material_json(material), W.F.canonical(material))
+
+    def test_material_json_rejects_binary_float_and_nonfinite_decimal(self):
+        for value in (0.1, Decimal('NaN'), Decimal('Infinity')):
+            with self.subTest(value=str(value)):
+                with self.assertRaises(W.F.IDENTITY.MappingError):
+                    W.material_json({'price': value})
+
     def fixture(self, recurring=False, status='pending'):
         snapshot={'title':'original','total_amount':100,'upgrade_group':''}
         terms={'title':'original','price_units':'20','duration_seconds':0 if recurring else 86400,

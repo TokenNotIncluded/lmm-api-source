@@ -2,6 +2,7 @@
 # Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
 """Prepare private, separately approved offline SQL; never connect to a database."""
 import argparse
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -15,18 +16,18 @@ def main():
     args = parser.parse_args()
     def load(path):
         # This reader accepts the pinned private export, not a live SQL source.
-        return json.loads(Path(path).read_text())
+        return json.loads(Path(path).read_text(), parse_float=Decimal)
     m = W.prepare_material(load(args.financial_material), load(args.source), load(args.review), migration_id=args.migration_id)
     sql = W.build_apply_sql(m)
     if args.approval:
         W.verify_approval(m, sql, load(args.approval))
     out = Path(args.output_dir)
     out.mkdir(mode=0o700, parents=True, exist_ok=True)
-    files = {'material.json': json.dumps(m, ensure_ascii=False, indent=2)+'\n', 'apply.sql': sql,
+    files = {'material.json': W.material_json(m)+'\n', 'apply.sql': sql,
              'approval-preview.json': json.dumps({'scope': W.SCOPE, 'decision': 'REVIEW_REQUIRED',
                 'material_sha256': W.F.digest(m), 'sql_sha256': W.F.sha(sql.encode()),
                 'review_sha256': W.F.digest(m['review'])}, indent=2)+'\n'}
-    W.require(sum(len(v.encode()) for v in files.values()) < 16*1024*1024, 'original_output_too_large')
+    W.require(sum(len(v.encode()) for v in files.values()) <= 256*1024*1024, 'original_output_too_large')
     # Preflight all names. Never replace existing approval/recovery material.
     W.require(not any((out/name).exists() for name in files), 'original_output_exists')
     for name, text in files.items():

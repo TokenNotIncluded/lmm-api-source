@@ -21,6 +21,22 @@ CHANGED = ['core_subscriptions.external_prices', 'core_subscriptions.external_or
 require = F.require
 integer = F.PLANNER.integer
 
+def material_json(value):
+    """Serialize private material without changing raw JSON decimal values."""
+    if isinstance(value, Decimal):
+        require(value.is_finite(), 'original_non_finite_decimal')
+        return str(value)
+    if isinstance(value, dict):
+        require(all(type(key) is str for key in value), 'original_json_key_invalid')
+        return '{' + ','.join(
+            json.dumps(key, ensure_ascii=False) + ':' + material_json(value[key])
+            for key in sorted(value)
+        ) + '}'
+    if isinstance(value, list):
+        return '[' + ','.join(material_json(item) for item in value) + ']'
+    require(type(value) is not float, 'original_binary_float_rejected')
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+
 def identifier(v):
     require(type(v) is str and re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', v), 'original_identifier_invalid')
     return v
@@ -220,7 +236,7 @@ def build_apply_sql(m):
     changed = 'ARRAY[' + ','.join(F.literal(t) for t in CHANGED) + ']::text[]'
     sql = F._start(e, readonly=False) + f'''
 DO $lmm_originals$
-DECLARE m jsonb:={F.literal(m)}::jsonb; p jsonb; b jsonb; saved_price jsonb; price jsonb; before_state jsonb; after_state jsonb;
+DECLARE m jsonb:={F.literal(material_json(m))}::jsonb; p jsonb; b jsonb; saved_price jsonb; price jsonb; before_state jsonb; after_state jsonb;
  previous core_migration.import_runs%ROWTYPE; grant_id bigint; original_order text; original_channel bigint; original_plan bigint; original_revision bigint;
 BEGIN
  {guard}
