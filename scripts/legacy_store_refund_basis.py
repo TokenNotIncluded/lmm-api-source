@@ -99,10 +99,13 @@ def reviewed_sql(value, review):
     return "\n".join([*statements, "COMMIT;", ""])
 
 
-def private_json(path):
+def private_json(path, *, json_lines=False):
     info = path.lstat()
     F.require(stat.S_ISREG(info.st_mode) and info.st_mode & 0o077 == 0, "store_private_regular_input_required")
     raw = path.read_bytes()
+    if json_lines and not raw.lstrip().startswith(b"["):
+        rows = [F.PLANNER.parse_json(line) for line in raw.decode("utf-8").splitlines() if line]
+        return rows, hashlib.sha256(raw).hexdigest()
     return json.loads(raw), hashlib.sha256(raw).hexdigest()
 
 
@@ -114,7 +117,7 @@ def main():
     args = p.parse_args()
     source, source_hash = private_json(args.source_export)
     material, material_hash = private_json(args.financial_material)
-    identities, identities_hash = private_json(args.identities)
+    identities, identities_hash = private_json(args.identities, json_lines=True)
     value = candidate(source, material, identities, {"source_export_sha256": source_hash,
         "financial_material_sha256": material_hash, "identities_sha256": identities_hash})
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)

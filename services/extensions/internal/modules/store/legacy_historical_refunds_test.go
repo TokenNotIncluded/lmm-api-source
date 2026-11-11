@@ -3,6 +3,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -83,6 +85,53 @@ func TestHistoricalRefundedHistoryNeedsSourceButNeverNativePaymentOrMoney(t *tes
 	}))
 	_, err = a06RefundCall(f, buyerToken, "refunds", "", nil)
 	wantError(t, err, ErrConflict)
+}
+
+func TestHistoricalRefundItemsSurvivePersistenceAndReadWithoutMoney(t *testing.T) {
+	f, funds, _ := historicalSetup(t)
+	stockIDs := []string{"original-stock-a", "original-stock-b"}
+	items, err := json.Marshal([]map[string]any{
+		{"id": "original-item-a", "refund_id": "original-refund", "order_id": f.id, "stock_id": stockIDs[0], "created_at": 30},
+		{"id": "original-item-b", "refund_id": "original-refund", "order_id": f.id, "stock_id": stockIDs[1], "created_at": 30},
+	})
+	must(t, err)
+	must(t, f.repo.Within(context.Background(), f.shop, func(tx Tx) error {
+		var o Order
+		if err := tx.Get("orders", f.id, &o); err != nil {
+			return err
+		}
+		o.State = Refunded
+		o.RefundState = "completed"
+		o.LegacyRefund = &legacyRefundRecord{ID: "original-refund", State: "completed", CompletedAt: 30,
+			StockIDs: stockIDs, SourceItems: items, RequestedRole: "seller"}
+		return tx.Put("orders", f.id, o)
+	}))
+	before := f.image(t)
+	view, err := a06RefundCall(f, buyerToken, "refunds", "", nil)
+	must(t, err)
+	refunds := view.(map[string]any)["refunds"].([]map[string]any)
+	if len(refunds) != 1 || !reflect.DeepEqual(refunds[0]["stock_ids"], stockIDs) || refunds[0]["requested_role"] != "seller" {
+		t.Fatal("historical refund stock ownership was lost")
+	}
+	stored := f.order(t).LegacyRefund
+	if !reflect.DeepEqual(stored.StockIDs, stockIDs) || string(stored.SourceItems) != string(items) {
+		t.Fatal("historical refund item evidence changed during persistence")
+	}
+	if funds.executed != 0 || funds.read != 0 || f.funds.execCalls.Load() != 0 || f.image(t) != before {
+		t.Fatal("historical refund item read changed state or invoked money")
+	}
+	refunds[0]["stock_ids"].([]string)[0] = "mutated-response"
+	if f.order(t).LegacyRefund.StockIDs[0] != stockIDs[0] {
+		t.Fatal("response mutation changed persisted stock ownership")
+	}
+	old := f.order(t)
+	old.LegacyRefund = &legacyRefundRecord{ID: "old-record"}
+	if ids, ok := legacyRefundDTO(old)["stock_ids"].([]string); !ok || ids == nil || len(ids) != 0 {
+		t.Fatal("older refund records must retain the empty stock list")
+	}
+	if legacyRefundDTO(old)["requested_role"] != "buyer" {
+		t.Fatal("older refund records must retain their buyer role")
+	}
 }
 func TestHistoricalFullRefundLostACKRecoversOriginalOperationByReadOnlyReceipt(t *testing.T) {
 	f, funds, index := historicalSetup(t)

@@ -3,7 +3,8 @@
 
 Reads the restored legacy schema read-only and writes one owner-only transaction
 per module database (one phase per Go module). Legacy user IDs are kept as Core
-user and personal account IDs. Go modules never hold balances: no phase writes
+user IDs; store/support personal account references use the verified formal
+identity map. Go modules never hold balances: no phase writes
 quota, wallet or ledger state; money facts stay with the Core cutover phases.
 
 Each phase refuses a non-empty target, so it cannot run twice. Rows that the new
@@ -28,6 +29,7 @@ import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -155,6 +157,29 @@ def go_time(unix: int) -> str:
 
 def personal(uid: int) -> dict:
     return {"kind": "personal", "id": uid}
+
+
+def store_user(ctx: Ctx, uid: int, *, optional: bool = False) -> int:
+    if optional and uid in (None, 0):
+        return 0
+    accounts = getattr(ctx.args, "identity_binding", {}).get("accounts", {})
+    if type(uid) is not int or uid <= 0 or uid not in accounts:
+        fail("store_identity_user_unmapped")
+    return uid  # The formal identity import explicitly preserves user IDs.
+
+
+def store_account(ctx: Ctx, uid: int) -> dict:
+    uid = store_user(ctx, uid)
+    aid = ctx.args.identity_binding["accounts"][uid]
+    if type(aid) is not int or aid <= 0:
+        fail("store_identity_account_invalid")
+    return {"kind": "personal", "id": aid}
+
+
+def store_shop_id(ctx: Ctx, uid: int) -> str:
+    # cc52 has no shop entity ID. Match native legacyShop(Account), while all
+    # source product, variant and order IDs remain byte-for-byte unchanged.
+    return go_id("legacy-web-shop-v1", store_account(ctx, uid))
 
 
 def legacy_shop_id(uid: int) -> str:
@@ -322,6 +347,82 @@ def put(table: str, shop: str, ident: str, body: dict) -> str:
     return f"INSERT INTO {table}(shop_id,id,body) VALUES({lit(shop)},{lit(ident)},{jlit(body)});"
 
 
+def store_social_history(plan: Plan, ctx: Ctx, products: dict[str, dict]) -> None:
+    """Preserve source social/traffic history without recording fresh activity."""
+    specifications = (
+        ("merchant_store_product_likes", "product_likes"),
+        ("merchant_store_product_traffic_days", "traffic_days"),
+        ("merchant_store_product_traffic_receipts", "traffic_receipts"),
+    )
+    for source, target in specifications:
+        rows = ctx.rows(source)
+        seen = set()
+        for row in rows:
+            product = products.get(row["product_id"])
+            if product is None:
+                fail("store_social_product_missing")
+            shop = store_shop_id(ctx, product["seller_id"])
+            if target == "product_likes":
+                uid = store_user(ctx, row["user_id"])
+                ident = go_id("store-product-like-v1", row["product_id"], uid)
+                body = {"product_id": row["product_id"], "user_id": uid, "liked": True,
+                        "updated_at": row["created_at"]}
+            elif target == "traffic_days":
+                if any(type(row[k]) is not int or row[k] < 0 for k in ("day", "impressions", "clicks")) or row["day"] % 86400:
+                    fail("store_traffic_day_invalid")
+                ident = go_id("store-product-traffic-day-v1", row["product_id"], row["day"])
+                body = {k: row[k] for k in ("product_id", "day", "impressions", "clicks")}
+            else:
+                ident = row["id"]  # Immutable hashed page identity from cc52.
+                if (type(ident) is not str or not ident or row["kind"] not in {"impression", "click"}
+                        or any(type(row[k]) is not int or row[k] < 0 for k in ("page_started_at", "created_at"))):
+                    fail("store_traffic_receipt_invalid")
+                body = {k: row[k] for k in ("id", "product_id", "kind", "page_started_at", "created_at")}
+            if (shop, ident) in seen:
+                fail("store_social_identity_collision")
+            seen.add((shop, ident))
+            plan.sql.append(put("lmm_store." + target, shop, ident, body))
+        plan.expect["lmm_store." + target] = len(rows)
+        note = "source liked state; no fresh activity" if target == "product_likes" else "historical bodies retained; runtime analytics deferred"
+        plan.mapping[source] = ("lmm_store." + target, len(rows), note)
+
+
+def validate_store_refund(refund: dict, order: dict) -> None:
+    role = refund.get("requested_role")
+    if (refund["status"] != "completed" or order["status"] != "refunded" or refund.get("mode") != "full"
+            or type(refund.get("quantity")) is not int or refund["quantity"] != order["quantity"]
+            or type(refund.get("principal_quota")) is not int or refund["principal_quota"] != order["price_quota"]
+            or refund.get("amount_minor") != 0 or role not in {"buyer", "seller"}
+            or refund["requested_by"] != order[role + "_id"]):
+        fail("store_refund_full_principal_or_parties_mismatch")
+
+
+def store_promotion_history(plan: Plan, ctx: Ctx) -> None:
+    rows = ctx.rows("merchant_store_promotions", "id")
+    now = int(datetime.now(timezone.utc).timestamp())
+    for row in rows:
+        if (type(row["created_at"]) is not int or type(row["expires_at"]) is not int
+                or row["expires_at"] <= row["created_at"] or type(row["quota"]) is not int or row["quota"] < 0):
+            fail("store_promotion_history_invalid")
+        if row["quota"] > 0 and row["expires_at"] > now:
+            fail("store_active_paid_promotion_requires_native_rights")
+    plan.mapping["merchant_store_promotions"] = ("archived", len(rows),
+        f"no unexpired paid placement rights as of UTC epoch {now}; original placement history retained in snapshot")
+
+
+def store_refund_items(ctx: Ctx, refund: dict, order: dict, stocks: dict[str, dict]) -> list[dict]:
+    rows = [r for r in ctx.rows("merchant_store_refund_items", "id") if r["refund_id"] == refund["id"]]
+    seen = set()
+    for row in rows:
+        stock = stocks.get(row["stock_id"])
+        if (row["order_id"] != order["id"] or stock is None or stock["order_id"] != order["id"]
+                or any(type(row[k]) is not str or not row[k] for k in ("id", "refund_id", "order_id", "stock_id"))
+                or type(row["created_at"]) is not int or row["created_at"] < 0 or row["stock_id"] in seen):
+            fail("store_refund_item_ownership_invalid")
+        seen.add(row["stock_id"])
+    return sorted(rows, key=lambda row: row["id"])
+
+
 @phase("store", "lmm_store")
 def phase_store(ctx: Ctx) -> Plan:
     plan = Plan()
@@ -342,7 +443,7 @@ def phase_store(ctx: Ctx) -> Plan:
     product_bodies: dict[str, dict] = {}
     for p in products:
         uid = p["seller_id"]
-        shops.setdefault(uid, legacy_shop_id(uid))
+        shops.setdefault(uid, store_shop_id(ctx, uid))
         default_id = (meta.get(p["id"]) or {}).get("default_variant_id")
         if not default_id:
             fail(f"store_default_variant_missing:{p['id']}")
@@ -358,7 +459,7 @@ def phase_store(ctx: Ctx) -> Plan:
              "template": p["template"], "delivery_strategy": p["delivery_strategy"] or "sequential",
              "payment_methods": jlist(p["payment_methods"]), "pickup_login_required": bool(p["pickup_login_required"]),
              "pickup_code_required": bool(p["pickup_code_required"]), "email_pickup_link": bool(p["email_pickup_link"]),
-             "status": p["status"], "review_note": p["review_note"] or "", "reviewed_by": p["reviewed_by"] or 0,
+             "status": p["status"], "review_note": p["review_note"] or "", "reviewed_by": store_user(ctx, p["reviewed_by"], optional=True),
              "reviewed_at": p["reviewed_at"] or 0, "approved": p["status"] == "published",
              "created_at": p["created_at"], "updated_at": p["updated_at"], "default_variant_id": default_id,
              "sale_limit": p["sale_limit"]}
@@ -410,7 +511,7 @@ def phase_store(ctx: Ctx) -> Plan:
             if not owner or owner["product_id"] != s["product_id"] or owner_variant != variant_id:
                 fail("store_stock_order_ownership_mismatch")
             stock_by_order.setdefault(original_order, []).append(s)
-        shop = legacy_shop_id(product["seller_id"])
+        shop = store_shop_id(ctx, product["seller_id"])
         encrypted = ""
         if state != "removed" or s["ciphertext"]:
             if not secret:
@@ -430,6 +531,8 @@ def phase_store(ctx: Ctx) -> Plan:
         product = by_product[o["product_id"]]
         variant_id = o["variant_id"] or product_bodies[o["product_id"]]["legacy"]["default_variant_id"]
         v = variants[variant_id]
+        if product["seller_id"] != o["seller_id"] or v["product_id"] != o["product_id"]:
+            fail("store_order_seller_or_variant_mismatch")
         if o["price_quota"] != o["unit_price_quota"] * o["quantity"] or o["payment_method"] != "balance" or o["amount_minor"]:
             fail(f"store_order_shape:{o['id']}")
         associated = sorted(stock_by_order.get(o["id"], []), key=lambda s: (s["position"], s["id"]))
@@ -458,8 +561,8 @@ def phase_store(ctx: Ctx) -> Plan:
         if o["promotion_code"]:
             legacy.update(promotion_id=o["promotion_id"], promotion_code=o["promotion_code"],
                           discount_bps=o["discount_bps"], original_unit_price=o["original_price_quota"])
-        body = {"id": o["id"], "buyer": personal(o["buyer_id"]), "seller": personal(o["seller_id"]),
-                "created_by": o["buyer_id"], "variant_id": variant_id, "title": o["variant_name"] or v["title"],
+        body = {"id": o["id"], "buyer": store_account(ctx, o["buyer_id"]), "seller": store_account(ctx, o["seller_id"]),
+                "created_by": store_user(ctx, o["buyer_id"]), "variant_id": variant_id, "title": o["variant_name"] or v["title"],
                 "product_title": o["product_title"], "quantity": o["quantity"],
                 "unit_price": {"amount_credits": o["unit_price_quota"], "unit": "credits"},
                 "total": {"amount_credits": o["price_quota"], "unit": "credits"}, "state": state,
@@ -479,21 +582,26 @@ def phase_store(ctx: Ctx) -> Plan:
         token_hash = o.get("pickup_token_hash") or ""
         if token_hash and token_hash in seen_tokens: fail("store_pickup_token_reused")
         if token_hash: seen_tokens.add(token_hash)
-        pickup = store_pickup_commands(o, secret, legacy_shop_id(o["seller_id"]))
+        pickup = store_pickup_commands(o, secret, store_shop_id(ctx, o["seller_id"]))
         plan.sql.extend(pickup); commands += len(pickup)
         r = refunds.get(o["id"])
         if r:
-            if r["status"] != "completed" or state != "refunded" or r.get("mode", "full") != "full":
-                fail(f"store_refund_state:{r['id']}")
+            validate_store_refund(r, o)
             body.update(refund_state="completed", refund_reason=r["reason"] or "")
             body["legacy_refund"] = {"id": r["id"], "request_key": r["request_key"], "input_hash": r["input_digest"] or "",
-                                     "reason": r["reason"] or "", "requested_by": r["requested_by"],
+                                     "reason": r["reason"] or "", "requested_by": store_user(ctx, r["requested_by"]),
+                                     "requested_role": r["requested_role"],
                                      "created_at": r["created_at"], "decision": "approve",
-                                     "decision_by": r["decision_by"] or 0, "decision_reason": r["decision_reason"] or "",
+                                     "decision_by": store_user(ctx, r["decision_by"], optional=True), "decision_reason": r["decision_reason"] or "",
                                      "decided_at": r["decided_at"] or 0, "completed_at": r["completed_at"] or 0}
-        order_bodies.append((legacy_shop_id(o["seller_id"]), body))
+            items = store_refund_items(ctx, r, o, {stock["id"]: stock for stock in stocks})
+            body["legacy_refund"]["stock_ids"] = sorted(item["stock_id"] for item in items)
+            body["legacy_refund"]["source_items"] = items
+        elif state == "refunded":
+            fail("store_refunded_order_basis_missing")
+        order_bodies.append((store_shop_id(ctx, o["seller_id"]), body))
     for uid, shop in shops.items():
-        plan.sql.append(put("lmm_store.shops", shop, shop, {"id": shop, "owner": personal(uid), "title": "Merchant store"}))
+        plan.sql.append(put("lmm_store.shops", shop, shop, {"id": shop, "owner": store_account(ctx, uid), "title": "Merchant store"}))
     for pid, body in product_bodies.items():
         uid = by_product[pid]["seller_id"]
         own = sorted((v for v in variants.values() if v["product_id"] == pid), key=lambda v: v["id"])
@@ -508,9 +616,9 @@ def phase_store(ctx: Ctx) -> Plan:
         plan.sql.append(put("lmm_store.stock_items", shop, body["id"], body))
     for t in ctx.rows("merchant_store_seller_terms", "seller_id"):
         if t["seller_id"] not in shops:
-            shops[t["seller_id"]] = legacy_shop_id(t["seller_id"])
+            shops[t["seller_id"]] = store_shop_id(ctx, t["seller_id"])
             plan.sql.append(put("lmm_store.shops", shops[t["seller_id"]], shops[t["seller_id"]],
-                                {"id": shops[t["seller_id"]], "owner": personal(t["seller_id"]), "title": "Merchant store"}))
+                                {"id": shops[t["seller_id"]], "owner": store_account(ctx, t["seller_id"]), "title": "Merchant store"}))
         plan.sql.append(put("lmm_store.commands", shops[t["seller_id"]], "@web:seller-terms",
                             {"version": t["version"], "content": t["content"].strip(), "updated_at": t["updated_at"]}))
         commands += 1
@@ -518,7 +626,7 @@ def phase_store(ctx: Ctx) -> Plan:
         if a["kind"] != "seller" or not a["subject"].startswith("user:"):
             plan.stats["terms_acceptance_unsupported_subject"] += 1
             continue
-        uid = int(a["subject"][5:])
+        uid = store_user(ctx, int(a["subject"][5:]))
         plan.sql.append(put("lmm_store.commands", shops[a["seller_id"]], go_id("legacy-seller-terms-v1", uid, a["version"]),
                             {"version": a["version"], "user_id": uid, "accepted_at": a["accepted_at"]}))
         commands += 1
@@ -532,16 +640,18 @@ def phase_store(ctx: Ctx) -> Plan:
     M["merchant_store_catalogue_metadata"] = ("lmm_store.products legacy.default_variant_id", len(meta), "custom_tags all empty; auto_delivery/ai_processing all false (no filter loss)")
     M["merchant_store_orders"] = ("lmm_store.orders", len(orders), "paid->settled, refunded->refunded; read-only history, no money_operations")
     M["merchant_store_refunds"] = ("lmm_store.orders legacy_refund", len(refunds), "one completed full refund per order")
-    archived(plan, ctx, "merchant_store_refund_items", "stock-level refund evidence; new store refunds whole orders, items stay in snapshot")
+    imported_items = sum(len(body.get("legacy_refund", {}).get("source_items", [])) for _, body in order_bodies)
+    if imported_items != ctx.count("merchant_store_refund_items"):
+        fail("store_refund_items_orphaned")
+    M["merchant_store_refund_items"] = ("lmm_store.orders legacy_refund.source_items+stock_ids", imported_items,
+                                         "original source item identities and original stock ownership; no new refund debit")
     M["merchant_store_stocks"] = ("lmm_store.stock_items", len(stock_bodies), "original ownership/state/position retained; AEAD resealed with target stock key; deleted products stay deleted")
     M["merchant_store_fixed_contents"] = ("lmm_store.variants legacy.fixed_content", len(fixed), "private source content; no catalogue fallback")
     M["merchant_store_order_fixed_deliveries"] = ("lmm_store.orders delivery", len(fixed_orders), "original per-order snapshot only")
     M["merchant_store_seller_terms"] = ("lmm_store.commands @web:seller-terms", ctx.count("merchant_store_seller_terms"), "")
     M["merchant_store_terms_acceptances"] = ("lmm_store.commands legacy-seller-terms-v1", ctx.count("merchant_store_terms_acceptances"), "")
-    archived(plan, ctx, "merchant_store_promotions", "paid placement purchases (months/quota); new store has no paid placement (promotion_quota=0); charges are Core money history", "missing_backend")
-    archived(plan, ctx, "merchant_store_product_likes", "store_likes_supported=false in new store", "missing_backend")
-    archived(plan, ctx, "merchant_store_product_traffic_days", "analytics; no traffic backend in new store", "missing_backend")
-    archived(plan, ctx, "merchant_store_product_traffic_receipts", "analytics dedupe receipts; no backend", "missing_backend")
+    store_promotion_history(plan, ctx)
+    store_social_history(plan, ctx, by_product)
     archived(plan, ctx, "merchant_store_events", "legacy audit log; kept in snapshot")
     archived(plan, ctx, "merchant_store_transfers", "seller money transfers = Core money history (legacy_cutover money phases), Go never holds balances")
     archived(plan, ctx, "merchant_store_gateways", "merchant external payment gateways (encrypted provider configs) unsupported: platform_payment_methods=[]", "missing_backend")
@@ -560,11 +670,10 @@ def phase_support(ctx: Ctx) -> Plan:
     customers: dict[tuple[str, int], dict] = {}
     conversations, migrated_messages = 0, 0
     for c in ctx.rows("merchant_store_support_conversations", "created_at,id"):
-        shop = legacy_shop_id(c["seller_id"])
-        buyer = personal(c["buyer_id"])
+        shop = store_shop_id(ctx, c["seller_id"])
+        buyer = store_account(ctx, c["buyer_id"])
         if not c["order_id"] or c["order_id"] not in orders:
-            plan.stats["conversation_without_order_skipped"] += 1  # none in this snapshot
-            continue
+            fail("support_conversation_order_missing")
         o = orders[c["order_id"]]
         # Same identity the web compatibility layer derives for an order chat,
         # so reopening from the order reaches this conversation.
@@ -574,27 +683,38 @@ def phase_support(ctx: Ctx) -> Plan:
         customer_id = go_id("customer", buyer)
         customers.setdefault((shop, c["buyer_id"]), {"id": customer_id, "buyer": buyer, "notes": "", "tags": [],
                                                      "created_at": go_time(c["created_at"]), "revision": 1})
-        own = [m for m in messages if m["conversation_id"] == c["id"]]
+        if (c["buyer_id"], c["seller_id"], c["product_id"]) != (o["buyer_id"], o["seller_id"], o["product_id"]):
+            fail("support_order_parties_mismatch")
+        own = sorted((m for m in messages if m["conversation_id"] == c["id"]), key=lambda m: m["id"])
+        if own and not secret:
+            fail("support_message_key_missing")
+        if any(m["sender_id"] not in (c["buyer_id"], c["seller_id"]) for m in own):
+            fail("support_message_author_not_participant")
         sequence = 0
         for m in own if secret else []:
             sequence += 1
             text = store_decrypt(secret, "support-message", f"{c['id']}:{m['request_key']}:{m['sender_id']}", m["ciphertext"])
-            party = personal(c["seller_id"]) if m["sender_id"] == c["seller_id"] else buyer
+            party = store_account(ctx, c["seller_id"]) if m["sender_id"] == c["seller_id"] else buyer
             plan.sql.append(put("lmm_support.messages", shop, f"{cid}:{sequence:020d}",
                                 {"numeric_id": sequence, "id": f"{cid}:{sequence:020d}", "conversation_id": cid,
-                                 "author_user_id": m["sender_id"], "author_account": party, "body": text,
+                                 "author_user_id": store_user(ctx, m["sender_id"]), "author_account": party, "body": text,
                                  "created_at": go_time(m["created_at"])}))
             migrated_messages += 1
         body = {"shop_id": shop, "product_id": c["product_id"], "id": cid, "buyer": buyer,
-                "seller": personal(c["seller_id"]), "customer_id": customer_id, "order_id": c["order_id"],
+                "seller": store_account(ctx, c["seller_id"]), "customer_id": customer_id, "order_id": c["order_id"],
                 "subject": o["product_title"], "closed": c["status"] != "open", "sequence": sequence,
                 "request_hash": go_id(request), "created_at": go_time(c["created_at"]),
                 "updated_at": go_time(c["updated_at"])}
         if sequence:
-            body.update(last_message_id=sequence, buyer_read_id=min(c["buyer_read_id"], sequence),
-                        seller_read_id=min(c["seller_read_id"], sequence))
+            body.update(last_message_id=sequence,
+                        buyer_read_id=sum(m["id"] <= c["buyer_read_id"] for m in own),
+                        seller_read_id=sum(m["id"] <= c["seller_read_id"] for m in own))
         plan.sql.append(put("lmm_support.conversations", shop, cid, body))
         conversations += 1
+    if migrated_messages != len(messages):
+        fail("support_message_conversation_missing")
+    if ctx.count("merchant_store_customers"):
+        fail("support_customer_notes_require_native_mapping")
     for (shop, _), customer in customers.items():
         plan.sql.append(put("lmm_support.customers", shop, customer["id"], customer))
     plan.expect = {"lmm_support.customers": len(customers), "lmm_support.conversations": conversations,
@@ -1384,6 +1504,11 @@ def main() -> None:
     p.add_argument("--legacy-secrets-env", help="legacy KEY=VALUE secrets file (0600); values never printed")
     p.add_argument("--store-key-file", help="legacy MERCHANT_STORE_ENCRYPTION_KEY (or CRYPTO_SECRET) text file")
     p.add_argument("--store-stock-key-file", help="existing deployment raw 32-byte Go stock key; required to preserve legacy inventory")
+    p.add_argument("--identity-map", type=Path, help="Original formal source-target-id-map.private.jsonl")
+    p.add_argument("--identity-manifest", type=Path, help="Committed identity-only manifest.private.json")
+    p.add_argument("--archive-sha256", help="Exact restored source archive digest")
+    p.add_argument("--identity-db", default="lmm_core", help="Core identity database for formal map readback")
+    p.add_argument("--identity-login", default="postgres", help="Read-only identity provenance inspection login")
     p.add_argument("--apply", action="store_true")
     args = p.parse_args()
     out = args.output.expanduser().resolve()
@@ -1393,10 +1518,21 @@ def main() -> None:
     os.chmod(out, 0o700)
     src = Db(args.socket, args.port, args.source_db, args.source_user, role=None, readonly=True)
     ctx = Ctx(src, args.schema, args)
+    identity_db = None
+    if {"store", "support"} & set(args.phase or PHASES):
+        import legacy_cutover_import as CUTOVER
+        if not all((args.identity_map, args.identity_manifest, args.archive_sha256)):
+            fail("store_formal_identity_binding_required")
+        args.identity_binding = CUTOVER.load_identity_binding(args.identity_map, args.identity_manifest,
+            args.archive_sha256, [u["id"] for u in ctx.rows("users", "id")])
+        identity_db = Db(args.socket, args.port, args.identity_db, args.identity_login, role=None, readonly=True)
+        CUTOVER.verify_identity_binding(identity_db, args.identity_binding)
     previous = out / "report.json"
     report: dict[str, Any] = json.loads(previous.read_text()) if previous.exists() else {}
     for name in args.phase or list(PHASES):
         database, fn = PHASES[name]
+        if name in {"store", "support"}:
+            CUTOVER.verify_identity_binding(identity_db, args.identity_binding)
         plan = fn(ctx)
         body = "\n".join(plan.sql)
         (out / f"{name}.sql").write_text("BEGIN;\nSET TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n" + body + "\nCOMMIT;\n")
@@ -1425,6 +1561,10 @@ def main() -> None:
                 report[name] = entry
                 (out / "report.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))
                 fail(f"reconcile_mismatch:{name}")
+        if name in {"store", "support"}:
+            CUTOVER.verify_identity_binding(identity_db, args.identity_binding)
+            entry["identity_binding"] = {**args.identity_binding["provenance"], "cross_database_atomic": False}
+            entry["sql_sha256"] = hashlib.sha256(body.encode()).hexdigest()
         report[name] = entry
         print(f"{name}: {'applied' if args.apply else 'planned'} {plan.expect} {dict(plan.stats)}")
     (out / "report.json").write_text(json.dumps(report, indent=1, ensure_ascii=False))

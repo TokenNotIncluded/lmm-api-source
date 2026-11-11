@@ -10,7 +10,7 @@ import (
 )
 
 func TestCompiledPlansAreClosedAndTransactionSafe(t *testing.T) {
-	for _, component := range []string{"assistant", "toolmarket", "toolmarket-builtins", "payments", "acquisition", "operations"} {
+	for _, component := range []string{"store", "support", "assistant", "toolmarket", "toolmarket-builtins", "payments", "acquisition", "community", "operations"} {
 		p, e := compiled(component)
 		if e != nil || p.schema == "" || len(p.grants) == 0 {
 			t.Fatalf("plan %s: %v", component, e)
@@ -75,5 +75,27 @@ func TestCLIRejectsArbitrarySQLAndRuntimeConfiguration(t *testing.T) {
 		if RunCLI(context.Background(), args, &out) == nil || out.Len() != 0 {
 			t.Fatal("unexpected CLI success/output")
 		}
+	}
+}
+
+func TestCommercePlansUseCompleteCompiledSchemasAndNarrowGrants(t *testing.T) {
+	p, err := compiled("store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, feature := range []string{"store_variant_price_unit", "store_product_public_id", "lmm_store.stock_items", "lmm_store.extore_connections", "lmm_store.cart_items", "lmm_store.favorites"} {
+		if !strings.Contains(p.schema, feature) {
+			t.Fatalf("missing fresh store feature %s", feature)
+		}
+	}
+	if p.market || len(p.namespaces) != 1 || p.namespaces[0] != "lmm_store" || len(p.grants) != 2 {
+		t.Fatal("store plan scope")
+	}
+	if p.grants[1] != "GRANT SELECT,INSERT,UPDATE,DELETE ON lmm_store.traffic_days,lmm_store.traffic_receipts,lmm_store.cart_items,lmm_store.favorites TO " {
+		t.Fatal("store deletion authority changed")
+	}
+	p, err = compiled("support")
+	if err != nil || p.market || p.prefix != "lmm_support" || strings.Contains(p.schema, "lmm_store.") || len(p.grants) != 1 || strings.Contains(p.grants[0], "DELETE") {
+		t.Fatal("support plan scope", err)
 	}
 }

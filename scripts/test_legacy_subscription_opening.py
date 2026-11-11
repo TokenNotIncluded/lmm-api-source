@@ -25,6 +25,7 @@ def fixture(*, period="monthly", **changes):
     for value in (source["review"], source["reservations"]):
         value["mapping_sha256"] = source["plan"]["mapping_sha256"]
     snapshot = snapshot_fixture(source)
+    snapshot["catalog_fingerprint_sha256"] = F.IDENTITY.current_contract()["fresh_catalog_sha256"]
     for table in S.CHANGED_TABLES:
         snapshot["state"]["inventory"]["tables"].append(table)
         snapshot["state"]["tables"][table] = {"rows": 0, "sha256": F.sha(b"")}
@@ -47,6 +48,45 @@ def fixture(*, period="monthly", **changes):
 
 
 class SourceContractTests(unittest.TestCase):
+    def test_formal_user_1138_entitlement_binds_personal_account_1246(self):
+        a, review = fixture()
+        row = {"source_user_id": 1138, "target_user_id": 1138,
+               "target_personal_account_id": 1246}
+        identities = F.PLANNER.identity_index([row])
+        identity_plan = F.IDENTITY.map_identity([{
+            "id": 1138, "username": "synthetic-subscription-1138",
+            "password": "$2b$10$" + "." * 53, "display_name": "Synthetic subscription",
+            "email": "", "setting": "{}", "role": 1, "status": 1,
+            "auth_version": 1, "deleted_at": None, "trust_level_override": 0,
+            "console_activated_at": 0}], [], source_sha256=a["source_archive_sha256"])
+        map_hash = F.sha((F.canonical(row) + "\n").encode())
+        manifest = {**a["identity_import"]["manifest"],
+                    "mapping_sha256": identity_plan["mapping_sha256"],
+                    "source_target_id_map_sha256": map_hash,
+                    "summary": identity_plan["summary"]}
+        provenance = F.PLANNER.bind_identity_provenance(manifest,
+            map_file_sha256=map_hash, source_archive_sha256=a["source_archive_sha256"])
+        source_plan = F.PLANNER.plan_financial(tables(users=[user(1138)], tokens=[],
+            user_subscriptions=[subscription(user_id=1138, upgrade_group="", prev_user_group="",
+                downgrade_group="", reset_amount=2000)], subscription_plans=[plan()]),
+            identities, source_sha256=a["source_archive_sha256"],
+            identity_provenance=provenance, source_timezone="UTC")
+        entitlement = source_plan["subscription_entitlements"][0]
+        review.update(mapping_sha256=source_plan["mapping_sha256"],
+                      identity_map_sha256=source_plan["identity_map_sha256"])
+        review["policies"][0].update({key: entitlement[key]
+            for key in ("source_row_sha256", "plan_row_sha256")})
+        record = S.build_records(source_plan, review)[0]
+        self.assertEqual((record["source_user_id"], record["account_id"], record["opening_used"]),
+                         (1138, 1246, 400))
+        identity_run = {"source_archive_sha256": a["source_archive_sha256"],
+                        "mapping_sha256": identity_plan["mapping_sha256"], "manifest": manifest}
+        F.PLANNER.verify_target_identity_binding(source_plan, identities, import_run=identity_run,
+            native_users=[{"id": 1138, "personal_account_id": 1246}])
+        with self.assertRaisesRegex(F.PLANNER.MappingError, "target_identity_account_map_mismatch"):
+            F.PLANNER.verify_target_identity_binding(source_plan, identities, import_run=identity_run,
+                native_users=[{"id": 1138, "personal_account_id": 1138}])
+
     def test_current_and_future_reset_amounts_are_separate(self):
         a, review = fixture()
         r = S.build_records(a["source_plan"], review)[0]

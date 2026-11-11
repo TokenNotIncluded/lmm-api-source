@@ -308,9 +308,18 @@ sudo /usr/bin/lmm-extensions install-db \
 ```
 
 `install-db` 必须是第一个参数，不接受 `--config`。
-它还支持 `assistant`、`toolmarket`、`toolmarket-builtins`；数据库名须匹配组件前缀。
-后两者还要求 `--encryption-key-file` 指向持久的原始 32 字节市场快照 key。
-`store/support/operations` 没有这个通用安装子命令，使用各自模块的实际离线 schema 过程。
+它支持 `store`、`support`、`assistant`、`operations`、`community`、`acquisition`、
+`payments`、`toolmarket` 和 `toolmarket-builtins`。每个组件使用独立的新空库，
+数据库名须为 `lmm_<组件>` 或带下划线后缀；`toolmarket-builtins` 使用 `lmm_toolmarket` 前缀。
+每库独立配置 NOLOGIN owner、installer LOGIN 和 runtime LOGIN。
+同一 Go 配置可在各组件的 `database_name` / `database_url_file` 中同时接入这些库。
+安装前须核验各 runtime 对其他 Core/扩展库没有 CONNECT 权限，包括 PUBLIC 继承权限。
+`toolmarket` 和 `toolmarket-builtins` 还要求 `--encryption-key-file` 指向持久的原始 32 字节市场快照 key。
+`store` 安装当前完整 schema，包含 002–006 的价格、资源 ID、库存、Extore 与收藏变更；
+新库直接使用该 schema。`support` 安装独立客服 schema。
+安装器在同一事务内按 runtime 合同授予精确权限，store 的 DELETE 仅授予流量与购物车/收藏表。
+商店库存和 Extore 的独立 32 字节密钥通过 runtime 的 `stock_key_file` / `extore_key_file` 配置；
+旧内容解密、重封和迁移须另有相同来源的迁移回执。
 普通 Go 启动不安装或升级 schema，也没有 `check-db` 子命令。
 
 即使暂不启用模块，Go 的 `host.token_file` 也必须可读。例如生成其独立 host token：

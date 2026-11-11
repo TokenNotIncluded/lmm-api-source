@@ -47,6 +47,8 @@ type plan struct {
 
 func compiled(component string) (plan, error) {
 	switch component {
+	case "store", "support":
+		return compiledCommerce(component)
 	case "operations":
 		return plan{prefix: "lmm_operations", schema: operations.Schema, namespaces: []string{"lmm_operations"}, grants: []string{
 			"GRANT SELECT ON lmm_operations.contract TO ",

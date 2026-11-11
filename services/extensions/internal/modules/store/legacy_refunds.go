@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -21,18 +22,21 @@ type legacyRefundInput struct {
 	AmountMinor int64    `json:"amount_minor,omitempty"`
 }
 type legacyRefundRecord struct {
-	State          string `json:"state,omitempty"`
-	ID             string `json:"id"`
-	RequestKey     string `json:"request_key"`
-	InputHash      string `json:"input_hash"`
-	Reason         string `json:"reason"`
-	RequestedBy    int64  `json:"requested_by"`
-	CreatedAt      int64  `json:"created_at"`
-	Decision       string `json:"decision"`
-	DecisionBy     int64  `json:"decision_by"`
-	DecisionReason string `json:"decision_reason"`
-	DecidedAt      int64  `json:"decided_at"`
-	CompletedAt    int64  `json:"completed_at"`
+	State          string          `json:"state,omitempty"`
+	ID             string          `json:"id"`
+	RequestKey     string          `json:"request_key"`
+	InputHash      string          `json:"input_hash"`
+	Reason         string          `json:"reason"`
+	RequestedBy    int64           `json:"requested_by"`
+	RequestedRole  string          `json:"requested_role,omitempty"`
+	CreatedAt      int64           `json:"created_at"`
+	Decision       string          `json:"decision"`
+	DecisionBy     int64           `json:"decision_by"`
+	DecisionReason string          `json:"decision_reason"`
+	DecidedAt      int64           `json:"decided_at"`
+	CompletedAt    int64           `json:"completed_at"`
+	StockIDs       []string        `json:"stock_ids,omitempty"`
+	SourceItems    json.RawMessage `json:"source_items,omitempty"`
 }
 
 func legacyRefundText(s string, required bool) bool {
@@ -52,6 +56,10 @@ func legacyRefundKey(s string) bool {
 
 func legacyRefundDTO(o Order) map[string]any {
 	r := o.LegacyRefund
+	role := r.RequestedRole
+	if role == "" {
+		role = "buyer"
+	}
 	status := o.RefundState
 	if r.State != "" {
 		status = r.State
@@ -61,8 +69,8 @@ func legacyRefundDTO(o Order) map[string]any {
 		status = "reconciliation_required"
 	}
 	return map[string]any{"id": r.ID, "order_id": o.ID, "request_key": r.RequestKey, "mode": "full", "quantity": o.Quantity,
-		"stock_ids": []string{}, "amount_quota": o.Total.Amount, "amount_minor": int64(0), "currency": "", "reason": r.Reason,
-		"status": status, "requested_by": r.RequestedBy, "requested_role": "buyer", "decision_by": r.DecisionBy,
+		"stock_ids": append([]string{}, r.StockIDs...), "amount_quota": o.Total.Amount, "amount_minor": int64(0), "currency": "", "reason": r.Reason,
+		"status": status, "requested_by": r.RequestedBy, "requested_role": role, "decision_by": r.DecisionBy,
 		"decision_reason": r.DecisionReason, "retained_fee_quota": int64(0), "created_at": r.CreatedAt, "decided_at": r.DecidedAt, "completed_at": r.CompletedAt}
 }
 
