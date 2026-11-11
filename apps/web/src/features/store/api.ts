@@ -292,9 +292,18 @@ export const storeApi = {
     unwrap<null>(api.post(`${root}/products/${id}/unlist`, {}, options)),
   deleteProduct: (id: string) =>
     unwrap<null>(api.delete(`${root}/products/${id}`, options)),
-  inventory: (id: string, items: string[]) =>
+  inventory: (
+    id: string,
+    items: string[],
+    requestKey: string,
+    authScope: StoreAuthScope
+  ) =>
     unwrap<{ added: number }>(
-      api.post(`${root}/products/${id}/inventory`, { items }, options)
+      api.post(
+        `${root}/products/${id}/inventory`,
+        { items, request_key: requestKey },
+        { ...options, authScope }
+      )
     ),
   stock: (id: string, page = 1) =>
     unwrap<StorePage<StoreStock>>(
@@ -337,12 +346,18 @@ export const storeApi = {
         params: { offset: (page - 1) * 20, limit: 20 },
       })
     ),
-  importVariantStock: (id: string, variantId: string, items: string[]) =>
+  importVariantStock: (
+    id: string,
+    variantId: string,
+    items: string[],
+    requestKey: string,
+    authScope: StoreAuthScope
+  ) =>
     unwrap<{ added: number }>(
       api.post(
         `${root}/products/${id}/variants/${variantId}/inventory`,
-        { items },
-        options
+        { items, request_key: requestKey },
+        { ...options, authScope }
       )
     ),
   removeVariantStock: (id: string, variantId: string, stockId: string) =>

@@ -92,6 +92,7 @@ import {
   StoreError,
   StoreLoading,
 } from './shared'
+import { prepareStockImport, confirmStockImport } from './stock-import-key'
 import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
 import type {
   StoreLinkPreset,
@@ -1803,6 +1804,7 @@ function StoreInventoryContent({
   onChanged?: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const importInFlight = useRef(false)
   const [page, setPage] = useState(1)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1868,24 +1870,46 @@ function StoreInventoryContent({
     }
   }
   async function save() {
-    if (busy) return
+    if (busy || importInFlight.current) return
+    importInFlight.current = true
     setBusy(true)
     setError(null)
     try {
       const items = composed ? composedItems : parseInventoryText(text)
       validateComposedItems(items)
       if (!items.length) throw new Error('Add at least one inventory item')
+      const session = useAuthStore.getState().auth.session
+      const authScope = { userId: user.id, sessionId: session?.sid }
+      const intent = await prepareStockImport({
+        userId: user.id,
+        productId: product.id,
+        variantId: variant?.id,
+        items,
+      })
       if (variant) {
-        await storeApi.importVariantStock(product.id, variant.id, items)
+        await storeApi.importVariantStock(
+          product.id,
+          variant.id,
+          items,
+          intent.requestKey,
+          authScope
+        )
       } else {
-        await storeApi.inventory(product.id, items)
+        await storeApi.inventory(
+          product.id,
+          items,
+          intent.requestKey,
+          authScope
+        )
       }
+      confirmStockImport(intent)
       setText('')
       setComposedItems([])
       await onSaved()
     } catch (issue) {
       setError(issue)
     } finally {
+      importInFlight.current = false
       setBusy(false)
     }
   }

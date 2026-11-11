@@ -6,6 +6,7 @@ import { after, afterEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
+import { z } from 'zod'
 
 import type { StoreOrder, StoreProduct, StoreVariant } from './types'
 
@@ -75,6 +76,9 @@ const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { useWalletCurrencyPreferenceStore } =
   await import('@/stores/wallet-currency-preference-store')
 const { api } = await import('@/lib/api')
+const stockRequestSchema = z
+  .object({ items: z.array(z.string()), request_key: z.string().uuid() })
+  .strict()
 const { StoreCheckout, StoreProductPage } = await import('./product-page')
 const { StoreClaimPage } = await import('./claim-page')
 const { StoreClaimItems } = await import('./claim-items')
@@ -247,6 +251,7 @@ afterEach(async () => {
   owner(null)
   useSystemConfigStore.setState({ config: originalConfig })
   localStorage.clear()
+  dom.sessionStorage.clear()
   dom.happyDOM.setURL(
     'https://shop.example.test/store/products/product-fixture'
   )
@@ -421,7 +426,9 @@ for (const configured of [false, true]) {
         return result({ items: [], fee_bps: 0 })
       }
       if (url === '/api/store/extore/connections') {
-        return { data: { success: false, message: 'Extore is not configured' } }
+        return {
+          data: { success: false, message: 'Extore is not configured' },
+        }
       }
       assert.equal(url, `/api/store/products/${product.id}/inventory`)
       stockReads.push(url)
@@ -430,6 +437,7 @@ for (const configured of [false, true]) {
     api.post = (async (url: string, body: unknown) => {
       assert.equal(url, `/api/store/products/${product.id}/inventory`)
       writes.push(body)
+      if (writes.length === 1) throw new Error('Import acknowledgment lost')
       return result({ added: 1 })
     }) as typeof api.post
     await mount(<StoreSellerPage />)
@@ -447,10 +455,72 @@ for (const configured of [false, true]) {
     assert.ok(field)
     await input(field, 'synthetic-stock')
     await click(button('Import inventory'))
-    assert.deepEqual(writes, [{ items: ['synthetic-stock'] }])
+    assert.equal(writes.length, 1)
+    await click(button('Import inventory'))
+    assert.equal(writes.length, 2)
+    assert.deepEqual(
+      writes[1],
+      writes[0],
+      'unknown acknowledgment retries the exact operation'
+    )
+    const first = z
+      .object({ items: z.array(z.string()), request_key: z.string().uuid() })
+      .parse(writes[0])
+    assert.deepEqual(first.items, ['synthetic-stock'])
     assert.ok(stockReads.length > 0)
   })
 }
+
+test('stock import keys survive form reopen, isolate actor and variant, and reset only after acknowledgment', async () => {
+  const { prepareStockImport, confirmStockImport } =
+    await import('./stock-import-key')
+  const input = {
+    userId: 9,
+    productId: product.id,
+    items: ['private-stock-marker', 'private-stock-marker'],
+  }
+  const first = await prepareStockImport(input)
+  const changed = await prepareStockImport({
+    ...input,
+    items: ['different-stock'],
+  })
+  assert.notEqual(first.requestKey, changed.requestKey)
+  assert.deepEqual(await prepareStockImport(input), first)
+  assert.notEqual(
+    (await prepareStockImport({ ...input, userId: 10 })).requestKey,
+    first.requestKey
+  )
+  assert.notEqual(
+    (await prepareStockImport({ ...input, variantId: 'variant-2' })).requestKey,
+    first.requestKey
+  )
+  assert.notEqual(
+    (await prepareStockImport({ ...input, productId: 'other-product' }))
+      .requestKey,
+    first.requestKey
+  )
+  for (let i = 0; i < dom.sessionStorage.length; i++) {
+    const key = dom.sessionStorage.key(i)
+    assert.ok(key)
+    assert.ok(!key.includes('private-stock-marker'))
+    assert.ok(
+      !dom.sessionStorage.getItem(key)?.includes('private-stock-marker')
+    )
+  }
+  confirmStockImport(first)
+  const next = await prepareStockImport(input)
+  assert.notEqual(
+    next.requestKey,
+    first.requestKey,
+    'a new acknowledged batch can intentionally contain identical stock'
+  )
+  confirmStockImport(first)
+  assert.deepEqual(
+    await prepareStockImport(input),
+    next,
+    'a stale acknowledgment cannot clear the next operation'
+  )
+})
 
 test('unsupported servers omit fixed-content authoring from new product choices', async () => {
   owner(2)
@@ -1538,7 +1608,10 @@ test('public product descriptions pass the unchanged merchant source to the shar
 })
 test('pickup clipboard failure keeps the selected text and offers manual copy', async () => {
   api.get = (async () =>
-    result({ product_title: 'Fixture keys', status: 'paid' })) as typeof api.get
+    result({
+      product_title: 'Fixture keys',
+      status: 'paid',
+    })) as typeof api.get
   api.post = (async () =>
     result({
       order_id: 'failure-order',
@@ -1913,7 +1986,10 @@ test('variant inventory tabs require confirmation before discarding drafts and i
     assert.deepEqual(writes, [
       {
         url: `/api/store/products/${product.id}/variants/plus/inventory`,
-        body: { items: [' plus-key '] },
+        body: {
+          items: [' plus-key '],
+          request_key: stockRequestSchema.parse(writes[0]?.body).request_key,
+        },
       },
     ])
   } finally {
@@ -1981,10 +2057,9 @@ test('multi-line custom inventory remains one item and failed import preserves t
   assert.match(document.body.textContent || '', /1 items ready to import/)
   fail = false
   await click(button('Import inventory'))
-  assert.deepEqual(calls, [
-    { items: ['line one\nline two'] },
-    { items: ['line one\nline two'] },
-  ])
+  const first = stockRequestSchema.parse(calls[0])
+  assert.deepEqual(first.items, ['line one\nline two'])
+  assert.deepEqual(calls, [first, first])
 })
 for (const source of ['textarea', 'file']) {
   test(`inventory wire-size guard rejects JSON expansion and preserves valid Unicode stock (${source})`, async () => {
@@ -2046,7 +2121,12 @@ for (const source of ['textarea', 'file']) {
     await input(textarea, valid.join('\n'))
     assert.equal(button('Import inventory').disabled, false)
     await click(button('Import inventory'))
-    assert.deepEqual(writes, [{ items: valid }])
+    assert.deepEqual(writes, [
+      {
+        items: valid,
+        request_key: stockRequestSchema.parse(writes[0]).request_key,
+      },
+    ])
     assert.equal(saves, 1)
   })
 }
@@ -2185,9 +2265,15 @@ for (const template of [
       assert.ok(button('Reopen inventory'))
       assert.equal(writes.length, 1)
       if (template === 'card-key') {
-        assert.deepEqual(writes[0], { items: [' key-A ', ' key-A '] })
+        assert.deepEqual(stockRequestSchema.parse(writes[0]), {
+          items: [' key-A ', ' key-A '],
+          request_key: stockRequestSchema.parse(writes[0]).request_key,
+        })
       } else if (template === 'custom-text') {
-        assert.deepEqual(writes[0], { items: ['queued key\nsecond line'] })
+        assert.deepEqual(stockRequestSchema.parse(writes[0]), {
+          items: ['queued key\nsecond line'],
+          request_key: stockRequestSchema.parse(writes[0]).request_key,
+        })
       } else {
         assert.deepEqual(JSON.parse(writes[0].items[0]), {
           lmm_store_delivery: 1,
