@@ -174,6 +174,12 @@ class ContinuityTests(unittest.TestCase):
             self.assertFalse(receipt["activation_created"])
             materials = json.loads((output / "materials.private.json").read_bytes())
             self.assertEqual(set(materials), set(P.MATERIALS) | {"source_projection"})
+            projection = json.loads((output / "source-projection.private.json").read_bytes())
+            for field, source in (("source_receipt_file", "source_receipt"), ("source_rows_file", "raw_export"),
+                                  ("key_import_sql_file", "key_import_sql")):
+                self.assertEqual(projection[field], str(paths[source].resolve()))
+                self.assertEqual(hashlib.sha256(Path(projection[field]).read_bytes()).hexdigest(),
+                                 receipt["input_sha256"][source])
             self.assertEqual(output.stat().st_mode & 0o777, 0o700)
             for path in output.iterdir():
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)

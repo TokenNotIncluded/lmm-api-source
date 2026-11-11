@@ -145,6 +145,9 @@ def run(paths, output, **parameters):
                  if name not in ("identity_map", "key_import_sql")}
     documents["identity_map"] = [read_json(line) for line in contents["identity_map"].splitlines() if line]
     projection = prepare(documents, hashes, **parameters)
+    projection.update(source_receipt_file=str(paths["source_receipt"].resolve()),
+                      source_rows_file=str(paths["raw_export"].resolve()),
+                      key_import_sql_file=str(paths["key_import_sql"].resolve()))
     parent = F.IDENTITY.private_backup_path(output.parent, directory=True)
     F.require(output.is_absolute() and output.parent == parent, "continuity_output_path_invalid")
     materials = {name: str(paths[name].resolve()) for name in MATERIALS}
