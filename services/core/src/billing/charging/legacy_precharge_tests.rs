@@ -1,5 +1,29 @@
 use super::*;
 
+#[test]
+fn terminal_supplement_charges_cash_before_debt_within_authorization() {
+    let split = |actual, wallet| WalletSupplement::for_terminal(400, actual, 210_944, wallet);
+    assert_eq!(split(399, 300), Ok(WalletSupplement { cash: 0, debt: 0 }));
+    assert_eq!(split(800, 500), Ok(WalletSupplement { cash: 400, debt: 0 }));
+    assert_eq!(
+        split(800, 125),
+        Ok(WalletSupplement {
+            cash: 125,
+            debt: 275
+        })
+    );
+    assert_eq!(split(800, 0), Ok(WalletSupplement { cash: 0, debt: 400 }));
+    assert_eq!(split(210_945, 500), Err(Error::Invalid));
+    assert_eq!(split(800, -1), Err(Error::Invalid));
+    assert_eq!(
+        WalletSupplement::for_terminal(0, i64::MAX, i64::MAX, 1),
+        Ok(WalletSupplement {
+            cash: 1,
+            debt: i64::MAX - 1
+        })
+    );
+}
+
 fn options() -> SourceOptions {
     SourceOptions {
         // Actual fixed export, not the code's default 500.

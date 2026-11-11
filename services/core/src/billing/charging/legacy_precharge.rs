@@ -34,6 +34,39 @@ pub(crate) struct Estimate {
     pub hold: i32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WalletSupplement {
+    pub cash: i64,
+    pub debt: i64,
+}
+
+impl WalletSupplement {
+    /// Split only the uncovered part of the authoritative charge. Call inside
+    /// the settlement transaction after locking the original wallet and
+    /// checking the total against that request's applicable budget.
+    pub(crate) fn for_terminal(
+        reserved: i64,
+        actual: i64,
+        authorized_max: i64,
+        wallet_available: i64,
+    ) -> Result<Self, Error> {
+        if reserved < 0
+            || actual < 0
+            || wallet_available < 0
+            || reserved > authorized_max
+            || actual > authorized_max
+        {
+            return Err(Error::Invalid);
+        }
+        let extra = (actual - reserved).max(0);
+        let cash = extra.min(wallet_available);
+        Ok(Self {
+            cash,
+            debt: extra - cash,
+        })
+    }
+}
+
 fn nonnegative(bits: u64) -> Result<f64, Error> {
     let value = f64::from_bits(bits);
     if !value.is_finite() || value < 0.0 {
