@@ -144,7 +144,7 @@ impl Bridge {
     ) -> Result<(usize, Option<String>), RelayError> {
         validate_recovery_page(limit, after_request_id)?;
         let rows: Vec<CompletedStream> = sqlx::query_as(
-            "SELECT request_id,revision,provider_usage,sequence FROM ( \
+            "SELECT DISTINCT ON (request_id) request_id,revision,provider_usage,sequence FROM ( \
                SELECT request_id,revision,provider_usage,sequence \
                FROM core_model.completed_streams_after($1,$2) \
                UNION ALL \
@@ -163,7 +163,15 @@ impl Bridge {
                WHERE r.state='reconcile' AND ($2::text IS NULL OR r.id>$2) \
                  AND r.price->'text_request' IS NULL AND e.detail->>'kind'='usage' \
                  AND a.detail->>'kind'='model_no_acceptance' \
-             ) evidence ORDER BY request_id LIMIT $1",
+               UNION ALL \
+               SELECT r.id,r.revision,jsonb_build_object('usage',e.detail->'usage','evidence',a.detail),-2::bigint \
+               FROM core_charging.requests r \
+               JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' \
+               JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='provider-observation:terminal' \
+               WHERE r.state='reconcile' AND ($2::text IS NULL OR r.id>$2) \
+                 AND e.detail->>'kind'='usage' AND a.detail->>'kind'='provider_observation' \
+                 AND a.detail->'provider_complete'='true'::jsonb \
+             ) evidence ORDER BY request_id,sequence DESC LIMIT $1",
         )
         .bind(limit)
         .bind(after_request_id)
@@ -209,11 +217,38 @@ impl Bridge {
                 ) => continue,
                 Err(error) => return Err(super::billing::error(error)),
             };
-            if frozen.price != original.price || !(-1..=65_536).contains(&sequence) {
+            if frozen.price != original.price || !(-2..=65_536).contains(&sequence) {
                 continue;
             }
             let mut delivery_outcome = None;
-            let usage = if sequence == -1 {
+            let usage = if sequence == -2 {
+                // A raw audit alone cannot authorize recovery. Require the
+                // separate validated checkpoint to agree with the frozen price
+                // contract's own normalization of the provider terminal.
+                let evidence = &value["evidence"];
+                if !evidence["route_id"]
+                    .as_str()
+                    .is_some_and(|route| contract.contains_route(route))
+                {
+                    continue;
+                }
+                let Ok(observed) = serde_json::from_value(evidence["raw_usage"].clone()) else {
+                    continue;
+                };
+                let Ok(checkpoint) =
+                    serde_json::from_value::<charging::Usage>(value["usage"].clone())
+                else {
+                    continue;
+                };
+                let Ok(usage) = super::billing::frozen_priced_usage(&contract, &frozen, observed)
+                else {
+                    continue;
+                };
+                if usage != checkpoint {
+                    continue;
+                }
+                usage
+            } else if sequence == -1 {
                 let Ok(receipt) = serde_json::from_value::<
                     crate::billing::text_request_price::TextRequestUsage,
                 >(value["evidence"]["receipt"].clone()) else {
@@ -286,7 +321,9 @@ impl Bridge {
                         .tool
                         .map_or(Outcome::Completed, |receipt| receipt.outcome())
                 });
-            let evidence = if sequence <= 0 {
+            let evidence = if sequence == -2 {
+                "model-provider-final:v1".to_owned()
+            } else if sequence <= 0 {
                 format!("model-delivery:{id}")
             } else {
                 format!("model-stream:{id}:{sequence}")

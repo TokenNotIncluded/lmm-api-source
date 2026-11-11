@@ -1423,6 +1423,66 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
     assert_balance(&f, 10_000, 0).await;
 }
 
+#[sqlx::test(migrations = false)]
+async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(pool: PgPool) {
+    let f = fixture(pool, 240_000).await;
+    let g = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
+    let mut ids = Vec::new();
+    for (name, checkpoint_tokens) in [
+        ("http-terminal-matched", Some(17)),
+        ("http-terminal-audit-only", None),
+        ("http-terminal-mismatch", Some(18)),
+    ] {
+        let (context, request) = admit(&g, &f, name, "small-model", 1).await;
+        let route = g.bridge.select(&context, &request).await.unwrap();
+        let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+        let id = reservation.id;
+        let worker = g.bridge.active.lock().unwrap()[&id].worker;
+        g.bridge
+            .persist_provider_observation(&id, &worker, &route.id, usage(17), SMALL_INPUT, 1)
+            .await
+            .unwrap();
+        if let Some(tokens) = checkpoint_tokens {
+            let (charge, proof) = g.bridge.charging.reservation_contract(&id).await.unwrap();
+            let normalized =
+                super::billing::frozen_priced_usage(&proof, &charge, usage(tokens)).unwrap();
+            g.bridge
+                .charging
+                .checkpoint(&id, &worker, "provider-final", normalized)
+                .await
+                .unwrap();
+        }
+        g.bridge.charging.mark_unknown(&id, &worker).await.unwrap();
+        assert_eq!(checkpoint_rows(&f.pool, &id).await, 0);
+        ids.push(id);
+    }
+    let restarted = gateway(&f, EXTERNAL_BASE, contexts(32_768));
+    assert_eq!(
+        restarted
+            .reconcile_completed_streams_page(10, None)
+            .await
+            .unwrap(),
+        (1, None)
+    );
+    let settled = receipt(&restarted, &ids[0]).await;
+    assert_eq!((settled.state.as_str(), settled.settled), ("settled", 17));
+    for id in &ids[1..] {
+        let pending = receipt(&restarted, id).await;
+        assert_eq!(
+            (pending.state.as_str(), pending.reserved, pending.settled),
+            ("reconcile", SMALL_INPUT, 0)
+        );
+    }
+    assert_eq!(
+        restarted
+            .reconcile_completed_streams_page(10, None)
+            .await
+            .unwrap(),
+        (0, None)
+    );
+    assert_balance(&f, 240_000 - 17 - 2 * SMALL_INPUT, 2 * SMALL_INPUT).await;
+}
+
 // @context-fold begin prepared-reservation-pg-tests
 #[sqlx::test(migrations = false)]
 async fn prepared_contract_is_durable_and_binds_wire_before_another_hold(pool: PgPool) {
