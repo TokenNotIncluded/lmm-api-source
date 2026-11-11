@@ -1425,21 +1425,37 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
 
 #[sqlx::test(migrations = false)]
 async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(pool: PgPool) {
-    let f = fixture(pool, 240_000).await;
+    let f = fixture(pool, 300_000).await;
     let g = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
     let mut ids = Vec::new();
-    for (name, checkpoint_tokens) in [
-        ("http-terminal-matched", Some(17)),
-        ("http-terminal-audit-only", None),
-        ("http-terminal-mismatch", Some(18)),
+    for (name, checkpoint_tokens, matching_route) in [
+        ("http-terminal-matched", Some(17), true),
+        ("http-terminal-audit-only", None, true),
+        ("http-terminal-mismatch", Some(18), true),
+        ("http-terminal-wrong-route", Some(17), false),
     ] {
         let (context, request) = admit(&g, &f, name, "small-model", 1).await;
         let route = g.bridge.select(&context, &request).await.unwrap();
         let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
         let id = reservation.id;
+        g.bridge
+            .dispatching(&context, &route, &request.upstream_body(&route).unwrap())
+            .await
+            .unwrap();
         let worker = g.bridge.active.lock().unwrap()[&id].worker;
         g.bridge
-            .persist_provider_observation(&id, &worker, &route.id, usage(17), SMALL_INPUT, 1)
+            .persist_provider_observation(
+                &id,
+                &worker,
+                if matching_route {
+                    &route.id
+                } else {
+                    "other-route"
+                },
+                usage(17),
+                SMALL_INPUT,
+                1,
+            )
             .await
             .unwrap();
         if let Some(tokens) = checkpoint_tokens {
@@ -1480,7 +1496,7 @@ async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(
             .unwrap(),
         (0, None)
     );
-    assert_balance(&f, 240_000 - 17 - 2 * SMALL_INPUT, 2 * SMALL_INPUT).await;
+    assert_balance(&f, 300_000 - 17 - 3 * SMALL_INPUT, 3 * SMALL_INPUT).await;
 }
 
 // @context-fold begin prepared-reservation-pg-tests
