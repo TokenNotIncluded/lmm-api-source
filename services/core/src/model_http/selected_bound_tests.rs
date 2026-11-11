@@ -338,13 +338,15 @@ async fn legacy_openai_gateway_rejects_before_reserve_or_provider(pool: PgPool) 
                 ),
                 400,
             ));
-            cases.push((
-                body.replace(
-                    "\"service_tier\":\"auto\"",
-                    "\"service_tier\":\"auto\",\"service_tier\":\"auto\"",
-                ),
-                400,
-            ));
+            let duplicate_service_tier = body.replace(
+                "\"service_tier\":\"default\"",
+                "\"service_tier\":\"default\",\"service_tier\":\"default\"",
+            );
+            assert_eq!(
+                duplicate_service_tier.matches("\"service_tier\"").count(),
+                2
+            );
+            cases.push((duplicate_service_tier, 400));
             let mut body = compatibility_body(chat, true, model);
             body["payload_policy"] = json!({"legacy_openai":{}});
             cases.push((body.to_string(), 400));
@@ -1424,6 +1426,75 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
 }
 
 #[sqlx::test(migrations = false)]
+async fn legacy_wallet_gateway_uses_estimate_then_settles_authorized_debt(pool: PgPool) {
+    let f = fixture(pool, 6000).await;
+    let original = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
+    let mut document = original.bridge.routing.catalog_document().unwrap();
+    document.routing.routes.truncate(1);
+    document.pricing.rules.truncate(1);
+    document.pricing.rules[0].rounding = Some(routing::TokenRounding::LegacyGoRatioV1);
+    let source = serde_json::from_value(json!({
+        "source_revision": charging::legacy_precharge::SOURCE_REVISION,
+        "upstream_id": 1, "upstream_model": "small-provider", "model": "small-model",
+        "preconsumed_tokens": 5000, "count_token": true, "get_media_token": true,
+        "get_media_token_not_stream": false, "source_free_model": false,
+        "operator_max_billable": 100000
+    }))
+    .unwrap();
+    let g = ModelGateway::new_with_provider_policy(
+        f.pool.clone(),
+        Arc::new(
+            routing::Router::new(
+                document.routing,
+                Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+            )
+            .unwrap(),
+        ),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-legacy-precharge-key".into(),
+        }],
+        BTreeMap::from([(f.key_id, "allowed".into())]),
+        original.limits.clone(),
+        original.bridge.policy,
+        ProviderPolicy::new(contexts(SMALL_INPUT), GLOBAL_INPUT).unwrap(),
+    )
+    .unwrap()
+    .with_legacy_precharge(vec![source])
+    .unwrap();
+    let (context, request) = admit(&g, &f, "legacy-gateway-debt", "small-model", 1).await;
+    let route = g.bridge.select(&context, &request).await.unwrap();
+    let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+    let held = receipt(&g, &reservation.id).await;
+    assert_eq!(held.reserved, 5001);
+    assert_balance(&f, 999, 5001).await;
+    g.bridge
+        .dispatching(&context, &route, &request.upstream_body(&route).unwrap())
+        .await
+        .unwrap();
+    g.bridge
+        .finalize(
+            &reservation,
+            &terminal(&reservation.id, &route, usage(7000)),
+        )
+        .await
+        .unwrap();
+    let settled = receipt(&g, &reservation.id).await;
+    assert_eq!(settled.state, "settled");
+    assert_eq!(settled.settled, 7000);
+    let balance = f.ledger.balance(f.account).await.unwrap();
+    assert_eq!(
+        (
+            balance.available_units,
+            balance.debt_units,
+            balance.reserved_units
+        ),
+        (-1000, -1000, 0)
+    );
+    assert_balance(&f, -1000, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn upstream_cost_gateway_finalizes_reconcile_without_extra_hold(pool: PgPool) {
     let f = fixture(pool, 1_000_000).await;
     // Numeric-loopback synthetic billing is the supported fixture contract.
@@ -1874,3 +1945,6 @@ async fn prepared_contract_resolve_waits_for_original_transaction(pool: PgPool) 
 mod prepared_financial_tests;
 #[path = "route_failover_tests.rs"]
 mod route_failover_tests;
+
+#[path = "legacy_recovery_tests.rs"]
+mod legacy_recovery_tests;

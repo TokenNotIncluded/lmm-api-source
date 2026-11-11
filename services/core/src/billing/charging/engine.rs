@@ -365,11 +365,41 @@ fn decode(row: PgRow) -> Result<Stored> {
             return Err(Error::Storage);
         }
         if tariff.cache_creation_mode.is_some() || tariff.tariff.revision == 4 {
-            stored
-                .charge
-                .price
-                .cost(stored.charge.usage)
+            let provenance: Option<Value> = row.try_get("pricing_contract")?;
+            let legacy_expression = stored.charge.source == Source::Wallet
+                && provenance.as_ref().is_some_and(|proof| {
+                    proof["legacy_precharge"]["policy"] == "cc52_tiered_wallet_v1"
+                });
+            if legacy_expression && stored.charge.usage != Usage::default() {
+                let proof = contract::read_attribution(
+                    provenance,
+                    row.try_get("pricing_admission")?,
+                    &stored.charge.price,
+                    &row.try_get::<Vec<u8>, _>("fingerprint")?,
+                    &stored.spec,
+                )?
+                .ok_or(Error::Storage)?;
+                let observation: Value = row
+                    .try_get::<Option<Value>, _>("pricing_observation")?
+                    .ok_or(Error::Storage)?;
+                let observed: crate::relay::Usage =
+                    serde_json::from_value(observation["raw_usage"].clone())
+                        .map_err(|_| Error::Storage)?;
+                contract::terminal_cost(
+                    &stored.charge.price,
+                    stored.charge.source,
+                    Some(&proof),
+                    stored.charge.usage,
+                    Some(&observed),
+                )
                 .map_err(|_| Error::Storage)?;
+            } else {
+                stored
+                    .charge
+                    .price
+                    .cost(stored.charge.usage)
+                    .map_err(|_| Error::Storage)?;
+            }
         }
     }
     match (&stored.charge.key_id, &stored.charge.oauth_source) {
@@ -418,6 +448,9 @@ async fn lock(c: &mut PgConnection, id: &str) -> Result<()> {
 async fn select_stored(c: &mut PgConnection, id: &str, for_update: bool) -> Result<Option<Stored>> {
     let mut statement = String::from(
         "SELECT r.*, \
+         (SELECT pc.detail FROM core_charging.usage_events pc WHERE pc.request_id=r.id AND pc.event_id='reservation-contract:v1') AS pricing_contract, \
+         (SELECT pa.detail FROM core_charging.usage_events pa WHERE pa.request_id=r.id AND pa.event_id='reservation-admission:v1') AS pricing_admission, \
+         (SELECT po.detail FROM core_charging.usage_events po WHERE po.request_id=r.id AND po.event_id='provider-observation:terminal') AS pricing_observation, \
          (SELECT max((e.detail #>> '{usage,upstream_cost_atto_usd}')::numeric)::text \
           FROM core_charging.usage_events e WHERE e.request_id=r.id) AS upstream_cost_atto_usd, \
          (SELECT jsonb_agg(jsonb_build_object('event_id',e.event_id,'usage',e.detail->'usage')) \
@@ -537,6 +570,50 @@ impl Charging {
             frozen.reserve = frozen.price.reservation_ceiling(basis)?;
         }
         Ok(frozen)
+    }
+    /// Preparation-only snapshot. Admission reauthenticates and verifies every
+    /// pricing authority field in its own SERIALIZABLE funding transaction.
+    pub(crate) async fn legacy_precharge_trust(
+        &self,
+        secret: &str,
+        peer: Option<IpAddr>,
+        issuer: Option<&crate::identity::grants::LmmIssuer>,
+        price: &Price,
+    ) -> Result<Option<crate::billing::trust_pricing::FrozenTrustPrice>> {
+        price.validate()?;
+        let mut tx = self.begin().await?;
+        let actor = if let Some(issuer) = issuer {
+            issuer
+                .authorize_model_in_transaction(
+                    &mut tx,
+                    secret,
+                    Some(&price.model),
+                    Some(&price.group),
+                )
+                .await
+                .map_err(authority::identity_error)?
+                .user_id
+        } else {
+            let actor = authority::authenticate(&mut tx, secret).await?;
+            if actor.kind != "api_key" {
+                return Err(Error::Forbidden);
+            }
+            authority::model_policy(&mut tx, secret, price, peer).await?;
+            actor.user
+        };
+        let trust = if self.trust_pricing_enabled() {
+            Some(
+                crate::billing::trust_pricing::quote_in_transaction(&mut tx, actor)
+                    .await
+                    .map_err(trust_error)?
+                    .evidence()
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        commit(tx).await?;
+        Ok(trust)
     }
     async fn begin(&self) -> Result<Transaction<'_, Postgres>> {
         let mut tx = self.pool.begin().await?;
@@ -716,6 +793,9 @@ impl Charging {
         } else {
             request.clone()
         };
+        if let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge) {
+            legacy.verify_trust(effective_request.price.user_trust.as_ref())?;
+        }
         let request = &effective_request;
         // Existing exact operation receipts above remain safely replayable.
         // Only a NEW reservation is excluded by the current abuse mark.
@@ -729,6 +809,13 @@ impl Charging {
         let mut last_error = Error::NoFunds;
         for payer in payers {
             for source in limits::sources(&mut tx, &payer, &request.price, at).await? {
+                let mut candidate_request = request.clone();
+                if source == Source::Wallet {
+                    if let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge) {
+                        candidate_request.reserve = legacy.estimated_hold();
+                    }
+                }
+                let request = &candidate_request;
                 sqlx::query("SAVEPOINT funding_candidate")
                     .execute(&mut *tx)
                     .await?;
@@ -941,6 +1028,14 @@ impl Charging {
         peer: Option<IpAddr>,
         issuer: Option<&crate::identity::grants::LmmIssuer>,
     ) -> Result<Charge> {
+        if let Some(proof) = contract::load(c, &old).await? {
+            if old.source == Source::Wallet
+                && proof.legacy_precharge().is_some()
+                && total > old.reserved
+            {
+                return Err(Error::NeedReservation);
+            }
+        }
         let id = &old.id;
         let at = now(c).await?;
         match (&old.oauth_source, issuer) {
@@ -1149,9 +1244,25 @@ impl Charging {
         }
         if let Some(proof) = contract::load(c, &charge).await? {
             proof.check_usage(&charge, usage)?;
+            if charge.source == Source::Wallet {
+                if let Some(legacy) = proof.legacy_precharge() {
+                    model_unknown::legacy_terminal(c, &charge, usage).await?;
+                    if Self::terminal_amount_in_transaction(c, &charge, usage).await?
+                        > legacy.max_billable()
+                    {
+                        return Err(Error::Invalid);
+                    }
+                }
+            }
         }
         audio::verify_usage(c, &charge, usage).await?;
-        let amount = Self::check_usage(&charge, usage)?;
+        if !usage.follows(charge.usage) {
+            return Err(Error::Invalid);
+        }
+        let amount = Self::terminal_amount_in_transaction(c, &charge, usage).await?;
+        if amount > charge.reserved {
+            return Err(Error::NeedReservation);
+        }
         self.ledger
             .apply(c, command(&charge, "settle", Change::Settle { amount })?)
             .await?;
@@ -1244,9 +1355,17 @@ impl Charging {
         if stored.charge.state != "reconcile" || stored.charge.revision != expected_revision {
             return Err(Error::WrongState);
         }
-        let charge = self
-            .finish(&mut tx, stored.charge, usage, outcome, Some(evidence))
-            .await?;
+        let legacy_wallet = stored.charge.source == Source::Wallet
+            && contract::load(&mut tx, &stored.charge)
+                .await?
+                .is_some_and(|proof| proof.legacy_precharge().is_some());
+        let charge = if legacy_wallet {
+            self.finish_legacy_wallet(&mut tx, stored.charge, usage, outcome, Some(evidence))
+                .await?
+        } else {
+            self.finish(&mut tx, stored.charge, usage, outcome, Some(evidence))
+                .await?
+        };
         commit(tx).await?;
         Ok(charge)
     }

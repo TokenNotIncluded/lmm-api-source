@@ -2,7 +2,7 @@
 //! Loading limits, authorization and HTTP errors belong to the caller.
 use crate::billing::{
     CREDITS_PER_USD,
-    charging::{Change, LedgerCommand, Outcome, Price, Source, Usage},
+    charging::{Change, LedgerCommand, Outcome, Price, Source, Usage, contract},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -112,6 +112,8 @@ pub(crate) struct ReceiptValidation {
     owner: i64,
     payer: i64,
     final_event: Option<Value>,
+    pricing_proof: Option<contract::ReservationContract>,
+    pricing_observation: Option<crate::relay::Usage>,
     receipts: HashMap<String, Change>,
     refund_total: i64,
     refund_count: usize,
@@ -218,6 +220,39 @@ impl ReceiptValidation {
         {
             return Err(InvalidReceipt);
         }
+        let provenance: Option<Value> = row.try_get("pricing_contract")?;
+        let legacy_expression = source == Source::Wallet
+            && provenance.as_ref().is_some_and(|proof| {
+                proof["legacy_precharge"]["policy"] == "cc52_tiered_wallet_v1"
+            });
+        let (pricing_proof, pricing_observation) = if legacy_expression {
+            let proof = contract::read_attribution(
+                provenance,
+                row.try_get("pricing_admission")?,
+                &price,
+                &row.try_get::<Vec<u8>, _>("fingerprint")?,
+                &row.try_get::<Vec<u8>, _>("spec_digest")?,
+            )
+            .map_err(|_| InvalidReceipt)?
+            .ok_or(InvalidReceipt)?;
+            let observation: Option<Value> = row.try_get("pricing_observation")?;
+            let observed = if let Some(observation) = observation {
+                if observation["kind"] != "provider_observation"
+                    || observation["provider_complete"] != true
+                    || !observation["route_id"]
+                        .as_str()
+                        .is_some_and(|route| proof.contains_route(route))
+                {
+                    return Err(InvalidReceipt);
+                }
+                Some(decode(observation["raw_usage"].clone())?)
+            } else {
+                None
+            };
+            (Some(proof), observed)
+        } else {
+            (None, None)
+        };
         let final_event = row.try_get("final_event")?;
         Ok(Self {
             request: ValidatedRequest {
@@ -242,6 +277,8 @@ impl ReceiptValidation {
             owner,
             payer,
             final_event,
+            pricing_proof,
+            pricing_observation,
             receipts: HashMap::new(),
             refund_total: 0,
             refund_count: 0,
@@ -293,6 +330,8 @@ impl ReceiptValidation {
             refund_total,
             refund_count,
             final_event,
+            pricing_proof,
+            pricing_observation,
             ..
         } = self;
         let id = request.id.as_str();
@@ -321,7 +360,15 @@ impl ReceiptValidation {
                     .text_request
                     .is_some_and(|receipt| receipt.outcome() != event.outcome)
                 || (price.grounding.is_some() != event.usage.grounding.is_some())
-                || price.cost(event.usage).map_err(|_| InvalidReceipt)? != amounts.gross
+                || contract::terminal_cost(
+                    price,
+                    request.source,
+                    pricing_proof.as_ref(),
+                    event.usage,
+                    pricing_observation.as_ref(),
+                )
+                .map_err(|_| InvalidReceipt)?
+                    != amounts.gross
             {
                 return Err(InvalidReceipt);
             }

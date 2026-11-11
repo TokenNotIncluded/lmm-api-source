@@ -87,6 +87,9 @@ pub struct Request {
     /// The client's validated output limit before the gateway applies its default.
     /// Legacy precharge estimates use the original value, including its absence.
     pub explicit_max_output_tokens: Option<u32>,
+    /// Original bounded Chat/Responses bytes for the source precharge estimator.
+    /// Route projection and compatibility normalization must not change them.
+    pub(crate) legacy_precharge_body: Option<std::sync::Arc<[u8]>>,
     pub messages: Vec<Message>,
     pub tools: Vec<FunctionTool>,
     pub temperature: Option<f64>,
@@ -651,6 +654,9 @@ impl Request {
             allow_previous_tool_result,
         )?;
         request.compatibility = compatibility;
+        if matches!(client, ClientProtocol::Chat | ClientProtocol::Responses) {
+            request.legacy_precharge_body = Some(std::sync::Arc::from(body));
+        }
         // The compatibility parser re-encodes fields; capture only after its
         // original duplicate/depth checks, from the original ordered schemas.
         request.capture_ordered_schemas(client, body);
@@ -1127,6 +1133,11 @@ impl Request {
             stream,
             max_output_tokens,
             explicit_max_output_tokens,
+            legacy_precharge_body: matches!(
+                client,
+                ClientProtocol::Chat | ClientProtocol::Responses
+            )
+            .then(|| std::sync::Arc::from(body)),
             messages,
             tools,
             stop,
@@ -1996,6 +2007,41 @@ impl Request {
 #[cfg(test)]
 mod output_limit_tests {
     use super::*;
+
+    #[test]
+    fn source_precharge_preserves_original_openai_bytes() {
+        let body = br#"{ "model": "gpt-4o", "input": "hi", "service_tier": "auto" }"#;
+        let request =
+            Request::parse_deferred_openai(ClientProtocol::Responses, body, &Limits::default())
+                .unwrap();
+        assert_eq!(
+            request.legacy_precharge_body.as_deref(),
+            Some(body.as_slice())
+        );
+        let cloned = request.clone();
+        assert!(std::sync::Arc::ptr_eq(
+            request.legacy_precharge_body.as_ref().unwrap(),
+            cloned.legacy_precharge_body.as_ref().unwrap(),
+        ));
+        let chat_body = br#"{ "model": "gpt-4o", "messages": [{"role":"user","content":"hi"}], "service_tier":"auto" }"#;
+        let chat =
+            Request::parse_deferred_openai(ClientProtocol::Chat, chat_body, &Limits::default())
+                .unwrap();
+        assert_eq!(
+            chat.legacy_precharge_body.as_deref(),
+            Some(chat_body.as_slice())
+        );
+        let native = Request::parse(
+            ClientProtocol::Responses,
+            br#"{ "model": "gpt-4o", "input": "hi" }"#,
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            native.legacy_precharge_body.as_deref(),
+            Some(br#"{ "model": "gpt-4o", "input": "hi" }"#.as_slice()),
+        );
+    }
 
     #[test]
     fn source_output_limit_stays_distinct_from_provider_default() {

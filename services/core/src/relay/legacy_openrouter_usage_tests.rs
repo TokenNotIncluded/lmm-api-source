@@ -127,3 +127,30 @@ fn explicit_policy_is_chat_only_distinct_and_no_implicit_model_activation() {
         assert!(!legacy.adapts(other,Protocol::OpenAiChat));assert!(!legacy.adapts(Protocol::OpenAiChat,other));
     }
 }
+
+#[test]
+fn tiered_source_preserves_original_prompt_and_independent_cache_semantics() {
+    use crate::billing::legacy_tiered::{
+        CreationSemantics, Program, PromptSemantics, Variable, project_source,
+    };
+    let mut raw = body();
+    raw["claude_cache_creation_5_m_tokens"] = json!(5);
+    raw["claude_cache_creation_1_h_tokens"] = json!(15);
+    let program = Program::compile(r#"tier("base",p+cr+cc+cc1h)"#).unwrap();
+    let source = tiered_source(&raw).unwrap();
+    assert_eq!(source.prompt, 100);
+    assert_eq!(source.prompt_semantics, PromptSemantics::Inclusive);
+    assert_eq!(source.creation_semantics, CreationSemantics::Aggregate);
+    let params = project_source(Some(&source), program.used_vars()).unwrap();
+    assert_eq!(params.value(Variable::P), Some(70.0));
+    assert_eq!(params.value(Variable::Len), Some(100.0));
+    raw["usage_semantic"] = json!("anthropic");
+    let source = tiered_source(&raw).unwrap();
+    assert_eq!(source.prompt, 100);
+    assert_eq!(source.prompt_semantics, PromptSemantics::ClaudeText);
+    assert_eq!(source.creation_semantics, CreationSemantics::Anthropic);
+    let params = project_source(Some(&source), program.used_vars()).unwrap();
+    assert_eq!(params.value(Variable::P), Some(100.0));
+    assert_eq!(params.value(Variable::Len), Some(140.0));
+    assert!(tiered_source(&Value::Null).is_err());
+}

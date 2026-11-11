@@ -426,6 +426,30 @@ impl Bridge {
         } else {
             self.prepared_with_route_fallbacks(&context.request_id, prepared)?
         };
+        let prepared = if !websocket {
+            if let Some(original) = request.legacy_precharge_body.as_deref() {
+                match self
+                    .legacy_authorization(
+                        &selected,
+                        request,
+                        original,
+                        &secret,
+                        peer,
+                        oauth_issuer.as_ref(),
+                    )
+                    .await?
+                {
+                    Some(authorization) => prepared
+                        .with_legacy_precharge(authorization)
+                        .map_err(error)?,
+                    None => prepared,
+                }
+            } else {
+                prepared
+            }
+        } else {
+            prepared
+        };
         // @context-fold end gateway-prepared-contract
         let reserve = if selected.price.grounding.is_some() || selected.price.text_request.is_some()
         {
@@ -652,6 +676,13 @@ impl Billing for Bridge {
                 }
                 let price = frozen.price.clone();
                 let upstream_cost = price.upstream_cost_group_ppm.is_some();
+                let legacy_wallet = contract.legacy_precharge().is_some()
+                    && matches!(frozen.source, charging::Source::Wallet)
+                    && report.provider_complete;
+                let legacy_expression = legacy_wallet && matches!(
+                    contract.legacy_precharge(),
+                    Some(charging::contract::LegacyPrechargeAuthorization::Cc52TieredWalletV1 { .. })
+                );
                 stage = "usage";
                 let (usage, outcome) = if price.text_request.is_some()
                     && (!report.upstream_attempted
@@ -760,6 +791,7 @@ impl Billing for Bridge {
                         // The legacy ledger must agree with the captured exact quote.
                         // Never reinterpret a price or a missing receipt at settlement.
                         stage = "quote";
+                        if !legacy_expression {
                         let quoted = if selected.price.text_request.is_some() {
                             let mut quoted_price = super::routing::credit_price(
                                 selected.quote.price(),
@@ -838,10 +870,11 @@ impl Billing for Bridge {
                         if i64::try_from(quoted.0).ok() != Some(ledger) {
                             return Err(RelayError::SettlementPending);
                         }
+                        }
                         (usage, Outcome::Completed)
                     }
                 };
-                if upstream_cost {
+                if upstream_cost || legacy_wallet {
                     retry(|| {
                         self.charging.record_model_terminal(
                             &reservation.id,
@@ -853,8 +886,13 @@ impl Billing for Bridge {
                     .await
                     .map_err(error)?;
                 }
+                let expected_amount = if legacy_expression {
+                    self.charging.terminal_amount(&reservation.id, usage).await.map_err(error)?
+                } else {
+                    selected.price.cost(usage).map_err(error)?
+                };
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-                if !upstream_cost {
+                if !upstream_cost && !legacy_wallet {
                     stage = "provider_checkpoint";
                     retry_finalize(
                         deadline,
@@ -887,6 +925,15 @@ impl Billing for Bridge {
                                     outcome,
                                 )
                                 .await
+                        } else if legacy_wallet {
+                            self.charging
+                                .settle_legacy_wallet_terminal(
+                                    &reservation.id,
+                                    &worker,
+                                    usage,
+                                    outcome,
+                                )
+                                .await
                         } else {
                             self.charging
                                 .settle(&reservation.id, &worker, usage, outcome)
@@ -896,12 +943,13 @@ impl Billing for Bridge {
                     .await;
                 match settlement {
                     Ok(charge)
-                        if confirmed_settlement(
+                        if confirmed_settlement_amount(
                             &charge,
                             &reservation.id,
                             &selected.price,
                             usage,
                             outcome,
+                            expected_amount,
                         ) =>
                     {
                         Ok(())
@@ -912,12 +960,13 @@ impl Billing for Bridge {
                         // Never create another request or dispatch another model call.
                         match self.charging.resolve(&reservation.id).await {
                             Ok(Some(charge))
-                                if confirmed_settlement(
+                                if confirmed_settlement_amount(
                                     &charge,
                                     &reservation.id,
                                     &selected.price,
                                     usage,
                                     outcome,
+                                    expected_amount,
                                 ) =>
                             {
                                 Ok(())
@@ -1794,6 +1843,19 @@ pub(super) fn confirmed_settlement(
     usage: Usage,
     outcome: Outcome,
 ) -> bool {
+    price
+        .cost(usage)
+        .is_ok_and(|amount| confirmed_settlement_amount(charge, id, price, usage, outcome, amount))
+}
+
+pub(super) fn confirmed_settlement_amount(
+    charge: &charging::Charge,
+    id: &str,
+    price: &charging::Price,
+    usage: Usage,
+    outcome: Outcome,
+    expected_amount: i64,
+) -> bool {
     let expected = match outcome {
         Outcome::Completed => "completed",
         Outcome::Cancelled => "cancelled",
@@ -1804,7 +1866,8 @@ pub(super) fn confirmed_settlement(
         && &charge.price == price
         && charge.usage == usage
         && charge.outcome.as_deref() == Some(expected)
-        && price.cost(usage).ok() == Some(charge.settled)
+        && expected_amount >= 0
+        && expected_amount == charge.settled
 }
 
 #[cfg(test)]

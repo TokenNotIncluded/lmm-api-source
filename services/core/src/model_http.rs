@@ -19,6 +19,8 @@ pub mod image_internal;
 mod image_provider;
 mod input_api;
 mod legacy_keys;
+pub(crate) mod legacy_precharge;
+mod legacy_tiered_precharge;
 mod native;
 mod native_host;
 mod native_http;
@@ -94,6 +96,7 @@ struct Bridge {
     recovery_cursor: tokio::sync::Mutex<Option<String>>,
     policy: ChargePolicy,
     provider_policy: ProviderPolicy,
+    legacy_precharge: std::sync::OnceLock<Vec<legacy_precharge::SourceContract>>,
     total_timeout: Duration,
 }
 
@@ -120,6 +123,34 @@ pub struct ModelGateway {
 }
 
 impl ModelGateway {
+    pub(crate) fn with_legacy_precharge(
+        self,
+        contracts: Vec<legacy_precharge::SourceContract>,
+    ) -> Result<Self, RelayError> {
+        let mut seen = std::collections::BTreeSet::new();
+        for contract in &contracts {
+            contract.validate()?;
+            if !seen.insert((
+                contract.upstream_id,
+                &contract.upstream_model,
+                &contract.model,
+                contract
+                    .source_tariff
+                    .as_ref()
+                    .and_then(|origin| origin["group"].as_str()),
+            )) {
+                return Err(RelayError::Invalid(
+                    "duplicate legacy precharge source contract",
+                ));
+            }
+        }
+        self.bridge
+            .legacy_precharge
+            .set(contracts)
+            .map_err(|_| RelayError::Conflict)?;
+        Ok(self)
+    }
+
     /// Host-only equality check for isolated moderation credential loading.
     /// Returns no credential material and never stops at the first match.
     pub(crate) fn contains_credential(&self, secret: &str) -> bool {
@@ -197,6 +228,7 @@ impl ModelGateway {
             recovery_cursor: tokio::sync::Mutex::new(None),
             policy,
             provider_policy,
+            legacy_precharge: std::sync::OnceLock::new(),
             total_timeout: limits.total_timeout,
         });
         let relay = Relay::new(bridge.clone(), bridge.clone(), limits.clone())?;

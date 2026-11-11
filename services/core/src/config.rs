@@ -2779,6 +2779,8 @@ struct ModelConfig {
     // Each host contract carries its strict reservation profile; omission is context_max.
     external_models: Vec<crate::model_http::ExternalModelContext>,
     #[serde(default)]
+    legacy_precharge: Vec<crate::model_http::legacy_precharge::SourceContract>,
+    #[serde(default)]
     audio_rules: Vec<crate::model_http::audio::AudioRule>,
     #[serde(default)]
     image_prices: Option<crate::billing::image_price::ImagePriceConfig>,
@@ -3022,6 +3024,8 @@ fn model_gateway_with_origins(
     )
     .map_err(|_| invalid_config("unsafe or incomplete model gateway configuration"))?;
     let gateway = gateway
+        .with_legacy_precharge(config.legacy_precharge)
+        .map_err(|_| invalid_config("invalid legacy precharge source contracts"))?
         .with_audio_rules(config.audio_rules)
         .map_err(|_| invalid_config("invalid reviewed audio rules"))?;
     let gateway = if let Some(path) = config.channel_secret_key_file {

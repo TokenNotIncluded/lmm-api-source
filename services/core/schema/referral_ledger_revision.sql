@@ -1,6 +1,6 @@
 -- Explicit component 53 / affiliate ledger revision v1; first 52 components frozen.
 ALTER TABLE core_billing.ledger_journals DROP CONSTRAINT ledger_journals_kind_check;
-ALTER TABLE core_billing.ledger_journals ADD CONSTRAINT ledger_journals_kind_check CHECK(kind IN ('gift', 'credit', 'transfer', 'charge', 'reserve', 'capture', 'commerce_capture', 'split_commerce_capture', 'claim_affiliate', 'opening', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse', 'legacy_escrow_opening', 'legacy_escrow_payout', 'legacy_escrow_release', 'affiliate_award','affiliate_clawback'));
+ALTER TABLE core_billing.ledger_journals ADD CONSTRAINT ledger_journals_kind_check CHECK(kind IN ('gift', 'credit', 'transfer', 'charge', 'reserve', 'legacy_wallet_reserve', 'capture', 'commerce_capture', 'split_commerce_capture', 'claim_affiliate', 'opening', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse', 'legacy_escrow_opening', 'legacy_escrow_payout', 'legacy_escrow_release', 'affiliate_award','affiliate_clawback'));
 CREATE OR REPLACE FUNCTION core_billing.ledger_apply_entry() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE old_units BIGINT; old_revision BIGINT; account_bucket TEXT; journal_kind TEXT;
@@ -21,7 +21,7 @@ BEGIN
     SELECT kind INTO STRICT journal_kind FROM core_billing.ledger_journals WHERE id = NEW.journal_id;
     IF (account_bucket IN ('wallet', 'reserved', 'revenue') AND NEW.balance_after_units < 0)
         OR (account_bucket = 'debt' AND NEW.balance_after_units > 0)
-        OR (account_bucket = 'debt' AND NEW.balance_after_units < old_units AND journal_kind NOT IN ('opening','refund_topup','refund_commerce'))
+        OR (account_bucket = 'debt' AND NEW.balance_after_units < old_units AND journal_kind NOT IN ('opening','refund_topup','refund_commerce','legacy_wallet_reserve'))
         OR (account_bucket = 'affiliate' AND NEW.balance_after_units < 0
             AND journal_kind NOT IN ('opening','affiliate_clawback') AND NEW.balance_after_units < old_units) THEN
         RAISE EXCEPTION 'insufficient funds' USING ERRCODE = 'P1003';

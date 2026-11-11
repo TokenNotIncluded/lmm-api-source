@@ -2175,3 +2175,6 @@ fn audio_charging_variant_keeps_legacy_json_and_rejects_text_pricing() {
     );
     assert_eq!(price.reservation_ceiling(ReservationBasis::Audio), Ok(1));
 }
+
+#[path = "legacy_wallet_tests.rs"]
+mod legacy_wallet_tests;

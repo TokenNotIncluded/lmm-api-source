@@ -112,7 +112,9 @@ async fn respond(
 
 // Settled native receipts only; the dashboard retains its bounded row aggregates.
 const SELECT: &str = r#"
- SELECT r.*, a.kind AS payer_kind, p.username,
+ SELECT r.*,(SELECT pc.detail FROM core_charging.usage_events pc WHERE pc.request_id=r.id AND pc.event_id='reservation-contract:v1') AS pricing_contract,
+   (SELECT pa.detail FROM core_charging.usage_events pa WHERE pa.request_id=r.id AND pa.event_id='reservation-admission:v1') AS pricing_admission,
+   (SELECT po.detail FROM core_charging.usage_events po WHERE po.request_id=r.id AND po.event_id='provider-observation:terminal') AS pricing_observation, a.kind AS payer_kind, p.username,
    coalesce(k.name,r.oauth_source->>'client_id','') AS token_name,
    e.detail AS final_event,
    (SELECT coalesce(jsonb_agg(to_jsonb(c)), '[]'::jsonb) FROM

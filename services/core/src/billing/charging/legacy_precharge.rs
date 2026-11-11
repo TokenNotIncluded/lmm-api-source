@@ -4,6 +4,7 @@
 //! here. The host must separately bind the effective source options, source
 //! prompt estimator and selected group to its immutable prepared contract.
 
+pub(crate) mod chat_text;
 pub(crate) mod openai_tokens;
 pub(crate) mod responses_text;
 
@@ -17,7 +18,8 @@ pub(crate) enum Error {
 }
 
 /// Effective options, not inferred from missing database rows or environment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SourceOptions {
     pub preconsumed_tokens: u32,
     pub count_token: bool,

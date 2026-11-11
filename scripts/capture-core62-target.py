@@ -4,6 +4,9 @@
 No PG launcher, build, runtime-grants application, native upgrade authorization,
 production access, or tracked target writes. Requires frozen source + reviewed
 six-component SQL/grants + an independently recorded compiled binary artifact.
+--current-ledger-update instead binds the frozen current source and binary,
+restores only the three reviewed predecessor ledger-producer digests for historical lineage
+checks, and captures a fresh-install successor without upgrade authorization.
 Run --help for the one-shot entry; root owns PG lifetime and runtime ACL tests.
 All SQL/stdout/stderr (including the deliberate rollback failure) are retained.
 """
@@ -28,6 +31,16 @@ STRIPE_RECEIPT_SHA256 = "940b7775d559a00c68dbac1d687f653f68370d4121b071ef3d0c688
 STRIPE_SQL_FREEZE = {'services/core/schema/subscription_stripe.sql': 'a96a29d57e01c4a2656eff9b19980360f50c19578ee92c7c78ddec038cdd3917', 'services/core/schema/subscription_stripe_grants.sql': '08ab9bf0c2d85a8f091f9b535872d1fefe4ee5c5c307921c296b6c613328bada', 'services/extensions/internal/modules/payments/subscription_stripe_schema.sql': '01f966266f339fa634db2f24875ebd6e49a56c91050d1f5df3f6d8369fd40aef'}
 APP = "n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'"
 IDENT = re.compile(r'[a-z][a-z0-9_]{0,62}\Z')
+# Frozen pre-wallet fresh lineage. This mode changes installation evidence only.
+PRIOR_LEDGER_SHA256 = 'ce973f6fee25904d4fcdc87895ec49e6c53e10c9fb3508df4d7d72ace16df77f'
+PRIOR_LEDGER_COMPONENTS = {
+    'ledger': ('services/core/schema/ledger.sql', PRIOR_LEDGER_SHA256),
+    'referral-ledger-revision': ('services/core/schema/referral_ledger_revision.sql',
+        '4221800369a6ac582b367892b94d9b734a882f7d023de12a8e530bab29c7989e'),
+    'commerce-self-purchase': ('services/core/schema/commerce_self_purchase.sql',
+        'fae185c575e3b82e634523a95d3453e0c86c4f21f28719f885ac53631c8986e0'),
+}
+PRIOR_FRESH_MANIFEST_SHA256 = '62c8f7e32b0c831dfea5a11311d94193d6625fc9f7e3564755971882c65cff3a'
 HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -100,6 +113,27 @@ def final_component_count(components):
     return len(names)
 
 
+def validate_current_ledger_lineage(compiled, predecessor, manifest_hash, component_sha256):
+    """Restore exactly the three frozen assembled ledger producers for lineage."""
+    need(set(component_sha256) == set(PRIOR_LEDGER_COMPONENTS),
+         'current ledger producer set must match the three reviewed components')
+    restored = copy.deepcopy(compiled)
+    for name, (_, prior) in PRIOR_LEDGER_COMPONENTS.items():
+        current = component_sha256[name]
+        need(HEX.fullmatch(current), 'invalid current ledger source digest: ' + name)
+        components = [item for item in restored['components'] if item['name'] == name]
+        need(len(components) == 1 and components[0]['raw_schema_sha256'] == current,
+             'current compiled ledger producer differs from frozen SQL: ' + name)
+        need(current != prior, 'current-ledger mode requires an actual producer change: ' + name)
+        components[0]['raw_schema_sha256'] = prior
+    prefix = copy.deepcopy(restored)
+    prefix['components'] = prefix['components'][:59]
+    need(manifest_hash(prefix) == predecessor['manifest_sha256'],
+         '59 prefix changed beyond the authorized ledger producers')
+    need(manifest_hash(restored) == PRIOR_FRESH_MANIFEST_SHA256,
+         'fresh manifest changed beyond the authorized ledger producers')
+
+
 def validate(args, output):
     root = args.source_root.resolve()
     need(root.is_relative_to((Path.home()/'.cache').resolve()) or
@@ -107,27 +141,38 @@ def validate(args, output):
          'source root must be a private frozen cache/state snapshot, not the live workspace')
     freeze = json.loads(args.freeze.read_text())
     files = freeze['files']
-    for name in NAMES:
-        need('services/core/schema/' + name.replace('-', '_') + '.sql' in files, 'component SQL not frozen: ' + name)
-    need(freeze.get('stripe_component_receipt_sha256') == STRIPE_RECEIPT_SHA256,
-         'SUB01 Stripe receipt not bound to the reviewed static freeze')
-    for name, digest in STRIPE_SQL_FREEZE.items():
-        need(files.get(name) == digest, 'Stripe SQL/grants freeze changed: ' + name)
-    need(files['services/core/schema/federated_auth.sql'] == AUTH, 'AUTH freeze changed: review required')
-    need(files['services/core/schema/commerce_partial_refunds.sql'] == STORE, 'STORE freeze changed: review required')
-    need(files.get('services/core/schema/commerce_partial_refunds_grants.sql') == STORE_GRANTS, 'STORE grants freeze changed')
-    for name in ('deployment/postgres/grant-core-runtime.sql',
-                 'deployment/postgres/revoke-core-runtime.sql',
-                 'services/core/schema/subscription_stripe_grants.sql',
-                 'services/core/schema/subscription_pancake_grants.sql',
-                 'services/core/schema/commerce_legacy_refunds_grants.sql',
-                 'services/core/src/subscriptions.rs',
-                 'services/core/src/subscriptions/external_pancake.rs', 'services/core/src/commerce.rs',
-                 'scripts/migrate-legacy-snapshot.py', 'scripts/capture-core62-target.py',
-                 'services/core/src/core_schema.rs', 'services/core/src/core_schema/manifest.rs',
-                 'scripts/test-commerce-self-purchase.py',
-                 'services/core/src/core_schema/upgrade/subscription_epay_target.json'):
-        need(name in files, 'required frozen input absent: ' + name)
+    if args.current_ledger_update:
+        required_capture = (
+            'scripts/capture-core62-target.py', 'scripts/test-commerce-self-purchase.py',
+            'services/core/src/core_schema.rs', 'services/core/src/core_schema/manifest.rs',
+            'services/core/src/core_schema/upgrade/subscription_epay_target.json',
+            'services/core/src/core_schema/upgrade/fresh_target.json',
+            'services/core/schema/ledger.sql',
+        )
+        for name in required_capture:
+            need(name in files, 'required frozen input absent: ' + name)
+    else:
+        for name in NAMES:
+            need('services/core/schema/' + name.replace('-', '_') + '.sql' in files, 'component SQL not frozen: ' + name)
+        need(freeze.get('stripe_component_receipt_sha256') == STRIPE_RECEIPT_SHA256,
+             'SUB01 Stripe receipt not bound to the reviewed static freeze')
+        for name, digest in STRIPE_SQL_FREEZE.items():
+            need(files.get(name) == digest, 'Stripe SQL/grants freeze changed: ' + name)
+        need(files['services/core/schema/federated_auth.sql'] == AUTH, 'AUTH freeze changed: review required')
+        need(files['services/core/schema/commerce_partial_refunds.sql'] == STORE, 'STORE freeze changed: review required')
+        need(files.get('services/core/schema/commerce_partial_refunds_grants.sql') == STORE_GRANTS, 'STORE grants freeze changed')
+        for name in ('deployment/postgres/grant-core-runtime.sql',
+                     'deployment/postgres/revoke-core-runtime.sql',
+                     'services/core/schema/subscription_stripe_grants.sql',
+                     'services/core/schema/subscription_pancake_grants.sql',
+                     'services/core/schema/commerce_legacy_refunds_grants.sql',
+                     'services/core/src/subscriptions.rs',
+                     'services/core/src/subscriptions/external_pancake.rs', 'services/core/src/commerce.rs',
+                     'scripts/migrate-legacy-snapshot.py', 'scripts/capture-core62-target.py',
+                     'services/core/src/core_schema.rs', 'services/core/src/core_schema/manifest.rs',
+                     'scripts/test-commerce-self-purchase.py',
+                     'services/core/src/core_schema/upgrade/subscription_epay_target.json'):
+            need(name in files, 'required frozen input absent: ' + name)
     # Freeze every source/DDL file used by contract reconstruction, including
     # SQL concat inputs and the permission snapshot query; no old SHA relabeling.
     required = list((root/'services/core/schema').glob('*.sql'))
@@ -161,9 +206,13 @@ def validate(args, output):
     need(component_count == len(compiled['components']), 'registry/compiled component count mismatch')
     need(compiled == manifest, 'actual binary manifest differs from frozen source contract')
     predecessor = json.loads((root/'services/core/src/core_schema/upgrade/subscription_epay_target.json').read_text())
-    prefix = copy.deepcopy(compiled)
-    prefix['components'] = prefix['components'][:59]
-    need(helper.manifest_hash(prefix) == predecessor['manifest_sha256'], '59 prefix/identity/installer/catalog contract changed')
+    if args.current_ledger_update:
+        validate_current_ledger_lineage(compiled, predecessor, helper.manifest_hash,
+                                        {name: before[path] for name, (path, _) in PRIOR_LEDGER_COMPONENTS.items()})
+    else:
+        prefix = copy.deepcopy(compiled)
+        prefix['components'] = prefix['components'][:59]
+        need(helper.manifest_hash(prefix) == predecessor['manifest_sha256'], '59 prefix/identity/installer/catalog contract changed')
     save(output/'compiled-manifest.json', compiled)
     return root, freeze, before, helper, components, metadata, manifest, predecessor
 
@@ -208,6 +257,10 @@ def capture(args, output):
     save(output/'report.json', dict(status='fresh_sql_catalog_captured_unadmitted', target=target,
          observed_acl_sha256=f.framed(fresh_acl), native_upgrade=False, importer_admitted=False,
          scope='empty synthetic SQL install/rollback/catalog/owner-ACL observation; no native init or business acceptance',
+         capture_mode='current-ledger-update' if args.current_ledger_update else 'original-65-assembly',
+         prior_ledger_components={name: {'path': path, 'sha256': prior}
+             for name, (path, prior) in PRIOR_LEDGER_COMPONENTS.items()} if args.current_ledger_update else None,
+         prior_fresh_manifest_sha256=PRIOR_FRESH_MANIFEST_SHA256 if args.current_ledger_update else None,
          not_run=['actual final Core init/seed receipt', 'runtime grants application/rejections (root-owned)',
                   'final importer admission/legacy migration', 'production deployment'],
          cleanup='no server/roles/databases created by this tool; caller stops its isolated PG; evidence DB retained'))
@@ -215,6 +268,8 @@ def capture(args, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--current-ledger-update', action='store_true',
+                        help='Capture only the reviewed fresh ledger replacement; preserve historical upgrade targets')
     parser.add_argument('--source-root', type=Path, required=True)
     parser.add_argument('--freeze', type=Path, required=True)
     parser.add_argument('--binary', type=Path, required=True)

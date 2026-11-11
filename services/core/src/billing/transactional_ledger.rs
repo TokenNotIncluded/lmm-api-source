@@ -170,16 +170,22 @@ async fn apply_wallet(c: &mut PgConnection, command: &LedgerCommand) -> Result<(
                         .fetch_one(&mut *c)
                         .await
                         .map_err(database)?;
-                let journal = effect(
-                    c,
-                    command,
-                    "hold",
+                let legacy_terminal: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM core_charging.usage_events WHERE request_id=$1 AND event_id='legacy-wallet-supplement:v1')"
+                ).bind(&command.request_id).fetch_one(&mut *c).await.map_err(database)?;
+                let action = if legacy_terminal {
+                    Action::LegacyWalletReserve {
+                        request_id: command.request_id.clone(),
+                        account_id: command.payer_account_id,
+                        amount_units: credits(delta)?,
+                    }
+                } else {
                     Action::Reserve {
                         account_id: command.payer_account_id,
                         amount_units: credits(delta)?,
-                    },
-                )
-                .await?;
+                    }
+                };
+                let journal = effect(c, command, "hold", action).await?;
                 let position = i32::try_from(holds.len()).map_err(|_| LedgerError::Conflict)?;
                 sqlx::query("INSERT INTO core_charging.ledger_holds(request_id,position,reservation_journal_id,reserved) VALUES ($1,$2,$3,$4)")
                     .bind(&command.request_id).bind(position).bind(journal).bind(delta)

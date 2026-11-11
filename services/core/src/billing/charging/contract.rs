@@ -5,6 +5,11 @@ use sha2::{Digest, Sha256};
 
 #[path = "channel_identity.rs"]
 pub(super) mod channel_identity;
+#[path = "legacy_decimal.rs"]
+pub(crate) mod legacy_decimal;
+#[path = "legacy_expression.rs"]
+pub(crate) mod legacy_expression;
+pub(crate) use legacy_expression::LegacyTieredEstimate;
 
 pub(crate) const EVENT_ID: &str = "reservation-contract:v1";
 pub(crate) const ADMISSION_EVENT_ID: &str = "reservation-admission:v1";
@@ -78,6 +83,204 @@ pub(crate) struct ReservationFallback {
     pub semantics: ReservationSemantics,
 }
 
+/// Source-bound authorization, independent of the provider's token capacity.
+/// The digests bind the reviewed source configuration and the exact estimator
+/// inputs/result, including the selected group and actor's source factor.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "policy", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum LegacyPrechargeAuthorization {
+    Cc52OrdinaryWalletV1 {
+        source_contract_sha256: String,
+        estimate_sha256: String,
+        estimated_hold: i64,
+        operator_max_billable: i64,
+        estimate: LegacyOrdinaryEstimate,
+    },
+    Cc52TieredWalletV1 {
+        source_contract_sha256: String,
+        estimate_sha256: String,
+        estimated_hold: i64,
+        operator_max_billable: i64,
+        estimate: LegacyTieredEstimate,
+    },
+}
+
+/// Exact estimator inputs captured by the trusted route preparer. The Core
+/// recomputes the hold and rechecks actor trust inside its reserve transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LegacyOrdinaryEstimate {
+    pub options: super::legacy_precharge::SourceOptions,
+    pub prompt_tokens: u32,
+    pub explicit_max_tokens: Option<u32>,
+    pub input_rate: u64,
+    pub group_ppm: u32,
+    pub model_ratio_bits: u64,
+    pub group_ratio_bits: u64,
+    pub source_free_model: bool,
+    pub trust: Option<crate::billing::trust_pricing::FrozenTrustPrice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_tariff: Option<serde_json::Value>,
+}
+
+impl LegacyOrdinaryEstimate {
+    pub(crate) fn hold(&self) -> Result<i64, Error> {
+        if let Some(origin) = &self.source_tariff {
+            let (model, group) = legacy_decimal::ratios(origin)?;
+            if self.model_ratio_bits != model.to_bits()
+                || self.group_ratio_bits != group.to_bits()
+                || (self.source_free_model && model != 0.0 && group != 0.0)
+            {
+                return Err(Error::Invalid);
+            }
+        } else if self.input_rate > (1_u64 << 53)
+            || self.model_ratio_bits != (self.input_rate as f64 / 2_000_000.0).to_bits()
+            || self.group_ratio_bits != (f64::from(self.group_ppm) / 1_000_000.0).to_bits()
+            || (self.source_free_model && self.input_rate != 0 && self.group_ppm != 0)
+        {
+            return Err(Error::Invalid);
+        }
+        let mut group = f64::from_bits(self.group_ratio_bits);
+        if let Some(trust) = &self.trust {
+            trust.validate().map_err(|_| Error::Invalid)?;
+            let discount = trust.discount();
+            group *= discount.numerator() as f64 / discount.denominator() as f64;
+        }
+        super::legacy_precharge::ordinary_text(
+            self.options,
+            self.prompt_tokens,
+            self.explicit_max_tokens,
+            self.model_ratio_bits,
+            group.to_bits(),
+            self.source_free_model,
+        )
+        .map(|estimate| i64::from(estimate.hold))
+        .map_err(|_| Error::Invalid)
+    }
+
+    fn verify_price(&self, price: &super::Price) -> Result<(), Error> {
+        if let Some(origin) = &self.source_tariff {
+            return legacy_decimal::verify_price(origin, price, self.group_ppm);
+        }
+        let numerator = u128::from(self.input_rate) * u128::from(self.group_ppm);
+        if price.rounding != Some(crate::routing::TokenRounding::LegacyGoRatioV1)
+            || price.audio.is_some()
+            || price.text_request.is_some()
+            || price.tool.is_some()
+            || price.grounding.is_some()
+            || price.image.is_some()
+            || price.tiered.is_some()
+            || price.upstream_cost_group_ppm.is_some()
+            || numerator % 2_000_000 != 0
+            || numerator / 2_000_000 != price.input_per_million as u128
+        {
+            return Err(Error::Conflict);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn verify_legacy_trust(
+    expected: Option<&crate::billing::trust_pricing::FrozenTrustPrice>,
+    actual: Option<&crate::billing::trust_pricing::FrozenTrustPrice>,
+) -> Result<(), Error> {
+    // Evaluation time and its digest change between preparation and admit.
+    // All authority, policy, basis, discount and decay fields must match.
+    fn authority_fields(
+        value: &crate::billing::trust_pricing::FrozenTrustPrice,
+    ) -> Result<serde_json::Value, Error> {
+        let mut value = serde_json::to_value(value).map_err(|_| Error::Invalid)?;
+        let object = value.as_object_mut().ok_or(Error::Invalid)?;
+        object.remove("evaluated_at");
+        object.remove("evidence_digest");
+        Ok(value)
+    }
+    match (expected, actual) {
+        (None, None) => Ok(()),
+        (Some(expected), Some(actual))
+            if authority_fields(expected)? == authority_fields(actual)? =>
+        {
+            Ok(())
+        }
+        _ => Err(Error::Conflict),
+    }
+}
+impl LegacyPrechargeAuthorization {
+    fn validate(&self) -> Result<(), Error> {
+        let (source, digest, estimated_hold, max, hold) = match self {
+            Self::Cc52OrdinaryWalletV1 {
+                source_contract_sha256,
+                estimate_sha256,
+                estimated_hold,
+                operator_max_billable,
+                estimate,
+            } => (
+                source_contract_sha256,
+                estimate_sha256,
+                *estimated_hold,
+                *operator_max_billable,
+                (typed_digest(estimate)?, estimate.hold()?),
+            ),
+            Self::Cc52TieredWalletV1 {
+                source_contract_sha256,
+                estimate_sha256,
+                estimated_hold,
+                operator_max_billable,
+                estimate,
+            } => (
+                source_contract_sha256,
+                estimate_sha256,
+                *estimated_hold,
+                *operator_max_billable,
+                (typed_digest(estimate)?, estimate.hold()?),
+            ),
+        };
+        if !is_digest(source)
+            || *digest != hold.0
+            || estimated_hold != hold.1
+            || estimated_hold < 0
+            || estimated_hold > max
+        {
+            return Err(Error::Invalid);
+        }
+        Ok(())
+    }
+    pub(crate) fn estimated_hold(&self) -> i64 {
+        match self {
+            Self::Cc52OrdinaryWalletV1 { estimated_hold, .. }
+            | Self::Cc52TieredWalletV1 { estimated_hold, .. } => *estimated_hold,
+        }
+    }
+    pub(crate) fn max_billable(&self) -> i64 {
+        match self {
+            Self::Cc52OrdinaryWalletV1 {
+                operator_max_billable,
+                ..
+            }
+            | Self::Cc52TieredWalletV1 {
+                operator_max_billable,
+                ..
+            } => *operator_max_billable,
+        }
+    }
+    pub(crate) fn verify_price(&self, price: &super::Price) -> Result<(), Error> {
+        match self {
+            Self::Cc52OrdinaryWalletV1 { estimate, .. } => estimate.verify_price(price),
+            Self::Cc52TieredWalletV1 { estimate, .. } => estimate.verify_price(price),
+        }
+    }
+    pub(crate) fn verify_trust(
+        &self,
+        actual: Option<&crate::billing::trust_pricing::FrozenTrustPrice>,
+    ) -> Result<(), Error> {
+        let expected = match self {
+            Self::Cc52OrdinaryWalletV1 { estimate, .. } => estimate.trust.as_ref(),
+            Self::Cc52TieredWalletV1 { estimate, .. } => estimate.trust.as_ref(),
+        };
+        verify_legacy_trust(expected, actual)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PreparedFields {
@@ -92,6 +295,8 @@ struct PreparedFields {
     semantics: ReservationSemantics,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     fallbacks: Vec<ReservationFallback>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_precharge: Option<LegacyPrechargeAuthorization>,
 }
 
 /// Only the gateway's preparation step constructs this type; public charging APIs do not accept it.
@@ -123,6 +328,8 @@ struct ContractWire {
     semantics: ReservationSemantics,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     fallbacks: Vec<ReservationFallback>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_precharge: Option<LegacyPrechargeAuthorization>,
     prepared_sha256: String,
     admission_spec_sha256: String,
     frozen_price_sha256: String,
@@ -158,6 +365,7 @@ impl ReservationContract {
                 bounds: wire.bounds,
                 semantics: wire.semantics,
                 fallbacks: wire.fallbacks,
+                legacy_precharge: wire.legacy_precharge,
             },
             prepared_sha256: wire.prepared_sha256,
             admission_spec_sha256: wire.admission_spec_sha256,
@@ -200,6 +408,19 @@ fn is_digest(value: &str) -> bool {
 // @context-fold end reservation-contract-types
 
 impl PreparedReservation {
+    pub(crate) fn with_legacy_precharge(
+        mut self,
+        authorization: LegacyPrechargeAuthorization,
+    ) -> Result<Self, Error> {
+        self.fields.legacy_precharge = Some(authorization);
+        self.prepared_sha256 = typed_digest(&self.fields)?;
+        self.validate()?;
+        Ok(self)
+    }
+    pub(crate) fn legacy_precharge(&self) -> Option<&LegacyPrechargeAuthorization> {
+        self.fields.legacy_precharge.as_ref()
+    }
+
     pub(crate) fn with_fallbacks(
         mut self,
         fallbacks: Vec<ReservationFallback>,
@@ -376,6 +597,7 @@ impl PreparedReservation {
             bounds,
             semantics,
             fallbacks: Vec::new(),
+            legacy_precharge: None,
         };
         let proof = Self {
             prepared_sha256: typed_digest(&fields)?,
@@ -393,6 +615,15 @@ impl PreparedReservation {
         let input_only = f.mode == "input_only_native_v1";
         let tool = f.mode == "native_tool_v1";
         let audio = f.mode == "audio_chat_v1";
+        if let Some(legacy) = &f.legacy_precharge {
+            legacy.validate()?;
+            // Context bounds are charge authorization only in this mode.
+            // Exact supplier counting and a different fallback wire need
+            // separate preparation, not reuse of this estimate.
+            if f.mode != "context_max" || !f.fallbacks.is_empty() {
+                return Err(Error::Invalid);
+            }
+        }
         if f.fallbacks.len() > 7 || (!f.fallbacks.is_empty() && f.mode != "context_max") {
             return Err(Error::Invalid);
         }
@@ -555,13 +786,19 @@ impl PreparedReservation {
     ) -> Result<(), Error> {
         self.verify_basis(basis)?;
         self.validate_native_price(&request.price)?;
+        let reserve = if let Some(legacy) = self.legacy_precharge() {
+            legacy.verify_price(&request.price)?;
+            request.price.reservation_ceiling(basis)?
+        } else {
+            request.price.reservation_ceiling(basis)?
+        };
         if self.fields.request_fingerprint
             != request
                 .fingerprint
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>()
-            || request.reserve != request.price.reservation_ceiling(basis)?
+            || request.reserve != reserve
         {
             return Err(Error::Conflict);
         }
@@ -571,6 +808,16 @@ impl PreparedReservation {
     pub(crate) fn freeze(&self, charge: &Charge, spec: &str) -> Result<ReservationContract, Error> {
         self.validate()?;
         self.validate_native_price(&charge.price)?;
+        if let Some(legacy) = self.legacy_precharge() {
+            legacy.verify_price(&charge.price)?;
+            legacy.verify_trust(charge.price.user_trust.as_ref())?;
+            if charge.source == super::Source::Wallet
+                && (charge.reserved < legacy.estimated_hold()
+                    || charge.reserved > legacy.max_billable())
+            {
+                return Err(Error::Conflict);
+            }
+        }
         if !is_digest(spec) {
             return Err(Error::Conflict);
         }
@@ -687,6 +934,12 @@ impl PreparedReservation {
 }
 
 impl ReservationContract {
+    pub(crate) fn prepared_digest(&self) -> &str {
+        &self.prepared_sha256
+    }
+    pub(crate) fn legacy_precharge(&self) -> Option<&LegacyPrechargeAuthorization> {
+        self.fields.legacy_precharge.as_ref()
+    }
     // @context-fold begin frozen-contract-validation
     pub(crate) fn validate(&self, charge: &Charge) -> Result<(), Error> {
         let proof = PreparedReservation {
@@ -759,6 +1012,47 @@ impl ReservationContract {
                 .any(|fallback| fallback.binding.route_id == route_id)
     }
     // @context-fold end frozen-contract-validation
+}
+
+/// Shared pricing for charging, gateway confirmation and immutable receipt
+/// readers. General Native and subscription prices retain their existing cost.
+pub(crate) fn terminal_cost(
+    price: &super::Price,
+    source: super::Source,
+    proof: Option<&ReservationContract>,
+    usage: Usage,
+    observed: Option<&crate::relay::Usage>,
+) -> Result<i64, Error> {
+    let Some(proof) = proof else {
+        return price.cost(usage);
+    };
+    let Some(LegacyPrechargeAuthorization::Cc52TieredWalletV1 { estimate, .. }) =
+        proof.legacy_precharge()
+    else {
+        return price.cost(usage);
+    };
+    if source != super::Source::Wallet {
+        return price.cost(usage);
+    }
+    if typed_digest(price)? != proof.frozen_price_sha256 {
+        return Err(Error::Conflict);
+    }
+    estimate.verify_price(price)?;
+    verify_legacy_trust(estimate.trust.as_ref(), price.user_trust.as_ref())?;
+    let amount = match observed {
+        Some(observed) => estimate.terminal_cost(price, usage, observed)?,
+        None if usage == Usage::default() => 0, // Known no-acceptance release.
+        None => return Err(Error::Conflict),
+    };
+    if amount
+        > proof
+            .legacy_precharge()
+            .ok_or(Error::Invalid)?
+            .max_billable()
+    {
+        return Err(Error::Invalid);
+    }
+    Ok(amount)
 }
 
 // @context-fold begin reservation-contract-storage
@@ -913,6 +1207,110 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn legacy_amounts_bind_to_prepared_receipt_without_changing_native_wire() {
+        let native = prepared();
+        let mut wire = serde_json::to_value(&native.fields).unwrap();
+        assert!(wire.get("legacy_precharge").is_none());
+        wire["prepared_sha256"] = native.digest().into();
+        wire["admission_spec_sha256"] = "04".repeat(32).into();
+        wire["frozen_price_sha256"] = "05".repeat(32).into();
+        let old = ReservationContract::from_value(wire.clone()).unwrap();
+        assert_eq!(old.to_value().unwrap(), wire);
+
+        let estimate = LegacyOrdinaryEstimate {
+            options: super::super::legacy_precharge::SourceOptions {
+                preconsumed_tokens: 5000,
+                count_token: true,
+                get_media_token: true,
+                get_media_token_not_stream: false,
+            },
+            prompt_tokens: 10,
+            explicit_max_tokens: None,
+            input_rate: 160_000,
+            group_ppm: 1_000_000,
+            model_ratio_bits: 0.08_f64.to_bits(),
+            group_ratio_bits: 1.0_f64.to_bits(),
+            source_free_model: false,
+            trust: None,
+            source_tariff: None,
+        };
+        let mut legacy = native.clone();
+        legacy.fields.legacy_precharge = Some(LegacyPrechargeAuthorization::Cc52OrdinaryWalletV1 {
+            source_contract_sha256: "06".repeat(32),
+            estimate_sha256: typed_digest(&estimate).unwrap(),
+            estimate,
+            estimated_hold: 400,
+            operator_max_billable: 210_944,
+        });
+        assert!(legacy.validate().is_err()); // original native digest cannot authorize the new policy
+        legacy.prepared_sha256 = typed_digest(&legacy.fields).unwrap();
+        legacy.validate().unwrap();
+        let mut frozen = old;
+        frozen.fields = legacy.fields.clone();
+        frozen.prepared_sha256 = legacy.prepared_sha256.clone();
+        assert_eq!(
+            ReservationContract::from_value(frozen.to_value().unwrap()).unwrap(),
+            frozen
+        );
+
+        let Some(LegacyPrechargeAuthorization::Cc52OrdinaryWalletV1 { estimated_hold, .. }) =
+            &mut legacy.fields.legacy_precharge
+        else {
+            unreachable!()
+        };
+        *estimated_hold = 210_945;
+        legacy.prepared_sha256 = typed_digest(&legacy.fields).unwrap();
+        assert!(legacy.validate().is_err());
+    }
+
+    #[test]
+    fn legacy_trust_requires_actor_policy_basis_discount_and_decay() {
+        let value = serde_json::json!({
+            "user_id": 2, "policy_revision": 1, "basis_revision": 2,
+            "effective_level": 2, "level_source": "automatic",
+            "discount": {"numerator": 9, "denominator": 10},
+            "evaluated_at": 100, "next_decay_at": 200,
+            "evidence_digest": vec![1_u8; 32],
+        });
+        let expected: crate::billing::trust_pricing::FrozenTrustPrice =
+            serde_json::from_value(value.clone()).unwrap();
+        for key in [
+            "user_id",
+            "policy_revision",
+            "basis_revision",
+            "next_decay_at",
+        ] {
+            let mut changed = value.clone();
+            changed[key] = (changed[key].as_i64().unwrap() + 1).into();
+            let actual = serde_json::from_value(changed).unwrap();
+            assert_eq!(
+                verify_legacy_trust(Some(&expected), Some(&actual)),
+                Err(Error::Conflict)
+            );
+        }
+        let mut changed = value.clone();
+        changed["discount"] = serde_json::json!({"numerator": 4, "denominator": 5});
+        let actual = serde_json::from_value(changed).unwrap();
+        assert_eq!(
+            verify_legacy_trust(Some(&expected), Some(&actual)),
+            Err(Error::Conflict)
+        );
+        let mut changed = value;
+        changed["evaluated_at"] = 101.into();
+        changed["evidence_digest"] = serde_json::json!(vec![2_u8; 32]);
+        let actual = serde_json::from_value(changed).unwrap();
+        assert_eq!(verify_legacy_trust(Some(&expected), Some(&actual)), Ok(()));
+        assert_eq!(
+            verify_legacy_trust(None, Some(&expected)),
+            Err(Error::Conflict)
+        );
+        assert_eq!(
+            verify_legacy_trust(Some(&expected), None),
+            Err(Error::Conflict)
+        );
     }
 
     #[test]

@@ -43,6 +43,7 @@ DECLARE
     split_platform BIGINT; split_fee BIGINT; split_bps BIGINT;
     payer BIGINT; payee BIGINT; held BIGINT; revenue BIGINT; clearing BIGINT; debt_id BIGINT;
     repayment BIGINT; debt_balance BIGINT; adjusted_legs JSONB;
+    legacy_wallet BIGINT; legacy_reserved BIGINT; legacy_cash BIGINT; legacy_proof JSONB;
     refund_ref TEXT; refund_wallet BIGINT; refund_debt BIGINT; refund_wallet_units BIGINT;
     refund_recipient_debt BIGINT; original_debt_repayment NUMERIC;
     amount BIGINT; parent_id BIGINT; posted_id BIGINT; refunded NUMERIC;
@@ -59,7 +60,7 @@ BEGIN
         AND op_key ~ '^[A-Za-z0-9._:/-]{1,128}$'
         AND jsonb_typeof(p_request->'reason') = 'string'
         AND length(p_request->>'reason') BETWEEN 1 AND 512
-        AND action_kind IN ('gift', 'credit', 'transfer', 'charge', 'reserve', 'capture', 'commerce_capture', 'split_commerce_capture', 'claim_affiliate', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse'), FALSE)
+        AND action_kind IN ('gift', 'credit', 'transfer', 'charge', 'reserve', 'legacy_wallet_reserve', 'capture', 'commerce_capture', 'split_commerce_capture', 'claim_affiliate', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse'), FALSE)
     THEN
         RAISE EXCEPTION 'invalid ledger request' USING ERRCODE = 'P1000';
     END IF;
@@ -76,7 +77,7 @@ BEGIN
     -- Expected business failures roll back every posting in this subtransaction,
     -- then store a rejected result outside it. Unexpected failures abort everything.
     BEGIN
-        IF action_kind IN ('gift', 'credit', 'transfer', 'charge', 'reserve', 'capture', 'commerce_capture', 'split_commerce_capture', 'claim_affiliate', 'refund', 'refund_topup') THEN
+        IF action_kind IN ('gift', 'credit', 'transfer', 'charge', 'reserve', 'legacy_wallet_reserve', 'capture', 'commerce_capture', 'split_commerce_capture', 'claim_affiliate', 'refund', 'refund_topup') THEN
             amount := (action->>'amount_units')::BIGINT;
             IF amount IS NULL OR amount < 0 OR (amount = 0 AND action_kind NOT IN ('capture','split_commerce_capture')) THEN
                 RAISE EXCEPTION 'invalid amount' USING ERRCODE = 'P1000';
@@ -114,6 +115,73 @@ BEGIN
                 WHERE owner_account_id = (action->>'account_id')::BIGINT AND bucket = 'affiliate';
             SELECT id INTO payee FROM core_billing.ledger_accounts
                 WHERE owner_account_id = (action->>'account_id')::BIGINT AND bucket = 'wallet';
+        ELSIF action_kind = 'legacy_wallet_reserve' THEN
+            -- A scope string alone cannot authorize borrowing. The trusted
+            -- charging transaction has frozen the original payer and price,
+            -- checked every original-period budget and persisted its verified
+            -- provider terminal before requesting exactly this supplement.
+            IF op_scope <> 'core-charging' OR current_setting('transaction_isolation') <> 'serializable' THEN
+                RAISE EXCEPTION 'legacy supplement requires charging transaction' USING ERRCODE='P1000';
+            END IF;
+            SELECT supplement.detail INTO legacy_proof
+            FROM core_charging.requests r
+            JOIN core_charging.usage_events contract ON contract.request_id=r.id AND contract.event_id='reservation-contract:v1'
+            JOIN core_charging.usage_events marker ON marker.request_id=r.id AND marker.event_id='reservation-admission:v1'
+            JOIN core_charging.usage_events terminal ON terminal.request_id=r.id AND terminal.event_id='model-provider-terminal:v1'
+            JOIN core_charging.usage_events supplement ON supplement.request_id=r.id AND supplement.event_id='legacy-wallet-supplement:v1'
+            WHERE r.id=action->>'request_id' AND r.payer_account_id=(action->>'account_id')::BIGINT
+              AND r.actor_user_id=(p_request->>'actor_user_id')::BIGINT
+              AND r.source_subscription_id IS NULL AND r.state IN ('streaming','reconcile')
+              AND contract.detail#>>'{legacy_precharge,policy}' IN ('cc52_ordinary_wallet_v1','cc52_tiered_wallet_v1')
+              AND marker.detail->>'prepared_sha256'=contract.detail->>'prepared_sha256'
+              AND marker.detail->>'admission_spec_sha256'=contract.detail->>'admission_spec_sha256'
+              AND marker.detail->>'frozen_price_sha256'=contract.detail->>'frozen_price_sha256'
+              AND supplement.detail->>'kind'='legacy_wallet_supplement'
+              AND supplement.detail->>'prepared_sha256'=contract.detail->>'prepared_sha256'
+              AND supplement.detail->'terminal'=terminal.detail
+              AND terminal.detail->>'kind'='model_provider_terminal'
+              AND terminal.detail->'normalized_usage'=supplement.detail->'usage'
+              AND terminal.detail->>'price_sha256'=contract.detail->>'frozen_price_sha256'
+              AND supplement.detail->'price'=r.price
+              AND (supplement.detail->>'amount')::BIGINT=r.reserved
+              AND (supplement.detail->>'request_revision')::BIGINT=r.revision
+              AND (supplement.detail->>'previous_reserved')::BIGINT=(contract.detail#>>'{legacy_precharge,estimated_hold}')::BIGINT
+              AND (supplement.detail->>'operator_max_billable')::BIGINT=(contract.detail#>>'{legacy_precharge,operator_max_billable}')::BIGINT
+              AND r.reserved<=(contract.detail#>>'{legacy_precharge,operator_max_billable}')::BIGINT
+              AND amount=r.reserved-(supplement.detail->>'previous_reserved')::BIGINT
+              AND (SELECT coalesce(sum(h.reserved),0) FROM core_charging.ledger_holds h WHERE h.request_id=r.id AND NOT h.closed)
+                    =(supplement.detail->>'previous_reserved')::BIGINT
+              AND NOT EXISTS (
+                  SELECT 1 FROM core_charging.budgets b WHERE
+                    ((b.scope='account' AND b.account_id=r.payer_account_id)
+                     OR (b.scope='member' AND b.account_id=r.payer_account_id AND b.user_id=r.actor_user_id)
+                     OR (b.scope='self' AND b.user_id=r.actor_user_id)
+                     OR (b.scope='key' AND b.key_id=r.key_id))
+                    AND NOT EXISTS (SELECT 1 FROM core_charging.budget_checks checked
+                        WHERE checked.request_id=r.id AND checked.request_revision=r.revision
+                          AND checked.budget_id=b.id AND checked.budget_revision=b.revision
+                          AND checked.requested_credits=r.reserved
+                          AND checked.unlimited=b.unlimited AND checked.limit_credits=b.limit_credits)
+              )
+            FOR UPDATE OF r;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'legacy supplement lacks frozen authority' USING ERRCODE='P1004';
+            END IF;
+            SELECT id INTO STRICT legacy_wallet FROM core_billing.ledger_accounts
+                WHERE owner_account_id=(action->>'account_id')::BIGINT AND bucket='wallet';
+            SELECT id INTO STRICT legacy_reserved FROM core_billing.ledger_accounts
+                WHERE owner_account_id=(action->>'account_id')::BIGINT AND bucket='reserved';
+            SELECT id INTO STRICT debt_id FROM core_billing.ledger_accounts
+                WHERE owner_account_id=(action->>'account_id')::BIGINT AND bucket='debt';
+            PERFORM b.ledger_account_id FROM core_billing.balance_state b
+                WHERE b.ledger_account_id IN (legacy_wallet,legacy_reserved,debt_id)
+                ORDER BY b.ledger_account_id FOR NO KEY UPDATE;
+            SELECT least(balance_units,amount) INTO STRICT legacy_cash FROM core_billing.balance_state
+                WHERE ledger_account_id=legacy_wallet;
+            payer := legacy_wallet; payee := legacy_reserved;
+            legs := jsonb_build_array(jsonb_build_object('id',legacy_wallet,'units',-legacy_cash),
+                jsonb_build_object('id',debt_id,'units',-(amount-legacy_cash)),
+                jsonb_build_object('id',legacy_reserved,'units',amount));
         ELSIF action_kind IN ('charge', 'reserve') THEN
             SELECT id INTO payer FROM core_billing.ledger_accounts
                 WHERE owner_account_id = (action->>'account_id')::BIGINT AND bucket = 'wallet';
@@ -123,7 +191,7 @@ BEGIN
                     WHERE owner_account_id = (action->>'account_id')::BIGINT AND bucket = 'reserved';
             END IF;
         ELSIF action_kind IN ('capture', 'commerce_capture', 'split_commerce_capture', 'release') THEN
-            IF original.kind <> 'reserve' THEN
+            IF original.kind NOT IN ('reserve','legacy_wallet_reserve') THEN
                 RAISE EXCEPTION 'not a reservation' USING ERRCODE = 'P1004';
             END IF;
             IF EXISTS (SELECT 1 FROM core_billing.ledger_journals

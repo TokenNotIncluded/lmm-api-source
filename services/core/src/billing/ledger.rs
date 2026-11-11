@@ -40,6 +40,13 @@ pub enum Action {
         account_id: i64,
         amount_units: Credits,
     },
+    /// Core legacy wallet only. The database binds this supplement to the
+    /// original request, frozen authorization, budget checks and terminal proof.
+    LegacyWalletReserve {
+        request_id: String,
+        account_id: i64,
+        amount_units: Credits,
+    },
     /// Finalize one reservation. Return its unused portion to its original wallet.
     Capture {
         reservation_journal_id: i64,
@@ -151,6 +158,16 @@ impl Request {
                 account_id,
                 amount_units,
             } => *account_id > 0 && positive(*amount_units),
+            Action::LegacyWalletReserve {
+                request_id,
+                account_id,
+                amount_units,
+            } => {
+                self.scope == "core-charging"
+                    && valid_key(request_id, 128)
+                    && *account_id > 0
+                    && positive(*amount_units)
+            }
             Action::SplitCommerceCapture {
                 reservation_journal_id,
                 seller_account_id,

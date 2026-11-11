@@ -85,7 +85,7 @@ fn present_raw<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<&'de Ra
 /// Count from the original validated body, preserving the tool JSON bytes
 /// that the source DTO counted. The caller handles other model estimators.
 fn count(original_model: &str, body: &[u8]) -> Result<Option<u32>, Error> {
-    openai_tokens::count(original_model, &combined_text(body)?)
+    openai_tokens::count_text(original_model, &combined_text(body)?).map(Some)
 }
 
 fn combined_text(body: &[u8]) -> Result<String, Error> {

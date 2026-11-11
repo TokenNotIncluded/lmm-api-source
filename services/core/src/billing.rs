@@ -7,6 +7,7 @@ pub mod grounding_price;
 pub mod image_price;
 pub mod ledger;
 pub mod legacy_escrow;
+pub(crate) mod legacy_tiered;
 pub mod text_request_price;
 pub mod tool_price;
 pub mod transactional_ledger;

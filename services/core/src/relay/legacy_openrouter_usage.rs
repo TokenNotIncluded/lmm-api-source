@@ -28,7 +28,15 @@ fn add(a: u64, b: u64) -> Result<u64, RelayError> {
 fn positive(v: i64) -> u64 { v.max(0) as u64 }
 
 pub(crate) fn project(original: &Value) -> Result<Usage, RelayError> {
-    if original.is_null() { return Ok(Usage::default()); }
+    project_with_source(original).map(|(usage, _)| usage)
+}
+
+pub(crate) fn tiered_source(original: &Value) -> Result<crate::billing::legacy_tiered::RawUsage, RelayError> {
+    project_with_source(original)?.1.ok_or(RelayError::Protocol("missing authoritative legacy usage"))
+}
+
+fn project_with_source(original: &Value) -> Result<(Usage, Option<crate::billing::legacy_tiered::RawUsage>), RelayError> {
+    if original.is_null() { return Ok((Usage::default(), None)); }
     if !original.is_object() { return Err(RelayError::Protocol("invalid legacy usage object")); }
     object(original, "billing_usage")?;
     let billing = &original["billing_usage"];
@@ -85,6 +93,17 @@ pub(crate) fn project(original: &Value) -> Result<Usage, RelayError> {
         if f != 0 { five = f; }
         if h != 0 { hour = h; }
     }
+    use crate::billing::legacy_tiered::{CreationSemantics, PromptSemantics, RawUsage};
+    let source_counts = RawUsage {
+        prompt,
+        completion: output,
+        cached,
+        creation_legacy: a,
+        creation_openai: b,
+        creation_5m: five,
+        creation_1h: hour,
+        ..RawUsage::default()
+    };
     let (prompt, output, cached, five, hour) = (positive(prompt),positive(output),positive(cached),positive(five),positive(hour));
     let used_semantic = if openai { "openai" } else if anthropic { "anthropic" } else { text(v,"usage_semantic")? };
     let used_source = if openai { text(billing,"source")? } else if anthropic { "claude_messages" } else { text(v,"usage_source")? };
@@ -111,7 +130,14 @@ pub(crate) fn project(original: &Value) -> Result<Usage, RelayError> {
         ..Usage::default()
     };
     usage.validate()?;
-    Ok(usage)
+    // Expression billing uses IsClaudeUsageSemantic, independently of the
+    // ratio-only legacy-derived heuristic used by the disjoint projection.
+    let source = RawUsage {
+        prompt_semantics: if used_semantic == "anthropic" { PromptSemantics::ClaudeText } else { PromptSemantics::Inclusive },
+        creation_semantics: if used_semantic == "anthropic" { CreationSemantics::Anthropic } else { CreationSemantics::Aggregate },
+        ..source_counts
+    };
+    Ok((usage, Some(source)))
 }
 
 #[cfg(test)]

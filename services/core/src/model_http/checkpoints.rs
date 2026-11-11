@@ -145,8 +145,14 @@ impl Bridge {
         validate_recovery_page(limit, after_request_id)?;
         let rows: Vec<CompletedStream> = sqlx::query_as(
             "SELECT DISTINCT ON (request_id) request_id,revision,provider_usage,sequence FROM ( \
-               SELECT request_id,revision,provider_usage,sequence \
-               FROM core_model.completed_streams_after($1,$2) \
+               SELECT s.request_id,s.revision,s.provider_usage,s.sequence \
+               FROM core_model.completed_streams_after($1,$2) s \
+               WHERE NOT EXISTS (SELECT 1 FROM core_charging.requests lr \
+                   JOIN core_charging.usage_events lp ON lp.request_id=lr.id \
+                     AND lp.event_id='reservation-contract:v1' \
+                   WHERE lr.id=s.request_id AND lr.source_subscription_id IS NULL \
+                     AND lp.detail->'legacy_precharge' IS NOT NULL \
+                     AND lp.detail->'legacy_precharge'<>'null'::jsonb) \
                UNION ALL \
                SELECT r.id AS request_id,r.revision,e.detail->'usage' AS provider_usage,0::bigint AS sequence \
                FROM core_charging.requests r JOIN core_charging.usage_events e ON e.request_id=r.id \
@@ -166,16 +172,19 @@ impl Bridge {
                UNION ALL \
                SELECT r.id,r.revision,jsonb_build_object('usage',coalesce(t.detail->'normalized_usage',e.detail->'usage'), \
                  'evidence',a.detail,'dispatch',d.detail,'dispatch_event',d.event_id,'terminal',t.detail, \
-                 'observed_at',floor(extract(epoch FROM a.created_at))::bigint),-2::bigint \
+                 'observed_at',floor(extract(epoch FROM a.created_at))::bigint, \
+                 'stream_checkpoint',sc.provider_usage),-2::bigint \
                FROM core_charging.requests r \
                LEFT JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' AND e.detail->>'kind'='usage' \
                LEFT JOIN core_charging.usage_events t ON t.request_id=r.id AND t.event_id='model-provider-terminal:v1' \
                JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='provider-observation:terminal' \
+               LEFT JOIN LATERAL (SELECT cp.provider_usage FROM core_model.output_checkpoints cp \
+                   WHERE cp.request_id=r.id AND cp.terminal_observed ORDER BY cp.sequence DESC LIMIT 1) sc ON true \
                JOIN LATERAL (SELECT ev.event_id,ev.detail FROM core_charging.usage_events ev \
                    WHERE ev.request_id=r.id AND ev.event_id BETWEEN 'route-dispatch:1' AND 'route-dispatch:8' \
                    ORDER BY ev.event_id DESC LIMIT 1) d ON true \
                WHERE r.state='reconcile' AND ($2::text IS NULL OR r.id>$2) \
-                 AND (e.event_id IS NOT NULL OR t.event_id IS NOT NULL) AND a.detail->>'kind'='provider_observation' \
+                 AND (e.event_id IS NOT NULL OR t.event_id IS NOT NULL OR sc.provider_usage IS NOT NULL) AND a.detail->>'kind'='provider_observation' \
                  AND (e.event_id IS NULL OR t.event_id IS NULL OR e.detail->'usage'=t.detail->'normalized_usage') \
                  AND a.detail->'provider_complete'='true'::jsonb \
                  AND NOT EXISTS (SELECT 1 FROM core_charging.usage_events failed \
@@ -229,6 +238,23 @@ impl Bridge {
             if frozen.price != original.price || !(-2..=65_536).contains(&sequence) {
                 continue;
             }
+            let legacy_wallet = contract.legacy_precharge().is_some()
+                && matches!(frozen.source, charging::Source::Wallet);
+            // A legacy supplement requires the route-bound complete terminal,
+            // not a partial stream checkpoint or its token estimate.
+            if legacy_wallet && sequence != -1 && sequence != -2 {
+                continue;
+            }
+            let legacy_expression = legacy_wallet
+                && matches!(
+                    contract.legacy_precharge(),
+                    Some(
+                        charging::contract::LegacyPrechargeAuthorization::Cc52TieredWalletV1 { .. }
+                    )
+                );
+            let recover_observation =
+                legacy_wallet && sequence == -2 && value["terminal"].is_null();
+            let recovery_route = value["dispatch"]["route_id"].as_str().map(str::to_owned);
             let mut delivery_outcome = None;
             let usage = if sequence == -2 {
                 // A raw audit alone cannot authorize recovery. Require the
@@ -270,20 +296,34 @@ impl Bridge {
                 {
                     continue;
                 }
-                let Ok(observed) = serde_json::from_value(evidence["raw_usage"].clone()) else {
-                    continue;
-                };
-                let Ok(checkpoint) =
-                    serde_json::from_value::<charging::Usage>(value["usage"].clone())
+                let Ok(observed) =
+                    serde_json::from_value::<crate::relay::Usage>(evidence["raw_usage"].clone())
                 else {
                     continue;
                 };
+                let missing_terminal = terminal.is_null();
+                if missing_terminal
+                    && legacy_wallet
+                    && serde_json::to_value(observed.checkpoint_usage())
+                        .ok()
+                        .as_ref()
+                        != Some(&value["stream_checkpoint"])
+                {
+                    continue;
+                }
                 let Ok(usage) = super::billing::frozen_priced_usage(&contract, &frozen, observed)
                 else {
                     continue;
                 };
-                if usage != checkpoint {
-                    continue;
+                if !(legacy_wallet && missing_terminal) {
+                    let Ok(checkpoint) =
+                        serde_json::from_value::<charging::Usage>(value["usage"].clone())
+                    else {
+                        continue;
+                    };
+                    if usage != checkpoint {
+                        continue;
+                    }
                 }
                 usage
             } else if sequence == -1 {
@@ -366,9 +406,19 @@ impl Bridge {
             } else {
                 format!("model-stream:{id}:{sequence}")
             };
-            let result = super::billing::retry(|| {
-                self.charging
-                    .reconcile(&id, revision, usage, outcome, &evidence)
+            let result = super::billing::retry(|| async {
+                if recover_observation {
+                    let route = recovery_route.as_deref().ok_or(charging::Error::Invalid)?;
+                    self.charging
+                        .reconcile_legacy_wallet_observation(
+                            &id, revision, route, usage, outcome, &evidence,
+                        )
+                        .await
+                } else {
+                    self.charging
+                        .reconcile(&id, revision, usage, outcome, &evidence)
+                        .await
+                }
             })
             .await;
             let confirmed = match result {
@@ -388,9 +438,31 @@ impl Bridge {
                 Err(charging::Error::Invalid | charging::Error::NeedReservation) => continue,
                 Err(error) => return Err(super::billing::error(error)),
             };
-            if confirmed.as_ref().is_some_and(|charge| {
-                super::billing::confirmed_settlement(charge, &id, &original.price, usage, outcome)
-            }) {
+            let Some(charge) = confirmed.as_ref() else {
+                continue;
+            };
+            let expected_amount = if legacy_expression {
+                self.charging.terminal_amount(&id, usage).await
+            } else {
+                original.price.cost(usage)
+            };
+            let expected_amount = match expected_amount {
+                Ok(amount) => amount,
+                Err(
+                    charging::Error::Invalid
+                    | charging::Error::Conflict
+                    | charging::Error::NotFound,
+                ) => continue,
+                Err(error) => return Err(super::billing::error(error)),
+            };
+            if super::billing::confirmed_settlement_amount(
+                charge,
+                &id,
+                &original.price,
+                usage,
+                outcome,
+                expected_amount,
+            ) {
                 recovered += 1;
             }
         }
@@ -501,6 +573,23 @@ impl Bridge {
                     // If COMMIT succeeded but its reply was lost, the next
                     // exact function call confirms the already committed row.
                     if tx.commit().await.is_ok() {
+                        // Stream usage is durable before it can be published.
+                        // This evidence does not change the original wallet hold.
+                        if contract.legacy_precharge().is_some()
+                            && matches!(frozen.source, charging::Source::Wallet)
+                            && let Some(normalized) = normalized
+                        {
+                            super::billing::retry(|| {
+                                self.charging.record_model_terminal(
+                                    &reservation.id,
+                                    &worker,
+                                    &selected.route_id,
+                                    normalized,
+                                )
+                            })
+                            .await
+                            .map_err(super::billing::error)?;
+                        }
                         return Ok(());
                     }
                 }
