@@ -921,6 +921,10 @@ impl Charging {
         lock(&mut tx, id).await?;
         let stored = load(&mut tx, id).await?;
         worker_matches(&stored, worker)?;
+        live(&stored.charge, now(&mut tx).await?)?;
+        if !matches!(stored.charge.state.as_str(), "reserved" | "streaming") {
+            return Err(Error::WrongState);
+        }
         let charge = self
             .increase_in_transaction(&mut tx, stored.charge, secret, total, peer, issuer)
             .await?;
@@ -939,10 +943,6 @@ impl Charging {
     ) -> Result<Charge> {
         let id = &old.id;
         let at = now(c).await?;
-        live(&old, at)?;
-        if !matches!(old.state.as_str(), "reserved" | "streaming") {
-            return Err(Error::WrongState);
-        }
         match (&old.oauth_source, issuer) {
             (Some(original), Some(issuer)) => {
                 let current = issuer

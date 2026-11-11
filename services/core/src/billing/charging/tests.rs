@@ -1978,7 +1978,7 @@ async fn measured_cost_supplement_rolls_back_with_failed_capture(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = false)]
-async fn measured_cost_supplement_retries_real_wallet_after_topup(pool: PgPool) {
+async fn measured_cost_supplement_retries_real_wallet_after_expiry_and_topup(pool: PgPool) {
     use crate::billing::{
         Credits,
         ledger::{
@@ -2026,6 +2026,28 @@ async fn measured_cost_supplement_retries_real_wallet_after_topup(pool: PgPool) 
     assert_eq!(ledger.balance(account_id).await.unwrap(), before);
     let pending = engine.resolve(&spec.id).await.unwrap().unwrap();
     assert_eq!((pending.reserved, pending.settled), (10, 0));
+    expire(&pool, &spec.id).await;
+    let recovered = engine.recover_expired(10).await.unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].id, spec.id);
+    assert_eq!(recovered[0].state, "reconcile");
+    assert_eq!(ledger.balance(account_id).await.unwrap(), before);
+    assert_eq!(
+        engine
+            .settle_measured_cost_with_supplement(
+                &spec.id,
+                &WORKER,
+                SECOND,
+                None,
+                None,
+                usage,
+                Outcome::Completed,
+            )
+            .await
+            .unwrap_err(),
+        Error::Forbidden,
+    );
+    assert_eq!(ledger.balance(account_id).await.unwrap(), before);
 
     assert!(matches!(
         ledger.execute(&credit("retry", 6_i64)).await.unwrap(),

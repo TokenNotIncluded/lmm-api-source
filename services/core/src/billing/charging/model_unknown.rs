@@ -43,8 +43,10 @@ impl Charging {
             commit(tx).await?;
             return Ok(charge);
         }
-        live(&charge, now(&mut tx).await?)?;
-        if charge.state != "streaming" {
+        // The immutable terminal receipt proves the original dispatch completed.
+        // Recovery retains its original worker and reauthorizes any extra hold.
+        // Its dispatch lease may have expired while the payer adds funds.
+        if !matches!(charge.state.as_str(), "streaming" | "reconcile") {
             return Err(Error::WrongState);
         }
         let amount = charge.price.cost(usage)?;
