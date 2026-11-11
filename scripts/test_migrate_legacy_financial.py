@@ -503,6 +503,34 @@ class IdentityProvenanceTests(unittest.TestCase):
 
 
 class SourceEvidenceTests(unittest.TestCase):
+    def test_preview_rejects_misplaced_evidence_before_source_read(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            backups = base / "backups"
+            backups.mkdir(mode=0o700)
+            inputs = backups / "migration"
+            inputs.mkdir(mode=0o700)
+            evidence = base / "misplaced.private.json"
+            evidence.write_text("{}")
+            flags = ("--target-key-inventory", "--target-wallet-inventory",
+                     "--escrow-unit-evidence", "--escrow-post-parent-claim-evidence")
+            for index, flag in enumerate(flags):
+                with self.subTest(flag=flag):
+                    output = inputs / f"preview-{index}"
+                    argv = ["financial", "--migration-id", "synthetic-preview",
+                            "--source-receipt", str(inputs / "source.json"),
+                            "--identity-map", str(inputs / "map.jsonl"),
+                            "--identity-manifest", str(inputs / "identity.json"),
+                            "--reuse-export-proof", str(inputs / "proof.json"),
+                            "--source-rights-preview", "--escrow-candidate-preview",
+                            "--output", str(output), flag, str(evidence)]
+                    with patch.object(MODULE.IDENTITY, "BACKUP_ROOT", backups), \
+                         patch.object(MODULE.IDENTITY, "load_receipt", side_effect=AssertionError("source read")), \
+                         patch.object(sys, "argv", argv), patch.object(sys, "stderr", io.StringIO()):
+                        self.assertEqual(MODULE.main(), 1)
+                    failure = json.loads((output / "failure.private.json").read_text())
+                    self.assertEqual(failure["error_code"], "private_artifact_outside_backups")
+
     def test_composite_and_quoted_primary_keys_are_actual_catalog_keys(self):
         columns = {"abilities": {"group", "model", "channel_id"}}
         constraints = [{"schema": "legacy", "table_name": "abilities", "contype": "p",

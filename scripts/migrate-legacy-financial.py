@@ -1181,6 +1181,12 @@ def main() -> int:
         IDENTITY.private_backup_path(args.output.parent, directory=True)
         args.output.mkdir(mode=0o700)
         output = IDENTITY.private_backup_path(args.output, directory=True)
+        # Reject misplaced preview evidence before reading the frozen export.
+        # Recheck the path when opening each artifact after the export read.
+        for path in (args.target_key_inventory, args.target_wallet_inventory,
+                     args.escrow_unit_evidence, args.escrow_post_parent_claim_evidence):
+            if path is not None:
+                IDENTITY.private_backup_path(path)
         source = IDENTITY.load_receipt(args.source_receipt)
         map_path = IDENTITY.private_backup_path(args.identity_map)
         identity_manifest_path = IDENTITY.private_backup_path(args.identity_manifest)
