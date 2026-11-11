@@ -104,6 +104,8 @@ pub struct Capabilities {
     pub abuse_admin: bool,
     /// Actual native user-read router assembled after schema/runtime checks.
     pub admin_users_read: bool,
+    /// Native session-backed check-in handlers are assembled for this runtime.
+    pub checkins: bool,
 }
 
 #[derive(Clone, Default)]
@@ -180,6 +182,11 @@ pub fn configured_router_with_runtime_status(
     } else {
         Router::new()
     };
+    let checkins = if capabilities.checkins {
+        crate::checkins_http::router(pool.clone())
+    } else {
+        Router::new()
+    };
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
@@ -195,6 +202,7 @@ pub fn configured_router_with_runtime_status(
         })
         .merge(usage)
         .merge(history)
+        .merge(checkins)
 }
 
 fn request_id(headers: &HeaderMap) -> String {
@@ -215,6 +223,17 @@ fn request_id(headers: &HeaderMap) -> String {
 }
 
 async fn public_status_response(State(state): State<Readiness>, headers: HeaderMap) -> Response {
+    let checkin_enabled = if state.capabilities.checkins {
+        match crate::checkins::CheckinStore::new(state.pool.clone())
+            .enabled()
+            .await
+        {
+            Ok(enabled) => enabled,
+            Err(_) => return public_configuration_unavailable(),
+        }
+    } else {
+        false
+    };
     let status = state.public_status;
     let google_client_id = status
         .google_client_id
@@ -224,6 +243,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     let google_enabled = !google_client_id.is_empty();
     let mut data = json!({
             "system_name":"LMM API","version":env!("CARGO_PKG_VERSION"),
+            "checkin_enabled":checkin_enabled,
             "server_address":status.server_address,
             "password_login_enabled":status.password_login_enabled,
             "register_enabled":status.registration_enabled,
@@ -367,6 +387,17 @@ async fn readiness(
     )
     .await
     .is_ok_and(|result| result.is_ok());
+    let checkin_policy = if state.capabilities.checkins {
+        tokio::time::timeout(
+            Duration::from_millis(400),
+            crate::checkins::CheckinStore::new(state.pool.clone()).enabled(),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+    } else {
+        Some(false)
+    };
     let mut capabilities = state.capabilities;
     let rpc_healthy = state
         .rpc_running
@@ -382,6 +413,7 @@ async fn readiness(
     capabilities.models &= models_healthy;
     capabilities.models_streaming &= models_healthy;
     let ready = database
+        && checkin_policy.is_some()
         && rpc_healthy
         && models_healthy
         && capabilities.identity
@@ -396,6 +428,7 @@ async fn readiness(
         Json(
             json!({"status":if ready {"ready"}else{"unavailable"},"service":"lmm-core",
             "database":database,"capabilities":capabilities,
+            "checkin_enabled":checkin_policy.unwrap_or(false),
             "readiness_scope":"configured_components","upstream_health_checked":false}),
         ),
     )
@@ -450,6 +483,41 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), status, "{path}");
         }
+    }
+
+    #[tokio::test]
+    async fn checkins_unwired_status_uses_no_lazy_database_and_exposes_no_handler() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(10))
+            .connect_lazy("postgresql://127.0.0.1:1/unwired_checkins")
+            .unwrap();
+        let app = configured_router(pool, Capabilities::default());
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 65_536)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["data"]["checkin_enabled"], false);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/user/checkin")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]

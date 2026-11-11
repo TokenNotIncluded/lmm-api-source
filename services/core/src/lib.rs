@@ -10,6 +10,8 @@ pub mod billing;
 pub mod bounties;
 pub mod builtins;
 pub mod channel_http;
+pub mod checkins;
+pub mod checkins_http;
 #[cfg(unix)]
 pub mod commerce;
 pub mod community_read;

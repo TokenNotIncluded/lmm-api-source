@@ -37,7 +37,16 @@ mod tests {
         let mut bytes = serde_json::to_vec(&manifest).unwrap();
         bytes.push(b'\n');
         assert_eq!(hex(&Sha256::digest(bytes)), ENGINE.predecessor_manifest);
-        assert_eq!(COMPONENTS.len(), 67);
+        let mut prefix = schema_manifest();
+        prefix.components.truncate(67);
+        let mut prefix_bytes = serde_json::to_vec(&prefix).unwrap();
+        prefix_bytes.push(b'\n');
+        let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
+        assert_eq!(
+            target["manifest_sha256"],
+            hex(&Sha256::digest(prefix_bytes))
+        );
+        assert_eq!(COMPONENTS[66].0, "subscription-pancake-language-optional");
         let sql = COMPONENTS[66].1;
         assert!(sql.contains("CHECK(length(checkout_language) <= 32)"));
         assert!(sql.contains("CREATE TABLE core_meta.pancake_language_upgrades"));

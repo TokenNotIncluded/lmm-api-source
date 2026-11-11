@@ -85,6 +85,8 @@ class PancakeLanguageCaptureTests(unittest.TestCase):
     def setUp(self):
         import hashlib
         self.components, _, self.manifest = CONTRACT.source_contract()
+        self.components = self.components[:67]
+        self.manifest['components'] = self.manifest['components'][:67]
         self.language_sha = hashlib.sha256((ROOT / CAPTURE.PANCAKE_LANGUAGE_FILE).read_bytes()).hexdigest()
 
     def validate(self, manifest=None, language_sha=None):
@@ -130,6 +132,63 @@ class PancakeLanguageCaptureTests(unittest.TestCase):
         with patch.object(Path, 'read_text', changed_read):
             with self.assertRaisesRegex(AssertionError, 'pancake language registry expression changed'):
                 CONTRACT.source_contract()
+
+
+class CheckinCaptureTests(unittest.TestCase):
+    def setUp(self):
+        import hashlib
+        self.components, _, self.manifest = CONTRACT.source_contract()
+        self.components = self.components[:68]
+        self.manifest['components'] = self.manifest['components'][:68]
+        self.checkin_sha = hashlib.sha256((ROOT / CAPTURE.CHECKIN_FILE).read_bytes()).hexdigest()
+
+    def validate(self, manifest=None, checkin_sha=None):
+        CAPTURE.validate_checkin_lineage(
+            self.manifest if manifest is None else manifest, CONTRACT.manifest_hash,
+            self.checkin_sha if checkin_sha is None else checkin_sha,
+        )
+
+    def test_exact_sql_and_unchanged_reviewed_prefix(self):
+        self.validate()
+        self.assertEqual(CAPTURE.final_component_count(self.components, checkin_update=True), 68)
+        for flags in ({}, {'credit_quote_update': True}, {'pancake_language_update': True}):
+            with self.assertRaisesRegex(ValueError, 'exact final assembly'):
+                CAPTURE.final_component_count(self.components, **flags)
+
+    def test_missing_extra_or_reordered_component_is_rejected(self):
+        for components in (self.manifest['components'][:-1], self.manifest['components'] + [self.manifest['components'][-1]],
+                           list(reversed(self.manifest['components']))):
+            changed = copy.deepcopy(self.manifest)
+            changed['components'] = components
+            with self.assertRaisesRegex(ValueError, 'exact 68th component'):
+                self.validate(changed)
+
+    def test_changed_prefix_identity_catalog_or_installer_is_rejected(self):
+        for field in ('components', 'identity', 'catalog', 'installer'):
+            changed = copy.deepcopy(self.manifest)
+            if field == 'components':
+                changed[field][0]['raw_schema_sha256'] = 'ab' * 32
+            else:
+                changed[field] = {}
+            with self.assertRaisesRegex(ValueError, '67-component prefix'):
+                self.validate(changed)
+
+    def test_changed_sql_registry_or_producer_path_is_rejected(self):
+        from unittest.mock import patch
+        with self.assertRaisesRegex(ValueError, 'frozen SQL file'):
+            self.validate(checkin_sha='ab' * 32)
+        original_read = Path.read_text
+        for relative, before, after, error in (
+            ('src/core_schema.rs', 'crate::checkins::SCHEMA', 'crate::gift::SCHEMA', 'check-in registry expression changed'),
+            ('src/checkins.rs', '../schema/checkins.sql', '../schema/ledger.sql', 'check-in schema constant changed'),
+        ):
+            producer = CONTRACT.CORE / relative
+            def changed_read(path, *args, **kwargs):
+                raw = original_read(path, *args, **kwargs)
+                return raw.replace(before, after) if path == producer else raw
+            with patch.object(Path, 'read_text', changed_read):
+                with self.assertRaisesRegex(AssertionError, error):
+                    CONTRACT.source_contract()
 
 
 class CurrentLedgerLineageTests(unittest.TestCase):

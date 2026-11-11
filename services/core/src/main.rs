@@ -18,7 +18,7 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | publish-subscription-pancake-price | schema-manifest | check-db | trust-policy-editor]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | publish-subscription-pancake-price | seed-checkin-history | publish-checkin-policy | schema-manifest | check-db | trust-policy-editor]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
@@ -45,6 +45,8 @@ Commands:\n\
   install-usage-receipt-index  Offline owner-only index installation; requires explicit --config.\n\
   plan-admin-activation  Read-only candidate binding for one imported admin; requires explicit --config (not --legacy-env).\n\
   apply-admin-activation Owner-only apply of one human-confirmed activation; requires explicit --config (not --legacy-env).\n\n\
+  seed-checkin-history  Seed existing check-in history as offline owner; reads private stdin JSON.\n\
+  publish-checkin-policy  Publish a frozen check-in reward policy as offline owner; reads private stdin JSON.\n\
   publish-subscription-pancake-price  Publish one price for an existing exact plan revision as offline owner; reads private stdin JSON.\n\
 Options:\n\
   --config PATH  Read one absolute TOML file (default /etc/lmm.conf.d/core.toml).\n\
@@ -74,6 +76,8 @@ enum Command {
     PlanAdminActivation,
     ApplyAdminActivation,
     PublishSubscriptionPancakePrice,
+    SeedCheckinHistory,
+    PublishCheckinPolicy,
     SchemaManifest,
     CheckDb,
     TrustPolicyEditor,
@@ -122,6 +126,8 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "plan-admin-activation"
                 | "apply-admin-activation"
                 | "publish-subscription-pancake-price"
+                | "seed-checkin-history"
+                | "publish-checkin-policy"
                 | "schema-manifest"
                 | "check-db"
                 | "trust-policy-editor",
@@ -142,6 +148,8 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     Some("publish-subscription-pancake-price") => {
                         Command::PublishSubscriptionPancakePrice
                     }
+                    Some("seed-checkin-history") => Command::SeedCheckinHistory,
+                    Some("publish-checkin-policy") => Command::PublishCheckinPolicy,
                     Some("schema-manifest") => Command::SchemaManifest,
                     Some("check-db") => Command::CheckDb,
                     Some("trust-policy-editor") => Command::TrustPolicyEditor,
@@ -298,6 +306,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             Some(admin::Operation::RebuildChannelUsage)
         }
+        Command::SeedCheckinHistory | Command::PublishCheckinPolicy => {
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "check-in owner commands require explicit --config and cannot use --legacy-env",
+                )
+                .into());
+            }
+            Some(match arguments.command {
+                Command::SeedCheckinHistory => {
+                    admin::Operation::seed_checkin_history(io::stdin().lock())?
+                }
+                _ => admin::Operation::publish_checkin_policy(io::stdin().lock())?,
+            })
+        }
         Command::PublishSubscriptionPancakePrice => {
             if arguments.config.is_none() || arguments.legacy_env {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput,
@@ -389,6 +412,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 community: config::community_configured(),
                 trust_policy_editor: config::trust_policy_editor_enabled()?,
                 federated_auth,
+                checkins: true,
             },
         )
         .await?;
@@ -404,6 +428,11 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             .with_account_links(true)
             .with_commerce_scope_enabled(config::commerce_configured());
         store.check_federated_auth_ready().await?;
+        lmm_core::checkins::CheckinStore::new(pool.clone())
+            .enabled()
+            .await
+            .map_err(|_| "check-in policy or runtime authority unavailable")?;
+        capabilities.checkins = true;
         capabilities.identity = true;
         // Production never silently opts out of owner-controlled user pricing.
         // Library fixtures may omit the builder; serving this binary may not.
@@ -959,6 +988,27 @@ mod check_db_parser_tests {
     use super::*;
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+    #[test]
+    fn checkin_owner_commands_use_explicit_config_and_reject_extra_commands() {
+        for name in ["seed-checkin-history", "publish-checkin-policy"] {
+            let parsed = command(args(&[name, "--config", "/private/owner.toml"])).unwrap();
+            assert!(matches!(
+                parsed.command,
+                Command::SeedCheckinHistory | Command::PublishCheckinPolicy
+            ));
+            assert_eq!(parsed.config, Some(PathBuf::from("/private/owner.toml")));
+            assert!(command(args(&[name, "serve"])).is_err());
+            assert!(
+                command(args(&[
+                    name,
+                    "--legacy-env",
+                    "--config",
+                    "/private/owner.toml"
+                ]))
+                .is_err()
+            );
+        }
     }
     #[test]
     fn owner_pancake_command_accepts_explicit_config_and_rejects_duplicates() {

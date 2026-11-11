@@ -42,6 +42,8 @@ pub enum Operation {
     PlanAdminActivation(PlanAdminActivationRequest),
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
     PublishSubscriptionPancakePrice(lmm_core::subscriptions::PublishPancakePrice),
+    SeedCheckinHistory(lmm_core::checkins::SeedHistory),
+    PublishCheckinPolicy(lmm_core::checkins::PublishPolicy),
     TrustPolicyEditor(trust_policy_editor::Request),
 }
 
@@ -111,6 +113,29 @@ impl Operation {
     pub fn plan_admin_activation(input: impl Read) -> io::Result<Self> {
         let request = admin_approval::read_bounded_json(input).map_err(approval_io)?;
         Ok(Self::PlanAdminActivation(request))
+    }
+
+    pub fn seed_checkin_history(input: impl Read) -> io::Result<Self> {
+        // The authenticated complete identity JSONL is included verbatim. This
+        // larger owner-only input budget does not change browser request limits.
+        const MAX_SEED_BYTES: u64 = 16 * 1024 * 1024;
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
+        input.take(MAX_SEED_BYTES + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_SEED_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "check-in seed input is too large",
+            ));
+        }
+        let request = serde_json::from_slice(&bytes).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid check-in seed JSON")
+        })?;
+        Ok(Self::SeedCheckinHistory(request))
+    }
+
+    pub fn publish_checkin_policy(input: impl Read) -> io::Result<Self> {
+        let request = admin_approval::read_bounded_json(input).map_err(approval_io)?;
+        Ok(Self::PublishCheckinPolicy(request))
     }
 
     pub fn publish_subscription_pancake_price(input: impl Read) -> io::Result<Self> {
@@ -255,6 +280,34 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
                 "Core setup completion recorded. Existing initialization facts were preserved."
             );
         }
+        Operation::SeedCheckinHistory(request) => {
+            lmm_core::core_schema::check(&pool).await?;
+            let result = lmm_core::checkins::CheckinStore::new(pool.clone())
+                .seed_history(request)
+                .await
+                .map_err(|error| {
+                    io::Error::other(format!("check-in seed outcome unconfirmed: {error:?}"))
+                })?;
+            serde_json::to_writer(
+                io::stdout().lock(),
+                &serde_json::json!({"status":"seeded","receipt":result}),
+            )?;
+            println!();
+        }
+        Operation::PublishCheckinPolicy(request) => {
+            lmm_core::core_schema::check(&pool).await?;
+            let result = lmm_core::checkins::CheckinStore::new(pool.clone())
+                .publish_policy(request)
+                .await
+                .map_err(|error| {
+                    io::Error::other(format!("check-in policy outcome unconfirmed: {error:?}"))
+                })?;
+            serde_json::to_writer(
+                io::stdout().lock(),
+                &serde_json::json!({"status":"published","policy":result}),
+            )?;
+            println!();
+        }
         Operation::PublishSubscriptionPancakePrice(request) => {
             lmm_core::core_schema::check(&pool).await?;
             let channels = config::configured_payment_channels()?;
@@ -307,6 +360,32 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod owner_price_input_tests {
     use super::*;
+
+    #[test]
+    fn checkin_owner_inputs_preserve_full_map_and_reject_session_authority() {
+        let mut input = serde_json::json!({
+            "operation_key":"checkin_seed_input_0001", "history_migration_id":"history",
+            "identity_migration_id":"identity", "source_archive_sha256":"a".repeat(64),
+            "mapping_sha256":"b".repeat(64), "source_cutoff":1,
+            "identity_map_jsonl":" ".repeat(80_000)
+        });
+        let bytes = serde_json::to_vec(&input).unwrap();
+        let Operation::SeedCheckinHistory(parsed) =
+            Operation::seed_checkin_history(bytes.as_slice()).unwrap()
+        else {
+            panic!("expected seed operation");
+        };
+        assert_eq!(parsed.identity_map_jsonl.len(), 80_000);
+        input["session"] = "not-owner-authority".into();
+        assert!(
+            Operation::seed_checkin_history(serde_json::to_vec(&input).unwrap().as_slice())
+                .is_err()
+        );
+        assert!(
+            Operation::publish_checkin_policy(b"{\"session\":\"not-owner-authority\"}".as_slice())
+                .is_err()
+        );
+    }
 
     #[test]
     fn owner_pancake_price_input_is_bounded_and_rejects_credentials() {

@@ -720,4 +720,17 @@ GRANT INSERT (digest) ON core_federated_auth.assertions TO :"runtime_role";
 GRANT INSERT (actor_user_id, operation_key, sid, request_digest, action, provider_id, provider_revision) ON core_federated_auth.operations TO :"runtime_role";
 GRANT DELETE ON core_federated_auth.flows, core_federated_auth.assertions TO :"runtime_role";
 \endif
+\if :{?enable_checkins}
+\else
+\set enable_checkins false
+\endif
+\if :enable_checkins
+-- BEGIN checkins runtime grants
+GRANT USAGE ON SCHEMA core_checkins,core_trust_pricing TO :"runtime_role";
+GRANT SELECT ON core_checkins.policy_revisions,core_checkins.active_policy TO :"runtime_role";
+GRANT SELECT,INSERT ON core_checkins.days,core_checkins.claim_commands TO :"runtime_role";
+GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,
+    core_trust_pricing.legacy_paid_orders TO :"runtime_role";
+-- END checkins runtime grants
+\endif
 COMMIT;

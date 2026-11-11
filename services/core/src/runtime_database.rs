@@ -12,6 +12,8 @@ mod channel_accounting;
 mod channel_observations;
 #[path = "runtime_channel_projection.rs"]
 mod channel_projection;
+#[path = "runtime_checkins.rs"]
+mod checkins;
 #[path = "runtime_federated_auth.rs"]
 mod federated_auth;
 #[path = "runtime_operations.rs"]
@@ -46,6 +48,7 @@ pub struct RequiredCapabilities {
     pub community: bool,
     pub trust_policy_editor: bool,
     pub federated_auth: bool,
+    pub checkins: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,7 +299,12 @@ pub(crate) async fn check_connection(
 
     crate::directory_ads::check_privileges(connection, required.directory_ads).await?;
     trust_policy::check(connection, required.trust_policy_editor).await?;
-    if required.models || required.images || required.assistant || required.assistant_agent {
+    if required.models
+        || required.images
+        || required.assistant
+        || required.assistant_agent
+        || required.checkins
+    {
         let trust_visible:bool=sqlx::query_scalar("SELECT COALESCE((SELECT has_schema_privilege(n.oid,'USAGE') FROM pg_namespace n WHERE n.nspname='core_trust_pricing'),false)")
             .fetch_one(&mut *connection).await?;
         if !trust_visible {
@@ -313,6 +321,7 @@ pub(crate) async fn check_connection(
     operations::check(connection).await?;
     telegram::check(connection, required.web_identity).await?;
     federated_auth::check(connection, required.federated_auth).await?;
+    checkins::check(connection, required.checkins).await?;
     product_features::check(connection, required.console).await?;
     account_security::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;

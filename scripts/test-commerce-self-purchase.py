@@ -54,6 +54,14 @@ def source_contract():
         "payment-credit-quotes": ["payment_credit_quotes.sql", "payment_credit_quote_referrals.sql"],
     }
     language_component = 'subscription-pancake-language-optional'
+    if 'checkins' in names:
+        registry = re.findall(r'\(\s*"checkins"\s*,\s*([^)]*)\)', declarations)
+        need(len(registry) == 1 and re.sub(r'\s+', '', registry[0]).rstrip(',') ==
+             'crate::checkins::SCHEMA', 'check-in registry expression changed')
+        producer = (CORE / 'src/checkins.rs').read_text()
+        constants = re.findall(r'pub const SCHEMA:\s*&str\s*=\s*(.*?);', producer, re.S)
+        need(len(constants) == 1 and re.sub(r'\s+', '', constants[0]) ==
+             'include_str!("../schema/checkins.sql")', 'check-in schema constant changed')
     if language_component in names:
         registry = re.findall(
             r'\(\s*"subscription-pancake-language-optional"\s*,\s*include_str!\(\s*"([^"]+)"\s*\)\s*,?\s*\)',
