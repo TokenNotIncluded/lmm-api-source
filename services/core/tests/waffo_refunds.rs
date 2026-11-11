@@ -284,6 +284,7 @@ async fn waffo_refunds_bind_original_dispatch_and_post_only_verified_facts(pool:
         .prepare_personal(
             &session.secret,
             pb::PreparePersonalTopupRequest {
+                requested_credit_units: 0,
                 mutation: mutation("waffo_refund_quote"),
                 payment_channel_id: 7,
                 currency: "USD".into(),

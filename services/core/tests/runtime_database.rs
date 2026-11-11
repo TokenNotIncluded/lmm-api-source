@@ -31,6 +31,20 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::query(&format!(
+        "GRANT SELECT(document,mapping,native_credential_floor,snapshot_observed_at,target_database,target_database_oid,target_nonce) ON core_history.connection_snapshot TO {}",
+        role.name
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(&format!(
+        "GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT(key,value) ON core_console.options TO {0}",
+        role.name
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     runtime_database::check(&role.pool, required).await.unwrap();
     for table in [
         "core_charging.requests",
@@ -785,6 +799,8 @@ async fn runtime_rejects_set_role_inherited_owner_and_admin_paths(pool: PgPool) 
 async fn partial_refund_runtime_requires_receipts_counters_and_closed_money_port(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_charging").await;
+    role.optional("core_events").await;
     role.optional("core_commerce").await;
     let required = RequiredCapabilities {
         commerce: true,
@@ -1111,6 +1127,15 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
         "valid_native_usage(jsonb)",
         "valid_image_usage(jsonb)",
     ] {
+        // The suffix's pure validators inherit PUBLIC EXECUTE. Remove that
+        // fallback only in this disposable database to test the direct grant.
+        sqlx::query(&format!(
+            "REVOKE EXECUTE ON FUNCTION core_image.{function} FROM PUBLIC"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        runtime_database::check(&role.pool, images).await.unwrap();
         sqlx::query(&format!(
             "REVOKE EXECUTE ON FUNCTION core_image.{function} FROM {}",
             role.name
@@ -1120,7 +1145,8 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
         .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, images).await,
-            Err(Error::MissingPrivileges)
+            Err(Error::MissingPrivileges),
+            "{function}"
         );
         role.optional("core_image").await;
         runtime_database::check(&role.pool, images).await.unwrap();

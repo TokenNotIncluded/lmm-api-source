@@ -253,10 +253,12 @@ async fn configure(
     let role = runtime::RuntimeRole::create(pool).await;
     role.optional("core_charging").await;
     role.optional("core_model").await;
+    role.optional("core_checkins").await;
     lmm_core::runtime_database::check(
         &role.pool,
         lmm_core::runtime_database::RequiredCapabilities {
             models: true,
+            checkins: true,
             ..Default::default()
         },
     )

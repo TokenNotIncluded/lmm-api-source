@@ -102,6 +102,7 @@ async fn first_cash_requires_live_verified_credit_not_preparation_or_proof(pool:
             .prepare(
                 secret,
                 pb::PrepareTopupRequest {
+                    requested_credit_units: 0,
                     mutation: Some(pb::MutationContext {
                         idempotency_key: format!("cash_read_prepare_{index}"),
                         expected_version: None,
@@ -368,6 +369,7 @@ async fn mixed_cash_history(pool: PgPool, invalid_seal: bool) {
             .prepare(
                 &key.secret,
                 pb::PrepareTopupRequest {
+                    requested_credit_units: 0,
                     mutation: Some(pb::MutationContext {
                         idempotency_key: format!("mixed_cash_prepare_{index}"),
                         expected_version: None,

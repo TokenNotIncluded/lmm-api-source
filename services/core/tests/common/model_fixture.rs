@@ -117,14 +117,22 @@ async fn provider(
         .unwrap()
         .push(headers["authorization"].to_str().unwrap().to_owned());
     assert_eq!(request["model"], "provider-model");
-    if request["messages"][0]["content"] == "pause" {
+    let prompt = match &request["messages"][0]["content"] {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| part["text"].as_str())
+            .collect(),
+        _ => panic!("synthetic provider requires text or content parts"),
+    };
+    if prompt == "pause" {
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
-    if request["messages"][0]["content"] == "rate-limit" {
+    if prompt == "rate-limit" {
         return (StatusCode::TOO_MANY_REQUESTS, "synthetic supplier refusal").into_response();
     }
     if request["stream"] == true {
-        let malformed_tool = request["messages"][0]["content"] == "malformed-tool";
+        let malformed_tool = prompt == "malformed-tool";
         let content = if malformed_tool {
             format!(
                 "data: {}\n\n",
@@ -144,10 +152,7 @@ async fn provider(
             "data: {}\n\n",
             json!({"id":"synthetic-stream","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}}})
         );
-        let prompt = request["messages"][0]["content"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+
         let socket_mode = prompt == "socket-backpressure";
         let socket_polled = socket_mode.then(|| state.socket_polled.clone());
         let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(8);

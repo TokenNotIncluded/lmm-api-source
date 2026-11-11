@@ -326,7 +326,7 @@ class Runner(ProcessFixture):
         first=json.loads(self.cmd('first-owner',[self.core,'--config',self.ownercfg,'create-first-owner'],json.dumps({'username':'imageowner','display_name':'Image independent','password':self.password}).encode(),private=True)[1]);require(first['setup_completed'] is True,'owner setup')
         env=dict(self.env,PGHOST=str(self.sock),PGPORT=str(self.pgport),PGUSER='core_installer',PGDATABASE=DB,PGOPTIONS='-c role=lmm_core_owner')
         args=[self.tools['psql'],'-X','-q','-v','ON_ERROR_STOP=1']
-        for flag in ['runtime_role=core_runtime','enable_console=true','enable_web_identity=true','enable_events=true','enable_models=true','enable_images=true']:args+=['-v',flag]
+        for flag in ['runtime_role=core_runtime','enable_console=true','enable_web_identity=true','enable_events=true','enable_models=true','enable_images=true','enable_checkins=true']:args+=['-v',flag]
         self.cmd('runtime-grants',args+['-f',self.source/'deployment/postgres/grant-core-runtime.sql'],env=env)
         self.sql('routing-group',"INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(1,'allowed',true,'independent-image');")
         account=int(self.value('account','SELECT personal_account_id FROM core_identity.users WHERE id=1'))

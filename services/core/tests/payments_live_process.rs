@@ -499,6 +499,7 @@ async fn prepare_payment_fixture(pool: &PgPool) -> PaymentFixture {
         .prepare(
             &user,
             pb::PrepareTopupRequest {
+                requested_credit_units: 0,
                 mutation: Some(pb::MutationContext {
                     idempotency_key: key.into(),
                     expected_version: None,

@@ -105,6 +105,7 @@ fn mutation(key: &str) -> Option<pb::MutationContext> {
 }
 fn prepare_request(f: &Fixture, key: &str, amount: i64) -> pb::PrepareTopupRequest {
     pb::PrepareTopupRequest {
+        requested_credit_units: 0,
         mutation: mutation(key),
         account_id: f.account,
         payment_channel_id: 1,

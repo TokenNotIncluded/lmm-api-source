@@ -162,6 +162,7 @@ async fn real_web_status_preserves_money_and_rechecks_live_authority(pool: PgPoo
         .prepare(
             &owner.secret,
             pb::PrepareTopupRequest {
+                requested_credit_units: 0,
                 mutation: Some(pb::MutationContext {
                     idempotency_key: "web_status_independent_prepare".into(),
                     expected_version: None,
@@ -204,6 +205,7 @@ async fn real_web_status_preserves_money_and_rechecks_live_authority(pool: PgPoo
         .prepare(
             &owner.secret,
             pb::PrepareTopupRequest {
+                requested_credit_units: 0,
                 mutation: Some(pb::MutationContext {
                     idempotency_key: "web_status_independent_team_prepare".into(),
                     expected_version: None,

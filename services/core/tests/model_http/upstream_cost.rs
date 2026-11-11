@@ -299,7 +299,7 @@ async fn upstream_cost_completed_stream_recovers_exact_receipt_after_failed_fina
         );
     }
     let provider_usage: Value = sqlx::query_scalar(
-        "SELECT detail->'usage' FROM core_charging.usage_events WHERE request_id=$1 AND event_id='usage:provider-final'",
+        "SELECT detail->'normalized_usage' FROM core_charging.usage_events WHERE request_id=$1 AND event_id='model-provider-terminal:v1' AND detail->>'kind'='model_provider_terminal'",
     )
     .bind(&request_id)
     .fetch_one(&pool)

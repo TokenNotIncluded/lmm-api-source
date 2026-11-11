@@ -338,6 +338,19 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
         if matches!(schema, "core_subscriptions" | "core_promotions") {
             return;
         }
+        if schema == "core_checkins" {
+            let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
+            let grants = script
+                .split_once("-- BEGIN checkins runtime grants\n")
+                .unwrap()
+                .1
+                .split_once("-- END checkins runtime grants")
+                .unwrap()
+                .0
+                .replace(":\"runtime_role\"", &self.name);
+            sqlx::raw_sql(&grants).execute(&self.owner).await.unwrap();
+            return;
+        }
         if schema == "core_assistant_agent" {
             let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
             let sql = script
@@ -473,21 +486,16 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             "#,
                 self.name
             ),
-            "core_commerce" => format!(
-                r#"
-              GRANT USAGE ON SCHEMA core_commerce TO {0};
-              GRANT SELECT,INSERT ON core_commerce.orders,core_commerce.operations,core_commerce.key_scopes TO {0};
-              GRANT UPDATE(state,settlement_journal_id,revision,delivery_reference) ON core_commerce.orders TO {0};
-              GRANT UPDATE(can_spend) ON core_commerce.key_scopes TO {0};
-              GRANT USAGE ON SEQUENCE core_commerce.orders_id_seq TO {0};
-              GRANT SELECT,INSERT ON core_commerce.refund_operations TO {0};
-              GRANT SELECT ON core_commerce.refund_totals TO {0};
-              GRANT INSERT(order_id) ON core_commerce.refund_totals TO {0};
-              GRANT UPDATE(refunded_units,refunded_native,retired_quantity,quantity_basis,quantity_native,revision) ON core_commerce.refund_totals TO {0};
-              GRANT EXECUTE ON FUNCTION core_commerce.post_refund_delta(BIGINT,TEXT,JSONB,BIGINT,BIGINT,BOOLEAN) TO {0};
-            "#,
-                self.name
-            ),
+            "core_commerce" => {
+                include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                    .rsplit_once("\\if :enable_commerce\n")
+                    .unwrap()
+                    .1
+                    .split_once("\\endif")
+                    .unwrap()
+                    .0
+                    .replace(":\"runtime_role\"", &self.name)
+            }
             "core_tool_market" => {
                 let credit =
                     include_str!("../../../../deployment/postgres/grant-tool-market-credit.sql")
