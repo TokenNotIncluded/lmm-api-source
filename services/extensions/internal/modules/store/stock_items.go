@@ -343,19 +343,24 @@ func (s *Service) legacyStock(ctx context.Context, actor Account, r LegacyReques
 		variantID = row.Product.Legacy.DefaultVariantID
 	}
 	var items []string
+	var requestKey string
 	if r.Action == "stock_add" {
 		if s.stock == nil {
 			return nil, ErrUnavailable
 		}
 		var in struct {
-			Items []string `json:"items"`
+			Items      []string `json:"items"`
+			RequestKey string   `json:"request_key,omitempty"`
 		}
 		d := json.NewDecoder(bytes.NewReader(r.Body))
 		d.DisallowUnknownFields()
 		if len(r.Body) == 0 || len(r.Body) > 4<<20 || d.Decode(&in) != nil || d.Decode(new(any)) != io.EOF || len(in.Items) == 0 || len(in.Items) > maxStockImport {
 			return nil, ErrInvalid
 		}
-		items = in.Items
+		if in.RequestKey != "" && !Key(in.RequestKey) {
+			return nil, ErrInvalid
+		}
+		items, requestKey = in.Items, in.RequestKey
 	} else if r.Action == "stock_list" && (r.Offset < 0 || r.Offset > 100000 || !Page(r.Limit)) {
 		return nil, ErrInvalid
 	}
@@ -384,6 +389,19 @@ func (s *Service) legacyStock(ctx context.Context, actor Account, r LegacyReques
 			out = legacyPage(views, len(views), r.Offset, r.Limit)
 			return nil
 		case "stock_add":
+			commandID := ID("legacy-stock-add-v1", v.ID, requestKey)
+			hash := ID(items)
+			if requestKey != "" {
+				var prior replay
+				if err := tx.Get("commands", commandID, &prior); err == nil {
+					if prior.Hash != hash {
+						return ErrConflict
+					}
+					return json.Unmarshal(prior.Result, &out)
+				} else if !errors.Is(err, ErrNotFound) {
+					return err
+				}
+			}
 			if !v.TrackStock || v.StockSequence > math.MaxInt64-int64(len(items)) || v.Stock > math.MaxInt64-int64(len(items)) {
 				return ErrConflict
 			}
@@ -419,6 +437,15 @@ func (s *Service) legacyStock(ctx context.Context, actor Account, r LegacyReques
 			}
 			v.Stock += int64(len(items))
 			out = map[string]any{"added": len(items)}
+			if requestKey != "" {
+				result, err := json.Marshal(out)
+				if err != nil {
+					return err
+				}
+				if err := tx.Put("commands", commandID, replay{Hash: hash, Result: result}); err != nil {
+					return err
+				}
+			}
 		case "stock_remove":
 			var item StockItem
 			if err := tx.Get("stock_items", r.StockID, &item); err != nil {

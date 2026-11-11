@@ -210,6 +210,7 @@ func TestStore02LostNegativeACKReleasesReservationWithoutMoneyOrFakeCancellation
 
 func TestStore02ReturnedUnitCanBeReissuedWithoutLaterDeliveryOrRefundTouchingIt(t *testing.T) {
 	f := store02Setup(t)
+	must(t, f.s.WithStockKey(make([]byte, 32)))
 	must(t, f.repo.Within(context.Background(), f.shop, func(tx Tx) error {
 		var o Order
 		if err := tx.Get("orders", f.id, &o); err != nil {

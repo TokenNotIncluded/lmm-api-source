@@ -39,6 +39,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 		if out.State == Settled {
 			return nil
 		}
+		if stockOrder(out) && !s.StockReady() {
+			return ErrUnavailable
+		}
 		if out.RefundState == "requested" || out.State == RefundPending || out.State == Refunded {
 			return ErrConflict
 		}

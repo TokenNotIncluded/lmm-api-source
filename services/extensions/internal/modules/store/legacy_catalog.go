@@ -256,6 +256,8 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, err
 	}
 	switch r.Action {
+	case "stock_list", "stock_add", "stock_remove":
+		return s.legacyStock(ctx, actor, r)
 	case "cart", "favorites", "save_cart", "save_favorite", "delete_cart", "delete_favorite", "clear_cart", "clear_favorites", "cleanup_collections":
 		return s.collections(ctx, actor, r)
 	case "admin_categories", "save_category":
@@ -510,19 +512,31 @@ func validateLegacyVariant(in LegacyVariantInput) error {
 	if !Text(in.Name, 200) || in.PriceQuota < 500000 || in.PriceQuota > legacySafeInteger {
 		return ErrInvalid
 	}
-	// Fixed-content delivery and finite private code inventory need their own
-	// authenticated collection contract. Never claim delivery by just storing it.
-	if in.Template != "text" && in.Template != "fixed-content" && in.Template != "card" && in.Template != "account" {
-		return ErrInvalid
+	if stockTemplate(in.Template) {
+		if in.FixedContent != nil && *in.FixedContent != "" {
+			return ErrInvalid
+		}
+		return nil
+	}
+	if in.Template == "card" || in.Template == "account" {
+		return ErrUnavailable
 	}
 	if in.Template != "fixed-content" {
-		return ErrUnavailable
+		return ErrInvalid
 	}
 	if in.FixedContent == nil || !Text(*in.FixedContent, 16000) {
 		return ErrInvalid
 	}
 	return nil
 }
+func newLegacyVariant(id, productID string, in LegacyVariantInput, now int64) Variant {
+	metadata := &LegacyVariantMetadata{Template: in.Template, Enabled: in.Enabled, CreatedAt: now, UpdatedAt: now}
+	if in.FixedContent != nil {
+		metadata.FixedContent = *in.FixedContent
+	}
+	return Variant{ID: id, ProductID: productID, Title: in.Name, Price: Price{Amount: in.PriceQuota, Unit: "credits"}, TrackStock: stockTemplate(in.Template), Quota: -1, Legacy: metadata}
+}
+
 func validateLegacyInput(in LegacyProductInput) error {
 	if !Text(in.Title, 200) || len(in.Description) > 128000 || len(in.Contact) > 4000 || len(in.ImageURLs) > 30 || len(in.Links) > 30 || in.PriceQuota < 0 {
 		return ErrInvalid
@@ -675,7 +689,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 				if err != nil {
 					return err
 				}
-				variant := Variant{ID: id, ProductID: p.ID, Title: v.Name, Price: Price{Amount: v.PriceQuota, Unit: "credits"}, Quota: -1, Legacy: &LegacyVariantMetadata{Template: v.Template, Enabled: v.Enabled, FixedContent: *v.FixedContent, CreatedAt: now, UpdatedAt: now}}
+				variant := newLegacyVariant(id, p.ID, v, now)
 				if i == 0 {
 					m.DefaultVariantID = id
 					m.Template = v.Template
@@ -697,7 +711,10 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 				return ErrUnavailable
 			}
 			if in.FixedContent != nil {
-				if !Text(*in.FixedContent, 16000) {
+				if v.Legacy.Template != "fixed-content" && *in.FixedContent != "" {
+					return ErrInvalid
+				}
+				if v.Legacy.Template == "fixed-content" && !Text(*in.FixedContent, 16000) {
 					return ErrInvalid
 				}
 				v.Legacy.FixedContent = *in.FixedContent
@@ -762,7 +779,7 @@ func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row Loca
 			if err != nil {
 				return err
 			}
-			out = Variant{ID: id, ProductID: p.ID, Title: in.Name, Price: Price{Amount: in.PriceQuota, Unit: "credits"}, Quota: -1, Legacy: &LegacyVariantMetadata{Template: in.Template, Enabled: in.Enabled, FixedContent: *in.FixedContent, CreatedAt: now, UpdatedAt: now}}
+			out = newLegacyVariant(id, p.ID, in, now)
 		} else {
 			if err := tx.Get("variants", r.ChildID, &out); err != nil {
 				return err
@@ -781,6 +798,9 @@ func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row Loca
 			} else {
 				var in LegacyVariantInput
 				if legacyDecode(r.Body, &in) != nil {
+					return ErrInvalid
+				}
+				if in.Template != out.Legacy.Template {
 					return ErrInvalid
 				}
 				if in.FixedContent == nil {
@@ -856,9 +876,9 @@ func legacyVariantView(v Variant, defaultID string, ready bool) map[string]any {
 	return map[string]any{"id": v.ID, "product_id": v.ProductID, "name": v.Title, "price_quota": v.Price.Amount, "template": m.Template, "enabled": m.Enabled, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "is_default": v.ID == defaultID, "unlimited_supply": unlimited, "inventory_total": v.Stock, "inventory_available": available, "reserved_stock": v.Reserved, "sale_available": sale, "trading_paused": paused}
 }
 func legacyProductView(row LocatedProduct, public, ready bool) (map[string]any, error) {
-	return legacyProductViewFor(row, public, ready, 0)
+	return legacyProductViewFor(row, public, ready, true, 0)
 }
-func legacyProductViewFor(row LocatedProduct, public, ready bool, viewer int64) (map[string]any, error) {
+func legacyProductViewFor(row LocatedProduct, public, ready, stockReady bool, viewer int64) (map[string]any, error) {
 	p := row.Product
 	m := p.Legacy
 	if m == nil {
@@ -891,7 +911,7 @@ func legacyProductViewFor(row LocatedProduct, public, ready bool, viewer int64) 
 			return nil, ErrUnavailable
 		}
 		quotaConsumed += v.Claimed
-		view := legacyVariantView(v, m.DefaultVariantID, ready)
+		view := legacyVariantView(v, m.DefaultVariantID, ready && (!stockTemplate(v.Legacy.Template) || stockReady))
 		if v.ID == m.DefaultVariantID {
 			price = v.Price.Amount
 		}
@@ -965,7 +985,7 @@ func (s *Service) publicLegacyViewFor(row LocatedProduct, public bool, viewer in
 	if viewer > 0 && row.Owner == (Account{Kind: "personal", ID: viewer}) && !s.selfPurchaseAvailable() {
 		ready = false
 	}
-	view, err := legacyProductViewFor(row, public, ready, viewer)
+	view, err := legacyProductViewFor(row, public, ready, s.StockReady(), viewer)
 	if err == nil && view["record_kind"] == nil {
 		view["record_kind"] = "legacy"
 	}

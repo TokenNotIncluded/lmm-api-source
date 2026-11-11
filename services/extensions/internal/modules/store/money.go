@@ -68,11 +68,15 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 		if out.ID != c.OrderID {
 			return ErrConflict
 		}
+		requiresStockKey := (c.Action == "pay" || c.Action == "settle") && stockOrder(out) && !s.StockReady()
 		if err := tx.Get("money_operations", key, &op); err == nil {
 			if op.Command.Key != key || op.Command.Kind != c.Action {
 				return ErrConflict
 			}
 			if !op.Done {
+				if requiresStockKey {
+					return ErrUnavailable
+				}
 				return validatePendingMoney(c.ShopID, out, op)
 			}
 			if validateOrderCommand(c.ShopID, out, op.Command) != nil || !validMoneyReceipt(op.Command, op.Receipt) {
@@ -81,6 +85,9 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			return nil
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
+		}
+		if requiresStockKey {
+			return ErrUnavailable
 		}
 		if out.Total.Amount > 0 && !s.funds.Available() {
 			return ErrPaymentUnavailable

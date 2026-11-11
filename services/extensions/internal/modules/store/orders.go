@@ -171,6 +171,9 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 				return ErrPaymentUnavailable
 			}
 		}
+		if product.Legacy != nil && stockTemplate(v.Legacy.Template) && !s.StockReady() {
+			return ErrUnavailable
+		}
 		if err := v.reserve(p.Quantity); err != nil {
 			return err
 		}
@@ -296,6 +299,9 @@ func (s *Service) ChangeOrder(ctx context.Context, token string, c OrderChange) 
 					return ErrConflict
 				}
 				return nil
+			}
+			if stockOrder(out) && !s.StockReady() {
+				return ErrUnavailable
 			}
 			if out.State != Paid || out.RefundState == "requested" {
 				return ErrConflict

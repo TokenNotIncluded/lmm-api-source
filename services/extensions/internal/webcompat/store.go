@@ -457,6 +457,12 @@ func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService
 		{pattern: "POST /api/store/products/{id}/promotions/quote", action: "promotion_quote", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "GET /api/store/orders/{id}/pickup-link", action: "pickup_link"},
 		{pattern: "GET /api/store/products/{id}/variants/{child_id}/fixed-content", action: "fixed_content"},
+		{pattern: "GET /api/store/products/{id}/inventory", action: "stock_list", page: true},
+		{pattern: "POST /api/store/products/{id}/inventory", action: "stock_add", bodyLimit: 4 << 20, requiredBody: true},
+		{pattern: "DELETE /api/store/products/{id}/inventory/{stock_id}", action: "stock_remove", bodyLimit: 4 << 10},
+		{pattern: "GET /api/store/products/{id}/variants/{child_id}/inventory", action: "stock_list", page: true},
+		{pattern: "POST /api/store/products/{id}/variants/{child_id}/inventory", action: "stock_add", bodyLimit: 4 << 20, requiredBody: true},
+		{pattern: "DELETE /api/store/products/{id}/variants/{child_id}/inventory/{stock_id}", action: "stock_remove", bodyLimit: 4 << 10},
 		{pattern: "GET /api/store/admin/categories", action: "admin_categories", page: true},
 		{pattern: "POST /api/store/admin/categories", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "PUT /api/store/admin/categories/{id}", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},
@@ -590,8 +596,8 @@ func storeCategoryID(id string) bool {
 	return true
 }
 func storeLegacyQuery(r *http.Request, route storeWebRoute) (store.LegacyRequest, error) {
-	request := store.LegacyRequest{Action: route.action, ID: r.PathValue("id"), ChildID: r.PathValue("child_id")}
-	if request.ID != "" && !supportID(request.ID) || request.ChildID != "" && !supportID(request.ChildID) {
+	request := store.LegacyRequest{Action: route.action, ID: r.PathValue("id"), ChildID: r.PathValue("child_id"), StockID: r.PathValue("stock_id")}
+	if request.ID != "" && !supportID(request.ID) || request.ChildID != "" && !supportID(request.ChildID) || request.StockID != "" && !supportID(request.StockID) {
 		return request, store.ErrInvalid
 	}
 	var keys []string
