@@ -4,7 +4,8 @@
 Reads the legacy schema read-only and writes one owner-only SERIALIZABLE
 transaction per phase into a freshly initialized Core database. Each phase
 refuses a non-empty target for the tables it owns, so a phase cannot run twice.
-Legacy user IDs are kept as Core user and personal account IDs.
+Continuation phases consume the committed safe identity map. Native user IDs
+are preserved; personal accounts are resolved independently through that map.
 
 Connections use local Unix sockets only (libpq environment), never DSNs in argv.
 Private SQL plans and reports are written under --output (0700, under ~/.local/state/lmm-api).
@@ -52,6 +53,7 @@ GOOGLE_SOURCE_CONTRACT = {
     "email_field": "email",
 }
 PHASES = ("identity", "opening") + KEYS.PHASES + MONEY.PHASES + HISTORY.PHASES + ("referrals",)
+MAPPED_PHASES = ("opening", "keys", "subscriptions", "bounties", "wallet", "history")
 
 
 def fail(code: str) -> None:
@@ -65,6 +67,68 @@ def jlit(value) -> str:
 def digest(value) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str,
                                      separators=(",", ":")).encode()).hexdigest()
+
+
+def load_identity_binding(map_path: Path, manifest_path: Path, archive_sha: str,
+                          source_user_ids: list[int]) -> dict:
+    """Reuse the formal financial planner's identity provenance contract."""
+    import financial_import as F
+    map_path = F.IDENTITY.private_backup_path(map_path)
+    manifest_path = F.IDENTITY.private_backup_path(manifest_path)
+    rows = [F.PLANNER.parse_json(line) for line in map_path.read_text().splitlines() if line]
+    accounts = F.PLANNER.identity_index(rows)
+    manifest = F.PLANNER.parse_json(manifest_path.read_text())
+    provenance = F.PLANNER.bind_identity_provenance(manifest,
+        map_file_sha256=F.IDENTITY.sha256_file(map_path), source_archive_sha256=archive_sha)
+    if len(source_user_ids) != len(set(source_user_ids)) or set(accounts) != set(source_user_ids):
+        fail("identity_source_user_coverage_mismatch")
+    return {"accounts": accounts, "provenance": provenance}
+
+
+def verify_identity_binding(target, binding: dict) -> None:
+    actual = json.loads(target.run("SELECT json_build_object('users',"
+        "(SELECT coalesce(json_agg(json_build_object('id',u.id,'personal_account_id',u.personal_account_id,"
+        "'kind',a.kind)),'[]') FROM core_identity.users u LEFT JOIN core_identity.accounts a "
+        "ON a.id=u.personal_account_id),'runs',"
+        "(SELECT coalesce(json_agg(to_jsonb(r)),'[]') FROM core_migration.import_runs r "
+        "WHERE manifest->>'scope'='identity-only'))"))
+    proof = binding["provenance"]
+    runs = actual["runs"]
+    if len(runs) != 1 or any(runs[0][key] != expected for key, expected in (
+        ("source_archive_sha256", proof["source_archive_sha256"]),
+        ("mapping_sha256", proof["identity_mapping_sha256"]),
+        ("manifest", proof["expected_identity_manifest"]))):
+        fail("target_identity_import_run_mismatch")
+    users = actual["users"]
+    if (len(users) != len(binding["accounts"])
+            or any(row["kind"] != "personal" for row in users)
+            or {row["id"]: row["personal_account_id"] for row in users} != binding["accounts"]):
+        fail("target_identity_account_map_mismatch")
+
+
+def identity_guard_sql(binding: dict) -> str:
+    """Repeat provenance and native user/account readback under transaction locks."""
+    proof = binding["provenance"]
+    rows = [{"id": uid, "personal_account_id": aid} for uid, aid in sorted(binding["accounts"].items())]
+    return f"""DO $identity_binding$
+BEGIN
+ PERFORM pg_advisory_xact_lock(741803121);
+ LOCK TABLE core_identity.users,core_identity.accounts,core_migration.import_runs IN SHARE MODE;
+ IF (SELECT count(*) FROM core_migration.import_runs WHERE manifest->>'scope'='identity-only')<>1
+ OR NOT EXISTS(SELECT 1 FROM core_migration.import_runs
+  WHERE source_archive_sha256={lit(proof['source_archive_sha256'])}
+   AND mapping_sha256={lit(proof['identity_mapping_sha256'])}
+   AND manifest={jlit(proof['expected_identity_manifest'])}) THEN
+  RAISE EXCEPTION 'target_identity_import_run_mismatch';
+ END IF;
+ IF (SELECT count(*) FROM core_identity.users)<>{len(rows)}
+ OR EXISTS(SELECT 1 FROM jsonb_to_recordset({jlit(rows)}) e(id BIGINT,personal_account_id BIGINT)
+  LEFT JOIN core_identity.users u ON u.id=e.id
+  LEFT JOIN core_identity.accounts a ON a.id=u.personal_account_id
+  WHERE u.personal_account_id IS DISTINCT FROM e.personal_account_id OR a.kind IS DISTINCT FROM 'personal') THEN
+  RAISE EXCEPTION 'target_identity_account_map_mismatch';
+ END IF;
+END $identity_binding$;"""
 
 
 class Db:
@@ -331,14 +395,15 @@ def plan_identity(data: dict, archive_sha: str) -> tuple[list[str], dict]:
 
 def plan_opening(data: dict, archive_sha: str, migration_id: str, observed_at: int) -> tuple[list[str], dict]:
     users = data["users"]
-    mapping = digest([[u["id"], u["id"]] for u in users])
+    mapping = digest([[u["id"], KEYS.personal_account(data, u["id"])] for u in users])
     sql, stats = [], Counter()
     for u in users:
         uid = u["id"]
         row = digest({k: u[k] for k in ("id", "quota", "used_quota", "request_count", "aff_quota", "aff_history")})
         base = {"migration_id": migration_id, "source_entity_key": f"user:{uid}",
                 "source_archive_sha256": archive_sha, "mapping_sha256": mapping,
-                "source_row_sha256": row, "observed_at": observed_at, "account_id": uid}
+                "source_row_sha256": row, "observed_at": observed_at,
+                "account_id": KEYS.personal_account(data, uid)}
         sql.append("SELECT core_billing.import_opening_balance(" + jlit({
             **base, "available_units": u["quota"] or 0, "reserved_units": 0,
             "affiliate_units": u["aff_quota"] or 0}) + ");")
@@ -379,12 +444,16 @@ def main() -> int:
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--apply", action="store_true")
     p.add_argument("--api-key-encryption-key-file", type=Path, help="keys: Core 32-byte recovery key")
+    p.add_argument("--identity-map", type=Path, help="Original safe source-target-id-map.private.jsonl")
+    p.add_argument("--identity-manifest", type=Path, help="Original committed identity-only manifest.private.json")
     p.add_argument("--referral-source", type=Path, help="referrals: private frozen source export")
     p.add_argument("--referral-review", type=Path, help="referrals: source-bound reviewed credit terms")
     HISTORY.add_arguments(p)
     a = p.parse_args()
     if not re.fullmatch(r"[0-9a-f]{64}", a.archive_sha256):
         fail("archive_sha256_invalid")
+    if a.phase in MAPPED_PHASES and (a.identity_map is None or a.identity_manifest is None):
+        fail("committed_identity_map_and_manifest_required")
     a.output.mkdir(mode=0o700, parents=False, exist_ok=True)
     if a.phase == "referrals":
         if a.referral_source is None or a.referral_review is None:
@@ -400,10 +469,20 @@ def main() -> int:
         src = Db(a.socket, a.port, a.source_db, a.source_user, readonly=True)
         data = load_source(src, a.source_schema)
         target = Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner, readonly=True)
+        guards = []
+        if a.phase in MAPPED_PHASES:
+            binding = load_identity_binding(a.identity_map, a.identity_manifest, a.archive_sha256,
+                                           [u["id"] for u in data["users"]])
+            verify_identity_binding(target, binding)
+            data["identity_binding"] = a.identity_binding = binding
+            guards.append(identity_guard_sql(binding))
         if a.phase in KEYS.PHASES:
             sql, stats = KEYS.plan(a.phase, data, a, target)
         elif a.phase in MONEY.PHASES:
             data.update(MONEY.load_source(src, a.source_schema))
+            if a.phase in ("subscriptions", "bounties", "wallet"):
+                MONEY.bind_opening(data, target, a.archive_sha256, a.observed_at)
+                guards.append(MONEY.opening_guard_sql(data))
             sql, stats = MONEY.plan(a.phase, data, a.archive_sha256, a.migration_id, a.observed_at)
         elif a.phase in HISTORY.PHASES:
             sql, stats = HISTORY.plan(a.phase, a, src, target)
@@ -412,6 +491,7 @@ def main() -> int:
         else:
             sql, stats = plan_opening(data, a.archive_sha256, a.migration_id, a.observed_at)
         script = ("BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL synchronous_commit=on;\n"
+                  + "\n".join(guards) + "\n"
                   f"DO $$BEGIN IF ({GUARDS[a.phase]})<>0 THEN RAISE EXCEPTION 'phase target not empty'; END IF; END$$;\n"
                   + "\n".join(sql) + "\nCOMMIT;\n")
     plan = a.output / f"{a.phase}.sql"
@@ -423,6 +503,10 @@ def main() -> int:
     if a.apply:
         Db(a.socket, a.port, a.target_db, a.target_login, role=a.target_owner, readonly=False).run(script)
         report["applied"] = True
+        if a.phase in MAPPED_PHASES:
+            verify_identity_binding(target, binding)
+            report["identity_binding_readback"] = {"matched_users": len(binding["accounts"]),
+                "identity_manifest_sha256": binding["provenance"]["identity_manifest_sha256"]}
         if a.phase in KEYS.PHASES:
             report.update(KEYS.after_apply(a.phase, data, a.output, target))
     (a.output / f"{a.phase}-report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))

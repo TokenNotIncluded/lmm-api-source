@@ -79,7 +79,9 @@ class DiscountPaymentLifecycleTest(unittest.TestCase):
 
     def test_wallet_keeps_timeout_status_and_quarantines_missing_owners(self):
         timeout={"id":11,"user_id":1,"status":"failed","payment_provider":"waffo_pancake","failure_reason_code":"checkout_timeout","credited_quota":123}
-        data={"users":[{"id":1}],"wallet_transfers":[],"top_ups_payable":[timeout,{**timeout,"id":12,"user_id":9}]}
+        data={"users":[{"id":1}],"wallet_transfers":[],"top_ups_payable":[timeout,{**timeout,"id":12,"user_id":9}],
+              "identity_binding":{"accounts":{1:7}},
+              "opening_binding":{"run":{"migration_id":"formal-opening","mapping_sha256":"b"*64}}}
         sql,stats=plan_wallet(data,"a"*64,"fixture",100)
         self.assertEqual(stats["pending_topup_liabilities"],1)
         self.assertEqual(stats["late_payable_timeout_topup_liabilities"],1)
@@ -89,6 +91,10 @@ class DiscountPaymentLifecycleTest(unittest.TestCase):
         self.assertEqual(request["status"],"failed")
         self.assertEqual(request["payload_json"],timeout)
         self.assertEqual(request["settlement_state"],"unknown")
+        self.assertEqual(request["owner_user_id"],1)
+        self.assertEqual(request["owner_account_id"],7)
+        self.assertEqual(request["migration_id"],"formal-opening")
+        self.assertEqual(request["mapping_sha256"],"b"*64)
         self.assertIs(request["spendable"],False)
         self.assertEqual(request["spendable_units"],0)
         self.assertNotIn('post_ledger',"".join(sql))

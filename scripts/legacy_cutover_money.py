@@ -20,6 +20,7 @@ from collections import Counter, defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 
 from legacy_sql import literal as lit
+from legacy_cutover_keys import personal_account
 
 
 
@@ -150,8 +151,60 @@ def superadmin(data: dict) -> int:
 
 
 def opening_mapping(data: dict) -> str:
-    # Must equal plan_opening's mapping so owner functions bind the same run.
-    return digest([[u["id"], u["id"]] for u in data["users"]])
+    return opening_run(data)["mapping_sha256"]
+
+
+def opening_run(data: dict) -> dict:
+    run = data.get("opening_binding", {}).get("run")
+    if not isinstance(run, dict):
+        fail("committed_opening_binding_missing")
+    return run
+
+
+def bind_opening(data: dict, target, archive_sha: str, observed_at: int) -> None:
+    """Use the actual formal opening run, including its financial plan hash."""
+    actual = json.loads(target.run("SELECT json_build_object('runs',"
+        "(SELECT coalesce(json_agg(to_jsonb(r)),'[]') FROM core_billing.opening_import_runs r),"
+        "'imports',(SELECT coalesce(json_agg(json_build_object('migration_id',migration_id,"
+        "'account_id',account_id)),'[]') FROM core_billing.opening_imports),"
+        "'counters',(SELECT coalesce(json_agg(json_build_object('migration_id',migration_id,"
+        "'user_id',user_id,'account_id',account_id)),'[]') FROM core_billing.account_opening_counters))"))
+    if len(actual["runs"]) != 1:
+        fail("committed_opening_run_missing_or_ambiguous")
+    run = actual["runs"][0]
+    if run["source_archive_sha256"] != archive_sha or run["observed_at"] != observed_at:
+        fail("committed_opening_source_mismatch")
+    accounts = data["identity_binding"]["accounts"]
+    if (len(actual["imports"]) != len(accounts)
+            or {row["account_id"] for row in actual["imports"]} != set(accounts.values())
+            or len(actual["counters"]) != len(accounts)
+            or {row["user_id"]: row["account_id"] for row in actual["counters"]} != accounts
+            or any(row["migration_id"] != run["migration_id"]
+                   for row in actual["imports"] + actual["counters"])):
+        fail("committed_opening_account_map_mismatch")
+    data["opening_binding"] = {"run": run}
+
+
+def opening_guard_sql(data: dict) -> str:
+    run = opening_run(data)
+    rows = [{"user_id": uid, "account_id": aid}
+            for uid, aid in sorted(data["identity_binding"]["accounts"].items())]
+    return f"""DO $opening_binding$
+BEGIN
+ LOCK TABLE core_billing.opening_import_runs,core_billing.opening_imports,
+  core_billing.account_opening_counters IN SHARE MODE;
+ IF (SELECT count(*) FROM core_billing.opening_import_runs)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_billing.opening_import_runs r WHERE to_jsonb(r)={jlit(run)})
+ OR (SELECT count(*) FROM core_billing.opening_imports)<>{len(rows)}
+ OR (SELECT count(*) FROM core_billing.account_opening_counters)<>{len(rows)}
+ OR EXISTS(SELECT 1 FROM jsonb_to_recordset({jlit(rows)}) e(user_id BIGINT,account_id BIGINT)
+  WHERE NOT EXISTS(SELECT 1 FROM core_billing.opening_imports i
+   WHERE i.account_id=e.account_id AND i.migration_id={lit(run['migration_id'])})
+  OR NOT EXISTS(SELECT 1 FROM core_billing.account_opening_counters c WHERE c.user_id=e.user_id
+   AND c.account_id=e.account_id AND c.migration_id={lit(run['migration_id'])})) THEN
+  RAISE EXCEPTION 'committed_opening_binding_changed';
+ END IF;
+END $opening_binding$;"""
 
 
 def usd_units(amount: Decimal, currency: str, options: dict) -> int:
@@ -167,10 +220,11 @@ def usd_units(amount: Decimal, currency: str, options: dict) -> int:
 def pending_liability(data, table, row, *, archive_sha, migration_id, observed_at, amount_fields, currency_fields):
     uid = row["user_id"]
     return "SELECT core_billing.import_legacy_pending_liability(" + jlit({
-        "migration_id": migration_id, "source_archive_sha256": archive_sha,
+        "migration_id": opening_run(data)["migration_id"], "source_archive_sha256": archive_sha,
         "mapping_sha256": opening_mapping(data), "source_table": table, "source_row_key": str(row["id"]),
         "source_row_sha256": digest(row), "source_parent_plan_sha256": None,
-        "owner_user_id": uid, "owner_account_id": uid, "status": row["status"], "settlement_state": "unknown",
+        "owner_user_id": uid, "owner_account_id": personal_account(data, uid),
+        "status": row["status"], "settlement_state": "unknown",
         "payload_json": row, "amount_raw_json": {k: row.get(k) for k in amount_fields},
         "currency_raw_json": {k: row.get(k) for k in currency_fields},
         "spendable": False, "spendable_units": 0, "observed_at": observed_at,
@@ -213,7 +267,7 @@ def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
     return terms, bool(p["archived_at"])
 
 
-def subscription_record(s: dict, plan: dict, observed_at: int, migration_id: str) -> dict:
+def subscription_record(s: dict, plan: dict, observed_at: int, migration_id: str, *, account_id: int) -> dict:
     period = PERIODS.get(plan["quota_reset_period"]) or fail("subscription_period_unsupported")
     # allow_wallet_overflow maps to the account billing preference in Core, not the grant.
     if any(s.get(k) for k in ("upgrade_group", "prev_user_group", "downgrade_group")):
@@ -235,7 +289,7 @@ def subscription_record(s: dict, plan: dict, observed_at: int, migration_id: str
         reset_basis = "explicit"
         if period == "custom":
             seconds = plan["quota_reset_custom_seconds"]
-    return {"source_id": s["id"], "account_id": s["user_id"], "period": period, "anchor": start,
+    return {"source_id": s["id"], "account_id": account_id, "period": period, "anchor": start,
             "seconds": seconds, "ends_at": end, "limit_credits": 0 if unlimited else total,
             "unlimited": unlimited, "reset_basis": reset_basis, "reset_limit_credits": reset_limit,
             "reset_unlimited": reset_unlimited,
@@ -285,7 +339,8 @@ def plan_subscriptions(data, archive_sha, migration_id, observed_at):
     for s in data["user_subscriptions"]:
         if s["user_id"] not in users or s["plan_id"] not in plans:
             fail("subscription_orphan")
-        r = subscription_record(s, plans[s["plan_id"]], observed_at, migration_id)
+        r = subscription_record(s, plans[s["plan_id"]], observed_at, migration_id,
+                                account_id=personal_account(data, s["user_id"]))
         sql.append("INSERT INTO core_charging.subscriptions(account_id,grant_reference,period,timezone,anchor,seconds,"
                    "ends_at,limit_credits,unlimited,reset_basis,reset_limit_credits,reset_unlimited,models,groups,active) "
                    f"VALUES({r['account_id']},{lit(r['grant_reference'])},{lit(r['period'])},'UTC',{r['anchor']},"
@@ -431,7 +486,8 @@ def plan_bounties(data, archive_sha, migration_id, observed_at):
             if c["participant_user_id"] not in users or c["participant_user_id"] == p["owner_user_id"]:
                 fail("bounty_claim_participant_invalid")
             claims.append({"source_challenge_id": c["id"], "participant_user_id": c["participant_user_id"],
-                           "recipient_account_id": c["participant_user_id"], "source_row_sha256": digest(c),
+                           "recipient_account_id": personal_account(data, c["participant_user_id"]),
+                           "source_row_sha256": digest(c),
                            "rights_status": "historical_rejection_guard_only" if guard_only else "active_future_reward",
                            "source_reward_quota": c["reward_quota"],
                            "payout_units": None if guard_only else c["reward_quota"],
@@ -441,7 +497,7 @@ def plan_bounties(data, archive_sha, migration_id, observed_at):
         if owed > p["escrow_quota"]:
             fail("bounty_escrow_short")
         projects.append({"source_project_id": p["id"], "owner_user_id": p["owner_user_id"],
-                         "payer_account_id": p["owner_user_id"], "source_row_sha256": digest(p),
+                         "payer_account_id": personal_account(data, p["owner_user_id"]), "source_row_sha256": digest(p),
                          "source_parent_plan_sha256": archive_sha, "escrow_units": p["escrow_quota"],
                          "status": p["status"], "claims": claims,
                          "disputes": [{"source_dispute_id": d["id"], "source_challenge_id": d["challenge_id"],
@@ -454,13 +510,14 @@ def plan_bounties(data, archive_sha, migration_id, observed_at):
         stats["escrow_owed_active_units"] += owed
     sql = []
     if projects:
-        batch = {"migration_id": migration_id, "source_archive_sha256": archive_sha,
+        batch = {"migration_id": opening_run(data)["migration_id"], "source_archive_sha256": archive_sha,
                  "mapping_sha256": opening_mapping(data), "review_proof_sha256": digest(projects),
                  "unit": "credit_500k_usd", "observed_at": observed_at, "projects": projects}
         sql.append("SELECT core_billing.import_legacy_escrow_batch(" + jlit(batch) + ");")
     fee_bps = int(Decimal(data["options"].get("OpenSourceBountyFeeRate") or "0") * 100)
-    sql.append(f"INSERT INTO core_bounties.policy(id,fee_bps,fee_account_id) VALUES(TRUE,{fee_bps},{superadmin(data)});")
-    stats.update(fee_bps=fee_bps, fee_account_id=superadmin(data), disputes=len(data["bounty_disputes"]))
+    fee_account = personal_account(data, superadmin(data))
+    sql.append(f"INSERT INTO core_bounties.policy(id,fee_bps,fee_account_id) VALUES(TRUE,{fee_bps},{fee_account});")
+    stats.update(fee_bps=fee_bps, fee_account_id=fee_account, disputes=len(data["bounty_disputes"]))
     return sql, dict(stats)
 
 
@@ -498,6 +555,7 @@ def plan_wallet(data, archive_sha, migration_id, observed_at):
                 or not 0 < t["created_at"] <= observed_at
                 or t.get("recipient_id", 0) or t.get("claimed_at", 0) or t.get("cancelled_at", 0)):
             fail("wallet_transfer_invalid")
+        payer = personal_account(data, sender)
         request = {"importer": "legacy_cutover_money", "migration_id": migration_id,
                    "source_archive_sha256": archive_sha, "mapping_sha256": mapping,
                    "observed_at": observed_at, "source_table": "wallet_transfers",
@@ -505,20 +563,20 @@ def plan_wallet(data, archive_sha, migration_id, observed_at):
                    "funding": "legacy already-debited pending liability"}
         hold = {"scope": "core-wallet-transfer", "operation_key": f"hold-{tid}",
                 "actor_user_id": sender, "reason": "Imported pending personal wallet transfer",
-                "action": {"kind": "reserve", "account_id": sender, "amount_units": amount}}
+                "action": {"kind": "reserve", "account_id": payer, "amount_units": amount}}
         sql.append(f"""DO $wt$DECLARE w BIGINT; c BIGINT; j BIGINT; h JSONB; before_units BIGINT; BEGIN
  IF current_user<>pg_get_userbyid((SELECT nspowner FROM pg_namespace WHERE nspname='core_billing'))
    OR current_setting('transaction_isolation')<>'serializable' OR current_setting('synchronous_commit')<>'on' THEN
   RAISE EXCEPTION 'wallet import requires durable offline owner transaction';
  END IF;
  IF NOT EXISTS(SELECT 1 FROM core_billing.opening_import_runs r JOIN core_billing.opening_imports i USING(migration_id)
-   WHERE r.migration_id={lit(migration_id)} AND r.source_archive_sha256={lit(archive_sha)}
-   AND r.mapping_sha256={lit(mapping)} AND r.observed_at={observed_at} AND i.account_id={sender}) THEN
+   WHERE r.migration_id={lit(opening_run(data)['migration_id'])} AND r.source_archive_sha256={lit(archive_sha)}
+   AND r.mapping_sha256={lit(mapping)} AND r.observed_at={observed_at} AND i.account_id={payer}) THEN
   RAISE EXCEPTION 'wallet import opening provenance mismatch';
  END IF;
  INSERT INTO core_wallet.transfers(id,owner_user,payer_account,request_key,amount,token_digest,created_at) OVERRIDING SYSTEM VALUE
-  VALUES({tid},{sender},{sender},{lit(t['request_key'])},{amount},sha256(convert_to({lit(t['token'])},'UTF8')),{t['created_at']});
- SELECT id INTO STRICT w FROM core_billing.ledger_accounts WHERE owner_account_id={sender} AND bucket='wallet';
+  VALUES({tid},{sender},{payer},{lit(t['request_key'])},{amount},sha256(convert_to({lit(t['token'])},'UTF8')),{t['created_at']});
+ SELECT id INTO STRICT w FROM core_billing.ledger_accounts WHERE owner_account_id={payer} AND bucket='wallet';
  SELECT id INTO STRICT c FROM core_billing.ledger_accounts WHERE bucket='clearing';
  PERFORM ledger_account_id FROM core_billing.balance_state WHERE ledger_account_id IN(w,c) ORDER BY ledger_account_id FOR NO KEY UPDATE;
  SELECT balance_units INTO STRICT before_units FROM core_billing.balance_state WHERE ledger_account_id=w;

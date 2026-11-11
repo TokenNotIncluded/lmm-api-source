@@ -4,8 +4,9 @@
 
 Registered by legacy_cutover_import.py; each phase is one owner SERIALIZABLE
 transaction guarded by an empty target table. Source reads are read-only.
-Legacy user IDs are Core user and personal account IDs; legacy channel IDs are
-Core channel identity IDs. Nothing here funds wallets, posts usage or issues
+Legacy user IDs remain native user IDs; personal accounts use the committed
+safe identity map. Legacy channel IDs are Core channel identity IDs.
+Nothing here funds wallets, posts usage or issues
 OAuth tokens. Items that Core cannot represent are counted in the report.
 
 Reused reviewed semantics: legacy_history_import.captured_basis (per-log price
@@ -129,7 +130,12 @@ def plan_history(a, src, tgt):
     schema, archive = a.source_schema, a.archive_sha256
     stats = Counter()
     owners = {r["id"]: r["personal_account_id"] for r in query(tgt, "SELECT id,personal_account_id FROM core_identity.users")}
+    binding = getattr(a, "identity_binding", None)
+    if binding is None or owners != binding["accounts"]:
+        fail("history_identity_account_map_mismatch")
     creds = {r["id"]: r for r in query(tgt, "SELECT id,user_id,owner_account_id FROM core_identity.credentials WHERE kind='api_key'")}
+    if any(c["user_id"] not in owners or c["owner_account_id"] != owners[c["user_id"]] for c in creds.values()):
+        fail("history_credential_account_map_mismatch")
     rows, excluded = [], []
     out = src.run(f"SET search_path={schema};SELECT row_to_json(l)::text FROM logs l ORDER BY id")
     for line in out.splitlines():
@@ -163,7 +169,8 @@ def plan_history(a, src, tgt):
         stats["logs_priced"] += r["pricing_credits_per_usd"] is not None
         if r["log_type"] == 2:
             stats["consume_quota_sum"] += r["quota"] or 0
-    mapping = {"identities": sorted(owners.items()), "credentials": sorted(
+    mapping = {"identity_manifest_sha256": binding["provenance"]["identity_manifest_sha256"],
+               "identities": sorted(owners.items()), "credentials": sorted(
         (k, v["user_id"]) for k, v in creds.items()), "excluded": excluded}
     source = {"contract_version": "core.history-source.v1", "source_archive_sha256": archive,
               "mapping_sha256": sha(mapping), "source_namespace": f"legacy.logs:{schema}",
@@ -223,7 +230,8 @@ def plan_history(a, src, tgt):
                str(stats["quota_aggregate_credits"]) + " THEN RAISE EXCEPTION 'quota_readback_mismatch'; END IF; END$$;")
     # Site finance observations (admin site statistics), reviewed legacy rules.
     run = query(tgt, "SELECT * FROM core_billing.opening_import_runs")
-    if len(run) != 1:
+    if (len(run) != 1 or run[0]["source_archive_sha256"] != archive
+            or run[0]["observed_at"] != a.observed_at):
         fail("history_opening_run_missing")
     run = run[0]
     counters = {r["user_id"]: r for r in query(tgt, "SELECT user_id,account_id,source_row_sha256,used_quota "

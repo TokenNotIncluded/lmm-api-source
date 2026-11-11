@@ -50,6 +50,15 @@ def fail(code: str) -> None:
     raise SystemExit(f"error: {code}")
 
 
+def personal_account(data: dict, user_id: int) -> int:
+    """Resolve an account through the verified identity map, never a user ID."""
+    accounts = data.get("identity_binding", {}).get("accounts", {})
+    account = accounts.get(user_id)
+    if type(user_id) is not int or type(account) is not int or account <= 0:
+        fail("personal_account_mapping_missing")
+    return account
+
+
 def arr(values, cast: str = "text[]") -> str:
     return "ARRAY[" + ",".join(lit(v) for v in values) + f"]::{cast}"
 
@@ -149,6 +158,7 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
         user = users.get(uid)
         if user is None or uid not in versions:
             fail("token_owner_unmapped")
+        account = personal_account(data, uid)
         digest = sha(raw.encode())
         if digest in digests or not 32 <= len(raw) <= 256 or re.fullmatch(r"[A-Za-z0-9_-]+", raw) is None:
             fail("token_secret_unsupported")
@@ -230,7 +240,7 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
         sql.append(
             "INSERT INTO core_identity.credentials(id,digest,kind,user_id,user_version,owner_account_id,"
             "personal_billing_preference,expires_at,revoked_at,created_at,session_started_at) OVERRIDING SYSTEM VALUE "
-            f"VALUES({tid},decode({lit(digest)},'hex'),'api_key',{uid},{version},{uid},{lit(preference)},"
+            f"VALUES({tid},decode({lit(digest)},'hex'),'api_key',{uid},{version},{account},{lit(preference)},"
             f"to_timestamp({expires}),{revoked_at},to_timestamp({created}),to_timestamp({created}));")
         sql.append(
             "INSERT INTO core_identity.api_key_settings(credential_id,name,enabled,one_time_reveal,encrypted_secret,"
@@ -238,7 +248,7 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
             f"accessed_at) VALUES({tid},{lit(name)},{lit(t['status'] == 1)},{lit(not recoverable)},{encrypted},"
             f"{lit(bool(t['model_limits_enabled']))},{arr(models)},{arr(ips)}::inet[],{lit(group)},{arr(auto)},"
             f"{lit(retry)},{lit(bool(t['account_balance_read']))},{accessed});")
-        sql.append(f"INSERT INTO core_identity.key_funding_rules(credential_id,position,payer_account_id) VALUES({tid},0,{uid});")
+        sql.append(f"INSERT INTO core_identity.key_funding_rules(credential_id,position,payer_account_id) VALUES({tid},0,{account});")
         sql.append(
             "INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,limit_credits,unlimited,"
             f"display_limit_credits) VALUES('key',{tid},{uid},'lifetime',{0 if unlimited else basis},{lit(unlimited)},"
@@ -248,13 +258,20 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
             f"consumed_credits,import_reference) VALUES('key',{tid},'lifetime',{LIFETIME_START},{LIFETIME_END},{used},"
             f"{lit(f'key-quota:{a.migration_id}:{tid}')});")
         records.append({"source_key_id": tid, "target_credential_id": tid, "target_user_id": uid,
-                        "target_account_id": uid, "credential_user_version": version,
+                        "target_account_id": account, "credential_user_version": version,
                         "source_secret_sha256": digest, "sk_alias_sha256": sha(("sk-" + raw).encode()),
                         "revoked_rekey_required": managed})
     if digests & {r["sk_alias_sha256"] for r in records}:
         fail("legacy_alias_digest_collision")
-    sql.append("SELECT setval(pg_get_serial_sequence('core_identity.credentials','id'),"
-               f"{max(r['source_key_id'] for r in records)});")
+    sql.append("DO $$BEGIN IF EXISTS(SELECT 1 FROM core_identity.credentials c "
+               "JOIN core_identity.users u ON u.id=c.user_id WHERE c.kind='api_key' AND "
+               "(c.owner_account_id IS DISTINCT FROM u.personal_account_id OR NOT EXISTS("
+               "SELECT 1 FROM core_identity.key_funding_rules f WHERE f.credential_id=c.id "
+               "AND f.position=0 AND f.payer_account_id=u.personal_account_id))) THEN "
+               "RAISE EXCEPTION 'credential_account_readback_mismatch'; END IF; END$$;")
+    if records:
+        sql.append("SELECT setval(pg_get_serial_sequence('core_identity.credentials','id'),"
+                   f"{max(r['source_key_id'] for r in records)});")
     receipt = {"scope": "a02-credential-mapping-receipt", "source_archive_sha256": a.archive_sha256,
                "records": [{k: r[k] for k in ("source_key_id", "target_credential_id", "target_user_id",
                                                "target_account_id", "source_secret_sha256")} for r in records]}
@@ -344,7 +361,11 @@ def reconcile_keys(data: dict, target) -> dict:
         "'used',(SELECT coalesce(sum(consumed_credits),0) FROM core_charging.budget_opening_consumption o"
         " WHERE o.scope='key' AND o.key_id=c.id),'unlimited',(SELECT bool_and(unlimited) FROM core_charging.budgets b"
         " WHERE b.scope='key' AND b.key_id=c.id),'digest',encode(c.digest,'hex'),'user_id',c.user_id,"
+        "'owner_account_id',c.owner_account_id,'personal_account_id',u.personal_account_id,"
+        "'payer_account_id',(SELECT payer_account_id FROM core_identity.key_funding_rules f "
+        "WHERE f.credential_id=c.id AND position=0),"
         "'enabled',s.enabled,'revoked',c.revoked_at IS NOT NULL)),'[]') FROM core_identity.credentials c"
+        " JOIN core_identity.users u ON u.id=c.user_id"
         " JOIN core_identity.api_key_settings s ON s.credential_id=c.id WHERE c.kind='api_key'"))
     core = {r["id"]: r for r in rows}
     mismatches = Counter()
@@ -358,6 +379,9 @@ def reconcile_keys(data: dict, target) -> dict:
         mismatches["unlimited"] += r["unlimited"] != bool(t["unlimited_quota"])
         mismatches["digest"] += r["digest"] != sha((t["key"] or "").encode())
         mismatches["user"] += r["user_id"] != t["user_id"]
+        account = personal_account(data, t["user_id"])
+        for field in ("owner_account_id", "personal_account_id", "payer_account_id"):
+            mismatches[field] += r[field] != account
         mismatches["enabled"] += r["enabled"] != (t["status"] == 1)
         mismatches["revoked_deleted"] += (t["deleted_at"] is not None) and not r["revoked"]
     return {"legacy_tokens": len(data["tokens"]), "core_api_keys": len(core),
