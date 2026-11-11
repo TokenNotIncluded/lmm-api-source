@@ -12,7 +12,7 @@ class SubscriptionTermsTest(unittest.TestCase):
                 "id": 1, "duration_unit": unit, "duration_value": 1,
                 "quota_reset_period": "never", "title": "Calendar", "price_amount": "2",
                 "currency": "USD", "total_amount": 1000000,
-                "max_purchase_per_user": 1, "enabled": True, "archived_at": 0,
+                "max_purchase_per_user": 1, "enabled": True, "archived_at": 0, "allow_balance_pay": True,
             }, {})
             self.assertEqual(terms["duration_months"], months)
             self.assertEqual(terms["duration_seconds"], 0)
@@ -51,11 +51,27 @@ class SubscriptionTermsTest(unittest.TestCase):
             "id": 1, "duration_unit": "day", "duration_value": 7,
             "quota_reset_period": "never", "title": "Weekly", "price_amount": "2",
             "currency": "USD", "total_amount": 1000000,
-            "max_purchase_per_user": 1, "enabled": True, "archived_at": 0,
+            "max_purchase_per_user": 1, "enabled": True, "archived_at": 0, "allow_balance_pay": True,
         }, {})
         self.assertEqual(terms["duration_seconds"], 604800)
         self.assertEqual(terms["price_units"], "1000000")
         self.assertFalse(archived)
+
+    def test_balance_payment_policy_preserves_source_bool_and_rejects_unknown(self):
+        source = {"id": 1, "duration_unit": "day", "duration_value": 7,
+            "quota_reset_period": "never", "title": "External-only", "price_amount": "2",
+            "currency": "USD", "total_amount": 1000000, "max_purchase_per_user": 1,
+            "enabled": True, "archived_at": 0}
+        for allowed in (False, True):
+            with self.subTest(allowed=allowed):
+                terms, _ = plan_terms({**source, "allow_balance_pay": allowed}, {})
+                self.assertIs(terms["allow_balance_pay"], allowed)
+                self.assertTrue(terms["enabled"])
+        for value in (None, 0, 1, "false", "true"):
+            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "plan_balance_payment_policy_unproven"):
+                plan_terms({**source, "allow_balance_pay": value}, {})
+        with self.assertRaisesRegex(SystemExit, "plan_balance_payment_policy_unproven"):
+            plan_terms(source, {})
 
 
 

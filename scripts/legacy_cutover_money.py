@@ -238,6 +238,9 @@ def pending_liability(data, table, row, *, archive_sha, migration_id, observed_a
 
 # ---------------------------------------------------------------- subscriptions
 def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
+    allow_balance_pay = p.get("allow_balance_pay")
+    if type(allow_balance_pay) is not bool:
+        fail("plan_balance_payment_policy_unproven")
     unit = p["duration_unit"]
     months = p["duration_value"] * (12 if unit == "year" else 1) if unit in ("month", "year") else 0
     if unit == "custom":
@@ -261,6 +264,7 @@ def plan_terms(p: dict, options: dict) -> tuple[dict, bool]:
         "models": ["*"], "groups": ["*"],
         "max_purchases_per_user": p["max_purchase_per_user"],
         "enabled": bool(p["enabled"]) and not p["archived_at"],
+        "allow_balance_pay": allow_balance_pay,
     }
     if not (1 <= int(terms["price_units"]) <= MAX_UNITS and 1 <= p["total_amount"] <= MAX_UNITS
             and ((months == 0 and 60 <= duration <= 315_576_000)

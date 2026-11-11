@@ -166,6 +166,7 @@ class MappingPostgreSQLTests(unittest.TestCase):
 
     def test_subscriptions_plans_pending_only_preserves_existing_formal_grants(self):
         data = subscription_data(self.binding)
+        data["subscription_plans"][0]["allow_balance_pay"] = False
         # Existing grants are outside the new mode's ownership. Formal writer
         # receipt generation remains covered by the subscription-opening PG suite.
         grants, _ = M.plan_subscriptions(data, ARCHIVE, "formal-subscription", OBSERVED)
@@ -179,6 +180,7 @@ class MappingPostgreSQLTests(unittest.TestCase):
             "money": "2", "expected_amount_micros": 2000000,
             "settlement_currency": "USD", "plan_currency": "USD"}]
         out = self.invoke("subscriptions", data, extra=("--subscriptions-plans-pending-only",))
+        self.assertIs(self.query("SELECT terms->'allow_balance_pay' FROM core_subscriptions.plan_revisions"), False)
         after = self.state()
         self.assertEqual(before["subscriptions"], after["subscriptions"])
         self.assertEqual(before["balances"], after["balances"])

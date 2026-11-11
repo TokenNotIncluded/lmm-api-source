@@ -62,7 +62,7 @@ def subscription_data(binding):
         "id": 9, "title": "Synthetic", "duration_unit": "day", "duration_value": 30,
         "quota_reset_period": "never", "quota_reset_custom_seconds": 0,
         "price_amount": "2", "currency": "USD", "total_amount": 100,
-        "max_purchase_per_user": 1, "enabled": True, "archived_at": 0,
+        "max_purchase_per_user": 1, "enabled": True, "archived_at": 0, "allow_balance_pay": True,
         "updated_at": 10, "created_at": 10}], user_subscriptions=[{
             "id": 8, "user_id": 2, "plan_id": 9, "start_time": 10, "end_time": 2000,
             "amount_total": 100, "amount_used": 20, "status": "active",
