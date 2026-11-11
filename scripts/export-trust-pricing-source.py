@@ -17,6 +17,9 @@ def canonical(value):
 def digest(value): return hashlib.sha256(canonical(value).encode()).hexdigest()
 def require(ok,code):
  if not ok: raise ValueError(code)
+def legacy_archive(repository):
+ require(repository.is_absolute() and repository.is_dir(),'LEGACY_REPOSITORY_INVALID')
+ return subprocess.check_output(['git','archive',REV,'apps/api-go'],cwd=repository)
 def read_json(path):
  def pairs(entries):
   obj={}
@@ -147,6 +150,8 @@ def main():
  a.add_argument('--source-cutoff',required=True,type=int)
  a.add_argument('--output',required=True,type=Path)
  a.add_argument('--heavy-lock',required=True,type=Path)
+ a.add_argument('--legacy-repository',type=Path,
+                help='Repository holding the fixed original cc52 commit; defaults to the exporter repository.')
  x=a.parse_args();root=Path(__file__).resolve().parents[1]
  def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
  require(sha(x.readonly_helper)==x.helper_sha256,'HELPER_HASH_MISMATCH')
@@ -164,7 +169,8 @@ def main():
  ident=json.loads(I.psql(r['readonly_reader'],'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL row_security=off;\n'+I.IDENTITY_SQL+'\nROLLBACK;',readonly=True,private_dir=x.output,label='source-preflight'))
  I.verify_instance(ident,r['readonly_reader'],r['source_instance_identity'],source=True)
  rev=REV
- raw=subprocess.check_output(['git','archive',rev,'apps/api-go'],cwd=root)
+ legacy_repository=x.legacy_repository or root
+ raw=legacy_archive(legacy_repository)
  with tarfile.open(fileobj=io.BytesIO(raw))as t:
   require(all(not p.issym() and not p.islnk() and (p.name.startswith('apps/api-go/')or p.name in ['apps','apps/api-go'])for p in t.getmembers()),'SOURCE_ARCHIVE_INVALID')
   t.extractall(x.output/'source',filter='data')
@@ -197,6 +203,8 @@ def main():
           'source_receipt_sha256':sha(x.source_receipt),'original_manifest_sha256':sha(x.output/'original-source-manifest.json'),
           'capture_sha256':sha(x.output/'capture.private.json'),'binary_sha256':sha(x.output/'source-export'),
           'adapter_source_hashes':adapters,'source_lifecycle_sha256':sha(x.source_lifecycle)}
+ if x.legacy_repository is not None:
+  binding['source_git_repository']=str(legacy_repository)
  (x.output/'capture-provenance.private.json').write_text(canonical(binding))
  basis,evidence,report=package_capture(capture,binding,read_json(x.identity_mapping),sha(x.identity_mapping),originals)
  for name,value in (('basis',basis),('evidence',evidence),('source-review-report',report)):

@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec=importlib.util.spec_from_file_location('producer',Path(__file__).with_name('export-trust-pricing-source.py'))
 P=importlib.util.module_from_spec(spec);spec.loader.exec_module(P)
@@ -27,6 +28,14 @@ def fixture():
 
 
 class ProducerTests(unittest.TestCase):
+ def test_legacy_archive_uses_explicit_object_repository_with_fixed_revision(self):
+  with tempfile.TemporaryDirectory() as name:
+   repository=Path(name)
+   with patch.object(P.subprocess,'check_output',return_value=b'original-archive') as call:
+    self.assertEqual(P.legacy_archive(repository),b'original-archive')
+   call.assert_called_once_with(['git','archive',P.REV,'apps/api-go'],cwd=repository)
+  with self.assertRaisesRegex(ValueError,'LEGACY_REPOSITORY_INVALID'):
+   P.legacy_archive(Path('relative'))
  def package(self,capture=None):
   c,b,i=fixture();return P.package_capture(capture or c,b,i,'b'*64,{'old.go':'c'*64})
  def test_exact_returned_ratio_zero_net_and_blank_currency(self):
