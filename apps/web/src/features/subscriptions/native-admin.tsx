@@ -76,6 +76,7 @@ const initial: NativePlanTerms = {
   groups: ["*"],
   max_purchases_per_user: 0,
   enabled: false,
+  allow_balance_pay: true,
 };
 export function NativeSubscriptionAdmin() {
   const auth = useAuthStore((state) => state.auth)
@@ -558,6 +559,17 @@ function PlanAdmin({ scope }: { scope: CommerceScope }) {
                       </p>
                     </div>
                   ))}
+                  <div className="flex items-center gap-3 sm:col-span-2">
+                    <Switch
+                      id="native-plan-balance-pay"
+                      checked={terms.allow_balance_pay}
+                      disabled={locked}
+                      onCheckedChange={(value) => field("allow_balance_pay", value)}
+                    />
+                    <Label htmlFor="native-plan-balance-pay">
+                      {t("Allow balance redemption")}
+                    </Label>
+                  </div>
                   <div className="flex items-center gap-3 sm:col-span-2">
                     <Switch
                       id="native-plan-enabled"

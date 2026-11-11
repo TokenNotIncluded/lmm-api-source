@@ -32,6 +32,7 @@ export const planTermsSchema = z
     groups: z.array(z.string().min(1).max(128)).min(1).max(256),
     max_purchases_per_user: z.number().int().min(0).max(10000),
     enabled: z.boolean(),
+    allow_balance_pay: z.boolean().default(true),
   })
   .strict()
   .refine((terms) =>
@@ -45,6 +46,7 @@ export const planSchema = z
     revision: nativeId,
     archived: z.boolean(),
     terms: planTermsSchema,
+    payment_methods: z.array(z.literal("wallet")).max(1).optional(),
   })
   .strict();
 export type NativePlan = z.infer<typeof planSchema>;
@@ -154,7 +156,9 @@ export async function listNativePlans(scope: CommerceScope, admin = false) {
       automatic_renewal: z.boolean().optional(),
     }),
   );
-  return response.plans;
+  return admin
+    ? response.plans
+    : response.plans.filter((plan) => plan.terms.enabled && !plan.archived);
 }
 export async function listNativePurchases(scope: CommerceScope) {
   return (
@@ -267,13 +271,17 @@ export function saveNativePlan(
   id: number | null,
   request: NativeSavePlan,
 ) {
-  savePlanSchema.parse(request);
+  const parsed = savePlanSchema.parse(request);
+  const { allow_balance_pay, ...terms } = parsed.terms;
   return commerceRequest(
     scope,
     id ? "put" : "post",
     `${base}/admin/plans${id ? `/${id}` : ""}`,
     planSchema,
-    request,
+    {
+      ...parsed,
+      terms: allow_balance_pay ? terms : { ...terms, allow_balance_pay: false },
+    },
   );
 }
 export function archiveNativePlan(

@@ -47,6 +47,7 @@ import {
   type SubscriptionPending,
 } from "./native-api";
 
+import { NativePancakeSubscriptions } from "./native-pancake";
 import { NativeEPaySubscriptions } from "./native-epay";
 
 export function NativeWalletSubscriptions({
@@ -76,6 +77,7 @@ function SubscriptionWallet({
   const [purchases, setPurchases] = useState<NativePurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [epayBlocked, setEPayBlocked] = useState(true);
+  const [pancakeBlocked, setPancakeBlocked] = useState(true);
   const [pending, setPending] = useState<SubscriptionPending | null>(null);
   const [receipt, setReceipt] = useState<NativeReceipt | null>(null);
   const [notice, setNotice] = useState("");
@@ -153,6 +155,7 @@ function SubscriptionWallet({
     }
   }
   function preview(plan: NativePlan, renew_from: number | null = null) {
+    if (!plan.terms.allow_balance_pay) return;
     void run(async () => {
       const next: SubscriptionPending = {
         kind: "purchase",
@@ -197,7 +200,8 @@ function SubscriptionWallet({
       }
     });
   }
-  const disabled = busy || loading || !!pending || storageBlocked || epayBlocked;
+  const disabled =
+    busy || loading || !!pending || storageBlocked || epayBlocked || pancakeBlocked;
   const amount =
     pending?.kind === "purchase"
       ? pending.quote?.plan.terms.price_units
@@ -255,7 +259,7 @@ function SubscriptionWallet({
         {loading && <p role="status">{t("Loading...")}</p>}
         <>
             <ul className="divide-y">
-              {plans.map((plan) => (
+              {plans.filter((plan) => plan.terms.allow_balance_pay).map((plan) => (
                 <li
                   key={plan.id}
                   className="flex flex-wrap items-center justify-between gap-3 py-3"
@@ -283,8 +287,18 @@ function SubscriptionWallet({
             <NativeEPaySubscriptions
               scope={scope}
               plans={plans}
-              blocked={busy || !!pending || storageBlocked}
+              blocked={busy || !!pending || storageBlocked || pancakeBlocked}
               onBlockedChange={setEPayBlocked}
+              onUpdated={() => {
+                onUpdated?.();
+                void load();
+              }}
+            />
+            <NativePancakeSubscriptions
+              scope={scope}
+              plans={plans}
+              blocked={busy || !!pending || storageBlocked || epayBlocked}
+              onBlockedChange={setPancakeBlocked}
               onUpdated={() => {
                 onUpdated?.();
                 void load();
@@ -317,24 +331,29 @@ function SubscriptionWallet({
                     {credits(item.reserved_units)}
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        disabled ||
-                        item.renewal_canceled ||
-                        !!item.refund_journal_id ||
-                        !plans.some((p) => p.id === item.plan.id)
-                      }
-                      onClick={() =>
-                        preview(
-                          plans.find((p) => p.id === item.plan.id)!,
-                          item.id,
-                        )
-                      }
-                    >
-                      {t("Renew")}
-                    </Button>
+                    {plans.some(
+                      (plan) =>
+                        plan.id === item.plan.id && plan.terms.allow_balance_pay,
+                    ) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          disabled ||
+                          item.renewal_canceled ||
+                          !!item.refund_journal_id ||
+                          !plans.some((p) => p.id === item.plan.id)
+                        }
+                        onClick={() =>
+                          preview(
+                            plans.find((p) => p.id === item.plan.id)!,
+                            item.id,
+                          )
+                        }
+                      >
+                        {t("Renew")}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"

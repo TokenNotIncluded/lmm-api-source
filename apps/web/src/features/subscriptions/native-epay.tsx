@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   currentCommerceScope,
-  formatCredits,
   readPending,
   requestKey,
   savePending,
@@ -29,6 +28,7 @@ import {
   type EPayPending,
   type EPayPrice,
 } from './native-epay-api'
+import { NativeExternalQuote } from './native-external-quote'
 
 export function NativeEPaySubscriptions({
   scope,
@@ -43,7 +43,7 @@ export function NativeEPaySubscriptions({
   onBlockedChange: (blocked: boolean) => void
   onUpdated?: () => void
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [prices, setPrices] = useState<EPayPrice[]>([])
   const [pending, setPending] = useState<EPayPending | null>(null)
   const [order, setOrder] = useState<EPayOrder | null>(null)
@@ -292,53 +292,13 @@ export function NativeEPaySubscriptions({
             <p className='font-medium'>{t('Confirm purchase')} · EPay</p>
             {order && (
               <>
-                <p>
-                  {order.plan_json.terms.title} · #{order.plan_revision}
-                </p>
-                <p className='break-all'>
-                  {t('Order ID')}: {order.order_id}
-                </p>
-                <p>
-                  {t('Amount')}: {order.currency}{' '}
-                  {nativeAmountDisplay(order.amount_minor)}
-                </p>
-                <p>
-                  {t('Quota')}:{' '}
-                  {formatCredits(
-                    order.plan_json.terms.limit_units,
-                    i18n.language
-                  )}{' '}
-                  {t('Core credits')} ·{' '}
-                  {(order.plan_json.terms.duration_months ?? 0) > 0
-                    ? `${order.plan_json.terms.duration_months} ${t('months')}`
-                    : `${t('Duration (seconds)')}: ${order.plan_json.terms.duration_seconds}`}
-                </p>
-                <p>
-                  {t('Quota reset period')}:{' '}
-                  {t(
-                    {
-                      grant: 'Never',
-                      day: 'Daily',
-                      week: 'Weekly',
-                      month: 'Monthly',
-                      anniversary_month: 'Anniversary month',
-                      custom: 'Custom',
-                    }[order.plan_json.terms.reset_period]
-                  )}
-                  {order.plan_json.terms.reset_period === 'custom'
-                    ? ` (${order.plan_json.terms.reset_seconds} s)`
-                    : ''}
-                </p>
-                <p className='break-words'>
-                  {t('Models')}: {order.plan_json.terms.models.join(', ')} ·{' '}
-                  {t('Groups')}: {order.plan_json.terms.groups.join(', ')}
-                </p>
-                <p>
-                  {t('Expires')}:{' '}
-                  {new Date(
-                    Number(order.expires_at_unix) * 1000
-                  ).toLocaleString()}
-                </p>
+                <NativeExternalQuote
+                  plan={order.plan_json}
+                  orderId={order.order_id}
+                  currency={order.currency}
+                  amountMinor={order.amount_minor}
+                  expiresAt={order.expires_at_unix}
+                />
                 <Badge variant='secondary'>
                   {t(
                     granted

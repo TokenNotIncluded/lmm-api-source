@@ -63,6 +63,7 @@ const quote: NativeQuote = {
       groups: ['*'],
       max_purchases_per_user: 0,
       enabled: true,
+      allow_balance_pay: true,
     },
   },
   starts_at: 1700000000,

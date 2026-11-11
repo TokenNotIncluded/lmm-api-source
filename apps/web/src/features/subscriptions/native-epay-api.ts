@@ -65,7 +65,7 @@ export const epayCheckoutSchema = z.object({
 })
 export type EPayCheckout = z.infer<typeof epayCheckoutSchema>
 
-const encodedPlan = z
+export const encodedPlan = z
   .string()
   .min(1)
   .max(262144)
@@ -155,7 +155,7 @@ export const epayPendingSchema = z
 export type EPayPending = z.infer<typeof epayPendingSchema>
 const base = '/api/user/payments/subscriptions/orders'
 
-async function request<T>(
+export async function subscriptionPaymentRequest<T>(
   scope: CommerceScope,
   method: 'get' | 'post',
   url: string,
@@ -215,7 +215,7 @@ function ownedOrder(
 }
 export async function listEPayPrices(scope: CommerceScope, planId: number) {
   nativeId.parse(planId)
-  const result = await request(
+  const result = await subscriptionPaymentRequest(
     scope,
     'get',
     `/core/v1/subscriptions/plans/${planId}/epay-prices`,
@@ -234,7 +234,7 @@ export async function prepareEPayOrder(
   return ownedOrder(
     scope,
     pending,
-    await request(
+    await subscriptionPaymentRequest(
       scope,
       'post',
       base,
@@ -252,7 +252,7 @@ export async function readEPayOrder(
   return ownedOrder(
     scope,
     pending,
-    await request(
+    await subscriptionPaymentRequest(
       scope,
       'get',
       `${base}/${orderId.parse(pending.order_id)}`,
@@ -261,7 +261,7 @@ export async function readEPayOrder(
   )
 }
 export async function confirmEPayOrder(scope: CommerceScope, order: EPayOrder) {
-  const result = await request(
+  const result = await subscriptionPaymentRequest(
     scope,
     'post',
     `${base}/${orderId.parse(order.order_id)}/confirm`,
@@ -280,7 +280,7 @@ export async function cancelEPayOrder(
   const order = ownedOrder(
     scope,
     pending,
-    await request(
+    await subscriptionPaymentRequest(
       scope,
       'post',
       `${base}/${orderId.parse(pending.order_id)}/cancel`,
