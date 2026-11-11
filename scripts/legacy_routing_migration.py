@@ -951,11 +951,10 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                         if channel.get("type") == 20 and model.endswith("-thinking"):
                             entry["reasons"].append("openrouter_thinking_suffix_policy_not_mapped")
                         number(context.get("max_input_tokens"), "provider_input_bound_invalid", 1, 16_000_000)
-                        number(context.get("max_output_tokens"), "provider_output_bound_invalid", 1, 65_536)
+                        number(context.get("max_output_tokens"), "provider_output_bound_invalid", 1, 2**32 - 1)
                         require(all(type(context.get(field)) is bool for field in ("missing_cached_tokens_is_zero", "missing_cache_creation_tokens_is_zero")),
                                 "provider_usage_absence_contract_missing")
-                        if limits and (context["max_input_tokens"] > limits["input_token_ceiling"]
-                                       or limits["max_output_tokens"] > context["max_output_tokens"]):
+                        if limits and context["max_input_tokens"] > limits["input_token_ceiling"]:
                             entry["reasons"].append("provider_context_exceeds_runtime_limits")
                         external_models[(cid, model)] = {"upstream_id": cid, "upstream_model": model, "protocol": provider.get("protocol"),
                             "endpoint": provider.get("endpoint"), "contract_revision": provider.get("contract_revision"),

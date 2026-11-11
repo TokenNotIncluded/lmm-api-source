@@ -13,6 +13,7 @@
 
 ## 首发阻塞与已验证候选（2026-11-11）
 
+- 供应商输出元数据保留完整上界，实际请求继续取现有安装限额与供应商上界的较小值；已移除两处将 128K 元数据误拒的额外限制。完整路由映射脚本 55 项检查通过，OpenSSL 3/目标 IDEA 排除配置下 214 项 Core 定向及集成检查通过，1 项私有旧 VM 检查跳过，677 项输入无漂移。证据 `~/.cache/lmm-provider-bound-noidea.ojwqtusq/summary.private.json`。此前 NoIDEA debug 对两台生产主机的 1,011 项动态依赖符号比对通过，正式 release 的独立 ABI 核对待完成。
 - 模型旧预扣新增显式派生 Native 实际请求上界模式，Core 在同一事务按实际 trust 复核，保持已有静态合同。208 项本地检查通过、1 项旧 VM 私有夹具检查跳过，675 项输入零漂移；覆盖真实 PG 的 trust 并发变更、伪造 cap 拒绝、结算重放与崩溃恢复，以及账单、渠道统计、仪表盘和商店交易。已用 OpenSSL 3 SDK 和目标 IDEA 排除配置构建并测试；最终正式制品及两机 ABI 复验待完成。证据 `~/.cache/lmm-native-bound-noidea.ljwf2a2v/summary.private.json`，两次新增测试夹具错误及失败记录保留。
 - 现场接线检查发现两项待完成。`c8719a2` 本机构建产物依赖 OpenSSL 4，而两台生产主机实际仅提供 OpenSSL 3，需使用匹配的完整 SDK 重建并复验。冻结模型配置尚未生成 `legacy_precharge` 合同，正在接入复用 Native 实际每请求上界的显式派生模式；现有静态合同保留。前端现有 dist 缺少完整来源冻结回执，需准确重建。此前业务联测结果保留，生产候选更新后重新绑定同一组合。
 - 新账本结构的独立 fresh profile 已完成实际初始化、完整种子和运行权限回执绑定。281 张表、36 个序列的基线通过核对，五项实际越权操作均以 42501 拒绝，授权及探针前后目录、数据和序列一致；9 项定向脚本测试及 24 项实际 PostgreSQL importer 检查通过，包含重放、中断恢复和混搭拒绝。固定的 schema 来源为 `abd532d`，后续恢复读取修复继承同一物理 schema。实际历史资金导入与生产切换待完成。证据 `~/.local/state/lmm-api/actual-init-acl.ZPAWetRJ`、`~/.local/state/lmm-api/current-ledger-import-pg.97u3yxoi`。

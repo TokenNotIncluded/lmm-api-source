@@ -110,6 +110,22 @@ def rebind_channel(value, cid=1):
 
 
 class RoutingSemanticsTests(unittest.TestCase):
+    def test_supplier_output_metadata_preserves_separate_runtime_admission_limit(self):
+        for supplier_max in (128_000, 8192):
+            with self.subTest(supplier_max=supplier_max):
+                value = fixture()
+                contracts = value[3]
+                contracts["runtime"]["limits"]["max_output_tokens"] = 65_536
+                for provider in contracts["providers"]["channels"]:
+                    provider["models"][0]["max_output_tokens"] = supplier_max
+                result = run_fixture(value)
+                self.assertEqual(result["blockers"], [])
+                self.assertEqual(result["candidate"]["max_output_tokens"], 65_536)
+                self.assertTrue(all(
+                    model["max_output_tokens"] == supplier_max
+                    for model in result["candidate"]["external_models"]
+                ))
+
     def test_source_memberships_preserve_global_groups_and_inherited_default(self):
         users = {17: {"id": 17, "group": "default", "status": 1, "deleted_at": None},
                  81: {"id": 81, "group": "default", "status": 2, "deleted_at": None}}

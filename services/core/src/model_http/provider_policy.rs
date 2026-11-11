@@ -300,7 +300,7 @@ impl ProviderPolicy {
                 || (!tool && context.max_input_tokens == 0)
                 || i64::from(context.max_input_tokens) > reserved_input_tokens
                 || (no_output && context.max_output_tokens != 0)
-                || (!no_output && !(1..=65_536).contains(&context.max_output_tokens))
+                || (!no_output && context.max_output_tokens == 0)
                 || context.contract_revision.is_empty()
                 || context.contract_revision.len() > 512
                 || context.contract_revision.chars().any(char::is_control)
@@ -626,7 +626,7 @@ mod tests {
         let mut large = small.clone();
         large.upstream_model = "large-model".into();
         large.max_input_tokens = 1_048_576;
-        large.max_output_tokens = 65_536;
+        large.max_output_tokens = 128_000;
         let policy = ProviderPolicy::new(vec![small, large], 1_048_576).unwrap();
         let selected = attempt(
             Protocol::OpenAiChat,
@@ -653,6 +653,17 @@ mod tests {
             Protocol::OpenAiChat,
             "large-model",
             "https://api.example/v1",
+        );
+        assert_eq!(policy.output_bound(&large, 65_536).unwrap(), 65_536);
+        assert_eq!(policy.output_bound(&large, 4096).unwrap(), 4096);
+        assert_eq!(
+            policy
+                .context_document()
+                .iter()
+                .find(|context| context.upstream_model == "large-model")
+                .unwrap()
+                .max_output_tokens,
+            128_000
         );
         assert_eq!(
             policy
