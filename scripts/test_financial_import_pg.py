@@ -293,6 +293,42 @@ class PostgreSQLTests(unittest.TestCase):
         self.assertIn(message, result.stderr)
         self.assertEqual(self.full_state(), before)
 
+    def test_snapshot_projects_material_preserving_receipts_source_checks_and_cas(self):
+        archive = self.source["plan"]["source_archive_sha256"]
+        manifest = {"scope": "synthetic-prior-phase", "material": {"payload": "x" * 131072},
+                    "post_state": {"retained": True}, "other_metadata": {"version": 3}}
+
+        def insert_receipt(name, source_archive, value):
+            self.sql("INSERT INTO core_migration.import_runs"
+                     "(migration_id,source_archive_sha256,mapping_sha256,manifest) VALUES("
+                     + ",".join(F.literal(item) for item in
+                                (name, source_archive, "a" * 64, value)) + "::jsonb);")
+
+        insert_receipt("synthetic-prior-phase", archive, manifest)
+        full = self.query("SELECT jsonb_agg(to_jsonb(r) ORDER BY migration_id)"
+                          " FROM core_migration.import_runs r")
+        snapshot = json.loads(self.sql(F.snapshot_sql(self.inventory, "synthetic-financial")).stdout)
+        expected = copy.deepcopy(full)
+        for row in expected:
+            if row["manifest"].get("scope") != "identity-only":
+                row["manifest"].pop("material", None)
+        self.assertEqual(snapshot["import_runs"], expected)
+        self.assertEqual(snapshot["state"], self.query(F.state_sql(self.inventory, "synthetic-financial")))
+        self.assertEqual(self.query("SELECT jsonb_agg(to_jsonb(r) ORDER BY migration_id)"
+                                    " FROM core_migration.import_runs r"), full)
+        self.assertEqual([row for row in snapshot["import_runs"] if row["manifest"].get("scope") == "identity-only"],
+                         [row for row in full if row["manifest"].get("scope") == "identity-only"])
+        material = material_fixture(self.source, snapshot, runtime_roles=[self.runtime_role])
+        sql = F.build_apply_sql(material)
+        insert_receipt("synthetic-later-phase", archive, {"scope": "synthetic-later-phase", "material": {"value": 2}})
+        self.rejected_unchanged(sql, "financial_target_state_changed")
+        insert_receipt("synthetic-foreign-phase", "0" * 64,
+                       {"scope": "synthetic-foreign-phase", "material": {"value": 3}})
+        foreign = json.loads(self.sql(F.snapshot_sql(self.inventory, "synthetic-financial")).stdout)
+        self.assertEqual(len(foreign["import_runs"]), 4)
+        with self.assertRaisesRegex(F.Error, "target_contains_other_source"):
+            material_fixture(self.source, foreign, runtime_roles=[self.runtime_role])
+
     def test_opening_exact_balanced_and_strict_replay(self):
         result = json.loads(self.sql(self.apply_sql).stdout)
         self.assertEqual(result["status"], "COMMITTED")

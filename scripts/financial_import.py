@@ -191,7 +191,9 @@ def snapshot_sql(inventory: dict, migration_id: str) -> str:
         "'trust_policy_seed',(" + IDENTITY.trust_policy_seed_query() + ")," + \
         "'state',(" + state_sql(inventory, migration_id) + ")," + \
         "'native_users',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'personal_account_id',personal_account_id) ORDER BY id),'[]'::jsonb) FROM core_identity.users)," + \
-        "'import_runs',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY migration_id),'[]'::jsonb) FROM core_migration.import_runs r));\nCOMMIT;\n"
+        "'import_runs',(SELECT coalesce(jsonb_agg(CASE WHEN r.manifest->>'scope'='identity-only'" \
+        " THEN to_jsonb(r) ELSE to_jsonb(r) || jsonb_build_object('manifest',r.manifest-'material') END" \
+        " ORDER BY migration_id),'[]'::jsonb) FROM core_migration.import_runs r));\nCOMMIT;\n"
 
 
 def source_hashes(*, escrow=False) -> dict:
@@ -909,7 +911,7 @@ def run_sql(connection: dict, sql: str, output: Path, application_name: str, *, 
             label="database") -> tuple[int, str]:
     environment = {key: value for key, value in os.environ.items() if not key.startswith("PG")}
     environment.update(IDENTITY.socket_connection(connection))
-    environment.update(PGCONNECT_TIMEOUT="5", PGAPPNAME=application_name,
+    environment.update(PGCONNECT_TIMEOUT="60", PGAPPNAME=application_name,
                        PGOPTIONS=IDENTITY.psql_options(connection, readonly=readonly))
     try:
         result = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1"],

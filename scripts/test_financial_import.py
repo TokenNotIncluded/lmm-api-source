@@ -526,6 +526,19 @@ class SQLTests(unittest.TestCase):
                 F.verify_approval(self.material, self.sql, {**approval, key: value})
 
 
+class TransportTests(unittest.TestCase):
+    def test_connection_timeout_keeps_client_deadline_and_sql(self):
+        sql = "BEGIN;SET statement_timeout='120s';SELECT 1;COMMIT;"
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(F.IDENTITY, "socket_connection", return_value={}), \
+                patch.object(F.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    ["psql"], 0, "1\n", "")) as run:
+            self.assertEqual(F.run_sql({}, sql, Path(directory), "synthetic-transport"), (0, "1\n"))
+            self.assertEqual(run.call_args.kwargs["env"]["PGCONNECT_TIMEOUT"], "60")
+            self.assertEqual(run.call_args.kwargs["timeout"], 150)
+            self.assertEqual(run.call_args.kwargs["input"], sql)
+
+
 class DriverTests(unittest.TestCase):
     def setUp(self):
         self.material = material_fixture()
