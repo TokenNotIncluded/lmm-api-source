@@ -127,7 +127,7 @@ func (s *Service) WebhookHandler() http.Handler {
 			paymentError(w, err)
 			return
 		}
-		if a, ok := s.adapters[id].(interface {
+		if a, ok := s.adapterSnapshot()[id].(interface {
 			webhookAcknowledgement() ([]byte, http.Header, error)
 		}); ok {
 			body, headers, err := a.webhookAcknowledgement()
@@ -144,7 +144,7 @@ func (s *Service) WebhookHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		if a := s.adapters[id]; a != nil && a.Channel().Provider == "epay" {
+		if a := s.adapterSnapshot()[id]; a != nil && a.Channel().Provider == "epay" {
 			_, _ = io.WriteString(w, "success")
 		} else if a != nil && a.Channel().Provider == "waffo_pancake" {
 			_, _ = io.WriteString(w, "OK")

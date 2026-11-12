@@ -40,6 +40,8 @@ type PancakePurchaseView struct {
 	Checkout *PancakeHostedCheckout
 }
 type PancakeSubscriptions struct {
+	configuration *PancakeConfiguration
+
 	core      PancakeSubscriptionCore
 	wallet    *Service
 	db        *sql.DB
@@ -87,7 +89,7 @@ func validPancakeOrder(o *pb.PancakeSubscriptionOrder) bool {
 	return err == nil && validAmount(n) && strconv.FormatInt(n, 10) == p.AmountMinor && subscriptionOrderID.MatchString(b.OrderId) && b.AccountId > 0 && len(b.PlanJson) > 0 && b.PlanId == p.PlanId && b.PlanRevision == p.PlanRevision && b.PaymentChannelId == p.ChannelId && b.Currency == p.Currency && b.AmountMinor == p.AmountMinor && (p.Currency == "USD" || p.Currency == "CNY") && (p.ProductType == "one_time" || p.ProductType == "subscription") && validID(p.StoreId) && validID(p.ProductId) && validID(o.ProviderReference)
 }
 func (s *PancakeSubscriptions) Prepare(ctx context.Context, user, key string, plan, channel int64) (*pb.PancakeSubscriptionOrder, error) {
-	if !validKey(key) || plan <= 0 || s.adapters[channel] == nil || !s.admission[channel] {
+	if !validKey(key) || plan <= 0 || s.pancakeSnapshot().adapters[channel] == nil || !s.pancakeSnapshot().admission[channel] {
 		return nil, ErrInvalid
 	}
 	o, err := s.core.PreparePancakePurchase(ctx, user, &pb.PrepareEPayPurchaseRequest{Mutation: &pb.MutationContext{IdempotencyKey: key}, PlanId: plan, PaymentChannelId: channel})
@@ -141,7 +143,7 @@ func (s *PancakeSubscriptions) Confirm(ctx context.Context, user, id string) (*P
 	if !validPancakeOrder(prior) {
 		return nil, ErrConflict
 	}
-	if prior.Order.ConfirmedAtUnix == nil && !s.admission[prior.Order.PaymentChannelId] {
+	if prior.Order.ConfirmedAtUnix == nil && !s.pancakeSnapshot().admission[prior.Order.PaymentChannelId] {
 		return nil, ErrDenied
 	}
 	o, err := s.core.ConfirmPancakePurchase(ctx, user, id)
@@ -156,7 +158,7 @@ func (s *PancakeSubscriptions) Confirm(ctx context.Context, user, id string) (*P
 	if len(o.LegacySourceJson) > 0 {
 		return s.Read(ctx, user, o.Order.OrderId)
 	}
-	a := s.adapters[o.Order.PaymentChannelId]
+	a := s.pancakeSnapshot().adapters[o.Order.PaymentChannelId]
 	if a == nil || a.cfg.Channel.Merchant != o.Merchant || a.cfg.Channel.Environment != o.Environment || a.cfg.Channel.Currency != o.Price.Currency {
 		return nil, ErrUnavailable
 	}
@@ -303,7 +305,7 @@ func pancakeCallback(raw []byte) (pancakeCandidate, error) {
 	return pancakeCandidate{Reference: ref, Event: event, ProviderOrder: v.Data.OrderID}, nil
 }
 func (s *PancakeSubscriptions) Accept(ctx context.Context, channel int64, r *http.Request) (*pb.PancakeSubscriptionEvent, error) {
-	if channel < 0 || (channel > 0 && s.adapters[channel] == nil) {
+	if channel < 0 || (channel > 0 && s.pancakeSnapshot().adapters[channel] == nil) {
 		return nil, ErrNotFound
 	}
 	raw, sig, err := callbackBytes(r, "X-Waffo-Signature")
@@ -436,7 +438,7 @@ func (s *PancakeSubscriptions) recoverPancakeCheckouts(ctx context.Context, limi
 		}
 		var c PancakeHostedCheckout
 		if err == nil {
-			a := s.adapters[o.Order.PaymentChannelId]
+			a := s.pancakeSnapshot().adapters[o.Order.PaymentChannelId]
 			if a == nil || time.Since(p.first) >= a.ReplayWindow("checkout") {
 				err = ErrUnavailable
 			} else {

@@ -54,7 +54,7 @@ func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handle
 				environment = "live"
 			}
 			var ids []int64
-			for id, a := range s.adapters {
+			for id, a := range s.pancakeSnapshot().adapters {
 				if a.cfg.Channel.Environment == environment && a.cfg.StoreID == event.Store && a.cfg.Channel.Currency == event.Data.Currency {
 					ids = append(ids, id)
 				}

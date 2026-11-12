@@ -11,6 +11,8 @@ import (
 )
 
 type Service struct {
+	configuration *PancakeConfiguration
+
 	pancakeRecovery *PancakeSubscriptions
 	store           Store
 	core            Core
@@ -52,8 +54,8 @@ type PublicChannel struct {
 }
 
 func (s *Service) Catalog() []PublicChannel {
-	channels := make([]PublicChannel, 0, len(s.adapters))
-	for _, a := range s.adapters {
+	channels := make([]PublicChannel, 0, len(s.adapterSnapshot()))
+	for _, a := range s.adapterSnapshot() {
 		if !a.Channel().Enabled {
 			continue
 		}
@@ -73,7 +75,7 @@ func (s *Service) Catalog() []PublicChannel {
 }
 
 func (s *Service) requestedAdapter(req PrepareRequest) (Adapter, error) {
-	a := s.adapters[req.ChannelID]
+	a := s.adapterSnapshot()[req.ChannelID]
 	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || (req.RequestedCreditUnits < 0 || !validAmount(req.AmountMinor) && !(req.AmountMinor == 0 && req.RequestedCreditUnits > 0)) || req.Currency != a.Channel().Currency {
 		return nil, ErrInvalid
 	}
@@ -121,7 +123,7 @@ func (s *Service) Preview(ctx context.Context, credential string, req PrepareReq
 // must never redirect an old checkout, lookup or refund to another merchant.
 // Enabled gates new orders only; disabled channels can still finish old work.
 func (s *Service) orderAdapter(o Order) (Adapter, error) {
-	a := s.adapters[o.ChannelID]
+	a := s.adapterSnapshot()[o.ChannelID]
 	if a == nil {
 		return nil, ErrUnavailable
 	}
@@ -307,13 +309,13 @@ type proofGatedCallback interface {
 }
 
 func (s *Service) Receive(ctx context.Context, channelID int64, req *http.Request) error {
-	if _, ok := s.adapters[channelID].(*Pancake); ok && s.pancakeRecovery != nil {
+	if _, ok := s.adapterSnapshot()[channelID].(*Pancake); ok && s.pancakeRecovery != nil {
 		return s.pancakeRecovery.receiveWallet(ctx, s, channelID, req)
 	}
 	return s.receiveOriginal(ctx, channelID, req)
 }
 func (s *Service) receiveOriginal(ctx context.Context, channelID int64, req *http.Request) error {
-	a := s.adapters[channelID]
+	a := s.adapterSnapshot()[channelID]
 	if a == nil {
 		return ErrNotFound
 	}
