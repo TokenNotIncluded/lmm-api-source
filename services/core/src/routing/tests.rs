@@ -1699,3 +1699,17 @@ fn client_protocols_none_preserves_old_release_bytes_and_snapshot_retry() {
     assert_eq!(retry.target_id(), 2);
     assert_eq!(retry.version(), first.version());
 }
+
+#[test]
+fn legacy_haiku_payload_requires_anthropic_upstream_and_strict_config() {
+    let policy = PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1;
+    assert_eq!(serde_json::to_value(policy).unwrap(), serde_json::json!("legacy_anthropic_haiku_system_cache_v1"));
+    assert!(serde_json::from_str::<PayloadPolicy>(r#"{"legacy_anthropic_haiku_system_cache_v1":{"extra":true}}"#).is_err());
+    for protocol in [Protocol::OpenAiChat, Protocol::OpenAiResponses, Protocol::Gemini, Protocol::AnthropicMessages] {
+        let (mut config, prices) = fixture(1);
+        config.routes[0].targets[0].payload = policy;
+        config.upstreams[0].protocol = protocol;
+        let result = Router::new(config, Arc::new(PriceSnapshot::compile(prices).unwrap()));
+        assert_eq!(result.is_ok(), protocol == Protocol::AnthropicMessages);
+    }
+}

@@ -1474,6 +1474,11 @@ impl Request {
             ClientProtocol::Anthropic => UpstreamProtocol::Anthropic,
             ClientProtocol::Gemini => UpstreamProtocol::Gemini,
         };
+        // The native Anthropic writer preserves signed blocks, developer/system
+        // instructions and adjacent-role merging that Chat wire cannot express.
+        if source == UpstreamProtocol::Chat && protocol == UpstreamProtocol::Anthropic {
+            return self.anthropic(model);
+        }
         // Native same-wire controls remain native. The six Chat cross-wire
         // directions use zconv output, after the existing admission guards.
         if source != protocol

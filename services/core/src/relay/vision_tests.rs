@@ -271,3 +271,19 @@ fn legacy_haiku_system_cache_preserves_existing_after_conversion() {
     );
     assert!(output["system"][0].get("cache_control").is_none());
 }
+
+#[test]
+fn anthropic_system_presence_keeps_normal_admission_and_user_order() {
+    for system in [None, Some(json!(null)), Some(json!([])), Some(json!([{"type":"text","text":"policy"}]))] {
+        let mut body = json!({"model":"vision","max_tokens":16,"messages":[{"role":"user","content":"hello"}]});
+        if let Some(value) = &system { body["system"] = value.clone(); }
+        let parsed = native_anthropic::parse(&serde_json::to_vec(&body).unwrap(), &Limits::default());
+        if system == Some(Value::Null) { assert!(parsed.is_err()); continue; }
+        let converted = parsed.unwrap().upstream_to(UpstreamProtocol::Chat,"chosen").unwrap();
+        let messages = converted["messages"].as_array().unwrap();
+        let nonempty = system.as_ref().and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+        assert_eq!(messages.len(), if nonempty {2} else {1});
+        assert_eq!(messages.last().unwrap()["role"], "user");
+        if nonempty { assert_eq!(messages[0]["role"], "system"); }
+    }
+}
