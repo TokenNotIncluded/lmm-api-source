@@ -374,6 +374,32 @@ class RoutingSemanticsTests(unittest.TestCase):
             value = fixture(); value[0]["channels"][0][field] = item; rebind_channel(value)
             self.assertIn(reason, reasons(run_fixture(value)))
 
+    def test_management_settings_and_neutral_request_fields(self):
+        value = fixture()
+        channel = value[0]["channels"][0]
+        channel["settings"] = json.dumps({"upstream_model_update_check_enabled": True,
+            "upstream_model_update_last_check_time": 123})
+        channel["setting"] = json.dumps({"proxy": "", "force_format": False})
+        rebind_channel(value)
+        self.assertIn("candidate", run_fixture(value))
+        self.assertEqual(R.channel_setting_reasons(channel), [])
+        channel["setting"] = '{"force_format":true,"unknown_request_flag":false}'
+        self.assertEqual(R.channel_setting_reasons(channel),
+            ["setting_force_format_not_mapped", "setting_unknown_request_flag_not_mapped"])
+        channel["setting"] = '{"force_format":0}'
+        self.assertIn("setting_force_format_not_mapped", R.channel_setting_reasons(channel))
+
+    def test_default_base_is_pinned_and_null_is_distinct(self):
+        value = fixture()
+        channel = value[0]["channels"][0]
+        channel["base_url"] = ""
+        value[3]["providers"]["channels"][0]["endpoint"] = "https://api.openai.com/v1"
+        rebind_channel(value)
+        self.assertNotIn("provider_endpoint_not_bound_to_source", reasons(run_fixture(value)))
+        channel["base_url"] = None
+        rebind_channel(value)
+        self.assertIn("provider_endpoint_not_bound_to_source", reasons(run_fixture(value)))
+
     def test_special_channel_credentials_headers_and_expression_prices_are_not_dropped(self):
         cases = (("header_override", '{"x-private":"synthetic-value"}', "special_channel_behavior_not_mapped"),
                  ("key", "first-key\nsecond-key", "special_credential_not_supported"),

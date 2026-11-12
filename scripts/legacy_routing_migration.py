@@ -200,6 +200,45 @@ def endpoint_valid(value):
         return False
 
 
+# cc52 model.Channel.GetBaseURL and constant.ChannelBaseURLs. NULL retains
+# its distinct empty behavior; only a stored empty string uses the default.
+LEGACY_BASE_URLS = {1: "https://api.openai.com", 14: "https://api.anthropic.com",
+                   20: "https://openrouter.ai/api", 24: "https://generativelanguage.googleapis.com",
+                   48: "https://api.x.ai"}
+CHANNEL_MANAGEMENT_SETTINGS = frozenset({
+    "upstream_model_update_last_check_time", "upstream_model_update_last_detected_models",
+    "upstream_model_update_last_removed_models", "upstream_model_update_ignored_models",
+    "upstream_model_update_check_enabled", "upstream_model_update_auto_sync_enabled"})
+NEUTRAL_CHANNEL_SETTING = {"force_format": False, "thinking_to_content": False,
+    "proxy": "", "pass_through_body_enabled": False, "system_prompt": "",
+    "system_prompt_override": False, "responses_websocket_enabled": False}
+
+
+def channel_setting_reasons(row):
+    reasons = []
+    for field in ("setting", "settings"):
+        raw = row.get(field)
+        if raw in EMPTY:
+            continue
+        try:
+            values = F.parse_json(raw) if isinstance(raw, str) else raw
+        except (ValueError, TypeError):
+            reasons.append(field + "_invalid_json")
+            continue
+        if not isinstance(values, dict):
+            reasons.append(field + "_not_object")
+            continue
+        for name, value in values.items():
+            if field == "settings" and name in CHANNEL_MANAGEMENT_SETTINGS:
+                continue
+            if field == "setting" and name in NEUTRAL_CHANNEL_SETTING:
+                expected = NEUTRAL_CHANNEL_SETTING[name]
+                if type(value) is type(expected) and value == expected:
+                    continue
+            reasons.append(field + "_" + name + "_not_mapped")
+    return reasons
+
+
 def blocked_channel(row, provider, credential):
     reasons = []
     number(row.get("type"), "source_channel_type_invalid", 0)
@@ -208,8 +247,9 @@ def blocked_channel(row, provider, credential):
         reasons.append("unclassified_channel_columns")
     if row.get("type") not in PROTOCOLS:
         reasons.append("channel_type_not_supported")
-    if any(row.get(field) not in EMPTY for field in SPECIAL_FIELDS):
+    if any(row.get(field) not in EMPTY for field in SPECIAL_FIELDS if field not in ("setting", "settings")):
         reasons.append("special_channel_behavior_not_mapped")
+    reasons.extend(channel_setting_reasons(row))
     contribution = row.get("public_relay_contribution_id")
     if contribution is not None and not (type(contribution) is int and contribution == 0):
         reasons.append("public_relay_contribution_not_mapped")
@@ -239,6 +279,8 @@ def blocked_channel(row, provider, credential):
             reasons.append("legacy_endpoint_path_contract_missing")
         # Empty legacy bases rely on compiled defaults. Do not guess a default.
         source_base = row.get("base_url")
+        if source_base == "":
+            source_base = LEGACY_BASE_URLS.get(row.get("type"), source_base)
         if type(source_base) is str and urlsplit(source_base).hostname == "gateway.ai.cloudflare.com":
             reasons.append("legacy_cloudflare_path_rewrite_not_supported")
         # Both legacy TypeSafe and Core SystemOne normalize a terminal /v1;
