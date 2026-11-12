@@ -14,6 +14,11 @@ I = F.IDENTITY
 
 class CheckinsImportProfileTests(unittest.TestCase):
     def admitted_fixture(self):
+        review = copy.deepcopy(I.REVIEWED_MODULE_SPLIT)
+        review.update(actual_init_receipt_sha256='ab' * 32, acl_receipt_sha256='cd' * 32)
+        return patch.object(I, 'REVIEWED_MODULE_SPLIT', review)
+
+    def historical_admitted_fixture(self):
         review = copy.deepcopy(I.REVIEWED_CHECKINS)
         review.update(actual_init_receipt_sha256='ab' * 32, acl_receipt_sha256='cd' * 32)
         return patch.object(I, 'REVIEWED_CHECKINS', review)
@@ -24,18 +29,19 @@ class CheckinsImportProfileTests(unittest.TestCase):
             review.update(actual_init_receipt_sha256=init, acl_receipt_sha256=acl)
             with patch.object(I, 'REVIEWED_CHECKINS', review):
                 with self.assertRaisesRegex(I.MappingError, 'checkins_' + missing + '_receipt_sha256_pending'):
-                    I.current_contract()
+                    I.reviewed_checkins()
 
-    def test_unit_fixture_selects_exact_final_source_and_manifest68(self):
+    def test_current_source_selects_exact_module_split_manifest66(self):
         with self.admitted_fixture():
             contract = I.current_contract()
-        self.assertEqual(contract['import_profile'], I.CHECKINS_SEED_CONTRACT)
-        self.assertEqual(contract['source_schema_revision'], 'b62eeef8c628fea984e1939651754af09fef0f0f')
-        self.assertEqual(contract['compiled_manifest_sha256'], I.CHECKINS_MANIFEST_SHA256)
-        self.assertEqual(contract['fresh_catalog_sha256'], I.CHECKINS_CATALOG_SHA256)
-        self.assertEqual(len(contract['component_fingerprints']), 68)
-        self.assertIn('services/core/schema/checkins.sql', contract['source_file_hashes'])
-        self.assertEqual(F.reviewed_source_contract(contract)['import_profile'], I.CHECKINS_SEED_CONTRACT)
+        self.assertEqual(contract['import_profile'], I.MODULE_SPLIT_SEED_CONTRACT)
+        self.assertEqual(contract['source_schema_revision'], 'c6024721d44e31d6605c5f707669f46cfd43c20f')
+        self.assertEqual(contract['compiled_manifest_sha256'], I.MODULE_SPLIT_MANIFEST_SHA256)
+        self.assertEqual(contract['fresh_catalog_sha256'], I.MODULE_SPLIT_CATALOG_SHA256)
+        self.assertEqual(len(contract['component_fingerprints']), 66)
+        self.assertNotIn('checkins', contract['component_fingerprints'])
+        self.assertNotIn('navigation-options', contract['component_fingerprints'])
+        self.assertEqual(F.reviewed_source_contract(contract)['import_profile'], I.MODULE_SPLIT_SEED_CONTRACT)
 
     def test_old_target_cannot_mix_with_registry68(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -48,7 +54,7 @@ class CheckinsImportProfileTests(unittest.TestCase):
             target.write_text(json.dumps({'component_count': 67,
                 'manifest_sha256': I.PANCAKE_LANGUAGE_MANIFEST_SHA256,
                 'catalog_sha256': I.PANCAKE_LANGUAGE_CATALOG_SHA256}))
-            with self.assertRaisesRegex(I.MappingError, 'checkins_assembly_not_reviewed'):
+            with self.assertRaisesRegex(I.MappingError, 'module_split_assembly_not_reviewed'):
                 I.reviewed_profile(root)
 
     def test_review_seal_source_revision_prefix_expression_and_files_are_strict(self):
@@ -76,18 +82,18 @@ class CheckinsImportProfileTests(unittest.TestCase):
         with self.admitted_fixture():
             contract = I.current_contract()
         historical = copy.deepcopy(contract)
-        historical['component_fingerprints'].pop('checkins')
+        historical['component_fingerprints']['checkins'] = I.CHECKINS_COMPONENT_SHA256
         tables = tuple('core_checkins.' + name for name in I.CHECKINS_TABLE_ORDERS)
         self.assertEqual(len(tables), 6)
-        self.assertEqual(I.fresh_business_tables(contract), I.fresh_business_tables(historical) + tables)
+        self.assertEqual(I.fresh_business_tables(historical), I.fresh_business_tables(contract) + tables)
         self.assertEqual(I.upgrade_receipt_tables(contract), I.upgrade_receipt_tables(historical))
         seed = I.fresh_seed_hash_query(I.CHECKINS_SEED_CONTRACT)
         for table in tables:
             self.assertIn(table, seed)
-            with self.admitted_fixture():
+            with patch.object(I, 'current_contract', return_value=historical):
                 self.assertIn(table, F.fresh_empty_tables())
         self.assertNotIn('core_checkins.', I.fresh_seed_hash_query(I.PANCAKE_LANGUAGE_SEED_CONTRACT))
-        guard = I.profile_acl_guard_sql(contract)
+        guard = I.profile_acl_guard_sql(historical)
         self.assertIn("n.nspname='core_checkins'", guard)
         self.assertIn("('policy_revisions','active_policy')", guard)
         self.assertIn("('days','claim_commands')", guard)
@@ -97,13 +103,13 @@ class CheckinsImportProfileTests(unittest.TestCase):
         with self.admitted_fixture():
             source = helpers.source_fixture()
             snapshot = helpers.snapshot_fixture(source)
-            snapshot['catalog_fingerprint_sha256'] = I.PANCAKE_LANGUAGE_CATALOG_SHA256
+            snapshot['catalog_fingerprint_sha256'] = I.CHECKINS_CATALOG_SHA256
             with self.assertRaisesRegex(F.Error, 'target_fresh_catalog_mismatch'):
                 helpers.material_fixture(source, snapshot)
-            snapshot['catalog_fingerprint_sha256'] = I.CHECKINS_CATALOG_SHA256
+            snapshot['catalog_fingerprint_sha256'] = I.MODULE_SPLIT_CATALOG_SHA256
             material = helpers.material_fixture(source, snapshot)
             F.validate_material(material)
-            material['target']['catalog_fingerprint_sha256'] = I.PANCAKE_LANGUAGE_CATALOG_SHA256
+            material['target']['catalog_fingerprint_sha256'] = I.CHECKINS_CATALOG_SHA256
             with self.assertRaisesRegex(F.Error, 'target_fresh_catalog_mismatch'):
                 F.validate_material(material)
 

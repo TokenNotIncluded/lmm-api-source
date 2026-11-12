@@ -19,7 +19,7 @@ const keys = [
   'Paid upgrade details',
 ]
 
-for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ru', 'ja', 'vi']) {
+for (const locale of ['en', 'zh-CN', 'zh-TW', 'fr', 'ru', 'ja', 'vi']) {
   test(`${locale} provides both upgrade paths without an English fallback`, () => {
     const { translation } = JSON.parse(
       readFileSync(
@@ -31,7 +31,7 @@ for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ru', 'ja', 'vi']) {
       assert.ok(translation[key]?.trim(), key)
       if (locale !== 'en') assert.notEqual(translation[key], key)
     }
-    if (locale === 'zh') {
+    if (locale === 'zh-CN') {
       assert.equal(
         translation[keys[1]],
         '通过对话（免费）或充值，升级为正式用户。'

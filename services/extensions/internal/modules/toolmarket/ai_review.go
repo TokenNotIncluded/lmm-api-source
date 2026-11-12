@@ -32,12 +32,15 @@ func (m *Module) prepareAIReview(ctx context.Context, user int64, id, version st
 		if err != nil {
 			return err
 		}
+		if s.DraftVersionID != version {
+			return ErrConflict
+		}
 		var ok bool
 		v, ok = w.Versions[version]
 		if !ok || v.Version.ServiceID != id {
 			return ErrMissing
 		}
-		if s.DraftVersionID != version || v.Version.Status != "draft" && v.Version.Status != "rejected" {
+		if v.Version.Status != "draft" && v.Version.Status != "rejected" {
 			return ErrConflict
 		}
 		return nil

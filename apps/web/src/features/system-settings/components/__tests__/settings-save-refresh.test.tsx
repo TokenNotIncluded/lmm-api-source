@@ -106,6 +106,7 @@ const baseline: Settings = { AssistantPersona: 'Saved persona' }
 const unavailable = 'Pricing currency units are unavailable until configured.'
 const queryKey = ['system-options'] as const
 const requests: Request[] = []
+let navigationValue = '{}'
 const originalAdapter = api.defaults.adapter
 let read: AxiosAdapter
 let write: AxiosAdapter
@@ -254,6 +255,7 @@ beforeEach(() => {
   warnings.length = 0
   successes.length = 0
   requests.length = 0
+  navigationValue = '{}'
   useAuthStore.getState().auth.reset('idle')
   read = async (config) => response(config, 200, loaded())
   write = async (config) =>
@@ -268,10 +270,18 @@ beforeEach(() => {
       skipErrorHandler: config.skipErrorHandler,
       values: body?.values,
     })
+    if (config.url === '/api/site/navigation' && method === 'get') {
+      return response(config, 200, {
+        success: true,
+        message: '',
+        data: { value: navigationValue, revision: 1 },
+      })
+    }
     assert.ok(
       [
         '/api/option/',
         '/api/option/bulk',
+        '/api/site/navigation',
         '/api/option/exchange-rate?currency=CNY',
       ].includes(config.url ?? ''),
       'the fixture must never perform an unexpected network request'
@@ -624,12 +634,17 @@ test('native navigation capability mounts the real editor and saves retained ext
     })
   write = async (config) => {
     const body = JSON.parse(String(config.data))
-    assert.equal(body.key, 'HeaderNavModules')
+    assert.deepEqual(Object.keys(body), ['value'])
     const value = JSON.parse(body.value)
     assert.equal(value.home, false)
     assert.deepEqual(value.extension, { custom: 42 })
     navigation = body.value
-    return response(config, 200, { success: true, saved: true })
+    navigationValue = navigation
+    return response(config, 200, {
+      success: true,
+      message: '',
+      data: { value: navigation, revision: 1 },
+    })
   }
   await renderPage(false)
   await until(

@@ -1,0 +1,8 @@
+{
+  "source_schema_revision": "c6024721d44e31d6605c5f707669f46cfd43c20f",
+  "compiled_manifest_sha256": "9a5f3b495c2818da2d011907457a2358591a68af115f399fd1a9e1496b142427",
+  "fresh_catalog_sha256": "19340f14a352f458f58dd167bd8784c1e97a9c63708c40b107ab70f222c68909",
+  "capture_receipt_sha256": "d0cd8c617c64f3b46cbd084dd37c328498083a6af08902e8e2eeba69634221ce",
+  "actual_init_receipt_sha256": "a01700ae0399b7c38ba231d7e7539dbae5937fc1a8737dccea9c9d2d282a7062",
+  "acl_receipt_sha256": "0971b45441d980c557b3b663507b5b5b5bdfee247f5d3677b85d610cb7ae31ec"
+}

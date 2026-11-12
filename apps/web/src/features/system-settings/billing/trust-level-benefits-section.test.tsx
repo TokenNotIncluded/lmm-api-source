@@ -224,8 +224,10 @@ test('the dedicated settings navigation points to an editor with exactly four re
 test('saves the complete versioned config in one option write and preserves independent tier values', async () => {
   const original = api.put
   const originalGet = api.get
-  api.get = (async () => ({
-    data: {
+  api.get = (async (url: string) => ({
+    data: url === '/api/site/navigation'
+      ? { success: true, message: '', data: { value: '{}', revision: 1 } }
+      : {
       success: true,
       message: '',
       data: [{ key: 'TrustLevelBenefits', value: JSON.stringify(config) }],
@@ -283,8 +285,10 @@ test('saves the complete versioned config in one option write and preserves inde
 test('invalid cumulative thresholds never write, and a rejected save retains the editable draft', async () => {
   const original = api.put
   const originalGet = api.get
-  api.get = (async () => ({
-    data: {
+  api.get = (async (url: string) => ({
+    data: url === '/api/site/navigation'
+      ? { success: true, message: '', data: { value: '{}', revision: 1 } }
+      : {
       success: true,
       message: '',
       data: [{ key: 'TrustLevelBenefits', value: JSON.stringify(config) }],
@@ -367,8 +371,10 @@ test('an older server is not editable and a rolled-back capability is checked ag
   const originalGet = api.get
   const originalPut = api.put
   let writes = 0
-  api.get = (async () => ({
-    data: { success: true, message: '', data: [], capabilities: {} },
+  api.get = (async (url: string) => ({
+    data: url === '/api/site/navigation'
+      ? { success: true, message: '', data: { value: '{}', revision: 1 } }
+      : { success: true, message: '', data: [], capabilities: {} },
   })) as typeof api.get
   api.put = (async () => {
     writes++

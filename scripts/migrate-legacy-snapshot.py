@@ -778,10 +778,85 @@ def reviewed_checkins(*, require_receipts: bool = True) -> dict:
     return review
 
 
+MODULE_SPLIT_SEED_CONTRACT = "fresh66-module-split-identity6-complete-seeds-v1"
+MODULE_SPLIT_MANIFEST_SHA256 = "9a5f3b495c2818da2d011907457a2358591a68af115f399fd1a9e1496b142427"
+MODULE_SPLIT_CATALOG_SHA256 = "19340f14a352f458f58dd167bd8784c1e97a9c63708c40b107ab70f222c68909"
+MODULE_SPLIT_CORE_SCHEMA_SHA256 = "f5b66074979c2e0054e3aea55070ad18ad5cf4687f539404dc65a728d9d2c28a"
+MODULE_SPLIT_REVIEW_FILE = Path(__file__).with_name("reviewed-fresh66-module-split.json")
+MODULE_SPLIT_REVIEW_SHA256 = "0f62bc54c39562414224fc821becf90029f2becb9757b4bcb0018cc7fcb703e4"
+REVIEWED_MODULE_SPLIT = json.loads(MODULE_SPLIT_REVIEW_FILE.read_text(encoding="utf-8"))
+MODULE_SPLIT_COMPONENT_HASHES = {
+    "charging": "e9a86b64b386f0cbe18a28e28abd1e2e86d721b0418fd3dc01eeda67d1190986",
+    "routing": "45dca7d04761c5d7fe98396c051f84d7ca4183ef12e609bd0600b72601b3a856",
+    "image": "23b3779b8426c554249669d68fa22c34b55a4f589c768aadcb95d6cba9afa80b",
+    "trust-pricing": "9da2b6b2631d9948bd5af86f4a7ac32049be5f98e5a08ae8916d8c1f1ee132e7",
+    "image-native-usage": "477c92c103107c85004b37db016a8ce3f52677ad0a38337f03779d92323cf04b",
+}
+MODULE_SPLIT_REMOVED_FILES = {
+    "services/core/src/checkins.rs",
+    "services/core/schema/checkins.sql",
+    "services/core/src/runtime_checkins.rs",
+    "services/core/schema/navigation_options.sql",
+}
+MODULE_SPLIT_FILE_HASHES = {
+    "deployment/postgres/grant-core-runtime.sql": "e358f984288921cb9436970b0b5cdc78be75268bb01e84ec3b3e1130d9138544",
+    "services/core/src/admin/check_db.rs": "da99630641ca8d148696942f41426ec1facd5dba1a7bff79b780d3a5b1402bdd",
+    "services/core/src/channel_http.rs": "684122ce0f92063f0a4eb3999be9b6c9f82a9ccbfa835eab774207ff4b0795dc",
+    "services/core/src/commerce.rs": "64a21d5b9c756ae1e5a63cf189b54ee75ca9214263ca2def1e0fb34a8b574ce1",
+    "services/core/src/core_schema.rs": MODULE_SPLIT_CORE_SCHEMA_SHA256,
+    "services/core/src/core_schema/manifest.rs": "214ea89b4ca4c45dab6d7c38f1b8aca3663591ff67e78e2c383dbb6849a1452c",
+    "services/core/src/core_schema/navigation_options.rs": "8f0515fc8911bc9f73d357aa25c44eca408cd268223ce35bb26bc31e8b609ed8",
+    "services/core/src/core_schema/upgrade/fresh_target.json": "ccd889046a431919654379aea6f948f729a63e6602c22b893c3e070ac2b62ab7",
+    "services/core/src/identity.rs": "bdc7af05dc876df5e3dc6e5455bea6989f87fb240f924b05eacb612dd3a1d34f",
+    "services/core/src/identity/browser.rs": "dbf78f953737f932c777d06c1f634cff5f3ab49519a1ca877d45ee44454772f8",
+    "services/core/src/identity/browser/account_lifecycle.rs": "d6ca206f4bd108df3e86e57e2d6adbaec3dfc9904bb53dbc5cf3b45af2f9d704",
+    "services/core/src/identity/browser/passkeys.rs": "461df20e8239b9c780daacf7f4abb0acf08e95aee53d3beab46f2f6b5bff1d9e",
+    "services/core/src/payments.rs": "2d0fb5f898c8462dadb71f12789b42b2fa9e8760d78ea39e59cff05bc14f1f8c",
+    "services/core/src/promotions.rs": "603969cd82f29c34c5b03728adb2423d6e42b91cd946591dfbea474be3198dd2",
+    "services/core/src/runtime_database.rs": "a7693e7b2aa4c591c08c6a65215b350b9a3e513957f87db2b973c90b53c8d0ca",
+    "services/core/src/subscriptions.rs": "3d2b908b0f5568cdaab143c97d06eedffea5084b5572a01dc0444773a252a43d",
+}
+
+
+def reviewed_module_split(*, require_receipts: bool = True) -> dict:
+    require(sha256_file(MODULE_SPLIT_REVIEW_FILE) == MODULE_SPLIT_REVIEW_SHA256,
+            "module_split_review_file_changed")
+    historical = reviewed_checkins()
+    components = {name: list(pair) for name, pair in historical["components"].items()
+                  if name not in ("navigation-options", "checkins")}
+    for name, digest in MODULE_SPLIT_COMPONENT_HASHES.items():
+        components[name][1] = digest
+    files = {name: digest for name, digest in historical["files"].items()
+             if name not in MODULE_SPLIT_REMOVED_FILES}
+    files.update(MODULE_SPLIT_FILE_HASHES)
+    review = {**REVIEWED_MODULE_SPLIT, "components": components, "files": files}
+    require(isinstance(review, dict) and set(review) == set(historical),
+            "module_split_review_incomplete")
+    require(review["source_schema_revision"] == "c6024721d44e31d6605c5f707669f46cfd43c20f",
+            "module_split_source_revision_not_reviewed")
+    require(review["compiled_manifest_sha256"] == MODULE_SPLIT_MANIFEST_SHA256 and
+        review["fresh_catalog_sha256"] == MODULE_SPLIT_CATALOG_SHA256,
+        "module_split_target_not_reviewed")
+    for key in ("actual_init_receipt_sha256", "acl_receipt_sha256"):
+        if review[key] is None:
+            require(not require_receipts, "module_split_" + key + "_pending")
+        else:
+            require(isinstance(review[key], str) and re.fullmatch(r"[0-9a-f]{64}", review[key]),
+                    "module_split_review_incomplete")
+    return review
+
+
 def reviewed_profile(root: Path | None = None) -> str:
     """An exact reviewed assembly selects a profile; no arbitrary suffixes."""
     root = ROOT if root is None else Path(root)
     digest = sha256_file(root / "services/core/src/core_schema.rs")
+    if digest == MODULE_SPLIT_CORE_SCHEMA_SHA256:
+        review = reviewed_module_split(require_receipts=False)
+        target = "services/core/src/core_schema/upgrade/fresh_target.json"
+        require(sha256_file(root / target) == review["files"][target] and
+            _matches_reviewed_components(root, review), "module_split_assembly_not_reviewed")
+        reviewed_module_split()
+        return MODULE_SPLIT_SEED_CONTRACT
     if digest == CHECKINS_FILE_HASHES["services/core/src/core_schema.rs"]:
         review = reviewed_checkins(require_receipts=False)
         target = "services/core/src/core_schema/upgrade/fresh_target.json"
@@ -830,6 +905,8 @@ def reviewed_profile(root: Path | None = None) -> str:
 
 
 def reviewed_components(root: Path) -> dict:
+    if reviewed_profile(root) == MODULE_SPLIT_SEED_CONTRACT:
+        return reviewed_module_split()["components"]
     if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
         return reviewed_checkins()["components"]
     if reviewed_profile(root) == PANCAKE_LANGUAGE_SEED_CONTRACT:
@@ -846,6 +923,8 @@ def reviewed_components(root: Path) -> dict:
 
 
 def reviewed_files(root: Path) -> dict:
+    if reviewed_profile(root) == MODULE_SPLIT_SEED_CONTRACT:
+        return reviewed_module_split()["files"]
     if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
         files = reviewed_checkins()["files"]
         candidate = Path(__file__).with_name("reviewed-core7-source.json")
@@ -1001,16 +1080,17 @@ def current_contract(root: Path | None = None) -> dict:
             "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         revision, manifest_pin, catalog_pin = ((CORE54_SCHEMA_REVISION, CORE54_MANIFEST_SHA256, CORE54_CATALOG_SHA256)
             if profile == CORE54_SEED_CONTRACT else (CORE55_SCHEMA_REVISION, CORE55_MANIFEST_SHA256, CORE55_CATALOG_SHA256)
             if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256)
             if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256)
             if profile == CORE58_SEED_CONTRACT else (CORE59_SCHEMA_REVISION, CORE59_MANIFEST_SHA256, CORE59_CATALOG_SHA256))
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
             review = {CORE65_SEED_CONTRACT: reviewed65, CURRENT_LEDGER_SEED_CONTRACT: reviewed_current_ledger,
                       CREDIT_QUOTES_SEED_CONTRACT: reviewed_credit_quotes,
-                      PANCAKE_LANGUAGE_SEED_CONTRACT: reviewed_pancake_language, CHECKINS_SEED_CONTRACT: reviewed_checkins}[profile]()
+                      PANCAKE_LANGUAGE_SEED_CONTRACT: reviewed_pancake_language, CHECKINS_SEED_CONTRACT: reviewed_checkins,
+                      MODULE_SPLIT_SEED_CONTRACT: reviewed_module_split}[profile]()
             revision, manifest_pin, catalog_pin = (review["source_schema_revision"],
                 review["compiled_manifest_sha256"], review["fresh_catalog_sha256"])
         # Match serde_json::to_vec(schema_manifest()) plus the CLI's final LF.
@@ -1026,11 +1106,11 @@ def current_contract(root: Path | None = None) -> dict:
         digest = hashlib.sha256((json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + "\n").encode()).hexdigest()
         pin = json.loads((root / "services/core/src/core_schema/upgrade/fresh_target.json").read_text())
         expected_pin = {"manifest_sha256": manifest_pin, "catalog_sha256": catalog_pin}
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
             expected_pin["component_count"] = len(components)
         require(digest == manifest_pin and pin == expected_pin,
             "compiled_manifest_contract_mismatch")
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
             contract["profile_review_evidence"] = {key: review[key] for key in
                 ("capture_receipt_sha256", "actual_init_receipt_sha256", "acl_receipt_sha256")}
         contract.update(import_profile=profile, source_schema_revision=revision,
@@ -1136,7 +1216,6 @@ UPGRADE_RECEIPT_TABLES = (
     "core_meta.completion_upgrades", "core_meta.account_appeal_upgrades",
     "core_meta.channel_accounting_upgrades", "core_meta.channel_projection_upgrades",
     "core_meta.trust_policy_upgrades", "core_meta.channel_observations_upgrades",
-    "core_meta.navigation_options_upgrades",
 )
 
 
@@ -1149,7 +1228,9 @@ def upgrade_receipt_tables(contract: dict) -> tuple[str, ...]:
         if "subscription-epay" in contract["component_fingerprints"] else ())
         + (("core_meta.core59_to62_upgrades",) if "subscription-stripe" in contract["component_fingerprints"] else ())
         + (("core_meta.pancake_language_upgrades",)
-        if "subscription-pancake-language-optional" in contract["component_fingerprints"] else ()))
+        if "subscription-pancake-language-optional" in contract["component_fingerprints"] else ())
+        + (("core_meta.navigation_options_upgrades",)
+        if "navigation-options" in contract["component_fingerprints"] else ()))
 
 
 def fresh_business_tables(contract: dict) -> tuple[str, ...]:
@@ -1304,8 +1385,8 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
         "promotion_secret": ("core_promotions.secrets", "singleton"),
         "channel_projection_state": ("core_channels.projection_state", "singleton"),
     }
-    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT), "seed_profile_not_reviewed")
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    require(profile in (CORE49_SEED_CONTRACT, CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT), "seed_profile_not_reviewed")
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         # 50--54 add no seed rights: all twelve tables must remain empty.
         # Their whole rows and both new physical sequences are still hashed.
         relations.update({
@@ -1324,15 +1405,15 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             "referral_event_journals": ("core_referrals.event_journals", "event_id"),
             "referral_events_sequence": ("core_referrals.events_id_seq", "last_value"),
         })
-    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         relations["connection_snapshot"] = ("core_history.connection_snapshot", "singleton")
-    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         relations.update({"directory_ad_quotes": ("core_directory_ads.quotes", "id"),
                           "directory_ad_payments": ("core_directory_ads.payments", "id"),
                           "directory_ad_refunds": ("core_directory_ads.refunds", "principal,request_id")})
-    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         relations["commerce_display_rate_upgrades"] = ("core_meta.commerce_display_rate_upgrades", "upgrade_id")
-    if profile in (CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         relations.update({
             "subscription_epay_upgrades": ("core_meta.subscription_epay_upgrades", "upgrade_id"),
             "external_prices": ("core_subscriptions.external_prices", "plan_id,plan_revision,channel_id"),
@@ -1340,7 +1421,7 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             "external_proofs": ("core_subscriptions.external_proofs", "id"),
             "external_grants": ("core_subscriptions.external_grants", "order_id"),
         })
-    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         relations.update({"federated_" + name: ("core_federated_auth." + name, order)
             for name, order in (("providers", "id"), ("identities", "provider_id,subject_digest"),
                 ("flows", "digest"), ("assertions", "digest"), ("operations", "actor_user_id,operation_key"))})
@@ -1357,7 +1438,7 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
                 ("events", "order_id,event_id"), ("cycles", "order_id,cycle_key"))})
         relations.update({"legacy_refund_grants": ("core_commerce.legacy_refund_grants", "order_id"),
             "legacy_refund_operations": ("core_commerce.legacy_refund_operations", "order_id")})
-    if profile in (PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         relations["pancake_language_upgrades"] = ("core_meta.pancake_language_upgrades", "upgrade_id")
     if profile == CHECKINS_SEED_CONTRACT:
         relations.update({"checkins_" + name: ("core_checkins." + name, order)
@@ -1376,7 +1457,7 @@ def fresh_seed_hash_query(profile: str | None = None) -> str:
             row_json += "||jsonb_build_object(" + sql_literal(timestamp) + "," + utc_timestamp_text_sql("t." + timestamp) + ")"
         fields.append(sql_literal(key) + ",COALESCE((SELECT jsonb_agg(" + row_json + " ORDER BY " +
                       order + ") FROM " + relation + " t),'[]'::jsonb)")
-    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         # Keep each call below PG's argument limit; historical seed SQL bytes
         # remain unchanged. Each fields entry contains a key/value pair.
         objects = ["jsonb_build_object(" + ",".join(fields[i:i+40]) + ")"
@@ -1927,7 +2008,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         require(target_contract.get(key) == contract.get(key), "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
-    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT):
+    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
         require(catalog_hash == contract["fresh_catalog_sha256"], "target_fresh_catalog_mismatch")
     validate_import_material(plan, source_sha256, manifest)
     require(isinstance(target_identity, dict), "target_identity_incomplete")

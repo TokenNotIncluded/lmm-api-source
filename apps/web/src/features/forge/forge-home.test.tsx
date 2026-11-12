@@ -199,6 +199,15 @@ async function renderHome(
   const root = createRoot(container)
 
   api.get = (async (url) => {
+    if (url === '/api/site/navigation') {
+      return {
+        data: {
+          success: true,
+          message: '',
+          data: { value: options.headerNavModules ?? '{}', revision: 1 },
+        },
+      }
+    }
     if (url === '/api/notice') {
       return { data: { success: true, data: '' } }
     }

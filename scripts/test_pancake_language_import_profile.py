@@ -14,9 +14,9 @@ I = F.IDENTITY
 
 class PancakeLanguageImportProfileTests(unittest.TestCase):
     def admitted_fixture(self):
-        review = copy.deepcopy(I.REVIEWED_PANCAKE_LANGUAGE)
+        review = copy.deepcopy(I.REVIEWED_MODULE_SPLIT)
         review.update(actual_init_receipt_sha256='ab' * 32, acl_receipt_sha256='cd' * 32)
-        return patch.object(I, 'REVIEWED_PANCAKE_LANGUAGE', review)
+        return patch.object(I, 'REVIEWED_MODULE_SPLIT', review)
 
     def test_each_actual_receipt_is_independently_required(self):
         for init, acl, missing in ((None, None, 'actual_init'), ('ab' * 32, None, 'acl')):
@@ -24,18 +24,18 @@ class PancakeLanguageImportProfileTests(unittest.TestCase):
             review.update(actual_init_receipt_sha256=init, acl_receipt_sha256=acl)
             with patch.object(I, 'REVIEWED_PANCAKE_LANGUAGE', review):
                 with self.assertRaisesRegex(I.MappingError, 'pancake_language_' + missing + '_receipt_sha256_pending'):
-                    I.current_contract()
+                    I.reviewed_pancake_language()
 
-    def test_unit_fixture_selects_exact_final_source_and_manifest67(self):
+    def test_current_source_selects_exact_module_split_manifest66(self):
         with self.admitted_fixture():
             contract = I.current_contract()
-        self.assertEqual(contract['import_profile'], I.PANCAKE_LANGUAGE_SEED_CONTRACT)
-        self.assertEqual(contract['source_schema_revision'], '0510c2455dabcb63e33c719ba52ac189d62612bc')
-        self.assertEqual(contract['compiled_manifest_sha256'], I.PANCAKE_LANGUAGE_MANIFEST_SHA256)
-        self.assertEqual(contract['fresh_catalog_sha256'], I.PANCAKE_LANGUAGE_CATALOG_SHA256)
-        self.assertEqual(len(contract['component_fingerprints']), 67)
+        self.assertEqual(contract['import_profile'], I.MODULE_SPLIT_SEED_CONTRACT)
+        self.assertEqual(contract['source_schema_revision'], 'c6024721d44e31d6605c5f707669f46cfd43c20f')
+        self.assertEqual(contract['compiled_manifest_sha256'], I.MODULE_SPLIT_MANIFEST_SHA256)
+        self.assertEqual(contract['fresh_catalog_sha256'], I.MODULE_SPLIT_CATALOG_SHA256)
+        self.assertEqual(len(contract['component_fingerprints']), 66)
         self.assertIn('services/core/schema/subscription_pancake_language_optional.sql', contract['source_file_hashes'])
-        self.assertEqual(F.reviewed_source_contract(contract)['import_profile'], I.PANCAKE_LANGUAGE_SEED_CONTRACT)
+        self.assertEqual(F.reviewed_source_contract(contract)['import_profile'], I.MODULE_SPLIT_SEED_CONTRACT)
 
     def test_old_target_cannot_mix_with_registry67(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -48,7 +48,7 @@ class PancakeLanguageImportProfileTests(unittest.TestCase):
             target.write_text(json.dumps({'component_count': 66,
                 'manifest_sha256': I.CREDIT_QUOTES_MANIFEST_SHA256,
                 'catalog_sha256': I.CREDIT_QUOTES_CATALOG_SHA256}))
-            with self.assertRaisesRegex(I.MappingError, 'pancake_language_assembly_not_reviewed'):
+            with self.assertRaisesRegex(I.MappingError, 'module_split_assembly_not_reviewed'):
                 I.reviewed_profile(root)
 
     def test_review_seal_source_revision_prefix_expression_and_files_are_strict(self):
@@ -89,13 +89,13 @@ class PancakeLanguageImportProfileTests(unittest.TestCase):
         with self.admitted_fixture():
             source = helpers.source_fixture()
             snapshot = helpers.snapshot_fixture(source)
-            snapshot['catalog_fingerprint_sha256'] = I.CREDIT_QUOTES_CATALOG_SHA256
+            snapshot['catalog_fingerprint_sha256'] = I.PANCAKE_LANGUAGE_CATALOG_SHA256
             with self.assertRaisesRegex(F.Error, 'target_fresh_catalog_mismatch'):
                 helpers.material_fixture(source, snapshot)
-            snapshot['catalog_fingerprint_sha256'] = I.PANCAKE_LANGUAGE_CATALOG_SHA256
+            snapshot['catalog_fingerprint_sha256'] = I.MODULE_SPLIT_CATALOG_SHA256
             material = helpers.material_fixture(source, snapshot)
             F.validate_material(material)
-            material['target']['catalog_fingerprint_sha256'] = I.CREDIT_QUOTES_CATALOG_SHA256
+            material['target']['catalog_fingerprint_sha256'] = I.PANCAKE_LANGUAGE_CATALOG_SHA256
             with self.assertRaisesRegex(F.Error, 'target_fresh_catalog_mismatch'):
                 F.validate_material(material)
 

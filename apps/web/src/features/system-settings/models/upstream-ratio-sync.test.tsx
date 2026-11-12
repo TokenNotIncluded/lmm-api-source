@@ -189,6 +189,15 @@ beforeEach(async () => {
         },
       }
     }
+    if (url === '/api/site/navigation') {
+      return {
+        data: {
+          success: true,
+          message: '',
+          data: { value: '{}', revision: 1 },
+        },
+      }
+    }
     if (failRead) {
       assert.equal(
         queryClient.getQueryData<ModelPricingConfig>(MODEL_PRICING_QUERY_KEY)

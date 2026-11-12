@@ -38,7 +38,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { HomeDirectoryLink } = await import('./home-directory-link')
 const resources = Object.fromEntries(
-  ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].map((locale) => [
+  ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].map((locale) => [
     locale,
     JSON.parse(
       readFileSync(

@@ -67,7 +67,7 @@ describe('localized assistant conversation starters', () => {
     )
   })
 
-  for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
+  for (const locale of ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
     test(`${locale}: translates cached copy and fallback without changing IDs or ordering`, async () => {
       const resource = JSON.parse(
         await readFile(

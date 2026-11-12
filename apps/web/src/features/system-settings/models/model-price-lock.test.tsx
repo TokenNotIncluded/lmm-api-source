@@ -105,7 +105,13 @@ async function setup(initial = options()) {
   let beforePut: (() => Promise<void>) | undefined
   api.get = (async (url: string) => ({
     data:
-      url === '/api/option/pricing'
+      url === '/api/site/navigation'
+        ? {
+            success: true,
+            message: '',
+            data: { value: '{}', revision: 1 },
+          }
+        : url === '/api/option/pricing'
         ? {
             success: true,
             data: {

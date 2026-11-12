@@ -14,16 +14,16 @@ I = F.IDENTITY
 
 class CreditQuoteImportProfileTests(unittest.TestCase):
     def admitted_fixture(self):
-        review = copy.deepcopy(I.REVIEWED_CREDIT_QUOTES)
+        review = copy.deepcopy(I.REVIEWED_MODULE_SPLIT)
         review.update(actual_init_receipt_sha256='ab' * 32, acl_receipt_sha256='cd' * 32)
-        return patch.object(I, 'REVIEWED_CREDIT_QUOTES', review)
+        return patch.object(I, 'REVIEWED_MODULE_SPLIT', review)
 
     def test_missing_init_receipt_remains_pending(self):
         review = copy.deepcopy(I.REVIEWED_CREDIT_QUOTES)
         review.update(actual_init_receipt_sha256=None, acl_receipt_sha256=None)
         with patch.object(I, 'REVIEWED_CREDIT_QUOTES', review):
             with self.assertRaisesRegex(I.MappingError, 'credit_quotes_actual_init_receipt_sha256_pending'):
-                I.current_contract()
+                I.reviewed_credit_quotes()
 
     def test_init_alone_does_not_admit_without_actual_acl(self):
         review = copy.deepcopy(I.REVIEWED_CREDIT_QUOTES)
@@ -31,15 +31,15 @@ class CreditQuoteImportProfileTests(unittest.TestCase):
         review['acl_receipt_sha256'] = None
         with patch.object(I, 'REVIEWED_CREDIT_QUOTES', review):
             with self.assertRaisesRegex(I.MappingError, 'credit_quotes_acl_receipt_sha256_pending'):
-                I.current_contract()
+                I.reviewed_credit_quotes()
 
-    def test_synthetic_receipts_select_exact_core184_manifest66(self):
+    def test_current_source_selects_exact_module_split_manifest66(self):
         with self.admitted_fixture():
             contract = I.current_contract()
-        self.assertEqual(contract['import_profile'], I.CREDIT_QUOTES_SEED_CONTRACT)
-        self.assertEqual(contract['source_schema_revision'], '184569d74ba5481dd23a560087e817f7943783de')
-        self.assertEqual(contract['compiled_manifest_sha256'], I.CREDIT_QUOTES_MANIFEST_SHA256)
-        self.assertEqual(contract['fresh_catalog_sha256'], I.CREDIT_QUOTES_CATALOG_SHA256)
+        self.assertEqual(contract['import_profile'], I.MODULE_SPLIT_SEED_CONTRACT)
+        self.assertEqual(contract['source_schema_revision'], 'c6024721d44e31d6605c5f707669f46cfd43c20f')
+        self.assertEqual(contract['compiled_manifest_sha256'], I.MODULE_SPLIT_MANIFEST_SHA256)
+        self.assertEqual(contract['fresh_catalog_sha256'], I.MODULE_SPLIT_CATALOG_SHA256)
         self.assertEqual(len(contract['component_fingerprints']), 66)
         for name in ('payment_credit_quotes.sql', 'payment_credit_quote_referrals.sql'):
             self.assertIn('services/core/schema/' + name, contract['source_file_hashes'])
@@ -56,7 +56,7 @@ class CreditQuoteImportProfileTests(unittest.TestCase):
                 'manifest_sha256': I.CURRENT_LEDGER_MANIFEST_SHA256,
                 'catalog_sha256': I.CURRENT_LEDGER_CATALOG_SHA256}))
             with self.admitted_fixture():
-                with self.assertRaisesRegex(I.MappingError, 'credit_quotes_assembly_not_reviewed'):
+                with self.assertRaisesRegex(I.MappingError, 'module_split_assembly_not_reviewed'):
                     I.reviewed_profile(root)
 
     def test_changed_component_prefix_alias_or_source_is_rejected(self):
@@ -96,7 +96,7 @@ class CreditQuoteImportProfileTests(unittest.TestCase):
         with self.admitted_fixture():
             source = historical_helpers.source_fixture()
             snapshot = historical_helpers.snapshot_fixture(source)
-            snapshot['catalog_fingerprint_sha256'] = I.CURRENT_LEDGER_CATALOG_SHA256
+            snapshot['catalog_fingerprint_sha256'] = I.CREDIT_QUOTES_CATALOG_SHA256
             with self.assertRaisesRegex(F.Error, 'target_fresh_catalog_mismatch'):
                 historical_helpers.material_fixture(source, snapshot)
 
@@ -104,10 +104,10 @@ class CreditQuoteImportProfileTests(unittest.TestCase):
         with self.admitted_fixture():
             source = historical_helpers.source_fixture()
             snapshot = historical_helpers.snapshot_fixture(source)
-            snapshot['catalog_fingerprint_sha256'] = I.CREDIT_QUOTES_CATALOG_SHA256
+            snapshot['catalog_fingerprint_sha256'] = I.MODULE_SPLIT_CATALOG_SHA256
             material = historical_helpers.material_fixture(source, snapshot)
             F.validate_material(material)
-            material['target']['catalog_fingerprint_sha256'] = I.CURRENT_LEDGER_CATALOG_SHA256
+            material['target']['catalog_fingerprint_sha256'] = I.CREDIT_QUOTES_CATALOG_SHA256
             with self.assertRaisesRegex(F.Error, 'target_fresh_catalog_mismatch'):
                 F.validate_material(material)
 

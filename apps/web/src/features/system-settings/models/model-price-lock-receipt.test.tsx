@@ -83,6 +83,15 @@ async function harness(response: unknown, failReadAfterWrite = true) {
   client.setQueryData(['system-options'], initial)
   api.get = (async (url: string) => {
     reads++
+    if (url === '/api/site/navigation') {
+      return {
+        data: {
+          success: true,
+          message: '',
+          data: { value: '{}', revision: 1 },
+        },
+      }
+    }
     if (url === '/api/option/pricing') {
       if (writes && failReadAfterWrite) throw new Error('read unavailable')
       return {

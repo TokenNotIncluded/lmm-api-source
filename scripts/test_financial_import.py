@@ -80,7 +80,7 @@ def snapshot_fixture(source):
             "postmaster_started_at": "2026-10-01 00:00:00+00", "server_instance_nonce": "synthetic-instance",
             "server_version_num": "180000", "port": 5432, "tcp_connection": False},
         "catalog_fingerprint_sha256": (F.IDENTITY.current_contract()["fresh_catalog_sha256"]
-            if F.IDENTITY.reviewed_profile() in (F.IDENTITY.CORE59_SEED_CONTRACT, F.IDENTITY.CORE65_SEED_CONTRACT) else "a" * 64),
+            if F.IDENTITY.reviewed_profile() in (F.IDENTITY.CORE59_SEED_CONTRACT, F.IDENTITY.CORE65_SEED_CONTRACT, F.IDENTITY.MODULE_SPLIT_SEED_CONTRACT) else "a" * 64),
         "ownership_sha256": "b" * 64,
         "component_fingerprints": F.IDENTITY.current_contract()["component_fingerprints"],
         "trust_policy_seed": trust_seed_fixture()}
@@ -382,12 +382,12 @@ class MaterialTests(unittest.TestCase):
         with self.assertRaisesRegex(F.Error, "incomplete_inventory"):
             F.validate_inventory(inventory)
 
-    def test_reviewed65_material_keeps_source_catalog_and_acl_guards(self):
+    def test_current_material_keeps_source_catalog_and_acl_guards(self):
         material = material_fixture()
         contract = F.IDENTITY.current_contract()
-        self.assertEqual(contract["import_profile"], F.IDENTITY.CORE65_SEED_CONTRACT)
+        self.assertEqual(contract["import_profile"], F.IDENTITY.MODULE_SPLIT_SEED_CONTRACT)
         self.assertEqual(material["target"]["source_contract"]["source_schema_revision"],
-                         F.IDENTITY.reviewed65()["source_schema_revision"])
+                         F.IDENTITY.reviewed_module_split()["source_schema_revision"])
         sql = F.build_apply_sql(material)
         self.assertIn("core_meta.subscription_epay_upgrades", sql)
         self.assertIn("t.attname='subscription_order_id'", sql)

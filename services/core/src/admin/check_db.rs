@@ -154,7 +154,7 @@ fn execution() -> Result<Execution, Rejection> {
 }
 fn required() -> Result<RequiredCapabilities, Rejection> {
     Ok(RequiredCapabilities {
-        checkins: true,
+        checkins: false,
         models: config::setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_some(),
         images: config::images_configured()
             .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
