@@ -61,7 +61,7 @@ impl Store {
         OsRng
             .try_fill_bytes(&mut random)
             .map_err(|_| Error::Unavailable)?;
-        let csrf: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let csrf: String = crate::hex_codec::encode(random);
         let id = sqlx::query_scalar("INSERT INTO core_wallet.affiliate_claims(owner_user,account_id,session_id,amount,csrf_digest,expires_at) VALUES($1,$2,$3,$4,$5,extract(epoch FROM clock_timestamp())::bigint+600) RETURNING id")
             .bind(actor.user).bind(actor.account).bind(actor.sid).bind(amount).bind(Sha256::digest(csrf.as_bytes()).to_vec()).fetch_one(&mut *tx).await?;
         tx.commit().await?;

@@ -126,28 +126,10 @@ pub(super) fn valid_channel(c: &Channel) -> bool {
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(DIGITS[usize::from(byte >> 4)] as char);
-        output.push(DIGITS[usize::from(byte & 15)] as char);
-    }
-    output
-}
+use crate::hex_codec::encode as hex;
 
 fn unhex(value: &[u8]) -> Result<Vec<u8>> {
-    if !value.len().is_multiple_of(2) {
-        return Err(Error::Invalid);
-    }
-    value
-        .chunks_exact(2)
-        .map(|pair| {
-            let hi = char::from(pair[0]).to_digit(16).ok_or(Error::Invalid)?;
-            let lo = char::from(pair[1]).to_digit(16).ok_or(Error::Invalid)?;
-            Ok((hi * 16 + lo) as u8)
-        })
-        .collect()
+    crate::hex_codec::decode(value).map_err(|_| Error::Invalid)
 }
 
 fn stable_key(parts: &[&str]) -> String {

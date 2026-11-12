@@ -281,9 +281,7 @@ fn digest<T: Serialize>(v: &T) -> Result<[u8; 32]> {
     let v = serde_json::to_value(v).map_err(|_| Error::Invalid)?;
     Ok(Sha256::digest(serde_json::to_vec(&canonical(&v)).map_err(|_| Error::Invalid)?).into())
 }
-fn hex(v: &[u8]) -> String {
-    v.iter().map(|b| format!("{b:02x}")).collect()
-}
+use crate::hex_codec::encode as hex;
 fn random() -> Result<[u8; 32]> {
     let mut b = [0; 32];
     OsRng.try_fill_bytes(&mut b).map_err(|_| Error::Storage)?;

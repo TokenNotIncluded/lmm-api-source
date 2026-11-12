@@ -455,7 +455,7 @@ async fn login(
     if rand::rngs::OsRng.try_fill_bytes(&mut random).is_err() {
         return auth_failure(IdentityError::Storage.into());
     }
-    let binding: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    let binding: String = crate::hex_codec::encode(random);
     match state
         .browser
         .login_with_mfa(&body.username, &body.password, &metadata, &binding)
@@ -745,7 +745,7 @@ async fn google_start(
     if rand::rngs::OsRng.try_fill_bytes(&mut random).is_err() {
         return auth_failure(IdentityError::Storage.into());
     }
-    let binding: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    let binding: String = crate::hex_codec::encode(random);
     match state.browser.begin_google_login(&binding).await {
         Ok(url) => google_flow_cookie(
             success(Some(json!({"authorization_url":url}))),

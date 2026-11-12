@@ -265,11 +265,7 @@ impl PaymentsStore {
         let transaction = payment_id.as_deref().unwrap_or(&order_id);
         let reference_hash =
             super::hash(json!([b.provider, b.merchant, b.environment, transaction]));
-        use std::fmt::Write;
-        let mut payment_reference = format!("{}:", b.provider);
-        for byte in reference_hash {
-            let _ = write!(payment_reference, "{byte:02x}");
-        }
+        let payment_reference = format!("{}:{}", b.provider, crate::hex_codec::encode(reference_hash));
         let request = Request {
             scope: "legacy_payments".into(),
             operation_key: operation_id.clone(),

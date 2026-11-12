@@ -35,9 +35,7 @@ pub struct CreatedPreview {
     pub preview: PolicyPreview,
 }
 
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
+pub(super) use crate::hex_codec::encode as hex;
 pub(super) fn decode_hex(value: &str) -> Result<[u8; 32], Error> {
     if value.len() != 64
         || !value
@@ -46,11 +44,8 @@ pub(super) fn decode_hex(value: &str) -> Result<[u8; 32], Error> {
     {
         return Err(Error::Invalid);
     }
-    let mut result = [0; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
-        let nibble = |v: u8| if v <= b'9' { v - b'0' } else { v - b'a' + 10 };
-        result[index] = nibble(pair[0]) * 16 + nibble(pair[1]);
-    }
+    let mut result = [0_u8; 32];
+    zhex::decode(value.as_bytes(), &mut result).map_err(|_| Error::Invalid)?;
     Ok(result)
 }
 

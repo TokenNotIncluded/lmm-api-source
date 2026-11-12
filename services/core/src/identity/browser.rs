@@ -99,10 +99,7 @@ impl BrowserAuth {
         mac.update(b"\0");
         mac.update(secret.as_bytes());
         let mut value = prefix.to_owned();
-        for byte in mac.finalize().into_bytes() {
-            use std::fmt::Write;
-            write!(&mut value, "{byte:02x}").map_err(|_| IdentityError::Storage)?;
-        }
+        value.push_str(&crate::hex_codec::encode(mac.finalize().into_bytes()));
         Ok(value)
     }
     pub async fn register(&self, input: &BrowserRegistration<'_>) -> BrowserResult<()> {

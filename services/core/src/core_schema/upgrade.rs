@@ -178,9 +178,7 @@ impl From<crate::identity::IdentityError> for UpgradeError {
 fn reject(code: &'static str) -> UpgradeError {
     UpgradeError::Rejected(code)
 }
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+use crate::hex_codec::encode as hex;
 fn digest_hex(value: &str) -> bool {
     value.len() == 64
         && value

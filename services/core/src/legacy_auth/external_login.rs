@@ -18,7 +18,7 @@ pub(super) fn random_binding() -> Result<String, IdentityError> {
     rand::rngs::OsRng
         .try_fill_bytes(&mut random)
         .map_err(|_| IdentityError::Storage)?;
-    Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(crate::hex_codec::encode(random))
 }
 fn cookie_name(provider: ExternalProvider, config: &LegacyAuthConfig) -> String {
     format!(

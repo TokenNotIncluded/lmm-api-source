@@ -481,12 +481,9 @@ mod tests {
         mac.update(time.to_string().as_bytes());
         mac.update(b".");
         mac.update(raw);
-        let hash: String = mac
+        let hash: String = crate::hex_codec::encode(mac
             .finalize()
-            .into_bytes()
-            .iter()
-            .map(|v| format!("{v:02x}"))
-            .collect();
+            .into_bytes());
         format!("t={time},v1={hash}").into_bytes()
     }
 

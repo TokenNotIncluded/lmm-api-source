@@ -61,10 +61,7 @@ fn hash_valid(value: &str) -> bool {
             .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
 }
 fn sha(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|v| format!("{v:02x}"))
-        .collect()
+    crate::hex_codec::encode(Sha256::digest(bytes))
 }
 fn value_hash(value: &Value) -> Result<String> {
     // The history options/rows contain flat objects. BTreeMap makes ordering

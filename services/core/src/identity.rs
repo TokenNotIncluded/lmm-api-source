@@ -171,12 +171,7 @@ fn new_secret(prefix: &str) -> Result<String> {
     OsRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| IdentityError::Storage)?;
-    let mut secret = String::with_capacity(prefix.len() + 64);
-    secret.push_str(prefix);
-    for b in bytes {
-        use std::fmt::Write;
-        write!(&mut secret, "{b:02x}").map_err(|_| IdentityError::Storage)?;
-    }
+    let secret = format!("{prefix}{}", crate::hex_codec::encode(bytes));
     Ok(secret)
 }
 fn valid_ttl(ttl: i64, maximum: i64) -> Result<()> {

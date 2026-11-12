@@ -318,12 +318,7 @@ fn evidence_hash(
 }
 fn receipt_id(intent: i64, key: &str) -> String {
     let digest = hash(json!([intent, key]));
-    let mut id = "pay_".to_owned();
-    use std::fmt::Write;
-    for byte in digest {
-        let _ = write!(id, "{byte:02x}");
-    }
-    id
+    format!("pay_{}", crate::hex_codec::encode(digest))
 }
 fn now() -> Result<i64> {
     i64::try_from(
@@ -791,11 +786,7 @@ impl PaymentsStore {
             verified.event_id,
             digest
         ]));
-        use std::fmt::Write;
-        let mut proof_id = "proof_".to_owned();
-        for byte in proof_hash {
-            let _ = write!(proof_id, "{byte:02x}");
-        }
+        let proof_id = format!("proof_{}", crate::hex_codec::encode(proof_hash));
         let receipt = pb::ProviderProofReceipt {
             proof_id,
             intent_id: intent.id,
@@ -1113,11 +1104,7 @@ impl PaymentsStore {
                 intent.environment,
                 verified.transaction
             ]));
-            use std::fmt::Write;
-            let mut payment_reference = format!("{}:", intent.provider);
-            for byte in reference_digest {
-                let _ = write!(payment_reference, "{byte:02x}");
-            }
+            let payment_reference = format!("{}:{}", intent.provider, crate::hex_codec::encode(reference_digest));
             let outcome = Self::post(
                 &mut tx,
                 intent.id,

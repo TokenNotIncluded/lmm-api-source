@@ -386,16 +386,13 @@ fn decode_hex_32(text: &str) -> Result<[u8; 32], ApprovalError> {
     if text.len() != 64 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(ApprovalError::InvalidJson);
     }
-    let mut out = [0; 32];
-    for (index, byte) in out.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
-            .map_err(|_| ApprovalError::InvalidJson)?;
-    }
+    let mut out = [0_u8; 32];
+    zhex::decode(text.as_bytes(), &mut out).map_err(|_| ApprovalError::InvalidJson)?;
     Ok(out)
 }
 
 fn encode_hex_32(value: &[u8; 32]) -> String {
-    value.iter().map(|byte| format!("{byte:02x}")).collect()
+    crate::hex_codec::encode(value)
 }
 
 fn role_name(role: PlatformRole) -> &'static str {

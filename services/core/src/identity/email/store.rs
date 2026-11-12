@@ -92,12 +92,7 @@ fn random_hex(bytes: usize) -> Result<Zeroizing<String>> {
     OsRng
         .try_fill_bytes(&mut random)
         .map_err(|_| EmailError::Unavailable)?;
-    let mut text = Zeroizing::new(String::with_capacity(bytes * 2));
-    for byte in random.iter() {
-        use std::fmt::Write;
-        write!(text, "{byte:02x}").map_err(|_| EmailError::Unavailable)?;
-    }
-    Ok(text)
+    Ok(Zeroizing::new(crate::hex_codec::encode(&*random)))
 }
 
 impl EmailChallenges {

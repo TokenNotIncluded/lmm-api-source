@@ -196,7 +196,7 @@ fn random(prefix: &str) -> String {
     OsRng.fill_bytes(&mut bytes);
     format!(
         "{prefix}{}",
-        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        crate::hex_codec::encode(bytes)
     )
 }
 async fn actor(c: &mut PgConnection, session: &str) -> Result<identity::Principal, Error> {

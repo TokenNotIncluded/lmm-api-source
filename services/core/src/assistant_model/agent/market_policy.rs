@@ -116,9 +116,7 @@ struct MarketArguments {
     arguments: Value,
 }
 #[allow(dead_code)] // Used only by the unused market-tool authorizer below.
-fn hex(hash: &[u8; 32]) -> String {
-    hash.iter().map(|b| format!("{b:02x}")).collect()
-}
+use crate::hex_codec::encode as hex;
 #[allow(dead_code)] // Used only by the unused market-tool authorizer below.
 fn check_proposal(proposal: &FrozenProposal, intent: &MarketIntent<'_>) -> Result<(), Error> {
     let args: MarketArguments =

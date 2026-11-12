@@ -72,10 +72,7 @@ impl BusinessFactsStore {
         let digest = Sha256::digest(serde_json::to_vec(&binding).map_err(|_| Error::Unavailable)?);
         result["projection_id"] = serde_json::json!(format!(
             "support-observation-v1:{}",
-            digest
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
+            crate::hex_codec::encode(digest)
         ));
         result["projection_kind"] =
             serde_json::json!("authenticated_read_observation_not_financial_receipt");

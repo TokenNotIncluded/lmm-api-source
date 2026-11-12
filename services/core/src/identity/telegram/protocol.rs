@@ -84,10 +84,7 @@ fn signature_bytes(hash: &str) -> Result<[u8; 32]> {
         return Err(IdentityError::Unauthorized);
     }
     let mut signature = [0_u8; 32];
-    for (index, byte) in signature.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hash[index * 2..index * 2 + 2], 16)
-            .map_err(|_| IdentityError::Unauthorized)?;
-    }
+    zhex::decode(hash.as_bytes(), &mut signature).map_err(|_| IdentityError::Unauthorized)?;
     Ok(signature)
 }
 

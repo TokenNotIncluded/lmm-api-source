@@ -692,12 +692,7 @@ fn wire_confirmation(
         {
             return Err(Status::unavailable("invalid stored confirmation digest"));
         }
-        (0..32)
-            .map(|n| {
-                u8::from_str_radix(&value[n * 2..n * 2 + 2], 16)
-                    .map_err(|_| Status::unavailable("invalid stored confirmation digest"))
-            })
-            .collect()
+        crate::hex_codec::decode(value).map_err(|_| Status::unavailable("invalid stored confirmation digest"))
     }
     let preview = serde_json::to_vec(&value.preview)
         .map_err(|_| Status::unavailable("confirmation preview unavailable"))?;

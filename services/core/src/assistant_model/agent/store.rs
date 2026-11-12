@@ -661,7 +661,7 @@ impl AgentService {
             if tool.domain != ToolDomain::Extension {
                 continue;
             }
-            let hex = |h: &[u8]| h.iter().map(|b| format!("{b:02x}")).collect::<String>();
+            let hex = |h: &[u8]| crate::hex_codec::encode(h);
             let tuple = serde_json::json!([
                 tool.name,
                 tool.version,

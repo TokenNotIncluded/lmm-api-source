@@ -450,10 +450,7 @@ fn credential_forms(raw: &[u8]) -> Zeroizing<Vec<Vec<u8>>> {
         }
     }
     out.push(
-        trimmed
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
+        crate::hex_codec::encode(trimmed)
             .into_bytes(),
     );
     out.push(
@@ -947,9 +944,7 @@ mod tests {
             role.to_vec(),
             [role.as_slice(), b"\n"].concat(),
             STANDARD.encode(role).into_bytes(),
-            role.iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
+            crate::hex_codec::encode(&role)
                 .into_bytes(),
         ] {
             let path = fixture.key(&raw);

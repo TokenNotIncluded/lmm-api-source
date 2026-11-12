@@ -1,18 +1,8 @@
 //! Escaping for HTML text and quoted attribute values.
 
 pub(crate) fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
+    // Keep the historical decimal spelling of the apostrophe entity.
+    html_escape::encode_quoted_attribute(value).replace("&#x27;", "&#39;")
 }
 
 #[cfg(test)]

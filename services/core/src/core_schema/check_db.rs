@@ -223,7 +223,7 @@ pub async fn check_database(
         components: manifest.components,
         catalog: Catalog {
             status: "validated",
-            fingerprint_sha256: catalog.iter().map(|v| format!("{v:02x}")).collect(),
+            fingerprint_sha256: crate::hex_codec::encode(&catalog),
             fingerprint_hash_domain: "sha256-u64be-byte-length-prefixed-utf8-v1",
             matches_installed_receipt: true,
         },

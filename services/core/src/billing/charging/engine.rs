@@ -501,10 +501,7 @@ async fn commit(tx: Transaction<'_, Postgres>) -> Result<()> {
     })
 }
 fn command(charge: &Charge, tag: &str, change: Change) -> Result<LedgerCommand> {
-    let operation_id = hash(&("core-charging-v1", &charge.id, tag))?
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>();
+    let operation_id = crate::hex_codec::encode(hash(&("core-charging-v1", &charge.id, tag))?);
     Ok(LedgerCommand {
         operation_id,
         request_id: charge.id.clone(),

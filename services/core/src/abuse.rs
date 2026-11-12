@@ -107,9 +107,7 @@ pub fn config_hash(config: &PolicyConfig) -> Result<String> {
         serde_json::to_vec(&value).map_err(|_| AbuseError::Invalid)?,
     )))
 }
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+pub(super) use crate::hex_codec::encode as hex;
 fn random_id() -> Result<String> {
     let mut b = [0; 32];
     OsRng

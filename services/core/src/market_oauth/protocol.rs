@@ -99,7 +99,7 @@ pub(crate) fn secret(prefix: &str) -> String {
     OsRng.fill_bytes(&mut b);
     format!(
         "{prefix}{}",
-        b.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        crate::hex_codec::encode(b)
     )
 }
 pub(crate) fn hash(s: &str) -> Vec<u8> {

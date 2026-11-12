@@ -19,7 +19,7 @@ pub const SCHEMA: &str = include_str!("../../schema/assistant_tools.sql");
 fn random() -> String {
     let mut b = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut b);
-    b.iter().map(|v| format!("{v:02x}")).collect()
+    crate::hex_codec::encode(b)
 }
 fn sha(bytes: &[u8]) -> Vec<u8> {
     Sha256::digest(bytes).to_vec()
@@ -59,9 +59,7 @@ pub struct Challenge {
     pub browser_path: String,
     pub executed: bool,
 }
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+use crate::hex_codec::encode as hex;
 fn projection(r: &PgRow) -> Result<Challenge, Error> {
     let id: String = r.try_get("id")?;
     Ok(Challenge {

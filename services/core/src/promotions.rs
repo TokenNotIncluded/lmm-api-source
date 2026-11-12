@@ -101,9 +101,7 @@ async fn now(c: &mut PgConnection) -> Result<i64> {
             .await?,
     )
 }
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|v| format!("{v:02x}")).collect()
-}
+use crate::hex_codec::encode as hex;
 fn random_id() -> String {
     let mut b = [0; 32];
     OsRng.fill_bytes(&mut b);
@@ -128,10 +126,7 @@ fn code_digest(value: &str) -> Result<Vec<u8>> {
 }
 fn parse_hex(value: &str) -> Result<Vec<u8>> {
     id(value)?;
-    (0..value.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&value[i..i + 2], 16).map_err(|_| Error::Invalid))
-        .collect()
+    crate::hex_codec::decode(value).map_err(|_| Error::Invalid)
 }
 fn code(secret: &[u8], issue: &str, position: i32) -> Result<String> {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).map_err(|_| Error::Unavailable)?;

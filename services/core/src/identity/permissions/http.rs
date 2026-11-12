@@ -216,7 +216,7 @@ impl PermissionReadStore {
             policy_revision: loaded.as_ref().map(|p| p.revision.to_string()),
             policy_sha256: loaded
                 .as_ref()
-                .map(|p| p.sha256.iter().map(|b| format!("{b:02x}")).collect()),
+                .map(|p| crate::hex_codec::encode(p.sha256)),
         };
         tx.commit().await?;
         Ok(result)

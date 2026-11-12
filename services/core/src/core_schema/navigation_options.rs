@@ -50,10 +50,7 @@ pub(super) fn check_install_target(catalog: &[u8]) -> Result<(), IdentityError> 
     Ok(())
 }
 pub(super) fn check_target(catalog: &[u8]) -> Result<(), IdentityError> {
-    let actual = catalog
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>();
+    let actual = crate::hex_codec::encode(catalog);
     if target()?.catalog_sha256.as_deref() != Some(actual.as_str()) {
         return Err(IdentityError::Storage);
     }

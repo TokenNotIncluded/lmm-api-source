@@ -374,7 +374,7 @@ fn random() -> Result<String, Error> {
     OsRng
         .try_fill_bytes(&mut b)
         .map_err(|_| Error::Unavailable)?;
-    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+    Ok(crate::hex_codec::encode(b))
 }
 async fn actor(c: &mut PgConnection, s: &str) -> Result<identity::Principal, Error> {
     let a = identity::authorize_in_transaction(c, s).await?;

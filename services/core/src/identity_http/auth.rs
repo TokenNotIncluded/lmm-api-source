@@ -140,7 +140,7 @@ async fn google_start(State(store): State<IdentityStore>) -> Result<Response> {
     rand::rngs::OsRng
         .try_fill_bytes(&mut random)
         .map_err(|_| IdentityError::Storage)?;
-    let binding: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let binding: String = crate::hex_codec::encode(random);
     let url = store.begin_google_login(&binding).await?;
     let mut response = Redirect::to(&url).into_response();
     let cookie =

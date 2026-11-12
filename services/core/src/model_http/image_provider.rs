@@ -812,29 +812,7 @@ fn text(v: &Value, max: usize) -> Result<&str, RelayError> {
         .ok_or(RelayError::SettlementPending)
 }
 fn percent_decoded_contains(s: &str, secret: &str) -> bool {
-    fn hex(b: u8) -> Option<u8> {
-        match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
-            b'A'..=b'F' => Some(b - b'A' + 10),
-            _ => None,
-        }
-    }
-    let raw = s.as_bytes();
-    let mut decoded = Vec::with_capacity(raw.len());
-    let mut i = 0;
-    while i < raw.len() {
-        if raw[i] == b'%'
-            && i + 2 < raw.len()
-            && let (Some(a), Some(b)) = (hex(raw[i + 1]), hex(raw[i + 2]))
-        {
-            decoded.push(a * 16 + b);
-            i += 3;
-            continue;
-        }
-        decoded.push(raw[i]);
-        i += 1;
-    }
+    let decoded: Vec<u8> = percent_encoding::percent_decode_str(s).collect();
     decoded
         .windows(secret.len())
         .any(|w| w == secret.as_bytes())

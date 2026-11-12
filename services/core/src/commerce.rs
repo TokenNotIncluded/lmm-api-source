@@ -151,9 +151,7 @@ impl From<IdentityError> for Error {
         }
     }
 }
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+use crate::hex_codec::encode as hex;
 fn id(value: &serde_json::Value) -> String {
     hex(&Sha256::digest(
         serde_json::to_vec(value).expect("JSON value serialization"),

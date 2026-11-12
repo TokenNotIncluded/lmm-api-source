@@ -164,7 +164,7 @@ impl BrowserAuth {
             .bind(actor.owner_account_id)
             .execute(&mut *tx)
             .await?;
-        audit(&mut tx, &actor, "account.close", json!({"user_id":actor.user_id,"account_id":actor.owner_account_id,"operation_digest":operation.iter().map(|byte| format!("{byte:02x}")).collect::<String>()})).await?;
+        audit(&mut tx, &actor, "account.close", json!({"user_id":actor.user_id,"account_id":actor.owner_account_id,"operation_digest":crate::hex_codec::encode(&operation)})).await?;
         tx.commit().await?;
         Ok(AccountClosureOutcome::Closed(AccountClosureReceipt {
             contract: CONTRACT,

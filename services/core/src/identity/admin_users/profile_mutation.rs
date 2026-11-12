@@ -192,10 +192,7 @@ fn should_change(
     Ok(current_name != input.new_name)
 }
 fn display_digest(value: &str) -> String {
-    Sha256::digest(value.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::hex_codec::encode(Sha256::digest(value.as_bytes()))
 }
 fn audit_target(user: i64, version: i64, old_name: &str, new_name: &str) -> serde_json::Value {
     serde_json::json!({"user_id":user,"field":"display_name",

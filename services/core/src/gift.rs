@@ -460,7 +460,7 @@ pub(crate) async fn execute_in_transaction(
     }
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    let id = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let id = crate::hex_codec::encode(bytes);
     let reason = if decision.reason.trim().is_empty() {
         "Welcome gift"
     } else {

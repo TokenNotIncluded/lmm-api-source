@@ -141,7 +141,7 @@ impl MarketIssuer {
         let scopes = scopes(&input.scope)?;
         let id = format!(
             "lmm-mcp-{}",
-            hash(
+            crate::hex_codec::encode(hash(
                 &serde_json::to_string(&(
                     &self.profile.issuer,
                     &input.client_name,
@@ -150,10 +150,7 @@ impl MarketIssuer {
                     input.grant_types.len() == 2
                 ))
                 .map_err(|_| Error::Invalid)?
-            )
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
+            ))
         );
         let mut t = tx(&self.pool).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(72753290313)")

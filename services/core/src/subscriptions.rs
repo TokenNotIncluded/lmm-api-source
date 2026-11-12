@@ -135,7 +135,7 @@ async fn now(c: &mut PgConnection) -> Result<i64> {
 fn random_id() -> String {
     let mut bytes = [0; 32];
     OsRng.fill_bytes(&mut bytes);
-    bytes.iter().map(|v| format!("{v:02x}")).collect()
+    crate::hex_codec::encode(bytes)
 }
 fn decode<T: DeserializeOwned>(value: Value) -> Result<T> {
     serde_json::from_value(value).map_err(|_| Error::Unavailable)

@@ -57,10 +57,7 @@ pub fn schema_manifest() -> SchemaManifest {
             .collect(),
         identity: IdentityManifest {
             version,
-            fingerprint_sha256: identity_fingerprint
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
+            fingerprint_sha256: crate::hex_codec::encode(identity_fingerprint),
         },
         installer_contract_sql_sha256: installer_contract_sha256(),
         catalog: CatalogManifest {

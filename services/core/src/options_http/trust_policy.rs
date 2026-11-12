@@ -240,10 +240,7 @@ impl PolicyPreview {
             &proposed_console,
         ))
         .map_err(|_| "invalid preview")?;
-        let digest = Sha256::digest(binding)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
+        let digest = crate::hex_codec::encode(Sha256::digest(binding));
         Ok(Self {
             actor_user_id,
             session_credential_id,

@@ -26,6 +26,7 @@ pub mod financial_profile;
 pub mod funding;
 pub mod gift;
 mod go_json;
+mod hex_codec;
 pub mod history_http;
 pub mod history_read;
 mod html;

@@ -423,9 +423,7 @@ impl ReservationContract {
     // @context-fold end contract-flat-json
 }
 
-pub(crate) fn hex_digest(value: &[u8]) -> String {
-    value.iter().map(|byte| format!("{byte:02x}")).collect()
-}
+pub(crate) use crate::hex_codec::encode as hex_digest;
 
 pub(crate) fn digest(value: &[u8]) -> String {
     format!("{:x}", Sha256::digest(value))
@@ -831,11 +829,8 @@ impl PreparedReservation {
             request.price.reservation_ceiling(basis)?
         };
         if self.fields.request_fingerprint
-            != request
-                .fingerprint
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
+            != crate::hex_codec::encode(request
+                .fingerprint)
             || request.reserve != reserve
         {
             return Err(Error::Conflict);

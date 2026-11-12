@@ -78,10 +78,8 @@ pub(super) fn hex32(s: &str) -> Result<[u8; 32], Error> {
     {
         return Err(Error::Invalid);
     }
-    let mut out = [0u8; 32];
-    for (i, value) in out.iter_mut().enumerate() {
-        *value = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).map_err(|_| Error::Invalid)?;
-    }
+    let mut out = [0_u8; 32];
+    zhex::decode(s.as_bytes(), &mut out).map_err(|_| Error::Invalid)?;
     Ok(out)
 }
 fn no_external_refs(value: &Value) -> bool {
