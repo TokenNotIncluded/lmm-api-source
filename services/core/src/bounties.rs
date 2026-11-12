@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
 pub mod http;
-pub const SCHEMA: &str = include_str!("bounties/schema.sql");
+pub const SCHEMA: &str = include_str!("../schema/bounties.sql");
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
