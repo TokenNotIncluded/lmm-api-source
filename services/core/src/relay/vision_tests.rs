@@ -106,6 +106,10 @@ fn vision_native_anthropic_and_gemini_images_reach_openai_wire() {
         &Limits::default(),
     )
     .unwrap();
+    let converted = anthropic.upstream_to(UpstreamProtocol::Chat, "chosen").unwrap();
+    assert_eq!(converted["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(converted["messages"][0]["role"], "user");
+    assert_eq!(converted["messages"][0]["content"][1], json!({"type":"text","text":"describe"}));
     assert_eq!(
         anthropic
             .upstream_to(UpstreamProtocol::Chat, "chosen")

@@ -97,6 +97,13 @@ pub(super) fn convert(
         .ok_or(RelayError::Invalid("conversion request"))?;
     object.remove("store");
     object.remove("stream_options");
+    // Core's Anthropic encoder emits [] when no system instruction exists.
+    // Do not turn that absence into an extra empty Chat system message.
+    if source == UpstreamProtocol::Anthropic
+        && object.get("system").and_then(Value::as_array).is_some_and(Vec::is_empty)
+    {
+        object.remove("system");
+    }
     if matches!(
         target,
         UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
