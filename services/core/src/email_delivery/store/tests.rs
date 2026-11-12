@@ -82,10 +82,12 @@ async fn fresh() -> (PgPool, PgPool, EmailChallenges, Outbox) {
         .execute(&owner)
         .await
         .expect("challenge test grants");
-    sqlx::raw_sql(include_str!("../test_grants.sql"))
-        .execute(&owner)
-        .await
-        .expect("outbox test grants");
+    sqlx::raw_sql(include_str!(
+        "../../../tests/email_delivery/test_grants.sql"
+    ))
+    .execute(&owner)
+    .await
+    .expect("outbox test grants");
     let runtime = pool("EMAIL_TEST_RUNTIME_URL").await;
     let roles: (bool, bool, bool) = sqlx::query_as(
         "SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile staged mail tests from existing locked rlibs and an isolated PG18."""
+"""Compile mail tests from existing locked rlibs and an isolated PG18."""
 import argparse
 import hashlib
 import json
@@ -16,8 +16,9 @@ parser.add_argument("--deps", type=Path, required=True, help="existing target/de
 parser.add_argument("--evidence", type=Path, required=True, help="new or empty evidence directory")
 args = parser.parse_args()
 
-module = Path(__file__).resolve().parent
-core = module.parents[1]
+fixture = Path(__file__).resolve().parent
+core = fixture.parents[1]
+module = core / "src/email_delivery"
 deps = args.deps.resolve(strict=True)
 evidence = args.evidence.resolve()
 if evidence.exists() and any(evidence.iterdir()):
@@ -65,8 +66,9 @@ try:
         "reqwest": one("reqwest", "libreqwest-d83504b525fac7e8"),
     }
     inputs = [module / name for name in
-              ("crypto.rs", "smtp.rs", "store.rs", "schema.sql",
-               "test_grants.sql", "README.md", "run_selftest.py")]
+              ("crypto.rs", "smtp.rs", "store.rs")]
+    inputs += [fixture / "test_grants.sql", Path(__file__).resolve(),
+               core.parents[1] / "docs/email-delivery-outbox.md"]
     inputs += [module / "store/tests.rs", module / "store/reset_smtp_cases.rs", module / "reset_link.rs"]
     inputs += [core / "src/identity/email" / name for name in
                ("address.rs", "store.rs", "schema.sql",
@@ -103,7 +105,7 @@ try:
         command += ["--extern", f"{name}={path}"]
     status = run(command, "compile.log")
     if status:
-        raise RuntimeError("staged leaf test compilation failed")
+        raise RuntimeError("mail leaf test compilation failed")
 
     if run(["initdb", "-D", scratch / "data", "-U", "email_owner", "--no-locale",
             "--encoding=UTF8", "--auth-local=trust", "--auth-host=reject",

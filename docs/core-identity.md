@@ -35,7 +35,7 @@ A2 身份导入保留历史管理员停用及运行时密码登录关闭状态�
 
 ## 邮箱验证码、绑定与密码重置
 
-Core 的加密持久出箱和 SMTP worker 负责邮件，使用正式 identity v6 新库及匹配运行授权。已有 `[identity]` 可配置：
+Core 的加密持久出箱和 SMTP worker 负责邮件，使用正式 identity v6 新库及匹配运行授权。事务与投递边界见[邮件出箱](email-delivery-outbox.md)。已有 `[identity]` 可配置：
 
 ```toml
 [identity]

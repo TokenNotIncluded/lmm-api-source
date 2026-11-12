@@ -4,8 +4,8 @@ Core imports this outbox for explicitly configured identity email flows. Formal
 identity v6 owns its DDL and the runtime grant/check contract. The executable
 constructs the HTTP adapters before binding and starts/joins the worker with
 its lifecycle. Configuration and product routes are documented in
-[`docs/core-identity.md`](../../../../docs/core-identity.md). Staged delta files
-are historical development material, not an existing-site upgrade procedure.
+[Core identity](core-identity.md). The former development schema delta is now
+part of the canonical identity schema; it is not an existing-site upgrade procedure.
 
 ## Atomic issuance
 
@@ -94,7 +94,8 @@ is erased. Do not reuse proof, MFA, session or HumanGrant keys.
 
 ## Local check
 
-Run `run_selftest.py --help`. The runner compiles the unchanged locked leaf
+Run `python3 services/core/tests/email_delivery/run_selftest.py --help` from the
+repository root. The runner compiles the unchanged locked leaf
 dependencies already present in the named target directory, starts a private
 socket-only PostgreSQL cluster, and runs both the existing challenge tests and
 these outbox tests against the same synthetic fixture. It does not use Cargo,

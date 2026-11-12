@@ -74,8 +74,7 @@ impl Outbox {
 
     /// Owns one transaction for target budgets, challenge and encrypted outbox.
     /// No challenge ID or eligibility status is returned. The Core verifier
-    /// selects the current scope from trusted request context. This staged API
-    /// is not registered with application routes.
+    /// selects the current scope from trusted request context.
     pub async fn issue(
         &self,
         challenges: &EmailChallenges,
