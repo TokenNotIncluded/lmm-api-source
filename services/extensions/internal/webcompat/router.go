@@ -25,6 +25,8 @@ type AdditionalServices struct {
 	Operations           *operations.Service
 	Payments             PaymentStatusReader
 	PaymentCheckout      PaymentCheckoutService
+	PaymentPortal        PaymentPortal
+	PancakeAdmin         PancakeAdmin
 	SubscriptionPayments http.Handler
 	Plugins              PluginController
 	Community            *community.Service
@@ -48,6 +50,8 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		operationsService = optional[0].Operations
 		paymentReader = optional[0].Payments
 		paymentCheckout = optional[0].PaymentCheckout
+		RegisterPaymentPortal(mux, auth, optional[0].PaymentPortal)
+		RegisterPancakeAdmin(mux, auth, optional[0].PancakeAdmin)
 		if !store.Missing(optional[0].SubscriptionPayments) {
 			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", optional[0].SubscriptionPayments)
 			mux.Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +101,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		Respond(w, nil, store.ErrUnavailable)
 	})
 	return OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !builtinHTTPPath(r.URL.Path) && r.URL.Path != "/mcp/market" && r.URL.Path != "/mcp/market/" && !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && r.URL.Path != "/api/tool-market" && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") && !pluginHTTPPath(r.URL.Path) &&
+		if !builtinHTTPPath(r.URL.Path) && r.URL.Path != "/mcp/market" && r.URL.Path != "/mcp/market/" && !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && r.URL.Path != "/api/tool-market" && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") && !strings.HasPrefix(r.URL.Path, "/api/option/waffo-pancake/") && !pluginHTTPPath(r.URL.Path) &&
 			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && !rssHTTPPath(r.URL.Path) && r.URL.Path != "/api/scripts" &&
 			!strings.HasPrefix(r.URL.Path, "/api/scripts/") && !strings.HasPrefix(r.URL.Path, "/api/deployments/") && !strings.HasPrefix(r.URL.Path, "/scripts/") &&
 			!(len(optional) == 1 && optional[0].Community != nil && community.Owns(r.URL.Path)) &&

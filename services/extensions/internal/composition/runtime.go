@@ -86,6 +86,7 @@ type Runtime struct {
 	SubscriptionPayments        *payments.EPaySubscriptions
 	StripeSubscriptionPayments  *payments.StripeSubscriptions
 	PancakeSubscriptionPayments *payments.PancakeSubscriptions
+	PancakeAdmin                *PancakeAdministration
 	CommerceClient              *coreclient.Client
 	Store                       *store.Service
 	Support                     *support.Service

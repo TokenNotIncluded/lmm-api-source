@@ -3,21 +3,17 @@ package webcompat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
 // PancakeAdminRequest preserves the existing Web request fields. Credentials
 // are request bodies only and must never be returned in provider errors.
-type PancakeAdminRequest struct {
-	MerchantID string `json:"merchant_id"`
-	PrivateKey string `json:"private_key"`
-	ReturnURL  string `json:"return_url"`
-	StoreID    string `json:"store_id"`
-	ProductID  string `json:"product_id"`
-}
+type PancakeAdminRequest = payments.PancakeAdminRequest
 
 type PancakeAdmin interface {
 	Catalog(context.Context, PancakeAdminRequest) (any, error)
@@ -52,7 +48,33 @@ func RegisterPancakeAdmin(mux *http.ServeMux, auth *Authenticator, admin Pancake
 				return
 			}
 			value, err := invoke(r.Context(), request)
-			Respond(w, value, err)
+			respondPancakeAdmin(w, value, err)
 		})
 	}
+}
+
+func respondPancakeAdmin(w http.ResponseWriter, value any, err error) {
+	if errors.Is(err, payments.ErrPancakePolicy) {
+		writePayment(w, http.StatusConflict, "PAYMENT_CORE_POLICY_REQUIRED", "Update the Core payment channel policy before changing this merchant, store or product.")
+		return
+	}
+	var committed *payments.ConfigurationCommittedError
+	if errors.As(err, &committed) {
+		writePayment(w, http.StatusServiceUnavailable, "PAYMENT_CONFIGURATION_DURABILITY_UNKNOWN", "The running configuration was updated, but crash durability is unknown. Read the current configuration before retrying.")
+		return
+	}
+	if err != nil {
+		if partial, ok := value.(*payments.PancakePairResult); ok && partial != nil && partial.OrphanStore {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": "error", "code": "PAYMENT_PAIR_INCOMPLETE", "data": partial})
+			return
+		}
+		writePaymentError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "success", "data": value})
 }

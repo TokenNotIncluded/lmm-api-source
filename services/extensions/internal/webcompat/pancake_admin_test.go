@@ -2,12 +2,15 @@ package webcompat
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 )
 
 type pancakeAdminProbe struct{ calls int }
@@ -15,6 +18,65 @@ type pancakeAdminProbe struct{ calls int }
 func (p *pancakeAdminProbe) Catalog(context.Context, PancakeAdminRequest) (any, error) {
 	p.calls++
 	return map[string]any{"stores": []any{}}, nil
+}
+
+func TestPancakeAdminMountedWithPaymentLifecycleAndLegacyEnvelope(t *testing.T) {
+	host, core := mountTransportHost(t, nil)
+	core.fn = func(context.Context, string) (*pb.AuthorizeResponse, error) {
+		self := sessionSelf()
+		self.PlatformLevel = 6
+		return self, nil
+	}
+	probe := &pancakeAdminProbe{}
+	plugins := &pluginControllerFake{enabled: map[string]bool{"payments": true}}
+	handler := Mount(host, newAuth(t, core), nil, nil, AdditionalServices{PancakeAdmin: probe, Plugins: plugins})
+	request := func(action string) *httptest.ResponseRecorder {
+		return pluginRequest(handler, "POST", "/api/option/waffo-pancake/"+action, `{}`, webToken)
+	}
+	if w := request("catalog"); w.Code != 503 || probe.calls != 0 {
+		t.Fatal("admin bypassed preparing state")
+	}
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"catalog", "pair", "save"} {
+		w := request(action)
+		var body map[string]any
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil || body["message"] != "success" || body["success"] != true {
+			t.Fatal("legacy Web envelope or normal router missing", action, w.Code)
+		}
+	}
+	plugins.enabled["payments"] = false
+	if w := request("catalog"); w.Code != 503 || probe.calls != 3 {
+		t.Fatal("admin bypassed disabled payment module")
+	}
+	plugins.enabled["payments"] = true
+	host.BeginDrain()
+	if w := request("catalog"); w.Code != 503 || probe.calls != 3 {
+		t.Fatal("admin bypassed drain")
+	}
+}
+
+func TestPancakeAdminReportsPolicyConflictAndUncertainPersistence(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{payments.ErrPancakePolicy, 409, "PAYMENT_CORE_POLICY_REQUIRED"},
+		{&payments.ConfigurationCommittedError{Cause: errors.New("synthetic_private_error")}, 503, "PAYMENT_CONFIGURATION_DURABILITY_UNKNOWN"},
+	} {
+		w := httptest.NewRecorder()
+		respondPancakeAdmin(w, nil, tc.err)
+		if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.code) || strings.Contains(w.Body.String(), "synthetic_private_error") {
+			t.Fatal("lost stable configuration failure", w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	respondPancakeAdmin(w, &payments.PancakePairResult{StoreID: "STO_partial", StoreName: "LMM API", OrphanStore: true}, errors.New("synthetic_private_error"))
+	if w.Code != 502 || !strings.Contains(w.Body.String(), `"orphan_store":true`) || !strings.Contains(w.Body.String(), "STO_partial") || strings.Contains(w.Body.String(), "synthetic_private_error") {
+		t.Fatal("partial provider creation lost safe recovery identity")
+	}
 }
 func (p *pancakeAdminProbe) Pair(ctx context.Context, r PancakeAdminRequest) (any, error) {
 	return p.Catalog(ctx, r)

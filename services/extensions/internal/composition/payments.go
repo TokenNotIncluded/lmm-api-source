@@ -281,6 +281,9 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	if len(stripe) > 0 && stripeInstalled {
 		r.StripeSubscriptionPayments, err = payments.NewStripeSubscriptions(r.PaymentClient, db, stripe, stripeAdmission)
 	}
+	if err == nil && len(pancake) > 0 {
+		r.PancakeAdmin, err = newPancakeAdministration(cfg.PaymentConfigFile, r.Payments, r.PancakeSubscriptionPayments)
+	}
 	return err
 }
 

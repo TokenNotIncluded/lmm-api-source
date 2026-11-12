@@ -178,7 +178,7 @@ func webPluginName(path string) string {
 		return "store"
 	case strings.HasPrefix(path, "/api/assistant/") || path == "/api/assistant":
 		return "assistant"
-	case strings.HasPrefix(path, "/api/user/payments/"):
+	case strings.HasPrefix(path, "/api/user/payments/"), strings.HasPrefix(path, "/api/option/waffo-pancake/"):
 		return "payments"
 	case strings.HasPrefix(path, "/api/release-notes/") || rssHTTPPath(path) || strings.HasPrefix(path, "/api/scripts") || strings.HasPrefix(path, "/scripts"):
 		return "operations"
