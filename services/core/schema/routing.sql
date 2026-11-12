@@ -94,7 +94,13 @@ CREATE TABLE routing_targets (
     -- Preserve the complete selected-target policy. Old string variants keep their
     -- wire shape; the opt-in object permits only the five explicit boolean flags.
     payload jsonb NOT NULL CHECK (
-        payload IN ('"passthrough"'::jsonb, '"adapt"'::jsonb) OR
+        payload IN (
+            '"passthrough"'::jsonb,
+            '"adapt"'::jsonb,
+            '"open_router"'::jsonb,
+            '"legacy_anthropic_haiku_system_cache_v1"'::jsonb,
+            '"legacy_openrouter_chat_usage_v1"'::jsonb
+        ) OR
         CASE WHEN jsonb_typeof(payload) = 'object'
             AND payload ? 'legacy_openai' AND payload - 'legacy_openai' = '{}'::jsonb
             AND jsonb_typeof(payload->'legacy_openai') = 'object' THEN

@@ -230,8 +230,11 @@ impl CatalogSurface {
                 .copied()
                 .filter(|r| r.enabled && r.speeds.contains(&Speed::Standard))
             {
+                // Catalog metadata is not admission-time charging. quote() hides
+                // calendar tariffs until a request timestamp exists; template()
+                // keeps those publishable routes visible in the OAuth catalog.
                 let quote = prices
-                    .quote(&route.model, &group.name, Speed::Standard)
+                    .template(&route.model, &group.name, Speed::Standard)
                     .ok_or(CatalogError::Unavailable)?;
                 let names = std::iter::once(route.model.as_str()).chain(
                     aliases_by_route
