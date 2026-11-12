@@ -389,6 +389,7 @@ function NativeRoutingWorkspace({
             id: _targetId,
             upstream_id: _upstreamId,
             enabled: _enabled,
+            client_protocols: _clientProtocols,
             ...target
           }) => ({ route_id: route.id, ...target })
         )
@@ -402,6 +403,7 @@ function NativeRoutingWorkspace({
         expected_version: configuration.version,
         id,
         name: configuration.bindings.names[id] ?? '',
+        tag: configuration.bindings.tags?.[id] ?? '',
         endpoint: channel?.endpoint ?? '',
         protocol: channel?.protocol ?? 'openai_chat',
         enabled: channel?.enabled ?? false,
@@ -627,6 +629,7 @@ function NativeRoutingWorkspace({
     matches(
       channel.id,
       configuration.bindings.names[channel.id] ?? '',
+      configuration.bindings.tags?.[channel.id] ?? '',
       channel.endpoint
     )
   )
@@ -785,6 +788,11 @@ function NativeRoutingWorkspace({
                   {configuration.bindings.names[channel.id] ??
                     `Channel ${channel.id}`}
                 </h3>
+                {configuration.bindings.tags?.[channel.id] && (
+                  <p className='text-muted-foreground text-xs'>
+                    {configuration.bindings.tags[channel.id]}
+                  </p>
+                )}
                 <p className='text-muted-foreground text-sm break-all'>
                   {channel.endpoint}
                 </p>

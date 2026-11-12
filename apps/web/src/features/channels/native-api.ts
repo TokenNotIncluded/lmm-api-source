@@ -27,6 +27,7 @@ export type NativeTarget = {
   priority: number
   weight: number
   speeds: string[]
+  client_protocols?: string[] | null
   payload: string | Record<string, unknown>
   timeout_ms: number
 }
@@ -75,6 +76,7 @@ export type NativeConfiguration = {
     balance_probes?: Record<string, NativeBalanceProbe>
     legacy_balance?: Record<string, NativeLegacyBalance>
     names: Record<string, string>
+    tags?: Record<string, string>
     contexts: NativeContext[]
     vendors: Record<string, NativeVendor>
     models: Record<string, NativeModelMetadata>
@@ -347,6 +349,7 @@ const configurationSchema = z.object({
             priority: z.number(),
             weight: z.number(),
             speeds: z.array(z.string()),
+            client_protocols: z.array(z.string()).nullish(),
             payload: z.union([z.string(), z.record(z.string(), z.unknown())]),
             timeout_ms: z.number(),
           })
@@ -369,6 +372,7 @@ const configurationSchema = z.object({
     balance_probes: z.record(z.string(), nativeBalanceProbeSchema).default({}),
     legacy_balance: z.record(z.string(), nativeLegacyBalanceSchema).default({}),
     names: z.record(z.string(), z.string()),
+    tags: z.record(z.string(), z.string()).optional(),
     contexts: z.array(
       z
         .object({

@@ -31,7 +31,7 @@
 | MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
 | MODEL-03 | 部分实现 | 已有Chat音频计费与恢复；独立TTS/STT/translation及双向Realtime未齐。Gemini音频按用户决定延期。 |
 | MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
-| MODEL-05 | 部分实现 | 渠道目录与余额探测已有；tag、多key管理入口仍为unsupported，真实推理探测待补；共同演练已生成29凭据引用，完整规划仍因价格/上下文/runtime及请求字段映射缺口阻塞，尚未发布。 |
+| MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过，当前冻结候选独立验收待执行。Web配置读回已保留target.client_protocols，避免编辑时丢失协议限制。多key轮询管理入口与真实推理探测待补；共同演练已生成29凭据引用，完整规划仍因价格/上下文/runtime及请求字段映射缺口阻塞，尚未发布。 |
 | ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
 | SUB-01 | 部分实现 | EPay一次购买的Core/Go/HTTP路径已有；其他provider首购、周期、取消及恢复逐项待核验。 |
 | SUB-02 | 部分实现 | 订阅管理记录与立即失效已有；voucher、绑定删除、批量重置完整行为待核实。 |

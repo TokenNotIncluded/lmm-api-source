@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   assertNativeIntegers,
   copyNativeChannel,
+  getNativeConfiguration,
   nativeRequest,
   parseNativeDocument,
   readNativeRoutingScope,
@@ -39,6 +40,77 @@ function login(sid = 'synthetic-channel-administration') {
 afterEach(() => {
   api.defaults.adapter = adapter
   useAuthStore.setState({ auth: previous })
+})
+
+test('native configuration retains channel tags and target protocol admission on readback', async () => {
+  const scope = login()
+  const target = {
+    id: 1,
+    upstream_id: 1,
+    upstream_model: 'model-a',
+    enabled: true,
+    priority: 0,
+    weight: 1,
+    speeds: ['standard'],
+    client_protocols: ['anthropic_messages'],
+    payload: 'adapt',
+    timeout_ms: 5000,
+  }
+  api.defaults.adapter = async (config) => ({
+    config,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    data: {
+      success: true,
+      data: {
+        version: { routing: 4, pricing: 3 },
+        routing: {
+          version: 4,
+          upstreams: [
+            {
+              id: 1,
+              endpoint: 'https://provider.example/',
+              protocol: 'openai_chat',
+              credential: { id: 1, revision: 1 },
+              enabled: true,
+            },
+          ],
+          routes: [
+            {
+              id: 1,
+              model: 'model-a',
+              group: 'default',
+              enabled: true,
+              speeds: ['standard'],
+              targets: [target],
+              failover: {
+                max_attempts: 1,
+                retry_on: [],
+                allow_replay_after_send: false,
+              },
+            },
+          ],
+          groups: [{ name: 'default', enabled: true }],
+          aliases: [],
+        },
+        prices: { version: 3, rules: [] },
+        bindings: {
+          names: { '1': 'Primary' },
+          tags: { '1': 'Vision' },
+          contexts: [],
+          vendors: {},
+          models: {},
+          discoveries: {},
+          price_drafts: {},
+        },
+        secret_storage_enabled: true,
+      },
+    },
+  })
+  const configuration = await getNativeConfiguration(scope)
+  assert.deepEqual(configuration.bindings.tags, { '1': 'Vision' })
+  assert.deepEqual(configuration.routing.routes[0]?.targets[0], target)
 })
 
 test('native routing rejects rounded identifiers and monetary integers before dispatch', async () => {

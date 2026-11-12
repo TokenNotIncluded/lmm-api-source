@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 pub(in crate::channel_http) struct Bindings {
     #[serde(default)]
     pub names: BTreeMap<u64, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tags: BTreeMap<u64, String>,
     #[serde(default)]
     pub contexts: Vec<ExternalModelContext>,
     #[serde(default)]
@@ -37,6 +39,7 @@ impl Bindings {
         _document: &ReleaseDocument,
     ) -> Result<(), ManagementError> {
         if self.names.len() > 100_000
+            || self.tags.len() > 100_000
             || self.contexts.len() > 100_000
             || self
                 .names
@@ -44,6 +47,17 @@ impl Bindings {
                 .any(|(id, name)| *id == 0 || *id > i64::MAX as u64 || !valid_label(name))
         {
             return Err(ManagementError::Invalid);
+        }
+        let upstream_ids = _document
+            .routing
+            .upstreams
+            .iter()
+            .map(|upstream| upstream.id)
+            .collect::<BTreeSet<_>>();
+        for (id, tag) in &self.tags {
+            if !valid_label(tag) || !upstream_ids.contains(id) {
+                return Err(ManagementError::Invalid);
+            }
         }
         if self.price_drafts.len() > 16
             || serde_json::to_vec(self)
@@ -85,7 +99,7 @@ impl Bindings {
         Ok(())
     }
 }
-fn valid_label(name: &str) -> bool {
+pub(super) fn valid_label(name: &str) -> bool {
     !name.trim().is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
 }
 
@@ -355,6 +369,8 @@ pub(in crate::channel_http) struct ChannelInput {
     expected_version: Version,
     id: u64,
     name: String,
+    #[serde(default)]
+    tag: Option<String>,
     endpoint: Endpoint,
     protocol: Protocol,
     enabled: bool,
@@ -369,6 +385,10 @@ fn edit_document(
     input: &ChannelInput,
 ) -> Result<(), ManagementError> {
     if !valid_label(&input.name)
+        || input
+            .tag
+            .as_deref()
+            .is_some_and(|tag| !tag.is_empty() && !valid_label(tag))
         || input.id == 0
         || input.id > i64::MAX as u64
         || input.contexts.len() > 1000
@@ -386,6 +406,13 @@ fn edit_document(
         return Err(ManagementError::Invalid);
     }
     bindings.names.insert(input.id, input.name.clone());
+    if let Some(tag) = &input.tag {
+        if tag.is_empty() {
+            bindings.tags.remove(&input.id);
+        } else {
+            bindings.tags.insert(input.id, tag.clone());
+        }
+    }
     bindings
         .contexts
         .retain(|context| context.upstream_id != input.id);

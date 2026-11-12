@@ -279,6 +279,168 @@ async fn channel_control_persists_status_and_delete_with_cas_and_audit(pool: PgP
     let audits:i64=sqlx::query_scalar("SELECT count(*) FROM core_identity.audit WHERE action IN ('channel.status','channel.delete')").fetch_one(&pool).await.unwrap();
     assert_eq!(audits, 2);
 }
+
+#[sqlx::test(migrations = false)]
+async fn channel_tags_publish_atomically_enforce_permissions_and_recover(pool: PgPool) {
+    let (app, routing, admin, ordinary, _) = setup(&pool).await;
+    let initial = Version::from(routing.version().unwrap());
+    let body = json!({"ids":[1],"tag":"Primary","expected_version":initial});
+    let path = "/api/channel/batch/tag";
+    assert_eq!(
+        request(app.clone(), "POST", path, &ordinary, body.clone())
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    for (invalid, expected) in [
+        (json!({"ids":[1,99],"tag":"Primary"}), StatusCode::NOT_FOUND),
+        (
+            json!({"ids":[1,1],"tag":"Primary"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"ids":[1],"tag":"bad\nlabel"}),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        assert_eq!(
+            request(app.clone(), "POST", path, &admin, invalid).await.0,
+            expected
+        );
+        assert_eq!(Version::from(routing.version().unwrap()), initial);
+    }
+    let (status, saved) = request(app.clone(), "POST", path, &admin, body.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["data"], 1);
+    let changed: Version = serde_json::from_value(saved["version"].clone()).unwrap();
+    assert_eq!(changed.routing, initial.routing + 1);
+    assert_eq!(changed.pricing, initial.pricing);
+    assert_eq!(
+        request(app.clone(), "POST", path, &admin, body).await.0,
+        StatusCode::CONFLICT
+    );
+
+    let restored = managed_router(
+        pool.clone(),
+        ManagedChannels::recover(pool.clone(), gateway_for_restore(&pool))
+            .await
+            .unwrap(),
+    );
+    let (status, detail) = request(
+        restored.clone(),
+        "GET",
+        "/api/channel/1",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(detail["data"]["tag"], "Primary");
+    let (status, list) = request(
+        restored.clone(),
+        "GET",
+        "/api/channel?tag_mode=true&page_size=1",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list["data"]["total"], 1);
+    assert_eq!(list["data"]["items"][0]["id"], 1);
+    let (status, cleared) = request(
+        restored.clone(),
+        "POST",
+        path,
+        &admin,
+        json!({"ids":[1],"tag":null,"expected_version":changed}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    let (_, list) = request(
+        restored,
+        "GET",
+        "/api/channel?tag_mode=true",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(list["data"]["total"], 0);
+    assert_eq!(list["data"]["items"], json!([]));
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE action='channel.tag_batch_set'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 2);
+}
+
+#[sqlx::test(migrations = false)]
+async fn channel_tag_pages_preserve_complete_groups_and_filter_before_counting(pool: PgPool) {
+    let (app, _, admin, _, _) = setup(&pool).await;
+    let configuration = success(
+        &app,
+        "GET",
+        "/core/v1/admin/routing/configuration",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    let mut proposed = json!({"expected_version":configuration["version"],"routing":configuration["routing"],"prices":configuration["prices"],"bindings":configuration["bindings"]});
+    proposed["routing"]["version"] = json!(2);
+    for id in 2..=4 {
+        let mut channel = proposed["routing"]["upstreams"][0].clone();
+        channel["id"] = json!(id);
+        channel["enabled"] = json!(false);
+        proposed["routing"]["upstreams"]
+            .as_array_mut()
+            .unwrap()
+            .push(channel);
+    }
+    proposed["bindings"]["tags"] = json!({"1":"B","2":"A","3":"A"});
+    let preview = success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/configuration/preview",
+        &admin,
+        proposed.clone(),
+    )
+    .await;
+    proposed["confirmation_digest"] = preview["confirmation_digest"].clone();
+    success(
+        &app,
+        "PUT",
+        "/core/v1/admin/routing/configuration",
+        &admin,
+        proposed,
+    )
+    .await;
+    for (query, total, ids) in [
+        ("tag_mode=true&page_size=1", 2, vec![2, 3]),
+        ("tag_mode=true&page_size=1&p=2", 2, vec![1]),
+        ("tag_mode=true&page_size=1&p=3", 2, vec![]),
+        ("tag_mode=true&keyword=B", 1, vec![1]),
+        ("tag_mode=true&status=1", 1, vec![1]),
+    ] {
+        let result = success(
+            &app,
+            "GET",
+            &format!("/api/channel?{query}"),
+            &admin,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(result["total"], total, "{query}: {result}");
+        let actual = result["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, ids, "{query}: {result}");
+    }
+}
+
 #[sqlx::test(migrations = false)]
 async fn price_preview_requires_exact_confirmation_and_preserves_frozen_requests(pool: PgPool) {
     let (app, routing, admin, _, gateway) = setup(&pool).await;

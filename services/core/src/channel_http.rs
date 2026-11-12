@@ -99,7 +99,10 @@ fn routes(state: ChannelState) -> Router {
             "/api/channel/status/batch",
             axum::routing::put(control::batch_status),
         )
-        .route("/api/channel/batch/tag", any(unsupported))
+        .route(
+            "/api/channel/batch/tag",
+            axum::routing::post(control::tags::batch),
+        )
         .route("/api/channel/multi_key/manage", any(unsupported))
         .route("/api/channel/{id}/codex/{*operation}", any(unsupported))
         .route(
@@ -207,6 +210,7 @@ struct Channel {
     statistics: Option<control::observations::Statistics>,
     id: u64,
     name: String,
+    tag: Option<String>,
     name_source: &'static str,
     #[serde(rename = "type")]
     channel_type: u16,
@@ -268,6 +272,7 @@ fn channels(config: &RoutingConfig) -> Vec<Channel> {
                 type_source: "derived_from_protocol_not_legacy_provider",
                 protocol: upstream.protocol,
                 status: if upstream.enabled { 1 } else { 2 },
+                tag: None,
                 models: models.into_iter().collect::<Vec<_>>().join(","),
                 group: groups.into_iter().collect::<Vec<_>>().join(","),
                 priority,
@@ -283,18 +288,26 @@ fn channels(config: &RoutingConfig) -> Vec<Channel> {
 fn page(config: &RoutingConfig, params: Params) -> Result<Value, &'static str> {
     page_with_names(config, params, &std::collections::BTreeMap::new())
 }
+#[cfg(test)]
 fn page_with_names(
     config: &RoutingConfig,
     params: Params,
     names: &std::collections::BTreeMap<u64, String>,
 ) -> Result<Value, &'static str> {
-    page_with_statistics(config, params, names, std::collections::BTreeMap::new())
+    page_with_statistics(
+        config,
+        params,
+        names,
+        &std::collections::BTreeMap::new(),
+        std::collections::BTreeMap::new(),
+    )
 }
 
 fn page_with_statistics(
     config: &RoutingConfig,
     params: Params,
     names: &std::collections::BTreeMap<u64, String>,
+    tags: &std::collections::BTreeMap<u64, String>,
     mut statistics: std::collections::BTreeMap<u64, control::observations::Statistics>,
 ) -> Result<Value, &'static str> {
     let extended = params.statistics == Some(true)
@@ -307,9 +320,6 @@ fn page_with_statistics(
     let page_size = params.page_size.unwrap_or(10);
     if current_page == 0 || !(1..=1000).contains(&page_size) {
         return Err("Invalid channel pagination");
-    }
-    if params.tag_mode == Some(true) {
-        return Err("Legacy channel tags are unavailable in the routing snapshot");
     }
     let sort_by = params.sort_by.as_deref().unwrap_or("id");
     if !matches!(
@@ -340,6 +350,7 @@ fn page_with_statistics(
     };
     let mut items = channels(config);
     for channel in &mut items {
+        channel.tag = tags.get(&channel.id).cloned();
         if extended {
             channel.statistics = Some(statistics.remove(&channel.id).unwrap_or_default());
         }
@@ -354,6 +365,10 @@ fn page_with_statistics(
             channel.name.to_lowercase().contains(&keyword)
                 || channel.id.to_string() == keyword
                 || channel.models.to_lowercase().contains(&keyword)
+                || channel
+                    .tag
+                    .as_ref()
+                    .is_some_and(|tag| tag.to_lowercase().contains(&keyword))
         }) && params.group.as_ref().is_none_or(|group| {
             group.is_empty() || channel.group.split(',').any(|value| value == group)
         }) && params.model.as_ref().is_none_or(|model| {
@@ -373,16 +388,39 @@ fn page_with_statistics(
     let descending =
         sort_order == "desc" || (params.sort_order.is_none() && params.id_sort == Some(true));
     items.sort_by(|a, b| sorting::compare(a, b, sort_by, params.sort_unit.as_deref(), descending));
-    let total = items.len();
     let offset = current_page
         .checked_sub(1)
         .and_then(|page| page.checked_mul(page_size))
         .ok_or("Invalid channel pagination")?;
-    let items = items
-        .into_iter()
-        .skip(offset)
-        .take(page_size)
-        .collect::<Vec<_>>();
+    let (total, items) = if params.tag_mode == Some(true) {
+        let labels = items
+            .iter()
+            .filter_map(|channel| channel.tag.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let total = labels.len();
+        let selected = labels
+            .into_iter()
+            .skip(offset)
+            .take(page_size)
+            .collect::<std::collections::BTreeSet<_>>();
+        items.retain(|channel| {
+            channel
+                .tag
+                .as_ref()
+                .is_some_and(|tag| selected.contains(tag))
+        });
+        items.sort_by(|a, b| a.tag.cmp(&b.tag));
+        (total, items)
+    } else {
+        (
+            items.len(),
+            items
+                .into_iter()
+                .skip(offset)
+                .take(page_size)
+                .collect::<Vec<_>>(),
+        )
+    };
     Ok(json!({
         "success": true,
         "data": {
@@ -398,7 +436,7 @@ fn page_with_statistics(
             "probe_scope": if extended { Some("model_catalog") } else { None },
             "inference_tested": false,
             "sort_unit": params.sort_unit,
-            "unavailable_fields": if extended { vec!["legacy_name", "legacy_type", "used_quota", "tag"] } else { vec!["legacy_name", "legacy_type", "balance", "used_quota", "response_time", "test_time", "tag"] }
+            "unavailable_fields": if extended { vec!["legacy_name", "legacy_type", "used_quota"] } else { vec!["legacy_name", "legacy_type", "balance", "used_quota", "response_time", "test_time"] }
         }
     }))
 }
@@ -561,16 +599,22 @@ async fn list(
             );
         }
     };
-    let names = match state
+    let bindings = match state
         .management
         .as_ref()
-        .map(|management| management.display_names(document.routing.version))
+        .map(|management| management.display_bindings(document.routing.version))
         .transpose()
     {
-        Ok(names) => names.unwrap_or_default(),
+        Ok(bindings) => bindings.unwrap_or_default(),
         Err(error) => return control::Failure::from(error).into_response(),
     };
-    match page_with_names(&document.routing, params, &names) {
+    match page_with_statistics(
+        &document.routing,
+        params,
+        &bindings.names,
+        &bindings.tags,
+        std::collections::BTreeMap::new(),
+    ) {
         Ok(mut value) => {
             value["data"]["pricing_version"] = json!(document.pricing.version);
             Json(value).into_response()
@@ -599,9 +643,10 @@ async fn detail(
         {
             Some(mut channel) => {
                 if let Some(management) = &state.management {
-                    match management.display_names(document.routing.version) {
-                        Ok(names) => {
-                            if let Some(name) = names.get(&channel.id) {
+                    match management.display_bindings(document.routing.version) {
+                        Ok(bindings) => {
+                            channel.tag = bindings.tags.get(&channel.id).cloned();
+                            if let Some(name) = bindings.names.get(&channel.id) {
                                 channel.name.clone_from(name);
                                 channel.name_source = "published_channel_configuration";
                             }
@@ -634,6 +679,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
         "data": {
             "read_only": true,
             "native_control": state.management.is_some(),
+            "native_tags": state.management.is_some(),
             "native_configuration": state.management.is_some(),
             "native_catalog": state.management.is_some(),
             "native_secrets": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
@@ -868,16 +914,16 @@ mod tests {
             )
             .is_err()
         );
-        assert!(
-            page(
-                &config,
-                Params {
-                    tag_mode: Some(true),
-                    ..Params::default()
-                }
-            )
-            .is_err()
-        );
+        let untagged = page(
+            &config,
+            Params {
+                tag_mode: Some(true),
+                ..Params::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(untagged["data"]["total"], 0);
+        assert_eq!(untagged["data"]["items"], json!([]));
         assert!(
             page(
                 &config,

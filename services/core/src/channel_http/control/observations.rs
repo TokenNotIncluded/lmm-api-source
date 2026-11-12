@@ -253,8 +253,15 @@ fn digest(
         .iter()
         .map(|(id, value)| (id, &value.generation))
         .collect();
-    let bytes = serde_json::to_vec(&(document, &bindings.names, stats, generations, selection))
-        .map_err(|_| ManagementError::Storage)?;
+    let bytes = serde_json::to_vec(&(
+        document,
+        &bindings.names,
+        &bindings.tags,
+        stats,
+        generations,
+        selection,
+    ))
+    .map_err(|_| ManagementError::Storage)?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
@@ -303,6 +310,7 @@ pub(in crate::channel_http) async fn list(
         &document.routing,
         params,
         &bindings.names,
+        &bindings.tags,
         stats,
     )
     .map_err(|_| ManagementError::Invalid)?;

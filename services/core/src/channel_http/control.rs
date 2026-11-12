@@ -8,6 +8,7 @@ pub(super) mod copy;
 pub(super) mod observations;
 mod opening;
 pub(super) mod price_drafts;
+pub(super) mod tags;
 mod vault;
 use super::{ChannelState, auth_error, authorize_action, error_response};
 use crate::{
@@ -222,15 +223,12 @@ impl ManagedChannels {
             .map_err(|_| ManagementError::Storage)
     }
 
-    pub(super) fn display_names(
-        &self,
-        version: u64,
-    ) -> Result<std::collections::BTreeMap<u64, String>, ManagementError> {
+    pub(super) fn display_bindings(&self, version: u64) -> Result<Bindings, ManagementError> {
         let (current, bindings) = &*self.bindings.read().map_err(|_| ManagementError::Storage)?;
         if *current != version {
             return Err(ManagementError::ApplyPending);
         }
-        Ok(bindings.names.clone())
+        Ok(bindings.clone())
     }
 
     pub(super) fn secret_storage_enabled(&self) -> bool {
@@ -731,6 +729,7 @@ pub(super) async fn remove(
     }
     let mut bindings = management.current_bindings()?;
     bindings.names.remove(&id);
+    bindings.tags.remove(&id);
     bindings
         .contexts
         .retain(|context| context.upstream_id != id);

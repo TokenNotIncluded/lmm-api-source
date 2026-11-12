@@ -47,6 +47,7 @@ fn page(
             ..Default::default()
         },
         &BTreeMap::new(),
+        &BTreeMap::new(),
         stats,
     )
     .unwrap()
@@ -88,4 +89,36 @@ fn failed_or_absent_probes_are_not_zero_duration() {
         assert_eq!(ids(page("response_time", order, None, 1, 10)), [1, 3, 2, 4]);
         assert_eq!(ids(page("test_time", order, None, 1, 10)), [1, 2, 3, 4]);
     }
+}
+
+#[test]
+fn tag_pagination_returns_whole_groups_and_filters_before_counting() {
+    let (mut config, _) = crate::channel_http::tests::fixture();
+    config.upstreams.truncate(4);
+    let tags = BTreeMap::from([(1, "B".into()), (2, "A".into()), (3, "A".into())]);
+    let read = |page, keyword| {
+        page_with_statistics(
+            &config,
+            Params {
+                tag_mode: Some(true),
+                page_size: Some(1),
+                p: Some(page),
+                keyword,
+                ..Default::default()
+            },
+            &BTreeMap::new(),
+            &tags,
+            BTreeMap::new(),
+        )
+        .unwrap()
+    };
+    let first = read(1, None);
+    assert_eq!(first["data"]["total"], 2);
+    assert_eq!(ids(first), [2, 3]);
+    assert_eq!(ids(read(2, None)), [1]);
+    let filtered = read(1, Some("B".into()));
+    assert_eq!(filtered["data"]["total"], 1);
+    assert_eq!(filtered["data"]["items"][0]["tag"], "B");
+    assert_eq!(ids(filtered), [1]);
+    assert!(ids(read(3, None)).is_empty());
 }
