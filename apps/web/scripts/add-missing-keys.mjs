@@ -12003,162 +12003,59 @@ async function main() {
   }
 
   // Allow scoped additions without overwriting unrelated in-progress translations.
-  const clientRecordsOnly = process.argv.includes('--only-client-records')
-  const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
+  // The first match preserves scope priority when several flags are supplied.
+  const selectedScope = [
+    ['--only-client-records', toolMarketClientRecordsLunaCopy],
+    ['--only-merchant-store-variants', merchantStoreVariantsCopy],
+    ['--only-merchant-store', merchantStoreCopy],
+    ['--only-payment-decimal', paymentDecimalLunaCopy],
+    ['--only-moderation', moderationCopy],
+    ['--only-native-billing', nativeBillingCopy],
+    ['--only-typesafe', typeSafeCopy],
+    ['--only-balance-query', balanceQueryCopy],
+    ['--only-responses-websocket', responsesWebSocketCopy],
+    ['--only-response-model', responseModelCopy],
+    ['--only-rss', rssCopy],
+    ['--only-forge-refresh', forgeRefreshCopy],
+    ['--only-passkey', passkeyCopy],
+    ['--only-home-token', homeTokenCopy],
+    ['--only-operations-finish', operationsFinishCopy],
+    ['--only-fixed-group', fixedGroupCopy],
+    ['--only-key-followthrough', keyFollowthroughCopy],
+    ['--only-signal-competition', signalCompetitionKeys],
+    ['--only-acquisition-cost', acquisitionCostCopy],
+    ['--only-client-presets', clientPresetsCopy],
+    ['--only-source-feedback', sourceFeedbackCopy],
+    ['--only-log-recovery', logRecoveryCopy],
+    ['--only-model-status', modelStatusCopy],
+    ['--only-parallel-experience', parallelExperienceCopy],
+    ['--only-request-estimate', requestEstimateCopy],
+    ['--only-acquisition-activity', acquisitionActivityCopy],
+    ['--only-tool-market', toolMarketCopy],
+    ['--only-acquisition', acquisitionCopy],
+    ['--only-experience', experienceCopy],
+    ['--only-payment-pricing', paymentPricingCopy],
+    ['--only-home-editorial', homeEditorialCopy],
+    ['--only-wait-companion', waitCompanionCopy],
+    ['--only-assistant-tool', assistantToolCopy],
+  ].find(([flag]) => process.argv.includes(flag))
+  const scoped = Boolean(selectedScope)
+  let selectedEntries = selectedScope?.[1] ?? newKeys
+  if (selectedScope?.[0] === '--only-signal-competition') {
+    selectedEntries = Object.fromEntries(
+      Object.entries(selectedEntries).map(([locale, values]) => [
+        locale,
+        Object.fromEntries(
+          Object.entries(values).filter(
+            ([key]) => !['Account', 'Public'].includes(key)
+          )
+        ),
+      ])
+    )
+  }
   const merchantStoreOnly = process.argv.includes('--only-merchant-store')
-  const merchantStoreVariantsOnly = process.argv.includes(
-    '--only-merchant-store-variants'
-  )
-  const paymentOnly = process.argv.includes('--only-payment-pricing')
-  const homeOnly = process.argv.includes('--only-home-editorial')
-  const homeTokenOnly = process.argv.includes('--only-home-token')
-  const waitOnly = process.argv.includes('--only-wait-companion')
-  const assistantToolOnly = process.argv.includes('--only-assistant-tool')
-  const experienceOnly = process.argv.includes('--only-experience')
-  const acquisitionOnly = process.argv.includes('--only-acquisition')
-  const toolMarketOnly = process.argv.includes('--only-tool-market')
-  const activityOnly = process.argv.includes('--only-acquisition-activity')
-  const estimateOnly = process.argv.includes('--only-request-estimate')
-  const parallelOnly = process.argv.includes('--only-parallel-experience')
-  const statusOnly = process.argv.includes('--only-model-status')
-  const logRecoveryOnly = process.argv.includes('--only-log-recovery')
-  const feedbackOnly = process.argv.includes('--only-source-feedback')
-  const clientsOnly = process.argv.includes('--only-client-presets')
-  const costOnly = process.argv.includes('--only-acquisition-cost')
-  const competitionOnly = process.argv.includes('--only-signal-competition')
-  const keyFollowthroughOnly = process.argv.includes('--only-key-followthrough')
-  const fixedGroupOnly = process.argv.includes('--only-fixed-group')
-  const operationsFinishOnly = process.argv.includes('--only-operations-finish')
-  const passkeyOnly = process.argv.includes('--only-passkey')
-  const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
-  const balanceOnly = process.argv.includes('--only-balance-query')
-  const typeSafeOnly = process.argv.includes('--only-typesafe')
-  const moderationOnly = process.argv.includes('--only-moderation')
-  const nativeBillingOnly = process.argv.includes('--only-native-billing')
-  const rssOnly = process.argv.includes('--only-rss')
-  const responseModelOnly = process.argv.includes('--only-response-model')
-  const responsesWebSocketOnly = process.argv.includes(
-    '--only-responses-websocket'
-  )
-  const scoped =
-    clientRecordsOnly ||
-    paymentDecimalOnly ||
-    merchantStoreVariantsOnly ||
-    merchantStoreOnly ||
-    moderationOnly ||
-    nativeBillingOnly ||
-    typeSafeOnly ||
-    balanceOnly ||
-    responsesWebSocketOnly ||
-    responseModelOnly ||
-    rssOnly ||
-    forgeRefreshOnly ||
-    passkeyOnly ||
-    operationsFinishOnly ||
-    fixedGroupOnly ||
-    keyFollowthroughOnly ||
-    competitionOnly ||
-    costOnly ||
-    clientsOnly ||
-    feedbackOnly ||
-    logRecoveryOnly ||
-    statusOnly ||
-    parallelOnly ||
-    estimateOnly ||
-    activityOnly ||
-    toolMarketOnly ||
-    acquisitionOnly ||
-    experienceOnly ||
-    paymentOnly ||
-    homeOnly ||
-    homeTokenOnly ||
-    waitOnly ||
-    assistantToolOnly
-  const entries = homeTokenOnly
-    ? homeTokenCopy
-    : passkeyOnly
-      ? passkeyCopy
-      : operationsFinishOnly
-        ? operationsFinishCopy
-        : fixedGroupOnly
-          ? fixedGroupCopy
-          : keyFollowthroughOnly
-            ? keyFollowthroughCopy
-            : competitionOnly
-              ? Object.fromEntries(
-                  Object.entries(signalCompetitionKeys).map(
-                    ([locale, values]) => [
-                      locale,
-                      Object.fromEntries(
-                        Object.entries(values).filter(
-                          ([key]) => !['Account', 'Public'].includes(key)
-                        )
-                      ),
-                    ]
-                  )
-                )
-              : costOnly
-                ? acquisitionCostCopy
-                : clientsOnly
-                  ? clientPresetsCopy
-                  : feedbackOnly
-                    ? sourceFeedbackCopy
-                    : logRecoveryOnly
-                      ? logRecoveryCopy
-                      : statusOnly
-                        ? modelStatusCopy
-                        : parallelOnly
-                          ? parallelExperienceCopy
-                          : estimateOnly
-                            ? requestEstimateCopy
-                            : activityOnly
-                              ? acquisitionActivityCopy
-                              : toolMarketOnly
-                                ? toolMarketCopy
-                                : acquisitionOnly
-                                  ? acquisitionCopy
-                                  : experienceOnly
-                                    ? experienceCopy
-                                    : paymentOnly
-                                      ? paymentPricingCopy
-                                      : homeOnly
-                                        ? homeEditorialCopy
-                                        : waitOnly
-                                          ? waitCompanionCopy
-                                          : assistantToolOnly
-                                            ? assistantToolCopy
-                                            : newKeys
-  const selectedEntries = paymentDecimalOnly
-    ? paymentDecimalLunaCopy
-    : moderationOnly
-      ? moderationCopy
-      : nativeBillingOnly
-        ? nativeBillingCopy
-        : typeSafeOnly
-          ? typeSafeCopy
-          : balanceOnly
-            ? balanceQueryCopy
-            : responsesWebSocketOnly
-              ? responsesWebSocketCopy
-              : responseModelOnly
-                ? responseModelCopy
-                : rssOnly
-                  ? rssCopy
-                  : forgeRefreshOnly
-                    ? forgeRefreshCopy
-                    : passkeyOnly
-                      ? passkeyCopy
-                      : entries
   let totalAdded = 0
-  for (const [locale, baseTranslations] of Object.entries(
-    clientRecordsOnly
-      ? toolMarketClientRecordsLunaCopy
-      : merchantStoreVariantsOnly
-        ? merchantStoreVariantsCopy
-        : merchantStoreOnly
-          ? merchantStoreCopy
-          : selectedEntries
-  )) {
+  for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
       ? baseTranslations
       : {

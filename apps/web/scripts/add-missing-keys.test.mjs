@@ -15,6 +15,8 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { balanceQueryCopy } from './balance-query-copy.mjs'
+import { passkeyCopy } from './passkey-copy.mjs'
+import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
 import { trustLevelResetCopy } from './trust-level-reset-copy.mjs'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -53,7 +55,8 @@ async function verifyScopedTranslations(scope, expectedKeys) {
         })
       )
     }
-    execFileSync(process.execPath, ['scripts/add-missing-keys.mjs', scope], {
+    const flags = Array.isArray(scope) ? scope : [scope]
+    execFileSync(process.execPath, ['scripts/add-missing-keys.mjs', ...flags], {
       cwd: fixture,
       stdio: 'pipe',
     })
@@ -85,6 +88,20 @@ for (const scope of ['--only-passkey', '--only-response-model']) {
   test(`scoped translation writes run with only committed script dependencies (${scope})`, () =>
     verifyScopedTranslations(scope))
 }
+
+test('scope priority is preserved independently of argument order', async () => {
+  for (const [flags, copy] of [
+    [['--only-home-token', '--only-passkey'], passkeyCopy],
+    [
+      ['--only-payment-decimal', '--only-client-records'],
+      toolMarketClientRecordsLunaCopy,
+    ],
+  ]) {
+    const keys = Object.keys(copy.en).sort()
+    await verifyScopedTranslations(flags, keys)
+    await verifyScopedTranslations(flags.toReversed(), keys)
+  }
+})
 
 const responsesWebSocketKeys = [
   'Allow persistent connections to /v1/responses.',
