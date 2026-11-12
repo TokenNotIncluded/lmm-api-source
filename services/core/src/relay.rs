@@ -56,37 +56,12 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch},
+    sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc, oneshot},
     time::{Instant, timeout, timeout_at},
 };
 use tokio_stream::Stream;
 
-#[derive(Clone)]
-pub struct Cancellation(watch::Sender<bool>);
-impl Default for Cancellation {
-    fn default() -> Self {
-        Self(watch::channel(false).0)
-    }
-}
-impl Cancellation {
-    pub fn cancel(&self) {
-        self.0.send_replace(true);
-    }
-    pub fn is_cancelled(&self) -> bool {
-        *self.0.borrow()
-    }
-    async fn cancelled(&self) {
-        let mut rx = self.0.subscribe();
-        loop {
-            if *rx.borrow_and_update() {
-                return;
-            }
-            if rx.changed().await.is_err() {
-                return;
-            }
-        }
-    }
-}
+pub use tokio_util::sync::CancellationToken as Cancellation;
 
 /// Dropping the HTTP body cancels the upstream, but not the billing finalizer.
 pub struct RelayBody {

@@ -18,6 +18,9 @@ resource-acceptance = []
 [dependencies]
 # MIT OR Apache-2.0, dependency-free bounded request conversion.
 zconv = "=0.2.2"
+zclap = "=0.1.4"
+sysinfo = { version = "=0.40.3", default-features = false, features = ["system"] }
+tokio-util = { version = "=0.7.20", features = ["rt"] }
 csv = "=1.4.0"
 zhex = "=0.1.3"
 percent-encoding = "=2.3.2"

@@ -61,6 +61,7 @@ after independent frozen-source review; never runtime credentials or automatic d
 plan-admin-activation and apply-admin-activation read at most 64 KiB of deny_unknown_fields\n\
 JSON from stdin and print secret-free diagnostics. They never invent a human approval.";
 
+#[derive(Clone, Copy)]
 enum Command {
     Serve,
     InitDb,
@@ -93,85 +94,111 @@ struct Arguments {
     legacy_env: bool,
 }
 
+const OPERATIONS: &[(&str, Command)] = &[
+    ("serve", Command::Serve),
+    ("init-db", Command::InitDb),
+    ("upgrade-db", Command::UpgradeDb),
+    ("upgrade-history", Command::UpgradeHistory),
+    ("upgrade-offline", Command::UpgradeOffline),
+    ("create-first-owner", Command::CreateFirstOwner),
+    ("bootstrap-user", Command::BootstrapUser),
+    ("complete-setup", Command::CompleteSetup),
+    (
+        "install-tool-market-builtins",
+        Command::InstallToolMarketBuiltins,
+    ),
+    (
+        "install-usage-receipt-index",
+        Command::InstallUsageReceiptIndex,
+    ),
+    ("rebuild-channel-usage", Command::RebuildChannelUsage),
+    ("plan-admin-activation", Command::PlanAdminActivation),
+    ("apply-admin-activation", Command::ApplyAdminActivation),
+    ("plan-admin-key-continuity", Command::PlanAdminKeyContinuity),
+    (
+        "apply-admin-key-continuity",
+        Command::ApplyAdminKeyContinuity,
+    ),
+    (
+        "publish-subscription-pancake-price",
+        Command::PublishSubscriptionPancakePrice,
+    ),
+    ("seed-checkin-history", Command::SeedCheckinHistory),
+    ("publish-checkin-policy", Command::PublishCheckinPolicy),
+    ("schema-manifest", Command::SchemaManifest),
+    ("check-db", Command::CheckDb),
+    ("trust-policy-editor", Command::TrustPolicyEditor),
+];
+
 fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
-    let mut args = args.into_iter();
-    let mut operation = None;
+    use zclap::{Arg, Event};
+
+    let args: Vec<_> = args.into_iter().collect();
+    let bad = || io::Error::new(io::ErrorKind::InvalidInput, USAGE);
+    // zclap also accepts attached values, short clusters and `--`. Keep the
+    // existing exact-token grammar so new spellings cannot execute an operation.
+    if args.iter().any(|arg| {
+        arg.as_encoded_bytes().starts_with(b"-")
+            && !matches!(
+                arg.to_str(),
+                Some("--config" | "--legacy-env" | "-h" | "--help" | "-V" | "--version")
+            )
+    }) {
+        return Err(bad());
+    }
+    let names: Vec<_> = OPERATIONS.iter().map(|(name, _)| *name).collect();
+    // A single positional keeps options in one scope, before or after the
+    // operation. Subcommands would reset presence/duplicate/conflict state.
+    let definitions = [
+        Arg::value("config").conflicts("legacy-env"),
+        Arg::flag("legacy-env"),
+        Arg::flag("help").short('h').conflicts("version"),
+        Arg::flag("version").short('V').conflicts("operation"),
+        Arg::positional("operation").one_of(&names),
+    ];
+    let cli = zclap::Command::new("lmm-core").args(&definitions);
+    let mut parser = cli.parse_os(&args);
+    let mut operation = Command::Serve;
     let mut config = None;
     let mut legacy_env = false;
     let mut help = false;
     let mut version = false;
-    let bad = || io::Error::new(io::ErrorKind::InvalidInput, USAGE);
-    while let Some(arg) = args.next() {
-        match arg.to_str() {
-            Some("--config") if config.is_none() && !legacy_env => {
-                let path = PathBuf::from(args.next().ok_or_else(bad)?);
+    while let Some(event) = parser.next().map_err(|_| bad())? {
+        match event {
+            Event::Value {
+                arg: "config",
+                value,
+            } => {
+                let path = PathBuf::from(value);
                 if !path.is_absolute() {
                     return Err(bad());
                 }
                 config = Some(path);
             }
-            Some("--legacy-env") if !legacy_env && config.is_none() => legacy_env = true,
-            Some("-h" | "--help") if !help && !version => help = true,
-            Some("-V" | "--version") if !version && !help && operation.is_none() => version = true,
-            Some(
-                "serve"
-                | "init-db"
-                | "upgrade-db"
-                | "upgrade-history"
-                | "upgrade-offline"
-                | "create-first-owner"
-                | "bootstrap-user"
-                | "complete-setup"
-                | "install-tool-market-builtins"
-                | "install-usage-receipt-index"
-                | "rebuild-channel-usage"
-                | "plan-admin-activation"
-                | "apply-admin-activation"
-                | "plan-admin-key-continuity"
-                | "apply-admin-key-continuity"
-                | "publish-subscription-pancake-price"
-                | "seed-checkin-history"
-                | "publish-checkin-policy"
-                | "schema-manifest"
-                | "check-db"
-                | "trust-policy-editor",
-            ) if operation.is_none() && !version => {
-                operation = Some(match arg.to_str() {
-                    Some("init-db") => Command::InitDb,
-                    Some("upgrade-db") => Command::UpgradeDb,
-                    Some("upgrade-history") => Command::UpgradeHistory,
-                    Some("upgrade-offline") => Command::UpgradeOffline,
-                    Some("create-first-owner") => Command::CreateFirstOwner,
-                    Some("bootstrap-user") => Command::BootstrapUser,
-                    Some("complete-setup") => Command::CompleteSetup,
-                    Some("install-tool-market-builtins") => Command::InstallToolMarketBuiltins,
-                    Some("install-usage-receipt-index") => Command::InstallUsageReceiptIndex,
-                    Some("rebuild-channel-usage") => Command::RebuildChannelUsage,
-                    Some("plan-admin-activation") => Command::PlanAdminActivation,
-                    Some("apply-admin-activation") => Command::ApplyAdminActivation,
-                    Some("plan-admin-key-continuity") => Command::PlanAdminKeyContinuity,
-                    Some("apply-admin-key-continuity") => Command::ApplyAdminKeyContinuity,
-                    Some("publish-subscription-pancake-price") => {
-                        Command::PublishSubscriptionPancakePrice
-                    }
-                    Some("seed-checkin-history") => Command::SeedCheckinHistory,
-                    Some("publish-checkin-policy") => Command::PublishCheckinPolicy,
-                    Some("schema-manifest") => Command::SchemaManifest,
-                    Some("check-db") => Command::CheckDb,
-                    Some("trust-policy-editor") => Command::TrustPolicyEditor,
-                    _ => Command::Serve,
-                });
+            Event::Value {
+                arg: "operation",
+                value,
+            } => {
+                operation = OPERATIONS
+                    .iter()
+                    .find(|(name, _)| value == *name)
+                    .map(|(_, command)| *command)
+                    .ok_or_else(bad)?;
             }
+            Event::Flag { arg: "legacy-env" } => legacy_env = true,
+            Event::Flag { arg: "help" } => help = true,
+            Event::Flag { arg: "version" } => version = true,
             _ => return Err(bad()),
         }
     }
+    parser.finish().map_err(|_| bad())?;
     Ok(Arguments {
         command: if help {
             Command::Help
         } else if version {
             Command::Version
         } else {
-            operation.unwrap_or(Command::Serve)
+            operation
         },
         config,
         legacy_env,
@@ -1016,6 +1043,83 @@ mod check_db_parser_tests {
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
     }
+    #[test]
+    fn grammar_rejects_extensions_duplicates_and_conflicts_even_with_help() {
+        for input in [
+            vec!["--config=/private/core.toml", "init-db"],
+            vec!["--", "init-db"],
+            vec!["-hV"],
+            vec!["-"],
+            vec!["unknown"],
+            vec!["--help", "unknown"],
+            vec!["--help", "-h"],
+            vec!["--version", "-V"],
+            vec!["--help", "--version"],
+            vec!["--version", "--help"],
+            vec!["serve", "--version"],
+            vec!["--version", "serve"],
+            vec!["--legacy-env", "--legacy-env"],
+            vec!["--config", "/a", "--config", "/b"],
+            vec!["--config", "/a", "--legacy-env"],
+            vec!["--legacy-env", "--config", "/a"],
+            vec!["--help", "--config", "relative"],
+            vec!["--config"],
+        ] {
+            assert!(command(args(&input)).is_err(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn all_operations_keep_config_positions_and_help_override() {
+        for &(name, _) in OPERATIONS {
+            for input in [
+                vec![name, "--config", "/private/core.toml"],
+                vec!["--config", "/private/core.toml", name],
+            ] {
+                let parsed = command(args(&input)).unwrap();
+                assert_eq!(parsed.config, Some(PathBuf::from("/private/core.toml")));
+                assert!(!matches!(parsed.command, Command::Help | Command::Version));
+            }
+            for input in [vec![name, "--help"], vec!["-h", name]] {
+                assert!(matches!(
+                    command(args(&input)).unwrap().command,
+                    Command::Help
+                ));
+            }
+            assert!(command(args(&[name, name])).is_err());
+        }
+        for flag in ["-V", "--version"] {
+            assert!(matches!(
+                command(args(&[flag])).unwrap().command,
+                Command::Version
+            ));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_preserves_non_utf8_absolute_paths() {
+        use std::os::unix::ffi::OsStringExt;
+        let path = OsString::from_vec(b"/private/core-\xff.toml".to_vec());
+        for input in [
+            vec![
+                OsString::from("--config"),
+                path.clone(),
+                OsString::from("check-db"),
+            ],
+            vec![
+                OsString::from("check-db"),
+                OsString::from("--config"),
+                path.clone(),
+            ],
+        ] {
+            assert!(check_db_requested(&input));
+            let parsed = command(input).unwrap();
+            assert!(matches!(parsed.command, Command::CheckDb));
+            assert_eq!(parsed.config, Some(PathBuf::from(&path)));
+        }
+    }
+
     #[test]
     fn checkin_owner_commands_use_explicit_config_and_reject_extra_commands() {
         for name in ["seed-checkin-history", "publish-checkin-policy"] {

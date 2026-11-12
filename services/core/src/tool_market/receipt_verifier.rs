@@ -511,178 +511,118 @@ fn decode_signature(text: &str) -> Result<[u8; 32]> {
         return Err(ReceiptError::Denied);
     }
     let mut out = [0u8; 32];
-    for (i, pair) in text.as_bytes().as_chunks::<2>().0.iter().enumerate() {
-        let digit = |b: u8| match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
-            b'A'..=b'F' => Some(b - b'A' + 10),
-            _ => None,
-        };
-        out[i] = (digit(pair[0]).ok_or(ReceiptError::Denied)? << 4)
-            | digit(pair[1]).ok_or(ReceiptError::Denied)?;
-    }
+    zhex::decode(text.as_bytes(), &mut out).map_err(|_| ReceiptError::Denied)?;
     Ok(out)
 }
 
-// The lexical pass rejects duplicate keys at every depth and captures exact
-// receipt bytes for audit. serde_json validates scalar grammar and preserves
-// Go json.Number spelling. Objects are assembled explicitly so a JSON key named
-// "$serde_json::private::Number" remains a real object key, as it does in Go.
+// Borrow each original token before assembling objects explicitly: serde's
+// arbitrary-precision Number sentinel must remain an ordinary object key.
 fn parse_original(raw: &[u8]) -> Result<(Value, Option<Range<usize>>)> {
+    use serde::de::{DeserializeSeed, Error, MapAccess, SeqAccess, Visitor};
+    use serde_json::value::RawValue;
+
     if raw.is_empty() || raw.len() > MAX_BODY {
         return Err(ReceiptError::Invalid);
     }
-    struct Scan<'a> {
-        raw: &'a [u8],
-        at: usize,
+    struct Original<'a> {
+        source: &'a [u8],
         receipt: Option<Range<usize>>,
     }
-    impl Scan<'_> {
-        fn space(&mut self) {
-            while self
-                .raw
-                .get(self.at)
-                .is_some_and(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
-            {
-                self.at += 1;
+    struct Node<'a, 'b> {
+        original: &'b mut Original<'a>,
+        path: &'b mut Vec<String>,
+        depth: usize,
+    }
+    impl<'de> DeserializeSeed<'de> for Node<'de, '_> {
+        type Value = Value;
+
+        fn deserialize<D: serde::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> std::result::Result<Value, D::Error> {
+            if self.depth > 128 {
+                return Err(D::Error::custom("receipt nesting exceeds 128"));
             }
-        }
-        fn string(&mut self) -> Result<String> {
-            let start = self.at;
-            if self.raw.get(self.at) != Some(&b'"') {
-                return Err(ReceiptError::Invalid);
+            let raw = <&'de RawValue>::deserialize(deserializer)?;
+            let token = raw.get();
+            if self.path.len() == 2 && self.path[0] == "_meta" && self.path[1] == "lmm_metering" {
+                // RawValue borrows a subslice of source, excluding surrounding
+                // whitespace. Pointer addresses give its byte offset safely.
+                let start = token.as_ptr() as usize - self.original.source.as_ptr() as usize;
+                self.original.receipt = Some(start..start + token.len());
             }
-            self.at += 1;
-            loop {
-                match self.raw.get(self.at) {
-                    Some(b'"') => {
-                        self.at += 1;
-                        return serde_json::from_slice(&self.raw[start..self.at])
-                            .map_err(|_| ReceiptError::Invalid);
-                    }
-                    Some(b'\\') => self.at += 2,
-                    Some(_) => self.at += 1,
-                    None => return Err(ReceiptError::Invalid),
+            let mut parser = serde_json::Deserializer::from_str(token);
+            let value = match token.as_bytes()[0] {
+                b'{' => serde::Deserializer::deserialize_map(&mut parser, self),
+                b'[' => serde::Deserializer::deserialize_seq(&mut parser, self),
+                b'-' | b'0'..=b'9' => {
+                    // RawValue already checked JSON grammar; preserve -0 and
+                    // exponent spelling rather than normalizing via Value.
+                    return Ok(Value::Number(serde_json::Number::from_string_unchecked(
+                        token.into(),
+                    )));
                 }
+                _ => Value::deserialize(&mut parser),
             }
-        }
-        fn value(&mut self, path: &mut Vec<String>, depth: usize) -> Result<Value> {
-            if depth > 128 {
-                return Err(ReceiptError::Invalid);
-            }
-            self.space();
-            let start = self.at;
-            let value = match self.raw.get(self.at) {
-                Some(b'{') => {
-                    self.at += 1;
-                    self.space();
-                    let mut object = serde_json::Map::new();
-                    if self.raw.get(self.at) == Some(&b'}') {
-                        self.at += 1;
-                    } else {
-                        loop {
-                            self.space();
-                            let key = self.string()?;
-                            if object.contains_key(&key) {
-                                return Err(ReceiptError::Invalid);
-                            }
-                            self.space();
-                            if self.raw.get(self.at) != Some(&b':') {
-                                return Err(ReceiptError::Invalid);
-                            }
-                            self.at += 1;
-                            path.push(key.clone());
-                            let child = self.value(path, depth + 1)?;
-                            path.pop();
-                            object.insert(key, child);
-                            self.space();
-                            match self.raw.get(self.at) {
-                                Some(b',') => self.at += 1,
-                                Some(b'}') => {
-                                    self.at += 1;
-                                    break;
-                                }
-                                _ => return Err(ReceiptError::Invalid),
-                            }
-                        }
-                    }
-                    Value::Object(object)
-                }
-                Some(b'[') => {
-                    self.at += 1;
-                    self.space();
-                    let mut array = Vec::new();
-                    if self.raw.get(self.at) == Some(&b']') {
-                        self.at += 1;
-                    } else {
-                        loop {
-                            path.push(String::new());
-                            array.push(self.value(path, depth + 1)?);
-                            path.pop();
-                            self.space();
-                            match self.raw.get(self.at) {
-                                Some(b',') => self.at += 1,
-                                Some(b']') => {
-                                    self.at += 1;
-                                    break;
-                                }
-                                _ => return Err(ReceiptError::Invalid),
-                            }
-                        }
-                    }
-                    Value::Array(array)
-                }
-                Some(b'"') => Value::String(self.string()?),
-                Some(_) => {
-                    while self
-                        .raw
-                        .get(self.at)
-                        .is_some_and(|b| !b.is_ascii_whitespace() && !b",]}".contains(b))
-                    {
-                        self.at += 1;
-                    }
-                    if self.at == start {
-                        return Err(ReceiptError::Invalid);
-                    }
-                    let token = &self.raw[start..self.at];
-                    let scalar: Value =
-                        serde_json::from_slice(token).map_err(|_| ReceiptError::Invalid)?;
-                    if matches!(scalar, Value::Number(_)) {
-                        // Scalar Value deserialization normalizes integer -0 to
-                        // 0 even with arbitrary_precision. Grammar was checked
-                        // above; retain the original Go json.Number spelling.
-                        Value::Number(serde_json::Number::from_string_unchecked(
-                            std::str::from_utf8(token)
-                                .map_err(|_| ReceiptError::Invalid)?
-                                .into(),
-                        ))
-                    } else {
-                        scalar
-                    }
-                }
-                None => return Err(ReceiptError::Invalid),
-            };
-            if path.len() == 2 && path[0] == "_meta" && path[1] == "lmm_metering" {
-                self.receipt = Some(start..self.at);
-            }
+            .map_err(D::Error::custom)?;
+            parser.end().map_err(D::Error::custom)?;
             Ok(value)
         }
     }
-    let mut scanner = Scan {
-        raw,
-        at: 0,
+    impl<'de> Visitor<'de> for Node<'de, '_> {
+        type Value = Value;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a receipt JSON object or array")
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> std::result::Result<Value, M::Error> {
+            let mut object = serde_json::Map::new();
+            while let Some(key) = map.next_key::<String>()? {
+                if object.contains_key(&key) {
+                    return Err(M::Error::custom("duplicate receipt object key"));
+                }
+                self.path.push(key.clone());
+                let child = map.next_value_seed(Node {
+                    original: self.original,
+                    path: self.path,
+                    depth: self.depth + 1,
+                })?;
+                self.path.pop();
+                object.insert(key, child);
+            }
+            Ok(Value::Object(object))
+        }
+        fn visit_seq<S: SeqAccess<'de>>(self, mut seq: S) -> std::result::Result<Value, S::Error> {
+            let mut array = Vec::new();
+            self.path.push(String::new());
+            while let Some(child) = seq.next_element_seed(Node {
+                original: self.original,
+                path: self.path,
+                depth: self.depth + 1,
+            })? {
+                array.push(child);
+            }
+            self.path.pop();
+            Ok(Value::Array(array))
+        }
+    }
+    let mut original = Original {
+        source: raw,
         receipt: None,
     };
-    let value = scanner.value(&mut Vec::new(), 1)?;
-    scanner.space();
-    if scanner.at != raw.len() {
-        return Err(ReceiptError::Invalid);
+    let mut parser = serde_json::Deserializer::from_slice(raw);
+    let value = Node {
+        original: &mut original,
+        path: &mut Vec::new(),
+        depth: 1,
     }
-    let span = scanner.receipt;
+    .deserialize(&mut parser)
+    .map_err(|_| ReceiptError::Invalid)?;
+    parser.end().map_err(|_| ReceiptError::Invalid)?;
     if !value.is_object() {
         return Err(ReceiptError::Invalid);
     }
-    Ok((value, span))
+    Ok((value, original.receipt))
 }
 
 fn parse_result(raw: &[u8]) -> Result<(Value, Range<usize>)> {
@@ -960,6 +900,64 @@ mod tests {
         let path = fixture.key(encoded.as_bytes());
         let verifier = ReceiptVerifier::from_base64_adapters(vec![adapter(&path)]).unwrap();
         assert!(verifier.reject_credentials(&[role]).is_err());
+    }
+    #[test]
+    fn original_parser_preserves_spans_and_number_tokens() {
+        let receipt = r#"{ "n": -0, "e": 1E-03 }"#;
+        let raw = format!(
+            " \n{{\"_meta\":{{\"lmm_\\u006detering\": \t{receipt} \r}},\"n\":[-0,1E+003,1e-03],\"other\":{{\"_meta\":{{\"lmm_metering\":false}}}}}} \t"
+        );
+        let (value, span) = parse_original(raw.as_bytes()).unwrap();
+        assert_eq!(&raw[span.unwrap()], receipt);
+        assert_eq!(go_value(&value["n"]).unwrap(), b"[-0,1E+003,1e-03]");
+        for nested in [
+            r#"{"$serde_json::private::Number":"123","x":1}"#,
+            r#"{"$serde_json::private::Number":{"x":true}}"#,
+        ] {
+            let raw = format!(r#"{{"value":{nested}}}"#);
+            let (value, _) = parse_original(raw.as_bytes()).unwrap();
+            assert_eq!(go_value(&value["value"]).unwrap(), nested.as_bytes());
+        }
+    }
+    #[test]
+    fn original_parser_enforces_depth_size_and_json_grammar() {
+        // Root is depth 1; the scalar in 126 nested arrays is depth 128.
+        let nested =
+            |arrays: usize| format!(r#"{{"x":{}0{}}}"#, "[".repeat(arrays), "]".repeat(arrays));
+        assert!(parse_original(nested(126).as_bytes()).is_ok());
+        assert!(parse_original(nested(127).as_bytes()).is_err());
+        let mut boundary = b"{}".to_vec();
+        boundary.resize(MAX_BODY, b' ');
+        assert!(parse_original(&boundary).is_ok());
+        boundary.push(b' ');
+        assert!(parse_original(&boundary).is_err());
+        for raw in [
+            r#"{"a":[{"b":0,"\u0062":1}]}"#,
+            r#"{"\u005fmeta":{},"_meta":{}}"#,
+            r#"{"a":[1,]}"#,
+            r#"{"a":01}"#,
+            r#"{"a":1e+}"#,
+            r#"{"a":"\uD800"}"#,
+            r#"{"a":"\x20"}"#,
+            r#"{"a":true false}"#,
+            "{} {}",
+            "",
+        ] {
+            assert!(parse_original(raw.as_bytes()).is_err(), "accepted {raw:?}");
+        }
+        assert!(parse_original(b"{\"a\":\"\xff\"}").is_err());
+    }
+    #[test]
+    fn signature_hex_preserves_case_and_denied_errors() {
+        assert_eq!(decode_signature(&"aB".repeat(32)).unwrap(), [0xab; 32]);
+        for invalid in [
+            "0".repeat(63),
+            "0".repeat(65),
+            "gg".repeat(32),
+            "é".repeat(32),
+        ] {
+            assert_eq!(decode_signature(&invalid), Err(ReceiptError::Denied));
+        }
     }
     #[test]
     fn receipt_json_parser_rejects_duplicates_missing_and_excessive_nesting() {

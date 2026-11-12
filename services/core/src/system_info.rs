@@ -12,6 +12,7 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 const SAMPLE_WINDOW_MS: u64 = 250;
 const CORE_PROCESS: &str = "lmm-core";
@@ -56,17 +57,12 @@ pub struct ProcessResources {
 }
 
 #[derive(Clone, Copy)]
-struct CpuTicks {
-    total: u64,
-    idle: u64,
-}
-
-#[derive(Clone, Copy)]
 struct ProcessSample {
     pid: u32,
-    ticks: u64,
+    start_time: u64,
+    cpu_usage: f32,
     rss_bytes: u64,
-    threads: u64,
+    threads: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -82,25 +78,30 @@ impl From<io::Error> for SnapshotError {
 }
 
 pub async fn snapshot() -> Result<Snapshot, SnapshotError> {
-    let before_host = cpu_ticks()?;
-    let before = process_samples();
+    let mut host = System::new().map_err(|_| SnapshotError::Io)?;
+    host.refresh_cpu_usage();
+    let before = process_samples(&mut host);
     tokio::time::sleep(std::time::Duration::from_millis(SAMPLE_WINDOW_MS)).await;
-    let after_host = cpu_ticks()?;
-    let after = process_samples();
-
-    let total_delta = after_host.total.saturating_sub(before_host.total);
-    let idle_delta = after_host.idle.saturating_sub(before_host.idle);
-    let cpu_usage_percent = percent(total_delta.saturating_sub(idle_delta), total_delta);
-    let (total_bytes, available_bytes) = memory_bytes()?;
+    host.refresh_cpu_usage();
+    host.refresh_memory();
+    let after = process_samples(&mut host);
+    let logical_cpus = host.cpus().len();
+    let total_bytes = host.total_memory();
+    if logical_cpus == 0 || total_bytes == 0 {
+        return Err(SnapshotError::Invalid);
+    }
+    let available_bytes = host.available_memory();
     let used_bytes = total_bytes.saturating_sub(available_bytes);
+    let cpu_usage_percent = f64::from(host.global_cpu_usage()).clamp(0.0, 100.0);
+    let load = System::load_average().map_err(|_| SnapshotError::Io)?;
     let mut processes = BTreeMap::new();
     for name in [CORE_PROCESS, EXTENSIONS_PROCESS] {
         let version = process_version(name);
         let sample = after.get(name).copied();
         let previous = before.get(name).copied();
-        let cpu_percent = match (sample, previous, total_delta) {
-            (Some(now), Some(old), denominator) if denominator > 0 => {
-                Some(percent(now.ticks.saturating_sub(old.ticks), denominator))
+        let cpu_percent = match (sample, previous) {
+            (Some(now), Some(old)) if now.pid == old.pid && now.start_time == old.start_time => {
+                Some(normalized_cpu_percent(now.cpu_usage, logical_cpus))
             }
             _ => None,
         };
@@ -111,7 +112,7 @@ pub async fn snapshot() -> Result<Snapshot, SnapshotError> {
             cpu_percent,
             memory_bytes: Some(sample.rss_bytes),
             memory_percent: Some(percent(sample.rss_bytes, total_bytes)),
-            threads: Some(sample.threads),
+            threads: sample.threads,
         });
         processes.insert(
             name.to_owned(),
@@ -126,16 +127,17 @@ pub async fn snapshot() -> Result<Snapshot, SnapshotError> {
             }),
         );
     }
-    let logical_cpus = std::thread::available_parallelism()
-        .map(|value| value.get().min(u32::MAX as usize) as u32)
-        .unwrap_or(1);
     Ok(Snapshot {
         schema_version: 1,
         observed_at_unix_ms: now_unix_ms(),
         sample_window_ms: SAMPLE_WINDOW_MS,
         system: SystemResources {
-            logical_cpus,
-            load_average: load_average()?,
+            logical_cpus: logical_cpus.min(u32::MAX as usize) as u32,
+            load_average: LoadAverage {
+                one: load.one,
+                five: load.five,
+                fifteen: load.fifteen,
+            },
             cpu_usage_percent,
             memory_total_bytes: total_bytes,
             memory_available_bytes: available_bytes,
@@ -161,54 +163,65 @@ fn percent(numerator: u64, denominator: u64) -> f64 {
     ((numerator as f64 / denominator as f64) * 100.0).clamp(0.0, 100.0)
 }
 
-fn cpu_ticks() -> Result<CpuTicks, SnapshotError> {
-    let stat = fs::read_to_string("/proc/stat")?;
-    let line = stat
-        .lines()
-        .find(|line| line.starts_with("cpu "))
-        .ok_or(SnapshotError::Invalid)?;
-    let values = line
-        .split_whitespace()
-        .skip(1)
-        .take(8)
-        .map(|value| value.parse::<u64>().map_err(|_| SnapshotError::Invalid))
-        .collect::<Result<Vec<_>, _>>()?;
-    if values.len() < 4 {
-        return Err(SnapshotError::Invalid);
+fn normalized_cpu_percent(usage: f32, logical_cpus: usize) -> f64 {
+    if logical_cpus == 0 || !usage.is_finite() {
+        return 0.0;
     }
-    let total = values.iter().copied().sum();
-    let idle = values[3].saturating_add(values.get(4).copied().unwrap_or(0));
-    Ok(CpuTicks { total, idle })
+    (f64::from(usage) / logical_cpus as f64).clamp(0.0, 100.0)
 }
 
-fn process_samples() -> BTreeMap<&'static str, ProcessSample> {
+fn process_samples(host: &mut System) -> BTreeMap<&'static str, ProcessSample> {
+    // Refresh only resource counters and executable identity; never collect command
+    // lines, environment, working directories or user credentials.
+    host.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .without_tasks()
+            .with_cpu()
+            .with_memory()
+            .with_exe(UpdateKind::Always),
+    );
     let mut result = BTreeMap::new();
-    for (name, pid) in [(CORE_PROCESS, std::process::id()), (EXTENSIONS_PROCESS, 0)] {
+    for name in [CORE_PROCESS, EXTENSIONS_PROCESS] {
         let pid = if name == CORE_PROCESS {
-            pid
+            Some(Pid::from_u32(std::process::id()))
         } else {
-            find_process(name).unwrap_or(0)
+            host.processes().iter().find_map(|(pid, process)| {
+                // Keep the permission-aware identity fallback: sysinfo's absent
+                // executable alone cannot distinguish denial from a dead process.
+                let executable = process.exe().map_or_else(
+                    || fs::read_link(format!("/proc/{pid}/exe")),
+                    |path| Ok(path.to_owned()),
+                );
+                process_name_matches(name, executable, || {
+                    Ok(process.name().to_string_lossy().into_owned())
+                })
+                .then_some(*pid)
+            })
         };
-        if pid == 0 {
-            continue;
-        }
-        if let Some(sample) = read_process(pid) {
-            result.insert(name, sample);
+        let Some(pid) = pid else { continue };
+        // Only enumerate tasks for the two selected services. Linux's task set
+        // excludes the process leader, which also counts as one thread.
+        host.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing().with_tasks(),
+        );
+        if let Some(process) = host.process(pid) {
+            result.insert(
+                name,
+                ProcessSample {
+                    pid: pid.as_u32(),
+                    start_time: process.start_time(),
+                    cpu_usage: process.cpu_usage(),
+                    rss_bytes: process.memory(),
+                    threads: process.tasks().map(|tasks| tasks.len() as u64 + 1),
+                },
+            );
         }
     }
     result
-}
-
-fn find_process(name: &str) -> Option<u32> {
-    fs::read_dir("/proc")
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.file_name().to_string_lossy().parse::<u32>().ok())
-        .find(|pid| {
-            process_name_matches(name, fs::read_link(format!("/proc/{pid}/exe")), || {
-                fs::read_to_string(format!("/proc/{pid}/comm"))
-            })
-        })
 }
 
 // Cross-user /proc/exe reads require ptrace permission; comm and resource counters
@@ -229,71 +242,6 @@ fn process_name_matches(
     // @context-fold end native-process-permission-aware-name-match
 }
 
-fn read_process(pid: u32) -> Option<ProcessSample> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = stat.rsplit_once(") ")?.1;
-    let fields = rest.split_whitespace().collect::<Vec<_>>();
-    let ticks = fields
-        .get(11)?
-        .parse::<u64>()
-        .ok()?
-        .saturating_add(fields.get(12)?.parse::<u64>().ok()?);
-    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    let rss_bytes = status_value(&status, "VmRSS:")?.saturating_mul(1024);
-    let threads = status_value(&status, "Threads:")?;
-    Some(ProcessSample {
-        pid,
-        ticks,
-        rss_bytes,
-        threads,
-    })
-}
-
-fn status_value(status: &str, key: &str) -> Option<u64> {
-    status.lines().find_map(|line| {
-        let value = line.strip_prefix(key)?.split_whitespace().next()?;
-        value.parse::<u64>().ok()
-    })
-}
-
-fn memory_bytes() -> Result<(u64, u64), SnapshotError> {
-    let text = fs::read_to_string("/proc/meminfo")?;
-    let value = |key: &str| {
-        text.lines()
-            .find_map(|line| {
-                line.strip_prefix(key)?
-                    .split_whitespace()
-                    .next()?
-                    .parse::<u64>()
-                    .ok()
-            })
-            .map(|kb| kb.saturating_mul(1024))
-            .ok_or(SnapshotError::Invalid)
-    };
-    Ok((value("MemTotal:")?, value("MemAvailable:")?))
-}
-
-fn load_average() -> Result<LoadAverage, SnapshotError> {
-    let text = fs::read_to_string("/proc/loadavg")?;
-    let values = text
-        .split_whitespace()
-        .take(3)
-        .map(|value| value.parse::<f64>().map_err(|_| SnapshotError::Invalid))
-        .collect::<Result<Vec<_>, _>>()?;
-    if values.len() != 3
-        || values
-            .iter()
-            .any(|value| !value.is_finite() || *value < 0.0)
-    {
-        return Err(SnapshotError::Invalid);
-    }
-    Ok(LoadAverage {
-        one: values[0],
-        five: values[1],
-        fifteen: values[2],
-    })
-}
-
 fn process_version(name: &str) -> Option<String> {
     if name == CORE_PROCESS {
         return Some(env!("CARGO_PKG_VERSION").to_owned());
@@ -305,7 +253,7 @@ fn process_version(name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{EXTENSIONS_PROCESS, percent, process_name_matches};
+    use super::{EXTENSIONS_PROCESS, normalized_cpu_percent, percent, process_name_matches};
     use std::{io, path::PathBuf};
 
     #[test]
@@ -313,6 +261,15 @@ mod tests {
         assert_eq!(percent(0, 0), 0.0);
         assert_eq!(percent(2, 1), 100.0);
         assert_eq!(percent(1, 4), 25.0);
+    }
+
+    #[test]
+    fn process_cpu_is_normalized_to_whole_machine_capacity() {
+        assert_eq!(normalized_cpu_percent(100.0, 4), 25.0);
+        assert_eq!(normalized_cpu_percent(400.0, 4), 100.0);
+        assert_eq!(normalized_cpu_percent(800.0, 4), 100.0);
+        assert_eq!(normalized_cpu_percent(100.0, 0), 0.0);
+        assert_eq!(normalized_cpu_percent(f32::NAN, 4), 0.0);
     }
 
     #[test]
