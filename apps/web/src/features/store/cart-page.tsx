@@ -97,7 +97,9 @@ function CartPage({ viewer }: { viewer: string }) {
         }
         await catalogueApi.putCart({ ...ref, quantity })
         assertViewer(viewer)
-        guestCartRemove(ref.product_id, ref.variant_id)
+        // Another tab may have edited the saved cart while this write was in
+        // flight. Remove only the reference whose quantity we actually moved.
+        guestCartRemove(ref.product_id, ref.variant_id, ref.quantity)
       }
     },
     onSettled: () => {

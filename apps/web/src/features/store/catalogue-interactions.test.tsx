@@ -784,6 +784,73 @@ test('fresh cart projection preserves SKU rows, invalid stock and account clear 
   assert.match(document.body.textContent ?? '', /Your cart is empty/)
 })
 
+test('guest cart transfer keeps an unknown result for retry without adding the quantity again', async () => {
+  owner(27)
+  const ref = { product_id: product.id, variant_id: 'sku-fixture', quantity: 2 }
+  guestCartUpsert(ref)
+  let saved = { ...ref, quantity: 3 }
+  let loseResponse = true
+  const requests = mockRequests((request) => {
+    if (request.url === `/api/store/products/${product.id}`) {
+      return result(product)
+    }
+    if (request.method === 'PUT' && request.url === '/api/store/cart') {
+      saved = request.body as typeof ref
+      if (loseResponse) throw new Error('Lost response after write')
+      return result(saved)
+    }
+    if (request.url === '/api/store/cart') {
+      return page([{ ...saved, id: 'cart-fixture', product, valid: true }])
+    }
+    return page([])
+  })
+  await mount(<StoreCartPage />)
+  await click(button('Move guest cart to this account'))
+  assert.deepEqual(readGuestStoreCart(), [ref])
+  assert.equal(saved.quantity, 3)
+  assert.match(document.body.textContent ?? '', /Store request failed/)
+  loseResponse = false
+  await click(button('Move guest cart to this account'))
+  await waitFor(() => readGuestStoreCart().length === 0)
+  assert.deepEqual(
+    requests
+      .filter((request) => request.method === 'PUT')
+      .map((request) => request.body),
+    [
+      { ...ref, quantity: 3 },
+      { ...ref, quantity: 3 },
+    ]
+  )
+  assert.equal(saved.quantity, 3)
+})
+
+test('guest cart transfer does not discard a newer guest quantity while the account write is pending', async () => {
+  owner(27)
+  const ref = { product_id: product.id, variant_id: 'sku-fixture', quantity: 2 }
+  guestCartUpsert(ref)
+  const pending = deferred<ReturnType<typeof result>>()
+  const requests = mockRequests((request) => {
+    if (request.url === `/api/store/products/${product.id}`) {
+      return result(product)
+    }
+    if (request.method === 'PUT' && request.url === '/api/store/cart') {
+      return pending.promise
+    }
+    return page([])
+  })
+  await mount(<StoreCartPage />)
+  await click(button('Move guest cart to this account'))
+  await waitFor(() => requests.some((request) => request.method === 'PUT'))
+  await act(async () => {
+    guestCartUpsert({ ...ref, quantity: 4 })
+    pending.resolve(result(ref))
+    await flush()
+  })
+  await act(flush)
+  assert.deepEqual(readGuestStoreCart(), [{ ...ref, quantity: 4 }])
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 1)
+})
+
 test('metadata editor writes the catalogue endpoint independently and does not modify access or price', async () => {
   owner(9)
   const requests = mockRequests()
@@ -799,7 +866,11 @@ test('metadata editor writes the catalogue endpoint independently and does not m
         auto_delivery: true,
         ai_processing: false,
       },
-      config: { skipErrorHandler: true, skipBusinessError: true },
+      config: {
+        skipErrorHandler: true,
+        skipBusinessError: true,
+        authScope: { userId: 9, sessionId: undefined },
+      },
     }
   )
 })

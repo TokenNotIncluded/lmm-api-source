@@ -102,10 +102,17 @@ export function guestCartUpsert(reference: GuestStoreCartRef) {
   return true
 }
 
-export function guestCartRemove(productId: string, variantId: string) {
+export function guestCartRemove(
+  productId: string,
+  variantId: string,
+  expectedQuantity?: number
+) {
   storeReferences(
     readGuestStoreCart().filter(
-      (item) => item.product_id !== productId || item.variant_id !== variantId
+      (item) =>
+        item.product_id !== productId ||
+        item.variant_id !== variantId ||
+        (expectedQuantity !== undefined && item.quantity !== expectedQuantity)
     )
   )
 }
