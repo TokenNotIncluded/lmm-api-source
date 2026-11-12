@@ -455,6 +455,12 @@ class RoutingSemanticsTests(unittest.TestCase):
         channel["type"] = 14
         self.assertIn("settings_allow_speed_not_mapped", R.channel_setting_reasons(channel))
 
+    def test_disabled_openai_and_anthropic_flags_are_neutral_on_any_channel(self):
+        channel = {"type": 14, "settings": '{"allow_service_tier":false,"allow_speed":false,"allow_inference_geo":false,"claude_beta_query":false}'}
+        self.assertEqual(R.channel_setting_reasons(channel), [])
+        channel["settings"] = '{"claude_beta_query":true}'
+        self.assertIn("settings_claude_beta_query_not_mapped", R.channel_setting_reasons(channel))
+
     def test_openai_flags_accept_explicit_responses_client_pair_only(self):
         value = fixture()
         channel = value[0]["channels"][0]

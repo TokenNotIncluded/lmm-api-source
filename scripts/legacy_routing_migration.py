@@ -233,6 +233,7 @@ def legacy_responses_websocket(row):
 
 LEGACY_OPENAI_FLAGS = ("allow_service_tier", "allow_inference_geo", "allow_speed",
                        "allow_safety_identifier", "allow_include_obfuscation")
+LEGACY_ANTHROPIC_FLAGS = ("claude_beta_query",)
 LEGACY_PRESERVED_THINKING_MODELS = frozenset({"moonshotai/kimi-k2-thinking", "kimi-k2-thinking"})
 
 
@@ -274,7 +275,9 @@ def channel_setting_reasons(row):
                 continue
             if field == "settings" and name in ("disable_store", "openrouter_enterprise", "disable_task_polling_sleep") and value is False:
                 continue
-            if field == "settings" and name in LEGACY_OPENAI_FLAGS and row.get("type") in (1, 48) and type(value) is bool:
+            if field == "settings" and name in LEGACY_OPENAI_FLAGS and (row.get("type") in (1, 48) and type(value) is bool or value is False):
+                continue
+            if field == "settings" and name in LEGACY_ANTHROPIC_FLAGS and value is False:
                 continue
             if field == "setting" and name == "responses_websocket_enabled" and row.get("type") == 1 and type(value) is bool:
                 continue
