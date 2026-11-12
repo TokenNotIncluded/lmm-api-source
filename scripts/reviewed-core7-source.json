@@ -1,0 +1,12 @@
+{
+  "source_revision": "e5b3e112b0d329c7115d384b6d4088dfc69fbade",
+  "binary_sha256": "e23fae8760e962c971c82286cb84cfee57f8d64c0437eb26faa7340123fb9291",
+  "capture_receipt_sha256": "ff88423d3f52f3593d97f23c73a11b089af02b6cae0056c66acb265c9b1305ca",
+  "actual_init_receipt_sha256": "ae6dba5fcf509ee4c5244f1fc8c22afe7c7e08c56adbb3e897ce045d62651377",
+  "acl_receipt_sha256": "caf4dea0dd1b0e59cb9401968b551ee36782c8cbbe6a6738486be17d079e701d",
+  "files": {
+    "deployment/postgres/grant-core-runtime.sql": "979c590bf3abe8341cea9f2a7868d195da9c9186d087ee877c6374694d991445",
+    "services/core/src/identity.rs": "a4b1a8674e3ae85219c149457e47ae47b9b26a1f746f61a744b0b48b13c1e82d",
+    "services/core/src/identity/browser/passkeys.rs": "461df20e8239b9c780daacf7f4abb0acf08e95aee53d3beab46f2f6b5bff1d9e"
+  }
+}

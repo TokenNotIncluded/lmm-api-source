@@ -847,7 +847,13 @@ def reviewed_components(root: Path) -> dict:
 
 def reviewed_files(root: Path) -> dict:
     if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
-        return reviewed_checkins()["files"]
+        files = reviewed_checkins()["files"]
+        candidate = Path(__file__).with_name("reviewed-core7-source.json")
+        require(sha256_file(candidate) == "a44faa1ca90a12ff5b71000db68b9f45ccadfd58133f2f8146fec15ddc0d21ef", "core7_source_review_changed")
+        reviewed = json.loads(candidate.read_text(encoding="utf-8"))
+        if all(sha256_file(root / name) == digest for name, digest in reviewed["files"].items()):
+            return {**files, **reviewed["files"]}
+        return files
     if reviewed_profile(root) == PANCAKE_LANGUAGE_SEED_CONTRACT:
         return reviewed_pancake_language()["files"]
     if reviewed_profile(root) == CREDIT_QUOTES_SEED_CONTRACT:
