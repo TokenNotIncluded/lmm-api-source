@@ -2106,6 +2106,40 @@ mod tests {
         assert!(!events.iter().any(|event| matches!(event, Event::Start(_))));
         assert!(decoder.is_done());
     }
+
+    #[test]
+    fn live_shaped_responses_completed_json_decodes() {
+        // Live gpt-6.1-sol / OpenAI Responses receipts include phase and
+        // access_programs; decoder must accept them as ignored metadata.
+        let value = serde_json::json!({
+            "id": "resp_live_shaped",
+            "object": "response",
+            "status": "completed",
+            "access_programs": {"cyber": "standard"},
+            "billing": {"payer": "openai"},
+            "image": {"context_compression": "disabled"},
+            "output": [{
+                "id": "msg_live",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "phase": "final_answer",
+                "content": [{"type": "output_text", "text": "OK", "annotations": [], "logprobs": []}]
+            }],
+            "usage": {
+                "input_tokens": 11,
+                "output_tokens": 5,
+                "total_tokens": 16,
+                "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+                "output_tokens_details": {"reasoning_tokens": 0}
+            }
+        });
+        let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
+        let events = decoder.json(&value).expect("live-shaped Responses JSON should decode");
+        assert!(events.iter().any(|e| matches!(e, Event::Done)));
+        assert!(events.iter().any(|e| matches!(e, Event::Usage(_))));
+        assert!(decoder.is_done());
+    }
 }
 
 #[cfg(test)]
