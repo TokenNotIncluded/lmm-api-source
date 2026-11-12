@@ -45,7 +45,7 @@
 | MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
 | MODEL-03 | 部分实现 | 已有Chat音频计费与恢复；独立TTS/STT/translation及双向Realtime未齐。Gemini音频按用户决定延期。 |
 | MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
-| MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过。Web配置读回已保留target.client_protocols。29凭据引用已有。OAuth catalog 对日历价用 `PriceSnapshot::template`，recover ApplyPending 已消除。演练旧 Key（cred 312）：FREE/`openrouter/free` chat completed；官key/`gpt-6.1-sol` Responses 200；图片经 piqode ch8/`gpt-image-2.5-flare` 完成 generations（HTTP 200、capture 47000）。8 个在用缺口已书面延期，见 [launch-scope-in-use-deferral.md](launch-scope-in-use-deferral.md)。演练库仍有 8 笔 reconcile hold（约 6.51M credits）保留，待业主凭据对账后 reconcile/释放，禁止无证据自动放款。 |
+| MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过。Web配置读回已保留target.client_protocols。29凭据引用已有。OAuth catalog 对日历价用 `PriceSnapshot::template`，recover ApplyPending 已消除。演练旧 Key（cred 312）：FREE/`openrouter/free` chat completed；官key/`gpt-6.1-sol` Responses 200；图片经 piqode ch8/`gpt-image-2.5-flare` 完成 generations（HTTP 200、capture 47000）。8 个在用缺口已书面延期，见 [launch-scope-in-use-deferral.md](launch-scope-in-use-deferral.md)。演练库原 8 笔 reconcile hold（约 6.51M credits）已在业主授权下以 `Usage::default()`/`Failed` 零结算释放（含图片 `failed` 无回执路径）；禁止无证据自动放款的规则不变。 |
 | ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
 | SUB-01 | 部分实现 | EPay一次购买的Core/Go/HTTP路径已有；其他provider首购、周期、取消及恢复逐项待核验。 |
 | SUB-02 | 部分实现 | 订阅管理记录与立即失效已有；voucher、绑定删除、批量重置完整行为待核实。 |
@@ -101,3 +101,9 @@
 完整要求见[产品要求](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md)、[生产验收合同](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCTION_ACCEPTANCE.md)与[支付矩阵](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PAYMENT_PARITY.md)。历史审计见[归档索引](archive.md)。
 
 只更新受影响项目的当前结果、具体剩余工作和必要证据入口。源码提交、本地验收、发布与生产部署分别记录。Extore自动部署main限制继续有效。
+
+## 2026-11-12 · owner-authorized reconcile release (launch-scope-v2 rehearsal)
+
+- Released 8 reconcile holds on account 359 via `Charging::reconcile(..., Usage::default(), Failed, owner-authorized-zero-settle:launch-scope-v2:2026-11-12)`.
+- Text×3 + image×5; image path needed `failed` operation terminal + zero-settle without receipt.
+- Post-check: open reconcile=0 for those units; reserved=0; wallet restored unused holds.

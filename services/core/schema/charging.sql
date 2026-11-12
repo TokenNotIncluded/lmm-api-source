@@ -252,7 +252,8 @@ CREATE TABLE core_charging.requests (
         AND jsonb_path_exists(image_usage->'provider_receipt_sha256', '$[*] ? (@ > 0)')
         AND jsonb_typeof(price->'image')='object'
         AND input_tokens=0 AND cached_tokens=0 AND output_tokens=0) IS TRUE)),
-    CHECK (NOT (price ? 'image') OR (state <> 'settled' OR image_usage IS NOT NULL)),
+    CHECK (NOT (price ? 'image') OR (state <> 'settled') OR (image_usage IS NOT NULL)
+        OR (outcome IN ('failed','cancelled') AND settled=0 AND image_usage IS NULL)),
     -- Every image quote has one durable operation source, including native keys.
     CHECK ((image_operation_id IS NOT NULL) = ((jsonb_typeof(price->'image')='object') IS TRUE)),
     CHECK (image_usage IS NULL OR image_operation_id IS NOT NULL),

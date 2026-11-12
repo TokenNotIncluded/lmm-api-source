@@ -1261,9 +1261,31 @@ impl Charging {
         if !usage.follows(charge.usage) {
             return Err(Error::Invalid);
         }
+        let image_no_receipt = charge.price.image.is_some()
+            && usage == Usage::default()
+            && matches!(outcome, Outcome::Failed | Outcome::Cancelled);
+        if charge.price.image.is_some() && usage.image.is_none() && !image_no_receipt {
+            return Err(Error::Invalid);
+        }
         let amount = Self::terminal_amount_in_transaction(c, &charge, usage).await?;
         if amount > charge.reserved {
             return Err(Error::NeedReservation);
+        }
+        if image_no_receipt {
+            if amount != 0 {
+                return Err(Error::Invalid);
+            }
+            let changed = sqlx::query(
+                "UPDATE core_image.operations SET state='failed',settled_credits=0 \
+                 WHERE id=$1 AND state='dispatching' AND charge_id=$1 AND output IS NULL AND image_usage IS NULL",
+            )
+            .bind(&charge.id)
+            .execute(&mut *c)
+            .await?
+            .rows_affected();
+            if changed != 1 {
+                return Err(Error::WrongState);
+            }
         }
         self.ledger
             .apply(c, command(&charge, "settle", Change::Settle { amount })?)

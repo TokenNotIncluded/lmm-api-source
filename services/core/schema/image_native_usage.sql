@@ -464,6 +464,8 @@ BEGIN
  IF (operation.state='confirmed' AND (charge.state NOT IN ('reserved','released') OR operation.charge_id IS NOT NULL))
     OR (operation.state='dispatching' AND (charge.state NOT IN ('streaming','reconcile') OR operation.charge_id IS DISTINCT FROM charge.id))
     OR (operation.state='billing_pending' AND (charge.state NOT IN ('streaming','reconcile','settled') OR operation.charge_id IS DISTINCT FROM charge.id))
+    OR (operation.state='failed' AND (charge.state<>'settled' OR charge.settled<>0 OR charge.image_usage IS NOT NULL
+        OR charge.outcome NOT IN ('failed','cancelled') OR operation.settled_credits IS DISTINCT FROM 0 OR operation.output IS NOT NULL))
     OR operation.state='previewed'
     OR (operation.state='completed' AND charge.state<>'settled') THEN
   RAISE EXCEPTION 'image operation and charge states must commit together' USING ERRCODE='23514';
@@ -471,10 +473,20 @@ BEGIN
  IF charge.image_usage IS NOT NULL AND charge.image_usage IS DISTINCT FROM operation.image_usage THEN
   RAISE EXCEPTION 'image usage evidence mismatch' USING ERRCODE='23514';
  END IF;
- IF charge.state='settled' AND (operation.state NOT IN ('billing_pending','completed')
-    OR operation.output IS NULL OR operation.image_usage IS DISTINCT FROM charge.image_usage
-    OR charge.outcome IS DISTINCT FROM 'completed') THEN
-  RAISE EXCEPTION 'image settlement requires durable original output receipt' USING ERRCODE='23514';
+ IF charge.state='settled' THEN
+  IF charge.outcome='completed' THEN
+   IF operation.state NOT IN ('billing_pending','completed')
+      OR operation.output IS NULL OR operation.image_usage IS DISTINCT FROM charge.image_usage THEN
+    RAISE EXCEPTION 'image settlement requires durable original output receipt' USING ERRCODE='23514';
+   END IF;
+  ELSIF charge.outcome IN ('failed','cancelled') THEN
+   IF operation.state<>'failed' OR operation.output IS NOT NULL OR charge.image_usage IS NOT NULL
+      OR charge.settled<>0 OR operation.settled_credits IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'image failure settlement requires failed operation without receipt' USING ERRCODE='23514';
+   END IF;
+  ELSE
+   RAISE EXCEPTION 'image settlement requires durable original output receipt' USING ERRCODE='23514';
+  END IF;
  END IF;
  IF operation.state='completed' AND (operation.charge_id IS DISTINCT FROM charge.id
     OR operation.settled_credits IS DISTINCT FROM charge.settled

@@ -63,7 +63,7 @@ CREATE TABLE core_image.operations (
    AND coalesce(price->'upstream_cost_group_ppm','null'::jsonb)='null'::jsonb
    AND price->'input_per_million'='0'::jsonb AND price->'cached_per_million'='0'::jsonb AND price->'output_per_million'='0'::jsonb
    AND jsonb_typeof(price->'version')='string' AND jsonb_typeof(price->'model')='string' AND jsonb_typeof(price->'group')='string') IS TRUE),
- state TEXT NOT NULL DEFAULT 'previewed' CHECK(state IN ('previewed','confirmed','dispatching','billing_pending','completed')),
+ state TEXT NOT NULL DEFAULT 'previewed' CHECK(state IN ('previewed','confirmed','dispatching','billing_pending','completed','failed')),
  created_at BIGINT NOT NULL CHECK(created_at>0),
  expires_at BIGINT NOT NULL CHECK(expires_at>created_at),
  confirmed_at BIGINT CHECK(confirmed_at>=created_at AND confirmed_at<expires_at),
@@ -92,7 +92,8 @@ CREATE TABLE core_image.operations (
  CHECK((state='previewed' AND confirmed_at IS NULL AND charge_id IS NULL AND output IS NULL AND settled_credits IS NULL)
    OR (state='confirmed' AND confirmed_at IS NOT NULL AND (source_kind='api_key' OR confirmation_digest IS NOT NULL) AND charge_id IS NULL AND output IS NULL AND settled_credits IS NULL)
    OR (state IN ('dispatching','billing_pending') AND confirmed_at IS NOT NULL AND (source_kind='api_key' OR confirmation_digest IS NOT NULL) AND charge_id=id AND settled_credits IS NULL)
-   OR (state='completed' AND confirmed_at IS NOT NULL AND (source_kind='api_key' OR confirmation_digest IS NOT NULL) AND charge_id=id AND output IS NOT NULL AND settled_credits IS NOT NULL)),
+   OR (state='completed' AND confirmed_at IS NOT NULL AND (source_kind='api_key' OR confirmation_digest IS NOT NULL) AND charge_id=id AND output IS NOT NULL AND settled_credits IS NOT NULL)
+   OR (state='failed' AND confirmed_at IS NOT NULL AND (source_kind='api_key' OR confirmation_digest IS NOT NULL) AND charge_id=id AND output IS NULL AND image_usage IS NULL AND settled_credits=0)),
  CONSTRAINT image_charge_source FOREIGN KEY(charge_id) REFERENCES core_charging.requests(id) DEFERRABLE INITIALLY DEFERRED
 );
 CREATE UNIQUE INDEX image_one_operation_per_dispatch ON core_image.operations((context->>'call_id'),(context->>'dispatch_id')) WHERE source_kind='drawing';
@@ -125,7 +126,7 @@ BEGIN
   END IF;
   RETURN NEW;
  END IF;
- IF (OLD.state='completed' AND NEW IS DISTINCT FROM OLD)
+ IF (OLD.state IN ('completed','failed') AND NEW IS DISTINCT FROM OLD)
     OR (to_jsonb(NEW)-ARRAY['state','confirmed_at','confirmation_digest','confirmation_sid','charge_id','output','output_digest','image_usage','settled_credits'])
        IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['state','confirmed_at','confirmation_digest','confirmation_sid','charge_id','output','output_digest','image_usage','settled_credits'])
     OR (OLD.confirmed_at IS NOT NULL AND NEW.confirmed_at IS DISTINCT FROM OLD.confirmed_at)
@@ -138,7 +139,7 @@ BEGIN
  IF NEW.state<>OLD.state AND NOT (
     (OLD.state='previewed' AND NEW.state='confirmed')
     OR (OLD.state='confirmed' AND NEW.state='dispatching')
-    OR (OLD.state='dispatching' AND NEW.state IN ('billing_pending','completed'))
+    OR (OLD.state='dispatching' AND NEW.state IN ('billing_pending','completed','failed'))
     OR (OLD.state='billing_pending' AND NEW.state='completed')) THEN
   RAISE EXCEPTION 'invalid image operation transition' USING ERRCODE='23514';
  END IF;
@@ -191,6 +192,8 @@ BEGIN
  IF (operation.state='confirmed' AND (charge.state NOT IN ('reserved','released') OR operation.charge_id IS NOT NULL))
     OR (operation.state='dispatching' AND (charge.state NOT IN ('streaming','reconcile') OR operation.charge_id IS DISTINCT FROM charge.id))
     OR (operation.state='billing_pending' AND (charge.state NOT IN ('streaming','reconcile','settled') OR operation.charge_id IS DISTINCT FROM charge.id))
+    OR (operation.state='failed' AND (charge.state<>'settled' OR charge.settled<>0 OR charge.image_usage IS NOT NULL
+        OR charge.outcome NOT IN ('failed','cancelled') OR operation.settled_credits IS DISTINCT FROM 0 OR operation.output IS NOT NULL))
     OR operation.state='previewed'
     OR (operation.state='completed' AND charge.state<>'settled') THEN
   RAISE EXCEPTION 'image operation and charge states must commit together' USING ERRCODE='23514';
@@ -198,10 +201,20 @@ BEGIN
  IF charge.image_usage IS NOT NULL AND charge.image_usage IS DISTINCT FROM operation.image_usage THEN
   RAISE EXCEPTION 'image usage evidence mismatch' USING ERRCODE='23514';
  END IF;
- IF charge.state='settled' AND (operation.state NOT IN ('billing_pending','completed')
-    OR operation.output IS NULL OR operation.image_usage IS DISTINCT FROM charge.image_usage
-    OR charge.outcome IS DISTINCT FROM 'completed') THEN
-  RAISE EXCEPTION 'image settlement requires durable original output receipt' USING ERRCODE='23514';
+ IF charge.state='settled' THEN
+  IF charge.outcome='completed' THEN
+   IF operation.state NOT IN ('billing_pending','completed')
+      OR operation.output IS NULL OR operation.image_usage IS DISTINCT FROM charge.image_usage THEN
+    RAISE EXCEPTION 'image settlement requires durable original output receipt' USING ERRCODE='23514';
+   END IF;
+  ELSIF charge.outcome IN ('failed','cancelled') THEN
+   IF operation.state<>'failed' OR operation.output IS NOT NULL OR charge.image_usage IS NOT NULL
+      OR charge.settled<>0 OR operation.settled_credits IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'image failure settlement requires failed operation without receipt' USING ERRCODE='23514';
+   END IF;
+  ELSE
+   RAISE EXCEPTION 'image settlement requires durable original output receipt' USING ERRCODE='23514';
+  END IF;
  END IF;
  IF operation.state='completed' AND (operation.charge_id IS DISTINCT FROM charge.id
     OR operation.settled_credits IS DISTINCT FROM charge.settled

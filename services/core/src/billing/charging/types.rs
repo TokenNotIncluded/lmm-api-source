@@ -504,9 +504,14 @@ impl Price {
             return Err(Error::Invalid);
         }
         if let Some(price) = &self.image {
-            return price
-                .cost_with_discount(&usage.image.ok_or(Error::Invalid)?, self.discount())
-                .map_err(|_| Error::Invalid);
+            return match usage.image {
+                Some(image) => price
+                    .cost_with_discount(&image, self.discount())
+                    .map_err(|_| Error::Invalid),
+                // Owner/reconcile no-receipt failure: release unused hold at zero.
+                None if usage == Usage::default() => Ok(0),
+                None => Err(Error::Invalid),
+            };
         }
         if usage.image.is_some() {
             return Err(Error::Invalid);
