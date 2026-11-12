@@ -11,8 +11,7 @@ import {
   InputGroupInput,
 } from '@/components/ui/input-group'
 
-import { storeQuantity } from './quantity'
-import { STORE_QUANTITY_ERROR } from './quantity-copy'
+import { storeQuantity, STORE_QUANTITY_ERROR } from './quantity'
 
 export function StoreQuantityControl({
   value,

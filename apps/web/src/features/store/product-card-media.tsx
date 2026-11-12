@@ -3,8 +3,7 @@ import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
-import { safeStoreMediaUrl } from './product-media'
-import { storeProductHeaderImage } from './product-media-fields'
+import { safeStoreMediaUrl, storeProductHeaderImage } from './product-media'
 
 export function StoreProductCardMedia({
   images,

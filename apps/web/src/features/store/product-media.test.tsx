@@ -95,7 +95,7 @@ const {
   storeProductMediaDraft,
   storeProductHeaderImage,
   storeProductGalleryImages,
-} = await import('./product-media-fields')
+} = await import('./product-media')
 const { StorePage } = await import('./store-page')
 const { StoreProductPage } = await import('./product-page')
 const i18n = createInstance()

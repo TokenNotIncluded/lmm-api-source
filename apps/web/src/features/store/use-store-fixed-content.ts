@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
-import { STORE_FIXED_CONTENT_COPY as copy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as copy } from './delivery-template'
 
 export function useStoreFixedContentDraft(
   productId?: string,

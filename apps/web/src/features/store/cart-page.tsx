@@ -20,7 +20,6 @@ import type {
   StoreCatalogueProduct,
 } from './catalogue-types'
 import { StoreCollectionActions } from './collection-actions'
-import { STORE_COLLECTION_REASON_LABELS } from './collection-copy'
 import {
   guestCartClear,
   guestCartRemove,
@@ -28,6 +27,7 @@ import {
   useGuestStoreCart,
 } from './collection-storage'
 import {
+  STORE_COLLECTION_REASON_LABELS,
   storeCartCapacity,
   storeCartCheckoutUrl,
   storeCartVariantName,

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { storePurchaseLimit } from './purchase-limits'
+import { storePurchaseLimit } from './quantity'
 
 test('seller limits accept arbitrary safe whole quantities or explicitly unlimited', () => {
   assert.equal(storePurchaseLimit(''), null)

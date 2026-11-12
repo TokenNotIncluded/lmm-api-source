@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 
 import { storeApi } from './api'
-import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './delivery-template'
 import { STORE_SALES_LIMIT_COPY as copy } from './sales-limit-copy'
 import { StoreError } from './shared'
 import type { StoreProduct } from './types'

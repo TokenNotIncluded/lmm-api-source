@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { analyzeInventoryItems } from './inventory-import-analysis'
 import {
+  analyzeInventoryItems,
   CREDITS_PER_USD,
   EXTERNAL_MINIMUM_QUOTA,
   isStoreEmail,

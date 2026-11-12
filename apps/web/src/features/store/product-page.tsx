@@ -34,7 +34,7 @@ import type { StoreCatalogueProduct } from './catalogue-types'
 import { storeCheckoutReturnUrl } from './checkout-intent'
 import { useStoreCheckoutRecovery } from './checkout-recovery'
 import { StoreCollectionActions } from './collection-actions'
-import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './delivery-template'
 import { StoreGuestEmailVerification } from './guest-email'
 import { rememberStoreGuestOrder } from './guest-order-storage'
 import { useStoreGuestSession, useStoreGuestDisclaimer } from './guest-session'
@@ -44,11 +44,11 @@ import { StoreNativeProduct } from './native-projection'
 import {
   storeProductGalleryImages,
   storeProductHeaderImage,
-} from './product-media-fields'
+} from './product-media'
 import { StoreProductPromotion } from './product-promotion'
 import { StoreProductSocialActions } from './product-social-actions'
-import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import {
+  STORE_PURCHASE_LIMIT_COPY as purchaseCopy,
   storeCheckoutCapacity,
   storeClampQuantity,
   storeQuantity,

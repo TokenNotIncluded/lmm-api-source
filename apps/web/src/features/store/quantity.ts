@@ -1,10 +1,34 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import type { StorePaymentMethod, StoreProduct } from './types'
 
+export const STORE_QUANTITY_ERROR =
+  'Enter a whole-number quantity between 1 and {{max}}.'
+
+export const STORE_PURCHASE_LIMIT_COPY = {
+  title: 'Purchase limits',
+  perOrder: 'Maximum quantity per order',
+  perBuyer: 'Maximum quantity per buyer',
+  unlimited: 'Unlimited',
+  help: 'Leave blank for no limit. Limits apply across all variants of this product.',
+  buyerHelp:
+    'Paid purchases and pending stock reservations count toward the buyer limit. Completed quantity refunds release that quantity; amount-only refunds do not.',
+  invalid: 'Enter a whole number of at least 1, or leave blank for no limit.',
+  error: 'This quantity exceeds the product purchase limit.',
+  orderSummary: 'Maximum per order: {{count}}',
+  buyerSummary: 'Your remaining purchase allowance: {{count}}',
+} as const
+
 export function storeQuantity(value: string): number | undefined {
   if (!/^[1-9]\d*$/.test(value)) return undefined
   const quantity = Number(value)
   return Number.isSafeInteger(quantity) ? quantity : undefined
+}
+
+// Empty means unlimited. Zero, fractional values and unsafe integers cannot
+// silently become an unlimited setting.
+export function storePurchaseLimit(value: string): number | null | undefined {
+  const trimmed = value.trim()
+  return trimmed === '' ? null : storeQuantity(trimmed)
 }
 
 export function storeCheckoutCapacity(

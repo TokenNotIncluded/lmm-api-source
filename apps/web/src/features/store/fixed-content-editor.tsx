@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
-import { STORE_FIXED_CONTENT_COPY as copy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as copy } from './delivery-template'
 import { StoreError } from './shared'
 import type { useStoreFixedContentDraft } from './use-store-fixed-content'
 

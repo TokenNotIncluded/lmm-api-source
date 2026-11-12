@@ -1,7 +1,61 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { STORE_DELIVERY_TEMPLATE_COPY as copy } from './delivery-template-copy'
-import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, safeStoreUrl } from './utils'
+
+const copy = {
+  redemption: 'Redemption codes',
+  license: 'License keys',
+  download: 'Download links',
+  account: 'Account details',
+  cardHelp:
+    'For activation keys. Import one key per line; buyers copy each key exactly as supplied.',
+  textHelp:
+    'For short text items. Import one item per line; buyers receive the original text.',
+  customHelp:
+    'For multi-line notes or instructions. Add each complete item separately; line breaks stay within that item.',
+  redemptionHelp:
+    'For codes redeemed on another site. Add a code, an optional redemption URL, and instructions for each item.',
+  licenseHelp:
+    'For software licenses. Add the license key, product name, and activation instructions for each item.',
+  downloadHelp:
+    'For downloadable content. Add a download URL, an optional access code, and instructions for each item.',
+  accountHelp:
+    'For account delivery. Add the username, password, optional login URL, and instructions together as one item.',
+  add: 'Add one item',
+  remove: 'Remove this item',
+  contents: 'Complete item contents',
+  redeemCode: 'Redemption code',
+  redeemUrl: 'Redemption URL',
+  licenseKey: 'License key',
+  downloadUrl: 'Download URL',
+  accessCode: 'Access code',
+  loginUrl: 'Login URL',
+  instructions: 'Instructions',
+  showPassword: 'Show delivered password',
+  hidePassword: 'Hide delivered password',
+  openDownload: 'Open download link',
+  openRedemption: 'Open redemption site',
+  openLogin: 'Open login page',
+  missing: 'Complete the required fields before adding this item.',
+} as const
+
+const fixedCopy = {
+  template: 'Fixed content',
+  content: 'Delivery content',
+  unlimited: 'Unlimited supply',
+  help: 'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.',
+  privateHelp:
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.',
+  invalid: 'Enter delivery content within 16,000 bytes.',
+  noImport:
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.',
+  draftHelp:
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.',
+} as const
+
+export {
+  copy as STORE_DELIVERY_TEMPLATE_COPY,
+  fixedCopy as STORE_FIXED_CONTENT_COPY,
+}
 
 export type StoreDeliveryTemplate =
   | 'card-key'

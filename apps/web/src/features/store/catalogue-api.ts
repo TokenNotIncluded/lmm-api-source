@@ -15,7 +15,7 @@ import type {
   StoreProductLikes,
 } from './catalogue-types'
 import { storeSocialProductResponse } from './product-social-state'
-import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
+import { STORE_PURCHASE_LIMIT_COPY } from './quantity'
 import type { StorePage, StoreSeller } from './types'
 
 type Envelope<T> = {

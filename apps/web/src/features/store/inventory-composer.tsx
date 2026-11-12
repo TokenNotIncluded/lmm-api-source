@@ -15,8 +15,8 @@ import {
   encodeDeliveryItem,
   structuredTemplate,
   type StoreDeliveryTemplate,
+  STORE_DELIVERY_TEMPLATE_COPY as copy,
 } from './delivery-template'
-import { STORE_DELIVERY_TEMPLATE_COPY as copy } from './delivery-template-copy'
 import { StoreError } from './shared'
 
 export function StoreInventoryComposer({

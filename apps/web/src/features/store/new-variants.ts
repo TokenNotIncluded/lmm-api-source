@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './delivery-template'
 import { STORE_PUBLISHING_COPY as copy } from './publishing-copy'
 import type { StoreVariantInput } from './types'
 

@@ -24,6 +24,13 @@ export function safeStoreUrl(value: string): string | undefined {
     return undefined
   }
 }
+export function analyzeInventoryItems(items: readonly string[]) {
+  // Card values can contain meaningful whitespace or differ only in case.
+  // Compare their exact text and keep the first occurrence unchanged.
+  const unique = [...new Set(items)]
+  return { count: items.length, repeated: items.length - unique.length, unique }
+}
+
 export function parseInventoryText(text: string): string[] {
   if (new TextEncoder().encode(text).length > MAX_IMPORT_BYTES) {
     throw new Error('Inventory import is too large')

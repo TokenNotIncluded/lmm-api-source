@@ -12,7 +12,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi, StoreAPIError } from './api'
 import { StoreClaimItems } from './claim-items'
-import { STORE_FIXED_CONTENT_COPY as copy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as copy } from './delivery-template'
 import { StorePickupRefunds } from './refund-panel'
 import { CopyStoreValue, StoreError, StoreLoading } from './shared'
 import type { StoreClaim } from './types'

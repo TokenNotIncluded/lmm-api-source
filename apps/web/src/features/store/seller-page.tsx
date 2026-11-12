@@ -50,6 +50,7 @@ import {
   DELIVERY_TEMPLATES,
   structuredTemplate,
   validateComposedItems,
+  STORE_FIXED_CONTENT_COPY as fixedCopy,
 } from './delivery-template'
 import { extoreCallbackURL, clearExtoreCallbackURL } from './extore-callback'
 import { StoreExtoreImport } from './extore-import'
@@ -59,7 +60,6 @@ import {
   StoreExtoreProductSync,
   StoreExtoreSourceNotice,
 } from './extore-sync'
-import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { StoreFixedContentEditor } from './fixed-content-editor'
 import { StoreInventoryComposer } from './inventory-composer'
 import { StoreInventoryImportPreview } from './inventory-import-preview'
@@ -74,13 +74,18 @@ import {
 } from './new-variants'
 import { StoreNewVariantsEditor } from './new-variants-editor'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
-import { storeImageEditorText, STORE_SVG_DATA_PREFIX } from './product-media'
+import {
+  storeImageEditorText,
+  STORE_SVG_DATA_PREFIX,
+  storeProductMediaDraft,
+} from './product-media'
 import { StoreProductMediaEditor } from './product-media-editor'
-import { storeProductMediaDraft } from './product-media-fields'
 import { StorePromotionCodes } from './promotion-codes'
 import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
-import { storePurchaseLimit } from './purchase-limits'
-import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
+import {
+  storePurchaseLimit,
+  STORE_PURCHASE_LIMIT_COPY as purchaseCopy,
+} from './quantity'
 import { StoreSalesLimit } from './sales-limit'
 import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
 import { SellerCatalogueEditor } from './seller-catalogue-editor'

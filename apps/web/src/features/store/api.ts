@@ -10,7 +10,7 @@ import type {
 import type { ExtoreConnections } from './extore-sync'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
-import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
+import { STORE_PURCHASE_LIMIT_COPY } from './quantity'
 import type {
   StoreCategory,
   StoreCategoryInput,

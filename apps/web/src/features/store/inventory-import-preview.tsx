@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 
-import { analyzeInventoryItems } from './inventory-import-analysis'
+import { analyzeInventoryItems } from './utils'
 
 export function StoreInventoryImportPreview({
   items,

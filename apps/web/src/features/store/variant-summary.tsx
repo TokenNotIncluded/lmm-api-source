@@ -1,7 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useTranslation } from 'react-i18next'
 
-import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './delivery-template'
 import { StoreNativeAmount } from './native-projection'
 import { StoreAmount } from './shared'
 import type { StoreProduct, StoreVariant } from './types'
