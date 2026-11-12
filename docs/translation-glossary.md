@@ -1,82 +1,58 @@
 # Translation Glossary
 
-This glossary provides reference translations for key project terminology to keep documentation and localization consistent.
+Use one terminology table for documentation and UI. Display names and navigation are defined in [product terminology](product.md#terminology); route and permission identifiers do not change with translated labels.
 
-## Core Concepts
+## Shared terminology
 
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Ratio | Multiplier used in price calculation | Use in all pricing logic and billing references. |
-| Token | API credential or model input text unit | If possible, prefer context-specific labels such as **API token**, **text token**, or **access token**. |
-| Channel | API provider entry point | Used for provider integration and traffic routing. |
-| Group | User or token classification | Affects quota and pricing policy. |
-| Quota | Available service quota | Numeric service entitlement for a user account. |
+| English term | Meaning | French | Russian |
+| --- | --- | --- | --- |
+| Ratio / Multiplier | Price multiplier | Ratio | Коэффициент |
+| Token | API credential, text unit, or access token; qualify by context | Jeton | Токен |
+| Channel | Provider access and routing entry | Canal | Канал |
+| Group | User or API-key classification affecting quota and pricing | Groupe | Группа |
+| Quota | Available service entitlement; Credit where the context requires | Quota / Crédit | Квота / Кредит |
+| Prompt | User interaction with a model | Invite | Prompt / Ввод; conversational UI: Промпт |
+| Completion | Model output content | Complétion | Вывод |
+| Input | Request data, billing or processing input | Entrée | Ввод |
+| Output | Returned data, including structured output | Sortie | Вывод |
+| Model Ratio | Model pricing multiplier | Ratio du modèle | Коэффициент модели |
+| Completion Ratio | Separate output price multiplier | Ratio de complétion | Коэффициент вывода |
+| Price per call | Fixed charge per request | Prix fixe | Цена за запрос |
+| Pay-as-you-go | Usage-based billing | Paiement à l'utilisation | Оплата по объему |
+| Pay-per-call / Pay-per-view | Per-invocation billing; Pay-per-view is legacy wording | Paiement par appel | Оплата за вызов |
+| Root User | Highest-privilege operator | Super-administrateur | Суперадминистратор |
+| Admin User | Administrator of users, policy and settings | Administrateur | Администратор |
+| Normal User | Account without elevated privileges | Utilisateur normal | Обычный пользователь |
+| Top Up | Add account quota or balance | Recharge | Пополнение |
+| Redemption Code | Code redeemable for quota or a promotion | Code d'échange | Код обмена |
+| API Key / Key | Credential used for API authentication | Clé API | API ключ |
+| Priority | Preferred channel routing order | Priorité | Приоритет |
+| Weight | Load-balancing distribution weight | Poids | Вес |
+| Proxy | Proxy server address; protocol/host rules apply | Proxy | Прокси |
+| Model Mapping | Rewrite the request model name | Redirection de modèle | Перенаправление модели |
+| Provider / Vendor | Organization or service exposing models/APIs | Fournisseur | Поставщик |
+| Two-Factor Authentication | Additional account verification | Authentification à deux facteurs | Двухфакторная аутентификация |
+| 2FA | Keep the uppercase abbreviation | 2FA | 2FA |
 
-## Model Related
+## Context rules
 
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Prompt | Input content for a model | In user-facing UI, this is usually prompt-style text. |
-| Completion | Model output | Output returned by the model. |
-| Input | Data sent to a model | Includes prompt-like and request-context payloads. |
-| Output | Data returned by a model | Includes completion and structured output payloads. |
-| Model Ratio | Pricing ratio for each model | Used to scale usage costs by model family. |
-| Completion Ratio | Price multiplier applied to output | Separate coefficient from input ratio. |
-| Price per call | Cost per request | Flat charge model. |
-| Pay-as-you-go | Usage-based billing | Charged according to consumed units. |
-| Pay-per-view | Charge per invocation | Alternate naming used in legacy UI text. |
+- Distinguish API Token, Text Token and Access Token. Use API Key for an API credential in UI rather than an ambiguous Token label.
+- Use Prompt for conversational UI and Input for billing, technical documentation and processing. Output includes both completion content and structured responses.
+- Quota describes service entitlement; Credit is an alternative only when its monetary or entitlement context fits.
+- Preserve only emojis present in the source. Technical English may remain when used in the source or common in the target language, such as API.
 
-## User Management
+## French
 
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Root User | Highest-privilege account | Usually operator-level admin role. |
-| Admin User | System administrator | Can manage users, policies, and platform settings. |
-| Normal User | Standard account | No elevated privileges. |
+- Pricing uses **Ratio**, not Multiplicateur. Model output uses **Complétion**, not achèvement or finalisation.
+- Use **Invite** for prompt interaction and **Entrée** for technical or billing input.
+- Prefer **Clé API** and **Code d'échange**; the latter replaces code de redemption. Provider is **Fournisseur**.
+- Keep localization plural forms `_one` and `_other`; respect gender and grammar, including masculine `modèle` and `canal`.
 
-## Recharge & Redemption
+## Russian
 
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Top Up | Add quota to account | Increases available balance/credits. |
-| Redemption Code | Code redeemable for quota | Also used for coupon-like promotions. |
+- Pricing uses **Коэффициент**, not Множитель. Model output uses **Вывод**, not дополнение or завершение.
+- Use **Промпт** for conversational UI and **Ввод** for processing, billing and calculation; legacy prompt labels may retain Prompt / Ввод.
+- Prefer **API ключ**, **Код обмена** and **Поставщик** for API credentials, redemption codes and providers.
+- Keep localization plural forms `_one`, `_few`, `_many`, `_other`; preserve case and grammatical gender, including feminine `модель` and masculine `канал`.
 
-## Channel Management
-
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Channel | Provider integration channel | Defines where API requests are routed. |
-| Key | API access key | Prefer **API Key** in UI text when used for authentication. |
-| Priority | Channel selection priority | Higher values determine preferred routing. |
-| Weight | Load balance weight | Used for distribution across channels. |
-| Proxy | Proxy server address | May include protocol and host validation rules. |
-| Model Mapping | Request model remapping | Rewrites model name in request body. |
-
-## Security Related
-
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Two-Factor Authentication | Additional account verification step | Usually shown as 2FA. |
-| 2FA | Two-Factor Authentication | Use uppercase acronym consistently. |
-
-## Billing Related
-
-| English Term | Meaning | Notes |
-|--------------|---------|-------|
-| Ratio | Price multiplier | Same as Multiplier in many contexts. |
-| Multiplier | Price multiplier | Use carefully with ratio context to avoid redundancy. |
-
-## Translation Notes
-
-- **Prompt**: model input.
-- **Completion**: model output.
-- **Ratio**: multiplier used for pricing calculations.
-- **Quota**: available service quota; sometimes also translated as **Credit**.
-- **Token** context can mean:
-  - API Token
-  - Text Token
-  - Access Token
-
----
-
-**Contribution note:** If you find terminology issues or have better translation suggestions, please open an Issue or Pull Request.
+Terminology corrections belong in this table and the affected localization, with the context explained in the Issue or PR.

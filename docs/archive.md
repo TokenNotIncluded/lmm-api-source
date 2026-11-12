@@ -153,3 +153,18 @@
 - [恢复事故](incidents/2026-09-20-recovery-retirement.md)、[助手反馈审计](assistant-feedback-audit.md)和[注册安全边界](security/assistant-registration-guard.md)：保留事故、安全结论与原始限制。
 
 其余尚保留的供应商、支付和兼容性专题需结合当前源码阅读；前端存在某个界面不代表新后端已接入。许可证、来源归属和法律协议继续保留。
+
+## 合并专题（2026-11-12）
+
+下列小专题已归入现有主文档。左列固定保留合并前原文及其历史证据，右列是当前维护位置。
+
+| 合并前原文 | 当前入口 |
+| --- | --- |
+| [product-terminology.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/product-terminology.md) | [product.md#terminology](product.md#terminology) |
+| [brand-design.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/brand-design.md) | [product.md#brand](product.md#brand) |
+| [translation-glossary.fr.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/translation-glossary.fr.md) | [translation-glossary.md#french](translation-glossary.md#french) |
+| [translation-glossary.ru.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/translation-glossary.ru.md) | [translation-glossary.md#russian](translation-glossary.md#russian) |
+| [legal/privacy-policy.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/legal/privacy-policy.md) | [legal/README.md#要填写什么](legal/README.md#要填写什么) |
+| [legal/refund-policy.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/legal/refund-policy.md) | [legal/README.md#要填写什么](legal/README.md#要填写什么) |
+| [legal/terms-of-service.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/legal/terms-of-service.md) | [legal/README.md#要填写什么](legal/README.md#要填写什么) |
+| [legal/user-agreement.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/legal/user-agreement.md) | [legal/README.md#要填写什么](legal/README.md#要填写什么) |

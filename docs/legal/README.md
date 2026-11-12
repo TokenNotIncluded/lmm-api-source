@@ -14,6 +14,14 @@
 
 ## 要填写什么
 
+默认草稿直接维护在模板目录；服务条款包含在用户协议中。这些文件均需运营方填写、审查并发布，不能作为本站已生效的政策。
+
+| 文档 | 中文草稿 | English draft |
+| --- | --- | --- |
+| 用户协议与服务条款 | [中文](../../config/legal/templates/zh-CN/user-agreement.md) | [English](../../config/legal/templates/en/user-agreement.md) |
+| 隐私政策 | [中文](../../config/legal/templates/zh-CN/privacy-policy.md) | [English](../../config/legal/templates/en/privacy-policy.md) |
+| 退款政策 | [中文](../../config/legal/templates/zh-CN/refund-policy.md) | [English](../../config/legal/templates/en/refund-policy.md) |
+
 共同信息包括服务名、主体、地址、生效日期及联系渠道。用户协议还需实际服务范围、使用资格、计价和账户关闭规则。隐私政策需数据种类、用途、处理依据、接收方、处理地点、保存规则、安全措施、Cookie 与权利请求流程。退款政策需资格、例外、申请期限、流程、费用、续订取消和数字交付规则。
 
 所有期限和条件均由运营方填写，不从某个支付渠道推导。模板不声称自动续订、退款、删除数据或同意记录功能已经接通。正式投入使用前，应请熟悉适用地区要求的专业人员审查。

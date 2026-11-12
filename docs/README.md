@@ -30,7 +30,7 @@
 
 ## 界面、协议与协作
 
-[Web 设计](../apps/web/DESIGN.md) · [品牌](brand-design.md) · [Logo](../.github/assets/README.md) · [翻译术语](translation-glossary.md) · [产品背景](product.md)
+[产品、品牌与界面术语](product.md) · [Web 设计](../apps/web/DESIGN.md) · [Logo](../.github/assets/README.md) · [翻译术语](translation-glossary.md)
 
 [用户/隐私/退款协议](legal/README.md) · [来源与归属](fork.md) · [安全报告](../.github/SECURITY.md) · [支持](SUPPORT.md) · [CLI 子项目](https://github.com/TokenNotIncluded/lmm#readme)
 
