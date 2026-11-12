@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row};
 
 #[sqlx::test(migrations = false)]
 async fn valid_observations_survive_pre_registration_events(pool: PgPool) {
-    let production = include_str!("../src/community_read/connection_history.rs");
+    let production = include_str!("../src/community_read/connections.rs");
     let historical = production
         .split("), historical AS MATERIALIZED (")
         .nth(1)
