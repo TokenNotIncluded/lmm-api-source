@@ -16,15 +16,16 @@
 
 ## Rust 基础依赖审查
 
-2026-11-12 本地改动：按领域成熟度及单一职责核对55个不同直接依赖（含本轮新增csv、移除前fs2），完整清单见[依赖审查](rust-dependencies.md)。两处CSV编码改用csv 1.4.0，保留公式防护、字段及32 MiB上限；RPC文件锁改用标准库并删除fs2，锁文件生命周期不变。zconv成熟度目标仍未解决，未替换或关闭原协议能力。
+2026-11-12 本地改动：按领域成熟度及单一职责核对55个不同直接依赖（含本轮新增csv、移除前fs2），完整清单见[依赖审查](rust-dependencies.md)。两处CSV编码改用csv 1.4.0，保留公式防护、字段及32 MiB上限；RPC文件锁改用标准库并删除fs2，锁文件生命周期不变。zconv按用户自研最高优先级保留，未替换或关闭原协议能力。
 
 自测：`cargo +1.99.1 test --offline --locked --manifest-path services/core/Cargo.toml --lib csv --jobs 2` 10项通过；同命令过滤`usage::export_tests`为6项通过（与前者重叠1项）；过滤`internal_rpc`为8项通过、1项因缺少DATABASE_URL失败，含socket锁定及重启的用例通过。构建使用独立`CARGO_TARGET_DIR`及`CARGO_PROFILE_TEST_DEBUG=0`。严格Clippy（`--lib -- -D warnings`）在未改动位置报70项错误；没有关闭lint或顺带修改业务。三个CSV相关文件格式通过；internal_rpc完整格式检查在HEAD已有两处差异，本轮仅删导入及替换锁调用。文档路径检查通过。没有运行真实PG、性能、独立验收、发布或部署；改动尚未提交。
 
 ### 基础编解码清理
 
-2026-11-12候选补丁：46个Rust源文件中的重复十六进制编码/解码改用hex 0.4.3，图片上游地址的百分号解码改用percent-encoding 2.3.2，HTML转义改用html-escape 0.3.1并保留历史实体表示；各入口原有长度、大小写、权限、金额及错误分类不变。没有替换zconv，也没有执行整套依赖跨主版本升级。源文件结构精简及模型配置属于并行任务，保留其改动。
+2026-11-12：按用户明确指定，已在主树接入 `zhex = 0.1.3`，移除 hex 直接依赖；固定缓冲区解码直接调用 zhex，String/Vec 返回值仅共用分配适配层。重复十六进制编解码、百分号解码、HTML转义的替换已提交为 `d8e2541`，后两项分别使用 percent-encoding 2.3.2 和 html-escape 0.3.1。保留各入口长度、大小写、权限、金额及错误分类。zconv 为用户自研最高优先级依赖，不作热度替换；本轮未改其实现。
 
-固定源码副本的135项受影响普通/本地异步测试全部通过（不含SQLx数据库测试）；实际HTML模块及真实库的原有表示测试1项通过。临时合回主工作树时`cargo +1.99.1 check --offline --locked --manifest-path services/core/Cargo.toml --lib --jobs 2`通过。额外zconv转换测试为1通过、1失败：六方向文字/工具/图片语义通过，provider-controls在解析转换结果时报告`Invalid("empty content")`，保留失败，不作为本轮已修复范围。未执行真实PG、独立业务验收、性能、发布或部署。SSE解析和冻结旧计价表达式解释器尚未完成库替代，不能称全部手写基础能力已移除。共享源码随后再次被外部恢复，三项声明及46文件改动当前不在主工作树；补丁和验证副本已保留，等待用户暂停其他覆盖后再合入，不能将候选测试结果认作现主树验收。
+提交后主树执行 `cargo +1.99.1 test --offline --locked --manifest-path services/core/Cargo.toml --lib --no-run --jobs 2`，受影响的137项普通/本地异步测试全部通过，包含 zhex 分配适配和既有 HTML 表示；使用专用 CARGO_TARGET_DIR。Clippy `--lib` 通过，141条现存警告，本轮改动行无警告，不宣称严格零警告。文档检查通过。此前冻结候选的 zconv provider-controls 失败保留在本地证据；该次失败未作为本轮修复或当前 zconv 重新验收结果。未执行真实PG、独立业务验收、性能、发布或部署。SSE解析和冻结旧计价表达式解释器仍待评估，不能称全部手写基础能力已移除。
+
 
 ## 首发范围
 

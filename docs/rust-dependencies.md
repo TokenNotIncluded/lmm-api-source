@@ -1,6 +1,6 @@
 # Rust Core 依赖审查
 
-核对日期：2026-11-12。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；55 个不同 crate、56 条声明（SQLx 同时用于运行和测试），包含本轮新增 csv 与移除前的 fs2。不是传递依赖全量审计、安全漏洞扫描或性能测试。
+核对日期：2026-11-12。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；初次盘点 55 个不同 crate、56 条声明（SQLx 同时用于运行和测试），包含本轮新增 csv 与移除前的 fs2。当前编解码替换后的清单为57个不同直接crate。不是传递依赖全量审计、安全漏洞扫描或性能测试。
 
 按用户决定，结合所属领域的成熟度判断，不设固定星数线。表中星数来自 GitHub REST `GET /repos/{owner}/{repo}`，属于上游仓库，不是单个 crate；下载数来自 crates.io `GET /api/v1/crates/{name}`，只作采用程度参考，不证明正确性。未发现这些上游被标为 archived。版本按本地 Cargo.lock，不自动升级到最新版。
 
@@ -87,7 +87,7 @@
 
 ## 基础编解码接入
 
-按用户明确指定，十六进制使用 [`zhex = 0.1.3`](https://crates.io/crates/zhex/0.1.3)，上游为 [LIghtJUNction/zhex](https://github.com/LIghtJUNction/zhex)，MIT，无传递依赖。用户指定选库优先于一般热度筛选。已移除 hex 直接依赖；Cargo.lock 中其他依赖所需的 hex 不在本轮删除范围。
+按用户明确指定，十六进制使用 [`zhex = 0.1.3`](https://crates.io/crates/zhex/0.1.3)，上游为 [LIghtJUNction/zhex](https://github.com/LIghtJUNction/zhex)，MIT，无传递依赖；2026-11-12 GitHub API核对为1星，未归档。用户指定选库优先于一般热度筛选。已移除 hex 直接依赖；Cargo.lock 中其他依赖所需的 hex 不在本轮删除范围。
 
 固定缓冲区解码直接调用 zhex；`hex_codec` 仅为已有 String/Vec 返回类型分配精确大小的缓冲区，转换全部委托 zhex，无手写十六进制算法。保留入口原有的长度、大小写和错误分类。当前工具链与发布包的 rust-version 均为 1.99.1。
 
