@@ -168,15 +168,15 @@ func renderProfileShareProfileSVG(
 	current := fmt.Sprintf("%d %s", summary.Current, labels.Days)
 	longest := fmt.Sprintf("%d %s", summary.Longest, labels.Days)
 	stats := [][2]string{
-		{profileShareFormatNumber(summary.Tokens, options.Format, options.Lang), yearLabel},
-		{profileShareFormatNumber(summary.Peak, options.Format, options.Lang), labels.PeakTokens},
+		{formatNumber(summary.Tokens, options.Format, options.Lang), yearLabel},
+		{formatNumber(summary.Peak, options.Format, options.Lang), labels.PeakTokens},
 		{current, labels.CurrentStreak},
 		{longest, labels.LongestStreak},
 	}
 	if options.ShowRequests {
 		requests := "—"
 		if owner.RequestCount != nil {
-			requests = profileShareFormatNumber(*owner.RequestCount, options.Format, options.Lang)
+			requests = formatNumber(*owner.RequestCount, options.Format, options.Lang)
 		}
 		stats = append(stats[:2], append([][2]string{{requests, labels.Requests}}, stats[2:]...)...)
 	}

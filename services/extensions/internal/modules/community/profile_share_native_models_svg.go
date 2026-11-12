@@ -72,35 +72,6 @@ var profileShareModelLanguages = map[string]profileShareModelCopy{
 	"vi":    {"Mức dùng theo mô hình", "Tổng token", "Yêu cầu API", "Chi phí nền tảng ($)", "Số mô hình đã dùng", "Chi phí theo mô hình", "Token theo mô hình", "Yêu cầu theo mô hình", "Các mô hình khác", "Mô hình không xác định", "Chưa có lượt sử dụng trong khoảng này"},
 }
 
-// Model names originate in usage data, not the stricter custom-text parser.
-// Drop XML-invalid code points before escaping, including controls in aliases.
-func profileShareModelText(value string) string {
-	return svgText(strings.Map(func(r rune) rune {
-		if r == '\t' || r == '\n' || r == '\r' || (r >= 0x20 && r <= 0xd7ff) || (r >= 0xe000 && r <= 0xfffd) || (r >= 0x10000 && r <= 0x10ffff) {
-			return r
-		}
-		return -1
-	}, value))
-}
-
-func profileShareModelShortText(value string, maxWidth int) string {
-	width := 0
-	var result strings.Builder
-	for _, r := range value {
-		step := 1
-		if r > 0x2e7f {
-			step = 2
-		}
-		if width+step > maxWidth {
-			result.WriteRune('…')
-			break
-		}
-		result.WriteRune(r)
-		width += step
-	}
-	return result.String()
-}
-
 // A theme-derived scale, never a hard-coded list of model names or colors.
 func profileShareModelColor(accent, muted string, index, count int) string {
 	mix := float64(index) / math.Max(1, float64(count-1)) * .8
@@ -216,7 +187,7 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 	x := (float64(options.Width) - 1200*scale) / 2
 	y := (float64(options.Height) - float64(height)*scale) / 2
 	var svg strings.Builder
-	fmt.Fprintf(&svg, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-labelledby="model-title model-desc"><title id="model-title">%s</title><desc id="model-desc">%s · %s</desc>`, options.Width, options.Height, options.Width, options.Height, profileShareModelText(title), profileShareModelText(shareLabel), profileShareModelText(options.Footer))
+	fmt.Fprintf(&svg, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-labelledby="model-title model-desc"><title id="model-title">%s</title><desc id="model-desc">%s · %s</desc>`, options.Width, options.Height, options.Width, options.Height, svgText(title), svgText(shareLabel), svgText(options.Footer))
 	if options.Animation != "none" {
 		svg.WriteString(`<style>@keyframes model-breathe{0%,100%{opacity:.6}50%{opacity:1}}`)
 		if options.Animation == "wave" {
@@ -228,9 +199,9 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 	}
 	fmt.Fprintf(&svg, `<rect x="1" y="1" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="2"/><g transform="translate(%.4f %.4f) scale(%.6f)"><g font-family="%s" fill="%s">`, options.Width-2, options.Height-2, options.Radius, options.Background, options.Border, x, y, scale, font, options.Foreground)
 	text := func(x, y, size int, anchor, color, value string) {
-		fmt.Fprintf(&svg, `<text x="%d" y="%d" font-size="%d" text-anchor="%s" fill="%s">%s</text>`, x, y, size, anchor, color, profileShareModelText(value))
+		fmt.Fprintf(&svg, `<text x="%d" y="%d" font-size="%d" text-anchor="%s" fill="%s">%s</text>`, x, y, size, anchor, color, svgText(value))
 	}
-	text(56, 64, 28, "start", options.Foreground, profileShareModelShortText(title, 48))
+	text(56, 64, 28, "start", options.Foreground, svgShort(title, 48))
 	dateRange := time.Unix(start, 0).UTC().Format("2006-01-02") + " — " + time.Unix(end, 0).UTC().Format("2006-01-02") + " UTC"
 	text(56, 97, 15, "start", options.Muted, dateRange)
 	text(1144, 63, 20, "end", options.Accent, "LMM Best")
@@ -241,21 +212,21 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 		percent := share(row) * 100
 		gap := math.Min(.65, percent*.12)
 		if percent > 0 {
-			fmt.Fprintf(&svg, `<circle class="model-segment" cx="226" cy="266" r="116" pathLength="100" transform="rotate(-90 226 266)" stroke="%s" stroke-dasharray="%.6f %.6f" stroke-dashoffset="%.6f" style="animation-delay:-%.2fs"><title>%s · %.1f%%</title></circle>`, profileShareModelColor(options.Accent, options.Muted, index, len(rows)), percent-gap, 100-percent+gap, -offset-gap/2, float64(index)*.4, profileShareModelText(row.ModelName), percent)
+			fmt.Fprintf(&svg, `<circle class="model-segment" cx="226" cy="266" r="116" pathLength="100" transform="rotate(-90 226 266)" stroke="%s" stroke-dasharray="%.6f %.6f" stroke-dashoffset="%.6f" style="animation-delay:-%.2fs"><title>%s · %.1f%%</title></circle>`, profileShareModelColor(options.Accent, options.Muted, index, len(rows)), percent-gap, 100-percent+gap, -offset-gap/2, float64(index)*.4, svgText(row.ModelName), percent)
 		}
 		offset += percent
 	}
 	svg.WriteString(`</g>`)
-	format := func(value int64) string { return profileShareFormatNumber(value, options.Format, options.Lang) }
+	format := func(value int64) string { return formatNumber(value, options.Format, options.Lang) }
 	fontSize := 34
 	if len([]rune(format(usage.Tokens))) > 12 {
 		fontSize = int(180 / (float64(len([]rune(format(usage.Tokens)))) * .62))
 	}
 	text(226, 266, fontSize, "middle", options.Foreground, format(usage.Tokens))
-	text(226, 296, 15, "middle", options.Muted, profileShareModelShortText(tokenLabel, 24))
+	text(226, 296, 15, "middle", options.Muted, svgShort(tokenLabel, 24))
 	text(226, 413, 15, "middle", options.Muted, shareLabel)
 	stat := func(x, y int, label, value string) {
-		text(x, y, 15, "start", options.Muted, profileShareModelShortText(label, 30))
+		text(x, y, 15, "start", options.Muted, svgShort(label, 30))
 		size := int(math.Min(29, 270/math.Max(1, float64(len([]rune(value)))*.62)))
 		text(x, y+38, size, "start", options.Foreground, value)
 	}
@@ -270,11 +241,11 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 		tokenX = 888
 	}
 	text(56, 444, 14, "start", options.Muted, shareLabel)
-	text(tokenX, 444, 14, "end", options.Muted, profileShareModelShortText(tokenLabel, 22))
+	text(tokenX, 444, 14, "end", options.Muted, svgShort(tokenLabel, 22))
 	if options.ShowRequests {
 		text(928, 444, 14, "end", options.Muted, copy.Requests)
 	}
-	text(1144, 444, 14, "end", options.Muted, profileShareModelShortText(copy.Spend, 24))
+	text(1144, 444, 14, "end", options.Muted, svgShort(copy.Spend, 24))
 	fmt.Fprintf(&svg, `<path d="M56 456H1144" stroke="%s"/>`, options.Border)
 	for index, row := range rows {
 		y := 456 + index*56
@@ -283,8 +254,8 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 			name = copy.Unknown
 		}
 		color := profileShareModelColor(options.Accent, options.Muted, index, len(rows))
-		fmt.Fprintf(&svg, `<g><title>%s</title><circle cx="63" cy="%d" r="5" fill="%s"/>`, profileShareModelText(name), y+25, color)
-		text(82, y+30, 17, "start", options.Foreground, profileShareModelShortText(name, 38))
+		fmt.Fprintf(&svg, `<g><title>%s</title><circle cx="63" cy="%d" r="5" fill="%s"/>`, svgText(name), y+25, color)
+		text(82, y+30, 17, "start", options.Foreground, svgShort(name, 38))
 		text(542, y+30, 15, "end", options.Muted, fmt.Sprintf("%.1f%%", share(row)*100))
 		fmt.Fprintf(&svg, `<rect x="82" y="%d" width="%.3f" height="3" rx="1.5" fill="%s"/>`, y+41, 352*share(row), color)
 		text(tokenX, y+30, int(math.Min(16, 180/math.Max(1, float64(len([]rune(format(row.Tokens))))*.62))), "end", options.Foreground, format(row.Tokens))
@@ -297,7 +268,7 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage profileSh
 	if len(rows) == 0 {
 		text(600, 493, 18, "middle", options.Muted, copy.Empty)
 	}
-	text(56, height-36, 14, "start", options.Muted, profileShareModelShortText(options.Footer, 64))
+	text(56, height-36, 14, "start", options.Muted, svgShort(options.Footer, 64))
 	text(1144, height-36, 14, "end", options.Muted, "https://api.lmm.best")
 	svg.WriteString(`</g></g></svg>`)
 	return svg.String(), nil

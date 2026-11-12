@@ -211,40 +211,6 @@ func profileSharePeriodStart(period string, now time.Time) int64 {
 	}
 }
 
-func profileShareFormatNumber(value int64, format, lang string) string {
-	if format == "full" {
-		return strconv.FormatInt(value, 10)
-	}
-	units := []struct {
-		threshold float64
-		suffix    string
-	}{}
-	if lang == "zh" || lang == "zh-TW" || lang == "ja" {
-		units = []struct {
-			threshold float64
-			suffix    string
-		}{{1e8, "亿"}, {1e4, "万"}}
-		if lang == "zh-TW" {
-			units[0].suffix = "億"
-		}
-		if lang == "ja" {
-			units[0].suffix, units[1].suffix = "億", "万"
-		}
-	} else {
-		units = []struct {
-			threshold float64
-			suffix    string
-		}{{1e12, "T"}, {1e9, "B"}, {1e6, "M"}, {1e3, "K"}}
-	}
-	for _, unit := range units {
-		if float64(value) >= unit.threshold {
-			formatted := strconv.FormatFloat(float64(value)/unit.threshold, 'f', 1, 64)
-			return strings.TrimSuffix(formatted, ".0") + unit.suffix
-		}
-	}
-	return strconv.FormatInt(value, 10)
-}
-
 func renderProfileShareSVG(options profileShareSVGOptions, usage profileShareUsage) string {
 	fontFamily := "Arial, sans-serif"
 	switch options.Font {
@@ -253,8 +219,8 @@ func renderProfileShareSVG(options profileShareSVGOptions, usage profileShareUsa
 	case "serif":
 		fontFamily = "Georgia, serif"
 	}
-	tokenText := profileShareFormatNumber(usage.Tokens, options.Format, options.Lang)
-	requestText := profileShareFormatNumber(usage.Requests, options.Format, options.Lang)
+	tokenText := formatNumber(usage.Tokens, options.Format, options.Lang)
+	requestText := formatNumber(usage.Requests, options.Format, options.Lang)
 	fontSize := 76
 	if len([]rune(tokenText)) > 11 {
 		fontSize = 60
