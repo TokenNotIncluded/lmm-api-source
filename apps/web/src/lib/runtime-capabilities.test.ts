@@ -20,6 +20,7 @@ const plugin: PluginInfo = {
   available: true,
   installed: true,
   enabled: true,
+  navigation_paths: ['/tool-market'],
 }
 const fresh = { data: [plugin], dataUpdatedAt: now }
 
@@ -47,7 +48,16 @@ test('module navigation requires every declared dependency and leaves Core route
     'reported_enabled'
   )
   assert.equal(
-    moduleNavigationState('/tool-market', { ...fresh, data: [] }, now),
+    moduleNavigationState(
+      '/tool-market',
+      {
+        ...fresh,
+        data: [
+          { ...plugin, available: false, installed: false, enabled: false },
+        ],
+      },
+      now
+    ),
     'unavailable'
   )
   assert.equal(
@@ -74,7 +84,100 @@ test('module navigation requires every declared dependency and leaves Core route
       '/support',
       {
         ...fresh,
-        data: [{ ...plugin, name: 'support' }],
+        data: [
+          {
+            ...plugin,
+            name: 'support',
+            navigation_paths: ['/support'],
+            requires: ['store'],
+          },
+        ],
+      },
+      now
+    ),
+    'unavailable'
+  )
+})
+
+test('navigation follows new host paths and transitive dependencies without a client module map', () => {
+  const records: PluginInfo[] = [
+    {
+      ...plugin,
+      name: 'reports',
+      navigation_paths: ['/reports'],
+      requires: ['records'],
+    },
+    {
+      ...plugin,
+      name: 'records',
+      navigation_paths: [],
+      requires: ['identity'],
+    },
+    { ...plugin, name: 'identity', navigation_paths: [] },
+  ]
+  const evidence = { ...fresh, data: records }
+  assert.equal(
+    moduleNavigationState('/reports/weekly', evidence, now),
+    'reported_enabled'
+  )
+  assert.equal(
+    moduleNavigationState('/reports-other', evidence, now),
+    'unaffected'
+  )
+  assert.equal(
+    moduleNavigationState('/reports', { ...evidence, isError: true }, now),
+    'unknown'
+  )
+  assert.equal(
+    moduleNavigationState(
+      '/reports',
+      {
+        ...evidence,
+        data: records.map((entry) =>
+          entry.name === 'identity' ? { ...entry, enabled: false } : entry
+        ),
+      },
+      now
+    ),
+    'unavailable'
+  )
+  assert.equal(
+    moduleNavigationState(
+      '/reports',
+      { ...evidence, data: records.slice(0, 2) },
+      now
+    ),
+    'unavailable'
+  )
+})
+
+test('undeclared routes remain unaffected and shared ownership requires every owner', () => {
+  assert.equal(
+    moduleNavigationState(
+      '/tool-market',
+      { data: undefined, dataUpdatedAt: 0 },
+      now
+    ),
+    'unaffected'
+  )
+  assert.equal(
+    moduleNavigationState(
+      '/tool-market',
+      { ...fresh, data: [{ ...plugin, navigation_paths: undefined }] },
+      now
+    ),
+    'unaffected'
+  )
+  assert.equal(
+    moduleNavigationState('/tool-market', { ...fresh, data: [] }, now),
+    'unaffected'
+  )
+  assert.equal(
+    moduleNavigationState(
+      '/tool-market',
+      {
+        ...fresh,
+        data: [plugin, { ...plugin, name: 'moderation', enabled: false }],
       },
       now
     ),

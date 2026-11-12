@@ -140,7 +140,9 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                     {t('Registered in this instance')}
                   </dt>
                   <dd>
-                    {plugin.available ? t('Available') : t('Unavailable')}
+                    {plugin.available
+                      ? t('Available')
+                      : t('Configuration required')}
                   </dd>
                 </div>
                 <div>
