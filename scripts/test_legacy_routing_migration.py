@@ -294,6 +294,39 @@ class RoutingSemanticsTests(unittest.TestCase):
         rebind_channel(value)
         self.assertIn("special_channel_behavior_not_mapped", reasons(run_fixture(value)))
 
+    def test_openrouter_preserves_only_source_listed_thinking_suffix(self):
+        value = fixture(weights=(0,), priorities=(10,))
+        tables, _, _, contracts = value
+        model = "moonshotai/kimi-k2-thinking"
+        channel = tables["channels"][0]
+        channel.update(type=20, models=model)
+        tables["abilities"][0]["model"] = model
+        contracts["runtime"]["source_revision"] = R.LEGACY_RATIO_SOURCE
+        provider = contracts["providers"]["channels"][0]
+        provider["adapter_contract"] = "openrouter-chat-v1"
+        provider["models"][0].update(source_model=model, upstream_model=model)
+        provider["prices"][0]["model"] = model
+        rebind_channel(value)
+        result = run_fixture(value)
+        self.assertEqual(result["status"], "candidate-requires-native-validation", result.get("blockers"))
+        target = result["candidate"]["routing"]["routes"][0]["targets"][0]
+        self.assertEqual(target["upstream_model"], model)
+        self.assertEqual(target["payload"], "open_router")
+
+        model = "qwen/qwen3-vl-30b-a3b-thinking"
+        channel["models"] = model
+        tables["abilities"][0]["model"] = model
+        provider["models"][0].update(source_model=model, upstream_model=model)
+        provider["prices"][0]["model"] = model
+        rebind_channel(value)
+        self.assertIn("openrouter_thinking_suffix_policy_not_mapped", reasons(run_fixture(value)))
+
+        tables["options"].append({"key": "global.thinking_model_blacklist", "value": json.dumps([model])})
+        provider["prices"][0]["source_options_sha256"] = R.F.digest(tables["options"])
+        self.assertIn("candidate", run_fixture(value))
+        contracts["runtime"]["source_revision"] = "d" * 40
+        self.assertIn("openrouter_thinking_suffix_policy_not_mapped", reasons(run_fixture(value)))
+
     def test_reviewed_client_protocols_are_kept_per_target(self):
         value = fixture()
         context = value[3]["providers"]["channels"][0]["models"][0]
@@ -421,6 +454,38 @@ class RoutingSemanticsTests(unittest.TestCase):
         self.assertEqual(R.channel_payload(channel, {})["legacy_openai"]["allow_service_tier"], False)
         channel["type"] = 14
         self.assertIn("settings_allow_speed_not_mapped", R.channel_setting_reasons(channel))
+
+    def test_openai_flags_accept_explicit_responses_client_pair_only(self):
+        value = fixture()
+        channel = value[0]["channels"][0]
+        channel["settings"] = '{"allow_service_tier":false,"allow_speed":true}'
+        channel["setting"] = '{"responses_websocket_enabled":true}'
+        value[3]["runtime"]["responses_websocket_enabled"] = True
+        provider = value[3]["providers"]["channels"][0]
+        provider["protocol"] = "openai_responses"
+        model = provider["models"][0]
+        model.update(source_operations=["responses"],
+            client_protocols=["openai_chat", "openai_responses"])
+        rebind_channel(value)
+        result = run_fixture(value)
+        self.assertIn("candidate", result)
+        target = result["candidate"]["routing"]["routes"][0]["targets"][0]
+        self.assertEqual(target["client_protocols"], ["openai_chat", "openai_responses"])
+        self.assertEqual(target["payload"]["legacy_openai"]["allow_speed"], True)
+
+        for protocol, clients in (("openai_responses", None),
+                                  ("openai_responses", ["openai_chat"]),
+                                  ("openai_chat", ["openai_chat", "openai_responses"]),
+                                  ("anthropic_messages", ["openai_chat", "openai_responses"])):
+            provider["protocol"] = protocol
+            if clients is None:
+                model.pop("client_protocols")
+            else:
+                model["client_protocols"] = clients
+            with self.subTest(protocol=protocol, clients=clients):
+                result = run_fixture(value)
+                self.assertIn("legacy_openai_same_wire_client_contract_missing", reasons(result))
+                self.assertNotIn("candidate", result)
 
     def test_responses_websocket_binds_runtime_and_native_target(self):
         value = fixture()

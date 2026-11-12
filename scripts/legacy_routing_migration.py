@@ -233,6 +233,26 @@ def legacy_responses_websocket(row):
 
 LEGACY_OPENAI_FLAGS = ("allow_service_tier", "allow_inference_geo", "allow_speed",
                        "allow_safety_identifier", "allow_include_obfuscation")
+LEGACY_PRESERVED_THINKING_MODELS = frozenset({"moonshotai/kimi-k2-thinking", "kimi-k2-thinking"})
+
+
+def legacy_openrouter_preserves_thinking_suffix(model, options, source_revision):
+    if source_revision != LEGACY_RATIO_SOURCE:
+        return False
+    missing = object()
+    raw = next((row.get("value") for row in options
+                if row.get("key") == "global.thinking_model_blacklist"), missing)
+    if raw is missing:
+        preserved = LEGACY_PRESERVED_THINKING_MODELS
+    else:
+        try:
+            values = F.parse_json(raw) if type(raw) is str else raw
+        except (ValueError, TypeError):
+            return False
+        if type(values) is not list or any(type(value) is not str for value in values):
+            return False
+        preserved = {value.strip() for value in values}
+    return model.strip() in preserved
 
 
 def channel_setting_reasons(row):
@@ -328,8 +348,12 @@ def blocked_channel(row, provider, credential):
         settings = row.get("settings")
         settings = F.parse_json(settings) if isinstance(settings, str) and settings not in EMPTY else settings
         if isinstance(settings, dict) and row.get("type") in (1, 48) and any(name in settings for name in LEGACY_OPENAI_FLAGS):
-            if provider.get("protocol") not in ("openai_chat", "openai_responses") or not provider.get("models") or any(
-                model.get("client_protocols") != [provider.get("protocol")] for model in provider["models"]):
+            protocol = provider.get("protocol")
+            if protocol not in ("openai_chat", "openai_responses") or not provider.get("models") or any(
+                model.get("client_protocols") != [protocol] and not (
+                    protocol == "openai_responses" and model.get("client_protocols") in (
+                        ["openai_chat", "openai_responses"], ["openai_responses", "openai_chat"]))
+                for model in provider["models"]):
                 reasons.append("legacy_openai_same_wire_client_contract_missing")
         if provider.get("protocol") not in PROTOCOLS.get(row.get("type"), set()):
             reasons.append("provider_protocol_not_compatible")
@@ -1062,7 +1086,9 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                             entry["reasons"].append("legacy_gemini_version_contract_missing_or_unsupported")
                         if context.get("upstream_model") != model:
                             entry["reasons"].append("model_mapping_not_supported")
-                        if channel.get("type") == 20 and model.endswith("-thinking"):
+                        if (channel.get("type") == 20 and model.endswith("-thinking")
+                                and not legacy_openrouter_preserves_thinking_suffix(
+                                    model, tables["options"], (runtime or {}).get("source_revision"))):
                             entry["reasons"].append("openrouter_thinking_suffix_policy_not_mapped")
                         number(context.get("max_input_tokens"), "provider_input_bound_invalid", 1, 16_000_000)
                         number(context.get("max_output_tokens"), "provider_output_bound_invalid", 1, 2**32 - 1)
