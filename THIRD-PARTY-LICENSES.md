@@ -16,6 +16,9 @@ Transitive dependencies should be audited before a final external release.
 | core | production | Rust | `tiktoken-rs` | `0.12.0` | MIT |
 | core | production | Rust | `csv` | `1.4.0` | Unlicense OR MIT |
 | core | production | Rust | `zhex` | `0.1.3` | MIT |
+| core | production | Rust | `sysinfo` | `0.40.3` | MIT |
+| core | production | Rust | `zclap` | `0.1.4` | MIT |
+| core | production | Rust | `tokio-util` | `0.7.20` | MIT |
 | core | production | Rust | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 |
 | core | production | Rust | `html-escape` | `0.3.1` | MIT |
 | core | production | Rust | `fancy-regex` | `0.19.2` | MIT |

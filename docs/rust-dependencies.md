@@ -92,3 +92,14 @@
 固定缓冲区解码直接调用 zhex；`hex_codec` 仅为已有 String/Vec 返回类型分配精确大小的缓冲区，转换全部委托 zhex，无手写十六进制算法。保留入口原有的长度、大小写和错误分类。当前工具链与发布包的 rust-version 均为 1.99.1。
 
 百分号解码使用 [percent-encoding 2.3.2](https://docs.rs/percent-encoding/2.3.2/percent_encoding/)，HTML转义使用 [html-escape 0.3.1](https://docs.rs/html-escape/0.3.1/html_escape/)，保留原 HTML 实体表示。此前全量直接依赖版本盘点仍为审查证据；按本轮基础编解码范围，不执行跨主版本的无关依赖迁移。
+
+## 用户指定的基础库接入
+
+2026-11-12：sysinfo 0.40.3（MIT，仅system feature）、zclap 0.1.4（MIT，用户指定）、tokio-util 0.7.20（MIT，rt feature）已接入。三项通过crates.io API核对为当时最新稳定版本，元数据证据保留本地；Rust固定1.99.1。本轮不扩大为无关依赖跨主版本迁移。
+
+- [sysinfo](https://github.com/GuillaumeGomez/sysinfo)：上游核对2760星，替代/proc资源计数解析，保留250ms快照、整机CPU归一化和权限下的进程识别；不收集命令行或环境。
+- [zclap](https://github.com/LIghtJUNction/zclap)：用户指定优先于热度筛选，parse_os保留非UTF8绝对路径及原命令互斥。
+- [tokio-util](https://github.com/tokio-rs/tokio)：CancellationToken替代watch手写实现，资金收尾仍不随上游取消。
+- 已有[serde_json RawValue](https://docs.rs/serde_json/latest/serde_json/value/struct.RawValue.html)：配合Seed/Visitor替代receipt Scan词法扫描，保留逐层重复键拒绝、深度、数字拼写和签名字节。其余业务验证仍由Core负责。
+
+协议转换继续使用用户自研最高优先级的zconv；迁移范围和应用验证只记在[进度](progress.md)，不把库API存在当作迁移完成。

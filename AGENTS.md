@@ -98,7 +98,9 @@ within the library's domain, without a fixed numerical threshold. Verify and
 report the upstream repository, current star count, license and behavior fit.
 Owner-developed zconv has the highest priority and must be retained. Use zhex
 for hexadecimal conversion as explicitly requested by the owner; these choices
-take precedence over popularity filters.
+take precedence over popularity filters. Use owner-designated zclap for CLI,
+sysinfo for resource counters, tokio-util for cancellation and serde_json for
+receipt JSON syntax; retain application-specific validation.
 Keep application authorization, financial policy and transaction boundaries in
 Core; library adoption must preserve their contracts.
 The current direct-dependency review is in [Rust dependencies](docs/rust-dependencies.md).
