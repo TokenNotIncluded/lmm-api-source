@@ -9,10 +9,16 @@
 - **正式制品与固定组合**已验证。Core7 `e5b3e11`、Go9 `76aaf71`、Web5 `907197b` 的 HTTP15项、浏览器17项及release图片检查通过，采用隔离账号和本地供应商。Core7 Arch/DEB `0.1.19-7` 已构建及校验，当前提交与包未签名。
 - **新依赖候选待验**。e2a64cd已将zconv升级至0.2.2、Rust对齐1.99.1；d8843d6修复空system数组生成额外消息的问题，视觉7项均通过。46adc05同步了mise、CI、原生打包、Docker构建及验收runner的Rust版本，25项针对性静态检查通过，官方Docker manifest摘要独立核对一致；当前候选的构建与完整组合验收继续进行，Core7证据保留原版本范围。
 - **扩展注册与路由硬编码已更新，自测通过**。`6657c0b`、`b654171` 将11个编译包的选择、绑定、依赖与导航归属统一到注册目录，修复HeroSMS漏入启动白名单；Web接口在注册时继承插件开关和宿主准入，覆盖部署管理及内置工具等原遗漏入口。Go相关34项和完整Web兼容层138项测试通过race检查，后者5项真实PG测试跳过；Go生产包构建、Web相关8项、类型检查及lint通过。全量Go检查未通过：Unix socket受限、缺initdb，未修改的工具市场用例另报not_found。独立验收、制品发布和生产部署未执行；不能据此关闭整站验收。
-- **模型配置迁移尚未完成**。共同目标的渠道凭据引用、价格版本、路由配置及发布均未落地，active release 的 config_version 为空。Source有29个渠道、23个启用；用户组21199条已导入。已生成29个凭据引用及完整正常规划，但候选仍被阻塞；来源配置673个模型；实际30天消费82个，其中79个仍在配置，7天使用49个。当前在用79个中55个有上下文合同、73个有价格合同；正在补剩余精确合同及runtime/WebSocket/Anthropic映射，未用配置继续保留。渠道47后转换策略已编码，测试尚未通过确认。
+- **模型配置迁移尚未完成**。共同目标的渠道凭据引用、价格版本、路由配置及发布均未落地，active release 的 config_version 为空。Source有29个渠道、23个启用；用户组21199条已导入。已生成29个凭据引用；全量规划仍因未用模型缺合同等阻塞（约592项）。来源配置673个模型；30天消费82个，其中79个仍在配置。在用79个里，计划层已有453条启用能力合同齐全（覆盖71个在用模型，含高用量文字 `gpt-6.1-sol` 与图片 `google/gemini-3.1-flash-image`）；仍卡8个在用：Bouquet、chengzhi-c-no-flash、codex-auto-review、xingchen-agi/xing4.0-29b-a4b:free、amazon/nova-2-lite-v1、chatgpt-image-latest、gpt-image-2、gpt-image-2.5-flare。已另做 launch-scope-v2：只保留合同齐全能力、延期无合同渠道/模型并重绑哈希，得到 `candidate-requires-native-validation`（0 blockers，345路由模型）；对当前 Core 的 normal-startup 校验通过（网关/路由加载，无DB无外呼）。bootstrap_publication 仍报 channel management Invalid；空 `public_relay_preferences` 两行（ordered/disabled 皆空）需正式映射进规划器。渠道47后转换策略已编码，`test_legacy_routing_migration` 65项通过。未用配置继续保留在源归档与延期清单，不静默丢弃。
 - **生产仍需完成**最终停写捕获、全阶段迁移与对账、部署切流和实际业务验收。旧快照 `FINAL_20261111T120751Z` 已因旧服务恢复写入而失去未来切换资格。
 - **历史查询迁移已在本地隔离库导入并读回**。正常history阶段已提交193423条日志、20474条用量聚合、1247条用户财务投影、115笔成功充值历史及2130份用户/密钥范围回执，消费额度汇总一致；4条孤儿日志、3笔孤儿充值及14237条未导性能指标保留原件与明确缺口。最终生产快照导入及业务查询验收仍未完成。
 - **历史付款责任仍在**。95笔原字段完整的充值依据已在本地安装读回；81笔缺历史字段、13笔ePay缺冻结付款快照、3笔孤儿继续保留未决权益和补证路径。60条历史订阅订单保持UNKNOWN，不能当作已自动结算。
+
+## Rust 基础依赖审查
+
+2026-11-12 本地改动：按领域成熟度及单一职责核对55个不同直接依赖（含本轮新增csv、移除前fs2），完整清单见[依赖审查](rust-dependencies.md)。两处CSV编码改用csv 1.4.0，保留公式防护、字段及32 MiB上限；RPC文件锁改用标准库并删除fs2，锁文件生命周期不变。zconv成熟度目标仍未解决，未替换或关闭原协议能力。
+
+自测：`cargo +1.99.1 test --offline --locked --manifest-path services/core/Cargo.toml --lib csv --jobs 2` 10项通过；同命令过滤`usage::export_tests`为6项通过（与前者重叠1项）；过滤`internal_rpc`为8项通过、1项因缺少DATABASE_URL失败，含socket锁定及重启的用例通过。构建使用独立`CARGO_TARGET_DIR`及`CARGO_PROFILE_TEST_DEBUG=0`。严格Clippy（`--lib -- -D warnings`）在未改动位置报70项错误；没有关闭lint或顺带修改业务。三个CSV相关文件格式通过；internal_rpc完整格式检查在HEAD已有两处差异，本轮仅删导入及替换锁调用。文档路径检查通过。没有运行真实PG、性能、独立验收、发布或部署；改动尚未提交。
 
 ## 首发范围
 
@@ -32,7 +38,7 @@
 | MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
 | MODEL-03 | 部分实现 | 已有Chat音频计费与恢复；独立TTS/STT/translation及双向Realtime未齐。Gemini音频按用户决定延期。 |
 | MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
-| MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过，当前冻结候选独立验收待执行。Web配置读回已保留target.client_protocols，避免编辑时丢失协议限制。多key轮询管理入口与真实推理探测待补；共同演练已生成29凭据引用，完整规划仍因价格/上下文/runtime及请求字段映射缺口阻塞，尚未发布。 |
+| MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过。Web配置读回已保留target.client_protocols。多key轮询管理入口与真实推理探测待补；29凭据引用已有。全量规划仍阻塞；launch-scope-v2 候选（合同齐全子集）已通过当前 Core normal-startup 校验，尚缺 bootstrap 发布、密钥安装、演练库加载与旧Key真调用证据。 |
 | ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
 | SUB-01 | 部分实现 | EPay一次购买的Core/Go/HTTP路径已有；其他provider首购、周期、取消及恢复逐项待核验。 |
 | SUB-02 | 部分实现 | 订阅管理记录与立即失效已有；voucher、绑定删除、批量重置完整行为待核实。 |

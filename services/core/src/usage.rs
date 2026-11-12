@@ -686,7 +686,7 @@ impl UsageStore {
         }
         if let Some(csv) = csv {
             tx.commit().await?;
-            return Ok(ReadOutput::Csv(csv.finish()));
+            return Ok(ReadOutput::Csv(csv.finish()?));
         }
         let result = match projection {
             Projection::Logs | Projection::AdministratorLogs => {

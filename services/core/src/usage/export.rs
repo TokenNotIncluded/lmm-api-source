@@ -1,5 +1,9 @@
 //! Streaming construction of a bounded CSV from already validated native receipts.
 use super::{Error, ValidatedRequest};
+use std::{
+    borrow::Cow,
+    io::{self, Write},
+};
 
 const MAX_BYTES: usize = 32 * 1024 * 1024;
 const COLUMNS: &[&str] = &[
@@ -36,7 +40,9 @@ const COLUMNS: &[&str] = &[
     "tool_input_tokens",
 ];
 
-pub(super) struct NativeCsv(Vec<u8>);
+pub(super) struct NativeCsv(csv::Writer<BoundedBytes>);
+
+struct BoundedBytes(Vec<u8>);
 
 fn number(value: Option<i64>) -> String {
     value.map(|n| n.to_string()).unwrap_or_default()
@@ -44,7 +50,7 @@ fn number(value: Option<i64>) -> String {
 
 impl NativeCsv {
     pub(super) fn new() -> Result<Self, Error> {
-        let mut csv = Self(Vec::new());
+        let mut csv = Self::with_bytes(Vec::new());
         csv.row(COLUMNS.iter().copied())?;
         Ok(csv)
     }
@@ -129,6 +135,41 @@ impl NativeCsv {
         self.row(cells.iter().map(String::as_str))
     }
 
+    fn with_bytes(bytes: Vec<u8>) -> Self {
+        Self(
+            csv::WriterBuilder::new()
+                .quote_style(csv::QuoteStyle::Always)
+                .terminator(csv::Terminator::CRLF)
+                .from_writer(BoundedBytes(bytes)),
+        )
+    }
+
+    fn row<'a>(&mut self, cells: impl Iterator<Item = &'a str>) -> Result<(), Error> {
+        let cells = cells.map(|cell| {
+            let trimmed = cell.trim_start_matches(|c: char| {
+                c.is_whitespace() || c.is_control() || c == '\u{feff}'
+            });
+            if trimmed.starts_with(['=', '+', '-', '@']) {
+                Cow::Owned(format!("'{cell}").into_bytes())
+            } else {
+                Cow::Borrowed(cell.as_bytes())
+            }
+        });
+        self.0
+            .write_record(cells)
+            .map_err(|_| Error::TooManyBuckets)?;
+        self.0.flush().map_err(|_| Error::TooManyBuckets)
+    }
+
+    pub(super) fn finish(self) -> Result<Vec<u8>, Error> {
+        self.0
+            .into_inner()
+            .map(|bytes| bytes.0)
+            .map_err(|_| Error::TooManyBuckets)
+    }
+}
+
+impl BoundedBytes {
     fn append(&mut self, bytes: &[u8]) -> Result<(), Error> {
         if self
             .0
@@ -141,32 +182,17 @@ impl NativeCsv {
         self.0.extend_from_slice(bytes);
         Ok(())
     }
+}
 
-    fn row<'a>(&mut self, cells: impl Iterator<Item = &'a str>) -> Result<(), Error> {
-        for (index, cell) in cells.enumerate() {
-            if index > 0 {
-                self.append(b",")?;
-            }
-            self.append(b"\"")?;
-            let trimmed = cell.trim_start_matches(|c: char| {
-                c.is_whitespace() || c.is_control() || c == '\u{feff}'
-            });
-            if trimmed.starts_with(['=', '+', '-', '@']) {
-                self.append(b"'")?;
-            }
-            for part in cell.split_inclusive('"') {
-                self.append(part.as_bytes())?;
-                if part.ends_with('"') {
-                    self.append(b"\"")?;
-                }
-            }
-            self.append(b"\"")?;
-        }
-        self.append(b"\r\n")
+impl Write for BoundedBytes {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.append(bytes)
+            .map_err(|_| io::Error::other("export size limit"))?;
+        Ok(bytes.len())
     }
 
-    pub(super) fn finish(self) -> Vec<u8> {
-        self.0
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -176,15 +202,36 @@ mod tests {
 
     #[test]
     fn csv_escapes_quotes_newlines_and_enforces_byte_limit() {
-        let mut csv = NativeCsv(Vec::new());
+        let mut csv = NativeCsv::with_bytes(Vec::new());
         csv.row(["line\nnext", "a\"b", "\u{feff} =1"].into_iter())
             .unwrap();
         assert_eq!(
-            String::from_utf8(csv.0).unwrap(),
+            String::from_utf8(csv.finish().unwrap()).unwrap(),
             "\"line\nnext\",\"a\"\"b\",\"'\u{feff} =1\"\r\n"
         );
-        let mut csv = NativeCsv(vec![0; MAX_BYTES - 1]);
+        let mut csv = BoundedBytes(vec![0; MAX_BYTES - 1]);
         assert!(csv.append(b"ab").is_err());
         assert_eq!(csv.0.len(), MAX_BYTES - 1);
+    }
+
+    #[test]
+    fn csv_buffer_flush_cannot_bypass_the_export_limit() {
+        let mut csv = NativeCsv::with_bytes(vec![0; MAX_BYTES - 4]);
+        assert!(matches!(
+            csv.row(["x"].into_iter()),
+            Err(Error::TooManyBuckets)
+        ));
+        assert!(csv.0.get_ref().0.len() <= MAX_BYTES);
+    }
+
+    #[test]
+    fn csv_large_field_keeps_quotes_and_utf8_across_writer_buffers() {
+        let cell = "中文\"\n".repeat(4096);
+        let mut csv = NativeCsv::with_bytes(Vec::new());
+        csv.row([cell.as_str(), ""].into_iter()).unwrap();
+        assert_eq!(
+            String::from_utf8(csv.finish().unwrap()).unwrap(),
+            format!("\"{}\",\"\"\r\n", cell.replace('"', "\"\""))
+        );
     }
 }

@@ -91,11 +91,12 @@ pub(crate) fn encode(
             )
         }
         ExportFormat::Csv => {
+            let mut writer = csv_writer(&mut out);
             // RFC 4180 escaping, UTF-8 and CRLF. Text cells cannot become
             // spreadsheet formulas, including after leading whitespace, BOMs
             // or control characters. Preserve the original cell text.
             write_csv(
-                &mut out,
+                &mut writer,
                 &[
                     "source_log_id",
                     "user_id",
@@ -133,7 +134,7 @@ pub(crate) fn encode(
                     r.money.quota_money_basis.to_owned(),
                 ];
                 let refs: Vec<&str> = cells.iter().map(String::as_str).collect();
-                write_csv(&mut out, &refs)?;
+                write_csv(&mut writer, &refs)?;
             }
             ("text/csv; charset=utf-8", "lmm-historical-usage.csv")
         }
@@ -156,22 +157,20 @@ fn safe_text(value: &str) -> String {
         value.to_owned()
     }
 }
-fn write_csv(out: &mut BoundedBytes, cells: &[&str]) -> Result<(), HistoryError> {
-    for (i, cell) in cells.iter().enumerate() {
-        if i != 0 {
-            out.write_all(b",").map_err(|_| HistoryError::TooDense)?;
-        }
-        out.write_all(b"\"").map_err(|_| HistoryError::TooDense)?;
-        for part in cell.split_inclusive('"') {
-            out.write_all(part.as_bytes())
-                .map_err(|_| HistoryError::TooDense)?;
-            if part.ends_with('"') {
-                out.write_all(b"\"").map_err(|_| HistoryError::TooDense)?;
-            }
-        }
-        out.write_all(b"\"").map_err(|_| HistoryError::TooDense)?;
-    }
-    out.write_all(b"\r\n").map_err(|_| HistoryError::TooDense)
+fn csv_writer(out: &mut BoundedBytes) -> csv::Writer<&mut BoundedBytes> {
+    csv::WriterBuilder::new()
+        .quote_style(csv::QuoteStyle::Always)
+        .terminator(csv::Terminator::CRLF)
+        .from_writer(out)
+}
+fn write_csv(
+    writer: &mut csv::Writer<&mut BoundedBytes>,
+    cells: &[&str],
+) -> Result<(), HistoryError> {
+    writer
+        .write_record(cells)
+        .map_err(|_| HistoryError::TooDense)?;
+    writer.flush().map_err(|_| HistoryError::TooDense)
 }
 
 #[cfg(test)]
@@ -184,7 +183,11 @@ mod tests {
         }
         assert_eq!(safe_text("正常中文"), "正常中文");
         let mut out = BoundedBytes(Vec::new());
-        write_csv(&mut out, &["a,b", "x\"y", "line\nnext", ""]).unwrap();
+        write_csv(
+            &mut csv_writer(&mut out),
+            &["a,b", "x\"y", "line\nnext", ""],
+        )
+        .unwrap();
         assert_eq!(
             String::from_utf8(out.0).unwrap(),
             "\"a,b\",\"x\"\"y\",\"line\nnext\",\"\"\r\n"
@@ -195,6 +198,16 @@ mod tests {
         let mut out = BoundedBytes(vec![0; MAX_EXPORT_BYTES - 1]);
         assert!(out.write_all(b"ab").is_err());
         assert_eq!(out.0.len(), MAX_EXPORT_BYTES - 1);
+    }
+
+    #[test]
+    fn csv_flush_reports_limit_instead_of_returning_a_partial_export() {
+        let mut out = BoundedBytes(vec![0; MAX_EXPORT_BYTES - 4]);
+        assert!(matches!(
+            write_csv(&mut csv_writer(&mut out), &["x"]),
+            Err(HistoryError::TooDense)
+        ));
+        assert!(out.0.len() <= MAX_EXPORT_BYTES);
     }
 }
 

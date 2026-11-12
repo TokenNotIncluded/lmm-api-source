@@ -4,7 +4,6 @@ use crate::{
     accounts,
     identity::{CredentialKind, IdentityError, IdentityStore},
 };
-use fs2::FileExt;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::{
@@ -418,7 +417,7 @@ impl RpcServer {
             .write(true)
             .mode(0o600)
             .open(lock_path)?;
-        lock.try_lock_exclusive()?;
+        lock.try_lock().map_err(io::Error::from)?;
         // A process-wide lock prevents removing another live core's socket.
         match fs::symlink_metadata(path) {
             Ok(m) if m.file_type().is_socket() => fs::remove_file(path)?,

@@ -92,6 +92,14 @@ These rules apply to every agent changing `apps/web`, including small copy fixes
 
 ## Reuse upstream evidence
 
+For Rust Core foundations, newly added or replacement crates must come from
+established upstream projects and have one focused responsibility. Assess stars
+within the library's domain, without a fixed numerical threshold. Verify and
+report the upstream repository, current star count, license and behavior fit.
+Keep application authorization, financial policy and transaction boundaries in
+Core; library adoption must preserve their contracts.
+The current direct-dependency review is in [Rust dependencies](docs/rust-dependencies.md).
+
 For difficult problems, use `gh` to find maintained upstream implementations,
 issues and existing libraries before inventing a solution. Check the actual
 repository, revision, compatibility and license; empty search results are not

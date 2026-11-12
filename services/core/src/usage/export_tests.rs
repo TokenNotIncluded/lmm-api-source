@@ -61,7 +61,7 @@ fn csv_preserves_receipts_unknown_values_and_text_safety() {
     let mut export = export::NativeCsv::new().unwrap();
     export.include(&request("settled")).unwrap();
     export.include(&request("reconcile")).unwrap();
-    let value = String::from_utf8(export.finish()).unwrap();
+    let value = String::from_utf8(export.finish().unwrap()).unwrap();
     let lines: Vec<_> = value.split("\r\n").collect();
     assert!(lines[0].contains("\"price_version\""));
     assert!(lines[0].contains("\"cache_write_12h_tokens\""));
@@ -148,7 +148,7 @@ fn tool_receipts_export_success_counts_without_synthetic_tokens() {
     assert!(log.get("completion_tokens").is_none());
     let mut export = export::NativeCsv::new().unwrap();
     export.include(&tool).unwrap();
-    let csv = String::from_utf8(export.finish()).unwrap();
+    let csv = String::from_utf8(export.finish().unwrap()).unwrap();
     assert!(
         csv.ends_with("\"per_successful_request\",\"deepseek_search\",\"1\",\"\",\"\",\"\"\r\n")
     );
@@ -196,7 +196,7 @@ fn grounding_receipt_keeps_reported_tool_input_separate_from_token_usage() {
     let mut export = export::NativeCsv::new().unwrap();
     export.include(&grounded).unwrap();
     assert!(
-        String::from_utf8(export.finish())
+        String::from_utf8(export.finish().unwrap())
             .unwrap()
             .ends_with("\"measured_usage\",\"\",\"\",\"\",\"1\",\"7\"\r\n")
     );
@@ -244,7 +244,7 @@ fn text_request_receipts_export_quantity_and_keep_unknown_tokens_unavailable() {
         );
         let mut csv = export::NativeCsv::new().unwrap();
         csv.include(&r).unwrap();
-        let csv = String::from_utf8(csv.finish()).unwrap();
+        let csv = String::from_utf8(csv.finish().unwrap()).unwrap();
         assert!(csv.contains("\"completed_text_requests\""));
         assert!(csv.ends_with(&format!(
             "\"per_completed_request\",\"\",\"\",\"{complete}\",\"\",\"\"\r\n"

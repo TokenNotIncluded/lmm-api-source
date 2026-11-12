@@ -18,6 +18,7 @@ resource-acceptance = []
 [dependencies]
 # MIT OR Apache-2.0, dependency-free bounded request conversion.
 zconv = "=0.2.2"
+csv = "=1.4.0"
 lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
 aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
 argon2 = "=0.5.3"
@@ -60,7 +61,6 @@ serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] 
 sha2 = { version = "=0.10.9", features = ["oid"] }
 sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "macros", "chrono"] }
 tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "signal", "time", "sync", "io-util"] }
-fs2 = "=0.4.3"
 flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
 zstd = { version = "=0.13.3", default-features = false }
 prost = "=0.14.4"

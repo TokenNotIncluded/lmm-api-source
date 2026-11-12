@@ -14,6 +14,7 @@ Transitive dependencies should be audited before a final external release.
 | extensions | production | Go | `github.com/BurntSushi/toml` | `v1.6.0` | MIT |
 | core | production | Rust | `toml` | `1.1.6+spec-1.1.0` (manifest `=1.1.6`) | MIT OR Apache-2.0 |
 | core | production | Rust | `tiktoken-rs` | `0.12.0` | MIT |
+| core | production | Rust | `csv` | `1.4.0` | Unlicense OR MIT |
 | core | production | Rust | `fancy-regex` | `0.19.2` | MIT |
 | core | adapted split patterns | Go | `github.com/tiktoken-go/tokenizer` | `v0.6.2` | MIT |
 | backend | production | Go | `github.com/Calcium-Ion/go-epay` | `v0.0.4` | Proprietary/Internal - owned by project maintainer |
