@@ -374,6 +374,18 @@ class RoutingSemanticsTests(unittest.TestCase):
             value = fixture(); value[0]["channels"][0][field] = item; rebind_channel(value)
             self.assertIn(reason, reasons(run_fixture(value)))
 
+    def test_channel47_exact_override_maps_selected_payload(self):
+        row = {"id": 47, "type": 14, "param_override": json.dumps(R.CHANNEL47_OVERRIDE)}
+        self.assertTrue(R.channel47_override(row))
+        self.assertEqual(R.channel_payload(row, {}), R.CHANNEL47_PAYLOAD)
+        changed = copy.deepcopy(R.CHANNEL47_OVERRIDE)
+        changed["operations"][0]["keep_origin"] = False
+        row["param_override"] = json.dumps(changed)
+        self.assertFalse(R.channel47_override(row))
+        row["param_override"] = json.dumps(R.CHANNEL47_OVERRIDE)
+        row["id"] = 48
+        self.assertFalse(R.channel47_override(row))
+
     def test_missing_runtime_with_provider_returns_blocked_plan(self):
         value = fixture()
         value[3]["runtime"] = None

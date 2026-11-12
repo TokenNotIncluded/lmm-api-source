@@ -247,7 +247,23 @@ def channel_setting_reasons(row):
     return reasons
 
 
+CHANNEL47_OVERRIDE = {'operations': [{'mode': 'set', 'path': 'system.-1.cache_control', 'value': {'type': 'ephemeral'}, 'keep_origin': True, 'logic': 'AND', 'conditions': [{'path': 'model', 'mode': 'prefix', 'value': 'claude-haiku-4-5'}, {'path': 'request_path', 'mode': 'full', 'value': '/v1/chat/completions'}, {'path': 'system.#', 'mode': 'gt', 'value': 0}]}]}
+CHANNEL47_PAYLOAD = "legacy_anthropic_haiku_system_cache_v1"
+
+
+def channel47_override(row):
+    if row.get("id") != 47 or row.get("type") != 14:
+        return False
+    raw = row.get("param_override")
+    try:
+        return (F.parse_json(raw) if isinstance(raw, str) else raw) == CHANNEL47_OVERRIDE
+    except (ValueError, TypeError):
+        return False
+
+
 def channel_payload(row, source_price):
+    if channel47_override(row):
+        return CHANNEL47_PAYLOAD
     if row.get("type") in (1, 48) and row.get("settings") not in EMPTY:
         settings = F.parse_json(row["settings"]) if isinstance(row["settings"], str) else row["settings"]
         if any(name in settings for name in LEGACY_OPENAI_FLAGS):
@@ -265,9 +281,12 @@ def blocked_channel(row, provider, credential):
         reasons.append("unclassified_channel_columns")
     if row.get("type") not in PROTOCOLS:
         reasons.append("channel_type_not_supported")
-    if any(row.get(field) not in EMPTY for field in SPECIAL_FIELDS if field not in ("setting", "settings")):
+    if any(row.get(field) not in EMPTY for field in SPECIAL_FIELDS if field not in ("setting", "settings") and not (field == "param_override" and channel47_override(row))):
         reasons.append("special_channel_behavior_not_mapped")
     reasons.extend(channel_setting_reasons(row))
+    if channel47_override(row) and (provider is None or provider.get("payload_contract") != CHANNEL47_PAYLOAD
+            or provider.get("protocol") != "anthropic_messages"):
+        reasons.append("channel47_post_conversion_payload_contract_missing")
     contribution = row.get("public_relay_contribution_id")
     if contribution is not None and not (type(contribution) is int and contribution == 0):
         reasons.append("public_relay_contribution_not_mapped")
