@@ -4,6 +4,11 @@
 
 ## 本地收尾（2026-11-12）
 
+- 2026-11-12 重启恢复后重新核对当前状态。`81f1226` 的正常 routing_groups 阶段已在旧 412 快照的共同目标导入 1247 个用户、21199 条授权，按 Source UserUsableGroups 与各用户原组逐项只读重算相等；十二项纯检查、三项真实 PostgreSQL 检查及独立只读审查通过。证据为 `credentials-412-0e1e30sg/routing-groups-exact-readback.private.json`。`2c74cd0` 为 OAuth 续接绑定原身份回执和重启后的真实端点回执，十九项纯检查、真实数据库重启与十项拒绝检查通过；实际 500 条 OAuth、其中 247 条 Google，以及 4 条 Telegram 绑定逐项读回相等。八条 Passkey 原凭据字段也已逐项核对。
+- `e5b3e11` 的管理员激活与来源密钥连续性协议完成独立开发验收，包含三项真实 PostgreSQL 检查、正常 owner plan/apply、旧 raw/sk 密钥的文字与图片结算，以及十一项撤销、版本变化和重放拒绝检查。该模型验收使用独立合成来源的组与信任基线。共同旧快照的实际管理员激活仍待信任基线导入后执行。完整 Root cohort 为 42 条，未撤销版本候选为 14 条，来源快照生命周期满足条件的为 12 条；两个原禁用管理员的 14 条密钥保持原禁用资格。实际可用性须按最终时钟与各项原限制核验。
+- Core7 正式 release ELF `e23fae8760e962c971c82286cb84cfee57f8d64c0437eb26faa7340123fb9291` 已构建，复用该产物完成 Arch、DEB `0.1.19-7` 包装与全部载荷哈希核对。`316ec5d` 绑定实际 schema68 raw capture、正常 init/ACL、严格 seal，准入目录为 `lmm-core7-release-vh29l59q/source`，收据为同目录上级的 `admitted-core7.receipt.private.json`。历史 Core65 回归另有四项旧版本断言失败，日志保留。提交与本地产物未签名，正式 Core7 与 Go9/Web5 的最终组合验收及生产部署仍待完成。
+- `5219858` 的正常 Trust exporter 已从固定 cc52 来源只读导出 1247 个用户和 104 条付费投影记录，未知投影数为 0，十六项定向检查及实际 CLI 通过。共同目标实读仍缺信任基线，后续正常迁移回执的精确接纳适配正在验证。重启恢复后已用正常工具生成当前目标的只读 inventory 和 snapshot，证据为 `trust-resumed-l2yw2und`。信任基线 prepare/seal/apply/读回、实际管理员激活与旧密钥核验、最终新快照迁移和生产切换均待完成。公开 `/api/status` 本轮实读 HTTP 200、success true、旧版 `0.2.118`。
+
 - `6991df0` 增加既有订阅套餐的 owner 价格发布入口，复用正常付款配置校验和双价格、操作回执事务。`0510c24` 追加第 67 组件，保留省略 checkout language 的 provider 推断语义。Core4 正式本地 ELF `fb05a273…0d661` 已通过正常 67 初始化、七个实际 ACL 拒绝、旧真实 Core66 ELF 正常初始化后的升级与重复执行，以及九组 SDK 付款集成检查。新增空语言请求实际省略 SDK language 字段。旧升级 fixture 的两个前置错误及日志保留，前后源码与 147 SDK 字节均核对一致。
 - `f5667e2` 支持严格的未准入 67 组件捕获。`3ebb537` 的正式 67 工具准入绑定实际初始化、ACL 收据。`667f35a` 的实际 PostgreSQL 回归共有十四个唯一用例通过。首轮 W 用例在身份导入前置的其他数据库客户端检查被拒，W 业务尚未执行。独立重跑 W 通过，原失败结果保留。
 - `a9c1210` 的退款来源与账户映射修复通过十一项检查。`9de5880` 的连接期限和回执投影通过一项传输单元检查、三项真实 PostgreSQL 检查，完整表和序列 CAS 保留。`92c8443`、`46a0195` 修复 Originals 正常 CLI 的 Decimal 往返、私有文件及输出容量，十八项定向检查通过。上述 W 实际 SQL 回归另证明 UNKNOWN 原值、整数型 Decimal、重复执行和冲突拒绝。
