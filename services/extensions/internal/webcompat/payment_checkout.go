@@ -79,7 +79,7 @@ func checkoutData(w http.ResponseWriter, code int, value any) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": value})
 }
 
-func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service PaymentCheckoutService) {
+func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service PaymentCheckoutService, portal PaymentPortal) {
 	ready := func(w http.ResponseWriter, r *http.Request) (string, int64, bool) {
 		self, err := auth.Verify(r.Context(), r)
 		if err != nil {
@@ -114,7 +114,8 @@ func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service Pa
 			}
 			channels = append(channels, view)
 		}
-		checkoutData(w, http.StatusOK, map[string]any{"channels": channels, "available": len(channels) > 0})
+		portalAvailable := !store.Missing(portal) && portal.PancakePortalAvailable()
+		checkoutData(w, http.StatusOK, map[string]any{"channels": channels, "available": len(channels) > 0, "pancake_portal_available": portalAvailable})
 	})
 	write := func(confirm bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

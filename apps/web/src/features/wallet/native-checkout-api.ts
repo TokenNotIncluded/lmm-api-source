@@ -18,6 +18,7 @@ const envelope = z.object({ success: z.literal(true), data: z.unknown() })
 const channels = z.object({
   available: z.boolean(),
   channels: z.array(nativeChannelSchema),
+  pancake_portal_available: z.boolean().default(false),
 })
 function config(write = false): ApiRequestConfig {
   const { user, session } = useAuthStore.getState().auth

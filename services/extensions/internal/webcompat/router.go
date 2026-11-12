@@ -41,6 +41,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	var operationsService *operations.Service
 	var paymentReader PaymentStatusReader
 	var paymentCheckout PaymentCheckoutService
+	var paymentPortal PaymentPortal
 	if len(optional) == 1 {
 		RegisterBuiltinHTTP(mux, optional[0].Builtins)
 		if !store.Missing(optional[0].ToolMarketMCP) {
@@ -50,7 +51,8 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		operationsService = optional[0].Operations
 		paymentReader = optional[0].Payments
 		paymentCheckout = optional[0].PaymentCheckout
-		RegisterPaymentPortal(mux, auth, optional[0].PaymentPortal)
+		paymentPortal = optional[0].PaymentPortal
+		RegisterPaymentPortal(mux, auth, paymentPortal)
 		RegisterPancakeAdmin(mux, auth, optional[0].PancakeAdmin)
 		if !store.Missing(optional[0].SubscriptionPayments) {
 			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", optional[0].SubscriptionPayments)
@@ -91,7 +93,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	}
 	RegisterOperations(mux, auth, operationsService)
 	RegisterPayments(mux, auth, paymentReader)
-	RegisterPaymentCheckout(mux, auth, paymentCheckout)
+	RegisterPaymentCheckout(mux, auth, paymentCheckout, paymentPortal)
 	// Unassembled old routes are explicit failures, never a successful empty DTO.
 	mux.HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {

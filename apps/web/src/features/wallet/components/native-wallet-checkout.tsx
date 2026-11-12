@@ -31,6 +31,7 @@ import {
   getNativePaymentStatus,
   quoteNativePayment,
 } from '../native-checkout-api'
+import { PancakeCustomerPortal } from './pancake-customer-portal'
 
 const providerNames: Record<NativeChannel['provider'], string> = {
   epay: 'EPay',
@@ -72,6 +73,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   const [channels, setChannels] = useState<NativeChannel[]>([])
   const [channelsLoading, setChannelsLoading] = useState(true)
   const [channelsFailed, setChannelsFailed] = useState(false)
+  const [portalAvailable, setPortalAvailable] = useState(false)
   const [channelVersion, setChannelVersion] = useState(0)
   const [selectedID, setSelectedID] = useState('')
   const [amount, setAmount] = useState('10.00')
@@ -114,9 +116,18 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
     const controller = new AbortController()
     setChannelsLoading(true)
     setChannelsFailed(false)
+    setPortalAvailable(false)
     void getNativePaymentChannels(controller.signal)
       .then((data) => {
-        if (isCurrent()) setChannels(data.available ? data.channels : [])
+        if (isCurrent()) {
+          setChannels(data.available ? data.channels : [])
+          setPortalAvailable(
+            data.pancake_portal_available &&
+              data.channels.some(
+                (channel) => channel.provider === 'waffo_pancake'
+              )
+          )
+        }
       })
       .catch(() => {
         if (isCurrent() && !controller.signal.aborted) setChannelsFailed(true)
@@ -166,7 +177,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
         : undefined
       const minor = selected.credit_quantity
         ? credits && '0'
-        : selected.fixed_amount_minor ?? nativeAmountMinor(amount)
+        : (selected.fixed_amount_minor ?? nativeAmountMinor(amount))
       if (!minor) return
       const next = pending ?? {
         channel: selected,
@@ -324,7 +335,10 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               </div>
               <div className='space-y-2'>
                 <Label htmlFor='native-payment-amount'>
-                  {t('Amount')} · {selected?.credit_quantity ? 'USD' : selected && paymentCurrency(selected)}
+                  {t('Amount')} ·{' '}
+                  {selected?.credit_quantity
+                    ? 'USD'
+                    : selected && paymentCurrency(selected)}
                 </Label>
                 <Input
                   id='native-payment-amount'
@@ -528,6 +542,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           ) : null}
         </div>
       ) : null}
+      {portalAvailable ? <PancakeCustomerPortal owner={owner} /> : null}
     </section>
   )
 }

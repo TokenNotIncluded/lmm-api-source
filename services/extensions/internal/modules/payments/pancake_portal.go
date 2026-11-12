@@ -23,6 +23,33 @@ func (s *Service) PancakePortal(ctx context.Context, userID int64) (*CustomerPor
 	if userID <= 0 {
 		return nil, ErrDenied
 	}
+	selected, err := s.pancakePortalAdapter()
+	if err != nil {
+		return nil, err
+	}
+	link, err := selected.client.Auth.CreateCustomerPortalLink(ctx, pancake.CreateCustomerPortalLinkParams{
+		StoreID: selected.cfg.StoreID, BuyerIdentity: "lmm-user-" + strconv.FormatInt(userID, 10),
+	})
+	if err != nil || link == nil {
+		return nil, ErrUnavailable
+	}
+	u, err := secureURL(link.PortalURL)
+	expires, expiryErr := time.Parse(time.RFC3339, link.ExpiresAt)
+	if err != nil || u.Hostname() != "pancake.waffo.ai" || u.Path != "/consumer/portal/store/"+selected.cfg.StoreID ||
+		u.RawQuery != "" || !strings.HasPrefix(u.Fragment, "token=") || len(u.Fragment) <= len("token=") || expiryErr != nil || !expires.After(time.Now()) {
+		return nil, ErrConflict
+	}
+	return &CustomerPortalLink{PortalURL: link.PortalURL, ExpiresAt: link.ExpiresAt}, nil
+}
+
+// PancakePortalAvailable describes configured scope without contacting the
+// supplier or minting a private portal link.
+func (s *Service) PancakePortalAvailable() bool {
+	_, err := s.pancakePortalAdapter()
+	return err == nil
+}
+
+func (s *Service) pancakePortalAdapter() (*Pancake, error) {
 	var selected *Pancake
 	for _, adapter := range s.adapterSnapshot() {
 		p, ok := adapter.(*Pancake)
@@ -39,17 +66,5 @@ func (s *Service) PancakePortal(ctx context.Context, userID int64) (*CustomerPor
 	if selected == nil {
 		return nil, ErrUnavailable
 	}
-	link, err := selected.client.Auth.CreateCustomerPortalLink(ctx, pancake.CreateCustomerPortalLinkParams{
-		StoreID: selected.cfg.StoreID, BuyerIdentity: "lmm-user-" + strconv.FormatInt(userID, 10),
-	})
-	if err != nil || link == nil {
-		return nil, ErrUnavailable
-	}
-	u, err := secureURL(link.PortalURL)
-	expires, expiryErr := time.Parse(time.RFC3339, link.ExpiresAt)
-	if err != nil || u.Hostname() != "pancake.waffo.ai" || u.Path != "/consumer/portal/store/"+selected.cfg.StoreID ||
-		u.RawQuery != "" || !strings.HasPrefix(u.Fragment, "token=") || len(u.Fragment) <= len("token=") || expiryErr != nil || !expires.After(time.Now()) {
-		return nil, ErrConflict
-	}
-	return &CustomerPortalLink{PortalURL: link.PortalURL, ExpiresAt: link.ExpiresAt}, nil
+	return selected, nil
 }

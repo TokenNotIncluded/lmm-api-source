@@ -13,9 +13,12 @@ import (
 )
 
 type paymentPortalProbe struct {
-	users []int64
-	err   error
+	users    []int64
+	err      error
+	disabled bool
 }
+
+func (p *paymentPortalProbe) PancakePortalAvailable() bool { return !p.disabled }
 
 func (p *paymentPortalProbe) PancakePortal(_ context.Context, userID int64) (*payments.CustomerPortalLink, error) {
 	p.users = append(p.users, userID)

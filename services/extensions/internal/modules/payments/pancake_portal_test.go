@@ -46,6 +46,9 @@ func TestPancakePortalUsesAuthenticatedBuyerAndConfiguredStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !svc.PancakePortalAvailable() || calls.Load() != 0 {
+		t.Fatal("one configured store did not advertise portal without supplier I/O")
+	}
 	link, err := svc.PancakePortal(context.Background(), 42)
 	if err != nil || link == nil || link.PortalURL != "https://pancake.waffo.ai/consumer/portal/store/STO_0123456789abcdefghijkl#token=synthetic_portal_token" || calls.Load() != 1 {
 		t.Fatal("server-bound portal unavailable", err)
@@ -58,7 +61,14 @@ func TestPancakePortalUsesAuthenticatedBuyerAndConfiguredStore(t *testing.T) {
 		t.Fatal("provider failure escaped stable error")
 	}
 	cny.cfg.StoreID = "STO_abcdefghijkl0123456789"
+	if svc.PancakePortalAvailable() {
+		t.Fatal("ambiguous portal advertised to browser")
+	}
 	if _, err := svc.PancakePortal(context.Background(), 42); !errors.Is(err, ErrConflict) || calls.Load() != 2 {
 		t.Fatal("ambiguous stores reached provider", err)
+	}
+	usd.cfg.Channel.Enabled, cny.cfg.Channel.Enabled = false, false
+	if svc.PancakePortalAvailable() || calls.Load() != 2 {
+		t.Fatal("disabled portal advertised or contacted provider")
 	}
 }

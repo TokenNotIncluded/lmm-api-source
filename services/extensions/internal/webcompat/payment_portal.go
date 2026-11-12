@@ -12,6 +12,7 @@ import (
 
 type PaymentPortal interface {
 	PancakePortal(context.Context, int64) (*payments.CustomerPortalLink, error)
+	PancakePortalAvailable() bool
 }
 
 func RegisterPaymentPortal(mux *http.ServeMux, auth *Authenticator, portal PaymentPortal) {

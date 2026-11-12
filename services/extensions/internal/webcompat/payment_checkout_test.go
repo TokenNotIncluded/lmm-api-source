@@ -51,7 +51,7 @@ func checkoutMux(t *testing.T, p PaymentCheckoutService) *http.ServeMux {
 		t.Fatal(err)
 	}
 	m := http.NewServeMux()
-	RegisterPaymentCheckout(m, a, p)
+	RegisterPaymentCheckout(m, a, p, nil)
 	return m
 }
 func checkoutCall(m *http.ServeMux, method, path, token, body string) *httptest.ResponseRecorder {
@@ -138,5 +138,39 @@ func TestBrowserPaymentCatalogAndReadsAreSeparateFromMoney(t *testing.T) {
 	w = checkoutCall(checkoutMux(t, nil), "GET", "/api/user/payments/channels", webToken, "")
 	if w.Code != 503 {
 		t.Fatal("missing payment host advertised available", w.Code)
+	}
+}
+
+func TestBrowserPaymentPortalCapabilityRequiresMountedUnambiguousScope(t *testing.T) {
+	host, core := mountTransportHost(t, nil)
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	probe := &paymentPortalProbe{}
+	for _, tc := range []struct {
+		name                string
+		portal              PaymentPortal
+		disabled, available bool
+	}{
+		{"unmounted", nil, false, false},
+		{"available", probe, false, true},
+		{"ambiguous_or_disabled", probe, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			probe.disabled = tc.disabled
+			handler := Mount(host, newAuth(t, core), nil, nil, AdditionalServices{PaymentCheckout: &checkoutPort{}, PaymentPortal: tc.portal})
+			r := httptest.NewRequest("GET", "/api/user/payments/channels", nil)
+			r.Header.Set("Authorization", "Bearer "+webToken)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			var response struct {
+				Data struct {
+					Available bool `json:"pancake_portal_available"`
+				} `json:"data"`
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &response) != nil || response.Data.Available != tc.available || len(probe.users) != 0 {
+				t.Fatal("portal capability did not follow mounted service or minted a token", w.Code, w.Body.String())
+			}
+		})
 	}
 }
