@@ -76,6 +76,11 @@ func (*Pancake) Refund(context.Context, Order, Refund, string) (RefundResult, er
 }
 
 func (p *Pancake) Checkout(ctx context.Context, o Order, key string) (Checkout, error) {
+	bound, bindingErr := p.forOrder(o)
+	if bindingErr != nil {
+		return Checkout{}, bindingErr
+	}
+	p = bound
 	if !providerOrderMatches(o, p.cfg.Channel) || !validKey(key) {
 		return Checkout{}, ErrInvalid
 	}
@@ -159,6 +164,11 @@ func (p *Pancake) Verify(r *http.Request, _ time.Time) (Event, error) {
 }
 
 func (p *Pancake) Lookup(ctx context.Context, o Order) ([]Event, error) {
+	bound, bindingErr := p.forOrder(o)
+	if bindingErr != nil {
+		return nil, bindingErr
+	}
+	p = bound
 	if !providerOrderMatches(o, p.cfg.Channel) {
 		return nil, ErrInvalid
 	}

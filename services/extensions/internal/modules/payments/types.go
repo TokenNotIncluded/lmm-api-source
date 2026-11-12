@@ -267,21 +267,31 @@ type Job struct {
 	ErrorCode    string    `json:"error_code,omitempty"`
 	Receipt      *Receipt  `json:"receipt,omitempty"`
 }
+type PancakeOrderBinding struct {
+	StoreID          string `json:"store_id"`
+	ProductID        string `json:"product_id"`
+	ReturnURL        string `json:"return_url"`
+	TaxCategory      string `json:"tax_category"`
+	CheckoutRegion   string `json:"checkout_region"`
+	CheckoutLanguage string `json:"checkout_language"`
+}
+
 type Order struct {
-	ID            string            `json:"id"`
-	ChannelID     int64             `json:"channel_id"`
-	Namespace     string            `json:"namespace"`
-	Intent        Intent            `json:"intent"`
-	Checkout      Checkout          `json:"checkout"`
-	PaymentID     string            `json:"payment_id,omitempty"`
-	ProviderPaid  bool              `json:"provider_paid"`
-	CreditState   string            `json:"credit_state"`
-	CreditReceipt string            `json:"credit_receipt,omitempty"`
-	RefundFence   bool              `json:"refund_fence"`
-	Refunds       map[string]Refund `json:"refunds"`
-	Jobs          map[string]Job    `json:"jobs"`
-	Version       int64             `json:"version"`
-	ErrorCode     string            `json:"error_code,omitempty"`
+	PancakeBinding *PancakeOrderBinding `json:"pancake_binding,omitempty"`
+	ID             string               `json:"id"`
+	ChannelID      int64                `json:"channel_id"`
+	Namespace      string               `json:"namespace"`
+	Intent         Intent               `json:"intent"`
+	Checkout       Checkout             `json:"checkout"`
+	PaymentID      string               `json:"payment_id,omitempty"`
+	ProviderPaid   bool                 `json:"provider_paid"`
+	CreditState    string               `json:"credit_state"`
+	CreditReceipt  string               `json:"credit_receipt,omitempty"`
+	RefundFence    bool                 `json:"refund_fence"`
+	Refunds        map[string]Refund    `json:"refunds"`
+	Jobs           map[string]Job       `json:"jobs"`
+	Version        int64                `json:"version"`
+	ErrorCode      string               `json:"error_code,omitempty"`
 }
 
 // Credited says only that Rust durably posted the original credit. It does NOT

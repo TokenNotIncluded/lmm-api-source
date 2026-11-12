@@ -38,7 +38,7 @@ func gatewayKey(t *testing.T) (string, *rsa.PublicKey) {
 }
 
 func gatewayOrder(c Channel) Order {
-	return Order{ID: "top_1", ChannelID: c.ID, Namespace: c.namespace(),
+	return Order{PancakeBinding: &PancakeOrderBinding{StoreID: "STO_0123456789abcdefghijkl", ProductID: "PROD_0123456789abcdefghijkl", TaxCategory: "saas"}, ID: "top_1", ChannelID: c.ID, Namespace: c.namespace(),
 		Intent: Intent{ID: 1, AccountID: 99, CreatedBy: 7, Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment,
 			Currency: c.Currency, AmountMinor: 1000, CreditUnits: 5000000, CreditUnit: "credit_500k_usd", Key: "gateway_create_0001", RequestHash: make([]byte, 32)},
 		CreditState: "pending", Refunds: map[string]Refund{}, Jobs: map[string]Job{}}
@@ -295,7 +295,11 @@ func TestPancakeSDKCheckoutBindsCoreIntentAndStableKey(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			checkout, err := p.Checkout(context.Background(), gatewayOrder(p.Channel()), "gateway_checkout_key_001")
+			frozen := gatewayOrder(p.Channel())
+			frozen.PancakeBinding.ReturnURL = tc.returnURL
+			frozen.PancakeBinding.CheckoutRegion = "china"
+			frozen.PancakeBinding.CheckoutLanguage = "zh-Hans"
+			checkout, err := p.Checkout(context.Background(), frozen, "gateway_checkout_key_001")
 			if err != nil || checkout.ID != "CHK_fixture" || checkouts.Load() != 1 || tokens.Load() != 1 || !strings.HasSuffix(checkout.URL, "#token=synthetic_token") {
 				t.Fatal(checkout, err, checkouts.Load(), tokens.Load())
 			}

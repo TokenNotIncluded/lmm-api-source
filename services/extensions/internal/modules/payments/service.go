@@ -131,6 +131,9 @@ func (s *Service) orderAdapter(o Order) (Adapter, error) {
 		c.Environment != o.Intent.Environment || c.Currency != o.Intent.Currency {
 		return nil, ErrConflict
 	}
+	if p, ok := a.(*Pancake); ok {
+		return p.forOrder(o)
+	}
 	return a, nil
 }
 
@@ -153,6 +156,9 @@ func (s *Service) Create(ctx context.Context, credential string, req PrepareRequ
 	intent.RequestedCreditUnits = req.RequestedCreditUnits
 	id := "top_" + strconv.FormatInt(intent.ID, 10)
 	o := Order{ID: id, ChannelID: c.ID, Namespace: c.namespace(), Intent: intent, CreditState: "pending", Refunds: map[string]Refund{}, Jobs: map[string]Job{}}
+	if p, ok := a.(*Pancake); ok {
+		o.PancakeBinding = &PancakeOrderBinding{StoreID: p.cfg.StoreID, ProductID: p.cfg.ProductID, ReturnURL: p.cfg.ReturnURL, TaxCategory: p.cfg.TaxCategory, CheckoutRegion: p.cfg.CheckoutRegion, CheckoutLanguage: p.cfg.CheckoutLanguage}
+	}
 	checkoutKey := stableKey("checkout", id)
 	if c.Provider == "coinbase" {
 		checkoutKey, err = coinbaseCheckoutKey()

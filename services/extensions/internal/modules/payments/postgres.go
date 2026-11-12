@@ -132,7 +132,7 @@ func (p *Postgres) Mutate(ctx context.Context, id string, fn func(*Order) error)
 	return nil
 }
 func sameIdentity(a, b Order) bool {
-	return a.ID == b.ID && a.ChannelID == b.ChannelID && a.Namespace == b.Namespace && reflect.DeepEqual(a.Intent, b.Intent) && (a.PaymentID == "" || a.PaymentID == b.PaymentID)
+	return reflect.DeepEqual(a.PancakeBinding, b.PancakeBinding) && a.ID == b.ID && a.ChannelID == b.ChannelID && a.Namespace == b.Namespace && reflect.DeepEqual(a.Intent, b.Intent) && (a.PaymentID == "" || a.PaymentID == b.PaymentID)
 }
 func encodeOrder(o Order) ([]byte, error) {
 	if !validID(o.ID) || o.Intent.ID <= 0 || !validAmount(o.Intent.AmountMinor) || len(o.Jobs) > 256 || len(o.Refunds) > 128 || o.Jobs == nil || o.Refunds == nil {
