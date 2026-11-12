@@ -432,7 +432,7 @@ func (m *Module) recoverCoreApproval(ctx context.Context, claim marketreview.Job
 			return nil
 		}
 		for _, job := range v.AIReview.Jobs {
-			if job.ID == claim.ID && job.Token == claim.Token && job.Attempts == claim.Attempts && job.ApprovalPending {
+			if job.ID == claim.ID && job.Token == claim.Token && job.Attempts == claim.Attempts && job.LeaseUntil == claim.LeaseUntil && job.ApprovalPending {
 				s := w.Services[claim.TargetID]
 				if job.Applied && s.LiveVersionID == claim.Version && s.DraftVersionID == "" {
 					// The local publication committed but its ACK was lost.
@@ -473,7 +473,7 @@ func (m *Module) confirmCoreApproval(claim marketreview.Job) error {
 		}
 		for i := range v.AIReview.Jobs {
 			j := &v.AIReview.Jobs[i]
-			if j.ID == claim.ID && j.Token == claim.Token && j.Attempts == claim.Attempts && j.Applied {
+			if j.ID == claim.ID && j.Token == claim.Token && j.Attempts == claim.Attempts && j.LeaseUntil == claim.LeaseUntil && j.Applied {
 				j.ApprovalPending, j.LeaseUntil = false, 0
 			}
 		}

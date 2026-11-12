@@ -109,6 +109,19 @@ func TestBoundedRecoveryAndTerminalRedaction(t *testing.T) {
 	}
 }
 
+func TestApprovalRecoveryLeaseFencesOriginalWorkerWithoutAnotherClassification(t *testing.T) {
+	h := reviewHistory(t, Auto)
+	old := h.Claim(101)
+	h.Jobs[0].ApprovalPending = true
+	next := h.Claim(162)
+	if next == nil || next.Attempts != old.Attempts || next.LeaseUntil == old.LeaseUntil {
+		t.Fatal("recovery did not acquire a distinct lease without a model attempt")
+	}
+	if applied, _ := h.Complete(*old, cleanResult(), nil, Auto, true, true, "", 163); applied || !h.Jobs[0].ApprovalPending || h.Jobs[0].LeaseUntil != next.LeaseUntil {
+		t.Fatal("expired worker overrode the recovery lease")
+	}
+}
+
 func TestPublicTextAllowlistAndStrictSettings(t *testing.T) {
 	text, err := PublicText("Title", "Link https://secret.example/path?key=PRIVATE and mail me@example.com Bearer TOKEN_SECRET sk-abcdefghijklmnopqrstuvwxyz")
 	if err != nil || strings.Contains(text, "secret.example") || strings.Contains(text, "me@example.com") || strings.Contains(text, "TOKEN_SECRET") || strings.Contains(text, "sk-") {

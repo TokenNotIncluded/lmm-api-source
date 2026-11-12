@@ -324,7 +324,7 @@ func (e *Engine) Classify(ctx context.Context, j Job) (Classification, error) {
 func (h *History) Complete(claim Job, result Classification, callErr error, mode Mode, current, ownerEnabled bool, manualCode string, now int64) (apply, approve bool) {
 	for i := range h.Jobs {
 		j := &h.Jobs[i]
-		if j.ID != claim.ID || j.Token != claim.Token || j.Status != "running" || j.Attempts != claim.Attempts {
+		if j.ID != claim.ID || j.Token != claim.Token || j.Status != "running" || j.Attempts != claim.Attempts || j.LeaseUntil != claim.LeaseUntil {
 			continue
 		}
 		if h.Token != j.Token || !current {

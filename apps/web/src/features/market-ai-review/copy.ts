@@ -54,6 +54,23 @@ export const MARKET_AI_REVIEW_COPY = {
 } as const
 
 export const MARKET_AI_REVIEW_ERRORS: Record<string, string> = {
+  review_disabled: MARKET_AI_REVIEW_COPY.disabledError,
+  input_limit: MARKET_AI_REVIEW_COPY.largeError,
+  private_listing: MARKET_AI_REVIEW_COPY.nonpublicError,
+  technical_validation_failed: MARKET_AI_REVIEW_COPY.validationError,
+  stale_submission: MARKET_AI_REVIEW_COPY.staleError,
+  route_unavailable: MARKET_AI_REVIEW_COPY.routeError,
+  provider_unavailable: MARKET_AI_REVIEW_COPY.providerError,
+  provider_rate_limited: MARKET_AI_REVIEW_COPY.providerError,
+  provider_invalid: MARKET_AI_REVIEW_COPY.responseError,
+  authority_unavailable: MARKET_AI_REVIEW_COPY.unavailableError,
+  owner_disabled: MARKET_AI_REVIEW_COPY.unavailableError,
+  classification_failed: MARKET_AI_REVIEW_COPY.unavailableError,
+  attempts_exhausted: MARKET_AI_REVIEW_COPY.leaseError,
+  core_approval_required: MARKET_AI_REVIEW_COPY.manual,
+  core_approval_failed: MARKET_AI_REVIEW_COPY.unavailableError,
+  core_approval_uncertain: MARKET_AI_REVIEW_COPY.manual,
+  seller_terms_required: MARKET_AI_REVIEW_COPY.manual,
   market_review_disabled: MARKET_AI_REVIEW_COPY.disabledError,
   market_review_stale: MARKET_AI_REVIEW_COPY.staleError,
   market_review_resubmitted: MARKET_AI_REVIEW_COPY.resubmittedError,
