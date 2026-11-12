@@ -5,6 +5,23 @@
   --mesh-surface: var(--background);
   margin: 0;
   min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  border-radius: 1.25rem;
+  background: var(--card);
+  box-shadow: 0 2rem 5rem -3.5rem color-mix(in oklch, var(--foreground) 28%, transparent);
+}
+
+.lmm-mesh-figure .lmm-mesh-stage {
+  padding: 1rem;
+}
+
+.lmm-mesh-figure .lmm-mesh-scene {
+  border-radius: 0.85rem;
+}
+
+.lmm-mesh-figure .lmm-mesh-caption {
+  margin-inline: 1.25rem;
 }
 .lmm-mesh-stage {
   position: relative;

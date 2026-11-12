@@ -24,6 +24,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 :root {
   --forge-paper-light: #faf9f5;
   --forge-ink-light: #141413;
+  --forge-night: #101211;
+  --forge-night-soft: #1a1d1b;
+  --forge-night-muted: #a8aaa3;
   --forge-card-light: #f0eee6;
   --forge-secondary-light: #e3dacc;
   --forge-muted-light: #e8e6dc;

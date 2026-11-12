@@ -12,9 +12,20 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(in crate::channel_http) struct KeyPool {
+    #[serde(default)]
+    pub polling: bool,
+    #[serde(default)]
+    pub disabled: Vec<CredentialRef>,
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct Bindings {
     #[serde(default)]
     pub names: BTreeMap<u64, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub key_pools: BTreeMap<u64, KeyPool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tags: BTreeMap<u64, String>,
     #[serde(default)]
@@ -56,6 +67,30 @@ impl Bindings {
             .collect::<BTreeSet<_>>();
         for (id, tag) in &self.tags {
             if !valid_label(tag) || !upstream_ids.contains(id) {
+                return Err(ManagementError::Invalid);
+            }
+        }
+        for (id, pool) in &self.key_pools {
+            let upstream = _document
+                .routing
+                .upstreams
+                .iter()
+                .find(|upstream| upstream.id == *id)
+                .ok_or(ManagementError::Invalid)?;
+            let unique = pool
+                .disabled
+                .iter()
+                .map(|reference| (reference.id, reference.revision))
+                .collect::<BTreeSet<_>>();
+            if pool.disabled.len() > 1000
+                || unique.len() != pool.disabled.len()
+                || pool
+                    .disabled
+                    .iter()
+                    .any(|reference| reference.id == 0 || reference.revision == 0)
+                || (!pool.polling && !pool.disabled.is_empty())
+                || pool.disabled.contains(&upstream.credential)
+            {
                 return Err(ManagementError::Invalid);
             }
         }
@@ -586,14 +621,26 @@ pub(in crate::channel_http) async fn keys(
         .iter()
         .find(|u| u.id == id)
         .ok_or(Failure::NotFound)?;
-    let list: Value = sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
+    let bindings = management.current_bindings()?;
+    let pool = bindings.key_pools.get(&id);
+    let polling = pool.is_some_and(|pool| pool.polling);
+    let mut list: Value = sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
         .bind(id as i64)
         .fetch_one(&mut *tx)
         .await
         .map_err(ManagementError::from)?;
+    for key in list.as_array_mut().into_iter().flatten() {
+        let reference = serde_json::from_value::<CredentialRef>(key["reference"].clone())
+            .map_err(|_| ManagementError::Invalid)?;
+        key["enabled"] = json!(if polling {
+            !pool.is_some_and(|pool| pool.disabled.contains(&reference))
+        } else {
+            reference == upstream.credential
+        });
+    }
     tx.commit().await.map_err(ManagementError::from)?;
     Ok(Json(
-        json!({"success":true,"data":{"version":Version::of(&document),"active_reference":upstream.credential,"keys":list,"plaintext_available":false}}),
+        json!({"success":true,"data":{"version":Version::of(&document),"active_reference":upstream.credential,"polling":polling,"keys":list,"plaintext_available":false}}),
     ))
 }
 #[derive(Deserialize)]
@@ -608,6 +655,15 @@ pub(in crate::channel_http) enum KeyOperation {
     Activate {
         expected_version: Version,
         reference: CredentialRef,
+    },
+    SetPolling {
+        expected_version: Version,
+        enabled: bool,
+    },
+    SetEnabled {
+        expected_version: Version,
+        reference: CredentialRef,
+        enabled: bool,
     },
     Remove {
         expected_version: Version,
@@ -637,6 +693,12 @@ pub(in crate::channel_http) async fn change_key(
         | KeyOperation::Activate {
             expected_version, ..
         }
+        | KeyOperation::SetPolling {
+            expected_version, ..
+        }
+        | KeyOperation::SetEnabled {
+            expected_version, ..
+        }
         | KeyOperation::Remove {
             expected_version, ..
         } => *expected_version,
@@ -648,6 +710,7 @@ pub(in crate::channel_http) async fn change_key(
         .iter_mut()
         .find(|u| u.id == id)
         .ok_or(Failure::NotFound)?;
+    let mut bindings = management.current_bindings()?;
     let mut credentials = Vec::new();
     let (reference, action) = match input {
         KeyOperation::Add {
@@ -693,7 +756,58 @@ pub(in crate::channel_http) async fn change_key(
             let secret = vault::decrypt(key, reference, &ciphertext.ok_or(Failure::NotFound)?)?;
             credentials.push(crate::model_http::UpstreamCredential { reference, secret });
             upstream.credential = reference;
+            if let Some(pool) = bindings.key_pools.get_mut(&id) {
+                pool.disabled.retain(|item| *item != reference);
+            }
             (reference, "channel.key.activate")
+        }
+        KeyOperation::SetPolling { enabled, .. } => {
+            let reference = upstream.credential;
+            if enabled {
+                bindings.key_pools.entry(id).or_default().polling = true;
+            } else {
+                bindings.key_pools.remove(&id);
+            }
+            (reference, "channel.key.polling")
+        }
+        KeyOperation::SetEnabled {
+            reference, enabled, ..
+        } => {
+            if upstream.credential == reference && !enabled {
+                return Err(ManagementError::Conflict.into());
+            }
+            let pool = bindings.key_pools.get(&id).filter(|pool| pool.polling);
+            if pool.is_none() {
+                return Err(ManagementError::Invalid.into());
+            }
+            let keys: Value = sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
+                .bind(id as i64)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(ManagementError::from)?;
+            let reference_json =
+                serde_json::to_value(reference).map_err(|_| ManagementError::Invalid)?;
+            if !keys
+                .as_array()
+                .is_some_and(|values| values.iter().any(|v| v["reference"] == reference_json))
+            {
+                return Err(Failure::NotFound);
+            }
+            let pool = bindings.key_pools.get_mut(&id).unwrap();
+            if enabled {
+                pool.disabled.retain(|item| *item != reference);
+            } else if !pool.disabled.contains(&reference) {
+                pool.disabled.push(reference);
+                pool.disabled.sort_by_key(|item| (item.id, item.revision));
+            }
+            (
+                reference,
+                if enabled {
+                    "channel.key.enable"
+                } else {
+                    "channel.key.disable"
+                },
+            )
         }
         KeyOperation::Remove { reference, .. } => {
             if upstream.credential == reference {
@@ -710,6 +824,9 @@ pub(in crate::channel_http) async fn change_key(
             if !removed {
                 return Err(Failure::NotFound);
             }
+            if let Some(pool) = bindings.key_pools.get_mut(&id) {
+                pool.disabled.retain(|item| *item != reference);
+            }
             (reference, "channel.key.remove")
         }
     };
@@ -719,7 +836,7 @@ pub(in crate::channel_http) async fn change_key(
             &principal,
             expected,
             document,
-            management.current_bindings()?,
+            bindings,
             credentials,
             PublicationChange::Normal {
                 action,

@@ -113,6 +113,11 @@ export function Channels() {
                   !channelOpsQuery.isError &&
                   channelOpsQuery.data?.data?.native_control === true
                 }
+                keysEnabled={
+                  phase === 'fresh' &&
+                  !channelOpsQuery.isError &&
+                  channelOpsQuery.data?.data?.native_secrets === true
+                }
               />
             </>
           )}

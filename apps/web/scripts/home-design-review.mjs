@@ -94,19 +94,19 @@ try {
       if (language === 'en') {
         assert.match(
           await page.locator('#lmm-home-title').textContent(),
-          /AI models/
+          /AI tools/
         )
       }
       if (language === 'fr') {
         assert.match(
           await page.locator('#lmm-home-title').textContent(),
-          /modèles IA/
+          /outils IA/
         )
       }
       if (language === 'ru') {
         assert.match(
           await page.locator('#lmm-home-title').textContent(),
-          /Модели ИИ/
+          /Инструменты ИИ/
         )
       }
       await page.screenshot({ path: `${output}/${name}.png` })

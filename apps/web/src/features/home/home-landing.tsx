@@ -42,6 +42,7 @@ type HomeLandingProps = {
   navigation: Pick<HeaderNavModules, 'guide' | 'directory' | 'about'>
   t: (key: string, options?: { brand: string }) => string
   language: string
+  toolMarketAction: ReactNode
   primaryAction: ReactNode
   storeAction: ReactNode
   pricingAction: ReactNode
@@ -113,6 +114,7 @@ export function HomeLanding({
   pricingHref,
   navigation,
   t,
+  toolMarketAction,
   primaryAction,
   storeAction,
   pricingAction,
@@ -126,7 +128,7 @@ export function HomeLanding({
   connectionMethod,
   onConnectionMethodChange,
 }: HomeLandingProps) {
-  const headline = t('AI models. One connection.')
+  const headline = t('AI tools. One community hub.')
   const usesDefaultBrand =
     brandLogo === DEFAULT_LOGO && brandName === DEFAULT_SYSTEM_NAME
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
@@ -140,7 +142,7 @@ export function HomeLanding({
       <section
         className='lmm-cinema'
         data-cinema
-        aria-label={t('One endpoint')}
+        aria-label={t('AI community hub')}
       >
         <div className='lmm-cinema-inner' data-cinema-inner>
           <div className='lmm-poster-art' aria-hidden='true'>
@@ -183,13 +185,19 @@ export function HomeLanding({
             data-active
             aria-labelledby='lmm-home-title'
           >
+            <div className='lmm-intro-kicker'>
+              <span aria-hidden='true' />
+              {t('AI community hub')}
+              <small>LMM / 001</small>
+            </div>
             <h1 id='lmm-home-title'>{headline}</h1>
             <p className='lmm-intro-description'>
               {t(
-                'Chat, images, and audio through one API. Compare prices, then connect your app.'
+                'Discover MCP tools, AI models, clients, and community creations in one connected hub.'
               )}
             </p>
             <div className='lmm-intro-actions'>
+              {toolMarketAction}
               {primaryAction}
               {pricingAction}
             </div>
@@ -199,23 +207,27 @@ export function HomeLanding({
             className='lmm-core-steps'
             aria-label={t('Explore {{brand}}', { brand: brandName })}
           >
-            {['Home', 'Store', 'Tool market', 'Ecosystem', 'Future'].map(
-              (label, index) => (
-                <li
-                  key={label}
-                  data-cinema-step
-                  data-active={index === 0 || undefined}
+            {[
+              { label: 'Home', chapter: 0 },
+              { label: 'Tool market', chapter: 2 },
+              { label: 'Store', chapter: 1 },
+              { label: 'Ecosystem', chapter: 3 },
+              { label: 'Future', chapter: 4 },
+            ].map(({ label, chapter }) => (
+              <li
+                key={label}
+                data-cinema-step
+                data-active={chapter === 0 || undefined}
+              >
+                <button
+                  type='button'
+                  data-cinema-jump={chapter}
+                  aria-pressed={chapter === 0}
                 >
-                  <button
-                    type='button'
-                    data-cinema-jump={index}
-                    aria-pressed={index === 0}
-                  >
-                    {t(label)}
-                  </button>
-                </li>
-              )
-            )}
+                  {t(label)}
+                </button>
+              </li>
+            ))}
           </ol>
           <a className='lmm-core-continue' href='#lmm-connect-title'>
             {t('Continue')} <Arrow />
@@ -296,11 +308,14 @@ export function HomeLanding({
           </section>
         </div>
       </section>
-      <div className='lmm-protocols' aria-label={t('API Endpoints')}>
-        <span>Chat Completions</span>
-        <span>Claude Messages</span>
-        <span>Gemini</span>
-        <span>Pi / OAuth</span>
+      <div
+        className='lmm-protocols'
+        aria-label={t('Explore {{brand}}', { brand: brandName })}
+      >
+        <span>{t('Tool market')}</span>
+        <span>{t('Models and pricing')}</span>
+        <span>{t('Store')}</span>
+        <span>{t('Ecosystem')}</span>
       </div>
 
       <section
@@ -308,7 +323,7 @@ export function HomeLanding({
         aria-labelledby='lmm-mesh-title'
       >
         <div className='lmm-mesh-intro'>
-          <h2 id='lmm-mesh-title'>{t('One endpoint')}</h2>
+          <h2 id='lmm-mesh-title'>{t('One ecosystem. Many ways in.')}</h2>
           <p>
             {t(
               'Chat, reasoning, vision, and audio models behind one endpoint.'

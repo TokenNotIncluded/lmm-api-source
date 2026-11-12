@@ -730,6 +730,7 @@ pub(super) async fn remove(
     let mut bindings = management.current_bindings()?;
     bindings.names.remove(&id);
     bindings.tags.remove(&id);
+    bindings.key_pools.remove(&id);
     bindings
         .contexts
         .retain(|context| context.upstream_id != id);

@@ -618,7 +618,7 @@ describe('ForgeHome assistant entry', () => {
     const localizedPrompts = await Promise.all(
       Object.entries({
         en: 'en',
-        'zh-CN': 'zh',
+        'zh-CN': 'zh-CN',
         'zh-TW': 'zh-TW',
         fr: 'fr',
         ja: 'ja',
@@ -902,11 +902,23 @@ describe('ForgeHome assistant entry', () => {
 })
 
 describe('Primary next step follows account access', () => {
+  test('leads with the tool market and retains the account-aware action', async () => {
+    const rendered = await renderHome(null)
+    const actions = rendered.container.querySelectorAll('.lmm-intro-actions a')
+    assert.equal(actions[0]?.getAttribute('href'), '/tool-market')
+    assert.ok(actions[0]?.textContent?.includes('Browse MCP tools'))
+    assert.equal(
+      actions[1]?.getAttribute('href'),
+      '/sign-in?redirect=%2Fdashboard'
+    )
+    await unmountHome(rendered)
+  })
+
   test('starts guests at sign-in without sending them to payment', async () => {
     const pending = await renderHome(null, true, true)
     assert.equal(
       pending.container
-        .querySelector('.lmm-intro-actions a')
+        .querySelector('[data-account-action]')
         ?.getAttribute('href'),
       '/sign-in?redirect=%2Fdashboard'
     )
@@ -915,7 +927,7 @@ describe('Primary next step follows account access', () => {
     const ready = await renderHome(null)
     assert.equal(
       ready.container
-        .querySelector('.lmm-intro-actions a')
+        .querySelector('[data-account-action]')
         ?.getAttribute('href'),
       '/sign-in?redirect=%2Fdashboard'
     )
@@ -933,7 +945,7 @@ describe('Primary next step follows account access', () => {
     })
     assert.equal(
       rendered.container
-        .querySelector('.lmm-intro-actions a')
+        .querySelector('[data-account-action]')
         ?.textContent?.trim(),
       'Sign in'
     )
@@ -948,7 +960,7 @@ describe('Primary next step follows account access', () => {
       developer_access_granted: true,
     })
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
-      '.lmm-intro-actions a'
+      '[data-account-action]'
     )
     assert.ok(purchase)
     await act(async () => {
@@ -967,7 +979,7 @@ describe('Primary next step follows account access', () => {
       developer_access_granted: false,
     })
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
-      '.lmm-intro-actions a'
+      '[data-account-action]'
     )
     assert.ok(purchase)
     assert.equal(purchase.textContent?.trim(), 'Enable L1 access')

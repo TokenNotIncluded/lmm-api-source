@@ -762,6 +762,64 @@ For commercial licensing, please contact support@quantumnous.com
   transition-property: background-color, border-color, box-shadow, max-width;
 }
 
+body:has(.lmm-home) .forge-public-header {
+  --forge-header-ink: var(--forge-paper-light);
+  --forge-header-paper: var(--forge-night);
+  --forge-header-border: color-mix(in oklch, var(--forge-paper-light) 18%, transparent);
+  --forge-header-muted: var(--forge-night-muted);
+  position: absolute;
+  background: transparent;
+}
+
+body:has(.lmm-home) .forge-public-nav {
+  border-color: transparent;
+}
+
+body:has(.lmm-home) .forge-public-sign-in {
+  background: var(--forge-paper-light);
+  color: var(--forge-night);
+}
+
+body:has(.lmm-home) .forge-public-mobile-overlay {
+  background: var(--forge-night);
+  color: var(--forge-paper-light);
+}
+
+body:not(:has(.lmm-home)) .forge-public-header {
+  background: transparent;
+}
+
+body:not(:has(.lmm-home)) .forge-public-nav {
+  margin-top: 0.75rem;
+  padding-inline: 0.65rem;
+  border: 1px solid color-mix(in oklch, var(--forge-header-ink) 10%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--forge-header-paper) 86%, transparent);
+  box-shadow: 0 0.75rem 2.5rem -2rem color-mix(in oklch, var(--forge-header-ink) 30%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.forge-surface :where([data-slot='card']) {
+  border-color: color-mix(in oklch, var(--foreground) 8%, transparent);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 1rem 3rem -2.75rem color-mix(in oklch, var(--foreground) 24%, transparent);
+}
+
+.forge-surface :where(.rounded-xl, .rounded-2xl) {
+  border-radius: var(--radius-xl);
+}
+
+.forge-surface :where([data-slot='card']):hover {
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+
+@media (max-width: 639px) {
+  body:not(:has(.lmm-home)) .forge-public-nav {
+    margin-top: 0.4rem;
+    border-radius: 0.85rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .forge-public-header nav {
     transition-duration: 0.01ms !important;

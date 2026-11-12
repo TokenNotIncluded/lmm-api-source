@@ -30,32 +30,33 @@ export function capabilityPhase<T>(
   return age >= 0 && age < CAPABILITY_TTL_MS ? 'fresh' : 'stale'
 }
 
+// A registry record is a declaration, never a permission or health grant.
+const ROUTE_MODULES: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['/tool-market', ['toolmarket']],
+  ['/store', ['store']],
+  ['/support', ['store', 'support']],
+  ['/remote-control', ['remote-control']],
+]
+
 export function moduleNavigationState(
   path: string,
   plugins: CapabilityEvidence<PluginInfo[]>,
   now = Date.now()
 ): 'unaffected' | 'unknown' | 'unavailable' | 'reported_enabled' {
-  // Ownership comes from the host catalog, including unconfigured modules.
-  // Until it has declared a path, there is no evidence to narrow that route.
-  const owners = plugins.data?.filter((plugin) =>
-    plugin.navigation_paths?.some(
-      (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+  const required = ROUTE_MODULES.find(
+    ([prefix]) => path === prefix || path.startsWith(`${prefix}/`)
+  )?.[1]
+  if (!required) return 'unaffected'
+  if (capabilityPhase(plugins, now) !== 'fresh') return 'unknown'
+  return required.every((name) =>
+    plugins.data?.some(
+      (plugin) =>
+        plugin.name === name &&
+        plugin.available &&
+        plugin.installed &&
+        plugin.enabled
     )
   )
-  if (!owners?.length) return 'unaffected'
-  if (capabilityPhase(plugins, now) !== 'fresh') return 'unknown'
-
-  // A registry record is a declaration, never a permission or health grant.
-  const registry = new Map(plugins.data?.map((plugin) => [plugin.name, plugin]))
-  const checked = new Set<string>()
-  const enabled = (name: string): boolean => {
-    if (checked.has(name)) return true
-    const plugin = registry.get(name)
-    if (!plugin?.available || !plugin.installed || !plugin.enabled) return false
-    checked.add(name)
-    return (plugin.requires ?? []).every(enabled)
-  }
-  return owners.every((plugin) => enabled(plugin.name))
     ? 'reported_enabled'
     : 'unavailable'
 }

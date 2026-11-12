@@ -103,7 +103,7 @@ For commercial licensing, please contact support@quantumnous.com
   color-scheme: light;
   /* Cut system: tighter corners echo the logo's squared bowls and 45° base
    * cut. Presets and the user's radius axis still override this value. */
-  --radius: 0.5rem;
+  --radius: 0.65rem;
   /* Signature 45° corner cut used by brand marks and key surfaces. */
   --cut-size: 0.625rem;
   --app-header-height: 3rem;

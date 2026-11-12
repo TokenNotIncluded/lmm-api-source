@@ -231,7 +231,8 @@ export function Pricing() {
           <div className='border-foreground/20 mb-5 border-b pt-7 pb-5 sm:mb-8 sm:pt-14 sm:pb-8'>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
-                <h1 className='font-serif text-3xl leading-[1.1] font-normal tracking-tight text-balance sm:text-5xl lg:text-6xl'>
+                <div className='forge-kicker mb-4'>{t('API Endpoints')}</div>
+                <h1 className='font-sans text-4xl leading-[1.02] font-semibold tracking-[-0.055em] text-balance sm:text-6xl lg:text-7xl'>
                   {t('Models and pricing')}
                 </h1>
                 <p className='text-muted-foreground mt-3 max-w-2xl text-base leading-6 sm:mt-4 sm:leading-7'>

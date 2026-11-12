@@ -21,13 +21,11 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   copyNativeChannel,
   getNativeConfiguration,
-  getNativeKeys,
   nativeRequest as scopedNativeRequest,
   readNativeRoutingScope,
   type NativeRoutingScope,
   NATIVE_ROOT,
   parseNativeDocument,
-  type NativeKeyList,
   type NativeModelRoute,
   type NativePriceDraft,
   type NativeUpstream,
@@ -42,6 +40,7 @@ import { useChannelOps } from '../use-channel-ops'
 import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialog'
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
+import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
 import {
   NativeChannelSortFields,
   NativeChannelStatisticsRow,
@@ -176,9 +175,6 @@ function NativeRoutingWorkspace({
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [result, setResult] = useState<unknown>(null)
   const [keyChannel, setKeyChannel] = useState<number | null>(null)
-  const [keys, setKeys] = useState<NativeKeyList | null>(null)
-  const [keyLabel, setKeyLabel] = useState('')
-  const [keySecret, setKeySecret] = useState('')
   const queryKey = [
     'native-routing-configuration',
     scope.userId,
@@ -585,32 +581,6 @@ function NativeRoutingWorkspace({
       nativeRequest('DELETE', path, { expected_version: configuration.version })
     )
   }
-  async function openKeys(id: number) {
-    await run(async () => {
-      const value = await getNativeKeys(scope, id)
-      setKeys(value)
-      setKeyChannel(id)
-      setKeySecret('')
-      setKeyLabel('')
-      return null
-    })
-  }
-  async function changeKey(operation: Record<string, unknown>) {
-    if (!keys || keyChannel === null) return
-    const expected = keys.version
-    await run(async () => {
-      await nativeRequest(
-        'POST',
-        `${NATIVE_ROOT}/channels/${keyChannel}/keys`,
-        { expected_version: expected, ...operation }
-      )
-      setKeySecret('')
-      setKeyLabel('')
-      const current = await getNativeKeys(scope, keyChannel)
-      setKeys(current)
-      return null
-    })
-  }
   if (query.isLoading) return <LoadingState />
   if (query.isError || !configuration) {
     return (
@@ -891,8 +861,17 @@ function NativeRoutingWorkspace({
                     type='button'
                     variant='outline'
                     className='min-h-11'
-                    disabled={busy}
-                    onClick={() => void openKeys(channel.id)}
+                    disabled={
+                      busy ||
+                      !secretsAllowed ||
+                      !configuration.secret_storage_enabled
+                    }
+                    title={
+                      !secretsAllowed || !configuration.secret_storage_enabled
+                        ? t('Capability unavailable')
+                        : undefined
+                    }
+                    onClick={() => setKeyChannel(channel.id)}
                   >
                     {t('API Keys')}
                   </Button>
@@ -1319,135 +1298,20 @@ function NativeRoutingWorkspace({
           </div>
         </form>
       )}
-      {keys && keyChannel !== null && (
-        <section className='space-y-3 border p-4' aria-label={t('API Keys')}>
-          <div className='flex flex-wrap items-center justify-between gap-2'>
-            <h3 className='font-medium'>
-              {t('API Keys')} · {keyChannel}
-            </h3>
-            <Button
-              type='button'
-              variant='outline'
-              className='min-h-11'
-              disabled={busy}
-              onClick={() => void openKeys(keyChannel)}
-            >
-              {t('Refresh')}
-            </Button>
-            <Button
-              type='button'
-              variant='ghost'
-              className='min-h-11'
-              disabled={busy}
-              onClick={() => {
-                setKeys(null)
-                setKeyChannel(null)
-                setKeySecret('')
-              }}
-            >
-              {t('Close')}
-            </Button>
-          </div>
-          <p className='text-muted-foreground text-sm'>
-            {t('ID')}: {keys.active_reference.id} /{' '}
-            {keys.active_reference.revision}
-          </p>
-          {keys.keys.map((key) => {
-            const active =
-              key.reference.id === keys.active_reference.id &&
-              key.reference.revision === keys.active_reference.revision
-            const removeId = `key-${key.reference.id}-${key.reference.revision}`
-            return (
-              <div
-                key={removeId}
-                className='flex min-w-0 flex-wrap items-center justify-between gap-2 border p-3'
-              >
-                <span className='[overflow-wrap:anywhere]'>
-                  {key.label} {active && `· ${t('Enabled')}`}
-                </span>
-                <div className='flex flex-wrap gap-2'>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    disabled={busy || active}
-                    onClick={() =>
-                      void changeKey({
-                        operation: 'activate',
-                        reference: key.reference,
-                      })
-                    }
-                  >
-                    {t('Enable')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant={
-                      confirmation === removeId ? 'destructive' : 'outline'
-                    }
-                    className='min-h-11'
-                    disabled={busy || active}
-                    onClick={() => {
-                      if (confirmation === removeId) {
-                        void changeKey({
-                          operation: 'remove',
-                          reference: key.reference,
-                        })
-                      } else setConfirmation(removeId)
-                    }}
-                  >
-                    {confirmation === removeId
-                      ? t('Confirm delete')
-                      : t('Delete')}
-                  </Button>
-                </div>
-              </div>
-            )
-          })}
-          <form
-            className='space-y-3'
-            onSubmit={(event) => {
-              event.preventDefault()
-              void changeKey({
-                operation: 'add',
-                label: keyLabel,
-                secret: keySecret,
-                activate: false,
-              })
-            }}
-          >
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('Name')}</span>
-              <Input
-                className='min-h-11'
-                value={keyLabel}
-                maxLength={128}
-                required
-                disabled={busy || !configuration.secret_storage_enabled}
-                onChange={(event) => setKeyLabel(event.target.value)}
-              />
-            </label>
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('API key')}</span>
-              <Input
-                className='min-h-11'
-                type='password'
-                autoComplete='off'
-                value={keySecret}
-                required
-                disabled={busy || !configuration.secret_storage_enabled}
-                onChange={(event) => setKeySecret(event.target.value)}
-              />
-            </label>
-            <Button
-              type='submit'
-              className='min-h-11'
-              disabled={busy || !configuration.secret_storage_enabled}
-            >
-              {t('Add')}
-            </Button>
-          </form>
-        </section>
+      {keyChannel !== null && (
+        <NativeKeyManageDialog
+          key={`${scope.userId}:${scope.sessionId}:${keyChannel}`}
+          open
+          onOpenChange={(open) => {
+            if (!open) setKeyChannel(null)
+          }}
+          scope={scope}
+          channelId={keyChannel}
+          channelName={
+            configuration.bindings.names[keyChannel] ?? `Channel ${keyChannel}`
+          }
+          onChanged={() => void refresh()}
+        />
       )}
       {result !== null && (
         <pre

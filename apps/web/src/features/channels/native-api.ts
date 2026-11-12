@@ -75,6 +75,10 @@ export type NativeConfiguration = {
   bindings: {
     balance_probes?: Record<string, NativeBalanceProbe>
     legacy_balance?: Record<string, NativeLegacyBalance>
+    key_pools?: Record<
+      string,
+      { polling: boolean; disabled: NativeCredentialRef[] }
+    >
     names: Record<string, string>
     tags?: Record<string, string>
     contexts: NativeContext[]
@@ -96,13 +100,25 @@ export type NativePriceDraft = {
 export type NativeKeyList = {
   version: NativeVersion
   active_reference: NativeCredentialRef
+  polling: boolean
   keys: Array<{
     reference: NativeCredentialRef
     label: string
     created_at: string
+    enabled: boolean
   }>
   plaintext_available: false
 }
+export type NativeKeyOperation =
+  | { operation: 'add'; label: string; secret: string; activate: boolean }
+  | { operation: 'activate'; reference: NativeCredentialRef }
+  | { operation: 'set_polling'; enabled: boolean }
+  | {
+      operation: 'set_enabled'
+      reference: NativeCredentialRef
+      enabled: boolean
+    }
+  | { operation: 'remove'; reference: NativeCredentialRef }
 
 /** Reject rounded identifiers and monetary values before any mutation. */
 export function assertNativeIntegers(value: unknown): void {
@@ -371,6 +387,20 @@ const configurationSchema = z.object({
   bindings: z.object({
     balance_probes: z.record(z.string(), nativeBalanceProbeSchema).default({}),
     legacy_balance: z.record(z.string(), nativeLegacyBalanceSchema).default({}),
+    key_pools: z
+      .record(
+        z.string(),
+        z.object({
+          polling: z.boolean(),
+          disabled: z.array(
+            z.object({
+              id: z.number().int().positive(),
+              revision: z.number().int().positive(),
+            })
+          ),
+        })
+      )
+      .default({}),
     names: z.record(z.string(), z.string()),
     tags: z.record(z.string(), z.string()).optional(),
     contexts: z.array(
@@ -440,20 +470,20 @@ export async function getNativeConfiguration(
   return parsed as NativeConfiguration
 }
 
+const credentialRefSchema = z.object({
+  id: z.number().int().positive(),
+  revision: z.number().int().positive(),
+})
 const keyListSchema = z.object({
   version: versionSchema,
-  active_reference: z.object({
-    id: z.number().int().positive(),
-    revision: z.number().int().positive(),
-  }),
+  active_reference: credentialRefSchema,
+  polling: z.boolean(),
   keys: z.array(
     z.object({
-      reference: z.object({
-        id: z.number().int().positive(),
-        revision: z.number().int().positive(),
-      }),
+      reference: credentialRefSchema,
       label: z.string(),
       created_at: z.string(),
+      enabled: z.boolean(),
     })
   ),
   plaintext_available: z.literal(false),
@@ -471,6 +501,25 @@ export async function getNativeKeys(
       `${NATIVE_ROOT}/channels/${id}/keys`
     )
   )
+}
+export async function changeNativeKey(
+  scope: NativeRoutingScope,
+  id: number,
+  expectedVersion: NativeVersion,
+  operation: NativeKeyOperation
+) {
+  z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id)
+  versionSchema.parse(expectedVersion)
+  return z
+    .object({ version: versionSchema, reference: credentialRefSchema })
+    .parse(
+      await nativeRequest<unknown>(
+        scope,
+        'POST',
+        `${NATIVE_ROOT}/channels/${id}/keys`,
+        { expected_version: expectedVersion, ...operation }
+      )
+    )
 }
 
 const copyReceiptSchema = z.object({

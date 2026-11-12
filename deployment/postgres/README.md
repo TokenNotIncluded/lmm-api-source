@@ -49,7 +49,8 @@ defaults to `lmm_core_runtime`. Feature switches default to false:
 | `enable_console=true` | Read-only config/setup and append-only announcement reads |
 | `enable_models=true` | Charging and controlled model checkpoint/recovery functions |
 | `enable_web_identity=true` | Budget management and read-only consumption for legacy Web identity |
-| `enable_commerce=true` | Commerce, charging and events |
+| `enable_federated_auth=true` | Federated provider configuration, bindings and one-time authentication flows with column-limited writes |
+| `enable_commerce=true` | Commerce, charging, events and original-order partial refunds through the closed money function |
 | `enable_community=true` | Read-only community aggregates (rankings, profile cards, onboarding facts) |
 | `enable_payments=true` | Payment intents/refund holds and append-only receipts/proofs |
 | `enable_assistant=true` | Personal assistant and charging, including read dependencies of agent charge guards |

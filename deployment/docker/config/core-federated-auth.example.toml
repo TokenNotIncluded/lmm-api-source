@@ -1,0 +1,22 @@
+# Reference configuration only: use the site's real runtime DB and Web origin.
+# Enabling this requires the installed federated-auth schema and explicit runtime
+# ACL grant. It never initializes/upgrades PostgreSQL from the serving process.
+version = 1
+
+[database]
+url_file = "/run/secrets/core_database_url"
+max_connections = 2
+
+[identity]
+registration_enabled = false
+password_slots = 1
+
+[identity.web]
+origin = "https://api.example.test"
+refresh_key_file = "/run/secrets/core_web_refresh_key"
+user_agreement_enabled = false
+privacy_policy_enabled = false
+
+[identity.federated_auth]
+enabled = true
+keyring_file = "/run/secrets/core_federated_auth_keyring"

@@ -1106,6 +1106,171 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
 }
 
 #[sqlx::test(migrations = false)]
+async fn vault_key_polling_persists_enabled_states_with_permission_and_version_cas(pool: PgPool) {
+    let (app, _, admin, ordinary) = vault_app(&pool).await;
+    success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/channels",
+        &admin,
+        channel_input(Version::of(&fixture()), 2, "synthetic-polling-primary"),
+    )
+    .await;
+    let document = active(&pool).await;
+    let added = success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        json!({"operation":"add","expected_version":Version::of(&document),"label":"Secondary","secret":"synthetic-polling-secondary","activate":false}),
+    )
+    .await;
+    let secondary: CredentialRef = serde_json::from_value(added["reference"].clone()).unwrap();
+    let listed = success(
+        &app,
+        "GET",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(listed["polling"], false);
+    assert_eq!(
+        listed["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|key| key["enabled"].as_bool().unwrap())
+            .collect::<Vec<_>>(),
+        [true, false]
+    );
+    let enable_polling =
+        json!({"operation":"set_polling","expected_version":listed["version"],"enabled":true});
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/2/keys",
+            &ordinary,
+            enable_polling.clone(),
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (_, published) = request(
+        app.clone(),
+        "POST",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        enable_polling.clone(),
+    )
+    .await;
+    assert_eq!(published["success"], true, "{published}");
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/2/keys",
+            &admin,
+            enable_polling,
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let listed = success(
+        &app,
+        "GET",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(listed["polling"], true);
+    assert!(
+        listed["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|key| key["enabled"] == true)
+    );
+    let document = active(&pool).await;
+    let primary = document
+        .routing
+        .upstreams
+        .iter()
+        .find(|upstream| upstream.id == 2)
+        .unwrap()
+        .credential;
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/core/v1/admin/routing/channels/2/keys",
+            &admin,
+            json!({"operation":"set_enabled","expected_version":listed["version"],"reference":primary,"enabled":false}),
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        json!({"operation":"set_enabled","expected_version":listed["version"],"reference":secondary,"enabled":false}),
+    )
+    .await;
+    let restored_gateway = gateway(&pool).with_channel_secret_key(&[83; 32]).unwrap();
+    let restored = ManagedChannels::recover(pool.clone(), restored_gateway)
+        .await
+        .unwrap();
+    let restored_app = managed_router(pool.clone(), restored);
+    let listed = success(
+        &restored_app,
+        "GET",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(listed["polling"], true);
+    let secondary_state = listed["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|key| key["reference"] == json!(secondary))
+        .unwrap();
+    assert_eq!(secondary_state["enabled"], false);
+    success(
+        &restored_app,
+        "POST",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        json!({"operation":"activate","expected_version":listed["version"],"reference":secondary}),
+    )
+    .await;
+    let listed = success(
+        &restored_app,
+        "GET",
+        "/core/v1/admin/routing/channels/2/keys",
+        &admin,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(listed["active_reference"], json!(secondary));
+    assert!(
+        listed["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|key| key["enabled"] == true)
+    );
+}
+
+#[sqlx::test(migrations = false)]
 async fn vault_rejects_private_destinations_and_rolls_back_key_with_audit_failure(pool: PgPool) {
     let (app, gateway, admin, _) = vault_app(&pool).await;
     let expected = Version::of(&fixture());

@@ -1379,3 +1379,101 @@ test('channel creation uses the permanent ID high water without publishing the r
     dispose = undefined
   }
 })
+
+test('native key manager enables a pooled key and changes polling with release CAS', async () => {
+  let config = fixture()
+  let version = 1
+  let secondaryEnabled = false
+  let polling = true
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      if (options.url.endsWith('/keys')) {
+        return {
+          data: {
+            success: true,
+            data: {
+              version: { routing: version, pricing: 1 },
+              active_reference: { id: 7, revision: 1 },
+              polling,
+              plaintext_available: false,
+              keys: [
+                {
+                  reference: { id: 7, revision: 1 },
+                  label: 'Primary',
+                  created_at: '2026-11-12T00:00:00Z',
+                  enabled: true,
+                },
+                {
+                  reference: { id: 8, revision: 1 },
+                  label: 'Secondary',
+                  created_at: '2026-11-12T00:00:00Z',
+                  enabled: secondaryEnabled,
+                },
+              ],
+            },
+          },
+        }
+      }
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.url, '/core/v1/admin/routing/channels/1/keys')
+    assert.ok(options.data)
+    writes.push(options.data)
+    if (options.data.operation === 'set_enabled') {
+      secondaryEnabled = true
+    } else {
+      assert.equal(options.data.operation, 'set_polling')
+      polling = false
+    }
+    version += 1
+    config = {
+      ...config,
+      version: { routing: version, pricing: 1 },
+      routing: { ...config.routing, version },
+    }
+    return {
+      data: {
+        success: true,
+        data: {
+          version: { routing: version, pricing: 1 },
+          reference: options.data.reference ?? { id: 7, revision: 1 },
+        },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'API Keys'
+    )
+  )
+  await act(async () => button(container, 'API Keys').click())
+  await until(() => !!document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[role=dialog]'))
+  await until(() => !!dialog.textContent?.includes('Secondary'))
+  assert.equal(button(dialog, 'Disable').disabled, true)
+  await act(async () => {
+    button(dialog, 'Enable').click()
+    button(dialog, 'Enable').click()
+  })
+  await until(() => writes.length === 1 && !button(dialog, 'Add').disabled)
+  assert.deepEqual(writes[0], {
+    expected_version: { routing: 1, pricing: 1 },
+    operation: 'set_enabled',
+    reference: { id: 8, revision: 1 },
+    enabled: true,
+  })
+  const pollingToggle = required(dialog.querySelector('[role=checkbox]'))
+  await act(async () => (pollingToggle as HTMLElement).click())
+  await until(() => writes.length === 2)
+  assert.deepEqual(writes[1], {
+    expected_version: { routing: 2, pricing: 1 },
+    operation: 'set_polling',
+    enabled: false,
+  })
+})

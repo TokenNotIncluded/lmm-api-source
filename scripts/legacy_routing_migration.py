@@ -922,7 +922,7 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
             block("legacy_model_normalization_not_mapped")
         if runtime.get("max_attempts") is None:
             block("runtime_attempts_evidence_missing")
-        elif number(runtime["max_attempts"], "runtime_attempts_invalid", 1, 1000) != 1:
+        elif number(runtime["max_attempts"], "runtime_attempts_invalid", 1, 1000) > 2:
             block("legacy_retry_semantics_not_mapped")
         limits = runtime.get("limits")
         if limits is None:
@@ -1154,8 +1154,10 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
         if all(entry.get("native_surface") == "images" for _, entry in pairs):
             continue
         route_id = len(routes) + 1
+        retry_on = ["connect", "timeout", "rate_limited", "server_error"] if runtime["max_attempts"] == 2 else []
         routes.append({"id": route_id, "group": group, "model": model, "enabled": True, "speeds": ["standard"], "targets": targets,
-                       "failover": {"max_attempts": 1, "retry_on": [], "allow_replay_after_send": False}})
+                       "failover": {"max_attempts": runtime["max_attempts"], "retry_on": retry_on,
+                                    "allow_replay_after_send": False}})
         if route_price:
             prices.append({"id": route_id, "group": group, "model": model, "speed": "standard", **route_price})
     if not ability_groups:

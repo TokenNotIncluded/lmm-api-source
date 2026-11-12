@@ -134,19 +134,6 @@ test('administrator sees plugin state and refreshes with a scoped read only requ
             available: true,
             installed: true,
             enabled: calls === 1,
-            navigation_paths: ['/store'],
-            requires: [],
-          },
-          {
-            name: 'custom-reports',
-            version: '2.1.0',
-            api_version: 1,
-            registration_sha256: 'c'.repeat(64),
-            available: false,
-            installed: false,
-            enabled: false,
-            navigation_paths: ['/reports'],
-            requires: ['store'],
           },
         ],
       },
@@ -156,8 +143,6 @@ test('administrator sees plugin state and refreshes with a scoped read only requ
   await until(() => container.textContent?.includes('Enabled modules') === true)
   assert.match(container.textContent ?? '', /store/)
   assert.match(container.textContent ?? '', /Installed/)
-  assert.match(container.textContent ?? '', /custom-reports/)
-  assert.match(container.textContent ?? '', /Configuration required/)
   assert.match(
     container.textContent ?? '',
     /Registry entries are declarations, not service health checks/

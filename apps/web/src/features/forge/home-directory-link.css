@@ -1,9 +1,22 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 .home-directory-link {
-  width: 100%;
-  max-width: 80rem;
-  margin-inline: auto;
-  padding: 0.25rem 1.5rem 0.5rem;
+  position: absolute;
+  top: 5rem;
+  left: 50%;
+  z-index: 30;
+  width: min(calc(100% - 2rem), 30rem);
+  transform: translateX(-50%);
+}
+
+.home-directory-link .home-directory-entry {
+  color: var(--forge-paper-light);
+  border-color: color-mix(in oklch, var(--forge-paper-light) 12%, transparent);
+  background: color-mix(in oklch, var(--forge-night-soft) 88%, transparent);
+}
+
+.home-directory-link .home-directory-hint,
+.home-directory-link .home-directory-percent {
+  color: var(--forge-night-muted);
 }
 
 .home-directory-entry {

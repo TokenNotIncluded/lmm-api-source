@@ -67,13 +67,20 @@ afterEach(async () => {
 })
 after(() => dom.close())
 
-async function mount(controlsEnabled = false) {
+async function mount(controlsEnabled = false, keysEnabled = false) {
   if (controlsEnabled) {
     useAuthStore.getState().auth.setBundle({
       access_token: 'synthetic-channel-session-token',
       token_type: 'Bearer',
       access_expires_at: 2_000_000_000,
-      user: { id: 501, role: 10, username: 'synthetic-admin' },
+      user: {
+        id: 501,
+        role: 10,
+        username: 'synthetic-admin',
+        permissions: {
+          admin_permissions: { channel: { sensitive_write: true } },
+        },
+      },
       session: {
         sid: 'synthetic-channel-controls',
         current: true,
@@ -96,7 +103,10 @@ async function mount(controlsEnabled = false) {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <ReadOnlyChannels controlsEnabled={controlsEnabled} />
+          <ReadOnlyChannels
+            controlsEnabled={controlsEnabled}
+            keysEnabled={keysEnabled}
+          />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -322,13 +332,14 @@ test('native channel controls send the observed release and require delete confi
     options.method === 'PUT'
       ? api.put(options.url, options.data)
       : api.delete(options.url, { data: options.data })) as typeof api.request
-  const container = await mount(true)
+  const container = await mount(true, true)
   await until(() => Boolean(container.querySelector('table')))
   const button = (label: string) =>
     [...container.querySelectorAll<HTMLButtonElement>('table button')].find(
       (item) => item.textContent === label
     )
   assert.ok(button('Disable'))
+  assert.equal(button('Manage Keys')?.disabled, false)
   assert.doesNotMatch(container.textContent ?? '', /Read only/)
   await act(async () => button('Disable')!.click())
   await until(() => Boolean(button('Enable') && !button('Enable')!.disabled))

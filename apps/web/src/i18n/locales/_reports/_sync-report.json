@@ -31,17 +31,17 @@
       "extrasCount": 0,
       "untranslatedCount": 53
     },
-    "zh-TW": {
-      "file": "zh-TW.json",
-      "missingCount": 0,
-      "extrasCount": 0,
-      "untranslatedCount": 0
-    },
     "zh-CN": {
       "file": "zh-CN.json",
       "missingCount": 0,
       "extrasCount": 0,
       "untranslatedCount": 4
+    },
+    "zh-TW": {
+      "file": "zh-TW.json",
+      "missingCount": 0,
+      "extrasCount": 0,
+      "untranslatedCount": 0
     }
   }
 }

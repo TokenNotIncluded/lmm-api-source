@@ -16,8 +16,6 @@ const pluginSchema = z.object({
   installed: z.boolean(),
   enabled: z.boolean(),
   registration_sha256: z.string(),
-  navigation_paths: z.array(z.string()).optional(),
-  requires: z.array(z.string()).optional(),
 })
 
 const pluginListSchema = z.object({

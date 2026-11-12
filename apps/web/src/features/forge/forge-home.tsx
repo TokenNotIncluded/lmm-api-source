@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Blocks } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -277,11 +277,21 @@ export function ForgeHome() {
         connectionMethod={connectionMethod}
         onConnectionMethodChange={setConnectionMethod}
         t={t}
+        toolMarketAction={
+          <Button size='lg' render={<Link to='/tool-market' />}>
+            <Blocks data-icon='inline-start' aria-hidden='true' />
+            {t('Browse MCP tools')}
+            <ArrowRight data-icon='inline-end' aria-hidden='true' />
+          </Button>
+        }
         primaryAction={
           <Button
             size='lg'
+            variant='outline'
+            className='lmm-account-action'
             render={
               <Link
+                data-account-action
                 to={nextStep.to}
                 search={
                   nextStep.to === '/sign-in'

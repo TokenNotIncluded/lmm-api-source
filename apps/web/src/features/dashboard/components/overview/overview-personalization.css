@@ -1,17 +1,22 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 .overview-greeting {
+  --muted-foreground: var(--forge-night-muted);
+  --border: color-mix(in oklch, var(--forge-paper-light) 13%, transparent);
   position: relative;
   min-width: 0;
-  padding: clamp(1.1rem, 3cqi, 2.2rem);
-  border: 1px solid var(--border);
-  border-radius: 1.75rem;
+  overflow: hidden;
+  padding: clamp(1.4rem, 3cqi, 2.5rem);
+  border: 1px solid color-mix(in oklch, var(--forge-paper-light) 8%, transparent);
+  border-radius: var(--radius-xl);
   background:
     radial-gradient(
       ellipse at 100% 0,
-      color-mix(in oklch, var(--chart-1) 9%, transparent),
-      transparent 65%
+      color-mix(in oklch, var(--forge-clay-dark) 18%, transparent),
+      transparent 58%
     ),
-    var(--card);
+    var(--forge-night);
+  color: var(--forge-paper-light);
+  box-shadow: 0 1.5rem 4rem -3rem color-mix(in oklch, var(--forge-night) 60%, transparent);
 }
 .overview-greeting-meta,
 .overview-greeting-footer {
@@ -93,17 +98,33 @@
   padding: 1.5rem;
   text-align: center;
 }
+.overview-greeting-quote {
+  display: block;
+  padding: clamp(2.25rem, 5cqi, 4.5rem) 0;
+}
+
+.overview-greeting-mark {
+  display: none;
+}
+
+.overview-greeting-message {
+  max-width: 22ch;
+  font-size: clamp(2rem, 4.3cqi, 4rem);
+  font-weight: 520;
+  line-height: 1.12;
+}
+
+.overview-greeting-footer {
+  padding-top: 1.25rem;
+}
+
+.overview-greeting [data-slot='button']:hover {
+  background: color-mix(in oklch, var(--forge-paper-light) 10%, transparent);
+  color: var(--forge-paper-light);
+}
+
 @container (max-width: 760px) {
   .overview-chart-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .overview-greeting-quote {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .overview-greeting-mark-end {
-    grid-column: 2;
-    justify-self: end;
-    height: 0.15em;
-    transform: none;
   }
 }

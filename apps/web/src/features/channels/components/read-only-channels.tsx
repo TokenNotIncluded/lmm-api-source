@@ -8,6 +8,11 @@ import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -19,14 +24,17 @@ import {
 } from '../api'
 import { readNativeRoutingScope } from '../native-api'
 import type { Channel } from '../types'
+import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
 
 const PAGE_SIZE = 10
 
 /** The routing snapshot supplies configuration facts, not legacy operational metrics. */
 export function ReadOnlyChannels({
   controlsEnabled = false,
+  keysEnabled = false,
 }: {
   controlsEnabled?: boolean
+  keysEnabled?: boolean
 }) {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
@@ -37,6 +45,15 @@ export function ReadOnlyChannels({
   const [pending, setPending] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
+  const [keyChannel, setKeyChannel] = useState<Channel | null>(null)
+  const canManageKeys =
+    keysEnabled &&
+    !!scope &&
+    hasPermission(
+      auth.user,
+      ADMIN_PERMISSION_RESOURCES.CHANNEL,
+      ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
+    )
   // @context-fold begin read-only-channel-query
   const query = useQuery({
     queryKey: [
@@ -115,6 +132,22 @@ export function ReadOnlyChannels({
         >
           {channel.status === 1 ? t('Disable') : t('Enable')}
         </Button>
+        {keysEnabled && (
+          <Button
+            type='button'
+            variant='outline'
+            className='min-h-11'
+            disabled={pending !== null || !canManageKeys}
+            title={
+              canManageKeys
+                ? undefined
+                : t('No permission to perform this action')
+            }
+            onClick={() => setKeyChannel(channel)}
+          >
+            {t('Manage Keys')}
+          </Button>
+        )}
         {deleteId === channel.id ? (
           <>
             <Button
@@ -311,6 +344,19 @@ export function ReadOnlyChannels({
           </div>
         </>
       ) : null}
+      {keyChannel && scope && canManageKeys && (
+        <NativeKeyManageDialog
+          key={`${scope.userId}:${scope.sessionId}:${keyChannel.id}`}
+          open
+          onOpenChange={(open) => {
+            if (!open) setKeyChannel(null)
+          }}
+          scope={scope}
+          channelId={keyChannel.id}
+          channelName={keyChannel.name}
+          onChanged={() => void query.refetch()}
+        />
+      )}
     </div>
   )
 }

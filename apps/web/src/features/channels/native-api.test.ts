@@ -7,8 +7,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   assertNativeIntegers,
+  changeNativeKey,
   copyNativeChannel,
   getNativeConfiguration,
+  getNativeKeys,
   nativeRequest,
   parseNativeDocument,
   readNativeRoutingScope,
@@ -98,6 +100,12 @@ test('native configuration retains channel tags and target protocol admission on
         bindings: {
           names: { '1': 'Primary' },
           tags: { '1': 'Vision' },
+          key_pools: {
+            '1': {
+              polling: true,
+              disabled: [{ id: 8, revision: 1 }],
+            },
+          },
           contexts: [],
           vendors: {},
           models: {},
@@ -110,7 +118,76 @@ test('native configuration retains channel tags and target protocol admission on
   })
   const configuration = await getNativeConfiguration(scope)
   assert.deepEqual(configuration.bindings.tags, { '1': 'Vision' })
+  assert.deepEqual(configuration.bindings.key_pools, {
+    '1': { polling: true, disabled: [{ id: 8, revision: 1 }] },
+  })
   assert.deepEqual(configuration.routing.routes[0]?.targets[0], target)
+})
+
+test('native key polling reads enabled states and writes exact reference CAS without replay', async () => {
+  const scope = login()
+  const expected = { routing: 4, pricing: 3 }
+  const secondary = { id: 8, revision: 1 }
+  let calls = 0
+  api.defaults.adapter = async (config) => {
+    calls++
+    assert.equal(config.skipAuthRefresh, true)
+    if (config.method === 'get') {
+      assert.equal(config.url, '/core/v1/admin/routing/channels/1/keys')
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: {
+          success: true,
+          data: {
+            version: expected,
+            active_reference: { id: 7, revision: 1 },
+            polling: true,
+            keys: [
+              {
+                reference: secondary,
+                label: 'Secondary',
+                created_at: '2026-11-12T00:00:00Z',
+                enabled: false,
+              },
+            ],
+            plaintext_available: false,
+          },
+        },
+      }
+    }
+    assert.equal(config.method, 'post')
+    assert.deepEqual(JSON.parse(String(config.data)), {
+      expected_version: expected,
+      operation: 'set_enabled',
+      reference: secondary,
+      enabled: true,
+    })
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: {
+        success: true,
+        data: {
+          version: { routing: 5, pricing: 3 },
+          reference: secondary,
+        },
+      },
+    }
+  }
+  const keys = await getNativeKeys(scope, 1)
+  assert.equal(keys.polling, true)
+  assert.equal(keys.keys[0]?.enabled, false)
+  await changeNativeKey(scope, 1, keys.version, {
+    operation: 'set_enabled',
+    reference: secondary,
+    enabled: true,
+  })
+  assert.equal(calls, 2)
 })
 
 test('native routing rejects rounded identifiers and monetary integers before dispatch', async () => {

@@ -58,8 +58,9 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 0.5rem;
 }
 .console-editorial .console-page [data-slot='card'] {
-  box-shadow: none;
-  border-color: color-mix(in oklch, var(--border) 55%, transparent);
+  box-shadow: 0 0.75rem 2.5rem -2.5rem
+    color-mix(in oklch, var(--foreground) 25%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 .console-editorial .console-page [data-slot='card-description'] {
   line-height: 1.65;

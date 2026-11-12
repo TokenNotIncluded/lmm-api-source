@@ -14,9 +14,12 @@
 .overview-balance {
   min-width: 0;
   padding: 1.5rem;
-  background: var(--card);
-  border-block-start: 2px solid var(--chart-1);
+  border: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in oklch, var(--chart-1) 10%, transparent), transparent 52%),
+    var(--card);
   border-radius: var(--radius-xl, var(--radius));
+  box-shadow: 0 1rem 3rem -2.5rem color-mix(in oklch, var(--foreground) 25%, transparent);
 }
 
 .overview-balance-heading {
