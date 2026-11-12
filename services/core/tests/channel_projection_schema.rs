@@ -1,7 +1,7 @@
 //! Component44 derived rows, startup authority, and opening immutability.
 use lmm_core::{core_schema, runtime_database::RuntimeDatabaseError};
 use sqlx::PgPool;
-#[path = "../src/runtime_channel_projection.rs"]
+#[path = "../src/runtime_database/channel_projection.rs"]
 mod projection;
 #[path = "common/runtime.rs"]
 mod runtime;

@@ -101,4 +101,4 @@ strip = true
 
 [[example]]
 name = "protocol-events-fixture"
-path = "src/events/fixture.rs"
+path = "examples/protocol-events-fixture.rs"

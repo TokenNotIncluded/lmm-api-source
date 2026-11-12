@@ -37,7 +37,7 @@ async fn column_grants_are_sufficient_and_wider_authority_is_rejected(pool: sqlx
             .await
             .unwrap();
         // REVOKE of a table privilege also removes that privilege's column ACLs.
-        let grants = include_str!("../../../deployment/postgres/grant-core-runtime.sql")
+        let grants = include_str!("../../../../../deployment/postgres/grant-core-runtime.sql")
             .split_once("-- BEGIN channel-observations runtime grants\n")
             .unwrap()
             .1

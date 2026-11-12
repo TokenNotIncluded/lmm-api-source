@@ -2,29 +2,17 @@
 //! Install/import owners must never be used by the network-facing process.
 use sqlx::{PgConnection, PgPool};
 use std::fmt;
-#[path = "runtime_account_security.rs"]
 mod account_security;
-#[path = "runtime_assistant_agent.rs"]
 mod assistant_agent;
-#[path = "runtime_channel_accounting.rs"]
 mod channel_accounting;
-#[path = "runtime_channel_observations.rs"]
 mod channel_observations;
-#[path = "runtime_channel_projection.rs"]
 mod channel_projection;
-#[path = "runtime_checkins.rs"]
 mod checkins;
-#[path = "runtime_federated_auth.rs"]
 mod federated_auth;
-#[path = "runtime_operations.rs"]
 mod operations;
-#[path = "runtime_product_features.rs"]
 mod product_features;
-#[path = "runtime_telegram.rs"]
 mod telegram;
-#[path = "runtime_tool_market_credit.rs"]
 mod tool_market_credit;
-#[path = "runtime_trust_policy.rs"]
 mod trust_policy;
 
 #[derive(Clone, Copy, Default)]

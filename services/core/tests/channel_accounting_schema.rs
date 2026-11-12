@@ -1,7 +1,7 @@
 //! Display-only persistence and exact runtime column authority.
 use lmm_core::{core_schema, runtime_database::RuntimeDatabaseError};
 use sqlx::PgPool;
-#[path = "../src/runtime_channel_accounting.rs"]
+#[path = "../src/runtime_database/channel_accounting.rs"]
 mod accounting;
 #[path = "common/runtime.rs"]
 mod runtime;

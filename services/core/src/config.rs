@@ -1,24 +1,18 @@
-#[path = "config_email.rs"]
 mod email_config;
 pub use email_config::{EmailRuntime, email_runtime};
-#[path = "config_market_oauth.rs"]
 mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
-#[path = "config_trust_policy.rs"]
-mod trust_policy_config;
 #[cfg(test)]
-#[path = "config_federated_tests.rs"]
 mod federated_config_tests;
+mod trust_policy_config;
 use serde::Deserialize;
 pub use trust_policy_config::{
     trust_policy_editor, trust_policy_editor_config, trust_policy_editor_enabled,
     trust_policy_signing_key,
 };
 #[cfg(test)]
-#[path = "config_reservation_tests.rs"]
 mod reservation_tests;
 #[cfg(test)]
-#[path = "config_telegram_tests.rs"]
 mod telegram_tests;
 use std::{
     collections::{BTreeMap, BTreeSet},

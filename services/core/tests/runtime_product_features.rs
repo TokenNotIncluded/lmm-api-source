@@ -2,7 +2,7 @@
 use lmm_core::runtime_database::RuntimeDatabaseError;
 use sqlx::PgPool;
 
-#[path = "../src/runtime_product_features.rs"]
+#[path = "../src/runtime_database/product_features.rs"]
 mod product_features;
 #[path = "common/runtime.rs"]
 mod runtime;

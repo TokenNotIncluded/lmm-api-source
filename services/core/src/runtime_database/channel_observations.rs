@@ -56,5 +56,4 @@ SELECT (
     Ok(())
 }
 #[cfg(test)]
-#[path = "runtime_channel_observations_tests.rs"]
 mod tests;
