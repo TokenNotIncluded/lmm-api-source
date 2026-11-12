@@ -177,7 +177,14 @@ impl ImageTokenUsage {
         // output breakdown instead of charging reported output text as images.
         let (output_image, output_image_source) = match value.get("output_tokens_details") {
             Some(v) => {
-                native_fields(v, &["text_tokens", "image_tokens"])?;
+                // Some OpenAI-compatible image hosts echo reasoning_tokens=0.
+                // Non-zero reasoning is not part of the images settlement contract.
+                native_fields(v, &["text_tokens", "image_tokens", "reasoning_tokens"])?;
+                if v.get("reasoning_tokens")
+                    .is_some_and(|n| n.as_u64() != Some(0))
+                {
+                    return Err(pending());
+                }
                 let image = count(v, "image_tokens")?;
                 if count(v, "text_tokens")?.checked_add(image) != Some(output) {
                     return Err(pending());

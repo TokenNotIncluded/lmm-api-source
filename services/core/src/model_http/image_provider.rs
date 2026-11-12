@@ -350,8 +350,11 @@ impl PreparedImageCall {
             .map_err(|_| RelayError::SettlementPending)?
     }
     async fn dispatch_inner(self) -> Result<ImageObservation, RelayError> {
+        // Wait for response headers with header_timeout. Do not clamp to
+        // write_timeout: image hosts often spend tens of seconds generating
+        // before the first response header arrives.
         let mut response = timeout(
-            self.limits.header_timeout.min(self.limits.write_timeout),
+            self.limits.header_timeout,
             self.connection.client().execute(self.request),
         )
         .await
@@ -806,6 +809,59 @@ fn object<'a>(v: &'a Value, allowed: &[&str]) -> Result<&'a Map<String, Value>, 
     }
     Ok(o)
 }
+fn sanitize_native_usage(usage: &Value) -> Result<Value, RelayError> {
+    let usage = object(
+        usage,
+        &[
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "input_tokens_details",
+            "output_tokens_details",
+        ],
+    )?;
+    let mut out = Map::new();
+    for key in [
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "input_tokens_details",
+    ] {
+        out.insert(
+            key.into(),
+            usage
+                .get(key)
+                .cloned()
+                .ok_or(RelayError::SettlementPending)?,
+        );
+    }
+    if let Some(details) = usage.get("output_tokens_details") {
+        let details = object(details, &["text_tokens", "image_tokens", "reasoning_tokens"])?;
+        if details
+            .get("reasoning_tokens")
+            .is_some_and(|n| n.as_u64() != Some(0))
+        {
+            return Err(RelayError::SettlementPending);
+        }
+        let mut cleaned = Map::new();
+        cleaned.insert(
+            "text_tokens".into(),
+            details
+                .get("text_tokens")
+                .cloned()
+                .ok_or(RelayError::SettlementPending)?,
+        );
+        cleaned.insert(
+            "image_tokens".into(),
+            details
+                .get("image_tokens")
+                .cloned()
+                .ok_or(RelayError::SettlementPending)?,
+        );
+        out.insert("output_tokens_details".into(), Value::Object(cleaned));
+    }
+    Ok(Value::Object(out))
+}
 fn text(v: &Value, max: usize) -> Result<&str, RelayError> {
     v.as_str()
         .filter(|s| !s.is_empty() && s.len() <= max)
@@ -876,7 +932,11 @@ fn observe_with_contract(
     let mut wrapper_bytes = 0usize;
     let mut sanitized = Vec::new();
     for image in data {
-        object(image, &["b64_json", "url", "revised_prompt"])?;
+        // Vendors may attach non-settlement metadata (dimensions, MIME, C2PA).
+        // Keep a strict sanitized projection; never require a closed key set.
+        let image = image
+            .as_object()
+            .ok_or(RelayError::SettlementPending)?;
         if image.get("b64_json").is_some() == image.get("url").is_some() {
             return Err(RelayError::SettlementPending);
         }
@@ -945,7 +1005,10 @@ fn observe_with_contract(
         response["created"] = created.clone();
     }
     if native_tokens.is_some() {
-        response["usage"] = v["usage"].clone();
+        // Persist only the closed native usage shape accepted by
+        // core_image.valid_native_usage. Vendor extras such as
+        // output_tokens_details.reasoning_tokens=0 stay out of durable output.
+        response["usage"] = sanitize_native_usage(&v["usage"])?;
     }
     for key in ["background", "output_format", "quality", "size"] {
         if let Some(value) = v.get(key) {
@@ -1423,6 +1486,55 @@ mod tests {
             <[u8; 32]>::from(Sha256::digest(raw))
         );
         assert_eq!(o.data["created"], 123);
+    }
+    #[test]
+    fn image_provider_observation_ignores_vendor_image_metadata_and_zero_reasoning() {
+        let raw = serde_json::to_vec(&json!({
+            "created": 1,
+            "data": [{
+                "b64_json": "aW1hZ2U=",
+                "revised_prompt": "keep",
+                "format": "png",
+                "mime_type": "image/png",
+                "width": 64,
+                "height": 64,
+                "animated": false,
+                "frame_count": 1,
+                "c2pa": {"present": true}
+            }],
+            "usage": {
+                "input_tokens": 8,
+                "output_tokens": 10,
+                "total_tokens": 18,
+                "input_tokens_details": {
+                    "text_tokens": 8,
+                    "image_tokens": 0,
+                    "cached_tokens": 0
+                },
+                "output_tokens_details": {
+                    "text_tokens": 0,
+                    "image_tokens": 10,
+                    "reasoning_tokens": 0
+                }
+            }
+        }))
+        .unwrap();
+        let o = observe(&raw, 1, "synthetic-secret").unwrap();
+        assert_eq!(o.output_images, 1);
+        assert_eq!(o.data["data"][0]["b64_json"], "aW1hZ2U=");
+        assert_eq!(o.data["data"][0]["revised_prompt"], "keep");
+        assert!(o.data["data"][0].get("c2pa").is_none());
+        assert!(o.data["data"][0].get("width").is_none());
+        assert!(o.native_tokens.is_some());
+        assert_eq!(
+            o.data["usage"]["output_tokens_details"],
+            json!({"text_tokens": 0, "image_tokens": 10})
+        );
+        assert!(
+            o.data["usage"]["output_tokens_details"]
+                .get("reasoning_tokens")
+                .is_none()
+        );
     }
     #[test]
     fn image_provider_rejects_ambiguous_malformed_secret_and_unknown_payloads() {
