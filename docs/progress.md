@@ -5,9 +5,9 @@
 ## 上线现状与剩余阻塞
 
 - **尚未上线新架构**。公开服务最近核验为旧版 `0.2.118`，HTTP 200。
-- **本地迁移演练**已完成身份、资金、商店/客服、订阅、OAuth/Passkey、用户组及信任基线导入读回。管理员正常激活已成功，Root auth_version从6升至7；42条密钥原版本与撤销状态保留，14条未撤销，另两个原禁用管理员保持禁用。旧raw/sk密钥的正常HTTP只读认证仍待核验。
+- **本地迁移演练**已完成身份、资金、商店/客服、订阅、OAuth/Passkey、用户组及信任基线导入读回。管理员正常激活已成功，Root auth_version从6升至7；42条密钥原版本与撤销状态保留，14条未撤销，另两个原禁用管理员保持禁用。旧raw/sk密钥的正常HTTP只读认证仍待核验，本地启动还需解决授权脚本写死owner名称的问题。
 - **正式制品与固定组合**已验证。Core7 `e5b3e11`、Go9 `76aaf71`、Web5 `907197b` 的 HTTP15项、浏览器17项及release图片检查通过，采用隔离账号和本地供应商。Core7 Arch/DEB `0.1.19-7` 已构建及校验，当前提交与包未签名。
-- **模型配置迁移尚未完成**。共同目标的渠道凭据引用、价格版本、路由配置及发布均未落地，active release 的 config_version 为空。Source有29个渠道、23个启用；用户组21199条已导入。正在核对正常routing迁移合同并准备凭据、价格与发布候选。
+- **模型配置迁移尚未完成**。共同目标的渠道凭据引用、价格版本、路由配置及发布均未落地，active release 的 config_version 为空。Source有29个渠道、23个启用；用户组21199条已导入。已生成29个凭据引用及完整正常规划，但候选仍被阻塞；来源涉及673个唯一模型，价格与上下文合同各有623个模型待补，runtime证据、WebSocket及Anthropic字段映射仍未闭合。渠道47后转换策略已编码，测试尚未通过确认。
 - **生产仍需完成**最终停写捕获、全阶段迁移与对账、部署切流和实际业务验收。旧快照 `FINAL_20261111T120751Z` 已因旧服务恢复写入而失去未来切换资格。
 - **历史付款责任仍在**。95笔原字段完整的充值依据已在本地安装读回；81笔缺历史字段、13笔ePay缺冻结付款快照、3笔孤儿继续保留未决权益和补证路径。60条历史订阅订单保持UNKNOWN，不能当作已自动结算。
 
@@ -29,13 +29,13 @@
 | MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
 | MODEL-03 | 部分实现 | 已有Chat音频计费与恢复；独立TTS/STT/translation及双向Realtime未齐。Gemini音频按用户决定延期。 |
 | MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
-| MODEL-05 | 部分实现 | 渠道目录与余额探测已有；tag、多key管理入口仍为unsupported，真实推理探测待补；当前共同演练还缺Source渠道/价格/路由发布迁移。 |
+| MODEL-05 | 部分实现 | 渠道目录与余额探测已有；tag、多key管理入口仍为unsupported，真实推理探测待补；共同演练已生成29凭据引用，完整规划仍因价格/上下文/runtime及请求字段映射缺口阻塞，尚未发布。 |
 | ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
 | SUB-01 | 部分实现 | EPay一次购买的Core/Go/HTTP路径已有；其他provider首购、周期、取消及恢复逐项待核验。 |
 | SUB-02 | 部分实现 | 订阅管理记录与立即失效已有；voucher、绑定删除、批量重置完整行为待核实。 |
 | PAY-01 | 部分实现 | 余额/免费商店购买已通过固定组合验收；外部商店收款尚未接通。PublicConfig的platform_payment_methods/catalog为空（store/legacy_catalog.go）；external:epay、external:waffo_pancake、platform:waffo_pancake、platform:linuxdo仍缺各自购买交付结算验收。人民币钱包充值及95笔历史充值依据已验证，属于钱包支付范围。 |
 | PAY-02 | 部分实现 | 钱包Stripe/Waffo Global及受EnableLegacyRefund控制的EPay退款、商店余额全额退款已有；新订单部分退款实现见STORE-02。Pancake明确RefundEnabled=false、Refund返回ErrUnsupported（payments/pancake.go）；外部商店退款尚缺冻结交易、退款通知/查询、收入回冲及恢复全链。 |
-| PAY-03 | 部分实现待核验 | 已有Pancake订阅价格发布、catalog存储和购买/恢复入口（subscription_pancake_catalog.sql、subscription_pancake_http.go）。Web已调用catalog/pair/save，当前未找到对应后端管理和portal入口，接口仍需补齐；结构指纹pancakeCatalog不代表供应商商品目录。 |
+| PAY-03 | 实现中 | catalog/pair/save的owner HTTP层已提交b196e9fe，18项权限/请求校验通过；正常router、配置原子保存与运行生效未接齐。钱包未决订单尚缺store_id/product_id冻结绑定，需补配置变化及重启后恢复，才能安全更新渠道。customer portal仍未完成。 |
 | STORE-01 | 待补齐 | 游客购买与邮件提货合同未齐 |
 | STORE-02 | 部分实现 | 新订单数量/金额部分退款及Core资金协议已有；历史余额退款分支仍不支持，完整组合待验。 |
 | STORE-03 | 部分验收 | 当前固定组合购买、付款、库存提货、全额退款通过；显式卖家自购和三态目录的完整浏览器覆盖仍缺。 |
