@@ -295,7 +295,7 @@ Name: OPENSSL_3.3.0"""
         with patch.object(PKG, "run", return_value=output):
             report = PKG.inspect_elf(binary, "amd64")
         self.assertEqual(report["openssl_minimum"], "3.3.0")
-        self.assertIn("libssl3t64 (>= 3.3.0)", PKG.dependencies([report], "deb", False, False))
+        self.assertIn("libssl3 (>= 3.3.0) | libssl3t64 (>= 3.3.0)", PKG.dependencies([report], "deb", False, False))
         arch = PKG.dependencies([report], "archlinux", False, False)
         self.assertTrue({"libssl.so=3-64", "libcrypto.so=3-64", "openssl>=3.3.0"} <= set(arch))
         rpm = PKG.dependencies([report], "rpm", False, False)
