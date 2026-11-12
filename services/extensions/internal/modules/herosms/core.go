@@ -136,6 +136,14 @@ type Quote struct {
 	Price     string    `json:"customer_price_usd"`
 	Inventory int64     `json:"inventory"`
 	Expires   int64     `json:"expires_at"`
+	Bid       bool      `json:"bid"`
+	Tiers     []Tier    `json:"tiers"`
+}
+type Tier struct {
+	ID        string `json:"id"`
+	Price     string `json:"customer_price_usd"`
+	Charge    int64  `json:"charge_quota"`
+	Inventory int64  `json:"inventory"`
 }
 type Activation struct {
 	ProviderID string `json:"provider_id"`
@@ -146,18 +154,21 @@ type Activation struct {
 	Status     string `json:"status"`
 }
 type Receipt struct {
-	ID         string      `json:"id"`
-	QuoteID    string      `json:"quote_id"`
-	State      string      `json:"state"`
-	Charge     int64       `json:"charge_quota"`
-	Refunded   int64       `json:"refunded_quota"`
-	Dispatched bool        `json:"dispatched"`
-	ProviderID string      `json:"provider_id"`
-	Quote      Quote       `json:"quote"`
-	Activation *Activation `json:"activation"`
-	Usable     bool        `json:"usable"`
-	Created    int64       `json:"created_at"`
-	Updated    int64       `json:"updated_at"`
+	ID                 string      `json:"id"`
+	QuoteID            string      `json:"quote_id"`
+	State              string      `json:"state"`
+	Charge             int64       `json:"charge_quota"`
+	Refunded           int64       `json:"refunded_quota"`
+	Dispatched         bool        `json:"dispatched"`
+	ProviderID         string      `json:"provider_id"`
+	Quote              Quote       `json:"quote"`
+	Activation         *Activation `json:"activation"`
+	Usable             bool        `json:"usable"`
+	Created            int64       `json:"created_at"`
+	Updated            int64       `json:"updated_at"`
+	ComplaintType      string      `json:"complaint_type"`
+	ComplaintStatus    string      `json:"complaint_status"`
+	ComplaintSubmitted int64       `json:"complaint_submitted_at"`
 }
 type Plan struct {
 	ID        string   `json:"id"`

@@ -63,6 +63,7 @@ func (m *Module) prepareAIReview(ctx context.Context, user int64, id, version st
 		return prepared, nil
 	}
 	job := &prepared.history.Jobs[len(prepared.history.Jobs)-1]
+	job.ApprovalPriorVersion = s.LiveVersionID
 	port, ok := m.review.Classifier.(marketreview.ToolAuthority)
 	if !ok || !port.AutoApproveTools() || job.Status != "pending" || len(credential) != 1 {
 		return prepared, nil
@@ -247,12 +248,27 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 			sort.Strings(ids)
 			for _, id := range ids {
 				s := w.Services[id]
-				v, ok := w.Versions[s.DraftVersionID]
-				if !ok || s.Status == "deleted" || v.Version.Status != "pending" {
+				if s.Status == "deleted" {
 					continue
 				}
-				claim = v.AIReview.Claim(m.now().Unix())
-				w.Versions[v.Version.ID] = v
+				for _, version := range []string{s.DraftVersionID, s.LiveVersionID} {
+					v, ok := w.Versions[version]
+					if !ok {
+						continue
+					}
+					eligible := v.Version.Status == "pending"
+					for _, job := range v.AIReview.Jobs {
+						eligible = eligible || job.Token == v.AIReview.Token && job.ApprovalPending
+					}
+					if !eligible {
+						continue
+					}
+					claim = v.AIReview.Claim(m.now().Unix())
+					w.Versions[v.Version.ID] = v
+					if claim != nil {
+						break
+					}
+				}
 				if claim != nil {
 					break
 				}
@@ -264,6 +280,12 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 		}
 		if claim == nil {
 			return nil
+		}
+		if claim.ApprovalPending {
+			if err := m.recoverCoreApproval(ctx, *claim); err != nil {
+				return err
+			}
+			continue
 		}
 		result, callErr := m.review.Classify(ctx, *claim)
 		manual := ""
@@ -286,18 +308,34 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 					manual = "core_approval_required"
 				} else {
 					current := false
-					if err := m.store.view(func(d database) error {
-						if d.Web == nil {
-							return nil
-						}
-						s, ok := d.Web.Services[claim.TargetID]
-						v, found := d.Web.Versions[claim.Version]
+					if err := m.store.update(func(d *database) error {
+						w := webState(d)
+						s, ok := w.Services[claim.TargetID]
+						v, found := w.Versions[claim.Version]
 						current = ok && found && s.OwnerID == claim.OwnerID && s.Status != "deleted" && s.DraftVersionID == claim.Version && v.Version.Status == "pending" && v.AIReview.Token == claim.Token && digest(v) == verified
+						if current {
+							current = false
+							for i := range v.AIReview.Jobs {
+								j := &v.AIReview.Jobs[i]
+								if j.ID == claim.ID && j.Token == claim.Token && j.Status == "running" && j.Attempts == claim.Attempts {
+									j.ApprovalPending = true
+									j.LeaseUntil = m.now().Unix() + 60
+									claim.LeaseUntil = j.LeaseUntil
+									current = true
+									break
+								}
+							}
+							if current {
+								w.Versions[claim.Version] = v
+								verified = digest(v)
+							}
+						}
 						return nil
 					}); err != nil {
 						return err
 					}
 					if current {
+						claim.ApprovalPending = true
 						remoteAttempted = true
 						var approveErr error
 						approvedRevision, approveErr = port.ApproveTool(ctx, result.Receipt, quotes, claim.Token)
@@ -313,7 +351,7 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 					}
 				}
 			}
-			applied := false
+			applied, staleApproval := false, false
 			updateErr := m.store.update(func(d *database) error {
 				w := webState(d)
 				s, ok := w.Services[claim.TargetID]
@@ -323,6 +361,12 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 				}
 				current := ok && s.Status != "deleted" && s.OwnerID == claim.OwnerID && s.DraftVersionID == claim.Version && v.Version.Status == "pending" && (verified == "" || digest(v) == verified)
 				apply, approve := v.AIReview.Complete(*claim, result, callErr, modes.Tool, current, enabled, manual, m.now().Unix())
+				if remoteAttempted && !apply {
+					// Keep the durable pending marker until exact Core revocation
+					// succeeds; a failed compensation must remain discoverable.
+					staleApproval = true
+					return ErrConflict
+				}
 				if apply {
 					applied = true
 					v.Version.Status = "rejected"
@@ -335,6 +379,16 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 						if s.Status != "paused" {
 							s.Status = "published"
 						}
+						// Keep the dispatch marker in the committed publication
+						// until the local commit ACK is known. A commit may have
+						// taken effect even when its acknowledgement is lost.
+						for i := range v.AIReview.Jobs {
+							j := &v.AIReview.Jobs[i]
+							if j.ID == claim.ID && j.Token == claim.Token {
+								j.ApprovalPending = true
+								j.LeaseUntil = claim.LeaseUntil
+							}
+						}
 					}
 					v.Version.ReviewNote = ""
 					v.Version.ReviewedBy = 0
@@ -345,9 +399,15 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 				return nil
 			})
 			if remoteAttempted && (updateErr != nil || !applied) {
-				if err := m.revokeReviewAttempt(ctx, *claim); err != nil {
+				if err := m.recoverCoreApproval(ctx, *claim); err != nil {
 					return err
 				}
+				if staleApproval {
+					return nil
+				}
+			}
+			if remoteAttempted && applied && updateErr == nil {
+				return m.confirmCoreApproval(*claim)
 			}
 			return updateErr
 		})
@@ -356,6 +416,70 @@ func (m *Module) WorkAIReviews(ctx context.Context, limit int) error {
 		}
 	}
 	return nil
+}
+
+// A persisted approval marker means Core may already have committed while Go
+// has not. Exact-token revocation precedes the terminal local write. This path
+// runs before mode, classifier and attempt-limit checks after a restart.
+func (m *Module) recoverCoreApproval(ctx context.Context, claim marketreview.Job) error {
+	if err := m.revokeReviewAttempt(ctx, claim); err != nil {
+		return err
+	}
+	return m.store.update(func(d *database) error {
+		w := webState(d)
+		v, ok := w.Versions[claim.Version]
+		if !ok || v.AIReview.Token != claim.Token {
+			return nil
+		}
+		for _, job := range v.AIReview.Jobs {
+			if job.ID == claim.ID && job.Token == claim.Token && job.Attempts == claim.Attempts && job.ApprovalPending {
+				s := w.Services[claim.TargetID]
+				if job.Applied && s.LiveVersionID == claim.Version && s.DraftVersionID == "" {
+					// The local publication committed but its ACK was lost.
+					// Match Core's exact-token revocation by restoring the
+					// same previously frozen live version locally.
+					s.LiveVersionID = job.ApprovalPriorVersion
+					s.DraftVersionID = claim.Version
+					if s.LiveVersionID == "" {
+						s.Status = "draft"
+					} else if s.Status != "paused" {
+						s.Status = "published"
+					}
+					s.UpdatedAt = m.now().Unix()
+					v.Version.Status, v.Version.PublishedAt = "pending", 0
+					w.Services[s.ID] = s
+				}
+				for i := range v.AIReview.Jobs {
+					j := &v.AIReview.Jobs[i]
+					if j.ID == claim.ID && j.Token == claim.Token {
+						j.Status, j.Applied = "running", false
+					}
+				}
+				v.AIReview.Manual("core_approval_uncertain", m.now().Unix())
+				w.Versions[claim.Version] = v
+				break
+			}
+		}
+		return nil
+	})
+}
+
+func (m *Module) confirmCoreApproval(claim marketreview.Job) error {
+	return m.store.update(func(d *database) error {
+		w := webState(d)
+		v, ok := w.Versions[claim.Version]
+		if !ok || v.AIReview.Token != claim.Token {
+			return nil
+		}
+		for i := range v.AIReview.Jobs {
+			j := &v.AIReview.Jobs[i]
+			if j.ID == claim.ID && j.Token == claim.Token && j.Attempts == claim.Attempts && j.Applied {
+				j.ApprovalPending, j.LeaseUntil = false, 0
+			}
+		}
+		w.Versions[claim.Version] = v
+		return nil
+	})
 }
 
 func (m *Module) revokeReviewAttempt(ctx context.Context, j marketreview.Job) error {

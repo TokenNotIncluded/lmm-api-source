@@ -75,12 +75,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && path == "/sms/offer":
 		var q Quote
 		selection := Selection{Kind: "sms", Country: queryInt(r, "country", -1), Service: r.URL.Query().Get("service"), Operator: r.URL.Query().Get("operator")}
-		if r.URL.Query().Get("max_price_usd") != "" {
-			err = &Failure{400, "CUSTOM_BID_UNSUPPORTED"}
-		} else {
-			err = s.Core.Call(r.Context(), "quote", user, map[string]any{"request_key": randomKey(), "selection": selection}, &q)
-			out = offer(q)
-		}
+		err = s.Core.Call(r.Context(), "quote", user, map[string]any{"request_key": randomKey(), "selection": selection, "max_customer_price_usd": r.URL.Query().Get("max_price_usd")}, &q)
+		out = offer(q)
 	case r.Method == http.MethodPost && path == "/sms/orders":
 		var input struct {
 			OfferID string `json:"offer_id"`
@@ -148,6 +144,8 @@ func (s *Service) purchase(r *http.Request, user, quote string, quantity int, re
 	items := make([]any, 0, len(plan.Orders))
 	var last Receipt
 	batchState := "active"
+	failed := 0
+	var reserved int64
 	var first error
 	for _, id := range plan.Orders {
 		var receipt Receipt
@@ -157,20 +155,21 @@ func (s *Service) purchase(r *http.Request, user, quote string, quantity int, re
 			break
 		}
 		last = receipt
+		reserved += receipt.Charge
 		if receipt.Quote.Selection.Kind != kind {
 			return nil, ErrUnavailable
 		}
 		state := viewState(receipt)
 		if state == "purchase_unknown" || state == "pending_provider" {
 			batchState = "purchase_unknown"
-		} else if state == "failed" && batchState == "active" {
-			batchState = "failed"
+		} else if state == "failed" {
+			failed++
 		}
 		if kind == "email" {
 			items = append(items, email(receipt))
 		}
 	}
-	if first != nil {
+	if first != nil && (kind == "sms" || len(items) == 0) {
 		return nil, first
 	}
 	if kind == "sms" {
@@ -182,7 +181,16 @@ func (s *Service) purchase(r *http.Request, user, quote string, quantity int, re
 		}
 		return map[string]any{"order": sms(last), "quota": balance.Quota}, nil
 	}
-	return map[string]any{"order": map[string]any{"id": plan.ID, "status": batchState, "quantity": len(plan.Orders), "charge_quota": last.Charge * int64(len(plan.Orders)), "created_at": last.Created, "updated_at": last.Updated}, "activations": items}, nil
+	if first != nil || (failed > 0 && failed < len(plan.Orders)) {
+		batchState = "partial"
+	} else if failed == len(plan.Orders) {
+		batchState = "failed"
+	}
+	errorCode := ""
+	if first != nil {
+		_, errorCode = status(first)
+	}
+	return map[string]any{"order": map[string]any{"id": plan.ID, "status": batchState, "quantity": len(plan.Orders), "received_count": len(items), "failed_count": failed, "last_error_code": errorCode, "charge_quota": reserved, "created_at": last.Created, "updated_at": last.Updated}, "activations": items}, nil
 }
 func (s *Service) order(r *http.Request, user, tail, kind string) (any, error) {
 	parts := strings.Split(tail, "/")
@@ -190,6 +198,7 @@ func (s *Service) order(r *http.Request, user, tail, kind string) (any, error) {
 		return nil, ErrInvalid
 	}
 	action := "query"
+	input := map[string]any{"id": parts[0]}
 	if kind == "sms" {
 		action = "poll"
 	}
@@ -199,6 +208,18 @@ func (s *Service) order(r *http.Request, user, tail, kind string) (any, error) {
 			action = "poll"
 		case "cancel":
 			action = "cancel"
+		case "complaints":
+			if kind != "sms" || r.Method != http.MethodPost {
+				return nil, ErrInvalid
+			}
+			var body struct {
+				Reason string `json:"reason"`
+			}
+			if err := decode(r, &body); err != nil {
+				return nil, err
+			}
+			input["reason"] = body.Reason
+			action = "complaint"
 		case "reorder":
 			if kind != "email" || r.Method != http.MethodPost {
 				return nil, ErrInvalid
@@ -220,7 +241,7 @@ func (s *Service) order(r *http.Request, user, tail, kind string) (any, error) {
 		return nil, &Failure{405, "METHOD_NOT_ALLOWED"}
 	}
 	var out Receipt
-	if err := s.Core.Call(r.Context(), action, user, map[string]any{"id": parts[0]}, &out); err != nil {
+	if err := s.Core.Call(r.Context(), action, user, input, &out); err != nil {
 		return nil, err
 	}
 	if out.Quote.Selection.Kind != kind {

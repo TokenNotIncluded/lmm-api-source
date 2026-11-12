@@ -150,14 +150,16 @@ type Record struct {
 
 type Job struct {
 	Record
-	Token              string `json:"token"`
-	OwnerID            int64  `json:"owner_id"`
-	Text               string `json:"text,omitempty"`
-	Route              Route  `json:"route"`
-	LeaseUntil         int64  `json:"lease_until,omitempty"`
-	RetryAt            int64  `json:"retry_at,omitempty"`
-	AdmissionAttempted bool   `json:"admission_attempted,omitempty"`
-	AdmissionRevision  int64  `json:"admission_revision,omitempty"`
+	Token                string `json:"token"`
+	OwnerID              int64  `json:"owner_id"`
+	Text                 string `json:"text,omitempty"`
+	Route                Route  `json:"route"`
+	LeaseUntil           int64  `json:"lease_until,omitempty"`
+	RetryAt              int64  `json:"retry_at,omitempty"`
+	AdmissionAttempted   bool   `json:"admission_attempted,omitempty"`
+	AdmissionRevision    int64  `json:"admission_revision,omitempty"`
+	ApprovalPending      bool   `json:"approval_pending,omitempty"`
+	ApprovalPriorVersion string `json:"approval_prior_version,omitempty"`
 }
 
 // History is stored inside the product/version record so submission, token
@@ -227,7 +229,7 @@ func (h *History) Enqueue(source, target, version string, owner int64, mode Mode
 func ptr[T any](v T) *T { return &v }
 func (j *Job) terminal(status, outcome string, now int64) {
 	j.Status, j.Outcome, j.UpdatedAt, j.CompletedAt = status, ptr(outcome), now, now
-	j.Text, j.LeaseUntil, j.RetryAt = "", 0, 0
+	j.Text, j.LeaseUntil, j.RetryAt, j.ApprovalPending = "", 0, 0, false
 }
 func (j *Job) fail(code string, now int64) {
 	j.ErrorCode = ptr(code)
@@ -267,14 +269,22 @@ func (h *History) Manual(code string, now int64) {
 func (h *History) Claim(now int64) *Job {
 	for i := range h.Jobs {
 		j := &h.Jobs[i]
-		if j.Token != h.Token || (j.Status != "pending" && (j.Status != "running" || j.LeaseUntil > now)) || j.RetryAt > now {
+		if j.Token != h.Token || j.RetryAt > now || j.LeaseUntil > now {
 			continue
 		}
-		if j.Attempts >= 3 {
+		if !j.ApprovalPending && j.Status != "pending" && j.Status != "running" {
+			continue
+		}
+		// A Core approval sent before a process crash must be reconciled even
+		// after the classifier's retry budget is exhausted. Recovery itself
+		// neither calls the classifier nor consumes another classification try.
+		if j.Attempts >= 3 && !j.ApprovalPending {
 			j.fail("attempts_exhausted", now)
 			continue
 		}
-		j.Attempts++
+		if !j.ApprovalPending {
+			j.Attempts++
+		}
 		j.Status, j.UpdatedAt, j.LeaseUntil = "running", now, now+60
 		copy := *j
 		return &copy
