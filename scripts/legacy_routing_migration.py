@@ -214,6 +214,10 @@ NEUTRAL_CHANNEL_SETTING = {"force_format": False, "thinking_to_content": False,
     "system_prompt_override": False, "responses_websocket_enabled": False}
 
 
+LEGACY_OPENAI_FLAGS = ("allow_service_tier", "allow_inference_geo", "allow_speed",
+                       "allow_safety_identifier", "allow_include_obfuscation")
+
+
 def channel_setting_reasons(row):
     reasons = []
     for field in ("setting", "settings"):
@@ -231,12 +235,26 @@ def channel_setting_reasons(row):
         for name, value in values.items():
             if field == "settings" and name in CHANNEL_MANAGEMENT_SETTINGS:
                 continue
+            if field == "settings" and name in ("disable_store", "openrouter_enterprise", "disable_task_polling_sleep") and value is False:
+                continue
+            if field == "settings" and name in LEGACY_OPENAI_FLAGS and row.get("type") in (1, 48) and type(value) is bool:
+                continue
             if field == "setting" and name in NEUTRAL_CHANNEL_SETTING:
                 expected = NEUTRAL_CHANNEL_SETTING[name]
                 if type(value) is type(expected) and value == expected:
                     continue
             reasons.append(field + "_" + name + "_not_mapped")
     return reasons
+
+
+def channel_payload(row, source_price):
+    if row.get("type") in (1, 48) and row.get("settings") not in EMPTY:
+        settings = F.parse_json(row["settings"]) if isinstance(row["settings"], str) else row["settings"]
+        if any(name in settings for name in LEGACY_OPENAI_FLAGS):
+            return {"legacy_openai": {name: settings.get(name, False) for name in LEGACY_OPENAI_FLAGS}}
+    if source_price.get("kind") == "legacy_ratio_decimal" and source_price.get("source_usage_contract") == LEGACY_FABLE_USAGE:
+        return "legacy_openrouter_chat_usage_v1"
+    return "open_router" if row.get("type") == 20 else "adapt"
 
 
 def blocked_channel(row, provider, credential):
@@ -269,6 +287,12 @@ def blocked_channel(row, provider, credential):
         require(provider.get("source_channel_sha256") == F.digest(row), "provider_source_channel_changed")
         if row.get("type") == 20 and provider.get("adapter_contract") != "openrouter-chat-v1":
             reasons.append("openrouter_adapter_contract_missing")
+        settings = row.get("settings")
+        settings = F.parse_json(settings) if isinstance(settings, str) and settings not in EMPTY else settings
+        if isinstance(settings, dict) and row.get("type") in (1, 48) and any(name in settings for name in LEGACY_OPENAI_FLAGS):
+            if provider.get("protocol") not in ("openai_chat", "openai_responses") or not provider.get("models") or any(
+                model.get("client_protocols") != [provider.get("protocol")] for model in provider["models"]):
+                reasons.append("legacy_openai_same_wire_client_contract_missing")
         if provider.get("protocol") not in PROTOCOLS.get(row.get("type"), set()):
             reasons.append("provider_protocol_not_compatible")
         # Legacy adapters append their version prefix; Core appends only the
@@ -1049,10 +1073,7 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                     targets.append({"id": next_target_id, "upstream_id": cid, "upstream_model": model, "enabled": True,
                                     "priority": entry["native_priority"], "weight": entry["native_weight"], "speeds": ["standard"],
                                     **({"client_protocols": entry["client_protocols"]} if "client_protocols" in entry else {}),
-                                    "payload": ("legacy_openrouter_chat_usage_v1"
-                                        if source_price.get("kind") == "legacy_ratio_decimal"
-                                        and source_price.get("source_usage_contract") == LEGACY_FABLE_USAGE
-                                        else "open_router" if channel.get("type") == 20 else "adapt"),
+                                    "payload": channel_payload(channel, source_price),
                                     "timeout_ms": limits["timeout_seconds"] * 1000})
                 for reason in sorted(set(entry["reasons"])):
                     block(reason, group=group, model=model, channel_id=cid)

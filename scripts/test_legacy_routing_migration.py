@@ -389,6 +389,19 @@ class RoutingSemanticsTests(unittest.TestCase):
         channel["setting"] = '{"force_format":0}'
         self.assertIn("setting_force_format_not_mapped", R.channel_setting_reasons(channel))
 
+    def test_openai_request_flags_are_carried_as_payload_policy(self):
+        value = fixture()
+        channel = value[0]["channels"][0]
+        channel["settings"] = '{"allow_service_tier":false,"allow_speed":true,"disable_store":false}'
+        value[3]["providers"]["channels"][0]["models"][0]["client_protocols"] = ["openai_chat"]
+        rebind_channel(value)
+        result = run_fixture(value)
+        self.assertIn("candidate", result)
+        self.assertEqual(R.channel_payload(channel, {})["legacy_openai"]["allow_speed"], True)
+        self.assertEqual(R.channel_payload(channel, {})["legacy_openai"]["allow_service_tier"], False)
+        channel["type"] = 14
+        self.assertIn("settings_allow_speed_not_mapped", R.channel_setting_reasons(channel))
+
     def test_default_base_is_pinned_and_null_is_distinct(self):
         value = fixture()
         channel = value[0]["channels"][0]
