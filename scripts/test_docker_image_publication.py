@@ -105,6 +105,7 @@ class SourceContracts(unittest.TestCase):
         extensions = (ROOT / 'deployment/docker/extensions.Dockerfile').read_text()
         self.assertRegex(core, r'(?m)^FROM rust:1\.99\.1-bookworm@sha256:[0-9a-f]{64} AS build$')
         self.assertIn('cargo build --locked --release --jobs 2 --bin lmm-core', core)
+        self.assertIn('COPY deployment/postgres/grant-core-runtime.sql /src/deployment/postgres/grant-core-runtime.sql', core)
         self.assertRegex(extensions, r'(?m)^FROM golang:1\.27\.2-bookworm@sha256:[0-9a-f]{64} AS build$')
         self.assertIn('./cmd/extensions', extensions)
         for dockerfile in (core, extensions):
