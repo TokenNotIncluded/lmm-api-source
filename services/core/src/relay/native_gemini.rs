@@ -1,10 +1,9 @@
 //! Native Gemini text/image/function adapter. Routing and settlement remain host-owned.
 //! Wire reference: googleapis/python-genai ddd7d821497afe97a392e599ccffd5dd5011e44c
 //! (Apache-2.0); independently implemented, no upstream source copied.
-use super::{
-    BlockKind, ClientProtocol, Event, FinishReason, Limits, RelayError, Request, UpstreamProtocol,
-    Usage,
-};
+#[cfg(test)]
+use super::{BlockKind, Event, FinishReason, Usage};
+use super::{ClientProtocol, Limits, RelayError, Request, UpstreamProtocol};
 use serde::{
     Deserialize,
     de::{MapAccess, SeqAccess, Visitor},
@@ -424,12 +423,14 @@ fn continuation_token(v: Option<&Value>, limits: &Limits) -> Result<Option<Strin
     Ok(Some(token.to_owned()))
 }
 
+#[cfg(test)]
 struct Block {
     kind: BlockKind,
     text: String,
     signature: Option<String>,
     ended: bool,
 }
+#[cfg(test)]
 pub(crate) struct NativeEncoder {
     model: String,
     id: String,
@@ -446,6 +447,7 @@ pub(crate) struct NativeEncoder {
     bytes: usize,
     wire_bytes: usize,
 }
+#[cfg(test)]
 impl NativeEncoder {
     pub(crate) fn new(model: &str, request_id: &str, stream: bool, limits: &Limits) -> Self {
         Self {

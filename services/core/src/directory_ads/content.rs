@@ -1,5 +1,4 @@
 use super::*;
-use std::net::IpAddr;
 pub fn content_digest(name: &str, url: &str, summary: &str, description: &str) -> String {
     let mut b = b"lmm.directory-ad.content.v1\n".to_vec();
     for s in [name, url, summary, description] {
@@ -9,65 +8,76 @@ pub fn content_digest(name: &str, url: &str, summary: &str, description: &str) -
     }
     hash(&b)
 }
-fn text(s: &str, max: usize, required: bool) -> bool {
-    s == s.trim_matches([' ', '\t', '\r', '\n'])
-        && (!required || !s.is_empty())
-        && s.chars().count() <= max
-        && !s.chars().any(|c| c < ' ' || c == '\u{7f}')
-}
-fn public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            let [a, b, _, _] = ip.octets();
-            !ip.is_private()
-                && !ip.is_loopback()
-                && !ip.is_link_local()
-                && !ip.is_broadcast()
-                && !ip.is_documentation()
-                && a != 0
-                && a < 224
-                && !(a == 100 && (64..=127).contains(&b))
-                && !(a == 198 && (b == 18 || b == 19))
-        }
-        IpAddr::V6(ip) => {
-            let s = ip.segments();
-            ip.to_ipv4_mapped()
-                .map(|v| public_ip(IpAddr::V4(v)))
-                .unwrap_or_else(|| s[0] & 0xe000 == 0x2000 && !(s[0] == 0x2001 && s[1] == 0xdb8))
-        }
-    }
-}
-pub(super) fn validate(v: &pb::PrepareDirectoryAdRequest) -> Result<()> {
+// Publication policy belongs to the community extension and its own database.
+// Core only bounds the consent snapshot and binds it to the authorized charge.
+pub(super) fn validate_consent(v: &pb::PrepareDirectoryAdRequest) -> Result<()> {
+    let fields = [&v.name, &v.url, &v.summary, &v.description];
     if v.protocol_major != 1
         || v.content_version != 1
         || !key(&v.request_id)
         || !(100..=1_000_000).contains(&v.bid_cents)
-        || !text(&v.name, 80, true)
-        || !text(&v.summary, 180, false)
-        || !text(&v.description, 1200, false)
-        || !text(&v.url, 2048, true)
-        || v.url.len() > 2048
-        || v.url.chars().any(char::is_whitespace)
+        || fields.iter().map(|s| s.len()).sum::<usize>() > (8 << 10)
+        || fields
+            .iter()
+            .any(|s| s.chars().any(|c| c < ' ' || c == '\u{7f}'))
         || v.content_sha256 != content_digest(&v.name, &v.url, &v.summary, &v.description)
     {
         return Err(Error::Invalid);
     }
-    let u = reqwest::Url::parse(&v.url).map_err(|_| Error::Invalid)?;
-    if u.scheme() != "https" || !u.username().is_empty() || u.password().is_some() {
-        return Err(Error::Invalid);
-    }
-    let h = u.host_str().ok_or(Error::Invalid)?;
-    if let Ok(ip) = h.trim_matches(['[', ']']).parse::<IpAddr>() {
-        if !public_ip(ip) {
-            return Err(Error::Invalid);
-        }
-    } else if !h.contains('.')
-        || h.ends_with('.')
-        || [".localhost", ".local", ".internal", ".test"]
-            .iter()
-            .any(|suffix| h.ends_with(suffix))
-    {
-        return Err(Error::Invalid);
-    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request() -> pb::PrepareDirectoryAdRequest {
+        let mut request = pb::PrepareDirectoryAdRequest {
+            protocol_major: 1,
+            content_version: 1,
+            request_id: "advertisement-0001".into(),
+            bid_cents: 100,
+            // Deliberately not a publishable advertisement. This is consent
+            // data, not a Core endorsement of the extension's publication.
+            name: "x".repeat(81),
+            url: "http://localhost".into(),
+            ..Default::default()
+        };
+        bind_content(&mut request);
+        request
+    }
+    fn bind_content(request: &mut pb::PrepareDirectoryAdRequest) {
+        request.content_sha256 = content_digest(
+            &request.name,
+            &request.url,
+            &request.summary,
+            &request.description,
+        );
+    }
+    #[test]
+    fn consent_validation_leaves_publication_policy_to_extension() {
+        let mut request = request();
+        assert_eq!(validate_consent(&request), Ok(()));
+        request.name.push('x');
+        assert_eq!(validate_consent(&request), Err(Error::Invalid));
+        bind_content(&mut request);
+        assert_eq!(validate_consent(&request), Ok(()));
+    }
+    #[test]
+    fn consent_validation_retains_charge_binding_and_input_bounds() {
+        for mutate in [
+            |r: &mut pb::PrepareDirectoryAdRequest| r.protocol_major = 2,
+            |r: &mut pb::PrepareDirectoryAdRequest| r.content_version = 2,
+            |r: &mut pb::PrepareDirectoryAdRequest| r.request_id = "short".into(),
+            |r: &mut pb::PrepareDirectoryAdRequest| r.bid_cents = 99,
+            |r: &mut pb::PrepareDirectoryAdRequest| r.bid_cents = 1_000_001,
+            |r: &mut pb::PrepareDirectoryAdRequest| r.description = "x".repeat((8 << 10) + 1),
+            |r: &mut pb::PrepareDirectoryAdRequest| r.description = "hidden\ntext".into(),
+        ] {
+            let mut request = request();
+            mutate(&mut request);
+            bind_content(&mut request);
+            assert_eq!(validate_consent(&request), Err(Error::Invalid));
+        }
+    }
 }

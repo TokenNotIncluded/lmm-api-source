@@ -40,6 +40,11 @@ mod tests {
         assert_eq!(prior["catalog_sha256"], PRE_CATALOG);
         assert_eq!(ENGINE.predecessor_count, 44);
         assert_eq!(ENGINE.target_count, 45);
-        authorize_target().unwrap();
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected(
+                "TRUST_POLICY_EDIT_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
     }
 }

@@ -17,6 +17,7 @@ import (
 const defaultConfigPath = "/etc/lmm.conf.d/extensions.toml"
 
 type GoConfig struct {
+	Checkins         DatabaseConfig         `toml:"checkins"`
 	HeroSMS          HeroSMSConfig          `toml:"hero_sms"`
 	MarketReview     MarketReviewConfig     `toml:"market_review"`
 	SupportCustomers SupportCustomersConfig `toml:"support_customers"`
@@ -46,6 +47,7 @@ type HostConfig struct {
 	WebCompat       bool     `toml:"web_compat"`
 }
 type CoreConfig struct {
+	CheckinTokenFile     string `toml:"checkin_token_file"`
 	UserReadTokenFile    string `toml:"user_read_token_file"`
 	UserReadSocket       string `toml:"user_read_socket"`
 	Socket               string `toml:"socket"`
@@ -154,7 +156,7 @@ func LoadConfig(path string) (GoConfig, error) {
 			continue
 		}
 		switch key.String() {
-		case "hero_sms", "hero_sms.core_socket", "hero_sms.core_token_file", "market_review", "market_review.core_socket", "market_review.core_token_file", "market_review.settings_file",
+		case "checkins", "checkins.database_name", "checkins.database_url_file", "core.checkin_token_file", "hero_sms", "hero_sms.core_socket", "hero_sms.core_token_file", "market_review", "market_review.core_socket", "market_review.core_token_file", "market_review.settings_file",
 			"core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"operations", "operations.database_name", "operations.database_url_file", "ionet", "ionet.key_file",
 			"community", "community.database_name", "community.database_url_file",
@@ -181,7 +183,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root, cfg.Scripts.RepositoryKeyFile, cfg.IoNet.KeyFile} {
+	for _, p := range []string{cfg.Host.PluginStateFile, cfg.Checkins.DatabaseURLFile, cfg.Core.CheckinTokenFile, cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.DirectoryAdTokenFile, cfg.Core.AssistantTokenFile, cfg.Core.UserReadTokenFile, cfg.Core.UserReadSocket, cfg.Store.DatabaseURLFile, cfg.Store.StockKeyFile, cfg.Store.ExtoreKeyFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Community.DatabaseURLFile, cfg.Acquisition.DatabaseURLFile, cfg.Scripts.Root, cfg.Scripts.RepositoryKeyFile, cfg.IoNet.KeyFile} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}
@@ -222,7 +224,7 @@ func LoadConfig(path string) (GoConfig, error) {
 			}
 		}
 	}
-	for _, db := range []DatabaseConfig{{DatabaseName: cfg.Store.DatabaseName, DatabaseURLFile: cfg.Store.DatabaseURLFile}, cfg.Support, cfg.Operations, cfg.Community, cfg.Acquisition} {
+	for _, db := range []DatabaseConfig{{DatabaseName: cfg.Store.DatabaseName, DatabaseURLFile: cfg.Store.DatabaseURLFile}, cfg.Support, cfg.Operations, cfg.Community, cfg.Acquisition, cfg.Checkins} {
 		if (db.DatabaseName == "") != (db.DatabaseURLFile == "") {
 			return cfg, errors.New("configure both extension database_name and database_url_file")
 		}

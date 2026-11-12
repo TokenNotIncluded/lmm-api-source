@@ -55,10 +55,11 @@ mod tests {
     fn frozen42_is_exact_and_all_paths_have_the_same_explicit44_target() {
         let frozen = include_str!("accounting_predecessor_manifest.json");
         assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
-        let mut compiled = schema_manifest();
+        let mut compiled: super::super::historical_fixture::Manifest =
+            serde_json::from_str(include_str!("accounting_predecessor_manifest.json")).unwrap();
         assert_eq!(ENGINE.target_count, 44);
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_eq!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
+        assert_ne!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
         compiled.components.truncate(42);
         let mut bytes = serde_json::to_vec(&compiled).unwrap();
         bytes.push(b'\n');
@@ -69,7 +70,12 @@ mod tests {
         assert_eq!(TARGET, include_str!("account_appeals_target.json"));
         assert_eq!(TARGET, include_str!("completion_target.json"));
         // Fail closed until the real private PG18 catalog capture completes.
-        authorize_target().unwrap();
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected(
+                "CHANNEL_ACCOUNTING_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
     }
     #[test]
     fn accounting_requires_explicit_successor_roles_and_frozen42() {

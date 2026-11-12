@@ -5,7 +5,9 @@ use serde::{
     de::{MapAccess, Visitor},
 };
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug)]
 pub enum InputBlock {
@@ -46,6 +48,7 @@ impl Role {
             _ => Err(RelayError::Invalid("unsupported message role")),
         }
     }
+    #[cfg(test)]
     fn name(self) -> &'static str {
         match self {
             Self::System => "system",
@@ -1247,22 +1250,21 @@ impl Request {
         use crate::routing::PayloadPolicy;
         if route.payload_policy == PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1 {
             if route.protocol != UpstreamProtocol::Anthropic {
-                return Err(RelayError::Unsupported("legacy system cache policy requires Anthropic"));
+                return Err(RelayError::Unsupported(
+                    "legacy system cache policy requires Anthropic",
+                ));
             }
             let mut payload = self.upstream_to(route.protocol, &route.model)?;
-            // The pinned Anthropic adapter represents system instructions as
-            // blocks. Keep that typed representation after generic conversion.
-            let native = self.anthropic(&route.model)?;
-            if let Some(system) = native.get("system") {
-                payload["system"] = system.clone();
-            }
             if self.client == ClientProtocol::Chat
                 && route.model.starts_with("claude-haiku-4-5")
-                && let Some(last) = payload.get_mut("system")
-                    .and_then(Value::as_array_mut).and_then(|system| system.last_mut())
+                && let Some(last) = payload
+                    .get_mut("system")
+                    .and_then(Value::as_array_mut)
+                    .and_then(|system| system.last_mut())
                     .and_then(Value::as_object_mut)
             {
-                last.entry("cache_control").or_insert_with(|| json!({"type":"ephemeral"}));
+                last.entry("cache_control")
+                    .or_insert_with(|| json!({"type":"ephemeral"}));
             }
             return Ok(payload);
         }
@@ -1468,196 +1470,119 @@ impl Request {
                 "reasoning effort or strict tools require an OpenAI protocol route",
             ));
         }
-        let source = match self.client {
-            ClientProtocol::Chat => UpstreamProtocol::Chat,
-            ClientProtocol::Responses => UpstreamProtocol::Responses,
-            ClientProtocol::Anthropic => UpstreamProtocol::Anthropic,
-            ClientProtocol::Gemini => UpstreamProtocol::Gemini,
-        };
-        // The native Anthropic writer preserves signed blocks, developer/system
-        // instructions and adjacent-role merging that Chat wire cannot express.
-        if source == UpstreamProtocol::Chat && protocol == UpstreamProtocol::Anthropic {
-            return self.anthropic(model);
+        if protocol == UpstreamProtocol::Responses && !self.stop.is_empty() {
+            return Err(RelayError::Unsupported("Responses stop sequences"));
         }
-        // Native same-wire controls remain native. The six Chat cross-wire
-        // directions use zconv output, after the existing admission guards.
-        if source != protocol
-            && (source == UpstreamProtocol::Chat || protocol == UpstreamProtocol::Chat)
-        {
-            if protocol == UpstreamProtocol::Responses && !self.stop.is_empty() {
-                return Err(RelayError::Unsupported("Responses stop sequences"));
-            }
-            if protocol == UpstreamProtocol::Anthropic && self.temperature.is_some_and(|t| t > 1.0)
-            {
-                return Err(RelayError::Unsupported("Anthropic temperature exceeds one"));
-            }
-            if protocol == UpstreamProtocol::Gemini && self.parallel_tool_calls == Some(false) {
-                return Err(RelayError::Unsupported(
-                    "Gemini cannot enforce serial tool calls",
-                ));
-            }
-            if matches!(
-                protocol,
-                UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
-            ) {
-                self.split_system()?;
-            }
-            let mut input = match source {
-                UpstreamProtocol::Chat => self.chat(model)?,
-                UpstreamProtocol::Responses => self.responses(model)?,
-                UpstreamProtocol::Anthropic => self.anthropic(model)?,
-                UpstreamProtocol::Gemini => self.gemini()?,
-            };
-            if source == UpstreamProtocol::Responses && protocol == UpstreamProtocol::Chat {
-                // Compatibility resolution for Core's existing selected Chat
-                // route: its old writer omitted None, hence Chat non-strict.
-                // This is NOT OpenAI Responses' automatic schema normalization.
-                // Keep the schema untouched and leave native Responses alone.
-                if let Some(tools) = input.get_mut("tools").and_then(Value::as_array_mut) {
-                    for tool in tools {
-                        if tool.get("strict").is_none_or(Value::is_null) {
-                            tool["strict"] = json!(false);
-                        }
+        if protocol == UpstreamProtocol::Anthropic && self.temperature.is_some_and(|t| t > 1.0) {
+            return Err(RelayError::Unsupported("Anthropic temperature exceeds one"));
+        }
+        if protocol == UpstreamProtocol::Gemini && self.parallel_tool_calls == Some(false) {
+            return Err(RelayError::Unsupported(
+                "Gemini cannot enforce serial tool calls",
+            ));
+        }
+        if matches!(
+            protocol,
+            UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
+        ) {
+            self.validate_system()?;
+        }
+        for block in self.messages.iter().flat_map(|message| &message.content) {
+            match block {
+                InputBlock::Thinking { signature, .. } => match protocol {
+                    UpstreamProtocol::Responses => {
+                        return Err(RelayError::Unsupported(
+                            "Responses reasoning history requires native item identity",
+                        ));
                     }
-                }
-            }
-            // Core has already validated these provider-specific controls.
-            // zconv owns message/tool conversion; these controls are explicitly
-            // carried around its strict-loss boundary, never silently dropped.
-            for key in [
-                "reasoning_effort",
-                "reasoning",
-                "parallel_tool_calls",
-                "response_format",
-            ] {
-                input.as_object_mut().unwrap().remove(key);
-            }
-            if let Some(choice) = input.get_mut("tool_choice").and_then(Value::as_object_mut) {
-                choice.remove("disable_parallel_tool_use");
-            }
-            if source == UpstreamProtocol::Gemini {
-                if let Some(config) = input
-                    .get_mut("generationConfig")
-                    .and_then(Value::as_object_mut)
-                {
-                    for key in [
-                        "candidateCount",
-                        "responseMimeType",
-                        "responseJsonSchema",
-                        "responseSchema",
-                    ] {
-                        config.remove(key);
+                    UpstreamProtocol::Chat if signature.is_some() => {
+                        return Err(RelayError::Unsupported("opaque Chat reasoning signatures"));
                     }
-                }
-                if let Some(declarations) = input
-                    .pointer_mut("/tools/0/functionDeclarations")
-                    .and_then(Value::as_array_mut)
-                {
-                    for declaration in declarations {
-                        if let Some(schema) = declaration
-                            .as_object_mut()
-                            .unwrap()
-                            .remove("parametersJsonSchema")
-                        {
-                            declaration["parameters"] = schema;
-                        }
-                    }
-                }
-            }
-            let records = 64
-                + self.tools.len() * 8
-                + self
-                    .messages
-                    .iter()
-                    .map(|m| m.content.len() * 4 + 4)
-                    .sum::<usize>();
-            let mut converted = super::zconv_request::convert(
-                source,
-                protocol,
-                input,
-                model,
-                self.max_output_tokens,
-                records,
-            )?;
-            if let Some(effort) = &self.reasoning_effort {
-                if protocol == UpstreamProtocol::Chat {
-                    converted["reasoning_effort"] = json!(effort);
-                } else {
-                    converted["reasoning"] = json!({"effort":effort});
-                }
-            }
-            if let Some(parallel) = self.parallel_tool_calls {
-                match protocol {
-                    UpstreamProtocol::Chat | UpstreamProtocol::Responses => {
-                        converted["parallel_tool_calls"] = json!(parallel)
-                    }
-                    UpstreamProtocol::Anthropic if !self.tools.is_empty() => {
-                        converted["tool_choice"]["disable_parallel_tool_use"] = json!(!parallel)
+                    UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
+                        if signature.is_none() =>
+                    {
+                        return Err(RelayError::Unsupported(
+                            "native thinking history needs its original signature",
+                        ));
                     }
                     _ => {}
-                }
-            }
-            // Keep Core's existing JSON Schema dialect placement. Tool names,
-            // descriptions, choice and message bodies remain zconv's output.
-            if protocol == UpstreamProtocol::Gemini {
-                if let Some(declarations) = converted
-                    .pointer_mut("/tools/0/functionDeclarations")
-                    .and_then(Value::as_array_mut)
+                },
+                InputBlock::ToolCall {
+                    signature: Some(_), ..
+                } if matches!(
+                    protocol,
+                    UpstreamProtocol::Chat | UpstreamProtocol::Responses
+                ) =>
                 {
-                    for (declaration, tool) in declarations.iter_mut().zip(&self.tools) {
-                        declaration.as_object_mut().unwrap().remove("parameters");
-                        let placed = super::gemini_schema::function_parameters(
-                            &tool.parameters,
-                            super::gemini_schema::ACCEPTS_JSON_SCHEMA,
-                        );
-                        if let Some(value) = placed.value {
-                            declaration[placed.field] = value;
-                        }
-                    }
+                    return Err(RelayError::Unsupported("opaque OpenAI tool signatures"));
                 }
+                _ => {}
             }
-            if self.response_format.is_some() {
-                let native = match protocol {
-                    UpstreamProtocol::Chat => self.chat(model)?,
-                    UpstreamProtocol::Gemini => self.gemini()?,
-                    _ => unreachable!("response format admission above"),
-                };
-                if protocol == UpstreamProtocol::Chat {
-                    converted["response_format"] = native["response_format"].clone();
-                } else {
-                    for key in ["responseMimeType", "responseJsonSchema", "responseSchema"] {
-                        if let Some(value) = native["generationConfig"].get(key) {
-                            converted["generationConfig"][key] = value.clone();
-                        }
-                    }
-                }
+        }
+        let mut converted = super::zconv_request::encode(self, protocol, model)?;
+        // Core owns the selected supplier's controls and schema dialect policy.
+        // Message bodies, tool definitions and tool choice come from zconv IR.
+        if protocol == UpstreamProtocol::Chat {
+            if let Some(format) = &self.response_format {
+                converted["response_format"] = format.to_chat_value();
             }
-            // These are Core-owned transport controls, never supplier evidence.
-            if matches!(
-                protocol,
-                UpstreamProtocol::Chat | UpstreamProtocol::Responses
-            ) {
-                converted["store"] = json!(false);
-                converted["stream"] = json!(self.stream);
-            }
-            if protocol == UpstreamProtocol::Chat && self.stream {
+            if self.stream {
                 converted["stream_options"] = json!({"include_usage":true});
             }
-            if protocol == UpstreamProtocol::Gemini {
-                converted["generationConfig"]["candidateCount"] = json!(1);
-                if let Some(image_config) = &self.image_config {
-                    converted["generationConfig"]["imageConfig"] = image_config.to_gemini_value();
+        }
+        if matches!(
+            protocol,
+            UpstreamProtocol::Chat | UpstreamProtocol::Responses
+        ) {
+            converted["store"] = json!(false);
+        }
+        if protocol == UpstreamProtocol::Responses {
+            if let Some(options) = &self.prompt_cache_options {
+                converted["prompt_cache_options"] = options.clone();
+            }
+        }
+        if protocol == UpstreamProtocol::Anthropic {
+            // No system section is emitted for absence. The native parser
+            // rejects an explicitly empty content array; do not invent one.
+            if let Some(prompt) = &self.anthropic_cached_prompt {
+                for (key, value) in prompt {
+                    converted[key] = value.clone();
                 }
             }
-            return Ok(converted);
         }
-        match protocol {
-            UpstreamProtocol::Chat => self.chat(model),
-            UpstreamProtocol::Responses => self.responses(model),
-            UpstreamProtocol::Anthropic => self.anthropic(model),
-            UpstreamProtocol::Gemini => self.gemini(),
+        if protocol == UpstreamProtocol::Gemini {
+            if let Some(image_config) = &self.image_config {
+                converted["generationConfig"]["imageConfig"] = image_config.to_gemini_value();
+            }
+            if let Some(format) = &self.response_format {
+                match format {
+                    ResponseFormat::Text => {}
+                    ResponseFormat::JsonObject => {
+                        converted["generationConfig"]["responseMimeType"] =
+                            json!("application/json")
+                    }
+                    ResponseFormat::JsonSchema(schema) => {
+                        converted["generationConfig"]["responseMimeType"] =
+                            json!("application/json");
+                        let placed = super::gemini_schema::response_schema(
+                            &schema.schema,
+                            super::gemini_schema::ACCEPTS_JSON_SCHEMA,
+                        );
+                        converted["generationConfig"][placed.field] = placed.value;
+                    }
+                }
+            }
+            if let Some(token) = &self.continuation_token {
+                converted["continuationToken"] = json!(token);
+            }
+            if self.google_search {
+                converted["tools"] = json!([{"googleSearch":{}}]);
+            }
         }
+        Ok(converted)
     }
+    // Frozen legacy writers are test oracles only. Production encodes from IR.
+    #[cfg(test)]
     fn openai_tools(&self, chat: bool) -> Vec<Value> {
         self.tools
             .iter()
@@ -1678,6 +1603,7 @@ impl Request {
             })
             .collect()
     }
+    #[cfg(test)]
     fn openai_choice(&self, chat: bool) -> Value {
         match &self.tool_choice {
             ToolChoice::Auto => json!("auto"),
@@ -1692,6 +1618,7 @@ impl Request {
             }
         }
     }
+    #[cfg(test)]
     fn sampling(&self, v: &mut Value) {
         if let Some(n) = self.temperature {
             v["temperature"] = json!(n);
@@ -1700,6 +1627,7 @@ impl Request {
             v["top_p"] = json!(n);
         }
     }
+    #[cfg(test)]
     fn chat(&self, model: &str) -> Result<Value, RelayError> {
         let mut messages = Vec::new();
         for m in &self.messages {
@@ -1788,6 +1716,7 @@ impl Request {
         self.sampling(&mut v);
         Ok(v)
     }
+    #[cfg(test)]
     fn responses(&self, model: &str) -> Result<Value, RelayError> {
         if !self.stop.is_empty() {
             return Err(RelayError::Unsupported("Responses stop sequences"));
@@ -1841,6 +1770,29 @@ impl Request {
         self.sampling(&mut v);
         Ok(v)
     }
+    fn validate_system(&self) -> Result<(), RelayError> {
+        let mut conversation = false;
+        for message in &self.messages {
+            if matches!(message.role, Role::System | Role::Developer) {
+                if conversation {
+                    return Err(RelayError::Unsupported(
+                        "late system instructions cannot be reordered",
+                    ));
+                }
+                if message
+                    .content
+                    .iter()
+                    .any(|block| !matches!(block, InputBlock::Text(_)))
+                {
+                    return Err(RelayError::Unsupported("non-text system instruction"));
+                }
+            } else {
+                conversation = true;
+            }
+        }
+        Ok(())
+    }
+    #[cfg(test)]
     fn split_system(&self) -> Result<(Vec<Value>, Vec<&Message>), RelayError> {
         let mut system = Vec::new();
         let mut messages = Vec::new();
@@ -1863,6 +1815,7 @@ impl Request {
         }
         Ok((system, messages))
     }
+    #[cfg(test)]
     fn anthropic(&self, model: &str) -> Result<Value, RelayError> {
         if self.temperature.is_some_and(|t| t > 1.0) {
             return Err(RelayError::Unsupported("Anthropic temperature exceeds one"));
@@ -1935,6 +1888,7 @@ impl Request {
         }
         Ok(v)
     }
+    #[cfg(test)]
     fn gemini(&self) -> Result<Value, RelayError> {
         if self.parallel_tool_calls == Some(false) {
             return Err(RelayError::Unsupported(
@@ -2187,6 +2141,158 @@ mod zconv_tests {
             }
         }
     }
+    #[test]
+    fn direct_ir_covers_every_source_and_target() {
+        let protocols = [
+            UpstreamProtocol::Chat,
+            UpstreamProtocol::Responses,
+            UpstreamProtocol::Anthropic,
+            UpstreamProtocol::Gemini,
+        ];
+        let canonical = parse(
+            UpstreamProtocol::Chat,
+            &json!({
+                "model":"provider", "max_tokens":32,
+                "messages":[{"role":"system","content":"be precise"},{"role":"user","content":"hello"}],
+                "temperature":1,"top_p":1
+            }),
+            false,
+        );
+        for source in protocols {
+            // Integral sampling values are accepted by every current native
+            // admission visitor with serde_json arbitrary_precision enabled.
+            let source_body = canonical.upstream_to(source, "provider").unwrap();
+            let request = parse(source, &source_body, false);
+            for target in protocols {
+                let actual = request.upstream_to(target, "provider").unwrap();
+                let projected = parse(target, &actual, false);
+                assert_eq!(
+                    format!("{:?}", projected.messages),
+                    format!("{:?}", canonical.messages),
+                    "{source:?}->{target:?}"
+                );
+                assert_eq!(projected.max_output_tokens, 32);
+                assert_eq!(projected.temperature, Some(1.0));
+                assert_eq!(projected.top_p, Some(1.0));
+            }
+        }
+    }
+
+    #[test]
+    fn direct_ir_preserves_fractional_sampling_in_every_target() {
+        let request = parse(
+            UpstreamProtocol::Chat,
+            &json!({
+                "model":"provider", "messages":[{"role":"user","content":"hello"}],
+                "temperature":0.5, "top_p":0.9
+            }),
+            false,
+        );
+        for target in [
+            UpstreamProtocol::Chat,
+            UpstreamProtocol::Responses,
+            UpstreamProtocol::Anthropic,
+            UpstreamProtocol::Gemini,
+        ] {
+            let output = request.upstream_to(target, "provider").unwrap();
+            let (temperature, top_p) = if target == UpstreamProtocol::Gemini {
+                (
+                    &output["generationConfig"]["temperature"],
+                    &output["generationConfig"]["topP"],
+                )
+            } else {
+                (&output["temperature"], &output["top_p"])
+            };
+            assert_eq!(temperature.as_f64(), Some(0.5), "{target:?}");
+            assert_eq!(top_p.as_f64(), Some(0.9), "{target:?}");
+        }
+    }
+
+    #[test]
+    fn direct_ir_omits_absent_anthropic_system() {
+        let request = parse(
+            UpstreamProtocol::Chat,
+            &json!({
+                "model":"provider", "messages":[{"role":"user","content":"hello"}]
+            }),
+            false,
+        );
+        let native = request
+            .upstream_to(UpstreamProtocol::Anthropic, "provider")
+            .unwrap();
+        assert!(native.get("system").is_none());
+        let back = parse(UpstreamProtocol::Anthropic, &native, false)
+            .upstream_to(UpstreamProtocol::Chat, "provider")
+            .unwrap();
+        assert_eq!(back["messages"], json!([{"role":"user","content":"hello"}]));
+    }
+
+    #[test]
+    fn direct_ir_keeps_native_signed_history_and_cache_boundaries() {
+        for target in [UpstreamProtocol::Anthropic, UpstreamProtocol::Gemini] {
+            let mut request = parse(
+                UpstreamProtocol::Chat,
+                &json!({
+                    "model":"provider","messages":[{"role":"user","content":"hello"}]
+                }),
+                false,
+            );
+            request.client = if target == UpstreamProtocol::Anthropic {
+                ClientProtocol::Anthropic
+            } else {
+                ClientProtocol::Gemini
+            };
+            request.messages.push(Message {
+                role: Role::Assistant,
+                content: vec![
+                    InputBlock::Thinking {
+                        text: "private thought".into(),
+                        signature: Some((target, "signed-thought".into())),
+                    },
+                    InputBlock::ToolCall {
+                        id: "call-1".into(),
+                        name: "f".into(),
+                        arguments: "{}".into(),
+                        signature: if target == UpstreamProtocol::Gemini {
+                            Some((target, "signed-call".into()))
+                        } else {
+                            None
+                        },
+                    },
+                ],
+            });
+            let actual = request.upstream_to(target, "provider").unwrap();
+            if target == UpstreamProtocol::Anthropic {
+                assert_eq!(
+                    actual["messages"][1]["content"][0]["signature"],
+                    "signed-thought"
+                );
+                let system =
+                    json!([{"type":"text","text":"cached","cache_control":{"type":"ephemeral"}}]);
+                request.anthropic_cached_prompt =
+                    Some(Map::from_iter([("system".into(), system.clone())]));
+                assert_eq!(
+                    request.upstream_to(target, "provider").unwrap()["system"],
+                    system
+                );
+            } else {
+                assert_eq!(
+                    actual["contents"][1]["parts"][0]["thoughtSignature"],
+                    "signed-thought"
+                );
+                assert_eq!(
+                    actual["contents"][1]["parts"][1]["thoughtSignature"],
+                    "signed-call"
+                );
+            }
+            assert!(
+                request
+                    .upstream_to(UpstreamProtocol::Chat, "provider")
+                    .is_err()
+            );
+        }
+    }
+
     fn old(request: &Request, protocol: UpstreamProtocol) -> Value {
         match protocol {
             UpstreamProtocol::Chat => request.chat("provider"),

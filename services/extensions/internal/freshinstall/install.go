@@ -18,6 +18,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/bounties"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/checkins"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
@@ -47,6 +48,8 @@ type plan struct {
 
 func compiled(component string) (plan, error) {
 	switch component {
+	case "checkins":
+		return plan{prefix: "lmm_checkins", schema: checkins.Schema, namespaces: []string{"lmm_checkins"}, grants: []string{"GRANT SELECT ON ALL TABLES IN SCHEMA lmm_checkins TO ", "GRANT INSERT ON lmm_checkins.intentions,lmm_checkins.claim_commands TO ", "GRANT UPDATE(state,record) ON lmm_checkins.intentions TO ", "GRANT UPDATE(result) ON lmm_checkins.claim_commands TO "}}, nil
 	case "store", "support":
 		return compiledCommerce(component)
 	case "operations":
@@ -103,6 +106,7 @@ func compiled(component string) (plan, error) {
 		return p, nil
 	case "community":
 		return plan{prefix: "lmm_community", schema: community.Schema, namespaces: []string{"lmm_community"}, grants: []string{
+			"GRANT SELECT,UPDATE ON lmm_community.navigation TO ",
 			"GRANT SELECT ON lmm_community.contract TO ",
 			"GRANT SELECT,INSERT,UPDATE ON lmm_community.directory_settings,lmm_community.directory_ads,lmm_community.directory_ad_intents,lmm_community.onboarding_todos,lmm_community.signal_records TO ",
 			"GRANT SELECT,INSERT,UPDATE,DELETE ON lmm_community.profile_shares,lmm_community.signal_attempts TO ",

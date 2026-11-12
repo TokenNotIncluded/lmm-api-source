@@ -1,6 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { z } from 'zod'
 
+export const checkinCapabilitiesResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({ enabled: z.boolean() }),
+})
+
 const units = z.string().regex(/^(0|[1-9]\d*)$/)
 const legacyUnits = z.number().int().nonnegative().safe().transform(String)
 const integer = z.number().int().nonnegative().safe()

@@ -45,8 +45,8 @@ Commands:\n\
   install-usage-receipt-index  Offline owner-only index installation; requires explicit --config.\n\
   plan-admin-activation  Read-only candidate binding for one imported admin; requires explicit --config (not --legacy-env).\n\
   apply-admin-activation Owner-only apply of one human-confirmed activation; requires explicit --config (not --legacy-env).\n\n\
-  seed-checkin-history  Seed existing check-in history as offline owner; reads private stdin JSON.\n\
-  publish-checkin-policy  Publish a frozen check-in reward policy as offline owner; reads private stdin JSON.\n\
+  seed-checkin-history  Unsupported in this fresh-install binary; use the preserved legacy binary for historical check-ins.\n\
+  publish-checkin-policy  Unsupported here; use the preserved legacy binary, or extensions publish-checkin-policy for new sites.\n\
   publish-subscription-pancake-price  Publish one price for an existing exact plan revision as offline owner; reads private stdin JSON.\n\
 Options:\n\
   --config PATH  Read one absolute TOML file (default /etc/lmm.conf.d/core.toml).\n\
@@ -347,12 +347,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
                 .into());
             }
-            Some(match arguments.command {
-                Command::SeedCheckinHistory => {
-                    admin::Operation::seed_checkin_history(io::stdin().lock())?
-                }
-                _ => admin::Operation::publish_checkin_policy(io::stdin().lock())?,
-            })
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "CHECKIN_HISTORY_USE_PRESERVED_BINARY: historical check-in owner commands require the preserved legacy binary; this binary supports fresh installations only",
+            ).into());
         }
         Command::PublishSubscriptionPancakePrice => {
             if arguments.config.is_none() || arguments.legacy_env {
@@ -462,7 +460,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 community: config::community_configured(),
                 trust_policy_editor: config::trust_policy_editor_enabled()?,
                 federated_auth,
-                checkins: true,
+                checkins: false,
             },
         )
         .await?;
@@ -478,11 +476,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             .with_account_links(true)
             .with_commerce_scope_enabled(config::commerce_configured());
         store.check_federated_auth_ready().await?;
-        lmm_core::checkins::CheckinStore::new(pool.clone())
-            .enabled()
-            .await
-            .map_err(|_| "check-in policy or runtime authority unavailable")?;
-        capabilities.checkins = true;
         capabilities.identity = true;
         // Production never silently opts out of owner-controlled user pricing.
         // Library fixtures may omit the builder; serving this binary may not.
@@ -731,6 +724,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let (rpc_stop, rpc_stopped) = tokio::sync::watch::channel(false);
     #[cfg(unix)]
     let mut assistant_drain = None;
+    if config::checkin_rewards_configured() && database_url.is_none() {
+        return Err("reward funding requires the Core database".into());
+    }
     #[cfg(unix)]
     let rpc = match (
         config::setting_os("LMM_CORE_RPC_SOCKET"),
@@ -773,6 +769,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 if let Some(ads) = financial.directory_ads {
                     server = server.with_directory_ads(ads);
                 }
+                if let Some(ledger) = financial.checkin_ledger {
+                    server = server.with_checkin_ledger(ledger);
+                }
                 if let Some(commerce) = financial.commerce {
                     server = server.with_commerce(commerce);
                     capabilities.commerce = true;
@@ -786,7 +785,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     if rpc.is_none()
         && (config::payments_configured()
             || config::commerce_configured()
-            || config::assistant_configured())
+            || config::assistant_configured()
+            || config::checkin_rewards_configured())
     {
         return Err("financial RPC configuration requires the private RPC listener".into());
     }
@@ -796,6 +796,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::payments_configured()
         || config::commerce_configured()
         || config::assistant_configured()
+        || config::checkin_rewards_configured()
         || config::tool_market_configured()
         || config::support_projection_configured()
         || config::wallet_configured()

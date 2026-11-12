@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -24,6 +25,7 @@ import { TeamsPanel } from '@/features/teams/panel'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { getCheckinCapabilities } from './api'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { CheckinHistoryCard } from './components/checkin-history-card'
 import { GiftCard } from './components/gift-card'
@@ -61,7 +63,12 @@ export function Profile() {
   const { profile, loading, refreshProfile } = useProfile()
   const { status, capabilitiesReady } = useStatus()
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
-  const checkinEnabled = status?.checkin_enabled === true
+  const { data: checkinCapabilities } = useQuery({
+    queryKey: ['checkin', 'capabilities'],
+    queryFn: getCheckinCapabilities,
+    retry: false,
+  })
+  const checkinEnabled = checkinCapabilities?.enabled === true
   const turnstileEnabled = Boolean(
     status?.turnstile_check && status?.turnstile_site_key
   )

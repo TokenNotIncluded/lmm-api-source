@@ -47,7 +47,7 @@ type storagePolicy struct {
 
 func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, error) {
 	switch component {
-	case "store", "support", "assistant", "payments", "operations", "toolmarket", "community", "acquisition":
+	case "store", "support", "assistant", "payments", "operations", "toolmarket", "community", "acquisition", "checkins":
 	default:
 		return storagePolicy{}, errors.New("unknown extension storage component")
 	}
@@ -57,8 +57,14 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 		return storagePolicy{}, errors.New("invalid extension storage bundle")
 	}
 	policy := storagePolicy{namespaces: []string{"lmm_" + component}, tables: storageTables(component)}
-	if component == "acquisition" {
-		policy.contracts = []storageContract{{"lmm_acquisition.contract", 1}}
+	if component == "checkins" {
+		policy.contracts = []storageContract{{"lmm_checkins.contract", 1}}
+		policy.updateColumns = []storageColumnGrant{{"lmm_checkins.intentions", []string{"state", "record"}}, {"lmm_checkins.claim_commands", []string{"result"}}}
+	}
+	if component == "acquisition" || component == "checkins" {
+		if component == "acquisition" {
+			policy.contracts = []storageContract{{"lmm_acquisition.contract", 1}}
+		}
 		allowed := map[string]map[string]bool{}
 		for _, table := range policy.tables {
 			if allowed[table.name] == nil {
@@ -74,7 +80,7 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 					continue
 				}
 				policy.forbidden = append(policy.forbidden, storageTable{name, []string{priv}})
-				if priv == "SELECT" || priv == "INSERT" || priv == "UPDATE" || priv == "REFERENCES" {
+				if (priv == "SELECT" || priv == "INSERT" || priv == "UPDATE" || priv == "REFERENCES") && !(component == "checkins" && priv == "UPDATE" && (name == "lmm_checkins.intentions" || name == "lmm_checkins.claim_commands")) {
 					policy.forbiddenColumns = append(policy.forbiddenColumns, storageTable{name, []string{priv}})
 				}
 			}

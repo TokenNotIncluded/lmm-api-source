@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { getSiteNavigation, saveSiteNavigation } from '@/lib/site-navigation'
 
 import {
   assistantPolicyMatchesBackendCatalog,
@@ -75,7 +76,15 @@ export async function getSystemOptions(
       }
     )
   }
-  return res.data
+  const navigation = await getSiteNavigation(settingsRequestConfig(options))
+  return {
+    ...res.data,
+    data: [...res.data.data, { key: 'HeaderNavModules', value: navigation.value }],
+    capabilities: {
+      ...res.data.capabilities,
+      writable_keys: [...(res.data.capabilities?.writable_keys ?? []), 'HeaderNavModules'],
+    },
+  }
 }
 
 /** A save preflight must not share an older in-flight settings read. */
@@ -111,6 +120,13 @@ export async function updateSystemOption(
   request: UpdateOptionRequest,
   options?: SettingsRequestOptions
 ) {
+  if (request.key === 'HeaderNavModules') {
+    const saved = await saveSiteNavigation(
+      String(request.value),
+      settingsRequestConfig(options)
+    )
+    return { success: true, message: saved.message }
+  }
   const res = await api.put<UpdateOptionResponse>(
     '/api/option/',
     request,
@@ -133,6 +149,12 @@ export async function getUsdExchangeRate(currency: string) {
 }
 
 export async function validateSystemOptions(values: Record<string, string>) {
+  if (Object.keys(values).length === 1 && typeof values.HeaderNavModules === 'string') {
+    const response = await api.post<UpdateOptionResponse>('/api/site/navigation/validate', {
+      value: values.HeaderNavModules,
+    })
+    return response.data
+  }
   const res = await api.post<UpdateOptionResponse>('/api/option/validate', {
     values,
   })
@@ -143,6 +165,13 @@ export async function updateSystemOptions(
   values: Record<string, string>,
   options?: SettingsRequestOptions
 ) {
+  if (Object.keys(values).length === 1 && typeof values.HeaderNavModules === 'string') {
+    const saved = await saveSiteNavigation(
+      values.HeaderNavModules,
+      settingsRequestConfig(options)
+    )
+    return { success: true, message: saved.message }
+  }
   const res = await api.post<UpdateOptionResponse>(
     '/api/option/bulk',
     {

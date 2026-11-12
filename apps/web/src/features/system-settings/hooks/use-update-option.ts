@@ -125,6 +125,9 @@ async function invalidateOptionQueries(
       invalidate(['admin-moderation-stats'])
     )
   }
+  if (changedKeys.includes('HeaderNavModules')) {
+    refreshes.push(invalidate(['site-navigation']))
+  }
   if (changedKeys.includes('AIDirectoryLinks')) {
     refreshes.push(invalidate(['ai-directory']))
   }

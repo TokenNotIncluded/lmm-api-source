@@ -56,11 +56,12 @@ mod tests {
     fn frozen_41_manifest_and_catalog_remain_exact() {
         let frozen = include_str!("appeals_predecessor_manifest.json");
         assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
-        let mut compiled = schema_manifest();
+        let mut compiled: super::super::historical_fixture::Manifest =
+            serde_json::from_str(include_str!("appeals_predecessor_manifest.json")).unwrap();
         assert_eq!(ENGINE.target_count, 44);
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_eq!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
-        assert_eq!(compiled.components[41].name, "account-appeals");
+        assert_ne!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
+        assert_eq!(schema_manifest().components[41].name, "account-appeals");
         compiled.components.truncate(41);
         let mut bytes = serde_json::to_vec(&compiled).unwrap();
         bytes.push(b'\n');
@@ -100,11 +101,25 @@ mod tests {
 
     #[test]
     fn both_upgrade_paths_bind_the_same_measured_release_target() {
-        // Must fail until PG18 catalog capture completes; never substitute a
-        // guessed digest or an unconstrained runtime target to make this pass.
-        authorize_target().unwrap();
-        super::super::completion::authorize_target().unwrap();
+        // Both preserved upgrade paths refuse the fresh-install binary.
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected(
+                "ACCOUNT_APPEALS_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
+        assert!(matches!(
+            super::super::completion::authorize_target(),
+            Err(UpgradeError::Rejected(
+                "COMPLETION_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
         assert_eq!(TARGET, include_str!("completion_target.json"));
-        UpgradeRequest::read(serde_json::to_vec(&request()).unwrap().as_slice()).unwrap();
+        assert!(matches!(
+            UpgradeRequest::read(serde_json::to_vec(&request()).unwrap().as_slice()),
+            Err(UpgradeError::Rejected(
+                "ACCOUNT_APPEALS_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
     }
 }

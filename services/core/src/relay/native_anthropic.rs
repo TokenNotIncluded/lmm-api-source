@@ -1,8 +1,8 @@
 //! Bounded Anthropic Messages client adapter. Cache breakpoints retain native boundaries; hosted tools fail closed.
 use super::request::{InputBlock, Message, Request, Role};
-use super::{
-    BlockKind, ClientProtocol, Event, FinishReason, Limits, RelayError, UpstreamProtocol, Usage,
-};
+#[cfg(test)]
+use super::{BlockKind, Event, FinishReason, Usage};
+use super::{ClientProtocol, Limits, RelayError, UpstreamProtocol};
 use serde::{
     Deserialize,
     de::{MapAccess, SeqAccess, Visitor},
@@ -346,7 +346,10 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         request.assign_ordered_schemas(&captured);
     }
     let mut messages = Vec::new();
-    if let Some(s) = v.get("system") {
+    if let Some(s) = v
+        .get("system")
+        .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
+    {
         messages.push(Message {
             role: Role::System,
             content: blocks(s, Role::System, limits)?,
@@ -398,12 +401,14 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     Ok(request)
 }
 
+#[cfg(test)]
 struct Block {
     kind: BlockKind,
     text: String,
     signature: String,
     ended: bool,
 }
+#[cfg(test)]
 pub(crate) struct NativeEncoder {
     model: String,
     id: String,
@@ -421,6 +426,7 @@ pub(crate) struct NativeEncoder {
     wire_bytes: usize,
     limits: Limits,
 }
+#[cfg(test)]
 impl NativeEncoder {
     pub fn new(model: &str, request_id: &str, stream: bool, limits: &Limits) -> Self {
         Self {

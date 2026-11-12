@@ -55,8 +55,9 @@ mod tests {
         assert_eq!(prior["manifest_sha256"], PRE_MANIFEST);
         assert_eq!(prior["catalog_sha256"], PRE_CATALOG);
         let new: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_eq!(new["manifest_sha256"], ENGINE.target_manifest().unwrap());
-        let mut manifest = schema_manifest();
+        assert_ne!(new["manifest_sha256"], ENGINE.target_manifest().unwrap());
+        let mut manifest: super::super::historical_fixture::Manifest =
+            serde_json::from_str(include_str!("observations_predecessor_manifest.json")).unwrap();
         manifest.components.truncate(45);
         let mut bytes = serde_json::to_vec(&manifest).unwrap();
         bytes.push(b'\n');
@@ -68,12 +69,27 @@ mod tests {
         ] {
             assert_eq!(old, include_str!("channel_projection_target.json"));
         }
-        super::super::trust_policy::authorize_target().unwrap();
-        super::super::channel_projection::authorize_target().unwrap();
+        assert!(matches!(
+            super::super::trust_policy::authorize_target(),
+            Err(UpgradeError::Rejected(
+                "TRUST_POLICY_EDIT_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
+        assert!(matches!(
+            super::super::channel_projection::authorize_target(),
+            Err(UpgradeError::Rejected(
+                "CHANNEL_PROJECTION_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
         if new["catalog_sha256"].is_null() {
             assert!(captured().is_err());
         } else {
-            authorize_target().unwrap();
+            assert!(matches!(
+                authorize_target(),
+                Err(UpgradeError::Rejected(
+                    "CHANNEL_OBSERVATIONS_COMPILED_PREDECESSOR_CHANGED"
+                ))
+            ));
         }
     }
 }

@@ -357,6 +357,7 @@ impl Drop for SocketGuard {
     }
 }
 pub struct RpcServer {
+    checkin_ledger: Option<crate::checkin_ledger::CheckinLedger>,
     listener: UnixListener,
     guard: SocketGuard,
     control: Control,
@@ -452,6 +453,7 @@ impl RpcServer {
             epay_subscriptions: None,
             commerce: None,
             directory_ads: None,
+            checkin_ledger: None,
             assistant: None,
         })
     }
@@ -476,14 +478,23 @@ impl RpcServer {
         self.payments = Some(payments);
         self
     }
-    pub fn with_epay_subscriptions(mut self, subscriptions: crate::subscriptions::epay_rpc::EPaySubscriptionsRpc) -> Self {
-        self.control.commerce_features.extend(subscriptions.features());
+    pub fn with_epay_subscriptions(
+        mut self,
+        subscriptions: crate::subscriptions::epay_rpc::EPaySubscriptionsRpc,
+    ) -> Self {
+        self.control
+            .commerce_features
+            .extend(subscriptions.features());
         self.epay_subscriptions = Some(subscriptions);
         self
     }
     pub fn with_commerce(mut self, commerce: crate::commerce::rpc::CommerceRpc) -> Self {
         self.control.commerce_features.extend(commerce.features());
         self.commerce = Some(commerce);
+        self
+    }
+    pub fn with_checkin_ledger(mut self, ledger: crate::checkin_ledger::CheckinLedger) -> Self {
+        self.checkin_ledger = Some(ledger);
         self
     }
     pub fn with_directory_ads(mut self, ads: crate::directory_ads::rpc::DirectoryAdsRpc) -> Self {
@@ -508,6 +519,7 @@ impl RpcServer {
             epay_subscriptions,
             commerce,
             directory_ads,
+            checkin_ledger,
             assistant,
         } = self;
         let connections = Arc::new(Semaphore::new(MAX_CONNECTIONS));
@@ -539,9 +551,11 @@ impl RpcServer {
                     .max_encoding_message_size(MAX_MESSAGE),
             )
             .add_optional_service(epay_subscriptions.map(|subscriptions| {
-                pb::core_subscription_payments_server::CoreSubscriptionPaymentsServer::new(subscriptions)
-                    .max_decoding_message_size(MAX_MESSAGE)
-                    .max_encoding_message_size(MAX_MESSAGE)
+                pb::core_subscription_payments_server::CoreSubscriptionPaymentsServer::new(
+                    subscriptions,
+                )
+                .max_decoding_message_size(MAX_MESSAGE)
+                .max_encoding_message_size(MAX_MESSAGE)
             }))
             .add_optional_service(payments.map(|payments| {
                 pb::core_payments_server::CorePaymentsServer::new(payments)
@@ -550,6 +564,11 @@ impl RpcServer {
             }))
             .add_optional_service(commerce.map(|commerce| {
                 pb::core_commerce_server::CoreCommerceServer::new(commerce)
+                    .max_decoding_message_size(MAX_MESSAGE)
+                    .max_encoding_message_size(MAX_MESSAGE)
+            }))
+            .add_optional_service(checkin_ledger.map(|ledger| {
+                pb::core_checkin_ledger_server::CoreCheckinLedgerServer::new(ledger)
                     .max_decoding_message_size(MAX_MESSAGE)
                     .max_encoding_message_size(MAX_MESSAGE)
             }))

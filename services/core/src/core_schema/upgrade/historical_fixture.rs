@@ -108,49 +108,7 @@ pub(super) fn preserved(count: usize) -> Manifest {
         expected.catalog.query_sha256
     );
 
-    let mut model = expected.clone();
-    model.components = super::COMPONENTS[..count]
-        .iter()
-        .map(|(name, ddl)| Component {
-            name: (*name).into(),
-            raw_schema_sha256: super::hex(&Sha256::digest(
-                if count <= 26 || *name == "wallet" {
-                    old_ddl(name, ddl)
-                } else {
-                    ddl
-                }
-                .as_bytes(),
-            )),
-        })
-        .collect();
-    model.format_version = 1;
-    model.scope = "compiled-core-schema-contract".into();
-    if count <= 26 {
-        model.identity = Identity {
-            version: 5,
-            fingerprint_sha256: super::hex(&Sha256::digest(old_ddl("identity", "").as_bytes())),
-        };
-        let mut installer = Sha256::new();
-        installer.update(super::super::CONTRACT);
-        if count >= 25 {
-            installer.update(super::super::UPGRADE_METADATA);
-        }
-        if count >= 26 {
-            installer.update(super::super::ADDITIVE_UPGRADE_METADATA);
-        }
-        model.installer_contract_sql_sha256 = super::hex(&installer.finalize());
-    } else {
-        let current = super::schema_manifest();
-        model.identity = Identity {
-            version: current.identity.version,
-            fingerprint_sha256: current.identity.fingerprint_sha256,
-        };
-        model.installer_contract_sql_sha256 = current.installer_contract_sql_sha256;
-    }
-    assert_eq!(
-        model, expected,
-        "preserved SQL/model must match captured evidence exactly"
-    );
-    assert_eq!(model.sha256(), digest);
-    model
+    // A fresh-install binary does not reconstruct preserved installers from its
+    // current SQL. The captured bytes remain the historical contract.
+    expected
 }

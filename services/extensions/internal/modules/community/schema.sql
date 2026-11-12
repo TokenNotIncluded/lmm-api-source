@@ -2,7 +2,7 @@
 -- No Core or other-extension joins or foreign keys. User IDs are Core user IDs.
 CREATE SCHEMA lmm_community;
 CREATE TABLE lmm_community.contract (singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton), version integer NOT NULL);
-INSERT INTO lmm_community.contract VALUES (true, 2);
+INSERT INTO lmm_community.contract VALUES (true, 3);
 
 CREATE TABLE lmm_community.directory_settings (
  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
@@ -119,3 +119,14 @@ CREATE INDEX signal_records_daily ON lmm_community.signal_records (day, size, pu
 REVOKE ALL ON SCHEMA lmm_community FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA lmm_community FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA lmm_community FROM PUBLIC;
+
+-- Site presentation only; no balance, permission or credential authority.
+CREATE TABLE lmm_community.navigation (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+ value text NOT NULL DEFAULT '{}' CHECK(octet_length(value)<=65536 AND jsonb_typeof(value::jsonb)='object'),
+ revision bigint NOT NULL DEFAULT 1 CHECK(revision>0),
+ updated_by bigint CHECK(updated_by>0),
+ updated_at bigint NOT NULL DEFAULT 0 CHECK(updated_at>=0)
+);
+INSERT INTO lmm_community.navigation(singleton) VALUES(true);
+REVOKE ALL ON lmm_community.navigation FROM PUBLIC;

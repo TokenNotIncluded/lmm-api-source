@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  checkinCapabilitiesResponseSchema,
   checkinClaimResponseSchema,
   checkinStatusResponseSchema,
 } from './checkin-schema'
@@ -98,6 +99,25 @@ test('invalid dates, mixed periods and invalid monetary representations fail at 
   ]) {
     assert.equal(
       checkinStatusResponseSchema.safeParse({ success: true, data }).success,
+      false
+    )
+  }
+})
+
+test('check-in visibility requires an explicit extension capability', () => {
+  for (const enabled of [false, true]) {
+    assert.equal(
+      checkinCapabilitiesResponseSchema.parse({
+        success: true,
+        data: { enabled },
+      }).data.enabled,
+      enabled
+    )
+  }
+  for (const data of [{}, { enabled: 'true' }, { checkin_enabled: true }]) {
+    assert.equal(
+      checkinCapabilitiesResponseSchema.safeParse({ success: true, data })
+        .success,
       false
     )
   }

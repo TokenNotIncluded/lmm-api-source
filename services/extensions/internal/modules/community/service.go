@@ -27,7 +27,7 @@ import (
 //go:embed schema.sql
 var Schema string
 
-const contractVersion = 2
+const contractVersion = 3
 
 // Verifier is satisfied by webcompat.Authenticator. Both methods validate the
 // live credential through Core on every request.
@@ -76,6 +76,9 @@ func New(ctx context.Context, db *sql.DB, publicOrigin string, opts ...Options) 
 // Register mounts the Web routes on mux. auth must be non-nil.
 func (s *Service) Register(mux modules.RouteRegistrar, auth Verifier) {
 	h := &handlers{s: s, auth: auth}
+	mux.HandleFunc("GET /api/site/navigation", h.navigation)
+	mux.HandleFunc("PUT /api/site/navigation", h.updateNavigation)
+	mux.HandleFunc("POST /api/site/navigation/validate", h.updateNavigation)
 	mux.HandleFunc("GET /api/ai-directory", h.directoryLinks)
 	mux.HandleFunc("PUT /api/ai-directory/links", h.updateDirectoryLinks)
 	mux.HandleFunc("GET /api/ai-directory/ads", h.listAds)

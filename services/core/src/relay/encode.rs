@@ -1,36 +1,68 @@
-//! OpenAI client encoders. Successful terminal events are withheld until settlement.
+//! zconv response writers; Core owns lifecycle, limits and settlement authority.
 use super::{
     BlockKind, ClientProtocol, Event, FinishReason, Limits, RelayError, Request, UpstreamProtocol,
     Usage,
 };
 use serde_json::{Value, json};
+use zconv::{Format, Profile, Protocol};
+
+mod complete;
+mod stream;
 
 struct Block {
     kind: BlockKind,
     text: String,
     signature: Option<(UpstreamProtocol, String)>,
     ended: bool,
-    tool_index: usize,
 }
 
 pub(crate) struct Encoder {
     client: ClientProtocol,
-    native: Option<super::native::NativeEncoder>,
     stream: bool,
     include_usage: bool,
     id: String,
     model: String,
     created: u64,
-    sequence: u64,
+    writer: Option<stream::Writer>,
     started: bool,
     done: bool,
+    emitted: bool,
     blocks: Vec<Block>,
     images: Vec<Value>,
+    grounding: Option<Value>,
+    continuation: Option<String>,
+    stop_sequence: Option<String>,
     usage: Usage,
     finish: Option<FinishReason>,
     bytes: usize,
     limits: Limits,
 }
+
+fn format(client: ClientProtocol) -> Format {
+    let protocol = match client {
+        ClientProtocol::Chat => Protocol::OpenAiChat,
+        ClientProtocol::Responses => Protocol::OpenAiResponses,
+        ClientProtocol::Anthropic => Protocol::AnthropicMessages,
+        ClientProtocol::Gemini => Protocol::GeminiGenerateContent,
+    };
+    let mut format = Format::new(protocol);
+    if matches!(client, ClientProtocol::Chat | ClientProtocol::Responses) {
+        format.profile = Profile::OpenAiCompatible("lmm");
+    }
+    format
+}
+
+fn library_error(error: zconv::Error) -> RelayError {
+    match error {
+        zconv::Error::Unsupported { feature } | zconv::Error::PolicyViolation { feature } => {
+            RelayError::Unsupported(feature)
+        }
+        zconv::Error::InvalidInput { reason, .. } => RelayError::Protocol(reason),
+        zconv::Error::LimitExceeded { kind, .. } => RelayError::Limit(kind),
+        _ => RelayError::Protocol("response encoding failed"),
+    }
+}
+
 impl Encoder {
     pub fn new(request: &Request, request_id: &str, limits: &Limits) -> Self {
         let prefix = match request.client {
@@ -41,7 +73,6 @@ impl Encoder {
         };
         Self {
             client: request.client,
-            native: super::native::NativeEncoder::new(request, request_id, limits),
             stream: request.stream,
             include_usage: request.include_usage,
             id: format!("{prefix}_{request_id}"),
@@ -50,11 +81,15 @@ impl Encoder {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            sequence: 0,
+            writer: None,
             started: false,
             done: false,
+            emitted: false,
             blocks: Vec::new(),
             images: Vec::new(),
+            grounding: None,
+            continuation: None,
+            stop_sequence: None,
             usage: Usage::default(),
             finish: None,
             bytes: 0,
@@ -62,16 +97,18 @@ impl Encoder {
         }
     }
     pub fn usage(&self) -> Usage {
-        if let Some(native) = &self.native {
-            return native.usage();
-        }
         self.usage.clone()
     }
     pub fn finish_reason(&self) -> Option<FinishReason> {
-        if let Some(native) = &self.native {
-            return native.finish_reason();
-        }
         self.finish
+    }
+    fn block_id(&self, index: usize) -> String {
+        let prefix = match self.blocks[index].kind {
+            BlockKind::Tool { .. } => "fc",
+            BlockKind::Thinking => "rs",
+            _ => "msg",
+        };
+        format!("{prefix}_{}_{index}", self.id)
     }
     fn account(&mut self, bytes: usize) -> Result<(), RelayError> {
         self.bytes = self
@@ -83,194 +120,99 @@ impl Encoder {
         }
         Ok(())
     }
-    fn serialize(&self, value: &Value) -> Result<Vec<u8>, RelayError> {
-        let data = serde_json::to_vec(value)
-            .map_err(|_| RelayError::Protocol("response encoding failed"))?;
-        // JSON may escape each input byte into six bytes. Structure overhead is
-        // bounded separately by max_blocks. This is not a second unbounded cache.
-        let max = self
-            .limits
+    fn wire_limit(&self) -> usize {
+        if matches!(
+            self.client,
+            ClientProtocol::Anthropic | ClientProtocol::Gemini
+        ) {
+            return self.limits.output_bytes;
+        }
+        self.limits
             .output_bytes
             .saturating_mul(8)
-            .saturating_add(self.limits.max_blocks.saturating_mul(4096));
-        if data.len() > max {
-            return Err(RelayError::Limit("encoded response"));
-        }
-        Ok(data)
-    }
-    fn packet(&self, event: Option<&str>, value: &Value) -> Result<Vec<u8>, RelayError> {
-        let mut out = Vec::new();
-        if let Some(name) = event {
-            out.extend_from_slice(b"event: ");
-            out.extend_from_slice(name.as_bytes());
-            out.push(b'\n');
-        }
-        out.extend_from_slice(b"data: ");
-        out.extend(self.serialize(value)?);
-        out.extend_from_slice(b"\n\n");
-        Ok(out)
-    }
-    fn response_event(&mut self, kind: &str, mut v: Value) -> Result<Vec<u8>, RelayError> {
-        v["type"] = json!(kind);
-        v["sequence_number"] = json!(self.sequence);
-        self.sequence = self
-            .sequence
-            .checked_add(1)
-            .ok_or(RelayError::Limit("event sequence"))?;
-        self.packet(Some(kind), &v)
-    }
-    fn chat_chunk(
-        &self,
-        delta: Value,
-        finish: Option<FinishReason>,
-    ) -> Result<Vec<u8>, RelayError> {
-        self.packet(None,&json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,"model":self.model,
-            "choices":[{"index":0,"delta":delta,"finish_reason":finish.map(FinishReason::chat)}]}))
-    }
-    fn block_id(&self, index: usize) -> String {
-        let prefix = match self.blocks[index].kind {
-            BlockKind::Tool { .. } => "fc",
-            BlockKind::Thinking => "rs",
-            _ => "msg",
-        };
-        format!("{prefix}_{}_{}", self.id, index)
-    }
-    fn part(&self, index: usize, empty: bool) -> Value {
-        let b = &self.blocks[index];
-        let text = if empty { "" } else { &b.text };
-        match b.kind {
-            BlockKind::Text => json!({"type":"output_text","text":text,"annotations":[]}),
-            BlockKind::Refusal => json!({"type":"refusal","refusal":text}),
-            BlockKind::Thinking => json!({"type":"summary_text","text":text}),
-            BlockKind::Tool { .. } => Value::Null,
-        }
-    }
-    fn item(&self, index: usize, empty: bool) -> Value {
-        let b = &self.blocks[index];
-        let text = if empty { "" } else { &b.text };
-        let status = if empty {
-            "in_progress"
-        } else if self.finish.is_some_and(FinishReason::truncates_output) {
-            "incomplete"
-        } else {
-            "completed"
-        };
-        let mut item = match &b.kind {
-            BlockKind::Tool { id, name } => {
-                json!({"id":self.block_id(index),"type":"function_call","call_id":id,"name":name,"arguments":text,"status":status})
-            }
-            BlockKind::Thinking => {
-                json!({"id":self.block_id(index),"type":"reasoning","summary":if empty {vec![]} else {vec![self.part(index,false)]}})
-            }
-            _ => {
-                json!({"id":self.block_id(index),"type":"message","role":"assistant","status":status,
-                "content":if empty {vec![]} else {vec![self.part(index,false)]}})
-            }
-        };
-        if !empty && let Some((p, s)) = &b.signature {
-            item["provider_metadata"] = json!({"protocol":p,"signature":s});
-        }
-        item
-    }
-    fn response(&self, initial: bool) -> Value {
-        let incomplete = !initial && self.finish.is_some_and(FinishReason::truncates_output);
-        let status = if initial {
-            "in_progress"
-        } else if incomplete {
-            "incomplete"
-        } else {
-            "completed"
-        };
-        json!({"id":self.id,"object":"response","created_at":self.created,"status":status,"model":self.model,
-            "error":Value::Null,"incomplete_details":if incomplete {json!({"reason":self.finish.map(FinishReason::responses_incomplete_reason)})} else {Value::Null},
-            "output":if initial {vec![]} else {(0..self.blocks.len()).map(|i|self.item(i,false)).collect::<Vec<_>>()},
-            "usage":if initial {Value::Null} else {self.usage.wire(ClientProtocol::Responses)},"store":false})
+            .saturating_add(self.limits.max_blocks.saturating_mul(4096))
     }
     pub fn consume(&mut self, event: Event) -> Result<Vec<Vec<u8>>, RelayError> {
-        if let Some(native) = &mut self.native {
-            return native.consume(&event);
+        if self.done {
+            return Err(RelayError::Protocol("event after done"));
         }
-        let mut out = Vec::new();
-        match event {
-            Event::Start(source_id) => {
+        if !self.started && !matches!(event, Event::Start(_)) {
+            return Err(RelayError::Protocol("event before start"));
+        }
+        match &event {
+            Event::Start(id) => {
                 if self.started {
                     return Err(RelayError::Protocol("duplicate response start"));
                 }
-                self.account(source_id.len())?;
-                self.started = true;
-                if self.stream {
-                    match self.client {
-                        ClientProtocol::Chat
-                        | ClientProtocol::Anthropic
-                        | ClientProtocol::Gemini => out
-                            .push(self.chat_chunk(json!({"role":"assistant","content":""}), None)?),
-                        ClientProtocol::Responses => {
-                            out.push(self.response_event(
-                                "response.created",
-                                json!({"response":self.response(true)}),
-                            )?);
-                            out.push(self.response_event(
-                                "response.in_progress",
-                                json!({"response":self.response(true)}),
-                            )?);
-                        }
-                    }
+                if matches!(
+                    self.client,
+                    ClientProtocol::Chat | ClientProtocol::Responses
+                ) {
+                    self.account(id.len())?;
                 }
+                self.started = true;
             }
             Event::Block { index, kind } => {
-                if !self.started
-                    || index != self.blocks.len()
+                if self.finish.is_some()
+                    || *index != self.blocks.len()
                     || index + self.images.len() >= self.limits.max_blocks
                 {
                     return Err(RelayError::Protocol("invalid output block index"));
                 }
-                let tool_index = self
-                    .blocks
-                    .iter()
-                    .filter(|b| matches!(b.kind, BlockKind::Tool { .. }))
-                    .count();
-                if let BlockKind::Tool { id, name } = &kind {
-                    self.account(id.len() + name.len())?;
+                if self.client == ClientProtocol::Anthropic && self.blocks.iter().any(|b| !b.ended)
+                {
+                    return Err(RelayError::Protocol("invalid block order"));
+                }
+                if matches!(
+                    self.client,
+                    ClientProtocol::Anthropic | ClientProtocol::Gemini
+                ) && matches!(kind, BlockKind::Refusal)
+                {
+                    return Err(RelayError::Unsupported("native refusal block"));
+                }
+                if let BlockKind::Tool { id, name } = kind {
+                    if id.is_empty()
+                        || name.is_empty()
+                        || id.chars().chain(name.chars()).any(char::is_control)
+                    {
+                        return Err(RelayError::Protocol("invalid tool header"));
+                    }
+                    if self.client == ClientProtocol::Anthropic
+                        && [id, name].iter().any(|s| {
+                            s.len() > 128
+                                || !s
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+                        })
+                    {
+                        return Err(RelayError::Protocol("invalid tool identity"));
+                    }
+                    if self
+                        .blocks
+                        .iter()
+                        .any(|b| matches!(&b.kind, BlockKind::Tool { id: old, .. } if old == id))
+                    {
+                        return Err(RelayError::Protocol("duplicate tool ID"));
+                    }
+                    self.account(id.len().saturating_add(name.len()))?;
                 }
                 self.blocks.push(Block {
-                    kind,
+                    kind: kind.clone(),
                     text: String::new(),
                     signature: None,
                     ended: false,
-                    tool_index,
                 });
-                if self.stream {
-                    match self.client {
-                        ClientProtocol::Chat
-                        | ClientProtocol::Anthropic
-                        | ClientProtocol::Gemini => {
-                            if let BlockKind::Tool { id, name } = &self.blocks[index].kind {
-                                out.push(self.chat_chunk(json!({"tool_calls":[{"index":tool_index,"id":id,"type":"function","function":{"name":name,"arguments":""}}]}),None)?);
-                            }
-                        }
-                        ClientProtocol::Responses => {
-                            out.push(self.response_event(
-                                "response.output_item.added",
-                                json!({"output_index":index,"item":self.item(index,true)}),
-                            )?);
-                            match self.blocks[index].kind {
-                            BlockKind::Text | BlockKind::Refusal => out.push(self.response_event("response.content_part.added",
-                                json!({"output_index":index,"item_id":self.block_id(index),"content_index":0,"part":self.part(index,true)}))?),
-                            BlockKind::Thinking => out.push(self.response_event("response.reasoning_summary_part.added",
-                                json!({"output_index":index,"item_id":self.block_id(index),"summary_index":0,"part":self.part(index,true)}))?),
-                            BlockKind::Tool { .. } => {},
-                        }
-                        }
-                    }
-                }
             }
             Event::Delta { index, text } => {
                 self.account(text.len())?;
                 let b = self
                     .blocks
-                    .get_mut(index)
+                    .get_mut(*index)
                     .ok_or(RelayError::Protocol("unknown output block"))?;
-                if b.ended {
+                if b.ended
+                    || self.finish.is_some()
+                    || (self.client == ClientProtocol::Anthropic && b.signature.is_some())
+                {
                     return Err(RelayError::Protocol("output after block end"));
                 }
                 if matches!(b.kind, BlockKind::Tool { .. })
@@ -278,43 +220,7 @@ impl Encoder {
                 {
                     return Err(RelayError::Limit("tool arguments"));
                 }
-                b.text.push_str(&text);
-                if self.stream {
-                    match self.client {
-                        ClientProtocol::Chat
-                        | ClientProtocol::Anthropic
-                        | ClientProtocol::Gemini => {
-                            let delta = match b.kind {
-                                BlockKind::Text => json!({"content":text}),
-                                BlockKind::Refusal => json!({"refusal":text}),
-                                BlockKind::Thinking => json!({"reasoning_content":text}),
-                                BlockKind::Tool { .. } => {
-                                    json!({"tool_calls":[{"index":b.tool_index,"function":{"arguments":text}}]})
-                                }
-                            };
-                            out.push(self.chat_chunk(delta, None)?);
-                        }
-                        ClientProtocol::Responses => {
-                            let mut v = json!({"output_index":index,"item_id":self.block_id(index),"delta":text});
-                            let kind = match self.blocks[index].kind {
-                                BlockKind::Text => {
-                                    v["content_index"] = json!(0);
-                                    "response.output_text.delta"
-                                }
-                                BlockKind::Refusal => {
-                                    v["content_index"] = json!(0);
-                                    "response.refusal.delta"
-                                }
-                                BlockKind::Thinking => {
-                                    v["summary_index"] = json!(0);
-                                    "response.reasoning_summary_text.delta"
-                                }
-                                BlockKind::Tool { .. } => "response.function_call_arguments.delta",
-                            };
-                            out.push(self.response_event(kind, v)?);
-                        }
-                    }
-                }
+                b.text.push_str(text);
             }
             Event::Signature {
                 index,
@@ -324,39 +230,64 @@ impl Encoder {
                 self.account(value.len())?;
                 let b = self
                     .blocks
-                    .get_mut(index)
+                    .get_mut(*index)
                     .ok_or(RelayError::Protocol("unknown signature block"))?;
-                if b.ended {
+                if b.ended || value.is_empty() {
                     return Err(RelayError::Protocol("signature after output end"));
                 }
+                if self.client == ClientProtocol::Anthropic
+                    && (*provider != UpstreamProtocol::Anthropic
+                        || !matches!(b.kind, BlockKind::Thinking))
+                {
+                    return Err(RelayError::Unsupported("foreign thinking signature"));
+                }
+                if self.client == ClientProtocol::Gemini && *provider != UpstreamProtocol::Gemini {
+                    return Err(RelayError::Unsupported("foreign Gemini signature"));
+                }
+                if self.stream
+                    && self.client == ClientProtocol::Gemini
+                    && matches!(b.kind, BlockKind::Text)
+                {
+                    return Err(RelayError::Unsupported(
+                        "streaming ordinary text signatures cannot be preserved",
+                    ));
+                }
                 match &mut b.signature {
-                    Some((p, s)) if *p == provider && provider == UpstreamProtocol::Anthropic => {
-                        s.push_str(&value)
+                    Some((p, s)) if *p == *provider && *provider == UpstreamProtocol::Anthropic => {
+                        s.push_str(value)
                     }
-                    Some((p, s)) if *p == provider && *s == value => {}
-                    None => b.signature = Some((provider, value.clone())),
+                    Some((p, s))
+                        if *p == *provider
+                            && s == value
+                            && self.client != ClientProtocol::Gemini => {}
+                    None => b.signature = Some((*provider, value.clone())),
                     _ => return Err(RelayError::Protocol("conflicting provider signature")),
                 }
-                if self.stream && self.client == ClientProtocol::Chat {
-                    let delta = if matches!(b.kind, BlockKind::Tool { .. }) {
-                        json!({"tool_calls":[{"index":b.tool_index,"provider_metadata":{"protocol":provider,"signature":value}}]})
-                    } else if matches!(b.kind, BlockKind::Thinking) {
-                        json!({"reasoning_details":[{"index":index,"type":"signature_delta","protocol":provider,"signature":value}]})
-                    } else {
-                        json!({"content_details":[{"index":index,"type":"signature_delta","protocol":provider,"signature":value}]})
-                    };
-                    out.push(self.chat_chunk(delta, None)?);
-                }
             }
-            Event::ContinuationToken(token) => {
-                // Chat and Responses have no Long Decode field. CONTINUATION is
-                // already `finish_reason=length`; do not invent a token key.
-                if !self.started
-                    || token.is_empty()
-                    || token.len() > self.limits.event_bytes
-                    || token.chars().any(char::is_control)
+            Event::EndBlock(index) => {
+                let b = self
+                    .blocks
+                    .get_mut(*index)
+                    .ok_or(RelayError::Protocol("unknown output end"))?;
+                if b.ended {
+                    return Err(RelayError::Protocol("duplicate block end"));
+                }
+                if self.client == ClientProtocol::Anthropic
+                    && matches!(b.kind, BlockKind::Thinking)
+                    && b.signature.is_none()
                 {
-                    return Err(RelayError::Protocol("invalid Gemini continuation token"));
+                    return Err(RelayError::Unsupported("unsigned native thinking"));
+                }
+                b.ended = true;
+            }
+            Event::Usage(usage) => {
+                self.usage.merge(usage.clone())?;
+                if self
+                    .usage
+                    .output_tokens
+                    .is_some_and(|n| n > u64::from(self.limits.max_output_tokens))
+                {
+                    return Err(RelayError::Limit("output tokens"));
                 }
             }
             Event::Images(images) => {
@@ -365,7 +296,7 @@ impl Encoder {
                         "Chat image output requires a Chat client",
                     ));
                 }
-                if !self.started || self.finish.is_some() || self.done {
+                if self.finish.is_some() {
                     return Err(RelayError::Protocol("invalid Chat image transition"));
                 }
                 if images.len()
@@ -376,52 +307,101 @@ impl Encoder {
                 {
                     return Err(RelayError::Limit("output block count"));
                 }
-                let bytes = serde_json::to_vec(&images)
-                    .map_err(|_| RelayError::Protocol("invalid Chat images"))?;
-                self.account(bytes.len())?;
-                if self.stream {
-                    out.push(self.chat_chunk(json!({"images":images}), None)?);
-                }
-                self.images.extend(images);
+                self.account(
+                    serde_json::to_vec(images)
+                        .map_err(|_| RelayError::Protocol("invalid Chat images"))?
+                        .len(),
+                )?;
+                self.images.extend(images.iter().cloned());
             }
-            Event::GroundingMetadata(_) => {
-                return Err(RelayError::Unsupported(
-                    "grounding metadata requires native Gemini",
-                ));
+            Event::GroundingMetadata(metadata) => {
+                if self.client != ClientProtocol::Gemini {
+                    return Err(RelayError::Unsupported(
+                        "grounding metadata requires native Gemini",
+                    ));
+                }
+                let n = serde_json::to_vec(metadata)
+                    .map_err(|_| RelayError::Protocol("invalid grounding metadata"))?
+                    .len();
+                if n > self.limits.event_bytes {
+                    return Err(RelayError::Limit("grounding metadata"));
+                }
+                // Only the latest grounding snapshot is emitted. Its event
+                // bound and the native encoded-output cap remain authoritative.
+                self.grounding = Some(metadata.clone());
+            }
+            Event::ContinuationToken(token) => {
+                if token.is_empty()
+                    || token.len() > self.limits.event_bytes
+                    || token.chars().any(char::is_control)
+                {
+                    return Err(RelayError::Protocol("invalid Gemini continuation token"));
+                }
+                if self.client == ClientProtocol::Gemini {
+                    match &self.continuation {
+                        Some(old) if old != token => {
+                            return Err(RelayError::Protocol(
+                                "conflicting Gemini continuation token",
+                            ));
+                        }
+                        Some(_) => {}
+                        None => {
+                            self.account(token.len())?;
+                            self.continuation = Some(token.clone());
+                        }
+                    }
+                }
             }
             Event::StopSequence(sequence) => {
-                if !self.started
-                    || self.finish.is_some()
+                if self.finish.is_some()
                     || sequence.is_empty()
                     || sequence.len() > 1024
+                    || (self.client == ClientProtocol::Anthropic && self.stop_sequence.is_some())
                 {
                     return Err(RelayError::Protocol("invalid stop sequence receipt"));
                 }
-                // OpenAI exposes the normalized stop finish, not the matched
-                // sequence; native Anthropic retains it in its leaf renderer.
                 self.account(sequence.len())?;
-            }
-            Event::EndBlock(i) => {
-                let b = self
-                    .blocks
-                    .get_mut(i)
-                    .ok_or(RelayError::Protocol("unknown output end"))?;
-                b.ended = true;
-            }
-            Event::Usage(u) => self.usage.merge(u)?,
-            Event::Finish(f) => {
-                if self.finish.replace(f).is_some() {
-                    return Err(RelayError::Protocol("duplicate finish reason"));
+                if self.client == ClientProtocol::Anthropic {
+                    self.stop_sequence = Some(sequence.clone());
                 }
             }
+            Event::Finish(reason) => {
+                if self.finish.is_some() {
+                    return Err(RelayError::Protocol("duplicate finish reason"));
+                }
+                if self.client == ClientProtocol::Anthropic
+                    && (*reason == FinishReason::ContentFilter
+                        || self.blocks.iter().any(|b| !b.ended))
+                {
+                    return Err(RelayError::Unsupported(
+                        "native finish reason or block order",
+                    ));
+                }
+                if self.stop_sequence.is_some() && *reason != FinishReason::Stop {
+                    return Err(RelayError::Protocol("stop sequence requires stop finish"));
+                }
+                self.finish = Some(*reason);
+            }
             Event::Done => {
-                if self.finish.is_none() || self.done {
+                if self.finish.is_none() || self.blocks.iter().any(|b| !b.ended) {
                     return Err(RelayError::Truncated);
                 }
                 self.done = true;
             }
         }
-        Ok(out)
+        if !self.stream {
+            return Ok(Vec::new());
+        }
+        if self.writer.is_none() {
+            self.writer = Some(stream::Writer::new(self)?);
+        }
+        let mut writer = self
+            .writer
+            .take()
+            .ok_or(RelayError::Protocol("stream writer missing"))?;
+        let result = writer.consume(self, &event);
+        self.writer = Some(writer);
+        result
     }
     fn validate_complete(&self) -> Result<(), RelayError> {
         if !self.done
@@ -439,182 +419,186 @@ impl Encoder {
         {
             return Err(RelayError::Protocol("tool finish without tools"));
         }
-        if matches!(
-            self.finish,
-            Some(FinishReason::Stop | FinishReason::ToolCalls)
-        ) {
-            for b in &self.blocks {
-                if matches!(b.kind, BlockKind::Tool { .. }) {
-                    let v: Value = serde_json::from_str(&b.text)
-                        .map_err(|_| RelayError::Protocol("incomplete tool arguments"))?;
-                    if !v.is_object() {
-                        return Err(RelayError::Protocol("tool arguments are not an object"));
-                    }
+        self.usage.validate()?;
+        for b in &self.blocks {
+            if matches!(b.kind, BlockKind::Tool { .. })
+                && (matches!(
+                    self.client,
+                    ClientProtocol::Anthropic | ClientProtocol::Gemini
+                ) || !self.finish.is_some_and(FinishReason::truncates_output))
+            {
+                // zconv validates syntax/duplicate keys too, including stream
+                // aggregates. Core additionally requires the object contract.
+                let value: Value = serde_json::from_str(&b.text)
+                    .map_err(|_| RelayError::Protocol("incomplete tool arguments"))?;
+                if !value.is_object() {
+                    return Err(RelayError::Protocol("tool arguments are not an object"));
                 }
             }
         }
         Ok(())
     }
-    fn chat_response(&self) -> Value {
-        let mut content = String::new();
-        let mut reasoning = String::new();
-        let mut refusal = String::new();
-        let mut calls = Vec::new();
-        let mut details = Vec::new();
-        let mut content_details = Vec::new();
-        for (i, b) in self.blocks.iter().enumerate() {
-            if matches!(b.kind, BlockKind::Text | BlockKind::Refusal)
-                && let Some((provider, signature)) = &b.signature
-            {
-                content_details.push(json!({"index":i,"protocol":provider,"signature":signature}));
-            }
-            match &b.kind {
-                BlockKind::Text => content.push_str(&b.text),
-                BlockKind::Refusal => refusal.push_str(&b.text),
-                BlockKind::Thinking => {
-                    reasoning.push_str(&b.text);
-                    if let Some((p, s)) = &b.signature {
-                        details.push(json!({"index":i,"text":b.text,"protocol":p,"signature":s}));
-                    }
-                }
-                BlockKind::Tool { id, name } => {
-                    let mut c = json!({"id":id,"type":"function","function":{"name":name,"arguments":b.text}});
-                    if let Some((p, s)) = &b.signature {
-                        c["provider_metadata"] = json!({"protocol":p,"signature":s});
-                    }
-                    calls.push(c);
-                }
-            }
-        }
-        let mut message = json!({"role":"assistant","content":if content.is_empty() {Value::Null} else {json!(content)}});
-        if !self.images.is_empty() {
-            message["images"] = json!(self.images);
-        }
-        if !reasoning.is_empty() {
-            message["reasoning_content"] = json!(reasoning);
-        }
-        if !refusal.is_empty() {
-            message["refusal"] = json!(refusal);
-        }
-        if !calls.is_empty() {
-            message["tool_calls"] = json!(calls);
-        }
-        if !content_details.is_empty() {
-            message["content_details"] = json!(content_details);
-        }
-        if details.len() == 1 {
-            message["provider_metadata"] =
-                json!({"protocol":details[0]["protocol"],"signature":details[0]["signature"]});
-        } else if !details.is_empty() {
-            message["reasoning_details"] = json!(details);
-        }
-        json!({"id":self.id,"object":"chat.completion","created":self.created,"model":self.model,
-            "choices":[{"index":0,"message":message,"finish_reason":self.finish.map(FinishReason::chat)}],"usage":self.usage.wire(ClientProtocol::Chat)})
-    }
-    /// Build (but do not send) a terminal response. Validation must happen before
-    /// the billing hook. A length-limited tool may contain partial JSON.
+    /// Construct terminal bytes before the caller's settlement/checkpoint gate;
+    /// only the caller may publish them after that gate succeeds.
     pub fn terminal(&mut self) -> Result<Vec<Vec<u8>>, RelayError> {
-        if let Some(native) = &mut self.native {
-            return native.terminal();
+        if self.emitted {
+            return Err(RelayError::Protocol("duplicate terminal boundary"));
         }
         self.validate_complete()?;
-        if !self.stream {
-            return Ok(vec![self.serialize(&match self.client {
-                ClientProtocol::Chat | ClientProtocol::Anthropic | ClientProtocol::Gemini => {
-                    self.chat_response()
-                }
-                ClientProtocol::Responses => self.response(false),
-            })?]);
-        }
-        let mut out = Vec::new();
-        match self.client {
-            ClientProtocol::Chat | ClientProtocol::Anthropic | ClientProtocol::Gemini => {
-                out.push(self.chat_chunk(json!({}), self.finish)?);
-                if self.include_usage {
-                    out.push(self.packet(None,&json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,
-                    "model":self.model,"choices":[],"usage":self.usage.wire(ClientProtocol::Chat)}))?);
-                }
-                out.push(b"data: [DONE]\n\n".to_vec());
-            }
-            ClientProtocol::Responses => {
-                for i in 0..self.blocks.len() {
-                    let mut v = json!({"output_index":i,"item_id":self.block_id(i)});
-                    match &self.blocks[i].kind {
-                        BlockKind::Text | BlockKind::Refusal => {
-                            let refusal = matches!(self.blocks[i].kind, BlockKind::Refusal);
-                            v["content_index"] = json!(0);
-                            v[if refusal { "refusal" } else { "text" }] =
-                                json!(self.blocks[i].text);
-                            out.push(self.response_event(
-                                if refusal {
-                                    "response.refusal.done"
-                                } else {
-                                    "response.output_text.done"
-                                },
-                                v.clone(),
-                            )?);
-                            v.as_object_mut()
-                                .ok_or(RelayError::Protocol("response encoding failed"))?
-                                .remove(if refusal { "refusal" } else { "text" });
-                            v["part"] = self.part(i, false);
-                            out.push(self.response_event("response.content_part.done", v)?);
-                        }
-                        BlockKind::Thinking => {
-                            v["summary_index"] = json!(0);
-                            v["text"] = json!(self.blocks[i].text);
-                            out.push(self.response_event(
-                                "response.reasoning_summary_text.done",
-                                v.clone(),
-                            )?);
-                            v.as_object_mut()
-                                .ok_or(RelayError::Protocol("response encoding failed"))?
-                                .remove("text");
-                            v["part"] = self.part(i, false);
-                            out.push(
-                                self.response_event("response.reasoning_summary_part.done", v)?,
-                            );
-                        }
-                        BlockKind::Tool { .. } => {
-                            v["arguments"] = json!(self.blocks[i].text);
-                            out.push(
-                                self.response_event("response.function_call_arguments.done", v)?,
-                            );
-                        }
-                    }
-                    out.push(self.response_event(
-                        "response.output_item.done",
-                        json!({"output_index":i,"item":self.item(i,false)}),
-                    )?);
-                }
-                let kind = if self.finish.is_some_and(FinishReason::truncates_output) {
-                    "response.incomplete"
-                } else {
-                    "response.completed"
-                };
-                out.push(self.response_event(kind, json!({"response":self.response(false)}))?);
-            }
-        }
-        Ok(out)
+        let packets = if self.stream {
+            let mut writer = self.writer.take().ok_or(RelayError::Truncated)?;
+            let result = writer.terminal(self);
+            self.writer = Some(writer);
+            result?
+        } else {
+            vec![self.complete()?]
+        };
+        self.emitted = true;
+        Ok(packets)
     }
     pub fn error_packet(&mut self, error: &RelayError) -> Result<Vec<u8>, RelayError> {
-        if let Some(native) = &mut self.native {
-            return native.error_packet(error);
+        if self.stream && self.client == ClientProtocol::Responses {
+            if self.writer.is_none() {
+                self.writer = Some(stream::Writer::new(self)?);
+            }
+            let mut writer = self
+                .writer
+                .take()
+                .ok_or(RelayError::Protocol("stream writer missing"))?;
+            let result = writer.error(self, error);
+            self.writer = Some(writer);
+            return result;
+        }
+        // Error status/code mappings belong to Core. zconv handles JSON escaping
+        // and bounded writing, without requiring a fabricated successful Begin.
+        let message = error.to_string();
+        let mut output = vec![
+            0;
+            message
+                .len()
+                .saturating_mul(6)
+                .saturating_add(512)
+                .min(self.wire_limit())
+        ];
+        let mut wire = zconv::json::Writer::new(&mut output);
+        if self.stream {
+            if self.client == ClientProtocol::Anthropic {
+                wire.raw(b"event: error\n");
+            }
+            wire.raw(b"data: ");
         }
         match self.client {
-            ClientProtocol::Chat | ClientProtocol::Anthropic | ClientProtocol::Gemini => {
-                self.packet(None, &error.json())
+            ClientProtocol::Anthropic => {
+                let kind = match error.status() {
+                    401 => "authentication_error",
+                    403 => "permission_error",
+                    404 => "not_found_error",
+                    413 => "request_too_large",
+                    429 => "rate_limit_error",
+                    400 => "invalid_request_error",
+                    _ => "api_error",
+                };
+                wire.raw(b"{\"type\":\"error\",\"error\":{\"type\":");
+                wire.string(kind.as_bytes());
+                wire.raw(b",\"message\":");
             }
-            ClientProtocol::Responses => self.response_event(
-                "error",
-                json!({"code":error.code(),"message":error.to_string(),"param":Value::Null}),
-            ),
+            ClientProtocol::Gemini => {
+                let status = match error.status() {
+                    400 => "INVALID_ARGUMENT",
+                    401 => "UNAUTHENTICATED",
+                    402 | 403 => "PERMISSION_DENIED",
+                    409 => "ABORTED",
+                    413 | 429 => "RESOURCE_EXHAUSTED",
+                    499 => "CANCELLED",
+                    503 => "UNAVAILABLE",
+                    504 => "DEADLINE_EXCEEDED",
+                    _ => "INTERNAL",
+                };
+                wire.raw(b"{\"error\":{\"code\":");
+                wire.raw(error.status().to_string().as_bytes());
+                wire.raw(b",\"status\":");
+                wire.string(status.as_bytes());
+                wire.raw(b",\"message\":");
+            }
+            ClientProtocol::Chat | ClientProtocol::Responses => {
+                wire.raw(b"{\"error\":{\"type\":");
+                wire.string(error.code().as_bytes());
+                wire.raw(b",\"code\":");
+                wire.string(error.code().as_bytes());
+                wire.raw(b",\"message\":");
+            }
         }
+        wire.string(message.as_bytes());
+        wire.raw(b"}}");
+        if self.stream {
+            wire.raw(b"\n\n");
+        }
+        let written = wire.finish().map_err(library_error)?;
+        if matches!(
+            self.client,
+            ClientProtocol::Anthropic | ClientProtocol::Gemini
+        ) && let Some(writer) = &mut self.writer
+        {
+            writer.account_output(written, self.limits.output_bytes)?;
+        }
+        output.truncate(written);
+        Ok(output)
     }
 }
-
 #[cfg(test)]
 mod cache_creation_tests {
     use super::*;
+
+    #[test]
+    fn complete_chat_encodes_split_reasoning_refusal_and_partial_tool_arguments() {
+        let limits = Limits::default();
+        let request = Request::parse(
+            ClientProtocol::Chat,
+            br#"{"model":"m","messages":[{"role":"user","content":"hello"}]}"#,
+            &limits,
+        )
+        .unwrap();
+        let mut encoder = Encoder::new(&request, "zconv", &limits);
+        encoder.consume(Event::Start("up".into())).unwrap();
+        for (index, (kind, text)) in [
+            (BlockKind::Thinking, "think"),
+            (BlockKind::Text, "hello"),
+            (BlockKind::Thinking, " more"),
+            (BlockKind::Refusal, "no"),
+            (BlockKind::Refusal, " thanks"),
+            (
+                BlockKind::Tool {
+                    id: "call".into(),
+                    name: "f".into(),
+                },
+                "{\"x\":",
+            ),
+            (BlockKind::Text, " world"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            encoder.consume(Event::Block { index, kind }).unwrap();
+            encoder
+                .consume(Event::Delta {
+                    index,
+                    text: text.into(),
+                })
+                .unwrap();
+            encoder.consume(Event::EndBlock(index)).unwrap();
+        }
+        encoder
+            .consume(Event::Finish(FinishReason::Length))
+            .unwrap();
+        assert!(encoder.consume(Event::Done).unwrap().is_empty());
+        let value: Value = serde_json::from_slice(&encoder.terminal().unwrap().concat()).unwrap();
+        let message = &value["choices"][0]["message"];
+        assert_eq!(message["content"], "hello world");
+        assert_eq!(message["reasoning_content"], "think more");
+        assert_eq!(message["refusal"], "no thanks");
+        assert_eq!(message["tool_calls"][0]["function"]["arguments"], "{\"x\":");
+        assert_eq!(value["choices"][0]["finish_reason"], "length");
+    }
 
     #[test]
     fn openai_terminals_keep_the_native_thirty_minute_and_twelve_hour_details() {
@@ -715,5 +699,521 @@ mod cache_creation_tests {
                 assert!(!wire.contains("ephemeral_1h_input_tokens"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod writer_contract_tests {
+    use super::*;
+
+    fn encoder(client: ClientProtocol, stream: bool) -> Encoder {
+        let limits = Limits::default();
+        let mut request = Request::parse(
+            ClientProtocol::Chat,
+            br#"{"model":"m","messages":[{"role":"user","content":"hello"}]}"#,
+            &limits,
+        )
+        .unwrap();
+        // Exercise the encoder independently of native request parsing.
+        request.client = client;
+        request.stream = stream;
+        request.include_usage = true;
+        Encoder::new(&request, "contract", &limits)
+    }
+    fn finish(encoder: &mut Encoder, reason: FinishReason) -> Vec<u8> {
+        assert!(encoder.consume(Event::Finish(reason)).unwrap().is_empty());
+        assert!(encoder.consume(Event::Done).unwrap().is_empty());
+        encoder.terminal().unwrap().concat()
+    }
+    #[test]
+    fn complete_native_signatures_stay_on_their_original_parts() {
+        for client in [ClientProtocol::Anthropic, ClientProtocol::Gemini] {
+            let mut e = encoder(client, false);
+            let provider = if client == ClientProtocol::Anthropic {
+                UpstreamProtocol::Anthropic
+            } else {
+                UpstreamProtocol::Gemini
+            };
+            for event in [
+                Event::Start("up".into()),
+                Event::Block {
+                    index: 0,
+                    kind: BlockKind::Thinking,
+                },
+                Event::Delta {
+                    index: 0,
+                    text: "thought".into(),
+                },
+                Event::Signature {
+                    index: 0,
+                    provider,
+                    value: "signed".into(),
+                },
+                Event::EndBlock(0),
+                Event::Usage(Usage {
+                    input_tokens: Some(10),
+                    output_tokens: Some(2),
+                    cached_input_tokens: Some(0),
+                    cache_creation_input_tokens: Some(0),
+                    reasoning_output_tokens: Some(1),
+                    ..Usage::default()
+                }),
+            ] {
+                assert!(e.consume(event).unwrap().is_empty());
+            }
+            let response: Value =
+                serde_json::from_slice(&finish(&mut e, FinishReason::Stop)).unwrap();
+            if client == ClientProtocol::Anthropic {
+                assert_eq!(response["content"][0]["thinking"], "thought");
+                assert_eq!(response["content"][0]["signature"], "signed");
+            } else {
+                assert_eq!(
+                    response["candidates"][0]["content"]["parts"][0]["text"],
+                    "thought"
+                );
+                assert_eq!(
+                    response["candidates"][0]["content"]["parts"][0]["thoughtSignature"],
+                    "signed"
+                );
+            }
+        }
+    }
+    #[test]
+    fn complete_responses_reasoning_signature_is_item_metadata() {
+        let mut e = encoder(ClientProtocol::Responses, false);
+        for event in [
+            Event::Start("up".into()),
+            Event::Block {
+                index: 0,
+                kind: BlockKind::Thinking,
+            },
+            Event::Delta {
+                index: 0,
+                text: "thought".into(),
+            },
+            Event::Signature {
+                index: 0,
+                provider: UpstreamProtocol::Gemini,
+                value: "signed".into(),
+            },
+            Event::EndBlock(0),
+        ] {
+            e.consume(event).unwrap();
+        }
+        let response: Value = serde_json::from_slice(&finish(&mut e, FinishReason::Stop)).unwrap();
+        assert_eq!(response["output"][0]["summary"][0]["text"], "thought");
+        assert_eq!(
+            response["output"][0]["provider_metadata"]["protocol"],
+            "gemini"
+        );
+        assert_eq!(
+            response["output"][0]["provider_metadata"]["signature"],
+            "signed"
+        );
+    }
+    #[test]
+    fn native_generic_creation_keeps_reported_total_and_raw_input() {
+        for stream in [false, true] {
+            let mut e = encoder(ClientProtocol::Anthropic, stream);
+            e.consume(Event::Start("up".into())).unwrap();
+            e.consume(Event::Usage(Usage {
+                input_tokens: Some(37),
+                uncached_input_tokens: Some(10),
+                output_tokens: Some(1),
+                cached_input_tokens: Some(20),
+                cache_creation_input_tokens: Some(2),
+                cache_creation_details: Some(super::super::CacheCreationDetails {
+                    ephemeral_5m_input_tokens: Some(3),
+                    ephemeral_1h_input_tokens: Some(4),
+                }),
+                cache_creation_mode: Some(crate::routing::CacheCreationMode::GenericRemainderV1),
+                ..Usage::default()
+            }))
+            .unwrap();
+            let bytes = finish(&mut e, FinishReason::Stop);
+            let wire = std::str::from_utf8(&bytes).unwrap();
+            assert!(wire.contains("\"input_tokens\":10"));
+            assert!(wire.contains("\"cache_creation_input_tokens\":2"));
+            assert!(wire.contains("\"ephemeral_5m_input_tokens\":3"));
+            assert!(wire.contains("\"ephemeral_1h_input_tokens\":4"));
+            assert_eq!(e.usage().input_tokens, Some(37));
+        }
+    }
+    #[test]
+    fn native_error_envelopes_preserve_core_status_mapping() {
+        for stream in [false, true] {
+            for client in [ClientProtocol::Anthropic, ClientProtocol::Gemini] {
+                let mut e = encoder(client, stream);
+                let bytes = e.error_packet(&RelayError::Unauthorized).unwrap();
+                let raw = std::str::from_utf8(&bytes).unwrap();
+                let json = if stream {
+                    raw.lines()
+                        .find_map(|line| line.strip_prefix("data: "))
+                        .unwrap()
+                } else {
+                    raw
+                };
+                let value: Value = serde_json::from_str(json).unwrap();
+                if client == ClientProtocol::Anthropic {
+                    assert_eq!(value["type"], "error");
+                    assert_eq!(value["error"]["type"], "authentication_error");
+                } else {
+                    assert_eq!(value["error"]["code"], 401);
+                    assert_eq!(value["error"]["status"], "UNAUTHENTICATED");
+                }
+            }
+        }
+    }
+    #[test]
+    fn complete_images_grounding_continuation_and_stop_sequence_survive() {
+        let mut e = encoder(ClientProtocol::Chat, false);
+        e.consume(Event::Start("up".into())).unwrap();
+        e.consume(Event::Images(vec![
+            json!({"type":"image_url","image_url":{"url":"https://example.com/result.png"}}),
+        ]))
+        .unwrap();
+        let response: Value = serde_json::from_slice(&finish(&mut e, FinishReason::Stop)).unwrap();
+        assert_eq!(
+            response["choices"][0]["message"]["images"][0]["image_url"]["url"],
+            "https://example.com/result.png"
+        );
+        let mut e = encoder(ClientProtocol::Gemini, false);
+        for event in [
+            Event::Start("up".into()),
+            Event::GroundingMetadata(json!({"webSearchQueries":["q"]})),
+            Event::ContinuationToken("token".into()),
+        ] {
+            e.consume(event).unwrap();
+        }
+        let response: Value =
+            serde_json::from_slice(&finish(&mut e, FinishReason::Continuation)).unwrap();
+        assert_eq!(
+            response["candidates"][0]["groundingMetadata"]["webSearchQueries"],
+            json!(["q"])
+        );
+        assert_eq!(response["candidates"][0]["finishReason"], "CONTINUATION");
+        assert_eq!(response["candidates"][0]["continuationToken"], "token");
+        let mut e = encoder(ClientProtocol::Anthropic, false);
+        for event in [
+            Event::Start("up".into()),
+            Event::StopSequence("END".into()),
+            Event::Usage(Usage {
+                input_tokens: Some(2),
+                output_tokens: Some(1),
+                cached_input_tokens: Some(0),
+                cache_creation_input_tokens: Some(0),
+                ..Usage::default()
+            }),
+        ] {
+            e.consume(event).unwrap();
+        }
+        let response: Value = serde_json::from_slice(&finish(&mut e, FinishReason::Stop)).unwrap();
+        assert_eq!(response["stop_reason"], "stop_sequence");
+        assert_eq!(response["stop_sequence"], "END");
+    }
+    #[test]
+    fn native_text_signatures_survive_both_openai_encoders_and_modes() {
+        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+            for stream in [false, true] {
+                let mut e = encoder(client, stream);
+                let mut bytes = Vec::new();
+                for event in [
+                    Event::Start("up".into()),
+                    Event::Block {
+                        index: 0,
+                        kind: BlockKind::Text,
+                    },
+                    Event::Delta {
+                        index: 0,
+                        text: "answer".into(),
+                    },
+                    Event::Signature {
+                        index: 0,
+                        provider: UpstreamProtocol::Gemini,
+                        value: "opaque".into(),
+                    },
+                    Event::EndBlock(0),
+                ] {
+                    bytes.extend(e.consume(event).unwrap().concat());
+                }
+                bytes.extend(finish(&mut e, FinishReason::Stop));
+                let wire = std::str::from_utf8(&bytes).unwrap();
+                let packets: Vec<Value> = if stream {
+                    wire.lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .filter(|value| *value != "[DONE]")
+                        .map(|value| serde_json::from_str(value).unwrap())
+                        .collect()
+                } else {
+                    vec![serde_json::from_slice(&bytes).unwrap()]
+                };
+                match client {
+                    ClientProtocol::Chat if stream => assert!(packets.iter().any(|p| p["choices"]
+                        [0]["delta"]["content_details"][0]["signature"]
+                        == "opaque")),
+                    ClientProtocol::Chat => assert_eq!(
+                        packets[0]["choices"][0]["message"]["content_details"][0]["signature"],
+                        "opaque"
+                    ),
+                    ClientProtocol::Responses => {
+                        let response = if stream {
+                            &packets.last().unwrap()["response"]
+                        } else {
+                            &packets[0]
+                        };
+                        assert_eq!(
+                            response["output"][0]["provider_metadata"]["protocol"],
+                            "gemini"
+                        );
+                        assert_eq!(
+                            response["output"][0]["provider_metadata"]["signature"],
+                            "opaque"
+                        );
+                        assert_eq!(response["store"], false);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+    #[test]
+    fn native_gemini_stream_binds_thought_signature_and_continuation() {
+        let mut e = encoder(ClientProtocol::Gemini, true);
+        let mut bytes = Vec::new();
+        for event in [
+            Event::Start("up".into()),
+            Event::Block {
+                index: 0,
+                kind: BlockKind::Thinking,
+            },
+            Event::Delta {
+                index: 0,
+                text: "thought".into(),
+            },
+            Event::Signature {
+                index: 0,
+                provider: UpstreamProtocol::Gemini,
+                value: "opaque".into(),
+            },
+            Event::EndBlock(0),
+            Event::ContinuationToken("next".into()),
+        ] {
+            bytes.extend(e.consume(event).unwrap().concat());
+        }
+        bytes.extend(finish(&mut e, FinishReason::Continuation));
+        let packets: Vec<Value> = std::str::from_utf8(&bytes)
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert!(
+            packets.iter().any(
+                |p| p["candidates"][0]["content"]["parts"][0]["text"] == "thought"
+                    && p["candidates"][0]["content"]["parts"][0]["thoughtSignature"] == "opaque"
+            )
+        );
+        let terminal = packets
+            .iter()
+            .find(|p| p["candidates"][0]["finishReason"] == "CONTINUATION")
+            .unwrap();
+        assert_eq!(terminal["candidates"][0]["continuationToken"], "next");
+    }
+    #[test]
+    fn responses_stream_reasoning_keeps_lifecycle_ids_and_sequence() {
+        for finish_reason in [FinishReason::Stop, FinishReason::Length] {
+            let mut e = encoder(ClientProtocol::Responses, true);
+            let mut bytes = Vec::new();
+            for event in [
+                Event::Start("up".into()),
+                Event::Block {
+                    index: 0,
+                    kind: BlockKind::Thinking,
+                },
+                Event::Delta {
+                    index: 0,
+                    text: "think ".into(),
+                },
+                Event::Delta {
+                    index: 0,
+                    text: "carefully".into(),
+                },
+                Event::EndBlock(0),
+            ] {
+                bytes.extend(e.consume(event).unwrap().concat());
+            }
+            bytes.extend(finish(&mut e, finish_reason));
+            let packets: Vec<Value> = std::str::from_utf8(&bytes)
+                .unwrap()
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(packets[0]["type"], "response.created");
+            assert_eq!(packets[1]["type"], "response.in_progress");
+            for (index, p) in packets.iter().enumerate() {
+                assert_eq!(p["sequence_number"], index);
+            }
+            let response = &packets.last().unwrap()["response"];
+            assert_eq!(
+                response["output"][0]["summary"][0]["text"],
+                "think carefully"
+            );
+            assert_eq!(response["output"][0]["id"], "rs_resp_contract_0");
+            assert_eq!(
+                response["status"],
+                if finish_reason == FinishReason::Length {
+                    "incomplete"
+                } else {
+                    "completed"
+                }
+            );
+            let lifecycle: Vec<_> = packets
+                .iter()
+                .filter(|p| {
+                    p["item"]["type"] == "reasoning"
+                        || p["type"]
+                            .as_str()
+                            .is_some_and(|kind| kind.starts_with("response.reasoning_summary_"))
+                })
+                .collect();
+            assert_eq!(
+                lifecycle
+                    .iter()
+                    .map(|p| p["type"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                [
+                    "response.output_item.added",
+                    "response.reasoning_summary_part.added",
+                    "response.reasoning_summary_text.delta",
+                    "response.reasoning_summary_text.delta",
+                    "response.reasoning_summary_text.done",
+                    "response.reasoning_summary_part.done",
+                    "response.output_item.done"
+                ]
+            );
+            assert_eq!(lifecycle[0]["item"]["id"], response["output"][0]["id"]);
+        }
+    }
+    #[test]
+    fn previewed_responses_terminal_does_not_block_settlement_error() {
+        let mut e = encoder(ClientProtocol::Responses, true);
+        let mut bytes = Vec::new();
+        for event in [
+            Event::Start("up".into()),
+            Event::Block {
+                index: 0,
+                kind: BlockKind::Text,
+            },
+            Event::Delta {
+                index: 0,
+                text: "answer".into(),
+            },
+            Event::EndBlock(0),
+        ] {
+            bytes.extend(e.consume(event).unwrap().concat());
+        }
+        let before: Vec<Value> = std::str::from_utf8(&bytes)
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let prepared = finish(&mut e, FinishReason::Stop);
+        assert!(
+            std::str::from_utf8(&prepared)
+                .unwrap()
+                .contains("response.completed")
+        );
+        assert!(
+            e.writer
+                .as_ref()
+                .is_some_and(|writer| !writer.is_finished())
+        );
+        // Settlement failed: the privately prepared terminal is discarded.
+        let failure = e.error_packet(&RelayError::Unauthorized).unwrap();
+        let failure: Value = serde_json::from_str(
+            std::str::from_utf8(&failure)
+                .unwrap()
+                .lines()
+                .find_map(|line| line.strip_prefix("data: "))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(failure["type"], "error");
+        assert_eq!(failure["sequence_number"], before.len());
+        assert!(e.writer.as_ref().is_some_and(|writer| writer.is_finished()));
+        assert!(e.error_packet(&RelayError::Unauthorized).is_err());
+    }
+    #[test]
+    fn complete_signed_tools_keep_metadata_on_the_call() {
+        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+            let mut e = encoder(client, false);
+            for event in [
+                Event::Start("up".into()),
+                Event::Block {
+                    index: 0,
+                    kind: BlockKind::Tool {
+                        id: "call".into(),
+                        name: "f".into(),
+                    },
+                },
+                Event::Delta {
+                    index: 0,
+                    text: "{}".into(),
+                },
+                Event::Signature {
+                    index: 0,
+                    provider: UpstreamProtocol::Gemini,
+                    value: "signed".into(),
+                },
+                Event::EndBlock(0),
+            ] {
+                e.consume(event).unwrap();
+            }
+            let response: Value =
+                serde_json::from_slice(&finish(&mut e, FinishReason::ToolCalls)).unwrap();
+            let call = if client == ClientProtocol::Chat {
+                &response["choices"][0]["message"]["tool_calls"][0]
+            } else {
+                &response["output"][0]
+            };
+            assert_eq!(call["provider_metadata"]["protocol"], "gemini");
+            assert_eq!(call["provider_metadata"]["signature"], "signed");
+        }
+    }
+    #[test]
+    fn chat_without_include_usage_keeps_core_metering_and_partial_tool_terminal() {
+        let mut e = encoder(ClientProtocol::Chat, true);
+        e.include_usage = false;
+        for event in [
+            Event::Start("up".into()),
+            Event::Block {
+                index: 0,
+                kind: BlockKind::Tool {
+                    id: "call".into(),
+                    name: "f".into(),
+                },
+            },
+            Event::Delta {
+                index: 0,
+                text: "{\"x\":".into(),
+            },
+            Event::EndBlock(0),
+            Event::Usage(Usage {
+                input_tokens: Some(10),
+                output_tokens: Some(2),
+                ..Usage::default()
+            }),
+        ] {
+            e.consume(event).unwrap();
+        }
+        assert_eq!(e.usage().input_tokens, Some(10));
+        assert_eq!(e.usage().output_tokens, Some(2));
+        let bytes = finish(&mut e, FinishReason::Length);
+        let wire = std::str::from_utf8(&bytes).unwrap();
+        assert!(wire.contains("\"finish_reason\":\"length\""));
+        assert!(wire.ends_with("data: [DONE]\n\n"));
+        assert!(!wire.contains("\"usage\""));
     }
 }

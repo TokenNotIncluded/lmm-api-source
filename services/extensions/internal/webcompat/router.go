@@ -7,6 +7,7 @@ import (
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/checkins"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
@@ -18,6 +19,7 @@ import (
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
 type AdditionalServices struct {
+	Checkins             *checkins.Service
 	HeroSMS              *herosms.Service
 	MarketReview         *marketreview.Engine
 	Builtins             BuiltinHTTP
@@ -100,6 +102,9 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		}
 		if !store.Missing(additional.Plugins) {
 			RegisterPlugins(routes, auth, additional.Plugins)
+		}
+		if additional.Checkins != nil {
+			additional.Checkins.Register(routes.forPlugins("checkins"))
 		}
 		RegisterCommunity(routes.forPlugins("community"), auth, additional.Community)
 		RegisterAcquisition(routes.forPlugins("acquisition"), auth, additional.Acquisition)

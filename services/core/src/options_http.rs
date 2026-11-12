@@ -19,7 +19,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
 mod exchange_rate;
-mod navigation;
 pub mod trust_policy;
 mod writes;
 
@@ -150,7 +149,7 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     // @context-fold begin runtime-settings-projection
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT key,value FROM core_console.options
-         WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules','USDExchangeRate')
+         WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate')
          ORDER BY key",
     )
     .fetch_all(&state.pool)
@@ -183,13 +182,6 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         .or_else(|| stored.get("Announcements"))
         .cloned()
         .unwrap_or_else(|| "[]".into());
-    data.push(SystemOption {
-        key: "HeaderNavModules".into(),
-        value: stored
-            .get("HeaderNavModules")
-            .cloned()
-            .unwrap_or_else(|| "{}".into()),
-    });
     data.extend([
         SystemOption {
             key: "USDExchangeRate".into(),
@@ -212,12 +204,12 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         StatusCode::OK,
         json!({
             "success":true,
-            "message":"Public navigation, notices, announcements and the display exchange rate can be changed here.",
+            "message":"Notices, announcements and the display exchange rate can be changed here.",
             "data":data,
             "capabilities":{
                 "read_only":false,
                 "partial":true,
-                "writable_keys":["Notice","Announcements","console_setting.announcements","HeaderNavModules","USDExchangeRate"],
+                "writable_keys":["Notice","Announcements","console_setting.announcements","USDExchangeRate"],
                 "model_price_locks":false,
                 "trust_level_benefits":state.trust_policy_editor.is_some()
             }
@@ -340,7 +332,6 @@ mod tests {
                 "Notice",
                 "Announcements",
                 "console_setting.announcements",
-                "HeaderNavModules",
                 "USDExchangeRate"
             ])
         );

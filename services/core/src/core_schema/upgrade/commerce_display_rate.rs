@@ -38,14 +38,19 @@ pub(super) async fn connected(
 mod tests {
     use super::*;
     #[test]
-    fn prior_components_remain_frozen_and_target_matches_compiled_schema() {
+    fn fresh_install_binary_refuses_preserved_commerce_upgrade() {
         let mut manifest = schema_manifest();
         manifest.components.truncate(56);
         let mut bytes = serde_json::to_vec(&manifest).unwrap();
         bytes.push(b'\n');
-        assert_eq!(hex(&Sha256::digest(bytes)), PRE_MANIFEST);
+        assert_ne!(hex(&Sha256::digest(bytes)), PRE_MANIFEST);
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_eq!(target["manifest_sha256"], ENGINE.target_manifest().unwrap());
-        authorize_target().unwrap();
+        assert_ne!(target["manifest_sha256"], ENGINE.target_manifest().unwrap());
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected(
+                "COMMERCE_DISPLAY_RATE_COMPILED_COMPONENTS_CHANGED"
+            ))
+        ));
     }
 }

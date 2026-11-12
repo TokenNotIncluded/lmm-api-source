@@ -14,6 +14,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/checkins"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
@@ -27,6 +28,8 @@ import (
 )
 
 type Config struct {
+	Checkins                      StorageConfig
+	CheckinTokenFile              string
 	HeroSMSSocket                 string
 	HeroSMSTokenFile              string
 	MarketReviewSocket            string
@@ -80,6 +83,7 @@ type Config struct {
 }
 
 type Runtime struct {
+	Checkins                    *checkins.Service
 	HeroSMS                     *herosms.Service
 	MarketReview                *marketreview.Engine
 	paymentIsolationCredentials [][]byte
@@ -226,6 +230,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	if (cfg.UserReadSocket == "") != (cfg.UserReadTokenFile == "") {
 		return nil, errors.New("configure both Core read socket and token file")
 	}
+	if slices.Contains(cfg.Selected, "checkins") != (cfg.CheckinTokenFile != "") || (!slices.Contains(cfg.Selected, "checkins") && (cfg.Checkins.URLFile != "" || cfg.Checkins.Database != "")) {
+		return nil, errors.New("checkins requires explicit selection and a dedicated funding credential")
+	}
 	r := &Runtime{}
 	defer func() {
 		if resultErr != nil {
@@ -293,6 +300,40 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	if selected["payments"] {
 		if err := r.composePayments(ctx, cfg, paymentToken, token, commerceToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
 			return nil, err
+		}
+	}
+	if selected["checkins"] {
+		fundingToken, e := coreclient.ReadTokenFile(cfg.CheckinTokenFile)
+		if e != nil {
+			return nil, e
+		}
+		for _, path := range []string{cfg.DirectoryAdTokenFile, cfg.HeroSMSTokenFile, cfg.MarketReviewTokenFile, cfg.ToolMarketTokenFile, cfg.ToolMarketWitnessTokenFile} {
+			if path != "" {
+				other, e := coreclient.ReadTokenFile(path)
+				if e != nil {
+					return nil, e
+				}
+				if e = independentRuntimeCredentials(fundingToken, other); e != nil {
+					return nil, e
+				}
+			}
+		}
+		if e = independentRuntimeCredentials(cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey, fundingToken); e != nil {
+			return nil, e
+		}
+		client, e := coreclient.New(cfg.Socket, fundingToken)
+		if e != nil {
+			return nil, e
+		}
+		r.close = append(r.close, client.Close)
+		db, e := openStorage(ctx, cfg.Checkins)
+		if e != nil {
+			return nil, e
+		}
+		r.close = append(r.close, db.Close)
+		r.Checkins, e = checkins.New(ctx, db, coreclient.CheckinLedger{Client: client})
+		if e != nil {
+			return nil, e
 		}
 	}
 	if selected["store"] {

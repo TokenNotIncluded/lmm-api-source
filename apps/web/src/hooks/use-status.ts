@@ -25,6 +25,7 @@ import {
   normalizeBackendCapabilities,
 } from '@/lib/backend-capabilities'
 import { createQueryRetry } from '@/lib/query-retry'
+import { getSiteNavigation, siteNavigationQueryKey } from '@/lib/site-navigation'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -46,6 +47,15 @@ function getInitialStatus(): SystemStatus | undefined {
 }
 
 export function useStatus() {
+  // Presentation comes from the community database. A missing navigation
+  // response never changes the independently verified Core capabilities.
+  const navigation = useQuery({
+    queryKey: siteNavigationQueryKey,
+    queryFn: () => getSiteNavigation({ skipBusinessError: true, skipErrorHandler: true }),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: createQueryRetry(true, 1),
+  })
   const statusScope = useAuthStore((state) => {
     const user = state.auth.user
     if (!user) return 'anonymous'
@@ -131,8 +141,13 @@ export function useStatus() {
     Boolean(data) && isFetchedAfterMount && dataUpdatedAt > 0
   const liveError = capabilitiesReady ? null : error
 
+  const status = getCapabilitySafeStatus(data, capabilitiesReady)
+  const mergedStatus: SystemStatus | null = status
+    ? { ...status, HeaderNavModules: navigation.data?.value }
+    : status
   return {
-    status: getCapabilitySafeStatus(data, capabilitiesReady),
+    status: mergedStatus,
+    navigationError: navigation.error,
     loading: isLoading,
     capabilitiesReady,
     error: liveError,

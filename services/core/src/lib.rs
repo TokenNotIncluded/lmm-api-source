@@ -11,14 +11,15 @@ pub mod bounties;
 pub mod builtins;
 pub mod channel_http;
 pub mod checkins;
+#[cfg(test)]
 pub mod checkins_http;
 #[cfg(unix)]
 pub mod commerce;
 pub mod community_read;
-pub mod directory_ads;
 pub mod config;
 pub mod console_compat;
 pub mod core_schema;
+pub mod directory_ads;
 pub mod edge_access;
 pub mod events;
 pub mod finance_export;
@@ -82,3 +83,9 @@ pub mod email_delivery;
 pub mod email_http;
 
 pub mod affiliate;
+
+#[cfg(unix)]
+pub mod checkin_ledger;
+
+#[cfg(test)]
+extern crate self as lmm_core;

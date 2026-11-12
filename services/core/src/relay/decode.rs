@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 
 use crate::routing::CacheCreationMode;
 
+#[path = "decode/zconv.rs"]
+mod zconv_bridge;
+
 type Key = (u64, u64);
 struct Slot {
     index: usize,
@@ -36,10 +39,6 @@ pub(crate) struct Decoder {
 fn text(v: &Value) -> Result<&str, RelayError> {
     v.as_str()
         .ok_or(RelayError::Protocol("expected upstream string"))
-}
-fn index(v: &Value) -> Result<u64, RelayError> {
-    v.as_u64()
-        .ok_or(RelayError::Protocol("invalid upstream index"))
 }
 fn counter(v: &Value, key: &str) -> Result<Option<u64>, RelayError> {
     // A missing details object is unknown. A present scalar or array is an
@@ -121,28 +120,6 @@ fn cache_creation_usage(u: &mut Usage, v: &Value, details_key: &str) -> Result<(
         && let Some(details) = u.cache_creation_details
     {
         u.cache_creation_input_tokens = details.total()?;
-    }
-    Ok(())
-}
-
-fn anthropic_stop_sequence(
-    value: &Value,
-    reason: &str,
-    out: &mut Vec<Event>,
-) -> Result<(), RelayError> {
-    if reason == "stop_sequence" {
-        let sequence = text(&value["stop_sequence"])?;
-        if sequence.is_empty() || sequence.len() > 1024 {
-            return Err(RelayError::Protocol("invalid stop sequence receipt"));
-        }
-        out.push(Event::StopSequence(sequence.to_owned()));
-    } else if value
-        .get("stop_sequence")
-        .is_some_and(|value| !value.is_null())
-    {
-        return Err(RelayError::Protocol(
-            "stop sequence without matching finish reason",
-        ));
     }
     Ok(())
 }
@@ -602,6 +579,104 @@ impl Decoder {
         out.push(Event::Done);
         Ok(())
     }
+    fn admit(&self, value: &Value, full: bool) -> Result<(), RelayError> {
+        match self.protocol {
+            UpstreamProtocol::Chat => {
+                let choices = value["choices"]
+                    .as_array()
+                    .ok_or(RelayError::Protocol("missing choices"))?;
+                if choices.len() > 1 || (full && choices.len() != 1) {
+                    return Err(RelayError::Protocol(
+                        "only one upstream candidate is supported",
+                    ));
+                }
+                for choice in choices {
+                    let message = &choice[if full { "message" } else { "delta" }];
+                    if !message.is_object() {
+                        return Err(RelayError::Protocol("missing message delta"));
+                    }
+                    if message.get("function_call").is_some() {
+                        return Err(RelayError::Protocol(
+                            "legacy function_call output is unsupported",
+                        ));
+                    }
+                    for field in ["content", "reasoning_content", "refusal"] {
+                        if let Some(value) = message.get(field).filter(|v| !v.is_null()) {
+                            text(value)?;
+                        }
+                    }
+                    if let Some(reason) = choice.get("finish_reason").filter(|v| !v.is_null()) {
+                        finish_reason(self.protocol, text(reason)?, self.tools())?;
+                    }
+                }
+            }
+            UpstreamProtocol::Responses => {
+                let response = if full {
+                    Some(value)
+                } else {
+                    value.get("response")
+                };
+                if let Some(response) = response {
+                    plain_response(response)?;
+                    if full
+                        && !matches!(
+                            response["status"].as_str(),
+                            Some("completed" | "incomplete")
+                        )
+                    {
+                        return Err(RelayError::Protocol("upstream response is not complete"));
+                    }
+                    if response["status"] == "incomplete"
+                        && !matches!(
+                            response["incomplete_details"]["reason"].as_str(),
+                            Some("max_output_tokens" | "content_filter")
+                        )
+                    {
+                        return Err(RelayError::Protocol("unknown incomplete response"));
+                    }
+                }
+                if let Some(item) = value.get("item") {
+                    plain_response_item(item)?;
+                }
+                if let Some(part) = value.get("part") {
+                    plain_response_part(part)?;
+                }
+            }
+            UpstreamProtocol::Anthropic => {
+                let delta = if full { value } else { &value["delta"] };
+                if let Some(reason) = delta.get("stop_reason").filter(|v| !v.is_null()) {
+                    let reason = text(reason)?;
+                    finish_reason(self.protocol, reason, self.tools())?;
+                    if reason == "stop_sequence" {
+                        let sequence = text(&delta["stop_sequence"])?;
+                        if sequence.is_empty() || sequence.len() > 1024 {
+                            return Err(RelayError::Protocol("invalid stop sequence receipt"));
+                        }
+                    } else if delta.get("stop_sequence").is_some_and(|v| !v.is_null()) {
+                        return Err(RelayError::Protocol(
+                            "stop sequence without matching finish reason",
+                        ));
+                    }
+                }
+            }
+            UpstreamProtocol::Gemini => {
+                if let Some(candidates) = value.get("candidates") {
+                    let candidates = candidates
+                        .as_array()
+                        .ok_or(RelayError::Protocol("invalid Gemini candidates"))?;
+                    if candidates.len() > 1 {
+                        return Err(RelayError::Protocol("multiple Gemini candidates"));
+                    }
+                    for candidate in candidates {
+                        if let Some(reason) = candidate.get("finishReason") {
+                            finish_reason(self.protocol, text(reason)?, self.tools())?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn frame(&mut self, frame: Frame) -> Result<Vec<Event>, RelayError> {
         if self.done {
             return Err(RelayError::Protocol("event after terminal event"));
@@ -611,32 +686,25 @@ impl Decoder {
             return Ok(out);
         }
         if frame.data == "[DONE]" {
-            if self.protocol != UpstreamProtocol::Chat {
-                return Err(RelayError::Protocol("unexpected DONE marker"));
-            }
-            self.done(&mut out)?;
+            self.decode_frame(&frame, &Value::Null, &mut out)?;
             return Ok(out);
         }
-        let v: Value = serde_json::from_str(&frame.data)
+        let value: Value = serde_json::from_str(&frame.data)
             .map_err(|_| RelayError::Protocol("invalid SSE JSON"))?;
-        if !v.is_object() {
-            return Err(RelayError::Protocol("upstream event is not an object"));
+        if !value.is_object() || value.get("error").is_some_and(|e| !e.is_null()) {
+            return Err(RelayError::Protocol("invalid upstream event"));
         }
-        if v.get("error").is_some_and(|e| !e.is_null()) {
-            return Err(RelayError::Protocol("upstream reported an error"));
+        match value["type"].as_str() {
+            Some("message_start") if self.started => {
+                return Err(RelayError::Protocol("duplicate message start"));
+            }
+            Some("content_block_start" | "response.output_item.added") if !self.started => {
+                return Err(RelayError::Protocol("content before response start"));
+            }
+            _ => {}
         }
-        if let (Some(wire), Some(kind)) = (frame.event.as_deref(), v["type"].as_str())
-            && wire != "message"
-            && wire != kind
-        {
-            return Err(RelayError::Protocol("SSE event type mismatch"));
-        }
-        match self.protocol {
-            UpstreamProtocol::Chat => self.chat(&v, false, &mut out)?,
-            UpstreamProtocol::Responses => self.responses_event(&v, &mut out)?,
-            UpstreamProtocol::Anthropic => self.anthropic_event(&v, &mut out)?,
-            UpstreamProtocol::Gemini => self.gemini(&v, &mut out)?,
-        }
+        self.admit(&value, false)?;
+        self.decode_frame(&frame, &value, &mut out)?;
         Ok(out)
     }
     pub fn eof(&mut self) -> Result<Vec<Event>, RelayError> {
@@ -650,581 +718,14 @@ impl Decoder {
         }
         Ok(out)
     }
-    pub fn json(&mut self, v: &Value) -> Result<Vec<Event>, RelayError> {
-        if !v.is_object() || v.get("error").is_some_and(|e| !e.is_null()) {
+    pub fn json(&mut self, value: &Value) -> Result<Vec<Event>, RelayError> {
+        if !value.is_object() || value.get("error").is_some_and(|e| !e.is_null()) {
             return Err(RelayError::Protocol("invalid upstream JSON response"));
         }
+        self.admit(value, true)?;
         let mut out = Vec::new();
-        match self.protocol {
-            UpstreamProtocol::Chat => self.chat(v, true, &mut out)?,
-            UpstreamProtocol::Responses => {
-                plain_response(v)?;
-                self.start(v["id"].as_str(), &mut out)?;
-                for (i, item) in v["output"]
-                    .as_array()
-                    .ok_or(RelayError::Protocol("missing Responses output"))?
-                    .iter()
-                    .enumerate()
-                {
-                    let i = i as u64;
-                    match item["type"].as_str() {
-                        Some("function_call") => {
-                            self.block(
-                                (i, u64::MAX),
-                                BlockKind::Tool {
-                                    id: text(&item["call_id"])?.into(),
-                                    name: text(&item["name"])?.into(),
-                                },
-                                &mut out,
-                            )?;
-                            self.delta((i, u64::MAX), text(&item["arguments"])?, &mut out)?;
-                        }
-                        Some("message") => {
-                            for (j, p) in item["content"]
-                                .as_array()
-                                .ok_or(RelayError::Protocol("invalid Responses content"))?
-                                .iter()
-                                .enumerate()
-                            {
-                                let (kind, s) = match p["type"].as_str() {
-                                    Some("output_text") => (BlockKind::Text, text(&p["text"])?),
-                                    Some("refusal") => (BlockKind::Refusal, text(&p["refusal"])?),
-                                    _ => {
-                                        return Err(RelayError::Protocol(
-                                            "unsupported output part",
-                                        ));
-                                    }
-                                };
-                                self.simple((i, j as u64), kind, s, &mut out)?;
-                            }
-                        }
-                        Some("reasoning") => {
-                            for (j, p) in item["summary"]
-                                .as_array()
-                                .ok_or(RelayError::Protocol("invalid reasoning summary"))?
-                                .iter()
-                                .enumerate()
-                            {
-                                self.simple(
-                                    (i, j as u64),
-                                    BlockKind::Thinking,
-                                    text(&p["text"])?,
-                                    &mut out,
-                                )?;
-                            }
-                            if item.get("encrypted_content").is_some_and(|e| !e.is_null()) {
-                                return Err(RelayError::Protocol(
-                                    "encrypted Responses output is not supported",
-                                ));
-                            }
-                        }
-                        _ => return Err(RelayError::Protocol("unsupported Responses output item")),
-                    }
-                }
-                self.response_finish(v, &mut out)?;
-            }
-            UpstreamProtocol::Anthropic => {
-                self.start(v["id"].as_str(), &mut out)?;
-                for (i, b) in v["content"]
-                    .as_array()
-                    .ok_or(RelayError::Protocol("invalid Anthropic content"))?
-                    .iter()
-                    .enumerate()
-                {
-                    self.anthropic_block((0, i as u64), b, false, &mut out)?;
-                }
-                out.push(Event::Usage(self.usage(&v["usage"])?));
-                anthropic_stop_sequence(v, text(&v["stop_reason"])?, &mut out)?;
-                self.finish(
-                    finish_reason(self.protocol, text(&v["stop_reason"])?, self.tools())?,
-                    &mut out,
-                )?;
-            }
-            UpstreamProtocol::Gemini => self.gemini(v, &mut out)?,
-        }
-        self.done(&mut out)?;
+        self.decode_response(value, &mut out)?;
         Ok(out)
-    }
-    fn chat(&mut self, v: &Value, full: bool, out: &mut Vec<Event>) -> Result<(), RelayError> {
-        self.start(v["id"].as_str(), out)?;
-        let choices = v["choices"]
-            .as_array()
-            .ok_or(RelayError::Protocol("missing choices"))?;
-        if choices.len() > 1 || (full && choices.len() != 1) {
-            return Err(RelayError::Protocol(
-                "only one upstream candidate is supported",
-            ));
-        }
-        for c in choices {
-            if c.get("index").is_some_and(|i| i.as_u64() != Some(0)) {
-                return Err(RelayError::Protocol("invalid candidate index"));
-            }
-            let d = if full { &c["message"] } else { &c["delta"] };
-            if !d.is_object() {
-                return Err(RelayError::Protocol("missing message delta"));
-            }
-            for (field, key, kind) in [
-                ("reasoning_content", (1, 0), BlockKind::Thinking),
-                ("content", (0, 0), BlockKind::Text),
-                ("refusal", (2, 0), BlockKind::Refusal),
-            ] {
-                if let Some(s) = d.get(field).filter(|s| !s.is_null()) {
-                    self.simple(key, kind, text(s)?, out)?;
-                }
-            }
-            if let Some(images) = d.get("images").filter(|v| !v.is_null()) {
-                let images = images
-                    .as_array()
-                    .ok_or(RelayError::Protocol("invalid Chat images"))?;
-                if !images.is_empty() {
-                    if self.finish.is_some() {
-                        return Err(RelayError::Protocol("images after finish"));
-                    }
-                    if images.len()
-                        > self
-                            .max_blocks
-                            .saturating_sub(self.blocks.len() + self.image_count)
-                    {
-                        return Err(RelayError::Limit("output block count"));
-                    }
-                    for image in images {
-                        if image["type"].as_str() != Some("image_url")
-                            || image["image_url"]["url"].as_str().is_none_or(|url| {
-                                url.is_empty() || url.chars().any(char::is_control)
-                            })
-                            || image.get("index").is_some_and(|i| i.as_u64().is_none())
-                        {
-                            return Err(RelayError::Protocol("invalid Chat image"));
-                        }
-                    }
-                    self.image_count += images.len();
-                    out.push(Event::Images(images.clone()));
-                }
-            }
-            if let Some(calls) = d.get("tool_calls").filter(|v| !v.is_null()) {
-                for (ordinal, c) in calls
-                    .as_array()
-                    .ok_or(RelayError::Protocol("invalid tool calls"))?
-                    .iter()
-                    .enumerate()
-                {
-                    let key = (
-                        3,
-                        if full {
-                            ordinal as u64
-                        } else {
-                            index(&c["index"])?
-                        },
-                    );
-                    if !self.blocks.contains_key(&key) {
-                        self.block(
-                            key,
-                            BlockKind::Tool {
-                                id: text(&c["id"])?.into(),
-                                name: text(&c["function"]["name"])?.into(),
-                            },
-                            out,
-                        )?;
-                    } else if let Some(Slot {
-                        kind: BlockKind::Tool { id, name },
-                        ..
-                    }) = self.blocks.get(&key)
-                        && (c
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .is_some_and(|s| !s.is_empty() && s != id)
-                            || c["function"]
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .is_some_and(|s| !s.is_empty() && s != name))
-                    {
-                        return Err(RelayError::Protocol("tool identity changed"));
-                    }
-                    if let Some(a) = c["function"].get("arguments").filter(|a| !a.is_null()) {
-                        self.delta(key, text(a)?, out)?;
-                    }
-                }
-            }
-            if d.get("function_call").is_some() {
-                return Err(RelayError::Protocol(
-                    "legacy function_call output is unsupported",
-                ));
-            }
-            if let Some(reason) = c.get("finish_reason").filter(|r| !r.is_null()) {
-                self.finish(
-                    finish_reason(self.protocol, text(reason)?, self.tools())?,
-                    out,
-                )?;
-            }
-        }
-        if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
-            out.push(Event::Usage(self.usage(u)?));
-        }
-        Ok(())
-    }
-    fn anthropic_block(
-        &mut self,
-        key: Key,
-        b: &Value,
-        stream: bool,
-        out: &mut Vec<Event>,
-    ) -> Result<(), RelayError> {
-        match b["type"].as_str() {
-            Some("text") => self.simple(key, BlockKind::Text, text(&b["text"])?, out)?,
-            Some("thinking") => {
-                self.simple(key, BlockKind::Thinking, text(&b["thinking"])?, out)?;
-                if let Some(s) = b.get("signature") {
-                    self.signature(key, text(s)?, out)?;
-                }
-            }
-            Some("tool_use") => {
-                self.block(
-                    key,
-                    BlockKind::Tool {
-                        id: text(&b["id"])?.into(),
-                        name: text(&b["name"])?.into(),
-                    },
-                    out,
-                )?;
-                let input = b["input"]
-                    .as_object()
-                    .ok_or(RelayError::Protocol("invalid tool input"))?;
-                if stream && input.is_empty() {
-                    if let Some(s) = self.blocks.get_mut(&key) {
-                        s.default_object = true;
-                    }
-                } else {
-                    self.delta(key, &b["input"].to_string(), out)?;
-                }
-            }
-            _ => return Err(RelayError::Protocol("unsupported Anthropic content block")),
-        }
-        Ok(())
-    }
-    fn anthropic_event(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
-        match v["type"].as_str() {
-            Some("ping") => {}
-            Some("message_start") => {
-                if self.started {
-                    return Err(RelayError::Protocol("duplicate message start"));
-                }
-                self.start(v["message"]["id"].as_str(), out)?;
-                out.push(Event::Usage(self.usage(&v["message"]["usage"])?));
-            }
-            Some("content_block_start") => {
-                if !self.started {
-                    return Err(RelayError::Protocol("content before message start"));
-                }
-                let key = (0, index(&v["index"])?);
-                if self.blocks.contains_key(&key) {
-                    return Err(RelayError::Protocol("duplicate content block"));
-                }
-                self.anthropic_block(key, &v["content_block"], true, out)?;
-            }
-            Some("content_block_delta") => {
-                let key = (0, index(&v["index"])?);
-                let d = &v["delta"];
-                let kind = &self
-                    .blocks
-                    .get(&key)
-                    .ok_or(RelayError::Protocol("unknown delta block"))?
-                    .kind;
-                match (d["type"].as_str(), kind) {
-                    (Some("text_delta"), BlockKind::Text) => {
-                        self.delta(key, text(&d["text"])?, out)?
-                    }
-                    (Some("thinking_delta"), BlockKind::Thinking) => {
-                        self.delta(key, text(&d["thinking"])?, out)?
-                    }
-                    (Some("input_json_delta"), BlockKind::Tool { .. }) => {
-                        self.delta(key, text(&d["partial_json"])?, out)?
-                    }
-                    (Some("signature_delta"), BlockKind::Thinking) => {
-                        self.signature(key, text(&d["signature"])?, out)?
-                    }
-                    _ => return Err(RelayError::Protocol("unsupported Anthropic delta")),
-                }
-            }
-            Some("content_block_stop") => self.close((0, index(&v["index"])?), out)?,
-            Some("message_delta") => {
-                if let Some(u) = v.get("usage") {
-                    out.push(Event::Usage(self.usage(u)?));
-                }
-                if let Some(r) = v["delta"].get("stop_reason").filter(|r| !r.is_null()) {
-                    anthropic_stop_sequence(&v["delta"], text(r)?, out)?;
-                    self.finish(finish_reason(self.protocol, text(r)?, self.tools())?, out)?;
-                }
-            }
-            Some("message_stop") => self.done(out)?,
-            Some("error") => return Err(RelayError::Protocol("upstream stream failed")),
-            _ => return Err(RelayError::Protocol("unsupported Anthropic event")),
-        }
-        Ok(())
-    }
-    fn responses_event(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
-        if let Some(item) = v.get("item") {
-            plain_response_item(item)?;
-        }
-        if let Some(part) = v.get("part") {
-            plain_response_part(part)?;
-        }
-        if let Some(response) = v.get("response") {
-            plain_response(response)?;
-        }
-        match v["type"].as_str() {
-            Some("response.created" | "response.in_progress") => {
-                self.start(v["response"]["id"].as_str(), out)?
-            }
-            Some("response.output_item.added") => {
-                if !self.started {
-                    return Err(RelayError::Protocol("output before response start"));
-                }
-                let i = index(&v["output_index"])?;
-                let item = &v["item"];
-                match item["type"].as_str() {
-                    Some("function_call") => {
-                        let key = (i, u64::MAX);
-                        self.block(
-                            key,
-                            BlockKind::Tool {
-                                id: text(&item["call_id"])?.into(),
-                                name: text(&item["name"])?.into(),
-                            },
-                            out,
-                        )?;
-                        if let Some(a) = item.get("arguments") {
-                            self.delta(key, text(a)?, out)?;
-                        }
-                    }
-                    Some("message" | "reasoning") => {}
-                    _ => return Err(RelayError::Protocol("unsupported Responses item")),
-                }
-            }
-            Some("response.content_part.added") => {
-                let key = (index(&v["output_index"])?, index(&v["content_index"])?);
-                let p = &v["part"];
-                let (kind, s) = match p["type"].as_str() {
-                    Some("output_text") => (BlockKind::Text, text(&p["text"])?),
-                    Some("refusal") => (BlockKind::Refusal, text(&p["refusal"])?),
-                    _ => return Err(RelayError::Protocol("unsupported response content")),
-                };
-                self.simple(key, kind, s, out)?;
-            }
-            Some("response.reasoning_summary_part.added") => {
-                let key = (index(&v["output_index"])?, index(&v["summary_index"])?);
-                self.simple(key, BlockKind::Thinking, text(&v["part"]["text"])?, out)?;
-            }
-            Some("response.output_text.delta" | "response.refusal.delta") => {
-                self.delta(
-                    (index(&v["output_index"])?, index(&v["content_index"])?),
-                    text(&v["delta"])?,
-                    out,
-                )?;
-            }
-            Some("response.reasoning_summary_text.delta") => self.delta(
-                (index(&v["output_index"])?, index(&v["summary_index"])?),
-                text(&v["delta"])?,
-                out,
-            )?,
-            Some("response.function_call_arguments.delta") => self.delta(
-                (index(&v["output_index"])?, u64::MAX),
-                text(&v["delta"])?,
-                out,
-            )?,
-            Some("response.function_call_arguments.done") => {
-                let key = (index(&v["output_index"])?, u64::MAX);
-                if self.blocks.get(&key).is_some_and(|s| !s.has_text) {
-                    self.delta(key, text(&v["arguments"])?, out)?;
-                }
-            }
-            Some("response.content_part.done") => self.close(
-                (index(&v["output_index"])?, index(&v["content_index"])?),
-                out,
-            )?,
-            Some("response.reasoning_summary_part.done") => self.close(
-                (index(&v["output_index"])?, index(&v["summary_index"])?),
-                out,
-            )?,
-            Some("response.output_item.done") => {
-                let i = index(&v["output_index"])?;
-                let keys: Vec<_> = self
-                    .blocks
-                    .keys()
-                    .filter(|(a, _)| *a == i)
-                    .copied()
-                    .collect();
-                for k in keys {
-                    self.close(k, out)?;
-                }
-            }
-            Some(
-                "response.output_text.done"
-                | "response.refusal.done"
-                | "response.reasoning_summary_text.done",
-            ) => {}
-            Some("response.completed" | "response.incomplete") => {
-                self.response_finish(&v["response"], out)?;
-                self.done(out)?;
-            }
-            Some("response.failed" | "error") => {
-                return Err(RelayError::Protocol("Responses stream failed"));
-            }
-            _ => return Err(RelayError::Protocol("unsupported Responses event")),
-        }
-        Ok(())
-    }
-    fn response_finish(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
-        // Reject a changed or malformed final ID before accepting its usage.
-        let id = v
-            .get("id")
-            .filter(|id| !id.is_null())
-            .map(text)
-            .transpose()?;
-        self.start(id, out)?;
-        out.push(Event::Usage(self.usage(&v["usage"])?));
-        let reason = match v["status"].as_str() {
-            Some("completed") => {
-                if self.tools() {
-                    FinishReason::ToolCalls
-                } else {
-                    FinishReason::Stop
-                }
-            }
-            Some("incomplete") => match v["incomplete_details"]["reason"].as_str() {
-                Some("max_output_tokens") => FinishReason::Length,
-                Some("content_filter") => FinishReason::ContentFilter,
-                _ => return Err(RelayError::Protocol("unknown incomplete response")),
-            },
-            _ => return Err(RelayError::Protocol("upstream response is not complete")),
-        };
-        self.finish(reason, out)
-    }
-    fn gemini(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
-        self.start(v["responseId"].as_str(), out)?;
-        if let Some(candidates) = v.get("candidates") {
-            for candidate in candidates
-                .as_array()
-                .ok_or(RelayError::Protocol("invalid Gemini candidates"))?
-            {
-                if let Some(metadata) = candidate.get("groundingMetadata") {
-                    if !metadata.is_object() {
-                        return Err(RelayError::Protocol("invalid grounding metadata"));
-                    }
-                    let queries = metadata
-                        .get("webSearchQueries")
-                        .map(|queries| {
-                            let queries = queries
-                                .as_array()
-                                .ok_or(RelayError::Protocol("invalid search queries"))?;
-                            let mut grounded = false;
-                            for query in queries {
-                                grounded |= !text(query)?.trim().is_empty();
-                            }
-                            Ok::<_, RelayError>(grounded)
-                        })
-                        .transpose()?;
-                    let mut web_grounding = false;
-                    if let Some(chunks) = metadata.get("groundingChunks") {
-                        for chunk in chunks
-                            .as_array()
-                            .ok_or(RelayError::Protocol("invalid grounding chunks"))?
-                        {
-                            if let Some(web) = chunk.get("web") {
-                                web_grounding |= !text(&web["uri"])?.trim().is_empty();
-                            }
-                        }
-                    }
-                    if let Some(grounded) = queries.or(web_grounding.then_some(true)) {
-                        let count = u8::from(grounded || web_grounding);
-                        self.gemini_grounded_requests =
-                            Some(self.gemini_grounded_requests.unwrap_or(0).max(count));
-                    }
-                    out.push(Event::GroundingMetadata(metadata.clone()));
-                }
-            }
-        }
-        if let Some(u) = v.get("usageMetadata") {
-            let mut usage = self.usage(u)?;
-            usage.google_search_grounded_requests = self.gemini_grounded_requests;
-            out.push(Event::Usage(usage));
-        } else if self.gemini_grounded_requests.is_some() {
-            out.push(Event::Usage(Usage {
-                google_search_grounded_requests: self.gemini_grounded_requests,
-                ..Usage::default()
-            }));
-        }
-        if v["promptFeedback"].get("blockReason").is_some() {
-            self.finish(FinishReason::ContentFilter, out)?;
-            return Ok(());
-        }
-        let Some(candidates) = v.get("candidates") else {
-            return Ok(());
-        };
-        let candidates = candidates
-            .as_array()
-            .ok_or(RelayError::Protocol("invalid Gemini candidates"))?;
-        if candidates.len() > 1 {
-            return Err(RelayError::Protocol("multiple Gemini candidates"));
-        }
-        for c in candidates {
-            if c.get("index").is_some_and(|i| i.as_u64() != Some(0)) {
-                return Err(RelayError::Protocol("invalid Gemini candidate index"));
-            }
-            if let Some(parts) = c["content"].get("parts") {
-                for p in parts
-                    .as_array()
-                    .ok_or(RelayError::Protocol("invalid Gemini parts"))?
-                {
-                    let key = if let Some(s) = p.get("text") {
-                        let thought = p.get("thought").and_then(Value::as_bool).unwrap_or(false);
-                        let key = (u64::from(thought), 0);
-                        self.simple(
-                            key,
-                            if thought {
-                                BlockKind::Thinking
-                            } else {
-                                BlockKind::Text
-                            },
-                            text(s)?,
-                            out,
-                        )?;
-                        key
-                    } else if let Some(f) = p.get("functionCall") {
-                        let key = (2, self.gemini_calls);
-                        self.gemini_calls += 1;
-                        let id = f["id"]
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| format!("call_gemini_{}", key.1));
-                        self.block(
-                            key,
-                            BlockKind::Tool {
-                                id,
-                                name: text(&f["name"])?.into(),
-                            },
-                            out,
-                        )?;
-                        if !f["args"].is_object() {
-                            return Err(RelayError::Protocol("invalid Gemini function arguments"));
-                        }
-                        self.delta(key, &f["args"].to_string(), out)?;
-                        key
-                    } else {
-                        return Err(RelayError::Protocol("unsupported Gemini part"));
-                    };
-                    if let Some(s) = p.get("thoughtSignature") {
-                        self.signature(key, text(s)?, out)?;
-                    }
-                }
-            }
-            if let Some(token) = c.get("continuationToken").filter(|v| !v.is_null()) {
-                self.continuation(text(token)?, out)?;
-            }
-            if let Some(r) = c.get("finishReason") {
-                self.finish(finish_reason(self.protocol, text(r)?, self.tools())?, out)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -2135,7 +1636,9 @@ mod tests {
             }
         });
         let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
-        let events = decoder.json(&value).expect("live-shaped Responses JSON should decode");
+        let events = decoder
+            .json(&value)
+            .expect("live-shaped Responses JSON should decode");
         assert!(events.iter().any(|e| matches!(e, Event::Done)));
         assert!(events.iter().any(|e| matches!(e, Event::Usage(_))));
         assert!(decoder.is_done());
@@ -2545,11 +2048,20 @@ mod generic_creation_tests {
         );
         let start = json!({"type":"message_start","message":{"id":"msg_generic","usage":{"input_tokens":10,"output_tokens":0,"cache_read_input_tokens":20,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}}});
         let mut events = Vec::new();
-        decoder.anthropic_event(&start, &mut events).unwrap();
-        decoder.anthropic_event(&json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}),&mut events).unwrap();
-        decoder
-            .anthropic_event(&json!({"type":"message_stop"}), &mut events)
-            .unwrap();
+        for value in [
+            start,
+            json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}),
+            json!({"type":"message_stop"}),
+        ] {
+            events.extend(
+                decoder
+                    .frame(Frame {
+                        event: None,
+                        data: value.to_string(),
+                    })
+                    .unwrap(),
+            );
+        }
         let mut combined = Usage::default();
         for event in &events {
             if let Event::Usage(value) = event {

@@ -1,0 +1,19 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb;corepb";
+// Owner-capped promotional credit capability. No account/scope selector,
+// arbitrary SQL, balance replacement or business-policy publication RPC.
+service CoreCheckinLedger {
+ rpc Inspect(CheckinLedgerInspect) returns (CheckinLedgerContext);
+ rpc Post(CheckinLedgerPost) returns (CheckinLedgerReceipt);
+}
+message CheckinLedgerInspect {}
+message CheckinLedgerContext {
+ int64 user_id=1; int64 account_id=2; string day=3; int64 timestamp=4;
+ uint32 trust_level=5; int64 max_daily_units=6; bool blocked=7;
+}
+message CheckinLedgerPost { string day=1; int64 amount_units=2; uint32 trust_level=3; }
+message CheckinLedgerReceipt {
+ int64 user_id=1; int64 account_id=2; string day=3; int64 amount_units=4;
+ optional int64 journal_id=5; int64 timestamp=6; bool replayed=7;
+}

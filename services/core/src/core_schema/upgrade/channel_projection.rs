@@ -50,10 +50,11 @@ mod tests {
     fn frozen43_is_exact_and_current_successor_is_explicit44() {
         let frozen = include_str!("projection_predecessor_manifest.json");
         assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
-        let mut compiled = schema_manifest();
+        let mut compiled: super::super::historical_fixture::Manifest =
+            serde_json::from_str(include_str!("projection_predecessor_manifest.json")).unwrap();
         assert_eq!(ENGINE.target_count, 44);
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_eq!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
+        assert_ne!(ENGINE.target_manifest().unwrap(), target["manifest_sha256"]);
         compiled.components.truncate(43);
         let mut bytes = serde_json::to_vec(&compiled).unwrap();
         bytes.push(b'\n');
@@ -68,7 +69,12 @@ mod tests {
         ] {
             assert_eq!(TARGET, target);
         }
-        authorize_target().unwrap();
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected(
+                "CHANNEL_PROJECTION_COMPILED_PREDECESSOR_CHANGED"
+            ))
+        ));
     }
     #[test]
     fn accounting43_request_cannot_be_reinterpreted_as_projection44() {

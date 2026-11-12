@@ -123,10 +123,6 @@ const COMPONENTS: &[(&str, &str)] = &[
             include_str!("../schema/channel_observations_upgrade.sql")
         ),
     ),
-    (
-        "navigation-options",
-        include_str!("../schema/navigation_options.sql"),
-    ),
     ("red-packets", crate::promotions::red_packets::SCHEMA),
     (
         "legacy-history-compat",
@@ -195,7 +191,6 @@ const COMPONENTS: &[(&str, &str)] = &[
         "subscription-pancake-language-optional",
         include_str!("../schema/subscription_pancake_language_optional.sql"),
     ),
-    ("checkins", crate::checkins::SCHEMA),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

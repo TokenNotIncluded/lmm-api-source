@@ -16,7 +16,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var databaseName = regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations|toolmarket|community|acquisition)(_[a-z0-9]+)*$`)
+var databaseName = regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations|toolmarket|community|acquisition|checkins)(_[a-z0-9]+)*$`)
 
 // StorageConfig names an independently provisioned extension database. Schema
 // installation is explicit; startup never creates or migrates tables.
@@ -27,7 +27,7 @@ type StorageConfig struct {
 }
 
 func (c StorageConfig) validate() error {
-	if (c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations" && c.Component != "toolmarket" && c.Component != "community" && c.Component != "acquisition") || c.URLFile == "" ||
+	if (c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations" && c.Component != "toolmarket" && c.Component != "community" && c.Component != "acquisition" && c.Component != "checkins") || c.URLFile == "" ||
 		!databaseName.MatchString(c.Database) || !strings.HasPrefix(c.Database, "lmm_"+c.Component) {
 		return errors.New("invalid dedicated extension storage configuration")
 	}
@@ -273,6 +273,12 @@ func storageTables(component string) []storageTable {
 	var tables []storageTable
 	add := func(name string, privs ...string) { tables = append(tables, storageTable{name, privs}) }
 	switch component {
+	case "checkins":
+		for _, name := range []string{"contract", "policy_revisions", "active_policy", "intentions", "claim_commands"} {
+			add("lmm_checkins."+name, "SELECT")
+		}
+		add("lmm_checkins.intentions", "INSERT")
+		add("lmm_checkins.claim_commands", "INSERT")
 	case "toolmarket":
 		add("lmm_toolmarket.snapshot", "SELECT", "UPDATE")
 	case "store":
@@ -318,6 +324,7 @@ func storageTables(component string) []storageTable {
 		}
 
 	case "community":
+		add("lmm_community.navigation", "SELECT", "UPDATE")
 		add("lmm_community.contract", "SELECT")
 		for _, name := range []string{"directory_settings", "directory_ads", "directory_ad_intents", "onboarding_todos", "signal_records"} {
 			add("lmm_community."+name, "SELECT", "INSERT", "UPDATE")

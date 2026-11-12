@@ -36,7 +36,7 @@ async fn get(app: &axum::Router, path: &str, secret: Option<&str>) -> (StatusCod
 }
 
 #[sqlx::test(migrations = false)]
-async fn actual_owner_cli_and_runtime_status_follow_frozen_enabled_policy(pool: PgPool) {
+async fn fresh_binary_refuses_historical_owner_commands_without_mutating_policy(pool: PgPool) {
     let suffix = format!("{:016x}", rand::random::<u64>());
     let owner = format!("checkin_owner_{suffix}");
     let installer = format!("checkin_installer_{suffix}");
@@ -103,13 +103,25 @@ async fn actual_owner_cli_and_runtime_status_follow_frozen_enabled_policy(pool: 
     .unwrap();
     fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
     let invoke = |command: &str, input: &Value| {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_lmm-core"))
-            .args(["--config", config.to_str().unwrap(), command])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut child = Command::new(
+            option_env!("CARGO_BIN_EXE_lmm-core")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::env::current_exe()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .join(format!("lmm-core{}", std::env::consts::EXE_SUFFIX))
+                }),
+        )
+        .args(["--config", config.to_str().unwrap(), command])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
         use std::io::Write;
         child
             .stdin
@@ -118,20 +130,19 @@ async fn actual_owner_cli_and_runtime_status_follow_frozen_enabled_policy(pool: 
             .write_all(&serde_json::to_vec(input).unwrap())
             .unwrap();
         let output = child.wait_with_output().unwrap();
+        assert!(!output.status.success(), "fresh binary accepted {command}");
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8_lossy(&output.stderr);
         assert!(
-            output.status.success(),
-            "owner CLI failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            error.contains("CHECKIN_HISTORY_USE_PRESERVED_BINARY"),
+            "unexpected rejection: {error}"
         );
-        serde_json::from_slice::<Value>(&output.stdout).unwrap()
     };
     let before = journals(&owner_pool).await;
-    let seed = invoke(
+    invoke(
         "seed-checkin-history",
         &serde_json::to_value(&f.input).unwrap(),
     );
-    assert_eq!(seed["status"], "seeded");
-    assert_eq!(seed["receipt"]["balance_effect"], "none");
     let Json(settings): Json<BTreeMap<String, String>> =
         sqlx::query_scalar("SELECT settings FROM core_checkins.seed_receipts WHERE seed_id=$1")
             .bind(&f.seed.seed_id)
@@ -144,16 +155,16 @@ async fn actual_owner_cli_and_runtime_status_follow_frozen_enabled_policy(pool: 
     policy.enabled = false;
     policy.source_options_sha256 = sha(&serde_json::to_vec(&settings).unwrap());
     let request = json!({"operation_key":"runtime_disable_policy_0002","expected_revision":1,"policy":policy,"source_options":settings});
-    let first = invoke("publish-checkin-policy", &request);
-    let replay = invoke("publish-checkin-policy", &request);
-    assert_eq!(first, replay);
-    assert_eq!(first["policy"]["revision"], 2);
+    invoke("publish-checkin-policy", &request);
     let (status, body) = get(&app, "/api/status", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["checkin_enabled"], false);
-    let (status, body) = get(&app, "/health/ready", None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["checkin_enabled"], false);
+    assert_eq!(body["data"]["checkin_enabled"], true);
+    let revision: i64 =
+        sqlx::query_scalar("SELECT revision FROM core_checkins.active_policy WHERE singleton")
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(revision, 1);
     assert_eq!(journals(&owner_pool).await, before);
     owner_pool.close().await;
     fs::remove_dir_all(dir).unwrap();

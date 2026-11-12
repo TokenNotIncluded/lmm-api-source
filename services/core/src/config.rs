@@ -345,6 +345,7 @@ struct CoreFile {
     payments: Option<FinancialFile>,
     commerce: Option<FinancialFile>,
     directory_ads: Option<FinancialFile>,
+    checkin_rewards: Option<FinancialFile>,
     assistant: Option<AssistantFile>,
     tool_market: Option<ToolMarketFile>,
     market_oauth: Option<market_oauth_config::MarketOAuthFile>,
@@ -403,11 +404,19 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         return Err(invalid_config("unsupported core configuration version"));
     }
     if let Some(federated) = &file.identity.federated_auth {
-        if federated.enabled && (file.database.is_none() || file.identity.web.is_none() || federated.keyring_file.is_none()) {
-            return Err(invalid_config("enabled federated authentication requires database, native Web identity and a private keyring"));
+        if federated.enabled
+            && (file.database.is_none()
+                || file.identity.web.is_none()
+                || federated.keyring_file.is_none())
+        {
+            return Err(invalid_config(
+                "enabled federated authentication requires database, native Web identity and a private keyring",
+            ));
         }
         if !federated.enabled && federated.keyring_file.is_some() {
-            return Err(invalid_config("disabled federated authentication must not configure a keyring"));
+            return Err(invalid_config(
+                "disabled federated authentication must not configure a keyring",
+            ));
         }
     }
     trust_policy_config::validate(
@@ -445,7 +454,11 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.identity.linuxdo.is_some()
             || file.identity.discord.is_some()
             || file.identity.telegram.is_some()
-            || file.identity.federated_auth.as_ref().is_some_and(|auth| auth.enabled || auth.keyring_file.is_some())
+            || file
+                .identity
+                .federated_auth
+                .as_ref()
+                .is_some_and(|auth| auth.enabled || auth.keyring_file.is_some())
             || file.identity.api_key_encryption_key_file.is_some()
             || file.identity.mfa.is_some()
             || file.identity.email_config_file.is_some()
@@ -583,11 +596,17 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     if let Some(auth) = file.identity.federated_auth {
         if auth.enabled {
-            let path = auth.keyring_file.ok_or_else(|| invalid_config("federated authentication requires a private keyring file"))?;
+            let path = auth.keyring_file.ok_or_else(|| {
+                invalid_config("federated authentication requires a private keyring file")
+            })?;
             put("LMM_CORE_FEDERATED_AUTH_ENABLED", "true".to_owned());
             paths.push(("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE", path));
         } else {
-            if auth.keyring_file.is_some() { return Err(invalid_config("disabled federated authentication has key configuration")); }
+            if auth.keyring_file.is_some() {
+                return Err(invalid_config(
+                    "disabled federated authentication has key configuration",
+                ));
+            }
             put("LMM_CORE_FEDERATED_AUTH_ENABLED", "false".to_owned());
         }
     }
@@ -878,7 +897,16 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             "LMM_CORE_COMMERCE_CONFIG_FILE",
             "LMM_CORE_COMMERCE_TOKEN_FILE",
         ),
-        (file.directory_ads, "LMM_CORE_DIRECTORY_ADS_CONFIG_FILE", "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE"),
+        (
+            file.directory_ads,
+            "LMM_CORE_DIRECTORY_ADS_CONFIG_FILE",
+            "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE",
+        ),
+        (
+            file.checkin_rewards,
+            "LMM_CORE_CHECKIN_REWARDS_CONFIG_FILE",
+            "LMM_CORE_CHECKIN_REWARDS_TOKEN_FILE",
+        ),
     ] {
         if let Some(section) = section {
             paths.extend([
@@ -1141,19 +1169,28 @@ pub fn identity_auth(
             .map_err(|_| invalid_config("invalid MFA keyring configuration"))?;
     }
     if federated_auth_configured()? {
-        let path = setting_os("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE")
-            .ok_or_else(|| invalid_config("federated authentication requires a private keyring file"))?;
-        let ring: FederatedKeyringFile = parse_document(&private_file(Path::new(&path), 16 * 1024)?)?;
+        let path = setting_os("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE").ok_or_else(|| {
+            invalid_config("federated authentication requires a private keyring file")
+        })?;
+        let ring: FederatedKeyringFile =
+            parse_document(&private_file(Path::new(&path), 16 * 1024)?)?;
         if ring.version != 1 || ring.keys.is_empty() || ring.keys.len() > 8 {
             return Err(invalid_config("invalid federated authentication keyring"));
         }
         let mut guarded = Vec::new();
         for key in ring.keys {
-            guarded.push((key.id, zeroize::Zeroizing::new(private_file(&key.key_file, 32)?)));
+            guarded.push((
+                key.id,
+                zeroize::Zeroizing::new(private_file(&key.key_file, 32)?),
+            ));
         }
-        let keys = guarded.into_iter().map(|(id, mut key)| (id, std::mem::take(&mut *key))).collect();
+        let keys = guarded
+            .into_iter()
+            .map(|(id, mut key)| (id, std::mem::take(&mut *key)))
+            .collect();
         let replay_key = private_file(&ring.replay_key_file, 32)?;
-        store = store.with_federated_keys(ring.active_key_id, keys, replay_key)
+        store = store
+            .with_federated_keys(ring.active_key_id, keys, replay_key)
             .map_err(|_| invalid_config("invalid federated authentication keyring"))?;
     }
     Ok(store)
@@ -1163,7 +1200,9 @@ pub fn federated_auth_configured() -> io::Result<bool> {
     let enabled = optional_bool_setting("LMM_CORE_FEDERATED_AUTH_ENABLED")?;
     let key = setting_os("LMM_CORE_FEDERATED_AUTH_KEYRING_FILE").is_some();
     if (enabled == Some(false) && key) || (enabled == Some(true) && !key) {
-        return Err(invalid_config("inconsistent federated authentication enable/key configuration"));
+        return Err(invalid_config(
+            "inconsistent federated authentication enable/key configuration",
+        ));
     }
     Ok(key)
 }
@@ -1371,8 +1410,8 @@ pub fn configured_payment_channels() -> io::Result<Vec<crate::payments::Channel>
     let path = setting_os("LMM_CORE_PAYMENTS_CONFIG_FILE")
         .ok_or_else(|| invalid_config("payment channel configuration required"))?;
     let document = configuration_file(Path::new(&path), 64 * 1024)?;
-    let config: PaymentConfig = parse_document(&document)
-        .map_err(|_| invalid_config("invalid payment configuration"))?;
+    let config: PaymentConfig =
+        parse_document(&document).map_err(|_| invalid_config("invalid payment configuration"))?;
     config.load().map(|(channels, _)| channels)
 }
 
@@ -1446,12 +1485,21 @@ pub fn image_browser_router(gateway: &crate::model_http::ModelGateway) -> io::Re
 }
 /// Requires the configured browser cookie family. No native Session confirmation fallback.
 pub fn directory_ads_configured() -> bool {
-    setting_os("LMM_CORE_DIRECTORY_ADS_CONFIG_FILE").is_some() || setting_os("LMM_CORE_DIRECTORY_ADS_TOKEN_FILE").is_some()
+    setting_os("LMM_CORE_DIRECTORY_ADS_CONFIG_FILE").is_some()
+        || setting_os("LMM_CORE_DIRECTORY_ADS_TOKEN_FILE").is_some()
 }
-pub fn directory_ads_browser_router(store: crate::directory_ads::Store) -> io::Result<axum::Router> {
-    let origin = setting("LMM_CORE_WEB_ORIGIN").map_err(|_| invalid_config("advertisement confirmation requires Web authentication"))?;
-    if setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE").is_none() { return Err(invalid_config("advertisement confirmation requires Web authentication")); }
-    crate::directory_ads::http::router(store, origin, bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?).map_err(|_| invalid_config("invalid advertisement confirmation origin"))
+pub fn directory_ads_browser_router(
+    store: crate::directory_ads::Store,
+) -> io::Result<axum::Router> {
+    let origin = setting("LMM_CORE_WEB_ORIGIN")
+        .map_err(|_| invalid_config("advertisement confirmation requires Web authentication"))?;
+    if setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE").is_none() {
+        return Err(invalid_config(
+            "advertisement confirmation requires Web authentication",
+        ));
+    }
+    crate::directory_ads::http::router(store, origin, bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?)
+        .map_err(|_| invalid_config("invalid advertisement confirmation origin"))
 }
 pub fn wallet_browser_router(store: crate::wallet::Store) -> io::Result<axum::Router> {
     let origin = setting("LMM_CORE_WEB_ORIGIN")
@@ -1469,8 +1517,9 @@ pub fn wallet_browser_router(store: crate::wallet::Store) -> io::Result<axum::Ro
     .map_err(|_| invalid_config("invalid wallet browser confirmation origin"))
 }
 pub fn affiliate_browser_router(store: crate::affiliate::Store) -> io::Result<axum::Router> {
-    let origin = setting("LMM_CORE_WEB_ORIGIN")
-        .map_err(|_| invalid_config("affiliate confirmation requires Web browser authentication"))?;
+    let origin = setting("LMM_CORE_WEB_ORIGIN").map_err(|_| {
+        invalid_config("affiliate confirmation requires Web browser authentication")
+    })?;
     crate::affiliate::router(store, origin, bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?)
         .map_err(|_| invalid_config("invalid affiliate browser confirmation origin"))
 }
@@ -2227,6 +2276,7 @@ fn rpc_configuration(
 
 #[cfg(unix)]
 pub struct FinancialRpcs {
+    pub checkin_ledger: Option<crate::checkin_ledger::CheckinLedger>,
     pub payments: Option<crate::payments::rpc::PaymentsRpc>,
     pub epay_subscriptions: Option<crate::subscriptions::epay_rpc::EPaySubscriptionsRpc>,
     pub commerce: Option<crate::commerce::rpc::CommerceRpc>,
@@ -2269,15 +2319,106 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
     )?;
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
-    struct AdsConfig { version: u32, principal: String, #[serde(default)] pay: bool, #[serde(default)] refund: bool, #[serde(default)] read: bool, #[serde(default)] reconcile: bool }
-    let directory_ads = if let Some((document, token)) = rpc_configuration("LMM_CORE_DIRECTORY_ADS_CONFIG_FILE", "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE")? {
-        if token == control_token || payments.as_ref().is_some_and(|(_, t)| *t == token) || commerce.as_ref().is_some_and(|(_, t)| *t == token) { return Err(invalid_config("advertisement credential must be independent")); }
-        let config: AdsConfig = parse_document(&document).map_err(|_| invalid_config("invalid advertisement RPC configuration"))?;
-        if config.version != 1 { return Err(invalid_config("unsupported advertisement configuration version")); }
-        let rpc = crate::directory_ads::rpc::DirectoryAdsRpc::new(crate::directory_ads::Store::new(bounded_database_pool(url, 2).await?), &token, config.principal, crate::directory_ads::rpc::Permissions {pay:config.pay,refund:config.refund,read:config.read,reconcile:config.reconcile}).map_err(|_| invalid_config("invalid advertisement RPC configuration"))?;
-        if rpc.features().is_empty() {return Err(invalid_config("advertisement RPC requires explicit permissions"));}
+    struct AdsConfig {
+        version: u32,
+        principal: String,
+        #[serde(default)]
+        pay: bool,
+        #[serde(default)]
+        refund: bool,
+        #[serde(default)]
+        read: bool,
+        #[serde(default)]
+        reconcile: bool,
+    }
+    let directory_ads = if let Some((document, token)) = rpc_configuration(
+        "LMM_CORE_DIRECTORY_ADS_CONFIG_FILE",
+        "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE",
+    )? {
+        if token == control_token
+            || payments.as_ref().is_some_and(|(_, t)| *t == token)
+            || commerce.as_ref().is_some_and(|(_, t)| *t == token)
+        {
+            return Err(invalid_config(
+                "advertisement credential must be independent",
+            ));
+        }
+        let config: AdsConfig = parse_document(&document)
+            .map_err(|_| invalid_config("invalid advertisement RPC configuration"))?;
+        if config.version != 1 {
+            return Err(invalid_config(
+                "unsupported advertisement configuration version",
+            ));
+        }
+        let rpc = crate::directory_ads::rpc::DirectoryAdsRpc::new(
+            crate::directory_ads::Store::new(bounded_database_pool(url, 2).await?),
+            &token,
+            config.principal,
+            crate::directory_ads::rpc::Permissions {
+                pay: config.pay,
+                refund: config.refund,
+                read: config.read,
+                reconcile: config.reconcile,
+            },
+        )
+        .map_err(|_| invalid_config("invalid advertisement RPC configuration"))?;
+        if rpc.features().is_empty() {
+            return Err(invalid_config(
+                "advertisement RPC requires explicit permissions",
+            ));
+        }
         Some(rpc)
-    } else {None};
+    } else {
+        None
+    };
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct RewardFundingConfig {
+        version: u32,
+        max_daily_units_by_trust: [i64; 5],
+    }
+    let checkin_ledger = if let Some((document, token)) = rpc_configuration(
+        "LMM_CORE_CHECKIN_REWARDS_CONFIG_FILE",
+        "LMM_CORE_CHECKIN_REWARDS_TOKEN_FILE",
+    )? {
+        if token == control_token {
+            return Err(invalid_config(
+                "reward funding credential must be independent",
+            ));
+        }
+        for name in [
+            "LMM_CORE_PAYMENTS_TOKEN_FILE",
+            "LMM_CORE_COMMERCE_TOKEN_FILE",
+            "LMM_CORE_DIRECTORY_ADS_TOKEN_FILE",
+            "LMM_CORE_ASSISTANT_TOKEN_FILE",
+            "LMM_CORE_TOOL_MARKET_TOKEN_FILE",
+            "LMM_CORE_REMOTE_CONTROL_TOKEN_FILE",
+            "LMM_CORE_INGRESS_TOKEN_FILE",
+        ] {
+            if let Some(path) = setting_os(name) {
+                if service_token(Path::new(&path))? == token {
+                    return Err(invalid_config(
+                        "reward funding credential must be independent",
+                    ));
+                }
+            }
+        }
+        let config: RewardFundingConfig = parse_document(&document)
+            .map_err(|_| invalid_config("invalid reward funding limits"))?;
+        if config.version != 1 {
+            return Err(invalid_config("unsupported reward funding configuration"));
+        }
+        Some(
+            crate::checkin_ledger::CheckinLedger::new(
+                bounded_database_pool(url, 2).await?,
+                &token,
+                config.max_daily_units_by_trust,
+            )
+            .map_err(|_| invalid_config("invalid reward funding authority"))?,
+        )
+    } else {
+        None
+    };
     let mut epay_subscriptions = None;
     let payments = if let Some((document, token)) = payments {
         let config: PaymentConfig = parse_document(&document)
@@ -2302,12 +2443,20 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
             proof_read: p.subscription_epay_proof_read,
             grant: p.subscription_epay_grant,
         };
-        if subscription_permissions.user_orders || subscription_permissions.proof_ingress
-            || subscription_permissions.proof_read || subscription_permissions.grant {
-            epay_subscriptions = Some(crate::subscriptions::epay_rpc::EPaySubscriptionsRpc::new(
-                crate::subscriptions::SubscriptionStore::new(pool), store.clone(), &token,
-                subscription_permissions,
-            ).map_err(|_| invalid_config("invalid EPay subscription RPC configuration"))?);
+        if subscription_permissions.user_orders
+            || subscription_permissions.proof_ingress
+            || subscription_permissions.proof_read
+            || subscription_permissions.grant
+        {
+            epay_subscriptions = Some(
+                crate::subscriptions::epay_rpc::EPaySubscriptionsRpc::new(
+                    crate::subscriptions::SubscriptionStore::new(pool),
+                    store.clone(),
+                    &token,
+                    subscription_permissions,
+                )
+                .map_err(|_| invalid_config("invalid EPay subscription RPC configuration"))?,
+            );
         }
         let rpc = crate::payments::rpc::PaymentsRpc::new(store, &token, permissions)
             .map_err(|_| invalid_config("invalid payment RPC configuration"))?;
@@ -2351,7 +2500,13 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
     } else {
         None
     };
-    Ok(FinancialRpcs { payments, epay_subscriptions, commerce, directory_ads })
+    Ok(FinancialRpcs {
+        payments,
+        epay_subscriptions,
+        commerce,
+        directory_ads,
+        checkin_ledger,
+    })
 }
 
 /// Secret/configuration files must be private regular files. Errors deliberately
@@ -5024,4 +5179,9 @@ rules=[{{id=1,model='model',group='allowed',speed='standard',rates={{input=20000
                 .contains("do-not-log-this-secret")
         );
     }
+}
+
+pub fn checkin_rewards_configured() -> bool {
+    setting_os("LMM_CORE_CHECKIN_REWARDS_CONFIG_FILE").is_some()
+        || setting_os("LMM_CORE_CHECKIN_REWARDS_TOKEN_FILE").is_some()
 }

@@ -1,6 +1,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = "../../contracts/proto";
     let sources = [
+        "../../contracts/proto/lmm/core/v1/checkin_ledger.proto",
         "../../contracts/proto/lmm/core/v1/control.proto",
         "../../contracts/proto/lmm/core/v1/events.proto",
         "../../contracts/proto/lmm/core/v1/commands.proto",

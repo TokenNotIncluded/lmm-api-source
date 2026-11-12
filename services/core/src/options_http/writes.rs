@@ -69,7 +69,6 @@ impl From<sqlx::Error> for Error {
 fn canonical(key: &str) -> Result<&str, Error> {
     match key {
         "Notice" => Ok("Notice"),
-        "HeaderNavModules" => Ok("HeaderNavModules"),
         "USDExchangeRate" => Ok("USDExchangeRate"),
         "Announcements" | "console_setting.announcements" => Ok("console_setting.announcements"),
         _ => Err(Error::Unsupported),
@@ -98,9 +97,6 @@ fn validate_values(values: &BTreeMap<String, String>) -> Result<(), Error> {
     for (key, value) in values {
         if value.len() > 256 * 1024 {
             return Err(Error::Invalid("Option content exceeds 256 KiB"));
-        }
-        if key == "HeaderNavModules" {
-            navigation::validate(value).map_err(Error::Invalid)?;
         }
         if key == "USDExchangeRate" && display_exchange_rate(value).is_none() {
             return Err(Error::Invalid(
@@ -180,7 +176,7 @@ async fn handle(state: OptionsHttp, headers: HeaderMap, body: Bytes, op: Operati
                 Error::Unsupported => (
                     StatusCode::CONFLICT,
                     "SYSTEM_OPTION_NOT_WRITABLE",
-                    "Only navigation, notices, announcements and the display exchange rate are writable; unsupported options were not saved",
+                    "Only notices, announcements and the display exchange rate are writable; unsupported options were not saved",
                 ),
                 Error::Conflict => (
                     StatusCode::CONFLICT,
@@ -250,7 +246,7 @@ async fn apply(
         .await?;
     let stored: BTreeMap<String, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT key,value,revision FROM core_console.options
-             WHERE key IN ('Notice','Announcements','console_setting.announcements','HeaderNavModules','USDExchangeRate')",
+             WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate')",
     )
     .fetch_all(&mut *tx)
     .await?
@@ -266,7 +262,6 @@ async fn apply(
             });
             let default = match key.as_str() {
                 "Notice" | "USDExchangeRate" => "",
-                "HeaderNavModules" => "{}",
                 _ => "[]",
             };
             if current.map_or(default, |(value, _)| value.as_str()) != value {
@@ -295,15 +290,11 @@ async fn apply(
                     .fetch_one(&mut *tx)
                     .await?
             } else {
-                sqlx::query_scalar(if *key == "HeaderNavModules" {
-                    "SELECT core_console.write_navigation_option($1,$2)"
-                } else {
-                    "SELECT core_console.write_public_option($1,$2)"
-                })
-                .bind(key)
-                .bind(&value)
-                .fetch_one(&mut *tx)
-                .await?
+                sqlx::query_scalar("SELECT core_console.write_public_option($1,$2)")
+                    .bind(key)
+                    .bind(&value)
+                    .fetch_one(&mut *tx)
+                    .await?
             };
             changes.push(json!({
                 "key":key,"before":stored.get(*key),"after":[value,revision]

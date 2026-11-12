@@ -182,11 +182,14 @@ pub fn configured_router_with_runtime_status(
     } else {
         Router::new()
     };
+    #[cfg(test)]
     let checkins = if capabilities.checkins {
         crate::checkins_http::router(pool.clone())
     } else {
         Router::new()
     };
+    #[cfg(not(test))]
+    let checkins = Router::new();
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
@@ -223,6 +226,7 @@ fn request_id(headers: &HeaderMap) -> String {
 }
 
 async fn public_status_response(State(state): State<Readiness>, headers: HeaderMap) -> Response {
+    #[cfg(test)]
     let checkin_enabled = if state.capabilities.checkins {
         match crate::checkins::CheckinStore::new(state.pool.clone())
             .enabled()
@@ -243,7 +247,6 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     let google_enabled = !google_client_id.is_empty();
     let mut data = json!({
             "system_name":"LMM API","version":env!("CARGO_PKG_VERSION"),
-            "checkin_enabled":checkin_enabled,
             "server_address":status.server_address,
             "password_login_enabled":status.password_login_enabled,
             "register_enabled":status.registration_enabled,
@@ -267,6 +270,10 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             "telegram_register_enabled":false,
 
     });
+    #[cfg(test)]
+    {
+        data["checkin_enabled"] = json!(checkin_enabled);
+    }
     let extra = json!({
             "wechat_login":false,"passkey_login":status.passkey_login_enabled,"email_verification":status.email_verification_enabled,
             "native_account_bindings":status.native_account_bindings,
@@ -297,21 +304,31 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
         };
         data["native_federated_auth"] = json!(true);
         data["federated_oauth_providers"] = json!(providers);
-        data["custom_oauth_providers"] = json!(providers.iter().filter(|provider| provider["kind"] == "custom_oauth").collect::<Vec<_>>());
+        data["custom_oauth_providers"] = json!(
+            providers
+                .iter()
+                .filter(|provider| provider["kind"] == "custom_oauth")
+                .collect::<Vec<_>>()
+        );
         if let Some(oidc) = providers.iter().find(|provider| provider["kind"] == "oidc") {
             data["oidc_enabled"] = json!(true);
             data["oidc_client_id"] = oidc["client_id"].clone();
             data["oidc_authorization_endpoint"] = oidc["authorization_endpoint"].clone();
             data["oidc_display_name"] = oidc["name"].clone();
         }
-        if let Some(wechat) = providers.iter().find(|provider| provider["kind"] == "wechat") {
+        if let Some(wechat) = providers
+            .iter()
+            .find(|provider| provider["kind"] == "wechat")
+        {
             data["wechat_login"] = json!(true);
             data["wechat_qrcode"] = wechat["qr_code_url"].clone();
         }
         let new_registration = providers.iter().any(|provider| {
             let method = if provider["kind"] == "custom_oauth" {
                 format!("custom:{}", provider["slug"].as_str().unwrap_or_default())
-            } else { provider["kind"].as_str().unwrap_or_default().to_owned() };
+            } else {
+                provider["kind"].as_str().unwrap_or_default().to_owned()
+            };
             oauth_method_enabled(&status, &method)
         });
         if status.registration_enabled && status.oauth_register_enabled && new_registration {
@@ -320,7 +337,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     }
     if state.capabilities.console {
         let options: Result<Vec<(String, String)>, _> = sqlx::query_as(
-            "SELECT key,value FROM core_console.options WHERE key IN ('HeaderNavModules','USDExchangeRate')",
+            "SELECT key,value FROM core_console.options WHERE key='USDExchangeRate'",
         )
         .fetch_all(&state.pool)
         .await;
@@ -328,12 +345,6 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             Ok(options) => options,
             Err(_) => return public_configuration_unavailable(),
         };
-        data["HeaderNavModules"] = json!(
-            options
-                .iter()
-                .find(|(key, _)| key == "HeaderNavModules")
-                .map_or("{}", |(_, value)| value.as_str())
-        );
         if let Some((_, raw)) = options.iter().find(|(key, _)| key == "USDExchangeRate") {
             let Some(rate) = crate::options_http::display_exchange_rate(raw) else {
                 return public_configuration_unavailable();
@@ -387,6 +398,7 @@ async fn readiness(
     )
     .await
     .is_ok_and(|result| result.is_ok());
+    #[cfg(test)]
     let checkin_policy = if state.capabilities.checkins {
         tokio::time::timeout(
             Duration::from_millis(400),
@@ -398,6 +410,8 @@ async fn readiness(
     } else {
         Some(false)
     };
+    #[cfg(not(test))]
+    let checkin_policy = Some(false);
     let mut capabilities = state.capabilities;
     let rpc_healthy = state
         .rpc_running
@@ -425,12 +439,18 @@ async fn readiness(
             StatusCode::SERVICE_UNAVAILABLE
         },
         [("cache-control".into(), "no-store".into())],
-        Json(
-            json!({"status":if ready {"ready"}else{"unavailable"},"service":"lmm-core",
+        Json({
+            let result = json!({"status":if ready {"ready"}else{"unavailable"},"service":"lmm-core",
             "database":database,"capabilities":capabilities,
-            "checkin_enabled":checkin_policy.unwrap_or(false),
-            "readiness_scope":"configured_components","upstream_health_checked":false}),
-        ),
+            "readiness_scope":"configured_components","upstream_health_checked":false});
+            #[cfg(test)]
+            let result = {
+                let mut result = result;
+                result["checkin_enabled"] = json!(checkin_policy.unwrap_or(false));
+                result
+            };
+            result
+        }),
     )
 }
 

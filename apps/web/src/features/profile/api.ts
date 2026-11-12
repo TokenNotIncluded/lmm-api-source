@@ -27,6 +27,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
 import {
+  checkinCapabilitiesResponseSchema,
   checkinClaimResponseSchema,
   checkinMonthSchema,
   checkinStatusResponseSchema,
@@ -560,6 +561,14 @@ export async function unbindBuiltInOAuth(
 // ============================================================================
 // Checkin APIs
 // ============================================================================
+
+export async function getCheckinCapabilities() {
+  const res = await api.get<unknown>('/api/checkin/capabilities', {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  return checkinCapabilitiesResponseSchema.parse(res.data).data
+}
 
 /**
  * Get checkin status for a specific month

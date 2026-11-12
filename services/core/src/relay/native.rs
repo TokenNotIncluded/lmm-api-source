@@ -1,4 +1,5 @@
 //! Native client rendering; transport, checkpoints and billing remain shared.
+#![cfg(test)]
 use super::{ClientProtocol, Event, FinishReason, Limits, RelayError, Request, Usage};
 
 pub(super) enum NativeEncoder {

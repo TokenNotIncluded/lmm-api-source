@@ -199,7 +199,7 @@ impl Store {
         secret: &str,
         v: &pb::PrepareDirectoryAdRequest,
     ) -> Result<pb::DirectoryAdQuote> {
-        content::validate(v)?;
+        content::validate_consent(v)?;
         let mut t = self.begin().await?;
         let a = actor(&mut t, secret).await?;
         lock(&mut t, principal, &v.request_id).await?;
@@ -437,14 +437,13 @@ impl Store {
                 return Ok(receipt);
             }
         }
-        let payment = sqlx::query(
-            "SELECT * FROM core_directory_ads.payments WHERE id=$1 AND principal=$2",
-        )
-        .bind(&v.payment_id)
-        .bind(p)
-        .fetch_optional(&mut *t)
-        .await?
-        .ok_or(Error::Forbidden)?;
+        let payment =
+            sqlx::query("SELECT * FROM core_directory_ads.payments WHERE id=$1 AND principal=$2")
+                .bind(&v.payment_id)
+                .bind(p)
+                .fetch_optional(&mut *t)
+                .await?
+                .ok_or(Error::Forbidden)?;
         let original = decode_receipt(payment.try_get("receipt")?)?;
         let journal = payment
             .try_get::<Option<i64>, _>("journal_id")?

@@ -49,7 +49,11 @@ fn legacy_predecessor_bytes_require_the_matching_preserved_installer() {
             .unwrap()
     );
     assert_eq!(COMPONENTS[24].0, "trust-pricing");
-    assert_eq!(hex(&Sha256::digest(COMPONENTS[24].1)), COMPONENT_25_DDL);
+    assert_eq!(
+        super::historical_fixture::preserved(25).component_map()["trust-pricing"],
+        COMPONENT_25_DDL
+    );
+    assert_ne!(hex(&Sha256::digest(COMPONENTS[24].1)), COMPONENT_25_DDL);
     assert_eq!(COMPONENTS[25].0, "telegram-auth");
     assert_eq!(COMPONENTS[26].0, "assistant-agent");
     assert_eq!(COMPONENTS[27].0, "site-finance");

@@ -291,7 +291,7 @@ GRANT SELECT ON core_console.options, core_console.initialization,
     core_console.announcement_reads TO :"runtime_role";
 GRANT INSERT ON core_console.announcement_reads TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),
-    core_console.write_public_option(text,text),core_console.write_navigation_option(text,text),
+    core_console.write_public_option(text,text),
     core_console.write_display_exchange_rate(text) TO :"runtime_role";
 -- BEGIN notifications runtime grants
 GRANT USAGE ON SCHEMA core_notifications TO :"runtime_role";

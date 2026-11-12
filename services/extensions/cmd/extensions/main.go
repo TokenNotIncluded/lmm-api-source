@@ -11,6 +11,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "publish-checkin-policy" {
+		if err := freshinstall.RunCheckinPolicyCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "upgrade-script-repository-credentials" {
 		if err := freshinstall.RunScriptRepositoryCredentialsUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			log.Fatal(err)

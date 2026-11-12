@@ -69,6 +69,7 @@ func Run() error {
 		return err
 	}
 	runtime, err := composition.New(context.Background(), composition.Config{
+		Checkins: composition.StorageConfig{Component: "checkins", URLFile: cfg.Checkins.DatabaseURLFile, Database: cfg.Checkins.DatabaseName}, CheckinTokenFile: cfg.Core.CheckinTokenFile,
 		HeroSMSSocket: cfg.HeroSMS.CoreSocket, HeroSMSTokenFile: cfg.HeroSMS.CoreTokenFile,
 		MarketReviewSocket: cfg.MarketReview.CoreSocket, MarketReviewTokenFile: cfg.MarketReview.CoreTokenFile, MarketReviewSettingsFile: cfg.MarketReview.SettingsFile,
 		Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,
@@ -137,10 +138,10 @@ func Run() error {
 	}
 	subscriptionPayments := runtime.SubscriptionPaymentHandler()
 	if cfg.Host.WebCompat {
-		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil {
+		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
 	}
 	handler := listenerHandler(policies, api)
 	if cfg.Payments.CallbacksEnabled {

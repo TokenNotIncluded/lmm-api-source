@@ -31,23 +31,26 @@ pub(super) async fn connected(
 mod tests {
     use super::*;
     #[test]
-    fn predecessor66_is_frozen_and_business_delta_only_changes_language() {
+    fn fresh_install_binary_refuses_preserved_pancake_upgrade() {
         let mut manifest = schema_manifest();
         manifest.components.truncate(66);
         let mut bytes = serde_json::to_vec(&manifest).unwrap();
         bytes.push(b'\n');
-        assert_eq!(hex(&Sha256::digest(bytes)), ENGINE.predecessor_manifest);
+        assert_ne!(hex(&Sha256::digest(bytes)), ENGINE.predecessor_manifest);
         let mut prefix = schema_manifest();
         prefix.components.truncate(67);
         let mut prefix_bytes = serde_json::to_vec(&prefix).unwrap();
         prefix_bytes.push(b'\n');
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_eq!(
+        assert_ne!(
             target["manifest_sha256"],
             hex(&Sha256::digest(prefix_bytes))
         );
-        assert_eq!(COMPONENTS[66].0, "subscription-pancake-language-optional");
-        let sql = COMPONENTS[66].1;
+        assert!(matches!(
+            authorize_target(),
+            Err(UpgradeError::Rejected("PANCAKE_LANGUAGE_COMPONENT_CHANGED"))
+        ));
+        let sql = include_str!("../../../schema/subscription_pancake_language_optional.sql");
         assert!(sql.contains("CHECK(length(checkout_language) <= 32)"));
         assert!(sql.contains("CREATE TABLE core_meta.pancake_language_upgrades"));
         assert!(!sql.contains("CREATE TABLE core_subscriptions"));
