@@ -11,7 +11,7 @@
 
 ## 需要单列的结论
 
-- **zconv 尚未满足成熟外部基础库目标。** 当前上游 1 星，crate 2026-11-10 才发布，1022 次累计下载。没有把它标成成熟库。已查 genai 的原生多供应商客户端定位；它包含网络与 provider 管理，尚未证明能等价替换这里的有界、纯请求转换，尤其是 Responses、图片、工具字段与未知语义拒绝。当前继续保留已有固定版本，替代选择仍未解决；不通过删协议或换成更广的 Agent 框架消除差距。见 [genai](https://github.com/jeremychone/rust-genai)、[现有转换接入](../services/core/src/relay/zconv_request.rs)。
+- **zconv 是用户开发并指定最高优先级的核心依赖。** 保留固定版本，不以星数、下载量或发布时间作为替换理由；优先验证并修复它的协议转换行为。
 - 已检查的专用转换候选：[`llm_adapter`](https://github.com/darkskygit/llm_adapter) 3 星、[`gproxy-protocol`](https://github.com/LeenHawk/gproxy-protocol) 3 星、[`llm-relay`](https://github.com/okhsunrog/llm-relay) 2 星；均不能仅凭存在就认定比 zconv 更成熟。[`genai`](https://github.com/jeremychone/rust-genai) 940 星，但其定位是多供应商客户端，尚未做本项目等价验证。
 - **protoc-bin-vendored** 虽仅 14 星，但自 2020 年发布，累计下载 35114960 次，职责仅为构建期提供 protoc；保留跨平台可复现构建用途，不把它误算为线上网络能力。
 - **gjson** 上游 250 星，crate 自 2019 年发布、累计下载 2966141 次，当前版本发布于 2022 年。继续用于既有 GJSON 路径、查询与类型转换兼容；普通 JSON pointer 不能等价替换。保留兼容用途不表示维护活跃或安全审计通过。
@@ -25,7 +25,7 @@
 
 | crate | 固定版本 | 用途 | 上游星数 | 累计下载 | 决定 |
 | --- | --- | --- | ---: | ---: | --- |
-| [`zconv`](https://crates.io/crates/zconv) | `0.2.2` | 跨模型协议请求转换 | [1](https://github.com/LIghtJUNction/zconv) | 1022 | 暂留，成熟度目标未解决 |
+| [`zconv`](https://crates.io/crates/zconv) | `0.2.2` | 跨模型协议请求转换 | [1](https://github.com/LIghtJUNction/zconv) | 1022 | 用户自研，最高优先级保留 |
 | [`csv`](https://crates.io/crates/csv) | `1.4.0` | CSV 编解码 | [1968](https://github.com/BurntSushi/rust-csv) | 290033505 | 新增，替换手写编码 |
 | [`lettre`](https://crates.io/crates/lettre) | `0.11.23` | 邮件构造与 SMTP | [2280](https://github.com/lettre/lettre) | 23934841 | 保留 |
 | [`aes-gcm`](https://crates.io/crates/aes-gcm) | `0.10.3` | AES-GCM 认证加密 | [975](https://github.com/RustCrypto/AEADs) | 209738488 | 保留 |
@@ -84,3 +84,11 @@
 ## 验证范围
 
 实际检查结果及当前组合状态记录在 [进度](progress.md)，不将换库视为上线或全业务验收。
+
+## 基础编解码接入
+
+按用户明确指定，十六进制使用 [`zhex = 0.1.3`](https://crates.io/crates/zhex/0.1.3)，上游为 [LIghtJUNction/zhex](https://github.com/LIghtJUNction/zhex)，MIT，无传递依赖。用户指定选库优先于一般热度筛选。已移除 hex 直接依赖；Cargo.lock 中其他依赖所需的 hex 不在本轮删除范围。
+
+固定缓冲区解码直接调用 zhex；`hex_codec` 仅为已有 String/Vec 返回类型分配精确大小的缓冲区，转换全部委托 zhex，无手写十六进制算法。保留入口原有的长度、大小写和错误分类。当前工具链与发布包的 rust-version 均为 1.99.1。
+
+百分号解码使用 [percent-encoding 2.3.2](https://docs.rs/percent-encoding/2.3.2/percent_encoding/)，HTML转义使用 [html-escape 0.3.1](https://docs.rs/html-escape/0.3.1/html_escape/)，保留原 HTML 实体表示。此前全量直接依赖版本盘点仍为审查证据；按本轮基础编解码范围，不执行跨主版本的无关依赖迁移。
