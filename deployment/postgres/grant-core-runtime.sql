@@ -4,6 +4,10 @@
 -- confirm_revoke=true, then re-run this script with the final feature flags.
 -- No role passwords, automatic startup hook, wildcard grants or default ACLs.
 \set ON_ERROR_STOP on
+\if :{?owner_role}
+\else
+\set owner_role lmm_core_owner
+\endif
 \if :{?runtime_role}
 \else
 \set runtime_role lmm_core_runtime
@@ -124,7 +128,11 @@ SELECT EXISTS (
     SELECT FROM pg_roles r WHERE r.rolname = :'runtime_role' AND r.rolcanlogin
       AND NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls)
 ) AND EXISTS (
-    SELECT FROM pg_roles r WHERE r.rolname = 'lmm_core_owner' AND NOT r.rolcanlogin
+    SELECT FROM pg_roles r WHERE r.rolname = :'owner_role' AND NOT r.rolcanlogin
+) AND EXISTS (
+    SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='core_meta' AND c.relname='schema_contract'
+      AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname=:'owner_role')
 ) AND NOT EXISTS (
     SELECT FROM pg_roles r WHERE r.rolname <> :'runtime_role' AND (
       pg_has_role(:'runtime_role', r.oid, 'SET')
