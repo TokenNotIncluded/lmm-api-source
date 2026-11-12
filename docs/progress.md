@@ -230,3 +230,14 @@ REL-01 的既有静态边界阻断已解除；REL-02 已补齐下表固定候选
 [core58]: https://github.com/TokenNotIncluded/lmm-api-source/commit/6d74cefd830e2805cfc4ac42e9558ca95a8cde9f
 [assistant-presets]: https://github.com/TokenNotIncluded/lmm-api-source/commit/a0804b601375914109ca1598f5d26e82c38af38e
 [store-self-purchase]: https://github.com/TokenNotIncluded/lmm-api-source/commit/9b377046b82b89367c21474505e8bfb577a1bdb8
+
+## Core7 release 固定组合本地验收
+
+Core7 `e5b3e112` release ELF、Go9 `76aaf712`、Web5 `907197b` 的 HTTP 15 项与浏览器 17 项实际通过。正常 init/runtime ACL、登录、文字模型消费、人民币充值、商店支付退款及重载恢复均使用固定产物。未重新编译或运行 Web 全套。
+
+Core7 release 图片独立 OS-main 检查实际通过，覆盖生成、编辑、比例及固定计费、UNKNOWN 保留和钱包核对。验证器固定绑定真实 Core7 文件，首次因验证器与候选源码同目录在执行前拒绝，独立验证器目录重跑通过，失败证据保留。图片检查使用合成账号和本地供应商，生产、真实付费及历史账号连续性不在本次范围。旧 Core6/debug 记录保留。
+
+完整组合收据 `/home/lightjunction/.cache/lmm-combination-core5-web4-nt6y0hde/core7-go9-web5-combination.receipt.private.json`，SHA256 `140f2ad81f95b72d32a9f2991c6841eceff8ec31ac367123016513cf66dabb8a`。
+commerce 收据 `/home/lightjunction/.cache/lmm-combination-core5-web4-nt6y0hde/core7-commerce-r1/run-aqsop9js/attempt-gtrvzvv0/report.json`，SHA256 `6e275eaaf62430f35005afd1822d0712d15d93601f47090702e8e722e722f78f`。
+browser 收据 `/home/lightjunction/.cache/lmm-combination-core5-web4-nt6y0hde/core7-browser-r1/run-jqkhxm2o/attempt-nluyb4e1/report.json`，SHA256 `528c44672f64402ac2e8add9575b25235046f7528ae2367e64196a9ae403c91b`。
+图片收据 `/home/lightjunction/.cache/lmm-core7-release-vh29l59q/image-release-r2/result.json`，SHA256 `e1953bdc61c959c0180781a841b8f7179861a3059a125114ff3fb5cdced7b1f6`。
