@@ -80,26 +80,12 @@ export function parseHeaderNavBoolean(
   raw: unknown,
   fallback: boolean
 ): boolean {
-  if (typeof raw === 'boolean') {
-    return raw
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : raw
+  if (value === true || value === 1 || value === 'true' || value === '1') {
+    return true
   }
-  if (typeof raw === 'number') {
-    if (raw === 1) {
-      return true
-    }
-    if (raw === 0) {
-      return false
-    }
-    return fallback
-  }
-  if (typeof raw === 'string') {
-    const normalized = raw.trim().toLowerCase()
-    if (normalized === 'true' || normalized === '1') {
-      return true
-    }
-    if (normalized === 'false' || normalized === '0') {
-      return false
-    }
+  if (value === false || value === 0 || value === 'false' || value === '0') {
+    return false
   }
   return fallback
 }

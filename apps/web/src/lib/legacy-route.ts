@@ -18,8 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 const legacyOrigin = 'https://legacy-route.invalid'
 
-const legacyConsoleRoutes: Record<string, string> = {
+const legacyRoutes: Record<string, string> = {
+  '/login': '/sign-in',
+  '/forbidden': '/403',
+  '/api-keys': '/keys',
+  '/settings': '/profile',
+  '/developer-access': '/profile',
   '/console': '/dashboard',
+  '/console/topup': '/wallet',
+  '/console/chat': '/dashboard',
   '/console/models': '/models',
   '/console/deployment': '/models/deployments',
   '/console/subscription': '/subscriptions',
@@ -72,38 +79,17 @@ export function resolveLegacyRoute(rawHref: string): string | null {
   }
 
   const pathname = normalizeLegacyPath(source.pathname)
-  if (pathname === '/login') {
-    return buildTargetHref('/sign-in', source)
-  }
-  if (pathname === '/forbidden') {
-    return buildTargetHref('/403', source)
-  }
-  if (pathname === '/api-keys') {
-    return buildTargetHref('/keys', source)
-  }
-  if (pathname === '/settings') {
-    return buildTargetHref('/profile', source)
-  }
-  if (pathname === '/developer-access') {
-    return buildTargetHref('/profile', source)
-  }
-  if (pathname === '/console/topup') {
-    return buildTargetHref('/wallet', source)
-  }
   if (pathname === '/console/setting') {
     const tab = source.searchParams.get('tab') ?? ''
     const target = legacySettingsTabs[tab] ?? '/system-settings'
     return buildTargetHref(target, source)
-  }
-  if (pathname === '/console/chat') {
-    return buildTargetHref('/dashboard', source)
   }
   if (pathname.startsWith('/console/chat/')) {
     const chatID = pathname.slice('/console/chat/'.length)
     return buildTargetHref(chatID ? `/chat/${chatID}` : '/dashboard', source)
   }
 
-  const target = legacyConsoleRoutes[pathname]
+  const target = legacyRoutes[pathname]
   if (target) return buildTargetHref(target, source)
   if (pathname.startsWith('/console/')) {
     return buildTargetHref('/dashboard', source)
