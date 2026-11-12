@@ -174,7 +174,7 @@ export const heroSmsTranslations = {
     'The provider purchase failed and the reserved quota was refunded.':
       'The provider purchase failed and the reserved quota was refunded.',
   },
-  zhCN: {
+  'zh-CN': {
     'Activation details': '接码详情',
     'Activation refreshed': '已刷新接码状态',
     'Add quota in Wallet, then retry the purchase or reorder action.':
@@ -334,7 +334,7 @@ export const heroSmsTranslations = {
     'The provider purchase failed and the reserved quota was refunded.':
       '服务商购买失败，已退还预留额度。',
   },
-  zhTW: {
+  'zh-TW': {
     'Activation details': '接碼詳情',
     'Activation refreshed': '已重新整理接碼狀態',
     'Add quota in Wallet, then retry the purchase or reorder action.':

@@ -26,10 +26,10 @@ describe('Waffo Pancake checkout preferences', () => {
   test('uses the China region for every normalized Chinese interface locale', () => {
     for (const language of [
       'zh',
-      'zhCN',
+      'zh-CN',
       'zh-CN',
       'zh-Hans',
-      'zhTW',
+      'zh-TW',
       'zh-TW',
     ]) {
       assert.equal(getDefaultWaffoPancakeCheckoutRegion(language), 'china')
@@ -45,8 +45,8 @@ describe('Waffo Pancake checkout preferences', () => {
   test('maps interface locales to Waffo checkout language values', () => {
     const expected: Record<string, string> = {
       zh: 'zh-Hans',
-      zhCN: 'zh-Hans',
-      zhTW: 'zh-Hant-TW',
+      'zh-CN': 'zh-Hans',
+      'zh-TW': 'zh-Hant-TW',
       ja: 'ja-JP',
       ru: 'ru-RU',
       vi: 'vi-VN',

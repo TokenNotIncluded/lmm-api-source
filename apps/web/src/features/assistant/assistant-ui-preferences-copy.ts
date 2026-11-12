@@ -19,7 +19,7 @@ const en = {
 type Copy = { [K in keyof typeof en]: string }
 const translations: Record<UIPreferences['language'], Copy> = {
   en,
-  zhCN: {
+  'zh-CN': {
     title: '界面偏好',
     applying: '正在切换界面偏好…',
     applied: '已更新界面偏好。',
@@ -31,7 +31,7 @@ const translations: Record<UIPreferences['language'], Copy> = {
     undo: '恢复刚才的设置',
     scope: '仅改变显示，不改变余额、计费或结算。',
   },
-  zhTW: {
+  'zh-TW': {
     title: '介面偏好',
     applying: '正在切換介面偏好…',
     applied: '已更新介面偏好。',

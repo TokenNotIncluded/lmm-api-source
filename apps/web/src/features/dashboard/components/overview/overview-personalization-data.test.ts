@@ -28,8 +28,8 @@ test('greeting uses literal one-pass variables and locale fallback', () => {
   assert.equal(validGreetingTemplate('$secret'), false)
   assert.equal(validGreetingTemplate('a'.repeat(513)), false)
   assert.equal(overviewLanguage('zh-Hant-TW'), 'zh-TW')
-  assert.equal(overviewLanguage('zhCN'), 'zh')
-  assert.equal(overviewLanguage('zhTW'), 'zh-TW')
+  assert.equal(overviewLanguage('zh-CN'), 'zh')
+  assert.equal(overviewLanguage('zh-TW'), 'zh-TW')
   assert.equal(overviewLanguage('en-US'), 'en')
   assert.equal(overviewLanguage('xx'), 'en')
   assert.throws(() =>
@@ -96,7 +96,7 @@ test('usage totals use recorded values and fold the remainder without loss', () 
 
 test('usage date formatting accepts the actual Chinese interface codes', () => {
   const range = overviewUsageRange(7, new Date(2026, 9, 9, 19, 0, 0))
-  for (const locale of ['zhCN', 'zhTW']) {
+  for (const locale of ['zh-CN', 'zh-TW']) {
     const result = buildOverviewUsage(
       [{ created_at: range.end_timestamp, count: 42, model_name: 'test' }],
       'requests',

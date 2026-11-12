@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export const providerNamespace = 'tool-market-providers'
-const languages = ['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'] as const
+const languages = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 const rows = [
   [
     'Built-in gateway tool',

@@ -155,7 +155,7 @@ describe('AssistantCostTool', () => {
       return { data: pricingFixture }
     }) as typeof api.get
 
-    await i18n.changeLanguage('zhCN')
+    await i18n.changeLanguage('zh-CN')
     const rendered = await renderTool(true)
     try {
       assert.match(rendered.container.textContent ?? '', /2\.52 CNY/)
@@ -245,7 +245,7 @@ describe('AssistantCostTool', () => {
         '#assistant-input-tokens'
       )
       assert.equal(input?.value, '100000')
-      await act(async () => i18n.changeLanguage('zhCN'))
+      await act(async () => i18n.changeLanguage('zh-CN'))
       assert.match(rendered.container.textContent ?? '', /180,000 Credits/)
       assert.equal(calls, 1)
       assert.doesNotMatch(rendered.container.textContent ?? '', /\(Platform\)/)

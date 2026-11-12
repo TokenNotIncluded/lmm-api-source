@@ -3,7 +3,7 @@ import type { i18n } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 export const testKeyNamespace = 'test-key'
-const languages = ['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'] as const
+const languages = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 const rows = {
   downloadBookmark: [
     'Download bookmark with icon',

@@ -48,8 +48,8 @@ test('store integer credits retain the immutable USD anchor and strict external 
 test('order dates accept both Chinese interface language codes without crashing', () => {
   const timestamp = 1791270000
   for (const [language, locale] of [
-    ['zhCN', 'zh-CN'],
-    ['zhTW', 'zh-TW'],
+    ['zh-CN', 'zh-CN'],
+    ['zh-TW', 'zh-TW'],
     ['en', 'en'],
   ]) {
     assert.equal(

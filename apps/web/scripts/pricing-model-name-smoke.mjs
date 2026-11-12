@@ -148,7 +148,7 @@ try {
     exact: true,
   })
   if (await consent.isVisible()) await consent.click()
-  if (language === 'zhCN') {
+  if (language === 'zh-CN') {
     await page
       .getByRole('button', { name: /Change language|更改语言/ })
       .first()

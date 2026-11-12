@@ -6,7 +6,7 @@ import { Window } from 'happy-dom'
 import type { ReadCallback } from 'i18next'
 
 const browser = new Window({ url: 'http://localhost/' })
-browser.localStorage.setItem('i18nextLng', 'zhCN')
+browser.localStorage.setItem('i18nextLng', 'zh-CN')
 const previous = new Map<string, PropertyDescriptor | undefined>()
 for (const key of [
   'window',
@@ -37,7 +37,7 @@ after(() => {
 })
 
 test('initial document language follows the stored Chinese interface', () => {
-  assert.equal(appI18n.resolvedLanguage, 'zhCN')
+  assert.equal(appI18n.resolvedLanguage, 'zh-CN')
   assert.equal(appI18n.t('Home'), '主页')
   assert.equal(document.documentElement.lang, 'zh-CN')
 })
@@ -73,8 +73,8 @@ test('failed locale loads declare the rendered fallback', async () => {
 
 test('switches all supported document languages and falls back for unknown codes', async () => {
   for (const [language, expected] of [
-    ['zhCN', 'zh-CN'],
-    ['zhTW', 'zh-TW'],
+    ['zh-CN', 'zh-CN'],
+    ['zh-TW', 'zh-TW'],
     ['en', 'en'],
     ['fr', 'fr'],
     ['ru', 'ru'],

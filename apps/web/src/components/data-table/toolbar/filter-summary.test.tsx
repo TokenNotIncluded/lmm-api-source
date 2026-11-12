@@ -338,7 +338,7 @@ test('low-balance SMS notice renders in every supported interface language', asy
       )
       assert.ok(html.includes('role="status"'), code)
       assert.ok(html.includes('Existing orders can still'), code)
-      const currency = code === 'zhCN' || code === 'zhTW' ? 'CNY' : 'USD'
+      const currency = code === 'zh-CN' || code === 'zh-TW' ? 'CNY' : 'USD'
       const balance = new Intl.NumberFormat(toIntlLocale(code), {
         maximumFractionDigits: 8,
       }).format(currency === 'CNY' ? 8.75 : 625_000 / 500_000)

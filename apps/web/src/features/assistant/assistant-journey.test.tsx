@@ -256,7 +256,7 @@ describe('assistant game-style progress', () => {
         },
       }
     }) as typeof api.get
-    await i18n.changeLanguage('zhCN')
+    await i18n.changeLanguage('zh-CN')
     const rendered = await render(<AssistantNewUserGift enabled />)
     try {
       assert.match(rendered.container.textContent ?? '', /7 CNY/)

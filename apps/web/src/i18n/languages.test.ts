@@ -29,11 +29,13 @@ import {
 } from './languages'
 
 describe('interface language locale conversion', () => {
-  test('keeps the internal Chinese codes separate from Intl locale tags', () => {
-    assert.equal(normalizeInterfaceLanguage('zh-CN'), 'zhCN')
-    assert.equal(normalizeInterfaceLanguage('zh-TW'), 'zhTW')
-    assert.equal(toIntlLocale('zhCN'), 'zh-CN')
-    assert.equal(toIntlLocale('zhTW'), 'zh-TW')
+  test('uses BCP 47 tags and migrates legacy Chinese codes', () => {
+    assert.equal(normalizeInterfaceLanguage('zh-CN'), 'zh-CN')
+    assert.equal(normalizeInterfaceLanguage('zh-TW'), 'zh-TW')
+    assert.equal(normalizeInterfaceLanguage('zhCN'), 'zh-CN')
+    assert.equal(normalizeInterfaceLanguage('zhTW'), 'zh-TW')
+    assert.equal(toIntlLocale('zh-CN'), 'zh-CN')
+    assert.equal(toIntlLocale('zh-TW'), 'zh-TW')
   })
 
   test('returns a safe fallback for malformed Intl locale values', () => {
@@ -54,7 +56,7 @@ test('regional browser locales keep their supported interface language', () => {
   ]) {
     assert.equal(normalizeInterfaceLanguage(input), expected)
   }
-  assert.equal(convertDetectedLanguage('zhTW'), 'zhTW')
-  assert.equal(convertDetectedLanguage('zhCN'), 'zhCN')
-  assert.equal(convertDetectedLanguage('zh-Hant-HK'), 'zhTW')
+  assert.equal(convertDetectedLanguage('zh-TW'), 'zh-TW')
+  assert.equal(convertDetectedLanguage('zh-CN'), 'zh-CN')
+  assert.equal(convertDetectedLanguage('zh-Hant-HK'), 'zh-TW')
 })

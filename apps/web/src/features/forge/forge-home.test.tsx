@@ -618,8 +618,8 @@ describe('ForgeHome assistant entry', () => {
     const localizedPrompts = await Promise.all(
       Object.entries({
         en: 'en',
-        zhCN: 'zh',
-        zhTW: 'zh-TW',
+        'zh-CN': 'zh',
+        'zh-TW': 'zh-TW',
         fr: 'fr',
         ja: 'ja',
         ru: 'ru',

@@ -72,9 +72,9 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
-  lng: 'zhCN',
+  lng: 'zh-CN',
   resources: {
-    zhCN: {
+    'zh-CN': {
       translation: {
         'Checked in': '已签到',
         'Next month': '下个月',

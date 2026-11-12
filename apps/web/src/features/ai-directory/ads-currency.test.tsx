@@ -280,7 +280,7 @@ test('historical public and moderation prices follow charged quota, language and
   await select('Credits')
   assert.match(container.textContent ?? '', /Paid: 500,000 Credits/)
   await select('Follow language')
-  await act(async () => i18n.changeLanguage('zhCN'))
+  await act(async () => i18n.changeLanguage('zh-CN'))
   assert.match(container.textContent ?? '', /7 CNY/)
   await act(async () => i18n.changeLanguage('en'))
   await render(true)

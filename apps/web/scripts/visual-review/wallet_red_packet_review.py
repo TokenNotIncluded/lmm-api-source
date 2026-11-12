@@ -110,7 +110,7 @@ async def prepare(browser, fixture, width=1440, reduced=False, receipt=False):
                                         locale='zh-CN', reduced_motion='reduce' if reduced else 'no-preference',
                                         service_workers='block')
     await context.route('**/*', fixture.route)
-    await context.add_init_script("""localStorage.setItem('i18nextLng','zhCN');
+    await context.add_init_script("""localStorage.setItem('i18nextLng','zh-CN');
       localStorage.setItem('lmm:source-consent:v2','no');
       localStorage.setItem('newapi:default:cache-version','default-v1');
       document.cookie='vite-ui-theme=dark; path=/';""")

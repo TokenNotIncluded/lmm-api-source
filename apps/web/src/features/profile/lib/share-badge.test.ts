@@ -116,7 +116,7 @@ test('all appearance presets round-trip into model SVG URLs', () => {
       buildBadgeURL(
         'https://api.lmm.best/api/share/profile/example.svg?obsolete=1#old',
         options,
-        'zhCN'
+        'zh-CN'
       )
     )
     assert.equal(url.searchParams.get('layout'), 'models')
@@ -154,9 +154,9 @@ test('legacy layouts never receive model-only parameters or invalid periods', ()
 
 test('SVG language maps interface and browser locale aliases', () => {
   for (const [input, expected] of [
-    ['zhCN', 'zh'],
     ['zh-CN', 'zh'],
-    ['zhTW', 'zh-TW'],
+    ['zh-CN', 'zh'],
+    ['zh-TW', 'zh-TW'],
     ['zh-Hant', 'zh-TW'],
     ['ja-JP', 'ja'],
     ['fr-FR', 'fr'],
@@ -172,7 +172,7 @@ test('model SVG exports preserve the selected money currency independently of la
       buildBadgeURL(
         'https://api.lmm.best/example.svg',
         INITIAL_OPTIONS,
-        'zhCN',
+        'zh-CN',
         currency
       )
     )

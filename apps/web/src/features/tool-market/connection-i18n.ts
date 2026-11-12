@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 import type { i18n } from 'i18next'
 
 export const marketConnectionNamespace = 'tool-market-connections'
-const languages = ['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'] as const
+const languages = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 const rows = {
   permissions: [
     'Token permissions',

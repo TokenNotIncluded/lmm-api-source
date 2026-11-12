@@ -148,7 +148,7 @@ test('model usage and copied report update units and FX without refetching or ch
       })
     )
     assert.match(markdown, /3,500,001 Credits/)
-    await act(async () => i18n.changeLanguage('zhCN'))
+    await act(async () => i18n.changeLanguage('zh-CN'))
     assert.match(markdown, /3,500,001 Credits/)
     assert.equal(calls, 1)
     assert.doesNotMatch(markdown, /Platform|\$/)

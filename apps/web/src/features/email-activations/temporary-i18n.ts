@@ -77,7 +77,7 @@ export const temporaryActivationTranslations = {
     cancelled: 'Cancelled',
     failed: 'Failed',
   },
-  zhCN: {
+  'zh-CN': {
     'Temporary activations': '临时接码',
     'Temporary activation type': '接码类型',
     'Phone number': '手机号',
@@ -127,7 +127,7 @@ export const temporaryActivationTranslations = {
     cancelled: '已取消',
     failed: '失败',
   },
-  zhTW: {
+  'zh-TW': {
     'Temporary activations': '臨時接碼',
     'Temporary activation type': '接碼類型',
     'Phone number': '手機號碼',

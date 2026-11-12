@@ -20,7 +20,7 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
-import zhLocale from '@/i18n/locales/zh.json'
+import zhLocale from '@/i18n/locales/zh-CN.json'
 
 const domWindow = new Window({ url: 'https://console.example.test/wallet' })
 domWindow.document.write(

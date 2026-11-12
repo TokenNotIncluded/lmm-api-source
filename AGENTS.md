@@ -58,6 +58,38 @@ continuing product sync or updating its submodule pointer.
 | Packages or installation | [Deployment skill](.agents/skills/deployment/SKILL.md) |
 | Bounty work | [Skill index](.agents/skills/README.md) |
 
+## UI copy and i18n
+
+These rules apply to every agent changing `apps/web`, including small copy fixes:
+
+- Put all user-facing text through `react-i18next`; do not leave hardcoded UI
+  sentences in JSX or build translations by concatenating fragments. Register
+  configuration-driven keys in `apps/web/src/i18n/static-keys.ts` when extraction
+  cannot discover them.
+- Use BCP 47 tags everywhere at runtime, in locale filenames and in feature
+  resource maps: `en`, `zh-CN`, `zh-TW`, `fr`, `ru`, `ja` and `vi`. The legacy
+  `zhCN`/`zhTW` values are accepted only by the normalization boundary for old
+  saved preferences. Pass language tags through `toIntlLocale` before `Intl` APIs.
+- Keep the existing flat English-source keys under `translation`; the project
+  disables `keySeparator` and `nsSeparator` so punctuation and dots remain part
+  of the key. Preserve existing keys and call sites when polishing copy. Do not
+  mix semantic-key and source-key conventions in a new feature.
+- Give every supported locale the same changed keys with real, non-empty
+  translations. Preserve brand names, identifiers, Markdown, HTML and every
+  `{{variable}}` exactly. Use i18next plural suffixes such as `_one`/`_other`
+  (and `_few`/`_many` where the language requires them) instead of `(s)` or
+  branching on English grammar.
+- Write naturally for each language rather than translating word by word. Keep
+  long page copy clear, specific and human; preserve the meaning of security,
+  privacy, legal, payment and permission text. Do not rewrite short labels,
+  errors or technical identifiers merely for style.
+- Follow `.agents/skills/i18n-translate/SKILL.md`. Create a temporary patch and
+  apply it with `scripts/apply-translations.mjs`; never hand-edit locale JSON or
+  sync reports. Run `mise exec -- bun run --filter @lmm/web i18n:sync`, review
+  every changed locale plus `_reports/_sync-report.json` and `_extras`, and run
+  the affected tests and `mise exec -- bun run typecheck:web` for call-site or
+  language-code changes. Zero missing keys does not prove translation quality.
+
 ## Reuse upstream evidence
 
 For difficult problems, use `gh` to find maintained upstream implementations,

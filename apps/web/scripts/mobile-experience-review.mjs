@@ -42,7 +42,7 @@ const status = {
 }
 async function setup(context, host, persona) {
   await context.addInitScript(() => {
-    localStorage.setItem('i18nextLng', 'zhCN')
+    localStorage.setItem('i18nextLng', 'zh-CN')
     localStorage.setItem('lmm:source-consent:v2', 'no')
     window.__reviewTools = new Map()
     Object.defineProperty(document, 'modelContext', {

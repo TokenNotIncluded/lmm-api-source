@@ -89,8 +89,8 @@ const challenge: BountyChallenge = {
 }
 
 for (const [language, locale] of [
-  ['zhCN', 'zh-CN'],
-  ['zhTW', 'zh-TW'],
+  ['zh-CN', 'zh-CN'],
+  ['zh-TW', 'zh-TW'],
   ['en', 'en'],
   ['ja', 'ja'],
   ['invalid_locale', undefined],
@@ -131,7 +131,7 @@ for (const [language, locale] of [
         />
       </I18nextProvider>
     )
-    const currency = language === 'zhCN' || language === 'zhTW' ? 'CNY' : 'USD'
+    const currency = language === 'zh-CN' || language === 'zh-TW' ? 'CNY' : 'USD'
     const balance = new Intl.NumberFormat(locale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 8,

@@ -42,7 +42,7 @@ export function getFeedbackIssueUrl(
   language: string
 ): string {
   const locale = normalizeInterfaceLanguage(language)
-  const templateLanguage = locale === 'zhCN' || locale === 'zhTW' ? 'zh' : 'en'
+  const templateLanguage = locale === 'zh-CN' || locale === 'zh-TW' ? 'zh' : 'en'
   const template = ISSUE_TEMPLATES[category]?.[templateLanguage]
   if (!template) return ISSUE_FORM_URL
   return `${ISSUE_FORM_URL}?template=${template}`

@@ -48,7 +48,7 @@ export function TaskLogsStatus({
   const { t, i18n } = useTaskLogsTranslation()
   const language = i18n.resolvedLanguage || i18n.language
   const locale =
-    language === 'zhCN' ? 'zh-CN' : language === 'zhTW' ? 'zh-TW' : language
+    language === 'zh-CN' ? 'zh-CN' : language === 'zh-TW' ? 'zh-TW' : language
   let updatedTime = ''
   if (updatedAt > 0) {
     try {

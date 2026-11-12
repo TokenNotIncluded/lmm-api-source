@@ -237,7 +237,7 @@ function mockPanelApi(self: () => Promise<ReturnType<typeof response>>) {
 }
 
 describe('SMS purchase controls', () => {
-  for (const language of ['en', 'zhCN', 'zhTW', 'invalid_locale']) {
+  for (const language of ['en', 'zh-CN', 'zh-TW', 'invalid_locale']) {
     test(`entry and confirmation survive ${language} and recover at the unchanged 5,000,000-credit boundary`, async () => {
       await i18n.changeLanguage(language)
       login(1)
@@ -264,7 +264,7 @@ describe('SMS purchase controls', () => {
         assert.match(
           document.getElementById('sms-confirm-balance-notice')?.textContent ??
             '',
-          language === 'zhCN' || language === 'zhTW'
+          language === 'zh-CN' || language === 'zh-TW'
             ? /Current balance: 69\.999986 CNY/
             : /Current balance: 9\.999998 USD/
         )

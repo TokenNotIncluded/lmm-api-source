@@ -739,7 +739,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
     if (data.language !== undefined) {
       if (
         typeof data.language !== 'string' ||
-        !['en', 'zh', 'zh-TW', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'].includes(
+        !['en', 'zh', 'zh-TW', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].includes(
           data.language
         )
       ) {

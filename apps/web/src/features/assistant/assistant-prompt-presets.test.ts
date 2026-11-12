@@ -159,11 +159,11 @@ describe('localized assistant conversation starters', () => {
       return { data: { success: true, data } }
     }) as typeof api.get
     try {
-      assert.deepEqual(await getAssistantPreConversationPresets('zhTW'), data)
+      assert.deepEqual(await getAssistantPreConversationPresets('zh-TW'), data)
       assert.deepEqual(await getAssistantPreConversationPresets('fr'), data)
       assert.deepEqual(params, [
         {
-          language: 'zhTW',
+          language: 'zh-TW',
           copy_version: ASSISTANT_PROMPT_PRESET_COPY_VERSION,
         },
         { language: 'fr', copy_version: ASSISTANT_PROMPT_PRESET_COPY_VERSION },

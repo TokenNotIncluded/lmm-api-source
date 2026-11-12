@@ -28,7 +28,7 @@ assert.ok(
 try {
   for (const width of widths) {
     for (const theme of ['light', 'dark']) {
-      for (const language of width === 320 ? ['zhCN', 'en'] : ['zhCN']) {
+      for (const language of width === 320 ? ['zh-CN', 'en'] : ['zh-CN']) {
         const name = `bounties-${width}-${theme}-${language}`
         const context = await browser.newContext({
           viewport: { width, height: width < 768 ? 844 : 1000 },

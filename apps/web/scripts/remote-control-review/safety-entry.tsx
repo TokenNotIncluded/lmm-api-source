@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { initReactI18next, I18nextProvider } from 'react-i18next'
 
 import { RemoteControl } from '../../src/features/remote-control'
-import zh from '../../src/i18n/locales/zh.json'
+import zh from '../../src/i18n/locales/zh-CN.json'
 import { useAuthStore, type AuthUser } from '../../src/stores/auth-store'
 
 const locale = i18n.createInstance()

@@ -216,7 +216,7 @@ describe('AssistantUsageTool', () => {
         },
       }
     }) as typeof api.get
-    await i18n.changeLanguage('zhTW')
+    await i18n.changeLanguage('zh-TW')
     const rendered = await renderTool(true)
     try {
       assert.match(rendered.container.textContent ?? '', /49 CNY/)
@@ -231,7 +231,7 @@ describe('AssistantUsageTool', () => {
         })
       })
       assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
-      await act(async () => i18n.changeLanguage('zhCN'))
+      await act(async () => i18n.changeLanguage('zh-CN'))
       assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
       assert.equal(calls, 1)
       assert.doesNotMatch(rendered.container.textContent ?? '', /\(Platform\)/)

@@ -32,7 +32,7 @@ describe('feedback issue links', () => {
       'frontend_improvement.yml'
     )
     assert.equal(
-      templateFrom(getFeedbackIssueUrl('feature', 'zhTW')),
+      templateFrom(getFeedbackIssueUrl('feature', 'zh-TW')),
       'feature_request.yml'
     )
     assert.equal(

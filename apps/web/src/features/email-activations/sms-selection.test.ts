@@ -112,8 +112,8 @@ describe('phone activation selection helpers', () => {
       }),
       '🇰🇷'
     )
-    assert.equal(getHeroSmsCountryName(russia, 'zhCN'), '俄罗斯')
-    assert.equal(getHeroSmsCountryName(russia, 'zhTW'), '俄羅斯')
+    assert.equal(getHeroSmsCountryName(russia, 'zh-CN'), '俄罗斯')
+    assert.equal(getHeroSmsCountryName(russia, 'zh-TW'), '俄羅斯')
     assert.match(getHeroSmsCountryName(russia, 'en'), /Russia/)
   })
 

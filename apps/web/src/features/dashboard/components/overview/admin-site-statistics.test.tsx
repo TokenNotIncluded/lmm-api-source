@@ -239,7 +239,7 @@ for (const { code } of INTERFACE_LANGUAGE_OPTIONS) {
       data: { success: true, data },
     })) as typeof api.get;
     const container = await mount();
-    const locale = code === "zhCN" ? "zh-CN" : code === "zhTW" ? "zh-TW" : code;
+    const locale = code === "zh-CN" ? "zh-CN" : code === "zh-TW" ? "zh-TW" : code;
     const total = new Intl.NumberFormat(locale).format(
       BigInt(data.total_used_credits),
     );

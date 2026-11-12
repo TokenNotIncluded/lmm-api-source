@@ -30,9 +30,9 @@ export type OverviewGreetingPreference = {
 
 export function overviewLanguage(language: string): GreetingLanguage {
   const normalized = normalizeInterfaceLanguage(language)
-  return normalized === 'zhCN'
+  return normalized === 'zh-CN'
     ? 'zh'
-    : normalized === 'zhTW'
+    : normalized === 'zh-TW'
       ? 'zh-TW'
       : normalized
 }

@@ -20,7 +20,7 @@ const context = await browser.newContext({
 })
 await context.addInitScript(() => {
   if (!localStorage.getItem('i18nextLng')) {
-    localStorage.setItem('i18nextLng', 'zhCN')
+    localStorage.setItem('i18nextLng', 'zh-CN')
   }
   localStorage.setItem('lmm:source-consent:v2', 'no')
 })
@@ -78,9 +78,9 @@ try {
   })
   if (await rejectConsent.isVisible()) await rejectConsent.click()
   for (const [label, code, title] of [
-    ['繁體中文', 'zhTW', '把時間，留給下一個想法。'],
+    ['繁體中文', 'zh-TW', '把時間，留給下一個想法。'],
     ['English', 'en', 'Make room for your next idea.'],
-    ['简体中文', 'zhCN', '把时间，留给下一个想法。'],
+    ['简体中文', 'zh-CN', '把时间，留给下一个想法。'],
   ]) {
     await page
       .getByRole('button', {
@@ -101,7 +101,7 @@ try {
   await page.waitForURL('**/challenges')
   assert.equal(
     await page.evaluate(() => localStorage.getItem('i18nextLng')),
-    'zhCN'
+    'zh-CN'
   )
   await page.goBack({ waitUntil: 'networkidle' })
   await assertHeadline('把时间，留给下一个想法。')
@@ -110,8 +110,8 @@ try {
     JSON.stringify({
       result: 'PASS',
       checks: [
-        'saved zhCN homepage',
-        'zhTW/en/zhCN UI switching',
+        'saved zh-CN homepage',
+        'zh-TW/en/zh-CN UI switching',
         'reload keeps selection',
         'other route and back keeps selection',
       ],

@@ -313,8 +313,8 @@ export function getHeroSmsCountryFlag(country: HeroSmsSmsCountry) {
 }
 
 function resolveDisplayLanguageTag(language: string) {
-  if (language === 'zhCN') return 'zh-CN'
-  if (language === 'zhTW') return 'zh-TW'
+  if (language === 'zh-CN') return 'zh-CN'
+  if (language === 'zh-TW') return 'zh-TW'
   return language || 'en'
 }
 

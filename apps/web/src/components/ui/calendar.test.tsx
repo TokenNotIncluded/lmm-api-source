@@ -73,8 +73,8 @@ async function withCalendarRoot(
 }
 
 const localeCases: { code?: string; intl?: string }[] = [
-  { code: 'zhCN', intl: 'zh-CN' },
-  { code: 'zhTW', intl: 'zh-TW' },
+  { code: 'zh-CN', intl: 'zh-CN' },
+  { code: 'zh-TW', intl: 'zh-TW' },
   { code: 'zh-CN', intl: 'zh-CN' },
   { code: 'zh-TW', intl: 'zh-TW' },
   { code: 'en', intl: 'en' },
@@ -165,7 +165,7 @@ describe('Calendar locale formatting', () => {
           startMonth={startMonth}
           endMonth={endMonth}
           captionLayout='dropdown-months'
-          locale={{ code: 'zhCN' }}
+          locale={{ code: 'zh-CN' }}
           formatters={{
             formatMonthDropdown: (month) => `month-${month.getMonth() + 1}`,
           }}

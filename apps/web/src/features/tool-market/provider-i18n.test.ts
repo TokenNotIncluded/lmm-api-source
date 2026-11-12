@@ -29,13 +29,13 @@ test('provider copy has all seven languages and preserves amount placeholders', 
 test('provider copy registers separately, keeps custom copy and falls back to global labels', async () => {
   const instance = createInstance()
   await instance.init({
-    lng: 'zhCN',
+    lng: 'zh-CN',
     fallbackLng: 'en',
-    resources: { zhCN: { translation: { Save: '保存' } } },
+    resources: { 'zh-CN': { translation: { Save: '保存' } } },
   })
   registerProviderTranslations(instance)
   instance.addResource(
-    'zhCN',
+    'zh-CN',
     providerNamespace,
     'Provider preset',
     '自定义平台标题'

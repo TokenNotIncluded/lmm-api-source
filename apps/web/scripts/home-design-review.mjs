@@ -22,21 +22,21 @@ try {
     language,
     assistantEnabled,
   ] of [
-    ['desktop', 1440, 1000, 'light', 'no-preference', 'zhCN'],
-    ['mobile', 390, 844, 'light', 'no-preference', 'zhCN'],
-    ['compact', 320, 740, 'light', 'no-preference', 'zhCN'],
-    ['tablet', 768, 1024, 'light', 'no-preference', 'zhCN'],
+    ['desktop', 1440, 1000, 'light', 'no-preference', 'zh-CN'],
+    ['mobile', 390, 844, 'light', 'no-preference', 'zh-CN'],
+    ['compact', 320, 740, 'light', 'no-preference', 'zh-CN'],
+    ['tablet', 768, 1024, 'light', 'no-preference', 'zh-CN'],
     ['english', 390, 844, 'light', 'no-preference', 'en'],
-    ['dark', 1440, 1000, 'dark', 'no-preference', 'zhCN'],
-    ['reduced', 390, 844, 'light', 'reduce', 'zhCN'],
+    ['dark', 1440, 1000, 'dark', 'no-preference', 'zh-CN'],
+    ['reduced', 390, 844, 'light', 'reduce', 'zh-CN'],
     ['desktop-reduced', 1440, 1000, 'light', 'reduce', 'en'],
     ['narrow-desktop', 900, 900, 'light', 'no-preference', 'en'],
     ['laptop', 1280, 720, 'light', 'no-preference', 'en'],
     ['landscape', 844, 390, 'light', 'no-preference', 'en'],
-    ['short-phone', 390, 667, 'light', 'no-preference', 'zhCN'],
+    ['short-phone', 390, 667, 'light', 'no-preference', 'zh-CN'],
     ['french', 390, 844, 'light', 'no-preference', 'fr'],
     ['russian', 390, 844, 'light', 'no-preference', 'ru'],
-    ['assistant-enabled', 390, 844, 'light', 'no-preference', 'zhCN', true],
+    ['assistant-enabled', 390, 844, 'light', 'no-preference', 'zh-CN', true],
   ].filter(
     ([name]) =>
       !process.env.HOME_REVIEW_CASES ||
@@ -44,7 +44,7 @@ try {
   )) {
     const context = await browser.newContext({
       viewport: { width, height },
-      locale: { en: 'en-US', zhCN: 'zh-CN', fr: 'fr-FR', ru: 'ru-RU' }[
+      locale: { en: 'en-US', 'zh-CN': 'zh-CN', fr: 'fr-FR', ru: 'ru-RU' }[
         language
       ],
       reducedMotion: motion,

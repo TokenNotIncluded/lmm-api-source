@@ -565,8 +565,8 @@ describe('test key popup', () => {
   test('uses the provider language for automatic budget units', async () => {
     for (const example of [
       { language: 'en', expectedQuota: 500000, label: 'Spending limit (USD)' },
-      { language: 'zhCN', expectedQuota: 73529, label: '额度上限（CNY）' },
-      { language: 'zhTW', expectedQuota: 73529, label: '額度上限（CNY）' },
+      { language: 'zh-CN', expectedQuota: 73529, label: '额度上限（CNY）' },
+      { language: 'zh-TW', expectedQuota: 73529, label: '額度上限（CNY）' },
     ]) {
       const page = await mount({ language: example.language })
       assert.equal(
@@ -633,7 +633,7 @@ describe('test key popup', () => {
         ...user,
         setting: { wallet_display_currency: 'CREDIT' },
       })
-      await i18n.changeLanguage('zhCN')
+      await i18n.changeLanguage('zh-CN')
       await flush()
     })
     assert.equal(

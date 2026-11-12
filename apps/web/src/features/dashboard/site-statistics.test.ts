@@ -7,7 +7,7 @@ import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
 import { formatSiteCredits, formatSitePaymentMicros } from './site-statistics'
 
 for (const { code } of INTERFACE_LANGUAGE_OPTIONS) {
-  const locale = code === 'zhCN' ? 'zh-CN' : code === 'zhTW' ? 'zh-TW' : code
+  const locale = code === 'zh-CN' ? 'zh-CN' : code === 'zh-TW' ? 'zh-TW' : code
   test(`site statistics preserve the ${code} interface language`, () => {
     assert.equal(
       formatSiteCredits('1234567', code),

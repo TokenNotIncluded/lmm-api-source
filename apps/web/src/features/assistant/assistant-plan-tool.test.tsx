@@ -207,7 +207,7 @@ describe('AssistantPlanTool', () => {
       return { data: assistantOffersFixture }
     }) as typeof api.get
 
-    await i18n.changeLanguage('zhTW')
+    await i18n.changeLanguage('zh-TW')
     const rendered = await renderTool(true)
     try {
       assert.match(rendered.container.textContent ?? '', /8 USD/)

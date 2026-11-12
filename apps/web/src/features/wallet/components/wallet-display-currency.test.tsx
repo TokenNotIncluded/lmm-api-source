@@ -75,10 +75,8 @@ await i18n.use(initReactI18next).init({
   lng: 'en',
   resources: {
     en: { translation: {} },
-    zh: { translation: {} },
+    'zh-CN': { translation: {} },
     'zh-TW': { translation: {} },
-    zhCN: { translation: {} },
-    zhTW: { translation: {} },
   },
 })
 const originalConfig = useSystemConfigStore.getState().config
@@ -428,7 +426,7 @@ test('balance CNY/USD/Credit selector updates balance and total usage without ch
   assert.equal(dialog?.textContent?.includes('Credits'), false)
 })
 
-for (const language of ['en', 'zh', 'zh-TW', 'zhCN', 'zhTW']) {
+for (const language of ['en', 'zh-CN', 'zh-TW']) {
   test(`recharge defaults to ${language === 'en' ? 'USD' : 'CNY'} by language even with saved balance Credit preference (${language})`, async () => {
     const auth = useAuthStore.getState().auth
     assert.ok(auth.user)

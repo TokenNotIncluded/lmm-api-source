@@ -307,7 +307,7 @@ test('automatic anonymous currency follows interface language without saving a f
   assert.equal(button(container, 'USD').getAttribute('aria-pressed'), 'true')
   assert.equal(output(container, 'Selected quote'), '2.5 USD')
   assert.equal(output(container, 'Wallet quote'), '25 USD')
-  for (const language of ['zhCN', 'zhTW']) {
+  for (const language of ['zh-CN', 'zh-TW']) {
     await act(async () => {
       await i18n.changeLanguage(language)
     })
@@ -332,7 +332,7 @@ test('explicit CREDIT persists across language changes while token unit remains 
   assert.equal(output(container, 'Wallet quote'), '12,500,000 Credits')
   assert.equal(useWalletCurrencyPreferenceStore.getState().preference, 'CREDIT')
   await act(async () => {
-    await i18n.changeLanguage('zhCN')
+    await i18n.changeLanguage('zh-CN')
   })
   await act(async () => {
     await i18n.changeLanguage('en')

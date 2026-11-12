@@ -93,8 +93,8 @@ async function mount(language: string) {
     fallbackLng: false,
     resources: {
       en: { translation: {} },
-      zhCN: { translation: {} },
-      zhTW: { translation: {} },
+      'zh-CN': { translation: {} },
+      'zh-TW': { translation: {} },
     },
   })
   const client = new QueryClient({
@@ -151,7 +151,7 @@ function settlement(result: ReturnType<typeof usePublicPlans>) {
 // @mark payments.settlement-locale role=test
 test('browser English and Chinese UI quote with the same language as checkout', async () => {
   const calls = observeQuotes()
-  const view = await mount('zhCN')
+  const view = await mount('zh-CN')
   try {
     await until(() => view.current().isSuccess)
     assert.equal(navigator.language, 'en-US')
@@ -183,7 +183,7 @@ test('changing UI locale fetches a new server quote and does not reuse English d
     await until(() => view.current().isSuccess)
     assert.equal(settlement(view.current()).currency, 'USD')
     await act(async () => {
-      await view.i18n.changeLanguage('zhTW')
+      await view.i18n.changeLanguage('zh-TW')
     })
     await until(() => calls.length >= 2 && view.current().isSuccess)
     assert.deepEqual(
@@ -198,7 +198,7 @@ test('changing UI locale fetches a new server quote and does not reuse English d
 
 test('explicit server USD preference is preserved despite Chinese UI', async () => {
   observeQuotes(true)
-  const view = await mount('zhCN')
+  const view = await mount('zh-CN')
   try {
     await until(() => view.current().isSuccess)
     assert.deepEqual(expectedSettlement(settlement(view.current())), {
@@ -212,7 +212,7 @@ test('explicit server USD preference is preserved despite Chinese UI', async () 
 
 test('the QueryClient AbortSignal reaches the HTTP GET and aborts on unmount', async () => {
   const calls = observeQuotes(false, true)
-  const view = await mount('zhCN')
+  const view = await mount('zh-CN')
   await until(() => calls.length === 1)
   const signal = calls[0].signal
   assert.ok(signal instanceof AbortSignal)

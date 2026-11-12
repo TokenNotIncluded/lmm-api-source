@@ -56,7 +56,7 @@ await i18n.use(initReactI18next).init({
   keySeparator: false,
   resources: {
     en: { translation: { Credits: 'Credits' } },
-    zhCN: {
+    'zh-CN': {
       translation: {
         Credits: '积分',
         'Maximum unit price': '报价上限',
@@ -249,7 +249,7 @@ test('language changes apply CNY defaults and redraw Credit translations after m
     '0.000022 USD',
   ])
   await act(async () => {
-    await i18n.changeLanguage('zhCN')
+    await i18n.changeLanguage('zh-CN')
   })
   assert.deepEqual(quoteAmounts(container), [
     '3',

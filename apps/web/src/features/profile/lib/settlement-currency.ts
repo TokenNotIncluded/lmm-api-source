@@ -46,5 +46,5 @@ export function resolveSettlementCurrency(
   const language = normalizeInterfaceLanguage(
     (storedLanguage || browserLocale || '').split(',')[0].split(';')[0].trim()
   )
-  return language === 'zhCN' || language === 'zhTW' ? 'CNY' : 'USD'
+  return language === 'zh-CN' || language === 'zh-TW' ? 'CNY' : 'USD'
 }

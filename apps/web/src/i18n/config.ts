@@ -35,12 +35,12 @@ type LocaleLoader = () => Promise<LocaleModule>
 
 const localeLoaders = {
   en: () => import('./locales/en.json'),
-  zhCN: () => import('./locales/zh.json'),
+  'zh-CN': () => import('./locales/zh-CN.json'),
   fr: () => import('./locales/fr.json'),
   ru: () => import('./locales/ru.json'),
   ja: () => import('./locales/ja.json'),
   vi: () => import('./locales/vi.json'),
-  zhTW: () => import('./locales/zh-TW.json'),
+  'zh-TW': () => import('./locales/zh-TW.json'),
 } satisfies Record<InterfaceLanguageCode, LocaleLoader>
 
 export async function loadLocaleResources(
@@ -88,9 +88,11 @@ i18n
   .use(initReactI18next)
   .init({
     fallbackLng: 'en',
-    supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+    supportedLngs: ['en', 'zh-CN', 'fr', 'ru', 'ja', 'vi', 'zh-TW'],
     load: 'currentOnly',
-    nsSeparator: false, // Allow literal colons in keys (e.g., URLs, labels)
+    keySeparator: false,
+    nsSeparator: false,
+    returnEmptyString: false,
     debug: import.meta.env.DEV,
     react: {
       useSuspense: true,
@@ -101,8 +103,6 @@ i18n
     detection: {
       order: ['localStorage', 'navigator'],
       caches: ['localStorage'],
-      // Browsers report `zh-CN`/`zh-TW`/`zh`; map them onto our `zhCN`/`zhTW`
-      // codes (non-Chinese codes pass through for normal supportedLngs matching).
       convertDetectedLanguage,
     },
   })

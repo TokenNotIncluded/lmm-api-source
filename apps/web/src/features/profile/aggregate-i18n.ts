@@ -102,7 +102,7 @@ export const aggregateTranslations: Record<string, Record<string, string>> = {
     '{{count}} of {{max}} accounts': '{{count}} of {{max}} accounts',
     '{{period}} as observed on {{date}}': '{{period}} as observed on {{date}}',
   },
-  zhCN: {
+  'zh-CN': {
     'About {{number}}': '约 {{number}}',
     'Account label (optional)': '账号标签（可选）',
     'Account {{number}}': '账号 {{number}}',
@@ -201,7 +201,7 @@ export const aggregateTranslations: Record<string, Record<string, string>> = {
     '{{count}} of {{max}} accounts': '{{count}} / {{max}} 个账号',
     '{{period}} as observed on {{date}}': '{{period}}，截至查看日 {{date}}',
   },
-  zhTW: {
+  'zh-TW': {
     'About {{number}}': '約 {{number}}',
     'Account label (optional)': '帳號標籤（選填）',
     'Account {{number}}': '帳號 {{number}}',

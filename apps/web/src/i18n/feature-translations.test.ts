@@ -21,8 +21,8 @@ import {
   temporaryActivationTranslations,
 } from '@/features/email-activations/temporary-i18n.js'
 
-const discountLocales = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
-const heroSmsLocales = ['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'] as const
+const discountLocales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
+const heroSmsLocales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 
 function placeholders(value: string) {
   return [...value.matchAll(/{{\s*([^},\s]+)[^}]*}}/g)]
@@ -60,23 +60,23 @@ describe('lazy feature translations', () => {
       temporaryActivationTranslations,
       heroSmsLocales
     )
-    assert.equal(heroSmsTranslations.zhCN['Purchase activation'], '购买接码')
-    assert.equal(heroSmsTranslations.zhTW['Purchase activation'], '購買接碼')
+    assert.equal(heroSmsTranslations['zh-CN']['Purchase activation'], '购买接码')
+    assert.equal(heroSmsTranslations['zh-TW']['Purchase activation'], '購買接碼')
     assert.equal(
-      temporaryActivationTranslations.zhCN['Temporary activations'],
+      temporaryActivationTranslations['zh-CN']['Temporary activations'],
       '临时接码'
     )
   })
 
   test('registers HeroSMS resources under runtime locale codes', async () => {
     const instance = createInstance()
-    await instance.init({ lng: 'zhCN', fallbackLng: 'en' })
+    await instance.init({ lng: 'zh-CN', fallbackLng: 'en' })
     registerHeroSmsTranslations(instance)
     registerTemporaryActivationTranslations(instance)
 
     assert.equal(instance.t('Purchase activation'), '购买接码')
     assert.equal(instance.t('Temporary activations'), '临时接码')
-    await instance.changeLanguage('zhTW')
+    await instance.changeLanguage('zh-TW')
     assert.equal(instance.t('Purchase activation'), '購買接碼')
   })
 

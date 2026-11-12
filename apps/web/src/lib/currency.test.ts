@@ -76,7 +76,7 @@ afterEach(() => {
 
 test('language defaults and explicit unit priority', () => {
   assert.equal(resolveWalletDisplayCurrency('', 'zh-CN'), 'CNY')
-  assert.equal(resolveWalletDisplayCurrency('', 'zhTW'), 'CNY')
+  assert.equal(resolveWalletDisplayCurrency('', 'zh-TW'), 'CNY')
   assert.equal(resolveWalletDisplayCurrency('', 'en'), 'USD')
   assert.equal(resolveWalletDisplayCurrency('CREDIT', 'zh-CN'), 'CREDIT')
   assert.equal(resolveWalletDisplayCurrency('USD', 'zh-CN'), 'USD')

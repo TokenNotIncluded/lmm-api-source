@@ -4,7 +4,7 @@ import json,time
 from pathlib import Path
 from urllib.parse import urlparse
 now=int(time.time())
-USER={'id':1099,'username':'design_admin','display_name':'设计管理员','email':'preview@example.test','role':100,'status':1,'group':'default','quota':25000000,'used_quota':4500000,'request_count':1098,'developer_access_granted':True,'language':'zhCN','permissions':{'docs_access':True},'onboarding':{'activation_complete':True,'credential_complete':True,'first_request_complete':True,'stage':'complete'},'trust_level_info':{'level':2,'automatic_level':2,'override_level':None,'paid_amount':500,'discount_ratio':1,'discount_percent':0,'next_level':None,'inactivity_decay_steps':0,'decay_period_days':90,'overridden':False}}
+USER={'id':1099,'username':'design_admin','display_name':'设计管理员','email':'preview@example.test','role':100,'status':1,'group':'default','quota':25000000,'used_quota':4500000,'request_count':1098,'developer_access_granted':True,'language':'zh-CN','permissions':{'docs_access':True},'onboarding':{'activation_complete':True,'credential_complete':True,'first_request_complete':True,'stage':'complete'},'trust_level_info':{'level':2,'automatic_level':2,'override_level':None,'paid_amount':500,'discount_ratio':1,'discount_percent':0,'next_level':None,'inactivity_decay_steps':0,'decay_period_days':90,'overridden':False}}
 BUNDLE={'access_token':'local-visual-fixture-not-a-real-token','token_type':'Bearer','access_expires_at':now+86400,'user':USER,'session':{'sid':'local-visual-review','current':True,'login_method':'password','ip':'127.0.0.1','user_agent':'Visual review','created_at':now-3600,'last_active_at':now,'expires_at':now+86400}}
 def make_options():
  opts=json.loads(Path(__file__).with_name('assistant-defaults.json').read_text())
@@ -36,4 +36,4 @@ class Fixture:
   return await route.fulfill(status=status,content_type='application/json',body=json.dumps({'success':status<400,'message':'' if status<400 else 'Preview: unavailable','data':data},ensure_ascii=False))
 async def setup(context, fixture):
  await context.route('**/api/**',fixture.route)
- await context.add_init_script("localStorage.setItem('i18nextLng','zhCN'); document.cookie='vite-ui-theme=light; path=/';")
+ await context.add_init_script("localStorage.setItem('i18nextLng','zh-CN'); document.cookie='vite-ui-theme=light; path=/';")

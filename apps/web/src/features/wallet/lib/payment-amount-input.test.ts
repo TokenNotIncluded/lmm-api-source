@@ -14,11 +14,11 @@ test('read-only fiat drafts are short and mark rounding without hiding a positiv
     '≈14.88'
   )
   assert.equal(
-    formatFiatAmountInput('14.882086254190795489180128009754', 'zhCN'),
+    formatFiatAmountInput('14.882086254190795489180128009754', 'zh-CN'),
     '≈14.88'
   )
   assert.equal(
-    formatFiatAmountInput('14.882086254190795489180128009754', 'zhTW'),
+    formatFiatAmountInput('14.882086254190795489180128009754', 'zh-TW'),
     '≈14.88'
   )
   assert.equal(formatFiatAmountInput('100'), '100')

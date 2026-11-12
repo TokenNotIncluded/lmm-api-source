@@ -22,7 +22,7 @@ export const discountCodeTranslations = {
     'No exhausted discount codes to delete':
       'No exhausted discount codes to delete',
   },
-  zh: {
+  'zh-CN': {
     'Clear exhausted codes': '清理已用完优惠码',
     'Unable to clear exhausted discount codes': '无法清理已用完优惠码',
     'Deleted {{count}} exhausted discount codes':

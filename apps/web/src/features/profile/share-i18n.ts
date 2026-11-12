@@ -16,7 +16,7 @@ const translations = {
       'Remaining models are grouped together.',
     'View full model statistics': 'View full model statistics',
   },
-  zhCN: {
+  'zh-CN': {
     'Turn on model sharing': '开启模型用量分享',
     'Turn off model sharing': '关闭模型用量分享',
     'Model names, tokens, requests and platform spend become public. Appearance options do not restrict access.':
@@ -27,7 +27,7 @@ const translations = {
     'Remaining models are grouped together.': '其余模型合并为「其他模型」。',
     'View full model statistics': '查看完整模型统计',
   },
-  zhTW: {
+  'zh-TW': {
     'Turn on model sharing': '開啟模型用量分享',
     'Turn off model sharing': '關閉模型用量分享',
     'Model names, tokens, requests and platform spend become public. Appearance options do not restrict access.':

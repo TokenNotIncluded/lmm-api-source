@@ -106,7 +106,7 @@ test('subscription subamounts need their own captured anchor and unknown amounts
     '3,500,000 Raw credits'
   )
   assert.equal(
-    formatHistoricalRawQuota(3500000, 'Raw credits', 'zhCN'),
+    formatHistoricalRawQuota(3500000, 'Raw credits', 'zh-CN'),
     '3,500,000 Raw credits'
   )
   assert.equal(

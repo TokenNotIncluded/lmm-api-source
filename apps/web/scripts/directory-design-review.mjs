@@ -49,7 +49,7 @@ try {
       { name: 'vite-ui-theme', value: theme, url: origin },
     ])
     await context.addInitScript(() => {
-      localStorage.setItem('i18nextLng', 'zhCN')
+      localStorage.setItem('i18nextLng', 'zh-CN')
       localStorage.setItem('lmm:source-consent:v2', 'no')
     })
     await context.route('**/*', (route) => {

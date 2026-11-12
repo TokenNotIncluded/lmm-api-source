@@ -100,9 +100,9 @@ test('a confirmed paid flag asks for synchronization, never another top-up', () 
 
 test('Chinese, traditional Chinese and fallback copy remain explicit about eligibility', () => {
   for (const language of [
-    'zhCN',
     'zh-CN',
-    'zhTW',
+    'zh-CN',
+    'zh-TW',
     'zh-TW',
     'en',
     'fr',

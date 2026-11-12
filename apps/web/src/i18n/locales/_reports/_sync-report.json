@@ -37,8 +37,8 @@
       "extrasCount": 0,
       "untranslatedCount": 0
     },
-    "zh": {
-      "file": "zh.json",
+    "zh-CN": {
+      "file": "zh-CN.json",
       "missingCount": 0,
       "extrasCount": 0,
       "untranslatedCount": 4

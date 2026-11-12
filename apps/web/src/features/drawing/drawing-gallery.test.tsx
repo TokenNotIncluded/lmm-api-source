@@ -11,7 +11,7 @@ import { I18nextProvider } from 'react-i18next'
 import { DrawingGallery } from './drawing-gallery'
 import type { DrawingPreview } from './drawing-history'
 
-for (const language of ['zhCN', 'zhTW', 'en', 'fr', 'ja', 'ru', 'vi']) {
+for (const language of ['zh-CN', 'zh-TW', 'en', 'fr', 'ja', 'ru', 'vi']) {
   test(`stored drawing renders its date in ${language}`, async () => {
     const i18n = createInstance()
     await i18n.init({

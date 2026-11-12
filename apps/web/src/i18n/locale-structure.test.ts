@@ -12,7 +12,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-const locales = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
+const locales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 const testDirectory = path.dirname(fileURLToPath(import.meta.url))
 const subscriptionDeleteError =
   'Subscription plan has subscription or order history and cannot be deleted. Disable it instead.'

@@ -73,7 +73,7 @@ const backend = {
 await i18n.use(backend).init({
   lng: 'en',
   fallbackLng: 'en',
-  supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+  supportedLngs: ['en', 'zh-CN', 'fr', 'ru', 'ja', 'vi', 'zh-TW'],
   load: 'currentOnly',
   ns: ['translation'],
   defaultNS: 'translation',

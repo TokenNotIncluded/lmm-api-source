@@ -13,7 +13,7 @@ export const UI_PREFERENCE_OPTIONS = {
     'ocean-breeze',
     'lavender-dream',
   ],
-  language: ['zhCN', 'en', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+  language: ['zh-CN', 'en', 'fr', 'ru', 'ja', 'vi', 'zh-TW'],
   currency: ['auto', 'USD', 'CNY', 'CREDIT'],
 } as const
 

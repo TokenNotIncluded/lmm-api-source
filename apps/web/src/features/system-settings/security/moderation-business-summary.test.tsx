@@ -44,7 +44,7 @@ test('unknown or unsafe amounts remain unavailable while explicit zero is displa
 })
 
 test('Chinese interface language codes render recorded credits without Intl errors', async () => {
-  for (const locale of ['zhCN', 'zhTW']) {
+  for (const locale of ['zh-CN', 'zh-TW']) {
     assert.equal(recordedCredits(0, locale), '0 CREDIT')
     assert.equal(recordedCredits(500000, locale), '500,000 CREDIT')
     assert.equal(recordedCredits(Number.NaN, locale), undefined)

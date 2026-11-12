@@ -202,7 +202,7 @@ describe('log cost display', () => {
     await unmountCost(rendered)
   })
   test('uses the captured anchor across language, wallet preference and FX changes', async () => {
-    await i18n.changeLanguage('zhTW')
+    await i18n.changeLanguage('zh-TW')
     const rendered = await renderCost({
       quota: 3_500_000,
       other: { pricing_credits_per_usd: 3_500_000 },
@@ -215,7 +215,7 @@ describe('log cost display', () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       )
       assert.match(rendered.container.textContent ?? '', /1 USD/)
-      await act(async () => i18n.changeLanguage('zhCN'))
+      await act(async () => i18n.changeLanguage('zh-CN'))
       assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CNY')

@@ -432,8 +432,8 @@ test('feature translations cover all locales with matching placeholders', async 
     'ja',
     'ru',
     'vi',
-    'zhCN',
-    'zhTW',
+    'zh-CN',
+    'zh-TW',
   ])
   for (const resources of Object.values(dashboardUsageTranslations)) {
     assert.deepEqual(Object.keys(resources).sort(), keys)

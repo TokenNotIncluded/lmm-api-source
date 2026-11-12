@@ -37,7 +37,7 @@ export const dashboardUsageTranslations = {
     ascending: 'Ascending',
     descending: 'Descending',
   },
-  zhCN: {
+  'zh-CN': {
     title: '模型用量明细',
     description: '当前时间范围内的数据。搜索只影响明细和导出。',
     search: '搜索模型名称',
@@ -64,7 +64,7 @@ export const dashboardUsageTranslations = {
     ascending: '升序',
     descending: '降序',
   },
-  zhTW: {
+  'zh-TW': {
     title: '模型用量明細',
     description: '目前時間範圍內的資料。搜尋只影響明細與匯出。',
     search: '搜尋模型名稱',

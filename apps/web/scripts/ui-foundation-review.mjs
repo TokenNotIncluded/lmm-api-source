@@ -75,7 +75,7 @@ try {
     })
     const errors = []
     await context.addInitScript(() =>
-      localStorage.setItem('i18nextLng', 'zhCN')
+      localStorage.setItem('i18nextLng', 'zh-CN')
     )
     await context.route('**/*', (route) => {
       const url = new URL(route.request().url())

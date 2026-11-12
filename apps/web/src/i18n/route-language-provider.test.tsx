@@ -26,7 +26,7 @@ test('homepage footer and route honor the selected language across navigation', 
       appI18n.on('initialized', () => resolve())
     )
   }
-  await appI18n.changeLanguage('zhCN')
+  await appI18n.changeLanguage('zh-CN')
   const root = createRootRoute({
     component: () => (
       <>
@@ -56,8 +56,8 @@ test('homepage footer and route honor the selected language across navigation', 
   await router.load()
   const first = renderToStaticMarkup(<RouterProvider router={router} />)
   assert.match(first, /<footer><span>主页<\/span><\/footer>/)
-  assert.equal(appI18n.language, 'zhCN')
-  for (const language of ['en', 'zhTW', 'fr', 'ru', 'ja', 'vi', 'zhCN']) {
+  assert.equal(appI18n.language, 'zh-CN')
+  for (const language of ['en', 'zh-TW', 'fr', 'ru', 'ja', 'vi', 'zh-CN']) {
     await appI18n.changeLanguage(language)
     const switched = renderToStaticMarkup(<RouterProvider router={router} />)
     assert.ok(switched.includes(appI18n.t('Home')), language)
@@ -67,5 +67,5 @@ test('homepage footer and route honor the selected language across navigation', 
   await router.load()
   const second = renderToStaticMarkup(<RouterProvider router={router} />)
   assert.ok(second.includes(appI18n.t('Home')))
-  assert.equal(appI18n.language, 'zhCN')
+  assert.equal(appI18n.language, 'zh-CN')
 })

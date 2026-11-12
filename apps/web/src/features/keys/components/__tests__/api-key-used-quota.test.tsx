@@ -137,7 +137,7 @@ test('mounted usage follows language defaults and retains a manual USD preferenc
   )
   assert.equal(container.textContent, '1 USD')
   await act(async () => {
-    await i18n.changeLanguage('zhCN')
+    await i18n.changeLanguage('zh-CN')
   })
   assert.equal(container.textContent, '7 CNY')
   await act(async () => {

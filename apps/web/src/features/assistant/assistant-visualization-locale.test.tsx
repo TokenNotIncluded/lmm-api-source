@@ -13,15 +13,15 @@ import { AssistantVisualizationCard } from './assistant-visualization'
 test('native charts render with the real Chinese interface locale codes', async () => {
   const i18n = createInstance()
   await i18n.use(initReactI18next).init({
-    lng: 'zhCN',
+    lng: 'zh-CN',
     fallbackLng: 'en',
     resources: {
-      zhCN: { translation: {} },
-      zhTW: { translation: {} },
+      'zh-CN': { translation: {} },
+      'zh-TW': { translation: {} },
       en: { translation: {} },
     },
   })
-  for (const language of ['zhCN', 'zhTW']) {
+  for (const language of ['zh-CN', 'zh-TW']) {
     await i18n.changeLanguage(language)
     for (const chart_type of ['line', 'donut'] as const) {
       const markup = renderToStaticMarkup(

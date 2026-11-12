@@ -68,7 +68,7 @@ export function resolveWalletDisplayCurrency(
   const explicit = normalizeWalletDisplayCurrencyPreference(preference)
   if (explicit) return explicit
   const locale = normalizeInterfaceLanguage(language || '')
-  return locale === 'zhCN' || locale === 'zhTW' ? 'CNY' : 'USD'
+  return locale === 'zh-CN' || locale === 'zh-TW' ? 'CNY' : 'USD'
 }
 
 export function parseWalletCurrencySettings(
@@ -392,8 +392,8 @@ export function getCurrencyFormattingLocale(
   const language = normalizeInterfaceLanguage(activeLanguage)
   return (
     {
-      zhCN: 'zh-CN',
-      zhTW: 'zh-TW',
+      'zh-CN': 'zh-CN',
+      'zh-TW': 'zh-TW',
       en: 'en',
       fr: 'fr',
       ja: 'ja',

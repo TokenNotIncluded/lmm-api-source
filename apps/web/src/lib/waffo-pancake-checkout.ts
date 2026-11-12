@@ -39,9 +39,9 @@ export function getWaffoPancakeCheckoutLanguage(
   interfaceLanguage?: string | null
 ): WaffoPancakeCheckoutLanguage {
   switch (normalizeInterfaceLanguage(interfaceLanguage)) {
-    case 'zhCN':
+    case 'zh-CN':
       return 'zh-Hans'
-    case 'zhTW':
+    case 'zh-TW':
       return 'zh-Hant-TW'
     case 'ja':
       return 'ja-JP'
@@ -63,5 +63,5 @@ export function getDefaultWaffoPancakeCheckoutRegion(
   interfaceLanguage?: string | null
 ): WaffoPancakeCheckoutRegion {
   const language = normalizeInterfaceLanguage(interfaceLanguage)
-  return language === 'zhCN' || language === 'zhTW' ? 'china' : 'global'
+  return language === 'zh-CN' || language === 'zh-TW' ? 'china' : 'global'
 }

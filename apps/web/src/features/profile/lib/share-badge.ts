@@ -203,9 +203,9 @@ export function clampNumber(
 
 export function badgeLanguage(language: string): string {
   const normalized = normalizeInterfaceLanguage(language)
-  return normalized === 'zhCN'
+  return normalized === 'zh-CN'
     ? 'zh'
-    : normalized === 'zhTW'
+    : normalized === 'zh-TW'
       ? 'zh-TW'
       : normalized
 }

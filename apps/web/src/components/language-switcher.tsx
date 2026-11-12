@@ -45,9 +45,9 @@ export function LanguageSwitcher() {
     INTERFACE_LANGUAGE_OPTIONS.find((lang) => lang.code === currentLanguage)
       ?.label ?? currentLanguage
   const currentLanguageShortLabel =
-    currentLanguage === 'zhCN'
+    currentLanguage === 'zh-CN'
       ? '中'
-      : currentLanguage === 'zhTW'
+      : currentLanguage === 'zh-TW'
         ? '繁'
         : currentLanguage.toUpperCase()
   const handleChangeLanguage = useCallback(

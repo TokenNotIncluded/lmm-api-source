@@ -98,7 +98,7 @@ test('reacts to language, anonymous preference and FX while prior closures retai
     assert.equal(rendered.container.textContent, '0.00002 USD')
     const first = rendered.current()
     await act(async () => {
-      await i18n.changeLanguage('zhCN')
+      await i18n.changeLanguage('zh-CN')
     })
     assert.equal(rendered.current().currency, 'CNY')
     assert.equal(rendered.container.textContent, '0.00014 CNY')
@@ -284,7 +284,7 @@ test('fixed Credits reject changed face values while fiat and captured closures 
     })
     assert.equal(rendered.container.textContent, '6.72 USD')
     await act(async () => {
-      await i18n.changeLanguage('zhCN')
+      await i18n.changeLanguage('zh-CN')
     })
     assert.equal(rendered.current().currency, 'CNY')
     assert.equal(rendered.current().legacyAmountToQuota('1'), 500000)

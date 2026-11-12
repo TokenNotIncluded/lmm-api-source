@@ -1701,8 +1701,8 @@ describe('AssistantPanel', () => {
       try {
         for (const [language, file] of [
           ['en', 'en'],
-          ['zhCN', 'zh'],
-          ['zhTW', 'zh-TW'],
+          ['zh-CN', 'zh'],
+          ['zh-TW', 'zh-TW'],
           ['fr', 'fr'],
           ['ja', 'ja'],
           ['ru', 'ru'],

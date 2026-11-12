@@ -69,8 +69,8 @@ test('status freshness renders across interface language changes and timestamp u
   })
   for (const [language, expectedLocale] of [
     ['en', 'en'],
-    ['zhCN', 'zh-CN'],
-    ['zhTW', 'zh-TW'],
+    ['zh-CN', 'zh-CN'],
+    ['zh-TW', 'zh-TW'],
     ['ja', 'ja'],
     ['invalid_locale', undefined],
     ['en', 'en'],
