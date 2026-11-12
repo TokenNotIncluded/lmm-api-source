@@ -5,7 +5,7 @@
 ## 上线现状与剩余阻塞
 
 - **尚未上线新架构**。公开服务最近核验为旧版 `0.2.118`，HTTP 200。
-- **本地迁移演练**已完成身份、资金、商店/客服、订阅、OAuth/Passkey、用户组及信任基线导入读回。管理员旧密钥最终核验仍未完成，fresh plan 当前拒绝 `SourceMismatch`；已核对原材料哈希、42条来源密钥及3个特权身份事实，正在比对目标密钥的设置、额度和期初消费字段。尚未执行激活。
+- **本地迁移演练**已完成身份、资金、商店/客服、订阅、OAuth/Passkey、用户组及信任基线导入读回。管理员正常激活已成功，Root auth_version从6升至7；42条密钥原版本与撤销状态保留，14条未撤销，另两个原禁用管理员保持禁用。旧raw/sk密钥的正常HTTP只读认证仍待核验。
 - **正式制品与固定组合**已验证。Core7 `e5b3e11`、Go9 `76aaf71`、Web5 `907197b` 的 HTTP15项、浏览器17项及release图片检查通过，采用隔离账号和本地供应商。Core7 Arch/DEB `0.1.19-7` 已构建及校验，当前提交与包未签名。
 - **模型配置迁移尚未完成**。共同目标的渠道凭据引用、价格版本、路由配置及发布均未落地，active release 的 config_version 为空。Source有29个渠道、23个启用；用户组21199条已导入。正在核对正常routing迁移合同并准备凭据、价格与发布候选。
 - **生产仍需完成**最终停写捕获、全阶段迁移与对账、部署切流和实际业务验收。旧快照 `FINAL_20261111T120751Z` 已因旧服务恢复写入而失去未来切换资格。
@@ -51,7 +51,7 @@
 | APP-08 | 待补齐 | 价格变更 webhook 投递与重试后台未迁移 |
 | APP-09 | 待验收 | 展示汇率的权限、保存与账本不变有组件证据；公网汇率源及完整页面链未验收。 |
 | CLI-01 | 部分实现 | 已有登录、模型目录、余额、预设及Pi适配；其他软件安装同步恢复仍有阻塞，多平台分发未齐，见 apps/cli/README.md。 |
-| CHECK-01 | 部分验收 | 旧快照1247身份、883密钥、OAuth、8 Passkey、用户组已迁移核对；Root fresh plan 因SourceMismatch拒绝，来源材料及3条特权事实已核，目标密钥状态逐字段核对中；尚未激活，历史账号实际登录/密钥及最终生产迁移待完成。 |
+| CHECK-01 | 部分验收 | 旧快照1247身份、883密钥、OAuth、8 Passkey、用户组已迁移核对；Root已正常激活，42条旧密钥及原禁用身份读回通过；正常HTTP旧密钥/历史账号认证及最终生产迁移待完成。 |
 | CHECK-02 | 本地演练通过 | 旧快照钱包、欠额、推广余额、5托管、7计划、15历史订阅、60原订单及信任基线已导入读回；最终停写快照、生产对账与持续权益运行核验仍待完成。 |
 | CHECK-03 | 待验收 | 实际历史日志、用量、统计、财务的分页、时区、unknown金额及导出逐项对照尚无完整证据。 |
 | CHECK-04 | 部分验收 | Core7/Go9/Web5 正常登录、人民币模拟渠道充值、商店购买提货退款和恢复通过；历史未决付款承接、其他要求的故障场景及生产配置运行仍待核验。 |
@@ -68,7 +68,7 @@
 | Core7制品与准入 | `lmm-core7-release-vh29l59q/admitted-core7.receipt.private.json`，准入提交 `316ec5d`；4项历史Core65版本断言失败保留。 |
 | 固定组合 | `lmm-combination-core5-web4-nt6y0hde/core7-go9-web5-combination.receipt.private.json`，SHA256 `140f2ad81f95b72d32a9f2991c6841eceff8ec31ac367123016513cf66dabb8a`。 |
 | release图片 | `lmm-core7-release-vh29l59q/image-release-r2/result.json`，生成、编辑、计费及UNKNOWN路径。 |
-| 身份与凭据 | `credentials-412-0e1e30sg` 中 OAuth、Passkey、routing_groups 的 exact-readback 收据；Root失败见 `trust-resumed-l2yw2und/root-owner-handoff/fresh-plan.stderr.private.txt`。 |
+| 身份与凭据 | `credentials-412-0e1e30sg` 中 OAuth、Passkey、routing_groups 的 exact-readback 收据；Root成功见 `trust-resumed-l2yw2und/root-owner-handoff/apply-result-normalized.private.json`及activation-readback；首次小数字面哈希拒绝保留，`8055460`生成独立规范副本，原来源不改。 |
 | 资金及订阅 | `auth-continuity-rehearsal-8hqzzqo8` 中 opening、subscription、originals 的 apply/readback 收据；原OOM/UNKNOWN、只读NOT_APPLIED及恢复链保留。 |
 | 商店与客服 | `full412-go-producers-84jgu6ps` 中 stock-readback、support-readback 收据。 |
 | 历史充值依据 | `cc52-payment-basis-l066cykb/normal-install95-local-02/result.private.json`；写集为facts回执与95条basis，应用资金数0。 |
