@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 )
 
 var validWebTool = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
@@ -342,6 +344,11 @@ func (m *Module) LegacyWeb(ctx context.Context, credential, account string, in W
 		if err != nil {
 			return nil, err
 		}
+		if in.ID != "" {
+			if err := m.invalidateAIReview(ctx, user, in.ID, "", false); err != nil {
+				return nil, err
+			}
+		}
 		return m.webSave(p, user, in.ID, v)
 	case "draft", "review_detail":
 		var out WebDetail
@@ -423,7 +430,7 @@ func (m *Module) LegacyWeb(ctx context.Context, credential, account string, in W
 				}
 			}
 		}
-		return nil, m.webTransition(p, user, in.ID, v.VersionID, in.Action)
+		return nil, m.webTransitionReview(ctx, p, user, in.ID, v.VersionID, in.Action, credential)
 	case "review":
 		v, e := payload[struct {
 			VersionID string `json:"version_id"`
@@ -432,6 +439,9 @@ func (m *Module) LegacyWeb(ctx context.Context, credential, account string, in W
 		}](in.Body, "version_id", "approve", "note")
 		if e != nil || !validID.MatchString(v.VersionID) || strings.TrimSpace(v.Note) == "" || len(v.Note) > 1000 {
 			return nil, ErrInvalid
+		}
+		if err := m.invalidateAIReview(ctx, user, in.ID, v.VersionID, true); err != nil {
+			return nil, err
 		}
 		if v.Approve {
 			if e = m.webValidate(ctx, p, user, in.ID, v.VersionID, true, credential, account, permission); e != nil {
@@ -520,6 +530,9 @@ func (m *Module) LegacyWeb(ctx context.Context, credential, account string, in W
 			return nil
 		})
 	case "delete":
+		if err := m.invalidateAIReview(ctx, user, in.ID, "", false); err != nil {
+			return nil, err
+		}
 		ack, err := m.legacyWebLifecycle(ctx, credential, account, p, user, in, false, true)
 		if err != nil {
 			return nil, err
@@ -574,8 +587,16 @@ func (m *Module) webSave(p Principal, user int64, id string, in WebDraftInput) (
 			if e != nil {
 				return e
 			}
-			if prior, ok := w.Versions[s.DraftVersionID]; ok && prior.Version.Status == "pending" {
-				return ErrConflict
+			if prior, ok := w.Versions[s.DraftVersionID]; ok {
+				if prior.Version.Status == "pending" {
+					return ErrConflict
+				}
+				prior.AIReview.Invalidate("stale", m.now().Unix())
+				w.Versions[prior.Version.ID] = prior
+			}
+			if prior, ok := w.Versions[s.LiveVersionID]; ok {
+				prior.AIReview.Invalidate("stale", m.now().Unix())
+				w.Versions[prior.Version.ID] = prior
 			}
 		} else {
 			if !creating {
@@ -811,50 +832,77 @@ func (m *Module) webValidate(ctx context.Context, p Principal, user int64, id, v
 	})
 }
 func (m *Module) webTransition(p Principal, user int64, id, versionID, action string) error {
-	return m.store.update(func(d *database) error {
-		w := webState(d)
-		s, e := webOwned(w, user, id)
-		if e != nil {
-			return e
-		}
-		v, ok := w.Versions[versionID]
-		if action == "activate" && s.Status == "published" && s.LiveVersionID == versionID && v.Version.Status == "published" {
-			return nil
-		}
-		if s.DraftVersionID != versionID {
-			return ErrConflict
-		}
-		if !ok || v.Version.ServiceID != id {
-			return ErrMissing
-		}
+	return m.webTransitionReview(context.Background(), p, user, id, versionID, action)
+}
+func (m *Module) webTransitionReview(ctx context.Context, p Principal, user int64, id, versionID, action string, credential ...string) error {
+	var route marketreview.Route
+	if action == "submit" {
+		route = m.review.Route(ctx)
+	}
+	return m.review.With(ctx, func(modes marketreview.Modes) error {
+		var prepared *preparedAIReview
 		if action == "submit" {
-			if v.Version.Status != "draft" && v.Version.Status != "rejected" {
+			var err error
+			prepared, err = m.prepareAIReview(ctx, user, id, versionID, modes.Tool, route, credential...)
+			if err != nil {
+				return err
+			}
+		}
+		err := m.store.update(func(d *database) error {
+			w := webState(d)
+			s, e := webOwned(w, user, id)
+			if e != nil {
+				return e
+			}
+			v, ok := w.Versions[versionID]
+			if action == "activate" && s.Status == "published" && s.LiveVersionID == versionID && v.Version.Status == "published" {
+				return nil
+			}
+			if s.DraftVersionID != versionID {
 				return ErrConflict
 			}
-			v.Version.Status = "pending"
-		} else {
-			if s.Status != "draft" && s.Status != "published" || v.Version.Status != "draft" {
-				return ErrConflict
+			if !ok || v.Version.ServiceID != id {
+				return ErrMissing
 			}
-			if v.Version.Visibility != "private" || v.ValidationDigest == "" || v.ValidationDigest != v.Digest {
-				return ErrDenied
-			}
-			for _, t := range v.Tools {
-				if t.PriceQuota != 0 || len(v.RemoteDigests[t.ToolID]) != 64 {
+			if action == "submit" {
+				if v.Version.Status != "draft" && v.Version.Status != "rejected" {
+					return ErrConflict
+				}
+				if prepared == nil || prepared.before != digest([]any{s, v}) {
+					return ErrConflict
+				}
+				v.AIReview = prepared.history
+				v.Version.Status = "pending"
+			} else {
+				if s.Status != "draft" && s.Status != "published" || v.Version.Status != "draft" {
+					return ErrConflict
+				}
+				if v.Version.Visibility != "private" || v.ValidationDigest == "" || v.ValidationDigest != v.Digest {
 					return ErrDenied
 				}
+				for _, t := range v.Tools {
+					if t.PriceQuota != 0 || len(v.RemoteDigests[t.ToolID]) != 64 {
+						return ErrDenied
+					}
+				}
+				v.Version.Status = "published"
+				v.Version.PublishedAt = m.now().Unix()
+				s.LiveVersionID = versionID
+				s.DraftVersionID = ""
+				s.Status = "published"
 			}
-			v.Version.Status = "published"
-			v.Version.PublishedAt = m.now().Unix()
-			s.LiveVersionID = versionID
-			s.DraftVersionID = ""
-			s.Status = "published"
+			s.UpdatedAt = m.now().Unix()
+			w.Services[id] = s
+			w.Versions[versionID] = v
+			d.audit(p, "web."+action, id, "ok")
+			return nil
+		})
+		if err != nil && prepared != nil {
+			if invalidateErr := m.invalidatePrepared(ctx, prepared.history); invalidateErr != nil {
+				return invalidateErr
+			}
 		}
-		s.UpdatedAt = m.now().Unix()
-		w.Services[id] = s
-		w.Versions[versionID] = v
-		d.audit(p, "web."+action, id, "ok")
-		return nil
+		return err
 	})
 }
 func (m *Module) webReview(p Principal, user int64, id, versionID string, approve bool, note string) error {
@@ -865,12 +913,19 @@ func (m *Module) webReview(p Principal, user int64, id, versionID string, approv
 		if !ok || !found || s.Status == "deleted" || v.Version.ServiceID != id {
 			return ErrMissing
 		}
-		if s.DraftVersionID != versionID || v.Version.Status != "pending" {
+		currentAutomatic := v.AIReview.Automatic() && (s.DraftVersionID == versionID || s.DraftVersionID == "" && s.LiveVersionID == versionID)
+		if !currentAutomatic && (s.DraftVersionID != versionID || v.Version.Status != "pending") {
 			return ErrConflict
 		}
 		v.Version.ReviewNote = note
 		v.Version.ReviewedBy = user
 		v.Version.Status = "rejected"
+		v.AIReview.Invalidate("overridden", m.now().Unix())
+		if !approve && s.LiveVersionID == versionID {
+			s.LiveVersionID = ""
+			s.DraftVersionID = versionID
+			s.Status = "draft"
+		}
 		if approve {
 			if v.ValidationDigest == "" || v.ValidationDigest != v.Digest {
 				return ErrDenied
@@ -1013,12 +1068,17 @@ func (m *Module) webReviews(offset, limit int) (any, error) {
 		return nil, ErrInvalid
 	}
 	rows := []WebServiceRecord{}
+	pending := map[string]bool{}
 	err := m.store.view(func(d database) error {
 		w := webState(&d)
 		for _, s := range w.Services {
 			v, ok := w.Versions[s.DraftVersionID]
-			if s.Status != "deleted" && ok && v.Version.Status == "pending" {
+			if s.DraftVersionID == "" {
+				v, ok = w.Versions[s.LiveVersionID]
+			}
+			if s.Status != "deleted" && ok && (v.Version.Status == "pending" || v.AIReview.Automatic()) {
 				rows = append(rows, s)
+				pending[s.ID] = v.Version.Status == "pending"
 			}
 		}
 		return nil
@@ -1027,6 +1087,9 @@ func (m *Module) webReviews(offset, limit int) (any, error) {
 		return nil, err
 	}
 	sort.Slice(rows, func(i, j int) bool {
+		if pending[rows[i].ID] != pending[rows[j].ID] {
+			return pending[rows[i].ID]
+		}
 		if rows[i].UpdatedAt != rows[j].UpdatedAt {
 			return rows[i].UpdatedAt > rows[j].UpdatedAt
 		}

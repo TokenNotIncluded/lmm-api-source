@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 )
 
 var (
@@ -90,9 +92,10 @@ type Shop struct {
 	Title string  `json:"title"`
 }
 type Product struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Published bool   `json:"published"`
+	AIReview  marketreview.History `json:"ai_review,omitempty"`
+	ID        string               `json:"id"`
+	Title     string               `json:"title"`
+	Published bool                 `json:"published"`
 	// LegacyPublic is an explicitly imported public catalogue DTO. Its integer
 	// credit prices are never derived from Variant.Price external minor units.
 	LegacyPublic        json.RawMessage        `json:"legacy_public,omitempty"`
@@ -216,6 +219,7 @@ func Key(s string) bool   { return Text(s, 128) }
 func Page(limit int) bool { return limit > 0 && limit <= 100 }
 
 type Service struct {
+	review             *marketreview.Engine
 	stock              *stockCipher
 	extore             *extoreCipher
 	extoreRedirect     string

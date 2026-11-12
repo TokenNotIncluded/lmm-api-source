@@ -15,7 +15,9 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/identity"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/remotecontrol"
@@ -27,6 +29,11 @@ import (
 )
 
 type Config struct {
+	HeroSMSSocket                 string
+	HeroSMSTokenFile              string
+	MarketReviewSocket            string
+	MarketReviewTokenFile         string
+	MarketReviewSettingsFile      string
 	ToolMarketCorePublicOrigin    string
 	LocalHTTP                     bool
 	HostListen                    string
@@ -75,6 +82,8 @@ type Config struct {
 }
 
 type Runtime struct {
+	HeroSMS                     *herosms.Service
+	MarketReview                *marketreview.Engine
 	paymentIsolationCredentials [][]byte
 	Builtins                    *toolmarket.BuiltinDispatcher
 	ToolMarketMCP               http.Handler
@@ -154,9 +163,15 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 				}
 				if r.Store != nil {
 					recovery = append(recovery, r.Store.RecoverDeliveries)
+					if r.MarketReview != nil {
+						recovery = append(recovery, func(work context.Context) error { return r.Store.WorkAIReviews(work, 1) })
+					}
 				}
 				if r.ToolMarket != nil {
 					recovery = append(recovery, func(work context.Context) error { _, err := r.ToolMarket.RecoverSettlements(work, 1); return err }, func(work context.Context) error { _, err := r.ToolMarket.LegacyRecoverPending(work, 1); return err })
+					if r.MarketReview != nil {
+						recovery = append(recovery, func(work context.Context) error { return r.ToolMarket.WorkAIReviews(work, 1) })
+					}
 				}
 				for _, recover := range recovery {
 					if ctx.Err() != nil {
@@ -181,6 +196,12 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 }
 
 func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
+	if err := validateHeroSMSSelection(cfg); err != nil {
+		return nil, err
+	}
+	if err := validateMarketReviewSelection(cfg); err != nil {
+		return nil, err
+	}
 	if err := ValidateHostProfile(cfg.LocalHTTP, cfg.HostListen, cfg.HostPublicOrigin); err != nil {
 		return nil, err
 	}
@@ -259,6 +280,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	}
 	supportCustomerToken, supportNoteKey, err := loadSupportCustomerCredentials(cfg, token, commerceToken, paymentToken, assistantToken)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.composeHeroSMS(ctx, cfg, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
 		return nil, err
 	}
 	if selected["toolmarket"] {
@@ -349,6 +373,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 		}
+	}
+	if err := r.composeMarketReview(ctx, cfg, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
+		return nil, err
 	}
 	if selected["assistant"] {
 		db, err := openStorageBundle(ctx, cfg.Assistant, assistantStorageBundle(cfg))
@@ -496,6 +523,8 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	}
 	for _, name := range cfg.Selected {
 		switch name {
+		case "hero-sms":
+			r.Modules = append(r.Modules, r.HeroSMS)
 		case "identity":
 			r.Modules = append(r.Modules, identity.New(r.Client))
 		case "remote-control":

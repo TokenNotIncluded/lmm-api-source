@@ -69,6 +69,8 @@ func Run() error {
 		return err
 	}
 	runtime, err := composition.New(context.Background(), composition.Config{
+		HeroSMSSocket: cfg.HeroSMS.CoreSocket, HeroSMSTokenFile: cfg.HeroSMS.CoreTokenFile,
+		MarketReviewSocket: cfg.MarketReview.CoreSocket, MarketReviewTokenFile: cfg.MarketReview.CoreTokenFile, MarketReviewSettingsFile: cfg.MarketReview.SettingsFile,
 		Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,
 		SupportCustomerSocket: cfg.SupportCustomers.CoreSocket, SupportCustomerTokenFile: cfg.SupportCustomers.CoreTokenFile, SupportNoteKeyFile: cfg.SupportCustomers.NoteKeyFile,
 		LocalHTTP: cfg.Host.LocalHTTP, HostListen: cfg.Host.Listen, HostPublicOrigin: cfg.Host.PublicOrigin,
@@ -138,7 +140,7 @@ func Run() error {
 		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
 	}
 	handler := listenerHandler(policies, api)
 	if cfg.Payments.CallbacksEnabled {

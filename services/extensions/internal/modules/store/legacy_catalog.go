@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/url"
 	"time"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 )
 
 type CatalogueQuery struct {
@@ -360,150 +362,167 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 	if r.Action == "create_variant" || r.Action == "save_variant" || r.Action == "variant_enabled" {
 		return s.saveLegacyVariant(ctx, actor, row, r)
 	}
-	err = s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
-		var p Product
-		if err := tx.Get("products", r.ID, &p); err != nil {
-			return err
-		}
-		m := p.Legacy
-		if m == nil {
-			return ErrUnavailable
-		}
-		if m.Status == "deleted" {
-			if r.Action == "delete_product" {
-				return nil
+	var reviewRoute marketreview.Route
+	if r.Action == "submit_product" {
+		reviewRoute = s.review.Route(ctx)
+	}
+	err = s.review.With(ctx, func(reviewModes marketreview.Modes) error {
+		return s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
+			var p Product
+			if err := tx.Get("products", r.ID, &p); err != nil {
+				return err
 			}
-			return ErrNotFound
-		}
-		switch r.Action {
-		case "submit_product":
-			terms, err := readLegacyTerms(tx)
+			m := p.Legacy
+			if m == nil {
+				return ErrUnavailable
+			}
+			if m.Status == "deleted" {
+				if r.Action == "delete_product" {
+					return nil
+				}
+				return ErrNotFound
+			}
+			switch r.Action {
+			case "submit_product":
+				terms, err := readLegacyTerms(tx)
+				if err != nil {
+					return err
+				}
+				if terms == nil {
+					return ErrSellerTermsNotConfigured
+				}
+				if effectiveVisibility(m.Visibility, m.TestMode) == "private" {
+					return ErrInvalid
+				}
+				if m.Status != "draft" && m.Status != "rejected" {
+					return ErrConflict
+				}
+				m.Status = "pending"
+				p.Published = false
+				parts := []string{p.Title, m.Description}
+				for _, link := range m.Links {
+					parts = append(parts, link.Title)
+				}
+				text, textErr := marketreview.PublicText(parts...)
+				version := ID(p.Title, m.Description, m.Links, m.UpdatedAt, p.AIReview.Sequence+1)
+				if err := p.AIReview.Enqueue("product", p.ID, version, row.Owner.ID, reviewModes.Store, reviewRoute, text, textErr, time.Now().Unix()); err != nil {
+					return err
+				}
+			case "review_product":
+				var in struct {
+					Approve bool   `json:"approve"`
+					Note    string `json:"note"`
+				}
+				if err := legacyDecode(r.Body, &in); err != nil {
+					return err
+				}
+				if len(in.Note) > 4000 {
+					return ErrInvalid
+				}
+				if m.Status != "pending" && !p.AIReview.Automatic() {
+					return ErrConflict
+				}
+				if in.Approve {
+					terms, err := readLegacyTerms(tx)
+					if err != nil {
+						return err
+					}
+					if terms == nil {
+						return ErrSellerTermsNotConfigured
+					}
+					m.Status = "published"
+					p.Published = true
+					m.Approved = true
+				} else {
+					m.Status = "rejected"
+					p.Published = false
+					m.Approved = false
+				}
+				m.ReviewedBy = reviewer
+				m.ReviewedAt = time.Now().Unix()
+				m.ReviewNote = in.Note
+				p.AIReview.Invalidate("overridden", time.Now().Unix())
+			case "unlist_product":
+				p.AIReview.Invalidate("stale", time.Now().Unix())
+				m.Status = "unlisted"
+				p.Published = false
+			case "delete_product":
+				// Tombstoning preserves immutable order references and inventory history.
+				if p.Published || m.Status == "pending" {
+					return ErrConflict
+				}
+				m.Status = "deleted"
+				p.Published = false
+			case "paused":
+				var in struct {
+					Paused *bool `json:"paused"`
+				}
+				if legacyDecode(r.Body, &in) != nil || in.Paused == nil {
+					return ErrInvalid
+				}
+				if !m.Approved || (m.Status != "published" && m.Status != "paused") {
+					return ErrConflict
+				}
+				if *in.Paused {
+					m.Status = "paused"
+					p.Published = false
+				} else {
+					m.Status = "published"
+					p.Published = true
+				}
+			case "listing":
+				var in struct {
+					Listed *bool `json:"listed"`
+				}
+				if legacyDecode(r.Body, &in) != nil || in.Listed == nil {
+					return ErrInvalid
+				}
+				if *in.Listed {
+					if m.Status != "unlisted" || m.ReviewedAt == 0 || !m.Approved {
+						return ErrConflict
+					}
+					terms, err := readLegacyTerms(tx)
+					if err != nil {
+						return err
+					}
+					if terms == nil {
+						return ErrSellerTermsNotConfigured
+					}
+					m.Status = "published"
+					p.Published = true
+				} else {
+					m.Status = "unlisted"
+					p.Published = false
+				}
+			case "sale_limit":
+				var raw struct {
+					SaleLimit json.RawMessage `json:"sale_limit"`
+				}
+				if legacyDecode(r.Body, &raw) != nil || len(raw.SaleLimit) == 0 {
+					return ErrInvalid
+				}
+				var in struct{ SaleLimit *int64 }
+				if !bytes.Equal(raw.SaleLimit, []byte("null")) {
+					var value int64
+					if json.Unmarshal(raw.SaleLimit, &value) != nil || value < 0 {
+						return ErrInvalid
+					}
+					in.SaleLimit = &value
+				}
+				m.SaleLimit = in.SaleLimit
+			default:
+				return ErrUnavailable
+			}
+			m.UpdatedAt = time.Now().Unix()
+			vs, err := variantsFor(tx, p.ID)
 			if err != nil {
 				return err
 			}
-			if terms == nil {
-				return ErrSellerTermsNotConfigured
-			}
-			if effectiveVisibility(m.Visibility, m.TestMode) == "private" {
-				return ErrInvalid
-			}
-			if m.Status != "draft" && m.Status != "rejected" {
-				return ErrConflict
-			}
-			m.Status = "pending"
-			p.Published = false
-		case "review_product":
-			var in struct {
-				Approve bool   `json:"approve"`
-				Note    string `json:"note"`
-			}
-			if err := legacyDecode(r.Body, &in); err != nil {
+			if err := snapshotLegacy(&p, row.Owner, vs); err != nil {
 				return err
 			}
-			if len(in.Note) > 4000 {
-				return ErrInvalid
-			}
-			if m.Status != "pending" {
-				return ErrConflict
-			}
-			if in.Approve {
-				terms, err := readLegacyTerms(tx)
-				if err != nil {
-					return err
-				}
-				if terms == nil {
-					return ErrSellerTermsNotConfigured
-				}
-				m.Status = "published"
-				p.Published = true
-				m.Approved = true
-			} else {
-				m.Status = "rejected"
-				p.Published = false
-				m.Approved = false
-			}
-			m.ReviewedBy = reviewer
-			m.ReviewedAt = time.Now().Unix()
-			m.ReviewNote = in.Note
-		case "unlist_product":
-			m.Status = "unlisted"
-			p.Published = false
-		case "delete_product":
-			// Tombstoning preserves immutable order references and inventory history.
-			if p.Published || m.Status == "pending" {
-				return ErrConflict
-			}
-			m.Status = "deleted"
-			p.Published = false
-		case "paused":
-			var in struct {
-				Paused *bool `json:"paused"`
-			}
-			if legacyDecode(r.Body, &in) != nil || in.Paused == nil {
-				return ErrInvalid
-			}
-			if !m.Approved || (m.Status != "published" && m.Status != "paused") {
-				return ErrConflict
-			}
-			if *in.Paused {
-				m.Status = "paused"
-				p.Published = false
-			} else {
-				m.Status = "published"
-				p.Published = true
-			}
-		case "listing":
-			var in struct {
-				Listed *bool `json:"listed"`
-			}
-			if legacyDecode(r.Body, &in) != nil || in.Listed == nil {
-				return ErrInvalid
-			}
-			if *in.Listed {
-				if m.Status != "unlisted" || m.ReviewedAt == 0 || !m.Approved {
-					return ErrConflict
-				}
-				terms, err := readLegacyTerms(tx)
-				if err != nil {
-					return err
-				}
-				if terms == nil {
-					return ErrSellerTermsNotConfigured
-				}
-				m.Status = "published"
-				p.Published = true
-			} else {
-				m.Status = "unlisted"
-				p.Published = false
-			}
-		case "sale_limit":
-			var raw struct {
-				SaleLimit json.RawMessage `json:"sale_limit"`
-			}
-			if legacyDecode(r.Body, &raw) != nil || len(raw.SaleLimit) == 0 {
-				return ErrInvalid
-			}
-			var in struct{ SaleLimit *int64 }
-			if !bytes.Equal(raw.SaleLimit, []byte("null")) {
-				var value int64
-				if json.Unmarshal(raw.SaleLimit, &value) != nil || value < 0 {
-					return ErrInvalid
-				}
-				in.SaleLimit = &value
-			}
-			m.SaleLimit = in.SaleLimit
-		default:
-			return ErrUnavailable
-		}
-		m.UpdatedAt = time.Now().Unix()
-		vs, err := variantsFor(tx, p.ID)
-		if err != nil {
-			return err
-		}
-		if err := snapshotLegacy(&p, row.Owner, vs); err != nil {
-			return err
-		}
-		return tx.Put("products", p.ID, p)
+			return tx.Put("products", p.ID, p)
+		})
 	})
 	return nil, err
 }
@@ -641,6 +660,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		}
 		fresh := p.Legacy == nil
 		old := p.Legacy
+		p.AIReview.Invalidate("stale", now)
 		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, MaxQuantityPerBuyer: in.MaxQuantityPerBuyer, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, PickupCodeRequired: in.PickupCodeRequired, Status: "draft", CreatedAt: now, UpdatedAt: now}
 		if m.ImageURLs == nil {
 			m.ImageURLs = []string{}
@@ -823,6 +843,7 @@ func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row Loca
 		}
 		p.Published = false
 		p.Legacy.Status = "draft"
+		p.AIReview.Invalidate("stale", time.Now().Unix())
 		p.Legacy.Approved = false
 		p.Legacy.ReviewedAt = 0
 		p.Legacy.ReviewedBy = 0

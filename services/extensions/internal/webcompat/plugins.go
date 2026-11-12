@@ -11,6 +11,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -172,6 +173,8 @@ func pluginHTTPPath(path string) bool {
 
 func webPluginName(path string) string {
 	switch {
+	case herosms.Owns(path):
+		return "hero-sms"
 	case path == "/mcp/market" || path == "/mcp/market/" || path == "/api/tool-market" || strings.HasPrefix(path, "/api/tool-market/"):
 		return "toolmarket"
 	case strings.HasPrefix(path, "/api/store/") || path == "/api/store" || strings.HasPrefix(path, "/api/user/auth/store-claim/"):

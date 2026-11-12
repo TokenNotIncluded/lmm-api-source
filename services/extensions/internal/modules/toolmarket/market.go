@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 )
 
 type Config struct {
@@ -23,6 +25,7 @@ type Config struct {
 	Funds          Funds
 }
 type Module struct {
+	review         *marketreview.Engine
 	legacyMount    legacyMountState
 	builtinRuntime LegacyBuiltinRuntime
 	legacyMetering LegacyMeteringResolver

@@ -8,6 +8,8 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
@@ -16,6 +18,8 @@ import (
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
 type AdditionalServices struct {
+	HeroSMS              *herosms.Service
+	MarketReview         *marketreview.Engine
 	Builtins             BuiltinHTTP
 	ToolMarketMCP        http.Handler
 	Assistant            AssistantHistory
@@ -43,6 +47,8 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	var paymentCheckout PaymentCheckoutService
 	var paymentPortal PaymentPortal
 	if len(optional) == 1 {
+		RegisterHeroSMS(mux, auth, optional[0].HeroSMS)
+		RegisterMarketAIReview(mux, auth, optional[0].MarketReview, catalogue, optional[0].ToolMarket)
 		RegisterBuiltinHTTP(mux, optional[0].Builtins)
 		if !store.Missing(optional[0].ToolMarketMCP) {
 			mux.Handle("/mcp/market", optional[0].ToolMarketMCP)
@@ -103,7 +109,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		Respond(w, nil, store.ErrUnavailable)
 	})
 	return OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !builtinHTTPPath(r.URL.Path) && r.URL.Path != "/mcp/market" && r.URL.Path != "/mcp/market/" && !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && r.URL.Path != "/api/tool-market" && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") && !strings.HasPrefix(r.URL.Path, "/api/option/waffo-pancake/") && !pluginHTTPPath(r.URL.Path) &&
+		if !herosms.Owns(r.URL.Path) && !builtinHTTPPath(r.URL.Path) && !strings.HasPrefix(r.URL.Path, "/api/security/market-ai-review/") && r.URL.Path != "/mcp/market" && r.URL.Path != "/mcp/market/" && !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && r.URL.Path != "/api/tool-market" && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") && !strings.HasPrefix(r.URL.Path, "/api/option/waffo-pancake/") && !pluginHTTPPath(r.URL.Path) &&
 			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && !rssHTTPPath(r.URL.Path) && r.URL.Path != "/api/scripts" &&
 			!strings.HasPrefix(r.URL.Path, "/api/scripts/") && !strings.HasPrefix(r.URL.Path, "/api/deployments/") && !strings.HasPrefix(r.URL.Path, "/scripts/") &&
 			!(len(optional) == 1 && optional[0].Community != nil && community.Owns(r.URL.Path)) &&

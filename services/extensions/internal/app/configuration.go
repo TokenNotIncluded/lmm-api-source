@@ -17,6 +17,8 @@ import (
 const defaultConfigPath = "/etc/lmm.conf.d/extensions.toml"
 
 type GoConfig struct {
+	HeroSMS          HeroSMSConfig          `toml:"hero_sms"`
+	MarketReview     MarketReviewConfig     `toml:"market_review"`
 	SupportCustomers SupportCustomersConfig `toml:"support_customers"`
 	ToolMarket       ToolMarketConfig       `toml:"toolmarket"`
 	Version          int                    `toml:"version"`
@@ -152,7 +154,8 @@ func LoadConfig(path string) (GoConfig, error) {
 			continue
 		}
 		switch key.String() {
-		case "core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
+		case "hero_sms", "hero_sms.core_socket", "hero_sms.core_token_file", "market_review", "market_review.core_socket", "market_review.core_token_file", "market_review.settings_file",
+			"core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"operations", "operations.database_name", "operations.database_url_file", "ionet", "ionet.key_file",
 			"community", "community.database_name", "community.database_url_file",
 			"acquisition", "acquisition.database_name", "acquisition.database_url_file",
@@ -236,6 +239,12 @@ func LoadConfig(path string) (GoConfig, error) {
 		return cfg, err
 	}
 	if err := validateToolMarketConfiguration(cfg); err != nil {
+		return cfg, err
+	}
+	if err := validateHeroSMSConfiguration(cfg); err != nil {
+		return cfg, err
+	}
+	if err := validateMarketReviewConfiguration(cfg); err != nil {
 		return cfg, err
 	}
 	if err := validateAssistantConfiguration(cfg); err != nil {

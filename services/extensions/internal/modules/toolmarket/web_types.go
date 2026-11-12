@@ -3,7 +3,10 @@
 // 6efcb6fb0f6d: apps/api-go/model/tool_market{,_queries,_private,_access}.go.
 package toolmarket
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
+)
 
 // WebServiceRecord and WebVersion keep author drafts separate from immutable
 // released snapshots. They are module business records, never Core identities.
@@ -114,12 +117,13 @@ type WebRequest struct {
 	Body             json.RawMessage
 }
 type webSnapshot struct {
-	Version          WebVersion        `json:"version"`
-	Tools            []WebTool         `json:"tools"`
-	AllowedUsers     []int64           `json:"allowed_users"`
-	Digest           string            `json:"digest"`
-	ValidationDigest string            `json:"validation_digest"`
-	RemoteDigests    map[string]string `json:"remote_digests,omitempty"`
+	AIReview         marketreview.History `json:"ai_review,omitempty"`
+	Version          WebVersion           `json:"version"`
+	Tools            []WebTool            `json:"tools"`
+	AllowedUsers     []int64              `json:"allowed_users"`
+	Digest           string               `json:"digest"`
+	ValidationDigest string               `json:"validation_digest"`
+	RemoteDigests    map[string]string    `json:"remote_digests,omitempty"`
 }
 type webDatabase struct {
 	Credentials   map[string]webCredential    `json:"credentials,omitempty"`
