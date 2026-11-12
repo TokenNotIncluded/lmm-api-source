@@ -38,8 +38,11 @@ pub(crate) fn validate_publication_prices(
                 .get(&target.upstream_id)
                 .ok_or(RelayError::RouteUnavailable)?;
             for speed in &target.speeds {
+                // Publication checks the compiled route template. quote() hides
+                // calendar tariffs until an admission timestamp exists; those
+                // rules remain publishable and are selected later with quote_at.
                 let quote = prices
-                    .quote(&route.model, &route.group, *speed)
+                    .template(&route.model, &route.group, *speed)
                     .ok_or(RelayError::Invalid("missing route price"))?;
                 if let Some(kind) = tool_price::ToolKind::from_protocol(upstream.protocol) {
                     if route.model != kind.model()

@@ -574,7 +574,10 @@ impl PriceSnapshot {
         (!self.calendars.contains_key(&quote.rule_id)).then_some(quote)
     }
 
-    pub(super) fn template(&self, model: &str, group: &str, speed: Speed) -> Option<PriceQuote> {
+    /// Compiled route template, including calendar tariffs.
+    /// Prefer [`Self::quote`] / [`Self::quote_at`] at admission time; use this
+    /// for publication shape checks that must not require a request timestamp.
+    pub fn template(&self, model: &str, group: &str, speed: Speed) -> Option<PriceQuote> {
         self.groups.get(group)?.get(model)?.get(&speed).copied()
     }
 
