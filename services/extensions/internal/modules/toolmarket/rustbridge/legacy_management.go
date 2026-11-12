@@ -3,10 +3,32 @@ package rustbridge
 
 import (
 	"context"
+
 	market "github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/toolmarket"
 )
 
-var _ market.CoreLegacyReports = (*Adapter)(nil)
+var (
+	_ market.CoreLegacyConfig    = (*Adapter)(nil)
+	_ market.CoreLegacyLifecycle = (*Adapter)(nil)
+	_ market.CoreLegacyReports   = (*Adapter)(nil)
+)
+
+func (a *Adapter) ReadLegacyConfig(ctx context.Context) (market.LegacyMarketConfig, error) {
+	var out market.LegacyMarketConfig
+	err := a.requestVersion(ctx, 2, "config/read", "", struct{}{}, &out)
+	return out, err
+}
+func (a *Adapter) UpdateLegacyConfig(ctx context.Context, credential string, in market.LegacyMarketConfigUpdate) (market.LegacyMarketConfigUpdateReceipt, error) {
+	var out market.LegacyMarketConfigUpdateReceipt
+	err := a.requestVersion(ctx, 2, "config/update", credential, in, &out)
+	return out, err
+}
+
+func (a *Adapter) SetLegacyServiceLifecycle(ctx context.Context, credential string, in market.LegacyServiceLifecycleRequest) (market.LegacyServiceLifecycleReceipt, error) {
+	var out market.LegacyServiceLifecycleReceipt
+	err := a.requestVersion(ctx, 2, "services/lifecycle", credential, in, &out)
+	return out, err
+}
 
 func (a *Adapter) CreateLegacyReport(ctx context.Context, credential string, in market.LegacyReportRequest) (market.LegacyCallReport, error) {
 	var out market.LegacyCallReport

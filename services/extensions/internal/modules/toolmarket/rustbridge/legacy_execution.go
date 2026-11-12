@@ -3,8 +3,25 @@ package rustbridge
 
 import (
 	"context"
+
 	market "github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/toolmarket"
 )
+
+var (
+	_ market.CoreLegacyQuotes  = (*Adapter)(nil)
+	_ market.CoreLegacyCredits = (*Adapter)(nil)
+)
+
+func (a *Adapter) RegisterLegacyQuote(ctx context.Context, credential string, in market.LegacyCreditQuote) (market.LegacyCreditQuote, error) {
+	var out market.LegacyCreditQuote
+	err := a.requestVersion(ctx, 2, "quotes", credential, in, &out)
+	return out, err
+}
+func (a *Adapter) ApproveLegacyQuote(ctx context.Context, credential string, in market.LegacyQuoteApproval) (market.LegacyQuoteApprovalReceipt, error) {
+	var out market.LegacyQuoteApprovalReceipt
+	err := a.requestVersion(ctx, 2, "quotes/approve", credential, in, &out)
+	return out, err
+}
 
 func (a *Adapter) ReserveLegacyCredits(ctx context.Context, user string, in market.LegacyCreditReserve) (market.LegacyCreditCall, error) {
 	var out market.LegacyCreditCall
@@ -106,4 +123,11 @@ func (a *Adapter) ReleaseLegacyCredits(ctx context.Context, in market.LegacyCred
 	return out, e
 }
 
-var _ market.CoreLegacyCredits = (*Adapter)(nil)
+// Only the closed terminal-proof leaves accepts a 2 MiB original MCP result encoded
+// as base64. Native v1 and ordinary v2 request limits remain unchanged.
+func (a *Adapter) requestLegacyResult(ctx context.Context, action string, in, out any) error {
+	if action != "calls/settle" && action != "calls/release" && action != "fixed-witness/settle" && action != "fixed-witness/release" {
+		return market.ErrInvalid
+	}
+	return a.requestWithSpec(ctx, requestSpec{major: 2, action: action, requestBytes: 2850000, responseBytes: 64 << 10}, "", in, out)
+}

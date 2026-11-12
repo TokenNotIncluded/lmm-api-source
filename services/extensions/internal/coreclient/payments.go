@@ -72,3 +72,13 @@ func (c *Client) ReconcilePaymentProviderProof(ctx context.Context, request *pb.
 func (c *Client) BeginPaymentRefundDispatch(ctx context.Context, request *pb.ResolveRefundRequest) (*pb.PaymentReceipt, error) {
 	return pb.NewCorePaymentsClient(c.connection).BeginRefundDispatch(c.context(ctx, ""), request)
 }
+
+func (c *Client) AcceptLegacyProviderProof(ctx context.Context, r *pb.AcceptLegacyProviderProofRequest) (*pb.LegacyProviderProofReceipt, error) {
+	return pb.NewCorePaymentsClient(c.connection).AcceptLegacyProviderProof(c.context(ctx, ""), r)
+}
+func (c *Client) GetLegacyProviderProof(ctx context.Context, r *pb.GetLegacyProviderProofRequest) (*pb.LegacyProviderProofReceipt, error) {
+	return pb.NewCorePaymentsClient(c.connection).GetLegacyProviderProof(c.context(ctx, ""), r)
+}
+func (c *Client) CreditLegacyTopup(ctx context.Context, r *pb.CreditLegacyTopupRequest) (*pb.LegacyPaymentReceipt, error) {
+	return pb.NewCorePaymentsClient(c.connection).CreditLegacyTopup(c.context(ctx, ""), r)
+}
