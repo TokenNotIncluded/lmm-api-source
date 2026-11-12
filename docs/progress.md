@@ -23,13 +23,13 @@
 | REL-01 | 历史范围已验收 | 静态边界合同已验收；当前运行权限见 CHECK-07。 |
 | REL-02 | 历史范围已验收 | 旧候选镜像资源与启动已验收；当前原生制品见 REL-03。 |
 | REL-03 | 部分完成 | Core7、Go9、Web5 制品与本地组合已验证；剩签名/发布、生产安装及运行核验，CLI 分发仍见 CLI-01。 |
-| AUTH-01 | 待补齐 | 通用 OIDC、WeChat 登录/绑定及旧 OIDC provider 合同未对齐 |
-| MODEL-01 | 待补齐 | 视觉输入与 Anthropic cache_control 切片已实现；hosted tools/fileData 与组合验收仍未齐 |
-| MODEL-02 | 待补齐 | Responses 持久化/previous_response_id 与部分旧同步 API 缺等价行为 |
-| MODEL-03 | 待补齐 | 独立 TTS/STT/translation 和双向 Realtime/WebSocket 未齐 |
-| MODEL-04 | 待补齐 | 视频、Kling/Jimeng、MJ、Suno 异步任务未形成完整闭环 |
-| MODEL-05 | 待补齐 | 渠道 tag、多 key 轮换、Codex 运维和真实推理探测未齐 |
-| ASSIST-01 | 待补齐 | 预设、Core/Go 实时流及 Web 原请求恢复已实现；最终组合仍待验收 |
+| AUTH-01 | 实现待验收 | OIDC与WeChat验证码桥已有provider管理、登录绑定和签名校验实现；旧provider配置迁移等价、正式配置和浏览器全链仍待验。见 services/core/src/identity/federated/。 |
+| MODEL-01 | 部分实现 | 文字、视觉输入及Anthropic缓存边界已有实现；hosted tools/fileData完整入口与转换覆盖仍待核实。 |
+| MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
+| MODEL-03 | 部分实现 | 已有Chat音频计费与恢复；独立TTS/STT/translation及双向Realtime未齐。Gemini音频按用户决定延期。 |
+| MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
+| MODEL-05 | 部分实现 | 渠道目录与余额探测已有；tag、多key管理入口仍为unsupported，真实推理探测待补。 |
+| ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
 | SUB-01 | 待补齐 | 外部支付订阅缺口：EPay 一次购买及 Stripe/Creem/Pancake 的原支持生命周期 |
 | SUB-02 | 待补齐 | 管理记录与立即失效已实现；reset voucher、绑定/删除与批量重置仍未齐 |
 | PAY-01 | 待补齐 | 商店仅接 balance/free，缺四类旧外部收款 |
@@ -49,7 +49,7 @@
 | APP-07 | 待验收 | RSS 抓取、缓存、配置有组件证据；目标 edge 路由与浏览器未验收。 |
 | APP-08 | 待补齐 | 价格变更 webhook 投递与重试后台未迁移 |
 | APP-09 | 待验收 | 展示汇率的权限、保存与账本不变有组件证据；公网汇率源及完整页面链未验收。 |
-| CLI-01 | 待补齐 | 锁定 CLI 仍为开发预览，多软件与多平台接入未齐 |
+| CLI-01 | 部分实现 | 已有登录、模型目录、余额、预设及Pi适配；其他软件安装同步恢复仍有阻塞，多平台分发未齐，见 apps/cli/README.md。 |
 | CHECK-01 | 部分验收 | 旧快照1247身份、883密钥、OAuth、8 Passkey、用户组已迁移核对；Root fresh plan 因SourceMismatch拒绝，来源材料及3条特权事实已核，目标密钥状态逐字段核对中；尚未激活，历史账号实际登录/密钥及最终生产迁移待完成。 |
 | CHECK-02 | 本地演练通过 | 旧快照钱包、欠额、推广余额、5托管、7计划、15历史订阅、60原订单及信任基线已导入读回；最终停写快照、生产对账与持续权益运行核验仍待完成。 |
 | CHECK-03 | 待验收 | 实际历史日志、用量、统计、财务的分页、时区、unknown金额及导出逐项对照尚无完整证据。 |
