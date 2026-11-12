@@ -1027,7 +1027,7 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                             **{k: context[k] for k in ("max_input_tokens", "max_output_tokens", "missing_cached_tokens_is_zero", "missing_cache_creation_tokens_is_zero")}}
                     price, price_error = price_for(provider, group, model, options_hash, expressions, billing_modes,
                         source_channel_type=channel.get("type"), source_options=tables["options"],
-                        source_revision=runtime.get("source_revision"))
+                        source_revision=(runtime or {}).get("source_revision"))
                     if price is not None and price.get("rounding"):
                         source_price = next(row for row in provider["prices"] if row.get("group") == group and row.get("model") == model)
                         entry["rounding_compilation"] = {"rounding": price["rounding"],

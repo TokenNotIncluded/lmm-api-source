@@ -374,6 +374,13 @@ class RoutingSemanticsTests(unittest.TestCase):
             value = fixture(); value[0]["channels"][0][field] = item; rebind_channel(value)
             self.assertIn(reason, reasons(run_fixture(value)))
 
+    def test_missing_runtime_with_provider_returns_blocked_plan(self):
+        value = fixture()
+        value[3]["runtime"] = None
+        result = run_fixture(value)
+        self.assertIn("runtime_evidence_missing", reasons(result))
+        self.assertNotIn("candidate", result)
+
     def test_management_settings_and_neutral_request_fields(self):
         value = fixture()
         channel = value[0]["channels"][0]
