@@ -4,6 +4,8 @@
 
 ## 本地收尾（2026-11-12）
 
+- `f56fc34` 为 Trust 导入增加精确审核的后续迁移回执接纳。实际准备首次因当前工具与原身份回执不匹配而拒绝，保留失败后使用原 admitted76 依赖与精确新 Trust 脚本组成独立 operator，正常 prepare/seal 均通过。既有用户原值迁移授权经独立材料复核绑定到本次操作，实际 SQL EXIT0、回执 COMMITTED；独立只读逐字段检查确认 1247 条用户基线及 104 条付费投影记录与封存材料相等。证据为 `trust-resumed-l2yw2und/prepared-02`、`sealed-01`、`applied-01/result.private.json` 和 `readback.stdout.private.txt`。管理员激活与原密钥最终核验仍待执行；这是旧快照本地演练，未来生产切换仍需重新捕获并迁移。旧全套 Trust 单测最终 37 项、23 通过、14 跳过，767.062 秒，绑定其启动时源码版本；材料复核与实际迁移结果分别记录。
+
 - 2026-11-12 重启恢复后重新核对当前状态。`81f1226` 的正常 routing_groups 阶段已在旧 412 快照的共同目标导入 1247 个用户、21199 条授权，按 Source UserUsableGroups 与各用户原组逐项只读重算相等；十二项纯检查、三项真实 PostgreSQL 检查及独立只读审查通过。证据为 `credentials-412-0e1e30sg/routing-groups-exact-readback.private.json`。`2c74cd0` 为 OAuth 续接绑定原身份回执和重启后的真实端点回执，十九项纯检查、真实数据库重启与十项拒绝检查通过；实际 500 条 OAuth、其中 247 条 Google，以及 4 条 Telegram 绑定逐项读回相等。八条 Passkey 原凭据字段也已逐项核对。
 - `e5b3e11` 的管理员激活与来源密钥连续性协议完成独立开发验收，包含三项真实 PostgreSQL 检查、正常 owner plan/apply、旧 raw/sk 密钥的文字与图片结算，以及十一项撤销、版本变化和重放拒绝检查。该模型验收使用独立合成来源的组与信任基线。共同旧快照的实际管理员激活仍待信任基线导入后执行。完整 Root cohort 为 42 条，未撤销版本候选为 14 条，来源快照生命周期满足条件的为 12 条；两个原禁用管理员的 14 条密钥保持原禁用资格。实际可用性须按最终时钟与各项原限制核验。
 - Core7 正式 release ELF `e23fae8760e962c971c82286cb84cfee57f8d64c0437eb26faa7340123fb9291` 已构建，复用该产物完成 Arch、DEB `0.1.19-7` 包装与全部载荷哈希核对。`316ec5d` 绑定实际 schema68 raw capture、正常 init/ACL、严格 seal，准入目录为 `lmm-core7-release-vh29l59q/source`，收据为同目录上级的 `admitted-core7.receipt.private.json`。历史 Core65 回归另有四项旧版本断言失败，日志保留。提交与本地产物未签名，正式 Core7 与 Go9/Web5 的最终组合验收及生产部署仍待完成。
