@@ -23,12 +23,13 @@ def fixture(weights=(0, 0), priorities=(10, 10), memory=True):
     for cid, (weight, priority) in enumerate(zip(weights, priorities), 1):
         tables["channels"].append({"id": cid, "type": 1, "key": "synthetic-secret-" + str(cid),
             "base_url": "https://provider.example", "status": 1, "group": "原组/一", "models": "example-model",
-            "weight": weight, "priority": priority})
+            "setting": json.dumps({"responses_websocket_enabled": False}), "weight": weight, "priority": priority})
         tables["abilities"].append({"group": "原组/一", "model": "example-model", "channel_id": cid,
                                     "enabled": True, "weight": weight, "priority": priority})
     runtime = {"format_version": 1, "scope": "legacy-routing-runtime-evidence", "bindings": bindings,
                "source_revision": "d" * 40, "evidence_reference": "synthetic-source-contract",
-               "memory_cache_enabled": memory, "streaming_enabled": False, "model_matching": "exact", "max_attempts": 1,
+               "memory_cache_enabled": memory, "streaming_enabled": False, "responses_websocket_enabled": False,
+               "model_matching": "exact", "max_attempts": 1,
                "limits": {"input_token_ceiling": 4096, "lease_seconds": 90, "timeout_seconds": 60, "max_output_tokens": 2048}}
     providers = {"format_version": 1, "scope": "legacy-routing-provider-contracts", "bindings": bindings, "channels": []}
     credentials = {"format_version": 1, "scope": "legacy-routing-credential-references", "bindings": bindings, "credentials": []}
@@ -398,7 +399,7 @@ class RoutingSemanticsTests(unittest.TestCase):
         channel = value[0]["channels"][0]
         channel["settings"] = json.dumps({"upstream_model_update_check_enabled": True,
             "upstream_model_update_last_check_time": 123})
-        channel["setting"] = json.dumps({"proxy": "", "force_format": False})
+        channel["setting"] = json.dumps({"proxy": "", "force_format": False, "responses_websocket_enabled": False})
         rebind_channel(value)
         self.assertIn("candidate", run_fixture(value))
         self.assertEqual(R.channel_setting_reasons(channel), [])
@@ -420,6 +421,31 @@ class RoutingSemanticsTests(unittest.TestCase):
         self.assertEqual(R.channel_payload(channel, {})["legacy_openai"]["allow_service_tier"], False)
         channel["type"] = 14
         self.assertIn("settings_allow_speed_not_mapped", R.channel_setting_reasons(channel))
+
+    def test_responses_websocket_binds_runtime_and_native_target(self):
+        value = fixture()
+        channel = value[0]["channels"][0]
+        channel["setting"] = '{"responses_websocket_enabled":true}'
+        value[3]["runtime"]["responses_websocket_enabled"] = True
+        provider = value[3]["providers"]["channels"][0]
+        provider["protocol"] = "openai_responses"
+        provider["models"][0].update(source_operations=["responses"],
+            client_protocols=["openai_chat", "openai_responses"])
+        rebind_channel(value)
+        result = run_fixture(value)
+        self.assertIn("candidate", result)
+        self.assertTrue(result["candidate"]["responses_websocket"])
+        self.assertEqual(result["candidate"]["routing"]["routes"][0]["targets"][0]["client_protocols"],
+                         ["openai_chat", "openai_responses"])
+        value[3]["runtime"]["responses_websocket_enabled"] = False
+        self.assertIn("legacy_responses_websocket_runtime_disabled", reasons(run_fixture(value)))
+        value[3]["runtime"]["responses_websocket_enabled"] = True
+        provider["protocol"] = "openai_chat"
+        self.assertIn("legacy_responses_websocket_target_contract_missing", reasons(run_fixture(value)))
+        provider["protocol"] = "openai_responses"
+        del channel["setting"]
+        rebind_channel(value)
+        self.assertIn("candidate", run_fixture(value))
 
     def test_default_base_is_pinned_and_null_is_distinct(self):
         value = fixture()

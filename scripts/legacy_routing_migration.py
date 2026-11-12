@@ -7,7 +7,8 @@ Optional JSON contracts have format_version=1, the scope below, and bindings
 
 * legacy-routing-runtime-evidence: source_revision (full git SHA),
   evidence_reference, memory_cache_enabled, model_matching (exact or
-  legacy-normalized-fallback), max_attempts, streaming_enabled, and limits
+  legacy-normalized-fallback), max_attempts, streaming_enabled,
+  responses_websocket_enabled, and limits
   {input_token_ceiling, lease_seconds, timeout_seconds, max_output_tokens}.
 * legacy-routing-provider-contracts: channels[] containing channel_id,
   source_channel_sha256, protocol, endpoint, legacy_path_prefix (explicit /v1
@@ -214,6 +215,22 @@ NEUTRAL_CHANNEL_SETTING = {"force_format": False, "thinking_to_content": False,
     "system_prompt_override": False, "responses_websocket_enabled": False}
 
 
+def legacy_responses_websocket(row):
+    if row.get("type") != 1:
+        return False
+    raw = row.get("setting")
+    if raw in EMPTY:
+        return True
+    try:
+        values = F.parse_json(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(values, dict):
+        return False
+    value = values.get("responses_websocket_enabled", True)
+    return value if type(value) is bool else False
+
+
 LEGACY_OPENAI_FLAGS = ("allow_service_tier", "allow_inference_geo", "allow_speed",
                        "allow_safety_identifier", "allow_include_obfuscation")
 
@@ -238,6 +255,8 @@ def channel_setting_reasons(row):
             if field == "settings" and name in ("disable_store", "openrouter_enterprise", "disable_task_polling_sleep") and value is False:
                 continue
             if field == "settings" and name in LEGACY_OPENAI_FLAGS and row.get("type") in (1, 48) and type(value) is bool:
+                continue
+            if field == "setting" and name == "responses_websocket_enabled" and row.get("type") == 1 and type(value) is bool:
                 continue
             if field == "setting" and name in NEUTRAL_CHANNEL_SETTING:
                 expected = NEUTRAL_CHANNEL_SETTING[name]
@@ -869,6 +888,10 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
             block("runtime_streaming_evidence_missing")
         else:
             require(type(runtime["streaming_enabled"]) is bool, "runtime_streaming_mode_invalid")
+        if runtime.get("responses_websocket_enabled") is None:
+            block("runtime_responses_websocket_evidence_missing")
+        else:
+            require(type(runtime["responses_websocket_enabled"]) is bool, "runtime_responses_websocket_mode_invalid")
         require(type(runtime.get("source_revision")) is str and re.fullmatch(r"[a-f0-9]{40}", runtime["source_revision"])
                 and text_reference(runtime.get("evidence_reference")), "runtime_source_revision_or_evidence_missing")
         if runtime.get("model_matching") != "exact":
@@ -1021,6 +1044,12 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                                 entry["reasons"].append("provider_client_protocols_invalid")
                             else:
                                 entry["client_protocols"] = sorted(client_protocols)
+                        if legacy_responses_websocket(channel):
+                            if not runtime or runtime.get("responses_websocket_enabled") is not True:
+                                entry["reasons"].append("legacy_responses_websocket_runtime_disabled")
+                            if (provider.get("protocol") != "openai_responses"
+                                    or "openai_responses" not in entry.get("client_protocols", [])):
+                                entry["reasons"].append("legacy_responses_websocket_target_contract_missing")
                         allowed_operations = {"openai_chat": {"chat.completions"}, "openai_responses": {"responses"},
                                               "anthropic_messages": {"messages"}, "gemini": {"generateContent", "streamGenerateContent"},
                                               "system_one": {"systemone"}}
@@ -1131,7 +1160,8 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
                 {g for g, _ in ability_groups} | {row["group_name"] for row in memberships})],
             "upstreams": list(upstreams.values()), "routes": routes, "aliases": []}, "prices": {"version": 1, "rules": prices},
             "credentials": list(secret_refs.values()), "key_groups": [], "external_models": list(external_models.values()),
-            "local_streaming": runtime["streaming_enabled"], **limits}
+            "local_streaming": runtime["streaming_enabled"],
+            "responses_websocket": runtime["responses_websocket_enabled"], **limits}
         if image_rules:
             result["candidate"]["image_prices"] = {"revision": image_revision, "rules": image_rules}
             result["candidate"]["image_providers"] = list(image_specs.values())
