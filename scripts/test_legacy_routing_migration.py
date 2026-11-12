@@ -559,6 +559,15 @@ class RoutingSemanticsTests(unittest.TestCase):
         self.assertIn("credential_reference_missing", reasons(result))
         self.assertNotIn("candidate", result)
 
+    def test_two_attempts_enable_bounded_failover(self):
+        value = fixture()
+        route = run_fixture(value)["candidate"]["routing"]["routes"][0]
+        self.assertEqual(route["failover"], {"max_attempts": 1, "retry_on": [], "allow_replay_after_send": False})
+        value[3]["runtime"]["max_attempts"] = 2
+        route = run_fixture(value)["candidate"]["routing"]["routes"][0]
+        self.assertEqual(route["failover"], {"max_attempts": 2,
+            "retry_on": ["connect", "timeout", "rate_limited", "server_error"], "allow_replay_after_send": False})
+
     def test_partial_observed_runtime_retains_cache_weights_without_inventing_limits(self):
         value = fixture()
         value[3]["runtime"].update(limits=None, max_attempts=None, streaming_enabled=None)
