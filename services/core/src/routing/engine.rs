@@ -206,6 +206,11 @@ impl Snapshot {
                         "legacy OpenAI payload protocol",
                     ));
                 }
+                if target.payload == PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1
+                    && upstream.config.protocol != Protocol::AnthropicMessages
+                {
+                    return Err(RoutingError::InvalidConfig("legacy Anthropic cache payload protocol"));
+                }
                 if target.payload.openrouter_chat()
                     && upstream.config.protocol != Protocol::OpenAiChat
                 {

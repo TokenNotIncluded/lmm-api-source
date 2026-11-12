@@ -168,6 +168,8 @@ pub enum PayloadPolicy {
     Passthrough,
     /// Task 05 may use its explicit protocol/model-name adapter. No parameter downgrade.
     Adapt,
+    /// Fixed cc52 channel47 post-conversion Anthropic system cache policy.
+    LegacyAnthropicHaikuSystemCacheV1,
     /// Explicit legacy type-20 OpenRouter Chat adapter.
     OpenRouter,
     /// Fixed cc52 type20 Chat usage projection, owner-selected with its decimal tariff.
@@ -197,6 +199,10 @@ impl PayloadPolicy {
     pub(crate) fn adapts(self, client: Protocol, upstream: Protocol) -> bool {
         match self {
             Self::Adapt => !(client.dedicated() || upstream.dedicated()) || client == upstream,
+            Self::LegacyAnthropicHaikuSystemCacheV1 => {
+                matches!(client, Protocol::OpenAiChat | Protocol::AnthropicMessages)
+                    && upstream == Protocol::AnthropicMessages
+            }
             Self::Passthrough => false,
             Self::OpenRouter | Self::LegacyOpenRouterChatUsageV1 => client == Protocol::OpenAiChat && upstream == Protocol::OpenAiChat,
             Self::LegacyOpenai { .. } => {

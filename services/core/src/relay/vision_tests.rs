@@ -190,3 +190,80 @@ fn vision_rejects_invalid_sources_detail_roles_and_unsupported_file_references()
         "contents":[{"parts":[{"fileData":{"mimeType":"image/png","fileUri":"gs://private-bucket/image"}}]}]
     })).unwrap(), &Limits::default()).is_err());
 }
+
+#[test]
+fn legacy_haiku_system_cache_selected_route() {
+    use crate::routing::PayloadPolicy;
+    for (client, model, system, expected) in [
+        (ClientProtocol::Chat, "claude-haiku-4-5-mapped", true, true),
+        (ClientProtocol::Chat, "claude-sonnet-4-5", true, false),
+        (ClientProtocol::Chat, "claude-haiku-4-5", false, false),
+        (ClientProtocol::Anthropic, "claude-haiku-4-5", true, false),
+    ] {
+        let body = if client == ClientProtocol::Chat {
+            let mut messages = vec![];
+            if system {
+                messages.push(json!({"role":"system","content":[{"type":"text","text":"policy"}]}));
+            }
+            messages.push(json!({"role":"user","content":"hello"}));
+            json!({"model":"client-alias","messages":messages})
+        } else {
+            json!({"model":"client-alias","max_tokens":16,"system":[{"type":"text","text":"policy"}],"messages":[{"role":"user","content":"hello"}]})
+        };
+        let request = Request::parse(
+            client,
+            &serde_json::to_vec(&body).unwrap(),
+            &Limits::default(),
+        )
+        .unwrap();
+        let route = super::Route::new(
+            "selected".into(),
+            UpstreamProtocol::Anthropic,
+            "https://example.test/v1/messages",
+            model.into(),
+            "test-only",
+            1,
+        )
+        .unwrap()
+        .with_payload_policy(PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1);
+        let output: Value =
+            serde_json::from_slice(&request.upstream_body(&route).unwrap()).unwrap();
+        assert_eq!(output["model"], model);
+        assert_eq!(
+            output.pointer("/system/0/cache_control").is_some(),
+            expected
+        );
+        let ordinary = route.with_payload_policy(PayloadPolicy::Adapt);
+        let output: Value =
+            serde_json::from_slice(&request.upstream_body(&ordinary).unwrap()).unwrap();
+        assert!(output.pointer("/system/0/cache_control").is_none());
+    }
+}
+
+#[test]
+fn legacy_haiku_system_cache_preserves_existing_after_conversion() {
+    let mut request = chat(json!({"type":"text","text":"hello"})).unwrap();
+    request.anthropic_cached_prompt = Some(
+        serde_json::from_value(json!({"system":[
+            {"type":"text","text":"first"},
+            {"type":"text","text":"last","cache_control":{"type":"ephemeral","ttl":"1h"}}
+        ]}))
+        .unwrap(),
+    );
+    let route = super::Route::new(
+        "selected".into(),
+        UpstreamProtocol::Anthropic,
+        "https://example.test/v1/messages",
+        "claude-haiku-4-5".into(),
+        "test-only",
+        1,
+    )
+    .unwrap()
+    .with_payload_policy(crate::routing::PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1);
+    let output: Value = serde_json::from_slice(&request.upstream_body(&route).unwrap()).unwrap();
+    assert_eq!(
+        output["system"][1]["cache_control"],
+        json!({"type":"ephemeral","ttl":"1h"})
+    );
+    assert!(output["system"][0].get("cache_control").is_none());
+}

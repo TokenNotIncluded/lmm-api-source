@@ -1245,6 +1245,27 @@ impl Request {
 
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
         use crate::routing::PayloadPolicy;
+        if route.payload_policy == PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1 {
+            if route.protocol != UpstreamProtocol::Anthropic {
+                return Err(RelayError::Unsupported("legacy system cache policy requires Anthropic"));
+            }
+            let mut payload = self.upstream_to(route.protocol, &route.model)?;
+            // The pinned Anthropic adapter represents system instructions as
+            // blocks. Keep that typed representation after generic conversion.
+            let native = self.anthropic(&route.model)?;
+            if let Some(system) = native.get("system") {
+                payload["system"] = system.clone();
+            }
+            if self.client == ClientProtocol::Chat
+                && route.model.starts_with("claude-haiku-4-5")
+                && let Some(last) = payload.get_mut("system")
+                    .and_then(Value::as_array_mut).and_then(|system| system.last_mut())
+                    .and_then(Value::as_object_mut)
+            {
+                last.entry("cache_control").or_insert_with(|| json!({"type":"ephemeral"}));
+            }
+            return Ok(payload);
+        }
         if route.payload_policy.openrouter_chat() {
             if !self.compatibility.is_empty() {
                 return Err(RelayError::Unsupported(
