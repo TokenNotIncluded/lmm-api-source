@@ -1,6 +1,8 @@
 package composition
 
 import (
+	"errors"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,5 +32,23 @@ func TestPancakeConfigurationReplacement(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".pancake-config-*"))
 	if err != nil || len(files) != 0 {
 		t.Fatal("staging files leaked", err)
+	}
+}
+
+func TestPancakeConfigurationDirectorySyncFailureIsCommitted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "payments.toml")
+	old, next := []byte("version = 2\n"), []byte("version = 2\n# new\n")
+	if err := os.WriteFile(path, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("injected directory sync failure")
+	err := replacePancakeConfigurationWithSync(path, old, next, func(*os.File) error { return failure })
+	var committed *payments.ConfigurationCommittedError
+	if !errors.As(err, &committed) || !errors.Is(err, failure) {
+		t.Fatal("commit status lost", err)
+	}
+	raw, readErr := os.ReadFile(path)
+	if readErr != nil || string(raw) != string(next) {
+		t.Fatal("rename not committed", readErr)
 	}
 }

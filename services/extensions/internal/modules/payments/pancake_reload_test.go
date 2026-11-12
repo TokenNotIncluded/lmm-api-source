@@ -32,3 +32,20 @@ func TestPancakeConfigurationPublishesOnlyAfterPersistence(t *testing.T) {
 		t.Fatal("services differ")
 	}
 }
+
+func TestPancakeConfigurationFollowsCommittedUnknownWrite(t *testing.T) {
+	old := &Pancake{cfg: PancakeConfig{Channel: Channel{ID: 1}, ProductID: "old"}}
+	next := &Pancake{cfg: old.cfg}
+	next.cfg.ProductID = "new"
+	wallet := &Service{adapters: map[int64]Adapter{1: old}}
+	subscriptions := &PancakeSubscriptions{adapters: map[int64]*Pancake{1: old}, admission: map[int64]bool{1: true}}
+	c := AttachPancakeConfiguration(wallet, subscriptions)
+	failure := errors.New("directory sync failed")
+	err := c.Update(func() ([]Adapter, map[int64]bool, error) { return []Adapter{next}, map[int64]bool{1: true}, nil }, func() error { return &ConfigurationCommittedError{Cause: failure} })
+	if !errors.Is(err, failure) {
+		t.Fatal("lost durability failure", err)
+	}
+	if wallet.adapterSnapshot()[1] != next || subscriptions.pancakeSnapshot().adapters[1] != next {
+		t.Fatal("runtime diverged from renamed file")
+	}
+}

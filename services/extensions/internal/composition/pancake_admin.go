@@ -7,12 +7,17 @@ import (
 	"path/filepath"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 )
 
 // replacePancakeConfiguration commits a previously validated private document.
 // The caller serializes configuration changes and prepares the runtime snapshot
 // before calling this function. expected prevents overwriting an operator edit.
 func replacePancakeConfiguration(path string, expected, next []byte) error {
+	return replacePancakeConfigurationWithSync(path, expected, next, func(directory *os.File) error { return directory.Sync() })
+}
+
+func replacePancakeConfigurationWithSync(path string, expected, next []byte, syncDirectory func(*os.File) error) error {
 	if !cleanPaymentPath(path) || len(next) == 0 || len(next) > 64<<10 {
 		return errors.New("invalid payment configuration replacement")
 	}
@@ -51,5 +56,8 @@ func replacePancakeConfiguration(path string, expected, next []byte) error {
 	if err = os.Rename(name, path); err != nil {
 		return err
 	}
-	return directory.Sync()
+	if err = syncDirectory(directory); err != nil {
+		return &payments.ConfigurationCommittedError{Cause: err}
+	}
+	return nil
 }

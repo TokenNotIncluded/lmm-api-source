@@ -1,9 +1,20 @@
 package payments
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 )
+
+// ConfigurationCommittedError means the new file is visible after rename,
+// but its crash durability could not be confirmed. Runtime must follow the
+// visible file while the caller receives the uncertain persistence outcome.
+type ConfigurationCommittedError struct{ Cause error }
+
+func (e *ConfigurationCommittedError) Error() string {
+	return "payment configuration replaced; durability unknown"
+}
+func (e *ConfigurationCommittedError) Unwrap() error { return e.Cause }
 
 type pancakeConfigurationSnapshot struct {
 	wallet    map[int64]Adapter
@@ -80,9 +91,11 @@ func (c *PancakeConfiguration) Update(prepare func() ([]Adapter, map[int64]bool,
 		}
 		next.admission[p.Channel().ID] = admission[p.Channel().ID]
 	}
-	if err = persist(); err != nil {
+	err = persist()
+	var committed *ConfigurationCommittedError
+	if err != nil && !errors.As(err, &committed) {
 		return err
 	}
 	c.current.Store(next)
-	return nil
+	return err
 }
