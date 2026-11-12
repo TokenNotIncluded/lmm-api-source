@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { api } from '@/lib/api'
+import { api, type ApiRequestConfig } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import type {
   GuestStoreCartRef,
@@ -26,7 +27,16 @@ type Envelope<T> = {
 }
 
 const root = '/api/store'
-const options = { skipErrorHandler: true, skipBusinessError: true }
+type AuthScope = NonNullable<ApiRequestConfig['authScope']>
+
+function capturedAuthScope(): AuthScope {
+  const auth = useAuthStore.getState().auth
+  return { userId: auth.user?.id, sessionId: auth.session?.sid }
+}
+
+function options(authScope = capturedAuthScope()) {
+  return { skipErrorHandler: true, skipBusinessError: true, authScope }
+}
 
 function storeRequestError(body?: { code?: unknown; message?: unknown }) {
   if (body?.code === 'STORE_VARIANT_REQUIRED') {
@@ -86,15 +96,17 @@ function pageParams(pagination: StoreCollectionPagination = {}) {
 async function allPages<T>(
   getPage: (
     pagination: StoreCollectionPagination,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    authScope?: AuthScope
   ) => Promise<StorePage<T>>,
   identity: (item: T) => string,
   signal?: AbortSignal
 ): Promise<T[]> {
   const items = new Map<string, T>()
+  const authScope = capturedAuthScope()
   let offset = 0
   for (;;) {
-    const page = await getPage({ offset, limit: 100 }, signal)
+    const page = await getPage({ offset, limit: 100 }, signal, authScope)
     for (const item of page.items) items.set(identity(item), item)
     if (!page.has_more) return Array.from(items.values())
     const next = page.offset + page.limit
@@ -108,13 +120,14 @@ async function allPages<T>(
 
 function cart(
   pagination: StoreCollectionPagination = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  authScope = capturedAuthScope()
 ) {
   return storeSocialProductResponse(
     () =>
       unwrap<StorePage<StoreCartItem>>(
         api.get(`${root}/cart`, {
-          ...options,
+          ...options(authScope),
           params: pageParams(pagination),
           signal,
         })
@@ -125,13 +138,14 @@ function cart(
 
 function favorites(
   pagination: StoreCollectionPagination = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  authScope = capturedAuthScope()
 ) {
   return storeSocialProductResponse(
     () =>
       unwrap<StorePage<StoreFavoriteItem>>(
         api.get(`${root}/favorites`, {
-          ...options,
+          ...options(authScope),
           params: pageParams(pagination),
           signal,
         })
@@ -143,7 +157,7 @@ function favorites(
 export const catalogueApi = {
   config: (signal?: AbortSignal) =>
     unwrap<StoreCatalogueConfig>(
-      api.get(`${root}/config`, { ...options, signal })
+      api.get(`${root}/config`, { ...options(), signal })
     ),
   products: (search: StoreCatalogueSearch = {}, signal?: AbortSignal) =>
     storeSocialProductResponse(
@@ -152,7 +166,7 @@ export const catalogueApi = {
           StorePage<StoreCatalogueProduct> & { seller?: StoreSeller | null }
         >(
           api.get(`${root}/products`, {
-            ...options,
+            ...options(),
             signal,
             params: {
               q: search.search ?? '',
@@ -182,7 +196,7 @@ export const catalogueApi = {
       () =>
         unwrap<StoreCatalogueProduct>(
           api.get(`${root}/products/${encodeURIComponent(id)}`, {
-            ...options,
+            ...options(),
             signal,
           })
         ),
@@ -193,7 +207,7 @@ export const catalogueApi = {
       api.put(
         `${root}/products/${encodeURIComponent(id)}/catalogue`,
         body,
-        options
+        options()
       )
     ),
   cart,
@@ -201,25 +215,30 @@ export const catalogueApi = {
   // PUT writes an absolute quantity and returns a stored reference. Fetch the
   // collection again before rendering availability, prices or checkout links.
   putCart: (body: GuestStoreCartRef) =>
-    unwrap<StoreCartRow>(api.put(`${root}/cart`, body, options)),
+    unwrap<StoreCartRow>(api.put(`${root}/cart`, body, options())),
   removeCart: (id: string) =>
-    unwrap<null>(api.delete(`${root}/cart/${encodeURIComponent(id)}`, options)),
-  clearCart: () => unwrap<null>(api.delete(`${root}/cart`, options)),
+    unwrap<null>(
+      api.delete(`${root}/cart/${encodeURIComponent(id)}`, options())
+    ),
+  clearCart: () => unwrap<null>(api.delete(`${root}/cart`, options())),
   favorites,
   allFavorites: (signal?: AbortSignal) =>
     allPages(favorites, (item) => item.product_id, signal),
   addFavorite: (productId: string) =>
     unwrap<null>(
-      api.put(`${root}/favorites`, { product_id: productId }, options)
+      api.put(`${root}/favorites`, { product_id: productId }, options())
     ),
   removeFavorite: (productId: string) =>
     unwrap<null>(
-      api.delete(`${root}/favorites/${encodeURIComponent(productId)}`, options)
+      api.delete(
+        `${root}/favorites/${encodeURIComponent(productId)}`,
+        options()
+      )
     ),
   likes: (productId: string, signal?: AbortSignal) =>
     unwrap<StoreProductLikes>(
       api.get(`${root}/products/${encodeURIComponent(productId)}/likes`, {
-        ...options,
+        ...options(),
         signal,
       })
     ),
@@ -228,19 +247,20 @@ export const catalogueApi = {
       api.put(
         `${root}/products/${encodeURIComponent(productId)}/likes`,
         {},
-        options
+        options()
       )
     ),
   unlike: (productId: string) =>
     unwrap<StoreProductLikes>(
       api.delete(
         `${root}/products/${encodeURIComponent(productId)}/likes`,
-        options
+        options()
       )
     ),
-  clearFavorites: () => unwrap<null>(api.delete(`${root}/favorites`, options)),
+  clearFavorites: () =>
+    unwrap<null>(api.delete(`${root}/favorites`, options())),
   cleanup: () =>
     unwrap<StoreCollectionsCleanup>(
-      api.post(`${root}/collections/cleanup`, {}, options)
+      api.post(`${root}/collections/cleanup`, {}, options())
     ),
 }

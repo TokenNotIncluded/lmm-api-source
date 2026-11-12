@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { catalogueApi } from './catalogue-api'
 
@@ -12,10 +13,13 @@ const original = {
   post: api.post,
   delete: api.delete,
 }
+const originalAdapter = api.defaults.adapter
 const result = (data: unknown) => ({ data: { success: true, data } })
 
 afterEach(() => {
   Object.assign(api, original)
+  api.defaults.adapter = originalAdapter
+  useAuthStore.getState().auth.reset()
 })
 
 test('catalogue search sends server pagination, sort and independent exact filters', async () => {
@@ -46,6 +50,7 @@ test('catalogue search sends server pagination, sort and independent exact filte
       config: {
         skipErrorHandler: true,
         skipBusinessError: true,
+        authScope: { userId: undefined, sessionId: undefined },
         signal,
         params: {
           q: '工具',
@@ -175,4 +180,94 @@ test('cancellation remains cancellation rather than a storefront error', async (
     throw cancellation
   }) as typeof api.get
   await assert.rejects(catalogueApi.cart(), (error) => error === cancellation)
+})
+
+test('collection mutations cannot follow an account switch before the real Axios dispatch', async () => {
+  let transmitted = 0
+  api.defaults.adapter = async (config) => {
+    transmitted++
+    return {
+      data: result(null).data,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }
+  }
+  const mutations = [
+    () =>
+      catalogueApi.putCart({
+        product_id: 'product-1',
+        variant_id: 'sku-1',
+        quantity: 2,
+      }),
+    () => catalogueApi.removeCart('cart-1'),
+    () => catalogueApi.clearCart(),
+    () => catalogueApi.addFavorite('product-1'),
+    () => catalogueApi.removeFavorite('product-1'),
+    () => catalogueApi.clearFavorites(),
+    () => catalogueApi.cleanup(),
+    () => catalogueApi.like('product-1'),
+    () => catalogueApi.unlike('product-1'),
+  ]
+  for (const mutate of mutations) {
+    useAuthStore.getState().auth.setUser({ id: 27, role: 1, username: 'buyer' })
+    const pending = mutate()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 28, role: 1, username: 'other-buyer' })
+    await assert.rejects(pending, /Authentication changed before request/)
+  }
+  assert.equal(transmitted, 0)
+})
+
+test('collection reads reject a late response after the same account signs in to another session', async () => {
+  const signIn = (sid: string) =>
+    useAuthStore.getState().auth.setBundle({
+      access_token: `local-test-${sid}`,
+      token_type: 'Bearer',
+      access_expires_at: Math.floor(Date.now() / 1000) + 3600,
+      user: { id: 27, role: 1, status: 1, username: 'buyer' },
+      session: {
+        sid,
+        current: true,
+        login_method: 'password',
+        ip: null,
+        user_agent: null,
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      },
+    })
+  for (const read of [catalogueApi.allCart, catalogueApi.allFavorites]) {
+    signIn('first-session')
+    let release!: () => void
+    const response = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let dispatched!: () => void
+    const sent = new Promise<void>((resolve) => {
+      dispatched = resolve
+    })
+    let transmitted = 0
+    api.defaults.adapter = async (config) => {
+      transmitted++
+      dispatched()
+      await response
+      return {
+        data: result({ items: [], offset: 0, limit: 100, has_more: false })
+          .data,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      }
+    }
+    const pending = read()
+    await sent
+    signIn('second-session')
+    release()
+    await assert.rejects(pending, /Authentication changed before request/)
+    assert.equal(transmitted, 1)
+  }
 })
