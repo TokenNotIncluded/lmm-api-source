@@ -33,9 +33,9 @@
 | ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
 | SUB-01 | 部分实现 | EPay一次购买的Core/Go/HTTP路径已有；其他provider首购、周期、取消及恢复逐项待核验。 |
 | SUB-02 | 部分实现 | 订阅管理记录与立即失效已有；voucher、绑定删除、批量重置完整行为待核实。 |
-| PAY-01 | 待补齐 | 商店仅接 balance/free，缺四类旧外部收款 |
-| PAY-02 | 待补齐 | Pancake 及外部商店退款未齐 |
-| PAY-03 | 待补齐 | Pancake catalog/pair/save、订阅映射与 customer portal 未接完整后台 |
+| PAY-01 | 部分实现 | 余额/免费商店购买已通过固定组合验收；外部商店收款尚未接通。PublicConfig的platform_payment_methods/catalog为空（store/legacy_catalog.go）；external:epay、external:waffo_pancake、platform:waffo_pancake、platform:linuxdo仍缺各自购买交付结算验收。人民币钱包充值及95笔历史充值依据已验证，属于钱包支付范围。 |
+| PAY-02 | 部分实现 | 钱包Stripe/Waffo退款及商店余额全额退款已有；新订单部分退款实现见STORE-02。Pancake明确RefundEnabled=false、Refund返回ErrUnsupported（payments/pancake.go）；外部商店退款尚缺冻结交易、退款通知/查询、收入回冲及恢复全链。 |
+| PAY-03 | 部分实现待核验 | 已有Pancake订阅价格发布、catalog存储和购买/恢复入口（subscription_pancake_catalog.sql、subscription_pancake_http.go）。catalog/pair/save管理操作、订阅映射后台及customer portal完整联动尚无当前完整验收证据，仍需逐入口核对；不得以旧审计断言整项无实现。 |
 | STORE-01 | 待补齐 | 游客购买与邮件提货合同未齐 |
 | STORE-02 | 部分实现 | 新订单数量/金额部分退款及Core资金协议已有；历史余额退款分支仍不支持，完整组合待验。 |
 | STORE-03 | 部分验收 | 当前固定组合购买、付款、库存提货、全额退款通过；显式卖家自购和三态目录的完整浏览器覆盖仍缺。 |
