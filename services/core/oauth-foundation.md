@@ -4,7 +4,7 @@ The unissued Pi foundation remains a separate internal adapter. Optional
 LmmIssuer implements native-browser consent for readonly `lmm` and opt-in finite
 normal-model `lmm-pi` grants. Source presence does not prove production, HTTPS clients, Pi compatibility,
 existing-install upgrade, recovery, or independent acceptance.
-Operator guide: [Rust client authorization](../../docs/core-oauth2.md).
+Operator guide: [Rust client authorization](../../docs/core-identity.md#客户端-oauth2-授权).
 
 ## Preserved protocol
 

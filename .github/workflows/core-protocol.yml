@@ -45,7 +45,6 @@ on:
       - docs/**
       - README.md
       - README_EN.md
-      - docs/contributing.md
 permissions:
   contents: read
 defaults:

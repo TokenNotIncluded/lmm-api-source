@@ -61,4 +61,4 @@
 
 备份目录由操作者显式选定，并检查所有权、权限和恢复过程；不把备份打包进发布产物，也不在升级或卸载时删除。
 
-新布局的实际构建、配置解析、进程和安装验证必须分别记录。参见 [Linux 预览包](../packaging/linux/README.md)、[独立核心](core-standalone.md) 和 [开发指南](development.md)。
+新布局的实际构建、配置解析、进程和安装验证必须分别记录。参见 [Linux 预览包](../packaging/linux/README.md)、[独立核心](core-migration.md#独立启动与资源) 和 [开发指南](development.md)。

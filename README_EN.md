@@ -46,8 +46,8 @@ Default configuration paths are `/etc/lmm.conf.d/core.toml` and `extensions.toml
 
 ## Contributing and provenance
 
-Implementation work uses this repository's `main`. The [recipe repository](https://github.com/TokenNotIncluded/lmm-api) pins source through a gitlink. The [branch policy](docs/development-branches.md) distinguishes the active mainline from the legacy stable release. The automatic-deployment restriction for [Extore integration](docs/extore.md) remains in effect.
+Implementation work uses this repository's `main`. The [recipe repository](https://github.com/TokenNotIncluded/lmm-api) pins source through a gitlink. The [branch policy](docs/development.md#仓库与主线) distinguishes the active mainline from the legacy stable release. The automatic-deployment restriction for [Extore integration](docs/extore.md) remains in effect.
 
-Read the [contribution guide](docs/contributing.md) before making changes. Report vulnerabilities through the [security policy](.github/SECURITY.md); never publish keys or user data.
+Read the [contribution guide](docs/agent-workflows.md#贡献与交付) before making changes. Report vulnerabilities through the [security policy](.github/SECURITY.md); never publish keys or user data.
 
-This project derives from [QuantumNous/new-api](https://github.com/QuantumNous/new-api) and is released under [AGPL-3.0](LICENSE). Preserve [NOTICE](NOTICE), [fork provenance](docs/fork.md) and [third-party notices](THIRD-PARTY-LICENSES.md). The version of the [hosted service](https://api.lmm.best) must be verified separately.
+This project derives from [QuantumNous/new-api](https://github.com/QuantumNous/new-api) and is released under [AGPL-3.0](LICENSE). Preserve [NOTICE](NOTICE), [fork provenance](docs/core-migration.md#来源与许可) and [third-party notices](THIRD-PARTY-LICENSES.md). The version of the [hosted service](https://api.lmm.best) must be verified separately.

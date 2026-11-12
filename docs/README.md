@@ -1,8 +1,8 @@
 # 文档目录
 
-[项目首页](../README.md) · [贡献指南](contributing.md)
+[项目首页](../README.md) · [贡献指南](agent-workflows.md#贡献与交付)
 
-**当前进度只看[新架构进度](progress.md)。** 本目录提供稳定的设计、配置和验收方法；历史记录集中在[历史索引](archive.md)。源码开发主线是 `TokenNotIncluded/lmm-api-source/main`，配方仓库通过 gitlink 固定源码，见[分支规则](development-branches.md)。
+**当前进度只看[新架构进度](progress.md)。** 本目录提供稳定的设计、配置和验收方法；历史记录集中在[历史索引](archive.md)。源码开发主线是 `TokenNotIncluded/lmm-api-source/main`，配方仓库通过 gitlink 固定源码，见[分支规则](development.md#仓库与主线)。
 
 ## 先看这些
 
@@ -32,7 +32,7 @@
 
 [产品、品牌与界面术语](product.md) · [Web 设计](../apps/web/DESIGN.md) · [Logo](../.github/assets/README.md) · [翻译术语](translation-glossary.md)
 
-[用户/隐私/退款协议](legal/README.md) · [来源与归属](fork.md) · [安全报告](../.github/SECURITY.md) · [支持](SUPPORT.md) · [CLI 子项目](https://github.com/TokenNotIncluded/lmm#readme)
+[用户/隐私/退款协议](legal/README.md) · [来源与归属](core-migration.md#来源与许可) · [安全报告](../.github/SECURITY.md) · [支持](SUPPORT.md) · [CLI 子项目](https://github.com/TokenNotIncluded/lmm#readme)
 
 [RT16 Markdown 安全复现](../scripts/security/rt16/README.md)只验证其组件范围；[部署研究](deployment-research.md)保留实验结论。二者不替代完整业务或部署验收。
 

@@ -352,7 +352,7 @@ Protocol references are the
 [QuantumNous/new-api upstream change e9d4d635](https://github.com/QuantumNous/new-api/commit/e9d4d6353ce2c11df753d751ba1ad778e2433a88)
 and the [official OpenAI prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
 This is a Rust implementation of the receipt and tariff contract; the project's
-[AGPL attribution and upstream provenance](../../../../docs/fork.md) remain in
+[AGPL attribution and upstream provenance](../../../../docs/core-migration.md#来源与许可) remain in
 force. Supplier search metering and search-tool charges are outside this change
 and remain unimplemented here.
 

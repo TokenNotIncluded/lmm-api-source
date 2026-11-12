@@ -93,7 +93,7 @@ curl -i http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/model-ready
 
 ## 独立核心与扩展
 
-独立核心使用基础 Compose 加 `compose.core-standalone.yml`，不加 RPC 覆盖文件。默认服务只有 `core`；离线 `core-init` 仅在 `tools` profile 中可用。它不启动 Go 或本机数据库，独立数据库的角色创建及授权仍需显式离线执行。[低内存说明](../../docs/core-standalone.md)同样要求离线 owner 与受限 runtime 凭据分离。
+独立核心使用基础 Compose 加 `compose.core-standalone.yml`，不加 RPC 覆盖文件。默认服务只有 `core`；离线 `core-init` 仅在 `tools` profile 中可用。它不启动 Go 或本机数据库，独立数据库的角色创建及授权仍需显式离线执行。[低内存说明](../../docs/core-migration.md#独立启动与资源)同样要求离线 owner 与受限 runtime 凭据分离。
 
 扩展使用独立项目及 `compose.extensions.yml`、`compose.rpc-extensions.yml`。RPC 使用 socket 卷，Go 的 socket 挂载只读；两个项目通过相同的 `LMM_DOCKER_RPC_VOLUME` 选择本次自有卷。更新 Go 时保持完整覆盖文件，只重建扩展，不重建核心或数据库。接口见[身份指南](../../docs/core-identity.md)和[通信指南](../../docs/core-protocol.md)。
 

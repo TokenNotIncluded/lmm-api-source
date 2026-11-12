@@ -46,8 +46,8 @@ lmm-core --config /absolute/private/core.toml check-db
 
 ## 协作与来源
 
-源码在本仓库 `main` 开发；[配方仓库](https://github.com/TokenNotIncluded/lmm-api)通过 gitlink 固定源码。[分支规则](docs/development-branches.md)说明当前主线与旧稳定发布的关系。[Extore 集成](docs/extore.md)的自动部署限制继续生效。
+源码在本仓库 `main` 开发；[配方仓库](https://github.com/TokenNotIncluded/lmm-api)通过 gitlink 固定源码。[分支规则](docs/development.md#仓库与主线)说明当前主线与旧稳定发布的关系。[Extore 集成](docs/extore.md)的自动部署限制继续生效。
 
-参与前阅读[贡献指南](docs/contributing.md)。安全问题通过[安全政策](.github/SECURITY.md)报告，请勿公开密钥或用户数据。
+参与前阅读[贡献指南](docs/agent-workflows.md#贡献与交付)。安全问题通过[安全政策](.github/SECURITY.md)报告，请勿公开密钥或用户数据。
 
-本项目源自 [QuantumNous/new-api](https://github.com/QuantumNous/new-api)，按 [AGPL-3.0](LICENSE) 发布。保留 [NOTICE](NOTICE)、[来源与归属](docs/fork.md)及[第三方许可证](THIRD-PARTY-LICENSES.md)。[线上服务](https://api.lmm.best)的版本需独立核实。
+本项目源自 [QuantumNous/new-api](https://github.com/QuantumNous/new-api)，按 [AGPL-3.0](LICENSE) 发布。保留 [NOTICE](NOTICE)、[来源与归属](docs/core-migration.md#来源与许可)及[第三方许可证](THIRD-PARTY-LICENSES.md)。[线上服务](https://api.lmm.best)的版本需独立核实。

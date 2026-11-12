@@ -25,7 +25,7 @@ never claim 100% from source presence, test counts, a build or a deployment alon
 Use `main` in `TokenNotIncluded/lmm-api-source` for ongoing implementation work.
 The parent `TokenNotIncluded/lmm-api` repository owns Recipkg recipes. Historical
 monolith comparison uses the fixed `go-v0.2.118` release; see
-[branch policy](docs/development-branches.md). Read its current
+[branch policy](docs/development.md#仓库与主线). Read its current
 revision and local changes; preserve other work. Reuse the existing workspace
 and main branch, not a new dated branch or worktree for each fix. Never force-push.
 Inspect other PRs or branch history only when the task depends on them.
@@ -126,7 +126,7 @@ Commit/push, merge, publication and deployment are distinct outcomes; use existi
 authorization for the requested action, without inventing another confirmation.
 Keep required financial previews and confirmations. Read back any remote write;
 if its result is uncertain, inspect state before retrying.
-[Contribution details](docs/contributing.md).
+[Contribution details](docs/agent-workflows.md#贡献与交付).
 
 <!-- OPENWIKI:START -->
 

@@ -1,8 +1,8 @@
-# 普通文本按次计费与原生模型列表
+# 模型调用、客户端与原生列表
 
 Rust Core 为普通文本调用提供显式按次销售价格，并为 Anthropic、Gemini 客户端提供当前可调用模型的只读列表。价格、身份、权限、预扣、终态回执和恢复均由 Core 处理；列表请求不调用供应商，也不创建预扣。
 
-实现入口是 [文本价格合同](../services/core/src/billing/text_request_price.rs)、[计费桥接](../services/core/src/model_http/billing.rs)、[恢复](../services/core/src/model_http/checkpoints.rs)和[原生列表](../services/core/src/model_http/native_models.rs)。本文描述实现合同；开发自测、独立验收、真实供应商兼容性和部署是不同结果。
+实现入口是[文本价格合同](../services/core/src/billing/text_request_price.rs)、[计费桥接](../services/core/src/model_http/billing.rs)、[恢复](../services/core/src/model_http/checkpoints.rs)和[原生列表](../services/core/src/model_http/native_models.rs)。供应商 token 计价、输入预留和历史结算策略见[模型账单](model-billing.md)。本文另收录 System One 与客户端接入；标明历史的合同不代表当前 Core 已迁移，测试与部署结果仍以[项目进度](progress.md)为准。
 
 ## 启用与价格单位
 
@@ -81,7 +81,7 @@ curl https://YOUR_GATEWAY/v1/chat/completions \
 - `completed_requests = null`：未完成结算，次数仍未知。
 - CSV 使用 `completed_text_requests` 和 `billing_method`；未知 token 单元格为空。
 
-新证据放在现有冻结价格 JSON 与用量事件 JSON 中，原有未包含 `text_request` 的快照继续按其旧合同读取。本文的两项能力不引入独立数据库迁移；同一软件版本的其他模块如需升级，仍以该版本的离线升级说明为准。
+新证据放在现有冻结价格 JSON 与用量事件 JSON 中，原有未包含 `text_request` 的快照继续按其旧合同读取。文本按次与原生列表不引入独立数据库迁移；同一软件版本的其他模块如需升级，仍以该版本的离线升级说明为准。
 
 ## Anthropic 模型列表
 
@@ -120,20 +120,120 @@ curl 'https://YOUR_GATEWAY/v1beta/models/text-public' \
 
 所有筛选都在分页之前完成，包括当前 Key 的模型、分组、来源地址权限、渠道可用状态、凭据和价格合同，以及真实转发路径的无 I/O 构造检查。分页、查详情和发现接口都不会访问收费上游。
 
+## System One
+
+TypeSafe Jev 的同步判断由 [Core 原生入口](../services/core/src/model_http/systemone.rs)处理，不经过 Chat 转换器或 JavaScript 插件宿主。`POST /v1/systemone` 与 `POST /typesafe/v1/systemone` 接受 Bearer Core API Key，并检查模型、分组和来源限制；Web session、现有 Pi/model OAuth grant 在预扣前被拒绝，不支持流式。
+
+配置使用 `protocol = "system_one"`、私密凭据、已启用的 group/route/target、上游模型映射与审核价格。供应商基址为 `https://api.typesafe.ai`，可带 `/v1`；拼接 `systemone` 时保留路径前缀。客户端不能指定上游 URL、供应商密钥、付款方或价格。Web 渠道类型仍为 62，OpenHuman 61 不变；目录 API 名 `system-one`、Web endpoint 名 `systemone` 与路由值 `system_one` 要显式映射。
+
+Web 候选为 `jev-1.14.0`、`jev-1.13.0`、`jev-latest`、`jev-preview`。2026-10-21 核对的[官方模型页](https://docs.typesafe.ai/models)将 latest 指向 1.13.0、preview 指向 1.14.0；这是当时的别名记录，不能代替当前供应商核验。仅返回别名的模型列表不应删掉版本化 ID。
+
+```sh
+curl https://YOUR_GATEWAY/v1/systemone \
+  -H 'Authorization: Bearer YOUR_LMM_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"jev-1.14.0","state":{"message":"Reset a forgotten password"},"questions":{"account_support":{"type":"noul","instructions":"Is this an account support request?"}}}'
+```
+
+SDK decision 方法使用 `https://YOUR_GATEWAY` 或 `https://YOUR_GATEWAY/typesafe`，显式传模型。网关没有 TypeSafe SDK `models.list()` 合同；普通 `/v1/models` 仍返回 OpenAI 结构。
+
+| 请求边界 | 合同 |
+| --- | --- |
+| 结构化输入 | 保留 `state`、命名 `questions`、可选 `assets`；问题为 `noul/choice/score/box`，choice 的 criteria 是对象，score 是有序数组，box 不带 criteria |
+| 回答校验 | 类型、概率、score legend、非零 Box 几何须匹配；JSON 数字保留精度及普通用户键，拒绝重复键与非有限值 |
+| 图片授权 | 每次请求设置 `TypeSafe-Danger-Zone-Images: true`；Box 还要求 Jev 1.14（显式版本或对应 preview）和实际图片 |
+| 图片载荷 | PNG/JPEG 的内联 `data_base64` 或 multipart 引用；首个 part 为 `application/json` 的 `request`，唯一图片 part 与 assets 一一对应；引用可在嵌套字符串值中，不解释对象键 |
+| 大小与解码 | wire 与解压后各最多 32 MiB，单张解码/上传图片最多 16 MiB；本地检查文件头、280–1568 尺寸和非动画 PNG |
+| 压缩 | 只解一层 `gzip/x-gzip/zstd`，zstd window 最多 8 MiB；错误、叠加或超限编码拒绝，覆盖整个 multipart 的压缩；解压与解析共用最多两个请求的 gate |
+| 长上下文 | 另需 `TypeSafe-Danger-Zone-Long-Context: true` 和安装方审核的更大上界；请求头不能提高安装上界，不由官方缩写 `262k` 猜测精确值 |
+
+完整图片解码、供应商重新编码及展开引用后的限额仍由供应商检查，原始大小乘引用次数不能证明处理后大小；见[官方图片合同](https://docs.typesafe.ai/images)。对应实现为[请求合同](../services/core/src/model_http/systemone_contract.rs)、[multipart](../services/core/src/model_http/systemone_multipart.rs)与[压缩边界](../services/core/src/model_http/systemone_compression.rs)。
+
+计费只接受冻结的标量输入 token 价格；输出、折扣缓存和按次费率为零，不恢复历史表达式价格。输入预留上界至少 65,536 tokens，外部合同须匹配协议、endpoint、model、revision，并显式设 `missing_cached_tokens_is_zero = true`。完整整数输入回执须在上界内；先保存终态、结算，再返回答案。非零输出用量仍不计输出费，明确零输入与缺失用量不同。不完整或不确定工作保留预扣；幂等、断连后记录、drain 与 `Cache-Control: no-store` 沿用原生合同。
+
+2026-10-21 记录的供应商价格为 USD 0.042/百万输入 token、输出免费，图片计入输入；它不改写客户已保存价格。独立 SDK、真实供应商和部署验收仍需各自证据，访问/转售条件见 [TypeSafe MCA](https://typesafe.ai/legal/mca)。
+
+来源：[System One API](https://docs.typesafe.ai/api/system-one)；2026-10-20 OpenAPI SHA-256 为 `ee599512cbea3a198b34af3f60addcd72b381d3521196f93c70ae83185c057c3`。审核过的 MIT SDK 为 JavaScript 0.7.0（`b844cd1aca12855a5d24a2df52a1401c86e7d37a`）及 Python 0.7.5（`f36e68549ceca3191e5791e5f99ea1baa1a258b5`）。历史 Go 行为来自 Apache-2.0 的 `QuantumNous/new-api-plugins` TypeSafe 1.0.0（`97a16e9a8d98b73ffb76e1c5a00b4d0f855f4d0a`），保留归属，未导入可执行插件或任务宿主。
+
+## 客户端接入
+
+下列适配器由[子模块](../.gitmodules)固定独立仓库版本，源码、包、CI 与宿主测试不在父仓库重复维护。它们的原接入合同使用公开 native OAuth client、PKCE S256、state/issuer 绑定的 loopback callback；同意范围为 `catalog:read balance:read usage:read models:invoke` 加用户明确选择的账户组，不自动授予 MCP、市场或管理权限。旧客户端登记和测试记录不证明当前 Core 的部署开关、授权登记或付费互操作已通过。
+
+### Codewhale
+
+[`packages/codewhale-lmm-provider`](https://github.com/TokenNotIncluded/codewhale-lmm-provider) 对应原客户端 `lmm-codewhale` / `LMM for Codewhale`，沿用 resource、refresh rotation 与撤销合同，不改变 Pi/DSH/CLI grant。
+
+原接入使用 companion CLI 和命名 `openai-compatible` provider：当时 Codewhale bundle API 没有可执行 provider/auth adapter，bundle 仅含帮助 skill。只接纳目录中声明 `openai-completions` 的模型，不声明 Responses/Messages-only、Pi picker、MCP 或市场能力。必须以 `codewhale-lmm run` 启动；CLI 持有 LMM 凭据，宿主仅通过 `api_key_env` 获得每次运行随机的 loopback capability，临时配置不覆盖宿主配置。
+
+桥接每次请求重查目录和 grant，将精确 synthetic model ID 换成上游模型并设置 `X-LMM-Group`，不 fallback；SSE 原样传递，断连取消上游，不重试推理 POST，宿主自己的重试策略另计。历史本地证据为 Linux / Node.js 22.16.0 的 36 项测试及语法/打包检查，包含 mock OAuth HTTP、跨进程刷新锁和 mock 宿主；不是 live Codewhale 或账单验收。旧布局命令 `cd apps/lmm-extensions && go test ./oauthserver -run TestCodewhale -count=1` 对应初始 CI `35638700004`，当时本地依赖不可用未跑；当前 Extensions 已无该 `oauthserver` 路径。
+
+### OpenCode
+
+[`packages/opencode-lmm-auth`](https://github.com/TokenNotIncluded/opencode-lmm-auth) 对应原客户端 `lmm-opencode`。安装器合同要求 Node.js ≥22.19，使用官方最新宿主及最新已发布、校验和验证的插件；1.18.34 仅是历史回归基线，不是安装锁定版本。从[公开脚本页](https://api.lmm.best/scripts)的 OpenCode 入口或 `packages/lmm-scripts/opencode.sh` / `opencode.ps1` 安装，保留其他配置/插件，修改前备份；重跑更新受管理插件项，不自动登录。
+
+执行 `opencode auth login --provider lmm`，选择 **Sign in with LMM (OAuth)** 并完成浏览器同意，再启动/重启宿主。CLI 是首次登录入口，未连接的 provider 不在 TUI picker 暴露模型。插件使用宿主凭据库和本地 refresh replay journal；目录中的 Chat、Responses、Messages 分别使用对应 SDK 和精确账户组，不支持的能力/计费单位不列出。凭据只发往配置的 HTTPS issuer，拒绝重定向，调用按账户正常计价。
+
+脚本仓库合并后须在 **运维 → 脚本 → 拉取更新** 发布 root `.sh/.ps1`；共享安装器从固定 GitHub revision 下载。只改本地 gitlink 不会更新公开脚本页。独立包检查入口：
+
+```sh
+git submodule update --init -- packages/opencode-lmm-auth
+cd packages/opencode-lmm-auth
+npm ci --ignore-scripts
+npm run build
+npm run typecheck
+npm test
+npm run pack:check
+# 后两项需要受支持的官方 OpenCode 宿主及 OpenSSL
+npm run test:host
+npm run test:integration
+```
+
+integration fixture 在真实宿主中检查 OAuth 和流式响应；生产登录与付费推理不由 fixture 成功推定。
+
+## Ollama 历史传输
+
+以下是旧单体及当时 Rust relay 的行为记录，不是当前 Core 的渠道迁移承诺。Web 表单仍保存 type `4` 的 `settings.ollama_openai_chat` 布尔值（默认 false），与 `setting`、Advanced Custom routes 分开；可在[表单转换](../apps/web/src/features/channels/lib/channel-form.ts)核对字段保留。
+
+| 旧请求 | flag 关闭 | flag 开启 |
+| --- | --- | --- |
+| 普通 Chat / Chat playground | `/api/chat` | `/v1/chat/completions` |
+| Completions / Embeddings | `/api/generate` / `/api/embed` | 不变 |
+| Responses / Messages body passthrough | `/v1/responses` / `/v1/messages` | 不变 |
+| Messages 非 passthrough | 转换到 `/api/chat` | 不变 |
+
+旧 Go 开启后使用 OpenAI 请求转换与 JSON/SSE 处理器；转换后的流请求上游 usage，但保留客户端隐藏下游 usage 的选择，body passthrough 原样。发现、pull、delete 仍走原生管理 API。旧 Rust 只实现显式 OpenAI Chat 和独立 Responses；native chat/generate 在预扣和 I/O 前报 HTTP 501 `ollama_native_transport_unsupported`。这条旧 Go 使用建议不适用于当前仅由 Core 承接模型流量的架构。
+
+## Responses 历史工具转换
+
+旧客户端配置使用 `wire_api = "responses"` 和站点 `/v1` 基址，依据[Codex 配置](https://learn.chatgpt.com/docs/config-file/config-reference)、[工具搜索](https://developers.openai.com/api/docs/guides/tools-tool-search)与[命名空间函数](https://developers.openai.com/api/docs/guides/function-calling)。以下表格记录旧 Go 转换注册器能力；当前 Core 仍以[请求解析器](../services/core/src/relay/request.rs)和实际路由为准。
+
+原生 Responses 渠道保留 `tools/input/tool_choice` 与 JSON/SSE 工具数据，仍要求供应商支持。仅 Chat 上游曾通过 Advanced Custom 入站 `/v1/responses` → 上游 `/v1/chat/completions` 配置及 `openai_responses_to_openai_chat_completions` 转换器接入，认证沿用渠道；不因上游报错自动换协议。旧 Chat/Gemini 转换行为如下：
+
+| 结构 | 历史行为 |
+| --- | --- |
+| namespace 函数 | 分配合法、不冲突的上游名；历史调用和 tool_choice 共用映射，JSON/SSE/最终响应恢复 namespace 与 name |
+| 默认或 server tool_search | 提前加载请求及已返回搜索结果的函数，移除搜索声明与完成的服务端搜索历史；可能增加上下文 |
+| client tool_search | 向上游表现为普通函数，向客户端恢复 tool_search_call 和对象 arguments；客户端实际执行 |
+| tool_search_output | 转为对应工具结果，并在下一轮加入动态工具 |
+
+映射仅在单请求 `convmeta.Meta` 中复用，覆盖请求、响应与流结束；独立 relaykit 可用 `convmeta.Values`，不改客户端原请求、不跨用户共享。网关不执行客户端搜索或业务工具，也不据模型返回访问外部服务。提前加载必须有工具定义，不实现供应商专用搜索引擎；强制 server search 等不能等价转换的请求拒绝。
+
+自定义/托管工具及状态字段仍受原转换器限制；该历史变更没有新增 Claude/AWS/Vertex 原生 Responses 或 Rust 预览后端能力。原回归使用本地协议数据和模拟上游，线上客户端及供应商兼容性仍需单独证据。
+
 ## 定向开发自测
 
 下面命令从仓库根目录执行；PG 用例仅使用 `DATABASE_URL` 指向的隔离测试数据库和生成的受限 runtime 角色。无付费上游请求。不要将生产 URL 用于测试。
 
 ```sh
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib billing::text_request_price::tests
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::billing::text_request_usage_tests
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::text_request_tests
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::native_models::tests
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib model_http::catalog::tests
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --lib usage::export_tests
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --lib billing::text_request_price::tests
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --lib model_http::billing::text_request_usage_tests
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --lib model_http::text_request_tests
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --lib model_http::native_models::tests
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --lib model_http::catalog::tests
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --lib usage::export_tests
 ```
 
-真实 HTTP→PG fixture 覆盖固定次数与真实 token、流式终态、并发幂等、明确拒绝、未知结果、NotSent、权限与余额阻断，以及改变当前价格后的原价恢复。列表 fixture 覆盖协议分派、权限先筛选、游标、单模型与 OpenAI 兼容形状。断言不是线上供应商或当前部署已经通过的证明。
+真实 HTTP→PG fixture 覆盖固定次数与真实 token、流式终态、并发幂等、明确拒绝、未知结果、NotSent、权限与余额阻断，以及改变当前价格后的原价恢复。列表 fixture 覆盖协议分派、权限先筛选、游标、单模型与 OpenAI 兼容形状；System One 的本地供应商/PG 入口见[集成测试](../services/core/tests/systemone_independent.rs)。测试源码和历史通过记录不代表本轮已执行或线上部署已验收。
 
 ## 协议来源
 

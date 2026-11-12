@@ -2,123 +2,150 @@
 
 [工作指南](agent-workflows.md) · [架构](core-migration.md) · [配置路径](filesystem-layout.md)
 
-本分支面向全新隔离安装。核心、扩展、客户端和前端分开开发；不要把一个组件的
-准备步骤变成所有任务的前置条件。已有站点不使用这里的初始化命令。
+开发按组件准备工具和隔离环境。以下初始化示例只用于全新隔离库；已有站点使用其
+经过审核的升级或迁移流程。
+
+## 仓库与主线
+
+| 仓库 | 主线 | 用途 |
+| --- | --- | --- |
+| [lmm-api-source](https://github.com/TokenNotIncluded/lmm-api-source) | `main` | Rust Core、Go Extensions、Web 与集成工具 |
+| [lmm-api](https://github.com/TokenNotIncluded/lmm-api) | `main` | Recipkg 配方、产品要求与固定源码 gitlink |
+| [lmm](https://github.com/TokenNotIncluded/lmm) | 以子项目规则为准 | 客户端，由 `apps/cli` 固定提交 |
+
+继续使用现有工作区和 `main`。先检查版本与本地修改，写入共享分支前检查远端；
+保留并行工作，不为每轮任务新建分支或 worktree，不强推、重置或清理他人改动。
+跨仓库修改先在子项目自测、提交并推送，再更新父仓库 gitlink；源码提交、制品发布
+和生产部署分别记录，授权按实际动作沿用，不能由一次提交推断其他动作已获授权。
+
+旧单体比较固定到 [go-v0.2.118](https://github.com/TokenNotIncluded/lmm-api/releases/tag/go-v0.2.118)
+的 `cc52aa195c6f2a01d703a1a407be73c31b89867d`。旧问题需在当前实现核对和移植，
+不能仅改 PR 目标；历史失败、未运行检查和资金义务保留。早期 WIP 交接见
+[固定历史记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/development-branches.md)。
+
+[Extore 集成](extore.md)另有部署边界：不得合并或推送会自动部署的 Extore `main`，
+不得据此部署。继续前核对其分支、已有修改与两端候选版本。
 
 ## 只准备所需工具
 
-版本以根目录 [mise.toml](../mise.toml) 为准，不在各指南重复固定版本号。已有工具
-和依赖符合锁定版本时无需重装。后续工具命令使用 `mise exec --`；just 的 recipe
-也通过 mise 执行。不需要 recipe 时可以直接使用已准备好的固定版本 Cargo/Go。
+版本以 [mise.toml](../mise.toml) 为准；已有匹配工具和锁定依赖可复用。命令使用
+`mise exec --`，just 的 recipe 已通过 mise 执行；也可直接调用已准备好的固定版本工具。
 
 | 任务 | 准备内容 |
 | --- | --- |
-| 文档或技能正文 | Python、Git；不需要运行应用 |
-| Rust 核心 | 固定 Rust、rustfmt/clippy；只有数据库测试需要隔离 PostgreSQL |
-| Go 扩展 | 固定 Go；按模块准备其测试库，不连接核心数据库 |
-| Web | 固定 Bun/Node.js 和锁定依赖；首次需要时执行 `mise exec -- just setup` |
-| CLI | 初始化 `apps/cli` 子模块，并使用其固定工具链 |
-| Docker 或原生打包 | 对应[安装指南](../deployment/docker/README.md)或[打包指南](../packaging/linux/README.md)列出的工具 |
-| pgroll 实验 | 只在该实验任务中准备 pgroll 和隔离 Docker |
+| 文档或技能正文 | Python、Git |
+| Rust 核心 | Rust、rustfmt/clippy；数据库测试另需隔离 PostgreSQL |
+| Go 扩展 | Go 与受影响模块的测试库，不连接 Core 数据库 |
+| Web | Bun/Node.js；首次需要依赖时执行 `mise exec -- just setup` |
+| CLI | 初始化 `apps/cli`，使用其固定工具链 |
+| Docker 或原生打包 | [Docker 指南](../deployment/docker/README.md)或[原生包指南](../packaging/linux/README.md)列出的工具 |
+| pgroll | 仅在对应实验中准备 pgroll 和隔离 Docker |
 
-`mise install` 是整个工具集的准备方式，不是每轮必跑命令。`just setup` 安装 Web
-工作区依赖，不是 Rust/Go 开发的必要前置步骤。已知命令无需每次再执行 `just --list`
-或检查所有语言版本。
-
-客户端由 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) 独立维护。
-只有涉及 CLI 或质量工具要求完整子模块状态时才初始化：
+`mise install` 准备整个工具集，`just setup` 安装 Web 依赖；二者都不是每轮必跑步骤。
+只在涉及 CLI 或检查要求完整子模块状态时初始化客户端：
 
 ```sh
 git submodule update --init --depth 1 -- apps/cli
 ```
 
-修改 CLI 时先在子仓库验证、提交并推送，再更新本仓库指针；不要引用未推送提交。
-质量工具会拒绝未初始化、版本不符或有未提交源码的 CLI 子模块。普通文档检查不
-依赖它。测试 DSN 仅注入所需子进程，不写入 mise 配置，不传给实际扩展服务。
+CLI 先在子仓库验证、提交并推送，再更新本仓库指针。质量工具拒绝未初始化、版本
+不符或有未提交源码的 CLI；普通文档检查不依赖它。测试 DSN 仅注入所需子进程，
+不写入 mise 配置，不传给实际扩展服务。
 
 ## 核心与数据库
 
-核心位于 `services/core`，不依赖 Go 才能运行。完整 schema 使用同一个
-`lmm-core init-db` 显式安装一次；已有应用对象时拒绝。普通启动只校验结构和权限，
-不创建角色、不安装或升级数据库。完整契约见 [schema](../services/core/schema/README.md)。当前 identity 契约为 v4；
-已有库不因更新源码或安装程序而升级，也不能修改契约记录绕过检查。
+Core 独立于 Go，身份和账户功能依赖 PostgreSQL。安装与升级合同见
+[架构说明](core-migration.md#安装权限与结构升级)和 [schema](../services/core/schema/README.md)。
+普通启动只检查结构、catalog 指纹和运行权限，不创建角色、授权、执行 DDL 或升级库。
+已有库不得通过清空、重复初始化或修改契约记录绕过检查。
 
-安装 owner 和受限 runtime 必须分开。原生或 Docker 安装只读所选路径，按
-[离线角色与授权](../deployment/postgres/README.md)准备；不把 owner URL 放进运行服务。
-不要因为重复初始化被拒绝就清库、删除卷或使用旧环境变量模式。
-历史期初余额导入按[财务导入合同](legacy-financial-opening.md)执行，验收状态见[新架构进度](progress.md)。它不属于全新安装，不能作为现有站点的通用升级或自动资金迁移。
+初始化 owner 与受限 runtime 使用分开的凭据，按[离线角色说明](../deployment/postgres/README.md)
+准备授权；owner URL 不挂载给运行服务。配置采用 TOML 和受控的绝对路径文件，
+不扫描目录、不混入环境覆盖，私密文件须归属服务账户，权限 `0600` 或可读的 `0400`。
+[原生路径](filesystem-layout.md)为 `/etc/lmm.conf.d/core.toml`、
+`/var/lib/lmm/core` 和 `/run/lmm/core`；模板见 [core.example.toml](../config/core.example.toml)。
+`database.url_file` 读取 `/etc/lmm.conf.d/secrets/core/database-url` 中的 runtime URL；
+把 owner 凭据交给网络服务会在监听前拒绝。
 
-程序使用 TOML，可显式选择 `lmm-core --config /absolute/private/core.toml`。
-`database.url_file` 指向受限数据库凭据；`identity.web.origin` 和
-`identity.web.refresh_key_file` 配置控制台身份。私密文件权限为 `0600` 或可读的
-`0400`，归属必须符合实际服务账户。
-
-只读检查已安装数据库和所选运行配置时，使用：
+只对已明确选定的全新隔离空库执行一次安装；运行检查使用另一个受限配置：
 
 ```sh
+lmm-core --config /absolute/private/core-owner.toml init-db
 lmm-core --config /absolute/private/core.toml check-db
 ```
 
-命令输出 JSON，检查已安装结构和该配置所需的运行权限；不初始化或升级数据库，
-不启动 HTTP、RPC、worker 或模型流量。退出码 `0` 仅表示这次有限检查通过，
-不证明备份完整、物理数据库身份或恢复就绪。
+`check-db` 输出 JSON，只读检查目标结构和配置所需权限，不启动 HTTP、RPC、worker
+或模型流量。退出 `0` 表示该次检查通过；备份、物理数据库身份和恢复就绪另行核验。
+历史余额导入使用[财务导入合同](legacy-financial-opening.md)，不属于新库安装。
 
-[`scripts/core-ops.py`](../scripts/core-ops.py) 提供配套的 `plan`、`status` 和
-`reconcile`。先用 `python3 -B scripts/core-ops.py --help` 查看入口；它要求显式的
-安装记录、文件摘要和私有输入，`plan` 仅在 私有材料目录 中独占创建新计划文件。
-`status` 与 `reconcile` 只读检查，UNKNOWN 不重放；物理身份尚未验证时会明确返回
-`PHYSICAL_IDENTITY_UNVERIFIED` 和退出码 `3`。它不授予维护、接管或恢复权限。
+[`scripts/core-ops.py`](../scripts/core-ops.py) 的 `plan`、`status`、`reconcile` 接受显式
+安装记录、文件摘要和私有输入，可先运行 `python3 -B scripts/core-ops.py --help`。
+`plan` 在私有材料目录独占创建计划；其余两项只读，UNKNOWN 不重放。
+物理身份未验证返回 `PHYSICAL_IDENTITY_UNVERIFIED` 和退出码 `3`；工具不授予维护或恢复权限。
 
-本地 HTTP 须显式设 `identity.web.local_http=true`；`user_agreement_enabled` 和
-`privacy_policy_enabled` 与实际公开协议一致。注册使用 `identity.registration_enabled`。
-TOTP 二次验证需另行显式配置 [MFA keyring](core-identity.md#可选-totp-二次验证mfa)，
-不配置时不会绕过已有账号的 MFA 要求。模型和支付默认关闭；就绪不代表这些功能已启用。原生路径见
-[配置与文件路径](filesystem-layout.md)，容器路径见 [Docker 栈](../deployment/docker/README.md)。
+本地 HTTP 显式设 `identity.web.local_http=true`；配置 `identity.web.origin` 和
+`identity.web.refresh_key_file`，并使 `user_agreement_enabled`、`privacy_policy_enabled`
+符合公开协议。注册用 `identity.registration_enabled`；[MFA keyring](core-identity.md#可选-totp-二次验证mfa)
+另行配置，未配置也不会绕过已有账号的 MFA。模型、支付默认关闭，健康检查范围见
+[独立启动](core-migration.md#独立启动与资源)。
 
 ## 启动扩展与前端
 
-扩展入口是 `services/extensions/cmd/extensions`。先准备独立的完整 TOML 和私有
-凭据，再从仓库根目录分别运行：
+先准备扩展的独立完整 TOML 和私有凭据，再从仓库根目录运行：
 
 ```sh
 (cd services/extensions && mise exec -- go run ./cmd/extensions --config /absolute/private/extensions.toml)
 mise exec -- bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
-参考 [extensions.example.toml](../config/extensions.example.toml)。Go 不加载 `.env`；
-文件模式拒绝旧运行变量。`host.token_file` 是独立宿主凭据，`host.modules=["none"]`
-关闭受保护模块。启用 identity 还需 RPC socket、独立口令和跨用户文件权限。
+[Extensions 模板](../config/extensions.example.toml)的 `host.token_file` 是独立宿主
+凭据；`host.modules=["none"]` 关闭受保护模块。identity 还需 RPC socket、独立口令
+和跨用户文件权限。Go 不加载 `.env`，拒绝 `SQL_DSN`、`DATABASE_URL`、
+`LMM_CORE_DATABASE_URL` 等旧单体/Core 库变量。两服务的 `--legacy-env` 仅供既有
+测试兼容，与 `--config` 互斥，不作为新部署模板。
 
-Go 拒绝 `SQL_DSN`、`DATABASE_URL`、`LMM_CORE_DATABASE_URL` 等旧单体/核心库变量。
-两服务的 `--legacy-env` 只用于既有测试兼容，与 `--config` 互斥，不能作为新部署模板。
-
-调试公开协议页面时，将 `VITE_REACT_APP_SERVER_URL` 指向本地扩展；只有
-[协议指南](legal/README.md)列出的公开 API 不需要核心。前端启动或构建成功不表示
-业务已接通。OpenUI 不再向删除的 Go controller 生成文件；新接入使用明确组件契约。
+公开协议页面调试可将 `VITE_REACT_APP_SERVER_URL` 指向本地扩展；仅
+[协议指南](legal/README.md)列出的公开 API 不需要 Core。前端构建与业务接通分别
+验证；OpenUI 使用明确组件契约，不再向已删除的 Go controller 生成文件。
 
 ## 验证与分发
 
-按[检查选择表](agent-workflows.md)执行受影响检查，并遵守其[适度与停止](agent-workflows.md#适度与停止)：
-只测本次改动，检查跑一次，通过即交付。鉴权、资金、持久化和通信变化
-需要对应真实进程或隔离数据库；Go 的嵌套 `pgtest` 模块需单独测试。不要把示例替身
-通过写成真实资金链路通过。
+使用[检查选择表](agent-workflows.md#按范围选择检查)，遵守[适度与停止](agent-workflows.md#适度与停止)。
+Core-only 工作直接调用核心工具链，不运行同时构建 Core、Go、Web 的 `just build`。
+归档与原生包见[独立分发](release-architecture.md)；保留匹配的构建缓存和原始来源记录。
 
-文档正文使用 `python3 -B scripts/check-docs-brand.py --docs-only`。广泛跨组件验收
-才使用[质量工具](quality.md)，不顺序叠加它已包含的各层。发布状态见实际源码和
-[Actions 说明](ci-workflow-layout.md)，不能从 PR 标题或旧运行推断当前验收。
+## GitHub Actions
 
-构建归档见[独立分发](release-architecture.md)。核心-only 工作直接使用核心工具链，
-不运行同时构建核心、Go、Web 的 `just build`。构建缓存不作例行清理。
+工作流位于源码仓库，自动检查按路径筛选，镜像发布与 S11 源码快照保留手动入口。
+实际触发器、输入、权限及 Actions 启用状态以当前仓库和文件为准；修改配置不自动
+改变已关闭的 Actions 设置，也不授予触发或部署权限。
+
+| 文件 | 职责 |
+| --- | --- |
+| [ci.yml](../.github/workflows/ci.yml) | 手动服务端、前端与翻译诊断 |
+| [core-protocol.yml](../.github/workflows/core-protocol.yml) | Rust/Go、协议及一次性数据库检查 |
+| [microservice-distribution.yml](../.github/workflows/microservice-distribution.yml) | 三个程序与静态 Web 的独立预览归档 |
+| [microservice-images.yml](../.github/workflows/microservice-images.yml) | Core/Go 构建、冒烟与 GHCR 预览镜像 |
+| [s11-source-snapshot.yml](../.github/workflows/s11-source-snapshot.yml) | 固定源码及 CLI，保存可恢复的 Git bundle 和来源记录 |
+| [linux-packages.yml](../.github/workflows/linux-packages.yml) | 原生预览包及隔离安装、升级、运行、卸载 |
+| [store-claim-refund-review.yml](../.github/workflows/store-claim-refund-review.yml) | 商店提货/退款的服务端、前端和浏览器回归 |
+
+记录源码、输入、命令、退出码和日志，区分成功、失败、取消与未运行；复用
+[本地证据工具](../scripts/local-release-tests.py)或[检查记录校验器](../scripts/verify-release-commit-checks.sh)
+时保留其来源约束。归档的所有组件绑定同一固定 SHA；S11 只冻结源码，宿主、资金
+及最终组合仍按[进度表](progress.md)独立验收。旧单体工作流见[归档](archive.md)。
+
+预览归档、镜像、正式 Release 和生产部署分别记录。路径检查不覆盖全仓，静态
+检查不替代实际运行，不能用空执行消除失败。镜像入口见[Docker 指南](../deployment/docker/README.md#github-container-registry-预览镜像)。
 
 ## 按需：pgroll 实验
 
-pgroll 是 mise 固定的外部工具，不进入运行镜像、分发包、核心启动或 `init-db`。
-它不是现有核心库的升级方案。协议限制见
-[schema 中的适配说明](../services/core/schema/README.md#pgroll-evaluation-boundary)。
+pgroll 是 mise 固定的外部实验工具，不进入运行镜像、分发包、启动或 `init-db`，
+也不作为现有 Core 库升级方案；边界见 [schema](../services/core/schema/README.md#pgroll-evaluation-boundary)。
 
-[实验测试](../tests/pgroll/test_pgroll.py)只接受本地 `/var/run/docker.sock`，不接收
-外部 DSN，不读取已有库凭据。它创建随机命名的空 PostgreSQL 容器，先核对所有权，
-结束时只清理自有容器。需预先准备测试指定摘要的镜像；测试不会下载镜像。
+[实验测试](../tests/pgroll/test_pgroll.py)只连接 `/var/run/docker.sock`，不接收外部 DSN
+或读取已有库凭据。它核对新建随机空容器的所有权，只清理自有容器；指定摘要的
+镜像须预先准备，测试不下载镜像：
 
 ```sh
 mise install aqua:xataio/pgroll@0.16.3
@@ -127,6 +154,6 @@ mise exec -- docker --host unix:///var/run/docker.sock pull postgres:18-alpine@s
 mise exec -- just test-pgroll
 ```
 
-实验验证 init、validate、start、rollback、complete 和两版本视图读写。`validate`
-需要真实数据库；`status` 等命令也可能升级旧元数据，不能当成离线或保证只读检查。
-不得对现有核心库运行 init、baseline、convert 或迁移命令。
+实验覆盖 init、validate、start、rollback、complete 和两版本视图读写。`validate`
+需要真实数据库，`status` 也可能升级旧元数据；不得把它们当只读探针，不得对现有
+Core 库运行 init、baseline、convert 或迁移命令。
