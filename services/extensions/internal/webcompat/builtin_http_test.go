@@ -85,14 +85,46 @@ func TestBuiltinHTTPPreservesVerifiedSessionAndRejectsOtherCredentials(t *testin
 	}
 }
 func TestBuiltinHTTPPathsParticipateInHostAdmission(t *testing.T) {
-	for _, path := range []string{"/api/wallet-transfer", "/api/wallet-transfer/42/cancel", "/api/wallet/balance", "/api/wallet/topup-link", "/api/open-source-bounties", "/api/open-source-bounties/projects/id"} {
-		if !builtinHTTPPath(path) {
-			t.Fatal(path)
+	host, core := mountTransportHost(t, nil)
+	manager := &pluginControllerFake{enabled: map[string]bool{"toolmarket": true}}
+	calls := 0
+	endpoint := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := Mount(host, newAuth(t, core), nil, nil, AdditionalServices{
+		Plugins:  manager,
+		Builtins: BuiltinHTTP{Wallet: endpoint, Bounties: endpoint},
+	})
+	paths := []string{"/api/wallet-transfer", "/api/wallet-transfer/42/cancel", "/api/wallet/balance", "/api/wallet/topup-link", "/api/open-source-bounties", "/api/open-source-bounties/projects/id"}
+	for _, route := range paths {
+		if response := mountTransportCall(handler, http.MethodGet, route, nil); response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
+			t.Fatalf("preparing %s: status=%d headers=%v", route, response.Code, response.Header())
 		}
 	}
-	for _, path := range []string{"/api/wallet-transfer-other", "/api/wallet/balance-other", "/api/open-source-bounties-other"} {
-		if builtinHTTPPath(path) {
-			t.Fatal(path)
+	if calls != 0 {
+		t.Fatal("builtin entered while host was preparing")
+	}
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range paths {
+		if response := mountTransportCall(handler, http.MethodGet, route, nil); response.Code != http.StatusNoContent {
+			t.Fatalf("ready %s: status=%d", route, response.Code)
 		}
+	}
+	for _, route := range []string{"/api/wallet-transfer-other", "/api/wallet/balance-other", "/api/open-source-bounties-other"} {
+		if response := mountTransportCall(handler, http.MethodGet, route, nil); response.Code != http.StatusNotFound {
+			t.Fatalf("adjacent route %s: status=%d", route, response.Code)
+		}
+	}
+	manager.enabled["toolmarket"] = false
+	for _, route := range paths {
+		if response := mountTransportCall(handler, http.MethodGet, route, nil); response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("disabled %s: status=%d", route, response.Code)
+		}
+	}
+	if calls != len(paths) {
+		t.Fatalf("disabled or adjacent route reached builtin: calls=%d", calls)
 	}
 }

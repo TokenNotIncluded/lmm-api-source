@@ -79,7 +79,7 @@ func checkoutData(w http.ResponseWriter, code int, value any) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": value})
 }
 
-func RegisterPaymentCheckout(mux *http.ServeMux, auth *Authenticator, service PaymentCheckoutService, portal PaymentPortal) {
+func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service PaymentCheckoutService, portal PaymentPortal) {
 	ready := func(w http.ResponseWriter, r *http.Request) (string, int64, bool) {
 		self, err := auth.Verify(r.Context(), r)
 		if err != nil {

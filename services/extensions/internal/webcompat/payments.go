@@ -89,7 +89,7 @@ func PaymentAdmission(assembled bool) (int, string) {
 
 // RegisterPayments mounts a read-only status route. Mutating methods are refused
 // here even for a signed-in user; checkout and refund stay on the payment module.
-func RegisterPayments(mux *http.ServeMux, auth *Authenticator, reader PaymentStatusReader) {
+func RegisterPayments(mux RouteRegistrar, auth *Authenticator, reader PaymentStatusReader) {
 	mux.HandleFunc("/api/user/payments/orders/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			writePayment(w, http.StatusForbidden, "PAYMENT_HOST_CANNOT_MINT", "This route cannot create a credit or a refund.")

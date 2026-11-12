@@ -40,29 +40,36 @@ type AdditionalServices struct {
 // @mark extensions.admission role=consumer
 func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, support SupportService, optional ...AdditionalServices) http.Handler {
 	mux := http.NewServeMux()
-	RegisterStore(mux, auth, catalogue)
-	RegisterSupport(mux, auth, support)
+	var additional AdditionalServices
+	if len(optional) == 1 {
+		additional = optional[0]
+	}
+	routes := routeRegistry{mux: mux, host: host, plugins: additional.Plugins}
+	RegisterStore(routes.forPlugins("store"), auth, catalogue)
+	RegisterSupport(routes.forPlugins("support"), auth, support)
 	var operationsService *operations.Service
 	var paymentReader PaymentStatusReader
 	var paymentCheckout PaymentCheckoutService
 	var paymentPortal PaymentPortal
 	if len(optional) == 1 {
-		RegisterHeroSMS(mux, auth, optional[0].HeroSMS)
-		RegisterMarketAIReview(mux, auth, optional[0].MarketReview, catalogue, optional[0].ToolMarket)
-		RegisterBuiltinHTTP(mux, optional[0].Builtins)
-		if !store.Missing(optional[0].ToolMarketMCP) {
-			mux.Handle("/mcp/market", optional[0].ToolMarketMCP)
-			mux.Handle("/mcp/market/", optional[0].ToolMarketMCP)
+		RegisterHeroSMS(routes.forPlugins("hero-sms"), auth, additional.HeroSMS)
+		RegisterMarketAIReview(routes.forPlugins("store", "toolmarket"), auth, additional.MarketReview)
+		registerProductAIReviews(routes.forPlugins("store"), auth, catalogue)
+		registerToolAIReviews(routes.forPlugins("toolmarket"), auth, additional.ToolMarket)
+		RegisterBuiltinHTTP(routes.forPlugins("toolmarket"), additional.Builtins)
+		if !store.Missing(additional.ToolMarketMCP) {
+			routes.forPlugins("toolmarket").Handle("/mcp/market", additional.ToolMarketMCP)
+			routes.forPlugins("toolmarket").Handle("/mcp/market/", additional.ToolMarketMCP)
 		}
-		operationsService = optional[0].Operations
-		paymentReader = optional[0].Payments
-		paymentCheckout = optional[0].PaymentCheckout
-		paymentPortal = optional[0].PaymentPortal
-		RegisterPaymentPortal(mux, auth, paymentPortal)
-		RegisterPancakeAdmin(mux, auth, optional[0].PancakeAdmin)
-		if !store.Missing(optional[0].SubscriptionPayments) {
-			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", optional[0].SubscriptionPayments)
-			mux.Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		operationsService = additional.Operations
+		paymentReader = additional.Payments
+		paymentCheckout = additional.PaymentCheckout
+		paymentPortal = additional.PaymentPortal
+		RegisterPaymentPortal(routes.forPlugins("payments"), auth, paymentPortal)
+		RegisterPancakeAdmin(routes.forPlugins("payments"), auth, additional.PancakeAdmin)
+		if !store.Missing(additional.SubscriptionPayments) {
+			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", additional.SubscriptionPayments)
+			routes.forPlugins("payments").Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if _, err := auth.Verify(r.Context(), r); err != nil {
 					Respond(w, nil, err)
 					return
@@ -72,15 +79,15 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 				subscriptions.ServeHTTP(w, request)
 			}))
 		}
-		if !store.Missing(optional[0].Assistant) {
-			RegisterAssistant(mux, auth, optional[0].Assistant, optional[0].AssistantChat)
+		if !store.Missing(additional.Assistant) {
+			RegisterAssistant(routes.forPlugins("assistant"), auth, additional.Assistant, additional.AssistantChat)
 		}
-		if !store.Missing(optional[0].AssistantServices) {
-			handler := optional[0].AssistantServices
+		if !store.Missing(additional.AssistantServices) {
+			handler := additional.AssistantServices
 			if support, ok := handler.(AssistantSupport); ok {
-				RegisterAssistantSupport(mux, auth, support)
+				RegisterAssistantSupport(routes.forPlugins("assistant"), auth, support)
 			}
-			mux.Handle("/api/assistant/services/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			routes.forPlugins("assistant").Handle("/api/assistant/services/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if _, err := auth.Verify(r.Context(), r); err != nil {
 					Respond(w, nil, err)
 					return
@@ -88,52 +95,29 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 				handler.ServeHTTP(w, r)
 			}))
 		}
-		if !store.Missing(optional[0].ToolMarket) {
-			RegisterToolMarket(mux, auth, optional[0].ToolMarket)
+		if !store.Missing(additional.ToolMarket) {
+			RegisterToolMarket(routes.forPlugins("toolmarket"), auth, additional.ToolMarket)
 		}
-		if !store.Missing(optional[0].Plugins) {
-			RegisterPlugins(mux, auth, optional[0].Plugins)
+		if !store.Missing(additional.Plugins) {
+			RegisterPlugins(routes, auth, additional.Plugins)
 		}
-		RegisterCommunity(mux, auth, optional[0].Community)
-		RegisterAcquisition(mux, auth, optional[0].Acquisition)
+		RegisterCommunity(routes.forPlugins("community"), auth, additional.Community)
+		RegisterAcquisition(routes.forPlugins("acquisition"), auth, additional.Acquisition)
 	}
-	RegisterOperations(mux, auth, operationsService)
-	RegisterPayments(mux, auth, paymentReader)
-	RegisterPaymentCheckout(mux, auth, paymentCheckout, paymentPortal)
+	RegisterOperations(routes.forPlugins("operations"), auth, operationsService)
+	RegisterPayments(routes.forPlugins("payments"), auth, paymentReader)
+	RegisterPaymentCheckout(routes.forPlugins("payments"), auth, paymentCheckout, paymentPortal)
 	// Unassembled old routes are explicit failures, never a successful empty DTO.
-	mux.HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
+	routes.forPlugins("store").HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {
 			Respond(w, nil, err)
 			return
 		}
 		Respond(w, nil, store.ErrUnavailable)
 	})
-	return OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !herosms.Owns(r.URL.Path) && !builtinHTTPPath(r.URL.Path) && !strings.HasPrefix(r.URL.Path, "/api/security/market-ai-review/") && r.URL.Path != "/mcp/market" && r.URL.Path != "/mcp/market/" && !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && r.URL.Path != "/api/tool-market" && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") && !strings.HasPrefix(r.URL.Path, "/api/option/waffo-pancake/") && !pluginHTTPPath(r.URL.Path) &&
-			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && !rssHTTPPath(r.URL.Path) && r.URL.Path != "/api/scripts" &&
-			!strings.HasPrefix(r.URL.Path, "/api/scripts/") && !strings.HasPrefix(r.URL.Path, "/api/deployments/") && !strings.HasPrefix(r.URL.Path, "/scripts/") &&
-			!(len(optional) == 1 && optional[0].Community != nil && community.Owns(r.URL.Path)) &&
-			!(len(optional) == 1 && optional[0].Acquisition != nil && acquisition.Owns(r.URL.Path)) {
-			host.ServeHTTP(w, r)
-			return
-		}
-		release, err := host.TryAcquire()
-		if err != nil {
-			w.Header().Set("Retry-After", "1")
-			Respond(w, nil, err)
-			return
-		}
-		defer release()
-		if len(optional) == 1 {
-			if manager := optional[0].Plugins; !store.Missing(manager) {
-				plugin := webPluginName(r.URL.Path)
-				if (plugin != "" && !manager.IsEnabled(plugin)) ||
-					(strings.HasPrefix(r.URL.Path, "/api/store/support/") && !manager.IsEnabled("support")) {
-					Respond(w, nil, store.ErrUnavailable)
-					return
-				}
-			}
-		}
-		mux.ServeHTTP(w, r)
-	}))
+	// Forward only the host's own namespaces so its fallback cannot swallow
+	// method-not-allowed responses from registered Web routes.
+	mux.Handle("/extensions/v1/", host)
+	mux.Handle("/health/", host)
+	return OperationsGuard(mux)
 }

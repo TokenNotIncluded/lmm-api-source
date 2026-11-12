@@ -23,6 +23,8 @@ import (
 var (
 	ErrPluginNotFound       = errors.New("plugin is not registered")
 	ErrPluginNotInstalled   = errors.New("plugin is not installed")
+	ErrPluginUnavailable    = errors.New("plugin is not assembled in this host")
+	ErrPluginDependency     = errors.New("plugin dependency is not enabled")
 	ErrPluginAlreadyEnabled = errors.New("plugin is already enabled")
 	ErrPluginAlreadyOff     = errors.New("plugin is already disabled")
 	ErrPluginManifest       = errors.New("invalid plugin manifest")
@@ -41,13 +43,15 @@ var pluginVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$
 // administrator. RegistrationSHA256 binds the request to a compiled plugin
 // registration, not to untrusted source supplied over HTTP.
 type PluginInfo struct {
-	Name               string `json:"name"`
-	Version            string `json:"version"`
-	APIVersion         int    `json:"api_version"`
-	RegistrationSHA256 string `json:"registration_sha256"`
-	Available          bool   `json:"available"`
-	Installed          bool   `json:"installed"`
-	Enabled            bool   `json:"enabled"`
+	Name               string   `json:"name"`
+	Version            string   `json:"version"`
+	APIVersion         int      `json:"api_version"`
+	RegistrationSHA256 string   `json:"registration_sha256"`
+	Available          bool     `json:"available"`
+	Installed          bool     `json:"installed"`
+	Enabled            bool     `json:"enabled"`
+	Requires           []string `json:"requires,omitempty"`
+	NavigationPaths    []string `json:"navigation_paths,omitempty"`
 }
 
 type PluginInstallRequest struct {
@@ -99,7 +103,7 @@ func RegistrationSHA256(name, version string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile string) (*PluginManager, error) {
+func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile string, catalog ...Descriptor) (*PluginManager, error) {
 	if reloader == nil {
 		return nil, errors.New("plugin manager requires a module reloader")
 	}
@@ -109,29 +113,56 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 		}
 	}
 	m := &PluginManager{reloader: reloader, stateFile: stateFile, entries: make(map[string]pluginEntry, len(registered)), installed: make(map[string]bool, len(registered)), enabled: make(map[string]bool, len(registered))}
+	for _, descriptor := range catalog {
+		if !validName.MatchString(descriptor.Name) || descriptor.Name == "modules" || !pluginVersionPattern.MatchString(descriptor.Version) {
+			return nil, ErrPluginManifest
+		}
+		if _, exists := m.entries[descriptor.Name]; exists {
+			return nil, ErrPluginManifest
+		}
+		m.entries[descriptor.Name] = pluginEntry{info: descriptor.info()}
+	}
 	for _, module := range registered {
-		if isNil(module) || !validName.MatchString(module.Name()) || m.entries[module.Name()].module != nil || isNil(module.Handler()) {
+		if isNil(module) || !validName.MatchString(module.Name()) || module.Name() == "modules" || m.entries[module.Name()].module != nil || isNil(module.Handler()) {
+			return nil, ErrPluginManifest
+		}
+		entry, declared := m.entries[module.Name()]
+		if len(catalog) != 0 && !declared {
 			return nil, ErrPluginManifest
 		}
 		version := "1.0.0"
+		if declared {
+			version = entry.info.Version
+		}
 		if versioned, ok := module.(interface{ Version() string }); ok && versioned.Version() != "" {
 			version = versioned.Version()
 		}
-		if !pluginVersionPattern.MatchString(version) {
+		if !pluginVersionPattern.MatchString(version) || (declared && version != entry.info.Version) {
 			return nil, ErrPluginManifest
 		}
-		m.entries[module.Name()] = pluginEntry{module: module, info: PluginInfo{
-			Name: module.Name(), Version: version, APIVersion: PluginAPIVersion,
-			RegistrationSHA256: RegistrationSHA256(module.Name(), version), Available: true,
-		}}
+		if !declared {
+			entry.info = (Descriptor{Name: module.Name(), Version: version}).info()
+		}
+		entry.module, entry.info.Available = module, true
+		m.entries[module.Name()] = entry
+	}
+	for name, entry := range m.entries {
+		for _, dependency := range entry.info.Requires {
+			if _, exists := m.entries[dependency]; !exists || dependency == name {
+				return nil, ErrPluginManifest
+			}
+		}
 	}
 	loaded, exists, err := readPluginState(stateFile)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
-		for name := range m.entries {
-			m.installed[name], m.enabled[name] = true, true
+		for name, entry := range m.entries {
+			m.installed[name], m.enabled[name] = entry.info.Available, entry.info.Available
+		}
+		if err := m.validateEnabledLocked(); err != nil {
+			return nil, err
 		}
 		if err := m.persistLocked(); err != nil {
 			return nil, err
@@ -158,10 +189,8 @@ func (m *PluginManager) List() []PluginInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	result := make([]PluginInfo, 0, len(m.entries))
-	for name, entry := range m.entries {
-		info := entry.info
-		info.Installed, info.Enabled = m.installed[name], m.enabled[name]
-		result = append(result, info)
+	for name := range m.entries {
+		result = append(result, m.infoLocked(name))
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
@@ -170,7 +199,20 @@ func (m *PluginManager) List() []PluginInfo {
 func (m *PluginManager) IsEnabled(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.enabled[name]
+	return m.enabledLocked(name)
+}
+
+func (m *PluginManager) enabledLocked(name string) bool {
+	entry := m.entries[name]
+	if !entry.info.Available || !m.enabled[name] {
+		return false
+	}
+	for _, dependency := range entry.info.Requires {
+		if !m.entries[dependency].info.Available || !m.enabled[dependency] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *PluginManager) Install(request PluginInstallRequest) (PluginInfo, error) {
@@ -179,6 +221,9 @@ func (m *PluginManager) Install(request PluginInstallRequest) (PluginInfo, error
 	entry, ok := m.entries[request.Name]
 	if !ok {
 		return PluginInfo{}, ErrPluginNotFound
+	}
+	if !entry.info.Available {
+		return PluginInfo{}, ErrPluginUnavailable
 	}
 	if request.APIVersion != entry.info.APIVersion || request.Version != entry.info.Version || request.RegistrationSHA256 != entry.info.RegistrationSHA256 {
 		return PluginInfo{}, ErrPluginManifest
@@ -198,6 +243,9 @@ func (m *PluginManager) Enable(name string) (PluginInfo, error) {
 	entry, ok := m.entries[name]
 	if !ok {
 		return PluginInfo{}, ErrPluginNotFound
+	}
+	if !entry.info.Available {
+		return PluginInfo{}, ErrPluginUnavailable
 	}
 	if !m.installed[name] {
 		return PluginInfo{}, ErrPluginNotInstalled
@@ -265,6 +313,9 @@ func (m *PluginManager) Reload() error {
 }
 
 func (m *PluginManager) reloadLocked() error {
+	if err := m.validateEnabledLocked(); err != nil {
+		return err
+	}
 	enabled := make([]string, 0, len(m.enabled))
 	for name, on := range m.enabled {
 		if on {
@@ -275,9 +326,29 @@ func (m *PluginManager) reloadLocked() error {
 	return m.reloader.ReloadModules(enabled)
 }
 
+func (m *PluginManager) validateEnabledLocked() error {
+	for name, on := range m.enabled {
+		if !on {
+			continue
+		}
+		entry := m.entries[name]
+		if !entry.info.Available {
+			return fmt.Errorf("%w: %s", ErrPluginUnavailable, name)
+		}
+		for _, dependency := range entry.info.Requires {
+			if !m.enabled[dependency] || !m.entries[dependency].info.Available {
+				return fmt.Errorf("%w: %s requires %s", ErrPluginDependency, name, dependency)
+			}
+		}
+	}
+	return nil
+}
+
 func (m *PluginManager) infoLocked(name string) PluginInfo {
 	info := m.entries[name].info
-	info.Installed, info.Enabled = m.installed[name], m.enabled[name]
+	info.Installed, info.Enabled = m.installed[name], m.enabledLocked(name)
+	info.Requires = append([]string(nil), info.Requires...)
+	info.NavigationPaths = append([]string(nil), info.NavigationPaths...)
 	return info
 }
 

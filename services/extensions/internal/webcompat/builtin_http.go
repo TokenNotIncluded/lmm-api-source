@@ -67,7 +67,7 @@ func NewBuiltinHTTP(auth *Authenticator, walletService *wallet.Service, bountySe
 	return BuiltinHTTP{walletHandler, bountyHandler}, nil
 }
 
-func RegisterBuiltinHTTP(mux *http.ServeMux, handlers BuiltinHTTP) {
+func RegisterBuiltinHTTP(mux RouteRegistrar, handlers BuiltinHTTP) {
 	if !store.Missing(handlers.Wallet) {
 		mux.Handle("/api/wallet-transfer", handlers.Wallet)
 		mux.Handle("/api/wallet-transfer/", handlers.Wallet)
@@ -78,7 +78,4 @@ func RegisterBuiltinHTTP(mux *http.ServeMux, handlers BuiltinHTTP) {
 		mux.Handle("/api/open-source-bounties", handlers.Bounties)
 		mux.Handle("/api/open-source-bounties/", handlers.Bounties)
 	}
-}
-func builtinHTTPPath(path string) bool {
-	return path == "/api/wallet-transfer" || strings.HasPrefix(path, "/api/wallet-transfer/") || path == "/api/wallet/balance" || path == "/api/wallet/topup-link" || path == "/api/open-source-bounties" || strings.HasPrefix(path, "/api/open-source-bounties/")
 }

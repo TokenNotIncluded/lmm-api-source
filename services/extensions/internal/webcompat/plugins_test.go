@@ -21,7 +21,21 @@ type pluginControllerFake struct {
 func (f *pluginControllerFake) List() []modules.PluginInfo {
 	return append([]modules.PluginInfo(nil), f.info...)
 }
-func (f *pluginControllerFake) IsEnabled(name string) bool { return f.enabled[name] }
+func (f *pluginControllerFake) IsEnabled(name string) bool {
+	if !f.enabled[name] {
+		return false
+	}
+	for _, info := range f.info {
+		if info.Name == name {
+			for _, dependency := range info.Requires {
+				if !f.enabled[dependency] {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
 func (f *pluginControllerFake) Install(request modules.PluginInstallRequest) (modules.PluginInfo, error) {
 	f.installs++
 	if request.Name != "alpha" {
@@ -131,7 +145,10 @@ func TestPluginInstallRejectsManifestThatExceedsBodyLimitWithWhitespace(t *testi
 }
 
 func TestDisabledPluginRejectsWebCompatibilityRouteBeforeService(t *testing.T) {
-	manager := &pluginControllerFake{enabled: map[string]bool{"store": false, "support": true}}
+	manager := &pluginControllerFake{
+		info:    []modules.PluginInfo{{Name: "support", Requires: []string{"store"}}},
+		enabled: map[string]bool{"store": false, "support": true},
+	}
 	host, err := modules.NewHost(nil, []byte(hostToken))
 	if err != nil {
 		t.Fatal(err)

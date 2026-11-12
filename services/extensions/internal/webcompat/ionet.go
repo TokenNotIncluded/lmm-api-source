@@ -35,7 +35,7 @@ func ioNetRespond(w http.ResponseWriter, value any, err error) {
 	operationsRespond(w, value, err)
 }
 
-func registerIoNet(mux *http.ServeMux, auth *Authenticator, s *operations.Service) {
+func registerIoNet(mux RouteRegistrar, auth *Authenticator, s *operations.Service) {
 	handle := func(root bool, fn func(http.ResponseWriter, *http.Request, *pb.AuthorizeResponse, *operations.IoNet)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			actor, err := auth.Verify(r.Context(), r)
@@ -126,6 +126,7 @@ func registerIoNet(mux *http.ServeMux, auth *Authenticator, s *operations.Servic
 		}
 		ioNetRespond(w, v, e)
 	})
+	mux.HandleFunc("GET /api/deployments", list)
 	mux.HandleFunc("GET /api/deployments/{$}", list)
 	mux.HandleFunc("GET /api/deployments/search", list)
 	for route, path := range map[string]string{"hardware-types": "/hardware/max-gpus-per-container", "locations": "/locations"} {
@@ -274,7 +275,7 @@ func registerIoNet(mux *http.ServeMux, auth *Authenticator, s *operations.Servic
 		v, e := s.Logs(r.Context(), r.PathValue("id"), q.Get("container_id"), stream, limit)
 		ioNetRespond(w, v, e)
 	}))
-	for pattern, kind := range map[string]string{"POST /api/deployments/{$}": "create", "POST /api/deployments/{id}/extend": "extend", "PUT /api/deployments/{id}": "update", "PUT /api/deployments/{id}/name": "rename", "DELETE /api/deployments/{id}": "delete"} {
+	for pattern, kind := range map[string]string{"POST /api/deployments": "create", "POST /api/deployments/{$}": "create", "POST /api/deployments/{id}/extend": "extend", "PUT /api/deployments/{id}": "update", "PUT /api/deployments/{id}/name": "rename", "DELETE /api/deployments/{id}": "delete"} {
 		mux.HandleFunc(pattern, handle(true, func(w http.ResponseWriter, r *http.Request, a *pb.AuthorizeResponse, s *operations.IoNet) {
 			if r.URL.RawQuery != "" {
 				ioNetRespond(w, nil, operations.ErrInvalid)

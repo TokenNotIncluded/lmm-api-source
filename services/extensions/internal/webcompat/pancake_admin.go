@@ -23,7 +23,7 @@ type PancakeAdmin interface {
 
 // RegisterPancakeAdmin requires a live personal owner session for every action,
 // including catalogue probes that exercise merchant credentials.
-func RegisterPancakeAdmin(mux *http.ServeMux, auth *Authenticator, admin PancakeAdmin) {
+func RegisterPancakeAdmin(mux RouteRegistrar, auth *Authenticator, admin PancakeAdmin) {
 	if store.Missing(admin) {
 		return
 	}

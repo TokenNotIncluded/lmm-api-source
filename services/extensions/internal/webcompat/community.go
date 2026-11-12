@@ -51,7 +51,7 @@ func (a *Authenticator) VerifyAPIKey(ctx context.Context, r *http.Request) (*pb.
 }
 
 // RegisterCommunity mounts the community Web routes when the module is assembled.
-func RegisterCommunity(mux *http.ServeMux, auth *Authenticator, s *community.Service) {
+func RegisterCommunity(mux RouteRegistrar, auth *Authenticator, s *community.Service) {
 	if s != nil {
 		s.Register(mux, auth)
 	}

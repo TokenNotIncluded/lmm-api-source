@@ -16,11 +16,9 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
-	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/identity"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
-	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/remotecontrol"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store/rustauth"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store/rustfunds"
@@ -196,6 +194,11 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 }
 
 func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
+	selection, err := SelectModules("", cfg.Selected)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Selected = selection
 	if err := validateHeroSMSSelection(cfg); err != nil {
 		return nil, err
 	}
@@ -250,9 +253,6 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	selected := map[string]bool{}
 	for _, name := range cfg.Selected {
 		selected[name] = true
-	}
-	if selected["support"] && !selected["store"] {
-		return nil, errors.New("support requires the store module")
 	}
 	if cfg.CommerceTokenFile != "" && !selected["store"] {
 		return nil, errors.New("commerce RPC configuration requires store")
@@ -521,34 +521,8 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	} else if cfg.Acquisition.URLFile != "" || cfg.Acquisition.Database != "" {
 		return nil, errors.New("acquisition configuration requires explicit module selection")
 	}
-	for _, name := range cfg.Selected {
-		switch name {
-		case "hero-sms":
-			r.Modules = append(r.Modules, r.HeroSMS)
-		case "identity":
-			r.Modules = append(r.Modules, identity.New(r.Client))
-		case "remote-control":
-			remote, err := remotecontrol.New(r.Client)
-			if err != nil {
-				return nil, err
-			}
-			r.Modules = append(r.Modules, remote)
-		case "payments":
-			r.Modules = append(r.Modules, paymentModule{wallet: r.Payments, subscriptions: r.SubscriptionPayments, stripe: r.StripeSubscriptionPayments, pancake: r.PancakeSubscriptionPayments})
-		case "store":
-			r.Modules = append(r.Modules, r.Store)
-		case "support":
-			r.Modules = append(r.Modules, r.Support)
-		case "toolmarket":
-			r.Modules = append(r.Modules, r.ToolMarket)
-		case "assistant":
-			r.Modules = append(r.Modules, r.Assistant)
-		case "operations", "community", "acquisition":
-			// The process entry mounts its authenticated adapter with the
-			// separately loaded host credential before constructing the host.
-		default:
-			return nil, errors.New("unsupported composed extension module")
-		}
+	if err := r.bindModules(cfg.Selected); err != nil {
+		return nil, err
 	}
 	return r, nil
 }

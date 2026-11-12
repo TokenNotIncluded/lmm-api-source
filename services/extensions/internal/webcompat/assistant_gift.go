@@ -18,7 +18,7 @@ type AssistantGifts interface {
 	ClaimStoredNewUserGift(context.Context, string) (assistant.GiftClaim, error)
 }
 
-func RegisterAssistantGifts(mux *http.ServeMux, auth *Authenticator, gifts AssistantGifts) {
+func RegisterAssistantGifts(mux RouteRegistrar, auth *Authenticator, gifts AssistantGifts) {
 	register := func(claim bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if _, err := auth.Verify(r.Context(), r); err != nil {

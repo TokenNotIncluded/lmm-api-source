@@ -47,7 +47,7 @@ type AssistantResume interface {
 // interactive history routes. A shared host must wrap these routes in its own
 // admission/drain gate.
 // No browser may inject assistant messages or select a payer/model/owner.
-func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history AssistantHistory, chatPorts ...AssistantChat) {
+func RegisterAssistant(mux RouteRegistrar, auth *Authenticator, history AssistantHistory, chatPorts ...AssistantChat) {
 	var chat AssistantChat
 	if len(chatPorts) == 1 && !access.Missing(chatPorts[0]) {
 		chat = chatPorts[0]

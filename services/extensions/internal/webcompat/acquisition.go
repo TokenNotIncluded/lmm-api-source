@@ -7,7 +7,7 @@ import (
 )
 
 // RegisterAcquisition mounts the acquisition Web routes when the module is assembled.
-func RegisterAcquisition(mux *http.ServeMux, auth *Authenticator, s *acquisition.Service) {
+func RegisterAcquisition(mux RouteRegistrar, auth *Authenticator, s *acquisition.Service) {
 	if s != nil {
 		s.Register(mux, auth)
 	}

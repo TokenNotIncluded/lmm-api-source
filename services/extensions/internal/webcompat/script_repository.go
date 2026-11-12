@@ -8,7 +8,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
-func registerScriptRepository(mux *http.ServeMux, auth *Authenticator, service *operations.Service) {
+func registerScriptRepository(mux RouteRegistrar, auth *Authenticator, service *operations.Service) {
 	handle := func(fn func(http.ResponseWriter, *http.Request, int64, int32, *operations.ScriptRepository)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			actor, err := auth.Verify(r.Context(), r)

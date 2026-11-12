@@ -16,9 +16,6 @@ type Service struct{ Core *Core }
 
 func (s *Service) Name() string          { return "hero-sms" }
 func (s *Service) Handler() http.Handler { return s }
-func Owns(path string) bool {
-	return strings.HasPrefix(path, "/api/hero-sms/") || path == "/api/option/hero-sms" || strings.HasPrefix(path, "/api/option/hero-sms/")
-}
 func respond(w http.ResponseWriter, data any, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

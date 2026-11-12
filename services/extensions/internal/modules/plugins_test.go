@@ -26,6 +26,112 @@ type pluginTestReloader struct {
 	err   error
 }
 
+func TestPluginCatalogIncludesUnconfiguredPackages(t *testing.T) {
+	registered := []Module{pluginTestModule{"alpha", "1.0.0"}}
+	catalog := []Descriptor{
+		{Name: "alpha", Version: "1.0.0", NavigationPaths: []string{"/custom-alpha"}},
+		{Name: "beta", Version: "2.0.0", Requires: []string{"alpha"}, NavigationPaths: []string{"/custom-beta"}},
+	}
+	host, err := NewHost(registered, []byte(strings.Repeat("catalog-test-", 4)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewPluginManager(host, registered, "", catalog...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := manager.List()
+	if len(info) != 2 || !info[0].Available || !info[0].Enabled || info[1].Available || info[1].Installed || info[1].Enabled {
+		t.Fatalf("catalog=%+v", info)
+	}
+	if !reflect.DeepEqual(info[1].Requires, []string{"alpha"}) || !reflect.DeepEqual(info[1].NavigationPaths, []string{"/custom-beta"}) {
+		t.Fatalf("declaration lost: %+v", info[1])
+	}
+	request := PluginInstallRequest{Name: info[1].Name, Version: info[1].Version, APIVersion: info[1].APIVersion, RegistrationSHA256: info[1].RegistrationSHA256}
+	if _, err := manager.Install(request); !errors.Is(err, ErrPluginUnavailable) {
+		t.Fatalf("unconfigured install=%v", err)
+	}
+	if _, err := manager.Enable("beta"); !errors.Is(err, ErrPluginUnavailable) {
+		t.Fatalf("unconfigured enable=%v", err)
+	}
+	// Neither the caller's declarations nor an API snapshot can mutate routing
+	// dependencies retained by the manager.
+	catalog[0].NavigationPaths[0] = "/changed"
+	info[1].Requires[0] = "changed"
+	if got := manager.List(); got[0].NavigationPaths[0] != "/custom-alpha" || got[1].Requires[0] != "alpha" {
+		t.Fatalf("catalog aliased caller memory: %+v", got)
+	}
+}
+
+func TestPluginDependenciesKeepRoutesAndPersistedStateConsistent(t *testing.T) {
+	registered := []Module{pluginTestModule{"store", "1.0.0"}, pluginTestModule{"support", "1.0.0"}}
+	catalog := []Descriptor{{Name: "store", Version: "1.0.0"}, {Name: "support", Version: "1.0.0", Requires: []string{"store"}}}
+	credential := []byte(strings.Repeat("dependency-test-", 3))
+	host, err := NewHost(registered, credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(dir, "plugins.json")
+	manager, err := NewPluginManager(host, registered, state, catalog...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Disable("store"); !errors.Is(err, ErrPluginDependency) {
+		t.Fatalf("disabled active dependency: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/extensions/v1/store/", nil)
+	request.Header.Set("Authorization", "Bearer "+string(credential))
+	response := httptest.NewRecorder()
+	host.ServeHTTP(response, request)
+	after, err := os.ReadFile(state)
+	if err != nil || !bytes.Equal(before, after) || response.Code != http.StatusOK || !manager.IsEnabled("support") {
+		t.Fatalf("rejected change altered routes or state: status=%d err=%v", response.Code, err)
+	}
+	for _, name := range []string{"support", "store"} {
+		if _, err := manager.Disable(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := manager.Enable("support"); !errors.Is(err, ErrPluginDependency) || manager.IsEnabled("support") {
+		t.Fatalf("enabled without dependency: %v", err)
+	}
+	restarted, err := NewPluginManager(host, registered, state, catalog...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restarted.IsEnabled("store") || restarted.IsEnabled("support") {
+		t.Fatal("restart enabled disabled packages")
+	}
+	for _, name := range []string{"store", "support"} {
+		if _, err := restarted.Enable(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !restarted.IsEnabled("support") {
+		t.Fatal("dependency-ordered enable failed")
+	}
+}
+
+func TestPluginCatalogRejectsUndeclaredOrMismatchedRuntimeModule(t *testing.T) {
+	for _, module := range []Module{pluginTestModule{"missing", "1.0.0"}, pluginTestModule{"alpha", "2.0.0"}} {
+		_, err := NewPluginManager(&pluginTestReloader{}, []Module{module}, "", Descriptor{Name: "alpha", Version: "1.0.0"})
+		if !errors.Is(err, ErrPluginManifest) {
+			t.Fatalf("module=%v error=%v", module, err)
+		}
+	}
+}
+
 func (r *pluginTestReloader) ReloadModules(names []string) error {
 	r.calls++
 	if r.err != nil {

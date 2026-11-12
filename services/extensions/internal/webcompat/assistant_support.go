@@ -27,7 +27,7 @@ type AssistantSupport interface {
 
 // RegisterAssistantSupport requires the current browser session for every
 // operation; the service rechecks the actor against Core on each call.
-func RegisterAssistantSupport(mux *http.ServeMux, auth *Authenticator, support AssistantSupport) {
+func RegisterAssistantSupport(mux RouteRegistrar, auth *Authenticator, support AssistantSupport) {
 	protected := func(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if _, err := auth.Verify(r.Context(), r); err != nil {

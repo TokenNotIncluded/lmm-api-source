@@ -52,7 +52,7 @@ func Run() error {
 	if socket != "" {
 		defaults = []string{"identity"}
 	}
-	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant", "operations", "remote-control", "payments", "toolmarket", "community", "acquisition"})
+	selected, err := composition.SelectModules(strings.Join(cfg.Host.Modules, ","), defaults)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	pluginManager, err := modules.NewPluginManager(host, runtime.Modules, cfg.Host.PluginStateFile)
+	pluginManager, err := modules.NewPluginManager(host, runtime.Modules, cfg.Host.PluginStateFile, composition.ModuleDescriptors()...)
 	if err != nil {
 		return err
 	}

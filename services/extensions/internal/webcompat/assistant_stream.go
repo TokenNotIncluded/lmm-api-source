@@ -19,7 +19,7 @@ type AssistantStream interface {
 	Cancel(context.Context, string, int64, string) (assistant.PersonalChatReply, error)
 }
 
-func registerAssistantStreams(mux *http.ServeMux, chat AssistantChat, protected func(func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc) {
+func registerAssistantStreams(mux RouteRegistrar, chat AssistantChat, protected func(func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc) {
 	mux.HandleFunc("GET /api/assistant/conversations/{id}/turns/{turn}/output", protected(func(w http.ResponseWriter, r *http.Request, token string) {
 		stream, ok := chat.(AssistantStream)
 		if !ok || access.Missing(stream) {

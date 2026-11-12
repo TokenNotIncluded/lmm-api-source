@@ -65,7 +65,7 @@ func TestMountToolMarketRootPreservesExactDispatchAndAdmission(t *testing.T) {
 	if code, _, _ := request("GET", root, hostToken); code != 401 || market.businessCalls != calls {
 		t.Fatal("host credential became Web user", code)
 	}
-	if code, _, _ := request("POST", "/api/tool-market", webToken); code < 400 || market.businessCalls != calls {
+	if code, _, _ := request("POST", "/api/tool-market", webToken); (code != http.StatusServiceUnavailable && code != http.StatusMethodNotAllowed) || market.businessCalls != calls {
 		t.Fatal("unsupported root method reached catalogue", code)
 	}
 	host.BeginDrain()

@@ -15,7 +15,7 @@ type PaymentPortal interface {
 	PancakePortalAvailable() bool
 }
 
-func RegisterPaymentPortal(mux *http.ServeMux, auth *Authenticator, portal PaymentPortal) {
+func RegisterPaymentPortal(mux RouteRegistrar, auth *Authenticator, portal PaymentPortal) {
 	if store.Missing(portal) {
 		return
 	}

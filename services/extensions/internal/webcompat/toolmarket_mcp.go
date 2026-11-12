@@ -12,7 +12,7 @@ type ToolMarketLegacyMCP interface {
 
 // RegisterToolMarketLegacyMCP mounts the resource independently of browser
 // Session routes. Identity comes only from its resource bearer token.
-func RegisterToolMarketLegacyMCP(mux *http.ServeMux, service ToolMarketLegacyMCP, opts toolmarket.LegacyMarketMCPOptions) {
+func RegisterToolMarketLegacyMCP(mux RouteRegistrar, service ToolMarketLegacyMCP, opts toolmarket.LegacyMarketMCPOptions) {
 	if mux == nil || service == nil {
 		return
 	}

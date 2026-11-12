@@ -21,6 +21,7 @@ import (
 	"time"
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
@@ -88,13 +89,8 @@ func New(ctx context.Context, db *sql.DB, publicOrigin string, secureCookie bool
 	return &Service{db: db, secureCookie: secureCookie, ownHosts: hosts, now: time.Now}, nil
 }
 
-// Owns reports the public Web paths served by this module.
-func Owns(path string) bool {
-	return strings.HasPrefix(path, "/api/acquisition/") || strings.HasPrefix(path, "/api/admin/acquisition/")
-}
-
 // Register mounts the exact legacy routes on mux.
-func (s *Service) Register(mux *http.ServeMux, auth Verifier) {
+func (s *Service) Register(mux modules.RouteRegistrar, auth Verifier) {
 	h := &handlers{s: s, auth: auth}
 	mux.HandleFunc("POST /api/acquisition/visit", h.visit)
 	mux.HandleFunc("DELETE /api/acquisition/consent", h.revoke)

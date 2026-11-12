@@ -9,9 +9,6 @@ import (
 	"strings"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
-	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
-	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/community"
-	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -31,7 +28,7 @@ type PluginController interface {
 // RegisterPlugins exposes administrator-only lifecycle operations. Installation
 // accepts a manifest for a compiled registration; executable code is shipped in
 // a reviewed extension release and is never loaded from an HTTP request.
-func RegisterPlugins(mux *http.ServeMux, auth *Authenticator, manager PluginController) {
+func RegisterPlugins(mux RouteRegistrar, auth *Authenticator, manager PluginController) {
 	if mux == nil || auth == nil || manager == nil {
 		return
 	}
@@ -148,6 +145,10 @@ func pluginRespond(w http.ResponseWriter, value any, err error) {
 			code, label, message = http.StatusNotFound, "PLUGIN_NOT_FOUND", "The plugin is not registered in this release."
 		case errors.Is(err, modules.ErrPluginNotInstalled):
 			code, label, message = http.StatusConflict, "PLUGIN_NOT_INSTALLED", "Install the plugin before enabling it."
+		case errors.Is(err, modules.ErrPluginUnavailable):
+			code, label, message = http.StatusServiceUnavailable, "PLUGIN_NOT_CONFIGURED", "Configure the plugin and its dependencies in the host before installing or enabling it."
+		case errors.Is(err, modules.ErrPluginDependency):
+			code, label, message = http.StatusConflict, "PLUGIN_DEPENDENCY_REQUIRED", "Enable required plugins first; disable their dependents before disabling them."
 		case errors.Is(err, modules.ErrPluginAlreadyEnabled), errors.Is(err, modules.ErrPluginAlreadyOff):
 			code, label, message = http.StatusConflict, "PLUGIN_STATE_UNCHANGED", "The plugin already has that state."
 		case strings.Contains(err.Error(), "disable plugin before uninstall"):
@@ -165,31 +166,4 @@ func pluginRespond(w http.ResponseWriter, value any, err error) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 	_, _ = w.Write(append(encoded, '\n'))
-}
-
-func pluginHTTPPath(path string) bool {
-	return path == "/api/extensions/plugins" || strings.HasPrefix(path, "/api/extensions/plugins/")
-}
-
-func webPluginName(path string) string {
-	switch {
-	case herosms.Owns(path):
-		return "hero-sms"
-	case path == "/mcp/market" || path == "/mcp/market/" || path == "/api/tool-market" || strings.HasPrefix(path, "/api/tool-market/"):
-		return "toolmarket"
-	case strings.HasPrefix(path, "/api/store/") || path == "/api/store" || strings.HasPrefix(path, "/api/user/auth/store-claim/"):
-		return "store"
-	case strings.HasPrefix(path, "/api/assistant/") || path == "/api/assistant":
-		return "assistant"
-	case strings.HasPrefix(path, "/api/user/payments/"), strings.HasPrefix(path, "/api/option/waffo-pancake/"):
-		return "payments"
-	case strings.HasPrefix(path, "/api/release-notes/") || rssHTTPPath(path) || strings.HasPrefix(path, "/api/scripts") || strings.HasPrefix(path, "/scripts"):
-		return "operations"
-	case acquisition.Owns(path):
-		return "acquisition"
-	case community.Owns(path):
-		return "community"
-	default:
-		return ""
-	}
 }

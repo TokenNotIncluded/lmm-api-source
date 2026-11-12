@@ -19,7 +19,7 @@ type AssistantConversationRecovery interface {
 	RecoverChatConversation(context.Context, string, string) (assistant.ChatConversationMapping, error)
 }
 
-func registerAssistantConversationLookup(mux *http.ServeMux, chat AssistantChat, protected func(func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc) {
+func registerAssistantConversationLookup(mux RouteRegistrar, chat AssistantChat, protected func(func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc) {
 	mux.HandleFunc("GET /api/assistant/turns/{turn}/conversation", protected(func(w http.ResponseWriter, r *http.Request, token string) {
 		lookup, ok := chat.(AssistantConversationLookup)
 		if !ok || access.Missing(lookup) {

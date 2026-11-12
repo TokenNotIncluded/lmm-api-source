@@ -34,7 +34,7 @@ type SupportService interface {
 
 // RegisterSupport preserves the nine authenticated /api/store support routes.
 // Authenticator runs for every request; only its verified user ID becomes actor.
-func RegisterSupport(mux *http.ServeMux, auth *Authenticator, service SupportService) {
+func RegisterSupport(mux RouteRegistrar, auth *Authenticator, service SupportService) {
 	route := func(pattern string, fn func(http.ResponseWriter, *http.Request, string, int64)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			self, err := auth.Verify(r.Context(), r)

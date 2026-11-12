@@ -55,8 +55,21 @@ func TestRSSRequiresFreshSessionAndSettingsAuthority(t *testing.T) {
 	if response := operationsRequest(handler, "GET", "/api/rss", "", webToken); response.Code != 503 {
 		t.Fatal("missing RSS returned empty success or host 404", response.Code)
 	}
-	if webPluginName("/api/rss/settings") != "operations" {
-		t.Fatal("RSS did not share operations plugin controls")
+	manager := &pluginControllerFake{enabled: map[string]bool{"operations": false}}
+	handler = Mount(host, auth, nil, nil, AdditionalServices{Plugins: manager})
+	for _, enabled := range []bool{false, true} {
+		manager.enabled["operations"] = enabled
+		for _, path := range []string{"/api/rss", "/api/rss/settings"} {
+			before := core.calls
+			response := operationsRequest(handler, http.MethodGet, path, "", webToken)
+			wantCalls := before
+			if enabled {
+				wantCalls++
+			}
+			if response.Code != http.StatusServiceUnavailable || core.calls != wantCalls {
+				t.Fatalf("RSS plugin control enabled=%v path=%s status=%d auth calls=%d want=%d", enabled, path, response.Code, core.calls, wantCalls)
+			}
+		}
 	}
 }
 

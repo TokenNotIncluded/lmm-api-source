@@ -22,7 +22,7 @@ import (
 // admission/drain, proxy routing and the existing live Core Authenticator, and
 // wrap the actual outer admission handler with OperationsGuard BEFORE any mux.
 // A registered handler cannot prevent ServeMux's pre-dispatch path redirects.
-func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.Service) {
+func RegisterOperations(mux RouteRegistrar, auth *Authenticator, s *operations.Service) {
 	registerRSS(mux, auth, s)
 	protected := func(admin bool, fn func(http.ResponseWriter, *http.Request, int64)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

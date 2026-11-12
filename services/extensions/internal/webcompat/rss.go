@@ -10,7 +10,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
-func registerRSS(mux *http.ServeMux, auth *Authenticator, service *operations.Service) {
+func registerRSS(mux RouteRegistrar, auth *Authenticator, service *operations.Service) {
 	handle := func(level int32, fn func(http.ResponseWriter, *http.Request, int64, *operations.RSS)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			actor, err := auth.Verify(r.Context(), r)
@@ -59,8 +59,4 @@ func registerRSS(mux *http.ServeMux, auth *Authenticator, service *operations.Se
 		settings, err := rss.Save(r.Context(), actor, operations.RSSSettings{Revision: *request.Revision, Feeds: request.Feeds})
 		operationsRespond(w, settings, err)
 	}))
-}
-
-func rssHTTPPath(path string) bool {
-	return path == "/api/rss" || path == "/api/rss/settings"
 }

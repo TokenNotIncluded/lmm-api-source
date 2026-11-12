@@ -41,7 +41,7 @@ type toolMarketRoute struct {
 // RegisterToolMarket is optional host wiring. Public reads work without a Core
 // session; all personalized reads and writes verify a live Rust session AND an
 // explicit Rust action before reading a request body or module records.
-func RegisterToolMarket(mux *http.ServeMux, auth *Authenticator, service ToolMarketService) {
+func RegisterToolMarket(mux RouteRegistrar, auth *Authenticator, service ToolMarketService) {
 	actor := func(w http.ResponseWriter, r *http.Request, required bool) (string, string, bool) {
 		present := false
 		for key := range r.Header {

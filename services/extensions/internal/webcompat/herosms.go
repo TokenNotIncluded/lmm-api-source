@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func RegisterHeroSMS(mux *http.ServeMux, auth *Authenticator, service *herosms.Service) {
+func RegisterHeroSMS(mux RouteRegistrar, auth *Authenticator, service *herosms.Service) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {
 			Respond(w, nil, err)

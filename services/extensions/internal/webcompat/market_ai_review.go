@@ -32,7 +32,7 @@ func reviewError(err error) error {
 	}
 }
 
-func RegisterMarketAIReview(mux *http.ServeMux, auth *Authenticator, engine *marketreview.Engine, products StoreService, tools ToolMarketService) {
+func RegisterMarketAIReview(mux RouteRegistrar, auth *Authenticator, engine *marketreview.Engine) {
 	for _, method := range []string{"GET", "PUT"} {
 		mux.HandleFunc(method+" /api/security/market-ai-review/settings", func(w http.ResponseWriter, r *http.Request) {
 			if _, err := auth.Verify(r.Context(), r); err != nil {
@@ -54,6 +54,9 @@ func RegisterMarketAIReview(mux *http.ServeMux, auth *Authenticator, engine *mar
 			Respond(w, out, reviewError(err))
 		})
 	}
+}
+
+func registerProductAIReviews(mux RouteRegistrar, auth *Authenticator, products StoreService) {
 	mux.HandleFunc("GET /api/store/products/{id}/ai-reviews", func(w http.ResponseWriter, r *http.Request) {
 		actor, err := auth.Verify(r.Context(), r)
 		if err != nil {
@@ -72,6 +75,9 @@ func RegisterMarketAIReview(mux *http.ServeMux, auth *Authenticator, engine *mar
 		rows, err := port.AIReviewHistory(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), store.Account{Kind: "personal", ID: actor.GetUserId()}, r.PathValue("id"))
 		Respond(w, map[string]any{"rows": rows}, err)
 	})
+}
+
+func registerToolAIReviews(mux RouteRegistrar, auth *Authenticator, tools ToolMarketService) {
 	mux.HandleFunc("GET /api/tool-market/services/{id}/ai-reviews", func(w http.ResponseWriter, r *http.Request) {
 		actor, err := auth.Verify(r.Context(), r)
 		if err != nil {

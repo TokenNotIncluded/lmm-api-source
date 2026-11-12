@@ -75,7 +75,7 @@ type storeWebRoute struct {
 // RegisterStore preserves main's paths and integer-credit JSON without moving
 // authorization or money decisions into the HTTP layer. Every protected request
 // verifies a real Core session before reading a body or calling a domain port.
-func RegisterStore(mux *http.ServeMux, auth *Authenticator, service StoreService) {
+func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService) {
 	public := func(fn func(http.ResponseWriter, *http.Request, int64)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var actor int64
