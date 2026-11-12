@@ -6,6 +6,7 @@ Consumes complete raw SELECT * exports. Never connects, activates credentials,
 or creates an approval. Core independently verifies the five material files.
 """
 import argparse
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
@@ -145,8 +146,16 @@ def run(paths, output, **parameters):
                  if name not in ("identity_map", "key_import_sql")}
     documents["identity_map"] = [read_json(line) for line in contents["identity_map"].splitlines() if line]
     projection = prepare(documents, hashes, **parameters)
+    # Match the existing LCI parsed-row digest contract while leaving the
+    # receipt-bound raw export intact. Core hashes this separate private file.
+    normalized_rows = json.dumps(documents["raw_export"], ensure_ascii=False,
+                                 sort_keys=True, separators=(",", ":")) + "\n"
+    semantic_decode = lambda data: json.loads(data, parse_float=Decimal,
+                                              object_pairs_hook=PRIVATE.PROPOSAL.unique_object)
+    F.require(semantic_decode(contents["raw_export"]) == semantic_decode(normalized_rows),
+              "continuity_normalization_changes_semantics")
     projection.update(source_receipt_file=str(paths["source_receipt"].resolve()),
-                      source_rows_file=str(paths["raw_export"].resolve()),
+                      source_rows_file=str(output / "source-rows.normalized.private.json"),
                       key_import_sql_file=str(paths["key_import_sql"].resolve()))
     parent = F.IDENTITY.private_backup_path(output.parent, directory=True)
     F.require(output.is_absolute() and output.parent == parent, "continuity_output_path_invalid")
@@ -159,6 +168,9 @@ def run(paths, output, **parameters):
                    materials_sha256=hashlib.sha256((F.canonical(materials) + "\n").encode()).hexdigest(),
                    source_rehearsal_only=documents["source_receipt"].get("rehearsal_only"),
                    source_future_cutover_valid=documents["source_receipt"].get("future_cutover_valid"),
+                   normalized_source_rows_sha256=hashlib.sha256(normalized_rows.encode()).hexdigest(),
+                   normalized_source_rows_semantic_equality=True,
+                   normalization_contract="LCI parsed JSON sorted UTF-8 compact v1",
                    target_verified=False, activation_created=False, database_connections=0)
     files["prepare-receipt.private.json"] = receipt
     # Recheck all inputs before publishing a new private directory. Never overwrite.
@@ -167,6 +179,7 @@ def run(paths, output, **parameters):
     encoded = {name: F.canonical(value) + "\n" for name, value in files.items()}
     F.require(all(token["key"] not in text for token in documents["raw_export"]["tokens"]
                   for text in encoded.values()), "continuity_secret_echo")
+    encoded["source-rows.normalized.private.json"] = normalized_rows
     output.mkdir(mode=0o700)
     for name, text in encoded.items():
         F.write_private(output, name, text)

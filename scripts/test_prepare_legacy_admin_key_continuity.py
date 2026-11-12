@@ -175,19 +175,36 @@ class ContinuityTests(unittest.TestCase):
             materials = json.loads((output / "materials.private.json").read_bytes())
             self.assertEqual(set(materials), set(P.MATERIALS) | {"source_projection"})
             projection = json.loads((output / "source-projection.private.json").read_bytes())
-            for field, source in (("source_receipt_file", "source_receipt"), ("source_rows_file", "raw_export"),
+            for field, source in (("source_receipt_file", "source_receipt"),
                                   ("key_import_sql_file", "key_import_sql")):
                 self.assertEqual(projection[field], str(paths[source].resolve()))
                 self.assertEqual(hashlib.sha256(Path(projection[field]).read_bytes()).hexdigest(),
                                  receipt["input_sha256"][source])
+            normalized = output / "source-rows.normalized.private.json"
+            self.assertEqual(projection["source_rows_file"], str(normalized))
+            self.assertEqual(json.loads(normalized.read_bytes()), documents["raw_export"])
+            self.assertEqual(hashlib.sha256(normalized.read_bytes()).hexdigest(),
+                             receipt["normalized_source_rows_sha256"])
             self.assertEqual(output.stat().st_mode & 0o777, 0o700)
             for path in output.iterdir():
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                if path == normalized:
+                    continue
                 for token in documents["raw_export"]["tokens"]:
                     self.assertNotIn(token["key"].encode(), path.read_bytes())
                 for field in ("password", "access_token"):
                     self.assertNotIn(documents["raw_export"]["users"][0][field].encode(), path.read_bytes())
             self.assertEqual(before, {name: path.read_bytes() for name, path in paths.items()})
+
+    def test_normalized_decimal_unicode_and_integer_quota(self):
+        raw = b'{"users":[{"score":0.000000,"name":"\\u4e2d"}],"tokens":[{"quota":9007199254740993}]}'
+        parsed = P.read_json(raw)
+        normalized = json.dumps(parsed, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        self.assertIn('"score":0.0', normalized)
+        self.assertIn('中', normalized)
+        self.assertEqual(json.loads(raw, parse_float=P.Decimal),
+                         json.loads(normalized, parse_float=P.Decimal))
+        self.assertEqual(parsed["tokens"][0]["quota"], 9007199254740993)
 
     def test_symlink_and_public_input_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
