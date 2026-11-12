@@ -34,7 +34,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Rust toolchain
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
       - name: Format
         run: rustfmt --edition 2024 --check src/routing.rs src/routing/tests.rs src/upstream_cost.rs
       - name: Compile and lint routing contract

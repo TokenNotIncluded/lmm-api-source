@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Install repository Rust toolchain
         id: rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
       - name: Run charging PostgreSQL contracts and upstream cost unit tests
         working-directory: services/core
         shell: bash

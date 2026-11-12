@@ -107,7 +107,7 @@ jobs:
           cache-dependency-path: services/extensions/go.sum
       - name: Install pinned Rust and protobuf compiler
         run: |
-          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes protobuf-compiler postgresql-client

@@ -111,7 +111,7 @@ def execute(args):
     archive_inputs[test_relative]=digest(test)
     cargo=Path.home()/'.cargo'
     env={k:v for k,v in os.environ.items() if not k.startswith(('PG','DOCKER_','LMM_CORE','DATABASE_URL','SQL_DSN'))}
-    env.update(MISE_DISABLE_TOOLS='rust',MISE_AUTO_INSTALL='false',RUSTUP_TOOLCHAIN='1.99.0',RUSTUP_AUTO_INSTALL='0',
+    env.update(MISE_DISABLE_TOOLS='rust',MISE_AUTO_INSTALL='false',RUSTUP_TOOLCHAIN='1.99.1',RUSTUP_AUTO_INSTALL='0',
         MISE_CACHE_DIR=str(OUT/'cache/mise'),XDG_CACHE_HOME=str(OUT/'cache'),TMPDIR=str(OUT/'tmp'),
         GOTMPDIR=str(OUT/'tmp'),GOCACHE=str(OUT/'gocache'),GOMODCACHE=str(Path.home()/'go/pkg/mod'),GOPROXY='off',GOSUMDB='off',
         CARGO_HOME=str(cargo),CARGO_TARGET_DIR=str(ROOT/'services/core/target'),CARGO_BUILD_JOBS='2',PYTHONDONTWRITEBYTECODE='1')

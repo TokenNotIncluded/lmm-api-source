@@ -103,7 +103,7 @@ class SourceContracts(unittest.TestCase):
     def test_formal_toolchains_and_bounded_core_build(self):
         core = (ROOT / 'deployment/docker/core.Dockerfile').read_text()
         extensions = (ROOT / 'deployment/docker/extensions.Dockerfile').read_text()
-        self.assertRegex(core, r'(?m)^FROM rust:1\.99\.0-bookworm@sha256:[0-9a-f]{64} AS build$')
+        self.assertRegex(core, r'(?m)^FROM rust:1\.99\.1-bookworm@sha256:[0-9a-f]{64} AS build$')
         self.assertIn('cargo build --locked --release --jobs 2 --bin lmm-core', core)
         self.assertRegex(extensions, r'(?m)^FROM golang:1\.27\.2-bookworm@sha256:[0-9a-f]{64} AS build$')
         self.assertIn('./cmd/extensions', extensions)

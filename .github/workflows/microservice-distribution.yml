@@ -108,15 +108,15 @@ jobs:
       - name: Install CLI toolchain
         if: matrix.component == 'cli'
         run: |
-          rustup toolchain install 1.99.0 --profile minimal
+          rustup toolchain install 1.99.1 --profile minimal
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libdbus-1-dev pkg-config
       - name: Build and test CLI
         if: matrix.component == 'cli'
         run: |
-          cargo +1.99.0 test --manifest-path apps/cli/Cargo.toml --locked --all-targets
-          cargo +1.99.0 build --manifest-path apps/cli/Cargo.toml --locked --release
+          cargo +1.99.1 test --manifest-path apps/cli/Cargo.toml --locked --all-targets
+          cargo +1.99.1 build --manifest-path apps/cli/Cargo.toml --locked --release
           mkdir -p out/cli
           cp apps/cli/target/release/lmm out/cli/
       - name: Install Bun

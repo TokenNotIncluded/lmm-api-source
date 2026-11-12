@@ -44,7 +44,7 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust
         id: rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
       - name: Build disposable extension for relay independence acceptance
         working-directory: services/extensions
         run: |

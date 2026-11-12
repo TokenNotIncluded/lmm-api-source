@@ -59,7 +59,7 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes binutils musl-tools gcc zstd rpm
-          rustup toolchain install 1.99.0 --profile minimal --target "$RUST_TARGET"
+          rustup toolchain install 1.99.1 --profile minimal --target "$RUST_TARGET"
           mkdir -p "$RUNNER_TEMP/nfpm"
           curl --fail --location --retry 2 --max-time 120 \
             "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_${NFPM_ARCH}.tar.gz" \
@@ -80,8 +80,8 @@ jobs:
           target_env=$(printf '%s' "$RUST_TARGET" | tr '[:lower:]-' '[:upper:]_')
           export "CARGO_TARGET_${target_env}_LINKER=musl-gcc"
           export "CC_${RUST_TARGET//-/_}=musl-gcc"
-          AWS_LC_SYS_USE_SYSTEM=0 cargo +1.99.0 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
-          cargo +1.99.0 build --manifest-path apps/cli/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
+          AWS_LC_SYS_USE_SYSTEM=0 cargo +1.99.1 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
+          cargo +1.99.1 build --manifest-path apps/cli/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
           mkdir -p out/core out/extensions out/cli
           cp "services/core/target/$RUST_TARGET/release/lmm-core" out/core/
           cp "apps/cli/target/$RUST_TARGET/release/lmm" out/cli/
