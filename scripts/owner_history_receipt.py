@@ -16,7 +16,7 @@ def owner_history_import_sql(manifest, *, scope, error_prefix, include_transacti
         delimiter = f"$owner_history_{suffix}$"
     identity_guard = """SELECT FROM jsonb_array_elements_text(m->'source_user_ids') AS x(id)
    LEFT JOIN core_identity.users u ON u.id=x.id::bigint
-   WHERE u.id IS NULL OR u.personal_account_id<>u.id"""
+   WHERE u.id IS NULL"""
     if opening_bound_identity:
         identity_guard = """SELECT FROM jsonb_array_elements_text(m->'source_user_ids') AS x(id)
    LEFT JOIN core_identity.users u ON u.id=x.id::bigint

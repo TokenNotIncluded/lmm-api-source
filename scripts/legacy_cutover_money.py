@@ -525,7 +525,17 @@ def plan_bounties(data, archive_sha, migration_id, observed_at):
         batch = {"migration_id": opening_run(data)["migration_id"], "source_archive_sha256": archive_sha,
                  "mapping_sha256": opening_mapping(data), "review_proof_sha256": digest(projects),
                  "unit": "credit_500k_usd", "observed_at": observed_at, "projects": projects}
-        sql.append("SELECT core_billing.import_legacy_escrow_batch(" + jlit(batch) + ");")
+        existing = data.get("bounty_escrow_run")
+        if existing is not None:
+            request = existing.get("request")
+            if (not isinstance(request, dict) or any(existing.get(key) != batch[key]
+                    for key in ("migration_id", "source_archive_sha256", "mapping_sha256", "observed_at", "unit"))
+                    or sorted(row.get("source_project_id") for row in request.get("projects", []))
+                    != sorted(row["source_project_id"] for row in projects)):
+                fail("bounty_escrow_existing_batch_mismatch")
+            stats["escrow_reused_from_opening"] = len(projects)
+        else:
+            sql.append("SELECT core_billing.import_legacy_escrow_batch(" + jlit(batch) + ");")
     fee_bps = int(Decimal(data["options"].get("OpenSourceBountyFeeRate") or "0") * 100)
     fee_account = personal_account(data, superadmin(data))
     sql.append(f"INSERT INTO core_bounties.policy(id,fee_bps,fee_account_id) VALUES(TRUE,{fee_bps},{fee_account});")
@@ -544,6 +554,7 @@ def plan_wallet(data, archive_sha, migration_id, observed_at):
     sql, stats = [], Counter()
     users = {u["id"] for u in data["users"]}
     mapping = opening_mapping(data)
+    opening_id = opening_run(data)["migration_id"]
     top = 0
     for t in data["wallet_transfers"]:
         if t["status"] not in ("pending", "claimed", "cancelled"):
@@ -555,7 +566,7 @@ def plan_wallet(data, archive_sha, migration_id, observed_at):
             if t["sender_id"] not in users or (recipient is not None and recipient not in users):
                 fail("wallet_transfer_history_orphan")
             sql.append("INSERT INTO core_wallet.legacy_transfer_history(id,owner_user,recipient_user,amount,state,created_at,finished_at,migration_id,source_row_sha256) "
-                       f"VALUES({t['id']},{t['sender_id']},{lit(recipient)},{t['quota']},{lit(t['status'])},{t['created_at']},{finished},{lit(migration_id)},{lit(digest(t))});")
+                       f"VALUES({t['id']},{t['sender_id']},{lit(recipient)},{t['quota']},{lit(t['status'])},{t['created_at']},{finished},{lit(opening_id)},{lit(digest(t))});")
             top = max(top, t["id"])
             stats["terminal_transfer_history"] += 1
             continue
@@ -620,7 +631,7 @@ END$wt$;""")
             # deleted user's payment to a new account or mark it settled.
             stats["unrepresented_payable_topup_orphan_rows"] += 1
             continue
-        sql.append(pending_liability(data, "top_ups", row, archive_sha=archive_sha, migration_id=migration_id,
+        sql.append(pending_liability(data, "top_ups", row, archive_sha=archive_sha, migration_id=opening_id,
                                      observed_at=observed_at,
                                      amount_fields=("amount", "money", "expected_amount_micros", "settled_amount_micros",
                                                     "credited_quota", "refunded_amount_micros", "refunded_quota",

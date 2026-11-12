@@ -1,5 +1,7 @@
 """Synthetic continuation inputs preserve native users and independent accounts."""
+import copy
 import json
+import re
 from pathlib import Path
 import tempfile
 import sys
@@ -188,6 +190,36 @@ class MappingTests(unittest.TestCase):
                          '"participant_user_id":3', '"recipient_account_id":2',
                          '"migration_id":"formal-opening"', "VALUES(TRUE,0,1)"):
             self.assertIn(fragment, text)
+
+    def test_terminal_wallet_history_references_the_committed_opening_run(self):
+        data = source_data(self.binding)
+        data.update(wallet_transfers=[{"id": 7, "sender_id": 2, "recipient_id": 3,
+            "quota": 10, "status": "claimed", "created_at": 10, "claimed_at": 12}],
+            top_ups_payable=[])
+        sql, _ = M.plan_wallet(data, ARCHIVE, "wallet-phase", OBSERVED)
+        self.assertIn("VALUES(7,2,3,10,'claimed',10,12,'formal-opening',", sql[0])
+
+    def test_bounties_reuse_only_the_exact_batch_already_imported_by_opening(self):
+        data = source_data(self.binding)
+        data.update(bounty_projects=[{"id": 7, "owner_user_id": 2, "escrow_quota": 50,
+                                      "status": "published"}], bounty_disputes=[],
+                    bounty_challenges=[{"id": 8, "project_id": 7, "participant_user_id": 3,
+                        "paid_at": 0, "status": "accepted", "rejected_at": 0, "reward_quota": 20}])
+        sql, _ = M.plan_bounties(data, ARCHIVE, "bounty-phase", OBSERVED)
+        encoded = re.fullmatch(r"SELECT core_billing.import_legacy_escrow_batch\((.*)\);", sql[0]).group(1)
+        batch = json.loads(encoded.removeprefix("'").removesuffix("'::jsonb").replace("''", "'"))
+        reused = copy.deepcopy(data)
+        reused["bounty_escrow_run"] = {key: batch[key] for key in
+            ("migration_id", "source_archive_sha256", "mapping_sha256", "observed_at", "unit")}
+        reused["bounty_escrow_run"]["request"] = batch
+        reused_sql, stats = M.plan_bounties(reused, ARCHIVE, "bounty-phase", OBSERVED)
+        self.assertNotIn("import_legacy_escrow_batch", "\n".join(reused_sql))
+        self.assertEqual(stats["escrow_reused_from_opening"], 1)
+        mismatched = copy.deepcopy(data)
+        mismatched["bounty_escrow_run"] = dict(reused["bounty_escrow_run"])
+        mismatched["bounty_escrow_run"]["observed_at"] = OBSERVED + 1
+        with self.assertRaisesRegex(SystemExit, "bounty_escrow_existing_batch_mismatch"):
+            M.plan_bounties(mismatched, ARCHIVE, "bounty-phase", OBSERVED)
 
     def test_history_refuses_wrong_native_map_and_cross_owned_key_before_source_read(self):
         args = SimpleNamespace(source_schema="synthetic", archive_sha256=ARCHIVE,

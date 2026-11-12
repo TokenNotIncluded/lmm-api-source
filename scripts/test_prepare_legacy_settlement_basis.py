@@ -62,7 +62,7 @@ class SettlementFactsTest(unittest.TestCase):
         self.assertIn('i.account_id=u.personal_account_id',sql)
         self.assertIn("i.source_entity_key IN ('user:'||x.id,'legacy.users/'||x.id)",sql)
         self.assertNotIn('u.personal_account_id<>u.id',sql)
-        self.assertIn('u.personal_account_id<>u.id',B.import_sql(self.run_plan()))
+        self.assertNotIn('u.personal_account_id<>u.id',B.import_sql(self.run_plan()))
 
     def test_cc52_rejects_old_commit_wrong_input_and_changed_payment_code(self):
         source=copy.deepcopy(self.source);source['source_namespace']=B.CC52_NAMESPACE

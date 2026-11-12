@@ -553,6 +553,13 @@ def main() -> int:
             if a.phase in ("subscriptions", "bounties", "wallet"):
                 MONEY.bind_opening(data, target, a.archive_sha256, a.observed_at)
                 guards.append(MONEY.opening_guard_sql(data))
+                if a.phase == "bounties":
+                    opening = MONEY.opening_run(data)
+                    data["bounty_escrow_run"] = json.loads(target.run(
+                        "SELECT to_jsonb(r) FROM core_billing.legacy_escrow_batch_runs r WHERE migration_id="
+                        + lit(opening["migration_id"])))
+                    if data["bounty_escrow_run"] is not None:
+                        phase_guard = "SELECT count(*) FROM core_bounties.policy"
             if a.subscriptions_plans_pending_only:
                 sql, stats = MONEY.plan_subscriptions(data, a.archive_sha256, a.migration_id, a.observed_at,
                                                       plans_pending_only=True)
