@@ -570,7 +570,42 @@ def validate_snapshot(snapshot, inputs, derived, migration_id, runtime_roles):
     identity_runs = [r for r in runs if r.get("manifest", {}).get("scope") == "identity-only"]
     require(len(identity_runs) == 1, "identity_import_missing_or_ambiguous")
     allowed = {"identity-only", "console-only", F.SCOPE}
-    require(all(row.get("manifest", {}).get("scope") in allowed for row in runs), "unknown_or_previous_import_receipt")
+    reviewed = snapshot.get("reviewed_prior_import_runs", [])
+    require(type(reviewed) is list, "reviewed_prior_import_runs_invalid")
+    downstream_scopes = {
+        "financial-opening-with-legacy-escrow-v1",
+        "identity-oauth-only", "legacy-passkeys.v1", "legacy-cutover-routing-groups.v1",
+        "legacy-pancake-subscription-originals-v1", "subscription-opening-only-v1",
+        "legacy-topup-settlement-facts.v1",
+    }
+    downstream = [row for row in runs if row.get("manifest", {}).get("scope") not in allowed]
+    require(len(reviewed) == len(downstream)
+            and sorted(reviewed, key=canonical) == sorted(downstream, key=canonical),
+            "unreviewed_prior_import_receipt")
+    require(len({row.get("migration_id") for row in reviewed}) == len(reviewed),
+            "duplicate_prior_import_receipt")
+    for row in reviewed:
+        manifest = row.get("manifest", {})
+        require(manifest.get("scope") in downstream_scopes, "unknown_or_previous_import_receipt")
+        checked_hash(row.get("mapping_sha256"))
+        # Exact reviewed rows are bound by the snapshot input SHA and retained
+        # in the existing full-state CAS, including the immutable registry.
+        if "source_archive_sha256" in manifest:
+            require(manifest["source_archive_sha256"] == inputs["basis"]["source_dump_sha256"],
+                    "prior_receipt_source_mismatch")
+        if "identity_mapping_sha256" in manifest:
+            require(manifest["identity_mapping_sha256"] == identity_runs[0]["mapping_sha256"],
+                    "prior_receipt_identity_mapping_mismatch")
+        if "identity_migration_id" in manifest:
+            require(manifest["identity_migration_id"] == identity_runs[0]["migration_id"],
+                    "prior_receipt_identity_mismatch")
+        material = manifest.get("material", {})
+        attestation = material if material and manifest.get("scope") == "financial-opening-with-legacy-escrow-v1" else material.get("financial_attestation")
+        if attestation is not None:
+            require(all(attestation.get("identity_import", {}).get(key) == identity_runs[0].get(key)
+                        for key in ("migration_id", "mapping_sha256", "source_archive_sha256"))
+                    and attestation.get("source_archive_sha256") == inputs["basis"]["source_dump_sha256"],
+                    "prior_receipt_financial_identity_mismatch")
     I.validate_import_material(inputs["identity_mapping"], inputs["basis"]["source_dump_sha256"], identity_runs[0]["manifest"])
     require(identity_runs[0]["mapping_sha256"] == inputs["identity_mapping"]["mapping_sha256"], "identity_receipt_mapping_mismatch")
     identity_file_hash = sha((I.canonical(inputs["identity_mapping"]) + "\n").encode())

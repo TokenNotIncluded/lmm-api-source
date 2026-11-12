@@ -368,6 +368,29 @@ class TrustImportTests(unittest.TestCase):
         with self.assertRaises(T.Error):
             T.seal_sql(changed, candidate, approval, T.sha(approval))
 
+    def test_reviewed_downstream_receipts_require_exact_snapshot_binding(self):
+        inputs, _ = fixture()
+        snapshot = inputs["target_snapshot"]
+        identity = next(r for r in snapshot["import_runs"] if r["manifest"]["scope"] == "identity-only")
+        row = {"migration_id": "routing", "mapping_sha256": "a" * 64,
+               "source_archive_sha256": inputs["basis"]["source_dump_sha256"],
+               "manifest": {"scope": "legacy-cutover-routing-groups.v1",
+                            "identity_mapping_sha256": identity["mapping_sha256"]}}
+        snapshot["import_runs"].append(row)
+        with self.assertRaisesRegex(T.Error, "unreviewed_prior_import_receipt"):
+            self.prepare(inputs, input_hashes(inputs))
+        snapshot["reviewed_prior_import_runs"] = [deepcopy(row)]
+        self.prepare(inputs, input_hashes(inputs))
+        for field, value in [("scope", "unknown"), ("identity_mapping_sha256", "b" * 64)]:
+            bad = deepcopy(inputs)
+            bad["target_snapshot"]["import_runs"][-1]["manifest"][field] = value
+            bad["target_snapshot"]["reviewed_prior_import_runs"][0]["manifest"][field] = value
+            with self.assertRaises(T.Error):
+                self.prepare(bad, input_hashes(bad))
+        snapshot["reviewed_prior_import_runs"][0]["mapping_sha256"] = "c" * 64
+        with self.assertRaisesRegex(T.Error, "unreviewed_prior_import_receipt"):
+            self.prepare(inputs, input_hashes(inputs))
+
     def test_old_receipt_relabel_and_existing_original_attempt_refused(self):
         material = material_fixture()
         material["format_version"] = 1
