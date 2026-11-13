@@ -110,7 +110,7 @@ def candidate(source, material, identities, input_hashes):
                           for r in source["transfers"]), "store_original_refund_transfer_exists")
         grants.append({"migration_id": material["migration_id"], "source_archive_sha256": source["source_archive_sha256"],
                        "mapping_sha256": source["mapping_sha256"], "observed_at": observed,
-                       "shop_id": STORE.legacy_shop_id(mapping[order["seller_id"]]["target_personal_account_id"]),
+                       "shop_id": STORE.legacy_shop_id(mapping[order["seller_id"]]["target_user_id"]),
                        "source_row_sha256": hashlib.sha256(STORE.jdump(order).encode()).hexdigest(),
                        "source_sale_sha256": hashlib.sha256(STORE.jdump(sale).encode()).hexdigest(),
                        "source_order": projection, "source_sale": {k: sale[k] for k in SALE_FIELDS},

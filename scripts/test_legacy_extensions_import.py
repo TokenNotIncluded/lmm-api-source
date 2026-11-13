@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline store/support ownership regression tests; no paid or remote calls."""
 import copy
+import hashlib
 import json
 from types import SimpleNamespace
 import unittest
@@ -93,12 +94,12 @@ def support_plan(ctx):
 
 
 class OwnershipTests(unittest.TestCase):
-    def test_account_is_separate_from_user_and_shop_matches_native(self):
+    def test_personal_reference_uses_user_id_and_shop_matches_native(self):
         ctx = Context()
         self.assertEqual(IMPORT.store_user(ctx, 11), 11)
-        self.assertEqual(IMPORT.store_account(ctx, 11), {"kind": "personal", "id": 902})
-        self.assertEqual(IMPORT.store_shop_id(ctx, 12), IMPORT.go_id("legacy-web-shop-v1", {"kind": "personal", "id": 901}))
-        self.assertNotEqual(IMPORT.store_shop_id(ctx, 12), IMPORT.legacy_shop_id(12))
+        self.assertEqual(IMPORT.store_account(ctx, 11), {"kind": "personal", "id": 11})
+        self.assertEqual(IMPORT.store_shop_id(ctx, 12), IMPORT.legacy_shop_id(12))
+        self.assertNotEqual(IMPORT.store_shop_id(ctx, 12), IMPORT.legacy_shop_id(901))
         # A source user ID equal to somebody else's account cannot select it.
         with self.assertRaisesRegex(SystemExit, "store_identity_user_unmapped"):
             IMPORT.store_account(ctx, 901)
@@ -131,12 +132,15 @@ class OwnershipTests(unittest.TestCase):
             first = support_plan(ctx)
         self.assertEqual(first.sql, support_plan(ctx).sql)
         messages = [row[3] for row in captured if row[0] == "lmm_support.messages"]
-        self.assertEqual([(m["author_user_id"], m["author_account"]["id"]) for m in messages], [(11, 902), (12, 901)])
+        self.assertEqual([(m["author_user_id"], m["author_account"]["id"]) for m in messages], [(11, 11), (12, 12)])
         conversation = next(row[3] for row in captured if row[0] == "lmm_support.conversations")
         self.assertEqual(conversation["order_id"], "order-source-id")
         self.assertEqual(conversation["product_id"], "product-source-id")
-        self.assertEqual(conversation["buyer"]["id"], 902)
-        self.assertEqual(conversation["seller"]["id"], 901)
+        self.assertEqual(conversation["buyer"]["id"], 11)
+        self.assertEqual(conversation["seller"]["id"], 12)
+        self.assertEqual(conversation["shop_id"], IMPORT.legacy_shop_id(12))
+        self.assertEqual(conversation["id"], IMPORT.go_id("conversation", 11, IMPORT.personal(11),
+            IMPORT.go_id("web-order-support", "order-source-id")))
         self.assertEqual(first.core_sql, [])
         self.assertFalse(any("money_operations" in sql or "post_ledger" in sql for sql in first.sql))
 
@@ -178,6 +182,8 @@ class OwnershipTests(unittest.TestCase):
             merchant_store_catalogue_metadata=[{"product_id": product["id"], "default_variant_id": "variant-source-id"}],
             merchant_store_fixed_contents=[{"variant_id": "variant-source-id", "product_id": product["id"], "ciphertext": "private"}],
             merchant_store_order_fixed_deliveries=[{"order_id": order["id"], "ciphertext": "original-snapshot"}])
+        original_tables = copy.deepcopy(ctx.tables)
+        original_row_sha256 = hashlib.sha256(IMPORT.jdump(order).encode()).hexdigest()
         captured = []
         def capture(table, shop, ident, body):
             captured.append((table, shop, ident, copy.deepcopy(body)))
@@ -189,14 +195,23 @@ class OwnershipTests(unittest.TestCase):
             second = IMPORT.phase_store(ctx)
         self.assertEqual(first.sql, second.sql)
         shop = next(row[3] for row in captured if row[0] == "lmm_store.shops")
-        self.assertEqual(shop["owner"], {"kind": "personal", "id": 901})
+        self.assertEqual(shop["owner"], {"kind": "personal", "id": 12})
+        self.assertEqual(shop["id"], IMPORT.legacy_shop_id(12))
         imported = next(row[3] for row in captured if row[0] == "lmm_store.orders")
         self.assertEqual(imported["id"], order["id"])
-        self.assertEqual(imported["buyer"], {"kind": "personal", "id": 902})
-        self.assertEqual(imported["seller"], {"kind": "personal", "id": 901})
+        self.assertEqual(imported["buyer"], {"kind": "personal", "id": 11})
+        self.assertEqual(imported["seller"], {"kind": "personal", "id": 12})
         self.assertEqual(imported["created_by"], 11)
         self.assertEqual(imported["state"], "settled")
         self.assertEqual(imported["total"]["amount_credits"], 100)
+        self.assertEqual(imported["unit_price"]["amount_credits"], order["unit_price_quota"])
+        self.assertEqual(imported["quantity"], order["quantity"])
+        self.assertEqual(imported["variant_id"], order["variant_id"])
+        self.assertEqual(imported["legacy"]["product_id"], order["product_id"])
+        self.assertEqual(imported["request_hash"], "legacy:" + order["input_digest"])
+        self.assertEqual(imported["imported"], {"source": "go-v0.2.118",
+            "snapshot": original_row_sha256, "claimed_at": order["claimed_at"]})
+        self.assertEqual(ctx.tables, original_tables)
         self.assertEqual(first.core_sql, [])
         self.assertFalse(any("money_operations" in sql or "post_ledger" in sql for sql in first.sql))
 

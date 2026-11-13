@@ -111,8 +111,8 @@ class LegacyStoreRefundBasisTests(unittest.TestCase):
         grant = value["grants"][0]
         self.assertEqual(grant["buyer_user_id"], 12)
         self.assertEqual(grant["seller_user_id"], 11)
-        self.assertEqual(grant["shop_id"], B.STORE.legacy_shop_id(101))
-        self.assertNotEqual(grant["shop_id"], B.STORE.legacy_shop_id(1))
+        self.assertEqual(grant["shop_id"], B.STORE.legacy_shop_id(11))
+        self.assertNotEqual(grant["shop_id"], B.STORE.legacy_shop_id(101))
         self.assertEqual(grant["source_order"]["price_quota"], 100)
         self.assertEqual(grant["source_order"]["fee_quota"], 5)
         self.assertEqual(grant["source_row_sha256"], hashlib.sha256(B.STORE.jdump(self.source["orders"][0]).encode()).hexdigest())
@@ -135,10 +135,21 @@ class LegacyStoreRefundBasisTests(unittest.TestCase):
         for order in self.source["orders"]:
             order.update(buyer_id=1138, seller_id=1139)
         self.source["transfers"][0].update(from_user_id=1138, to_user_id=1139)
+        original_source = copy.deepcopy(self.source)
+        original_material = copy.deepcopy(self.material)
         value = self.build()
         self.assertEqual(len(value["grants"]), 1)
         grant = value["grants"][0]
         self.assertEqual((grant["buyer_user_id"], grant["seller_user_id"]), (1138, 1139))
+        self.assertEqual(grant["shop_id"], B.STORE.legacy_shop_id(1139))
+        self.assertNotEqual(grant["shop_id"], B.STORE.legacy_shop_id(1247))
+        self.assertEqual((grant["source_order"]["buyer_id"], grant["source_order"]["seller_id"]), (1138, 1139))
+        self.assertEqual(grant["source_order"], {k: original_source["orders"][0][k] for k in B.ORDER_FIELDS})
+        self.assertEqual(grant["source_sale"], {k: original_source["transfers"][0][k] for k in B.SALE_FIELDS})
+        self.assertEqual(grant["source_row_sha256"], hashlib.sha256(B.STORE.jdump(original_source["orders"][0]).encode()).hexdigest())
+        self.assertEqual(grant["source_sale_sha256"], hashlib.sha256(B.STORE.jdump(original_source["transfers"][0]).encode()).hexdigest())
+        self.assertEqual(self.source, original_source)
+        self.assertEqual(self.material, original_material)
         review = {"scope": "legacy-store-full-refund-review-v1", "decision": "approved-owner-import",
                   "candidate_sha256": B.F.digest(value), "complete_source_tables": True}
         sql = B.reviewed_sql(value, review)
@@ -212,8 +223,8 @@ class LegacyStoreRefundBasisTests(unittest.TestCase):
             {"account_id": 1, "source_entity_key": "user:2", "observed_at": 200}]
         grant = self.build()["grants"][0]
         self.assertEqual((grant["buyer_user_id"], grant["seller_user_id"]), (11, 12))
-        self.assertEqual(grant["shop_id"], B.STORE.legacy_shop_id(2))
-        self.assertNotEqual(grant["shop_id"], B.STORE.legacy_shop_id(1))
+        self.assertEqual(grant["shop_id"], B.STORE.legacy_shop_id(12))
+        self.assertNotEqual(grant["shop_id"], B.STORE.legacy_shop_id(2))
         self.assertEqual((grant["source_sale"]["from_user_id"], grant["source_sale"]["to_user_id"]), (2, 1))
         self.assertEqual(self.build(), self.build(), "same immutable inputs produce the same candidate")
         self.identities[0]["target_personal_account_id"] = 3

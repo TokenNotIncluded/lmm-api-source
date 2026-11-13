@@ -3,9 +3,10 @@
 
 Reads the restored legacy schema read-only and writes one owner-only transaction
 per module database (one phase per Go module). Legacy user IDs are kept as Core
-user IDs; store/support personal account references use the verified formal
-identity map. Go modules never hold balances: no phase writes
-quota, wallet or ledger state; money facts stay with the Core cutover phases.
+user IDs; store/support personal references keep those user IDs after checking
+the formal identity map. Ledger account IDs stay in Core. Go modules never hold
+balances: no phase writes quota, wallet or ledger state; money facts stay with
+the Core cutover phases.
 
 Each phase refuses a non-empty target, so it cannot run twice. Rows that the new
 architecture cannot represent are reported as archived with a reason; the
@@ -221,7 +222,9 @@ def store_account(ctx: Ctx, uid: int) -> dict:
     aid = ctx.args.identity_binding["accounts"][uid]
     if type(aid) is not int or aid <= 0:
         fail("store_identity_account_invalid")
-    return {"kind": "personal", "id": aid}
+    # Core RPC Account(personal) names a user, not users.personal_account_id.
+    # Keep validating the ledger mapping without leaking its ID into Go refs.
+    return personal(uid)
 
 
 def store_shop_id(ctx: Ctx, uid: int) -> str:
