@@ -41,6 +41,7 @@ type extoreConnectionRow struct {
 	Ciphertext     string `json:"ciphertext"`
 	ExpiresAt      int64  `json:"expires_at"`
 	RefreshPending bool   `json:"refresh_pending"`
+	RevokedAt      int64  `json:"revoked_at"`
 	Version        int64  `json:"version"`
 	UpdatedAt      int64  `json:"updated_at"`
 }
@@ -249,4 +250,48 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 		},
 		"results": results,
 	}, nil
+}
+
+// ExtoreDisconnect revokes the upstream grant and only then deactivates the
+// local connection. Imported products and source history stay in the seller's
+// shop; an unreachable or failing upstream leaves the connection recoverable.
+func (s *Service) ExtoreDisconnect(ctx context.Context, token string, userID int64, id string) (any, error) {
+	if !s.ExtoreReady() {
+		return nil, ErrUnavailable
+	}
+	if userID <= 0 || !Text(token, 256) || !Text(id, 128) {
+		return nil, ErrUnauthorized
+	}
+	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
+		return nil, err
+	}
+	row, err := s.readExtoreConnection(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	credentials, err := s.decryptExtoreRevocationCredentials(row, time.Now().UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	client := extore.Client{HTTP: s.extoreHTTP}
+	if err := client.RevokeConnection(ctx, row.Origin, row.ClientID, credentials); err != nil {
+		return nil, mapExtoreErr(err)
+	}
+	now := time.Now().UTC().Unix()
+	err = s.repo.Within(ctx, extoreSellerShop(userID), func(tx Tx) error {
+		var current extoreConnectionRow
+		if err := tx.Get(extoreConnectionKind, id, &current); err != nil {
+			return err
+		}
+		if current.RevokedAt != 0 {
+			return nil
+		}
+		current.RevokedAt = now
+		current.UpdatedAt = now
+		return tx.Put(extoreConnectionKind, id, current)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "revoked_at": now}, nil
 }

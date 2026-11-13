@@ -188,7 +188,7 @@ func TestExtoreRefreshFence(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(1)
 	row := seedConnection(t, s, userID, time.Now().Unix()-10)
-	credentials, err := s.openExtoreCredentials(row)
+	credentials, err := s.decryptExtoreSyncCredentials(row, time.Now().Unix())
 	must(t, err)
 	calls := 0
 	s.extoreHTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -220,7 +220,7 @@ func TestExtoreRefreshFence(t *testing.T) {
 	if stored.RefreshPending || stored.Version != 2 || stored.Ciphertext == oldCipher {
 		t.Fatalf("%+v", stored)
 	}
-	opened, err := s.openExtoreCredentials(stored)
+	opened, err := s.decryptExtoreSyncCredentials(stored, time.Now().Unix())
 	must(t, err)
 	if opened.Access != "next-access" {
 		t.Fatal(opened.Access)
@@ -229,7 +229,7 @@ func TestExtoreRefreshFence(t *testing.T) {
 	must(t, s.repo.Within(ctx, extoreSellerShop(userID), func(tx Tx) error {
 		return tx.Put(extoreConnectionKind, stored.ID, stored)
 	}))
-	_, err = s.openExtoreCredentials(stored)
+	_, err = s.decryptExtoreSyncCredentials(stored, time.Now().Unix())
 	wantError(t, err, ErrExtoreReauthorize)
 }
 
@@ -238,7 +238,7 @@ func TestExtoreRefreshFailureLeavesPending(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(1)
 	row := seedConnection(t, s, userID, time.Now().Unix()-10)
-	credentials, err := s.openExtoreCredentials(row)
+	credentials, err := s.decryptExtoreSyncCredentials(row, time.Now().Unix())
 	must(t, err)
 	s.extoreHTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 500, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
@@ -252,7 +252,7 @@ func TestExtoreRefreshFailureLeavesPending(t *testing.T) {
 	if !stored.RefreshPending || stored.Version != 1 {
 		t.Fatalf("failed refresh must leave pending fence: %+v", stored)
 	}
-	_, err = s.openExtoreCredentials(stored)
+	_, err = s.decryptExtoreSyncCredentials(stored, time.Now().Unix())
 	wantError(t, err, ErrExtoreReauthorize)
 }
 

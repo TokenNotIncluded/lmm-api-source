@@ -82,34 +82,6 @@ func (s *Service) listKind(ctx context.Context, shop, kind string) ([]json.RawMe
 	return out, nil
 }
 
-func (s *Service) openExtoreCredentials(row extoreConnectionRow) (extore.Credentials, error) {
-	if row.RefreshPending || row.ExpiresAt <= time.Now().UTC().Unix() {
-		return extore.Credentials{}, ErrExtoreReauthorize
-	}
-	secret, err := s.extore.open(extoreConnectionAAD(row.ID), row.Ciphertext)
-	if err != nil {
-		return extore.Credentials{}, ErrExtoreReauthorize
-	}
-	var credentials extore.Credentials
-	if json.Unmarshal(secret, &credentials) != nil || credentials.Access == "" || credentials.Refresh == "" {
-		return extore.Credentials{}, ErrExtoreReauthorize
-	}
-	return credentials, nil
-}
-
-func (s *Service) loadExtoreConnection(ctx context.Context, userID int64, id string) (extoreConnectionRow, extore.Credentials, error) {
-	shop := extoreSellerShop(userID)
-	var row extoreConnectionRow
-	err := s.repo.Within(ctx, shop, func(tx Tx) error {
-		return tx.Get(extoreConnectionKind, id, &row)
-	})
-	if err != nil {
-		return extoreConnectionRow{}, extore.Credentials{}, err
-	}
-	credentials, err := s.openExtoreCredentials(row)
-	return row, credentials, err
-}
-
 func (s *Service) refreshExtoreCredentials(ctx context.Context, userID int64, row *extoreConnectionRow, credentials extore.Credentials) (extore.Credentials, error) {
 	shop := extoreSellerShop(userID)
 	version := row.Version
@@ -164,7 +136,11 @@ func (s *Service) refreshExtoreCredentials(ctx context.Context, userID int64, ro
 }
 
 func (s *Service) connectionCatalog(ctx context.Context, userID int64, id string) (*extore.Catalog, extoreConnectionRow, error) {
-	row, credentials, err := s.loadExtoreConnection(ctx, userID, id)
+	row, err := s.readExtoreConnection(ctx, userID, id)
+	if err != nil {
+		return nil, extoreConnectionRow{}, err
+	}
+	credentials, err := s.decryptExtoreSyncCredentials(row, time.Now().UTC().Unix())
 	if err != nil {
 		return nil, extoreConnectionRow{}, err
 	}
@@ -203,6 +179,9 @@ func (s *Service) ExtoreConnections(ctx context.Context, token string, userID in
 		var row extoreConnectionRow
 		if json.Unmarshal(raw, &row) != nil || row.ID == "" {
 			return nil, ErrUnavailable
+		}
+		if row.RevokedAt != 0 {
+			continue
 		}
 		connections = append(connections, map[string]any{
 			"id": row.ID, "origin": row.Origin, "shop_id": row.ShopID, "shop_name": row.ShopName,
@@ -524,7 +503,7 @@ func (s *Service) persistExtoreProduct(ctx context.Context, userID int64, connec
 		if err := tx.Get(extoreConnectionKind, connectionID, &connection); err != nil {
 			return err
 		}
-		if connection.RefreshPending || connection.ExpiresAt <= time.Now().UTC().Unix() {
+		if connection.connectionStatus(time.Now().UTC().Unix()) != extoreConnectionActive {
 			return ErrExtoreReauthorize
 		}
 		return nil

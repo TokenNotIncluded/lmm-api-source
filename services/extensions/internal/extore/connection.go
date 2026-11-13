@@ -51,6 +51,14 @@ func (c Client) RefreshConnection(ctx context.Context, origin, clientID string, 
 	}
 	return next, nil
 }
+// RevokeConnection discards the stored grant at the fixed revocation endpoint.
+// The refresh token travels only in the form body and is never part of an error.
+func (c Client) RevokeConnection(ctx context.Context, origin, clientID string, credentials Credentials) error {
+	if credentials.Refresh == "" {
+		return ErrInput
+	}
+	return c.request(ctx, http.MethodPost, origin+revokePath, "", url.Values{"token": {credentials.Refresh}, "client_id": {clientID}, "token_type_hint": {"refresh_token"}}, nil, 64<<10)
+}
 func (c Client) ConnectionCatalog(ctx context.Context, origin string, credentials Credentials) (*Catalog, error) {
 	var catalog Catalog
 	if err := c.request(ctx, http.MethodGet, origin+catalogPath, credentials.Access, nil, &catalog, 16<<20); err != nil {

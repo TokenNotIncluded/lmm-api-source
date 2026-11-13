@@ -6,7 +6,9 @@
 
 ## 用户流程
 
-商城选择导入，跳转 Extore 登录并批准商品授权，返回后自动同步商品与全部规格。列表显示来源、同步按钮和上次同步时间；连接管理支持查看与按源同步。
+商城选择导入，跳转 Extore 登录并批准商品授权，返回后自动同步商品与全部规格。列表显示来源、同步按钮和上次同步时间；连接管理支持查看、按源同步与断开连接。
+
+断开连接需要当前店铺的管理权限。服务端先向 Extore 撤销该连接的上游授权，成功后才在本地停用连接；上游不可达或撤销失败时保留本地连接，以便重试。断开不会删除已导入商品或来源历史；该连接不再列为可用，后续目录读取和同步需要重新授权。
 
 Extore 是导入商品配置的权威来源。商城不能绕过上游修改受控字段；同一来源重复同步更新原商品和规格，同 revision 只刷新卡密统计。同步不自动发行或补货卡密。
 
@@ -21,6 +23,7 @@ Go 商店配置需要 `store.extore_key_file` 和 `store.extore_redirect_uri`。
 | `GET /api/store/extore/connections` | 当前店铺连接 |
 | `GET /api/store/extore/connections/{id}/catalog` | 指定连接的目录 |
 | `POST /api/store/extore/connections/{id}/sync` | 按连接同步 |
+| `POST /api/store/extore/connections/{id}/disconnect` | 撤销上游授权并停用本地连接，保留已导入商品及来源历史 |
 
 实现入口：[Extore handler](../services/extensions/internal/modules/store/extore.go)、[商店说明](../services/extensions/internal/modules/store/README.md)。回调、刷新 fence 和上游只读检查属于同一授权链，不能由浏览器声明覆盖服务端状态。
 
