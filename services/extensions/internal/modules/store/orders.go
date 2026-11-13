@@ -71,7 +71,7 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			return err
 		}
 		if !visible {
-			return ErrNotFound
+			return ErrConflict
 		}
 		ready, err := productPurchaseReady(LocatedProduct{Owner: shop.Owner, Product: product}, p.Buyer)
 		if err != nil {
