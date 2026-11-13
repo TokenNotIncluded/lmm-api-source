@@ -97,8 +97,12 @@
 | 市场审核Go恢复 | 阶段提交 `52f8776`、`6b268e9`；独立PG收据 `pg-market-review-independent-ids9wytd/receipt.json`，包含实际COMMIT后注入ACK丢失再关闭/重建连接池；129个相关源文件验前验后摘要一致。 |
 | HeroSMS HTTP接线 | `6b268e9`；`herosms-go-tcp-independent.log` 的5项本机HTTP契约通过，Core资金与供应商不在此证据范围。原4项Unix socket测试因环境拒绝创建socket而失败，提升权限请求被自动审核拒绝；保留失败，不记为部署通过。 |
 | 扩展注册与路由 | Web `6657c0b`、Go与开发指南 `b654171`；`go-plugin-targeted.jsonl`中modules/composition/app共34项顶层测试通过，Web第一次编译失败保留；修复后`go-webcompat-final.jsonl`为138项通过、5项PG跳过，均开启race。`go-build.log`退出0；Web8项和类型检查证据绑定`6657c0b`。后续并行i18n提交`e39c2bc`已保留，不把这些自测视为其整站验收。新增包和接口写法见[插件开发](plugin-development.md)。 |
+| Core 模型与原生折扣码 | `lmm-completion-20261113/independent-core/report.json`；涵盖音频、Responses 转换、折扣码与 66→67 升级 |
+| Web 折扣码报价与确认入队 | `lmm-completion-20261113/discount-independent-e924a11361/report.json`；真实 HTTP→Go→Core RPC→PG，不含 provider 执行 |
+| 匿名提货 | `lmm-completion-20261113/independent-store/final/report.json`、`postgres-report.json` |
+| 支付签名过期与重启 | `lmm-completion-20261113/payment-expiry-79d9d4af2e73/report.json`；真实等待 302 秒，Go 进程重启、Core 服务对象重建 |
 
-上述路径位于操作者私有缓存/状态目录，包含受限业务材料。仓库只记录证据位置，不提交秘密与用户数据。
+上述路径位于操作者私有缓存/状态目录，包含受限业务材料。仓库只记录证据位置，不提交秘密与用户数据。各收据仅证明其绑定版本与范围，不代表当前源码或整站已验收。
 
 ## 范围与维护
 
