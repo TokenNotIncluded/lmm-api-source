@@ -101,6 +101,33 @@ pub(super) struct CreditQuote {
 }
 
 impl CreditQuote {
+    pub(super) fn apply_code_percent(&mut self, percent: i32) -> Result<()> {
+        if !(1..100).contains(&percent) {
+            return Err(Error::Invalid);
+        }
+        // Reduce the combined ratio to preserve the existing frozen quote bounds.
+        let mut numerator = self
+            .discount_numerator
+            .checked_mul(i64::from(100 - percent))
+            .ok_or(Error::Invalid)?;
+        let mut denominator = self
+            .discount_denominator
+            .checked_mul(100)
+            .ok_or(Error::Invalid)?;
+        let (mut a, mut b) = (numerator, denominator);
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        numerator /= a;
+        denominator /= a;
+        if numerator > MAX_RATIO_PART || denominator > MAX_RATIO_PART {
+            return Err(Error::Invalid);
+        }
+        self.discount_numerator = numerator;
+        self.discount_denominator = denominator;
+        Ok(())
+    }
+
     pub(super) fn amount_minor(&self, credits: i64) -> Result<i64> {
         if credits <= 0
             || !(1..=MAX_RATIO_PART).contains(&self.settlement_per_usd_numerator)

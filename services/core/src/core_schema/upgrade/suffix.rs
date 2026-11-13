@@ -34,6 +34,7 @@ macro_rules! reject_suffix {
             "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
             "core-commerce-display-rate-v1" => concat!("COMMERCE_DISPLAY_RATE_", $code),
             "core-59-to-62-v1" => concat!("CORE62_", $code),
+            "core-payment-discounts-v1" => concat!("PAYMENT_DISCOUNTS_", $code),
             "core-subscription-epay-v1" => concat!("SUBSCRIPTION_EPAY_", $code),
             "core-subscription-pancake-language-optional-v1" => concat!("PANCAKE_LANGUAGE_", $code),
             _ => concat!("CHANNEL_PROJECTION_", $code),
@@ -243,6 +244,9 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
                 .bind(Sha256::digest(ddl.as_bytes()).to_vec())
                 .execute(&mut *tx)
                 .await?;
+        }
+        if self.procedure == super::payment_discounts::PROCEDURE {
+            super::payment_discounts::grant_runtime(&mut tx, &r.roles.runtime).await?;
         }
         if self.procedure == super::core59_to62::PROCEDURE {
             super::core59_to62::grant_runtime(&mut tx, &r.roles.runtime).await?;

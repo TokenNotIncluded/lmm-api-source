@@ -530,6 +530,14 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 .merge(lmm_core::subscriptions::router(pool.clone()))
                 .merge(lmm_core::promotions::router(pool.clone()))
                 .merge(lmm_core::promotions::red_packets::router(pool.clone()));
+            if config::payments_configured() {
+                let discount_store = lmm_core::payments::PaymentsStore::new(
+                    pool.clone(),
+                    config::configured_payment_channels()?,
+                )
+                .map_err(|_| "invalid payment discount channel configuration")?;
+                routes = routes.merge(lmm_core::payments::discounts::http::router(discount_store));
+            }
             notification_runtime = Some(console);
             capabilities.console = true;
         }

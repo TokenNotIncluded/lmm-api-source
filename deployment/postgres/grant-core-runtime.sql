@@ -567,6 +567,10 @@ GRANT SELECT, INSERT ON core_payments.receipts, core_payments.provider_events,
     core_payments.accepted_proofs, core_payments.refund_dispatches,
     core_payments.refund_dispatch_bindings TO :"runtime_role";
 GRANT USAGE, SELECT ON SEQUENCE core_payments.intents_id_seq TO :"runtime_role";
+-- BEGIN payment-discounts runtime grants
+GRANT SELECT,INSERT,UPDATE ON core_payments.discount_codes,core_payments.discount_reservations TO :"runtime_role";
+GRANT USAGE,SELECT ON SEQUENCE core_payments.discount_codes_id_seq TO :"runtime_role";
+-- END payment-discounts runtime grants
 \endif
 \if :enable_humangrant
 GRANT USAGE ON SCHEMA core_humangrant TO :"runtime_role";

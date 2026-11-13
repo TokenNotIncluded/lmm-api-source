@@ -394,7 +394,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             return;
         }
         if schema == "core_payments" {
-            let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+            let mut grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
                 .split_once("\\if :enable_payments\n")
                 .unwrap()
                 .1
@@ -402,6 +402,23 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &self.name);
+            // Older payment fixtures deliberately install only the historical
+            // base schema. Fresh installations always require the full grants.
+            let discounts_installed: bool = sqlx::query_scalar(
+                "SELECT to_regclass('core_payments.discount_codes') IS NOT NULL",
+            )
+            .fetch_one(&self.owner)
+            .await
+            .unwrap();
+            if !discounts_installed {
+                let (before, rest) = grants
+                    .split_once("-- BEGIN payment-discounts runtime grants\n")
+                    .unwrap();
+                let (_, after) = rest
+                    .split_once("-- END payment-discounts runtime grants\n")
+                    .unwrap();
+                grants = format!("{before}{after}");
+            }
             sqlx::raw_sql(&grants).execute(&self.owner).await.unwrap();
             return;
         }

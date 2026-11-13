@@ -685,6 +685,10 @@ pub(crate) async fn check_connection(
             AND has_table_privilege('core_payments.legacy_discount_consumptions','SELECT')
             AND has_table_privilege('core_payments.intents','UPDATE')
             AND has_table_privilege('core_payments.refund_holds','UPDATE')
+            AND has_table_privilege('core_payments.discount_codes','UPDATE')
+            AND has_table_privilege('core_payments.discount_reservations','UPDATE')
+            AND has_sequence_privilege('core_payments.discount_codes_id_seq','USAGE')
+            AND has_sequence_privilege('core_payments.discount_codes_id_seq','SELECT')
             AND has_sequence_privilege('core_payments.intents_id_seq','USAGE')
             AND has_sequence_privilege('core_payments.intents_id_seq','SELECT')
         "#,

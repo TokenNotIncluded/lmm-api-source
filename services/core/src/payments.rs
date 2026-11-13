@@ -2,6 +2,7 @@
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
 pub(crate) mod credit_quote;
+pub mod discounts;
 pub(crate) mod identifiers;
 mod legacy;
 mod legacy_pancake;
@@ -946,6 +947,17 @@ impl PaymentsStore {
         credential: &str,
         request: pb::PrepareTopupRequest,
     ) -> Result<pb::PaymentIntent> {
+        self.prepare_with_discount(credential, request, "").await
+    }
+
+    /// Codes affect settlement only; reservation and intent commit together.
+    pub async fn prepare_with_discount(
+        &self,
+        credential: &str,
+        request: pb::PrepareTopupRequest,
+        discount_code: &str,
+    ) -> Result<pb::PaymentIntent> {
+        let discount_code = discounts::normalize_optional(discount_code)?;
         let key = mutation(&request.mutation)?;
         let channel = self
             .channels
@@ -969,6 +981,11 @@ impl PaymentsStore {
                 request.amount_minor,
                 request.requested_credit_units
             ]))
+        };
+        let request_hash = if discount_code.is_empty() {
+            request_hash
+        } else {
+            hash(json!([request_hash, discount_code]))
         };
         let mut tx = self.begin().await?;
         let actor = Self::authorize(&mut tx, credential, request.account_id).await?;
@@ -1008,10 +1025,25 @@ impl PaymentsStore {
             identity::NewResourceAction::PaymentIntent,
         )
         .await?;
+        let discount = if discount_code.is_empty() {
+            None
+        } else {
+            // Only credit-quantity channels can preserve the credit anchor.
+            if channel.credit_quote.is_none() {
+                return Err(Error::Invalid);
+            }
+            Some(
+                discounts::eligible(&mut tx, &discount_code, request.requested_credit_units)
+                    .await?,
+            )
+        };
         let (amount_minor, credit_units, quote) = match &channel.credit_quote {
             Some(policy) => {
                 units(request.requested_credit_units)?;
-                let quote = policy.freeze(request.requested_credit_units)?;
+                let mut quote = policy.freeze(request.requested_credit_units)?;
+                if let Some(code) = &discount {
+                    quote.apply_code_percent(code.discount_percent)?;
+                }
                 let amount = quote.amount_minor(request.requested_credit_units)?;
                 if request.amount_minor < 0
                     || (request.amount_minor != 0 && request.amount_minor != amount)
@@ -1037,6 +1069,15 @@ impl PaymentsStore {
         }
         let id: i64 = sqlx::query_scalar("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash,credit_quote) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id")
             .bind(request.account_id).bind(actor).bind(channel.id).bind(&channel.provider).bind(&channel.merchant).bind(&channel.environment).bind(&channel.currency).bind(amount_minor).bind(credit_units).bind(channel.credits_per_minor).bind(key).bind(&request_hash).bind(quote).fetch_one(&mut *tx).await?;
+        if let Some(code) = &discount {
+            sqlx::query(
+                "INSERT INTO core_payments.discount_reservations(intent_id,code_id) VALUES($1,$2)",
+            )
+            .bind(id)
+            .bind(code.id)
+            .execute(&mut *tx)
+            .await?;
+        }
         let intent = pb::PaymentIntent {
             intent_id: id,
             account_id: request.account_id,
@@ -1104,7 +1145,11 @@ impl PaymentsStore {
                 intent.environment,
                 verified.transaction
             ]));
-            let payment_reference = format!("{}:{}", intent.provider, crate::hex_codec::encode(reference_digest));
+            let payment_reference = format!(
+                "{}:{}",
+                intent.provider,
+                crate::hex_codec::encode(reference_digest)
+            );
             let outcome = Self::post(
                 &mut tx,
                 intent.id,

@@ -88,6 +88,9 @@ impl IngressStore {
     }
 }
 async fn fresh(pool: &PgPool) -> Fixture {
+    fresh_with_level(pool, 0).await
+}
+async fn fresh_with_level(pool: &PgPool, level: i16) -> Fixture {
     let identity = IdentityStore::from_pool(pool.clone());
     identity.init_database().await.unwrap();
     // Payment-intent admission reads the required Core abuse policy. Install it
@@ -106,7 +109,7 @@ async fn fresh(pool: &PgPool) -> Fixture {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let issued = identity.bootstrap_user(101, 0).await.unwrap();
+    let issued = identity.bootstrap_user(101, level).await.unwrap();
     let account = identity
         .authorize(&issued.secret)
         .await
@@ -3062,3 +3065,6 @@ async fn credit_quantity_signed_credit_and_controlled_remaining_hold(pool: PgPoo
     assert_eq!(f.store.hold(&f.secret, request).await.unwrap(), hold);
     balance(&f, 0, 498_507).await;
 }
+
+#[path = "payments/app05.rs"]
+mod app05;
