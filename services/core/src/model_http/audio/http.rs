@@ -184,11 +184,11 @@ impl ChatRequest {
             if object.len() != 2
                 || !matches!(
                     message["role"].as_str(),
-                    Some("user" | "system" | "developer")
+                    Some("user" | "system" | "developer" | "assistant")
                 )
             {
                 return Err(RelayError::Unsupported(
-                    "audio v1 accepts user/system/developer messages without tools or references",
+                    "audio chat accepts text history and user audio without tools or references",
                 ));
             }
             match &message["content"] {
@@ -200,7 +200,9 @@ impl ChatRequest {
                             .ok_or(RelayError::Invalid("audio content"))?;
                         match part["type"].as_str() {
                             Some("text") if object.len() == 2 && part["text"].is_string() => (),
-                            Some("input_audio") if object.len() == 2 => {
+                            Some("input_audio")
+                                if object.len() == 2 && message["role"] == "user" =>
+                            {
                                 let audio = part["input_audio"]
                                     .as_object()
                                     .ok_or(RelayError::Invalid("input audio"))?;

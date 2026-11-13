@@ -14,6 +14,7 @@ use tower::ServiceExt;
 #[derive(Clone)]
 struct SupplierState {
     hits: Arc<AtomicUsize>,
+    messages: Arc<Mutex<Value>>,
     missing: bool,
     official: bool,
     pause: Option<Arc<tokio::sync::Notify>>,
@@ -60,6 +61,7 @@ impl Supplier {
             state.hits.fetch_add(1, Ordering::SeqCst);
             assert_eq!(request["model"], "synthetic-audio-upstream");
             assert_eq!(request["max_completion_tokens"], 16);
+            *state.messages.lock().unwrap() = request["messages"].clone();
             let mut value = json!({"model":"synthetic-audio-upstream","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"synthetic transcript"}}],
                 "usage":{"prompt_tokens":4,"completion_tokens":6,"total_tokens":10,"prompt_tokens_details":{"text_tokens":1,"audio_tokens":3},"completion_tokens_details":{"text_tokens":2,"audio_tokens":4}}});
             if state.missing {
@@ -151,6 +153,7 @@ impl Supplier {
         let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
         let state = SupplierState {
             hits: Arc::new(AtomicUsize::new(0)),
+            messages: Arc::new(Mutex::new(Value::Null)),
             missing,
             official,
             pause,
@@ -246,7 +249,7 @@ fn gateway(pool: &PgPool, supplier: &Supplier) -> ModelGateway {
 fn request(key: &str, id: &str) -> HttpRequest<Body> {
     HttpRequest::builder().method("POST").uri("/v1/chat/completions").header(header::AUTHORIZATION,format!("Bearer {key}"))
         .header(header::CONTENT_TYPE,"application/json").header("idempotency-key",id)
-        .body(Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"synthetic input"}],"max_completion_tokens":16}).to_string())).unwrap()
+        .body(Body::from(json!({"model":"audio-public","messages":[{"role":"user","content":"First question"},{"role":"assistant","content":"Previous answer"},{"role":"user","content":"synthetic input"}],"max_completion_tokens":16}).to_string())).unwrap()
 }
 
 #[sqlx::test(migrations = false)]
@@ -303,6 +306,10 @@ async fn audio_http_pg_settles_four_counters_once_and_preserves_raw_receipt(pool
         StatusCode::CONFLICT
     );
     assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        supplier.state.messages.lock().unwrap()[1],
+        json!({"role":"assistant","content":"Previous answer"})
+    );
     let balance = f.ledger.balance(f.account).await.unwrap();
     assert_eq!((balance.available_units, balance.reserved_units), (9938, 0));
     drop(gateway);
@@ -354,6 +361,35 @@ async fn audio_http_pg_missing_modality_keeps_hold_and_cannot_settle_zero(pool: 
     assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
     drop(gateway);
     runtime.cleanup().await;
+}
+
+#[test]
+fn audio_chat_preserves_multiturn_text_history_on_the_wire() {
+    let messages = json!([
+        {"role":"system","content":"Answer briefly"},
+        {"role":"user","content":[{"type":"input_audio","input_audio":{"format":"wav","data":"UklGRg=="}}]},
+        {"role":"assistant","content":"You asked about the weather."},
+        {"role":"user","content":"And tomorrow?"},
+        {"role":"assistant","content":[{"type":"text","text":"Rain is expected."}]},
+        {"role":"user","content":"Summarize that."}
+    ]);
+    let body = json!({"model":"audio-public","messages":messages,"max_completion_tokens":16});
+    let parsed = ChatRequest::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
+    let wire: Value = serde_json::from_slice(&parsed.wire("supplier-model").unwrap()).unwrap();
+    assert_eq!(wire["messages"], messages);
+    assert_eq!(wire["model"], "supplier-model");
+    assert_eq!(wire["max_completion_tokens"], 16);
+}
+
+#[test]
+fn audio_input_is_only_accepted_in_user_messages() {
+    for role in ["assistant", "system", "developer"] {
+        let body = json!({"model":"audio-public","messages":[{"role":role,"content":[{"type":"input_audio","input_audio":{"format":"wav","data":"UklGRg=="}}]}],"max_completion_tokens":16});
+        assert!(
+            ChatRequest::parse(&serde_json::to_vec(&body).unwrap()).is_err(),
+            "role {role}"
+        );
+    }
 }
 
 #[test]
