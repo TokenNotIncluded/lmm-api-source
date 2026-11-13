@@ -118,7 +118,7 @@ pub struct Request {
     pub(crate) continuation_token: Option<String>,
     /// Untrusted compatibility values awaiting the actual selected route policy.
     compatibility: Map<String, Value>,
-    /// OpenAI Chat `response_format`. Gemini receives `responseSchema` or
+    /// OpenAI Chat `response_format` and Responses `text.format`. Gemini receives `responseSchema` or
     /// `responseJsonSchema`; other protocols cannot represent it.
     response_format: Option<ResponseFormat>,
 }
@@ -153,6 +153,41 @@ impl ResponseFormat {
                     body["strict"] = json!(strict);
                 }
                 json!({"type":"json_schema","json_schema": body})
+            }
+        }
+    }
+
+    fn to_responses_value(&self) -> Value {
+        let chat = self.to_chat_value();
+        if let Self::JsonSchema(_) = self {
+            let mut format = chat["json_schema"].clone();
+            format["type"] = json!("json_schema");
+            format
+        } else {
+            chat
+        }
+    }
+
+    fn apply_gemini(&self, generation: &mut Value, client: ClientProtocol) {
+        match self {
+            Self::Text => {}
+            Self::JsonObject => {
+                generation["responseMimeType"] = json!("application/json");
+            }
+            Self::JsonSchema(schema) => {
+                generation["responseMimeType"] = json!("application/json");
+                if client == ClientProtocol::Responses {
+                    // Keep Responses JSON Schema intact so the ordered-schema
+                    // writer can match it, including additionalProperties.
+                    generation["responseJsonSchema"] = schema.schema.clone();
+                } else {
+                    let placed = super::gemini_schema::response_schema(
+                        &schema.schema,
+                        super::gemini_schema::ACCEPTS_JSON_SCHEMA,
+                    );
+                    debug_assert!(placed.warnings.is_empty());
+                    generation[placed.field] = placed.value;
+                }
             }
         }
     }
@@ -427,6 +462,26 @@ fn response_format(v: &Value) -> Result<Option<ResponseFormat>, RelayError> {
             )?)))
         }
         _ => Err(RelayError::Unsupported("unsupported response format")),
+    }
+}
+
+fn responses_text_format(v: &Value) -> Result<Option<ResponseFormat>, RelayError> {
+    let Some(text) = v.get("text").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    keys(text, &["format"])?;
+    let Some(format) = text.get("format").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    if format["type"] == "json_schema" {
+        keys(format, &["type", "name", "description", "schema", "strict"])?;
+        let mut schema = object(format)?.clone();
+        schema.remove("type");
+        Ok(Some(ResponseFormat::JsonSchema(json_schema_format(
+            &Value::Object(schema),
+        )?)))
+    } else {
+        response_format(&json!({"response_format": format}))
     }
 }
 
@@ -764,6 +819,7 @@ impl Request {
                     "reasoning",
                     "store",
                     "prompt_cache_options",
+                    "text",
                 ],
             )?,
         }
@@ -1161,7 +1217,11 @@ impl Request {
             },
             continuation_token: None,
             compatibility: Map::new(),
-            response_format: response_format(&v)?,
+            response_format: if client == ClientProtocol::Responses {
+                responses_text_format(&v)?
+            } else {
+                response_format(&v)?
+            },
         };
         request.capture_ordered_schemas(client, body);
         Ok(request)
@@ -1176,8 +1236,12 @@ impl Request {
         if let Some(captured) = captured {
             self.assign_ordered_schemas(&captured);
         }
-        if client == ClientProtocol::Chat
-            && let Some(raw) = super::schema_order::chat_response_schema(body)
+        let response_schema = match client {
+            ClientProtocol::Chat => super::schema_order::chat_response_schema(body),
+            ClientProtocol::Responses => super::schema_order::responses_response_schema(body),
+            ClientProtocol::Anthropic | ClientProtocol::Gemini => None,
+        };
+        if let Some(raw) = response_schema
             && let Some(format) = self.response_format.as_mut()
         {
             format.adopt_ordered_schema(&raw);
@@ -1454,10 +1518,13 @@ impl Request {
             ));
         }
         if self.response_format.is_some()
-            && !matches!(protocol, UpstreamProtocol::Chat | UpstreamProtocol::Gemini)
+            && !matches!(
+                protocol,
+                UpstreamProtocol::Chat | UpstreamProtocol::Responses | UpstreamProtocol::Gemini
+            )
         {
             return Err(RelayError::Unsupported(
-                "response_format requires a Chat or Gemini route",
+                "response_format requires a Chat, Responses or Gemini route",
             ));
         }
         if matches!(
@@ -1537,6 +1604,9 @@ impl Request {
             converted["store"] = json!(false);
         }
         if protocol == UpstreamProtocol::Responses {
+            if let Some(format) = &self.response_format {
+                converted["text"] = json!({"format": format.to_responses_value()});
+            }
             if let Some(options) = &self.prompt_cache_options {
                 converted["prompt_cache_options"] = options.clone();
             }
@@ -1555,22 +1625,7 @@ impl Request {
                 converted["generationConfig"]["imageConfig"] = image_config.to_gemini_value();
             }
             if let Some(format) = &self.response_format {
-                match format {
-                    ResponseFormat::Text => {}
-                    ResponseFormat::JsonObject => {
-                        converted["generationConfig"]["responseMimeType"] =
-                            json!("application/json")
-                    }
-                    ResponseFormat::JsonSchema(schema) => {
-                        converted["generationConfig"]["responseMimeType"] =
-                            json!("application/json");
-                        let placed = super::gemini_schema::response_schema(
-                            &schema.schema,
-                            super::gemini_schema::ACCEPTS_JSON_SCHEMA,
-                        );
-                        converted["generationConfig"][placed.field] = placed.value;
-                    }
-                }
+                format.apply_gemini(&mut converted["generationConfig"], self.client);
             }
             if let Some(token) = &self.continuation_token {
                 converted["continuationToken"] = json!(token);
@@ -1936,21 +1991,7 @@ impl Request {
             generation["imageConfig"] = image_config.to_gemini_value();
         }
         if let Some(format) = &self.response_format {
-            match format {
-                ResponseFormat::Text => {}
-                ResponseFormat::JsonObject => {
-                    generation["responseMimeType"] = json!("application/json");
-                }
-                ResponseFormat::JsonSchema(schema) => {
-                    generation["responseMimeType"] = json!("application/json");
-                    let placed = super::gemini_schema::response_schema(
-                        &schema.schema,
-                        super::gemini_schema::ACCEPTS_JSON_SCHEMA,
-                    );
-                    debug_assert!(placed.warnings.is_empty());
-                    generation[placed.field] = placed.value;
-                }
-            }
+            format.apply_gemini(&mut generation, self.client);
         }
         let mut v = json!({"contents":contents,"generationConfig":generation});
         if let Some(token) = &self.continuation_token {
@@ -2559,3 +2600,7 @@ mod zconv_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "responses_format_tests.rs"]
+mod responses_format_tests;

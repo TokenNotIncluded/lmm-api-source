@@ -154,6 +154,23 @@ pub(crate) fn chat_response_schema(body: &[u8]) -> Option<String> {
         .map(|raw| raw.get().to_owned())
 }
 
+pub(crate) fn responses_response_schema(body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Body {
+        text: Option<Text>,
+    }
+    #[derive(Deserialize)]
+    struct Text {
+        format: Option<Format>,
+    }
+    #[derive(Deserialize)]
+    struct Format {
+        schema: Option<Box<RawValue>>,
+    }
+    let body: Body = serde_json::from_slice(body).ok()?;
+    body.text?.format?.schema.map(|raw| raw.get().to_owned())
+}
+
 pub(crate) fn gemini_schemas(body: &[u8]) -> Option<Vec<Option<RawSchema>>> {
     #[derive(Deserialize)]
     struct Body {
@@ -208,6 +225,17 @@ pub(crate) fn encode_ordered_schemas(
         }
     }
     if let Some(schema) = response_schema.filter(|schema| !schema.is_empty()) {
+        use Member::Key;
+        let path = match protocol {
+            UpstreamProtocol::Chat => {
+                Some([Key("response_format"), Key("json_schema"), Key("schema")])
+            }
+            UpstreamProtocol::Responses => Some([Key("text"), Key("format"), Key("schema")]),
+            _ => None,
+        };
+        if let Some(path) = path {
+            replace_matching(&mut output, payload, &path, schema);
+        }
         for field in ["responseJsonSchema", "responseSchema"] {
             replace_matching(
                 &mut output,
