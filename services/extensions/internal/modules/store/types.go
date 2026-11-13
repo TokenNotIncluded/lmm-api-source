@@ -219,6 +219,7 @@ func Key(s string) bool   { return Text(s, 128) }
 func Page(limit int) bool { return limit > 0 && limit <= 100 }
 
 type Service struct {
+	pickupMail         *pickupMailConfig
 	review             *marketreview.Engine
 	stock              *stockCipher
 	extore             *extoreCipher

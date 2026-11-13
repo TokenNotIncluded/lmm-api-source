@@ -56,7 +56,7 @@
 | PAY-01 | 部分实现 | 余额/免费商店购买已通过固定组合验收；外部商店收款尚未接通。PublicConfig的platform_payment_methods/catalog为空（store/legacy_catalog.go）；external:epay、external:waffo_pancake、platform:waffo_pancake、platform:linuxdo仍缺各自购买交付结算验收。人民币钱包充值及95笔历史充值依据已验证，属于钱包支付范围。 |
 | PAY-02 | 部分实现 | 钱包Stripe/Waffo Global及受EnableLegacyRefund控制的EPay退款、商店余额全额退款已有；新订单部分退款实现见STORE-02。Pancake明确RefundEnabled=false、Refund返回ErrUnsupported（payments/pancake.go）；外部商店退款尚缺冻结交易、退款通知/查询、收入回冲及恢复全链。 |
 | PAY-03 | 部分实现 | catalog/pair/save已接正常router，已有Core绑定的return URL/私钥配置可原子保存并更新运行实例；Session-only customer portal按Core用户绑定customer及单一store/environment。模块、composition、Web入口针对性测试及race通过，含并发保存、SDK本地HTTP、秘密文件持久化与配置重建。更换merchant/store/product仍需Core策略同步，当前明确返回PAYMENT_CORE_POLICY_REQUIRED；真实Core Session、PG、外部provider、浏览器及OS重启组合待验。历史缺字段订单继续在供应商I/O前拒绝。 |
-| STORE-01 | 部分实现 | 按订单冻结策略匿名提货已通过独立 Go race 与 PG 18.6 持久化复验，旧订单继续要求原买家登录；游客购买与完整邮件投递链仍未齐。 |
+| STORE-01 | 部分实现 | 匿名提货、非零价购买→邮件→提货及 PG/产品重启已独立验证；丢 SMTP 确认保留 UNKNOWN 不重发，旧订单保持原登录边界。游客购买待补。 |
 | STORE-02 | 部分实现 | 新订单数量/金额部分退款及Core资金协议已有；历史余额退款分支仍不支持，完整组合待验。 |
 | STORE-03 | 部分验收 | 当前固定组合购买、付款、库存提货、全额退款通过；显式卖家自购和三态目录的完整浏览器覆盖仍缺。 |
 | STORE-04 | 待验收 | 账户隔离、购物车并发与清理有旧组件证据；最终组合的购物车、收藏、游客合并浏览器验收未完成。 |
@@ -102,6 +102,8 @@
 | Core 折扣码管理与 67→68 升级 | `lmm-completion-20261113/core-discount-management-68-report.md`、`core-discount-name-search-report.md`；四角色升级、数据/ACL 保留与名称搜索回归 |
 | 折扣码管理页与批量恢复 | `lmm-completion-20261113/admin-browser/run-97fa78b790e7/result.json`；Core/PG/浏览器/SQL，含七语言窄屏与名称搜索；不含钱包 provider 执行 |
 | 匿名提货 | `lmm-completion-20261113/independent-store/final/report.json`、`postgres-report.json` |
+| 提货邮件开发自测 | `lmm-completion-20261113/store-mail-delivery/delivery-report.json`；TLS/PG/worker/race 与 SMTP 认证，不抵扣真实付费组合独立验收 |
+| 付费邮件独立验收 | `lmm-completion-20261113/independent-paid-mail/INDEPENDENT-PAID-MAIL-REPORT.md`；精确 Core 基线 + mail-only Go，含实际 PG/产品重启、TLS 与丢确认后实等；不含外部邮箱/真实供应商 |
 | 支付签名过期与重启 | `lmm-completion-20261113/payment-expiry-79d9d4af2e73/report.json`；真实等待 302 秒，Go 进程重启、Core 服务对象重建 |
 
 上述路径位于操作者私有缓存/状态目录，包含受限业务材料。仓库只记录证据位置，不提交秘密与用户数据。各收据仅证明其绑定版本与范围，不代表当前源码或整站已验收。

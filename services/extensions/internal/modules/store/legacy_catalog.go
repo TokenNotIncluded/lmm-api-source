@@ -575,9 +575,6 @@ func validateLegacyInput(in LegacyProductInput) error {
 	if in.MaxQuantityPerOrder != nil && (*in.MaxQuantityPerOrder < 1 || *in.MaxQuantityPerOrder > 1000000) {
 		return ErrInvalid
 	}
-	if in.EmailPickupLink {
-		return ErrUnavailable
-	}
 	if in.DeliveryStrategy != "" && in.DeliveryStrategy != "sequential" {
 		return ErrUnavailable
 	}
@@ -610,6 +607,9 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 	var in LegacyProductInput
 	if err := legacyDecode(r.Body, &in); err != nil {
 		return nil, err
+	}
+	if in.EmailPickupLink && s.pickupMail == nil {
+		return nil, ErrUnavailable
 	}
 	if err := validateLegacyInput(in); err != nil {
 		return nil, err
@@ -661,7 +661,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 		fresh := p.Legacy == nil
 		old := p.Legacy
 		p.AIReview.Invalidate("stale", now)
-		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, MaxQuantityPerBuyer: in.MaxQuantityPerBuyer, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, PickupCodeRequired: in.PickupCodeRequired, Status: "draft", CreatedAt: now, UpdatedAt: now}
+		m := &LegacyProductMetadata{Description: in.Description, ImageURLs: in.ImageURLs, Contact: in.Contact, Links: in.Links, Visibility: "public", PurchaseLoginRequired: true, MaxQuantityPerOrder: in.MaxQuantityPerOrder, MaxQuantityPerBuyer: in.MaxQuantityPerBuyer, Template: in.Template, DeliveryStrategy: "sequential", PaymentMethods: in.PaymentMethods, PickupLoginRequired: in.PickupLoginRequired, PickupCodeRequired: in.PickupCodeRequired, EmailPickupLink: in.EmailPickupLink, Status: "draft", CreatedAt: now, UpdatedAt: now}
 		if m.ImageURLs == nil {
 			m.ImageURLs = []string{}
 		}

@@ -11,6 +11,7 @@ import (
 const legacySafeInteger int64 = 9007199254740991
 
 type LegacyOrderMetadata struct {
+	EmailPickupLink       bool   `json:"email_pickup_link,omitempty"`
 	PickupLoginRequired   *bool  `json:"pickup_login_required,omitempty"`
 	ProductID             string `json:"product_id"`
 	PaymentMethod         string `json:"payment_method"`
@@ -113,7 +114,7 @@ func legacyOrderView(row LocatedOrder) (map[string]any, error) {
 	case Cancelled:
 		status = "cancelled"
 	}
-	return map[string]any{"record_kind": "legacy", "id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": m.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "delivery_template": m.DeliveryTemplate, "quantity": o.Quantity, "unit_price_quota": o.UnitPrice.Amount, "price_quota": o.Total.Amount, "fee_quota": 0, "payment_method": m.PaymentMethod, "status": status, "amount_minor": 0, "currency": "", "frozen_usd_fx": "0", "created_at": m.CreatedAt, "paid_at": m.PaidAt, "expires_at": 0, "pickup_login_required": orderPickupLoginRequired(o), "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": false, "promotion_code": m.PromotionCode, "payment_issued": o.PaymentRef != "", "seller_terms_version": m.SellerTermsVersion, "seller_terms_content": m.SellerTermsContent, "seller_terms_accepted_at": m.SellerTermsAcceptedAt}, nil
+	return map[string]any{"record_kind": "legacy", "id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": m.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "delivery_template": m.DeliveryTemplate, "quantity": o.Quantity, "unit_price_quota": o.UnitPrice.Amount, "price_quota": o.Total.Amount, "fee_quota": 0, "payment_method": m.PaymentMethod, "status": status, "amount_minor": 0, "currency": "", "frozen_usd_fx": "0", "created_at": m.CreatedAt, "paid_at": m.PaidAt, "expires_at": 0, "pickup_login_required": orderPickupLoginRequired(o), "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "promotion_code": m.PromotionCode, "payment_issued": o.PaymentRef != "", "seller_terms_version": m.SellerTermsVersion, "seller_terms_content": m.SellerTermsContent, "seller_terms_accepted_at": m.SellerTermsAcceptedAt}, nil
 }
 
 // Native orders lack legacy timestamps, payment-method and delivery-template
@@ -201,7 +202,7 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 		if legacyDecode(r.Body, &in) != nil || !Key(in.RequestKey) || in.Quantity < 1 {
 			return nil, ErrInvalid
 		}
-		if in.PaymentMethod != "balance" && in.PaymentMethod != "free" || in.PickupEmail != "" {
+		if in.PaymentMethod != "balance" && in.PaymentMethod != "free" {
 			return nil, ErrUnavailable
 		}
 		// Reconcile the immutable original request before consulting live product
@@ -215,7 +216,12 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 			if o.Legacy == nil || o.Buyer != actor || o.Legacy.ProductID != in.ProductID || o.Quantity != in.Quantity || (in.VariantID != "" && o.VariantID != in.VariantID) || o.Legacy.PaymentMethod != in.PaymentMethod || o.Legacy.PromotionCode != in.PromotionCode {
 				return nil, ErrConflict
 			}
-			if err := s.repo.Within(ctx, prior.ShopID, func(tx Tx) error { return checkOrderPickup(tx, o, in.PickupCode) }); err != nil {
+			if err := s.repo.Within(ctx, prior.ShopID, func(tx Tx) error {
+				if err := checkOrderPickup(tx, o, in.PickupCode); err != nil {
+					return err
+				}
+				return s.checkPickupEmail(tx, prior.ShopID, o, in.PickupEmail)
+			}); err != nil {
 				return nil, err
 			}
 			prior.Order = o
@@ -264,7 +270,7 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 			return nil, ErrNotFound
 		}
 		created := false
-		o, err := s.Purchase(ctx, token, Purchase{ShopID: row.ShopID, VariantID: in.VariantID, Buyer: actor, Quantity: in.Quantity, Key: in.RequestKey, PromotionCode: in.PromotionCode, RequireFree: in.PaymentMethod == "free", PickupCode: in.PickupCode, Policy: &LegacyCheckoutPolicy{Version: in.SellerTermsVersion, Accepted: in.AcceptSellerTerms}, Created: &created})
+		o, err := s.Purchase(ctx, token, Purchase{ShopID: row.ShopID, VariantID: in.VariantID, Buyer: actor, Quantity: in.Quantity, Key: in.RequestKey, PromotionCode: in.PromotionCode, RequireFree: in.PaymentMethod == "free", PickupCode: in.PickupCode, PickupEmail: in.PickupEmail, Policy: &LegacyCheckoutPolicy{Version: in.SellerTermsVersion, Accepted: in.AcceptSellerTerms}, Created: &created})
 		if err != nil {
 			return nil, err
 		}

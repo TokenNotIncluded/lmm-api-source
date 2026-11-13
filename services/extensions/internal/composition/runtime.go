@@ -61,6 +61,7 @@ type Config struct {
 	CommerceTokenFile             string
 	DirectoryAdTokenFile          string
 	Store                         StorageConfig
+	StorePickupMail               store.PickupSMTPConfig
 	StoreStockKeyFile             string
 	StoreExtoreKeyFile            string
 	StoreExtoreRedirectURI        string
@@ -165,6 +166,9 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 				}
 				if r.Store != nil {
 					recovery = append(recovery, r.Store.RecoverDeliveries)
+					if r.Store.PickupMailEnabled() {
+						recovery = append(recovery, func(work context.Context) error { return r.Store.RecoverPickupMail(work, 1) })
+					}
 					if r.MarketReview != nil {
 						recovery = append(recovery, func(work context.Context) error { return r.Store.WorkAIReviews(work, 1) })
 					}
@@ -393,6 +397,11 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 			if err := r.Store.WithExtore(cfg.StoreExtoreRedirectURI, key); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.StorePickupMail.Enabled() {
+			if err := configureStorePickupMail(r.Store, cfg, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
 				return nil, err
 			}
 		}

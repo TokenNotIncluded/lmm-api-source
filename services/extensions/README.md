@@ -185,3 +185,37 @@ upgrade.
 `legal.config_file` in TOML (or `LMM_LEGAL_CONFIG_FILE` in explicit legacy mode) optionally selects an external, operator-reviewed policy snapshot. Only `/api/user-agreement`, `/api/privacy-policy` and `/api/refund-policy` are public read routes; protected module routes retain their existing authentication. Draft or missing configuration returns no policy content. Invalid published content fails startup. Policy requests never access the core or a database.
 
 See [policy configuration](../../docs/legal/README.md). Default drafts are shipped as files, not compiled into Go. Change the private configuration and restart only extensions to publish a new snapshot. Existing console settings are not an alternate configuration store.
+
+### Store pickup SMTP
+
+The persistent store can send private pickup links through the existing recovery
+worker. Configure all required fields together; omitting the entire section
+keeps mail disabled. Select `store` in `host.modules` and configure its dedicated
+PostgreSQL runtime pool as usual. Startup never installs or migrates its schema.
+
+```toml
+[store.pickup_mail]
+origin = "https://shop.example.test"
+key_file = "/etc/lmm/private/store-mail.key" # dedicated raw 32 bytes, persisted
+smtp_host = "smtp.example.test"
+smtp_port = 465
+tls_mode = "implicit" # or "starttls" with the appropriate server port
+from = "store@example.test"
+# Optional authentication: configure both fields or neither.
+# username = "store-smtp"
+# password_file = "/etc/lmm/private/smtp.password" # exact secret bytes
+# ca_file = "/etc/lmm/private/smtp-ca.pem" # optional additional trust roots
+```
+
+Private files must be absolute regular private files accepted by the host's
+private-file reader. The mail key's path and contents must be independent of
+other seal keys and service credentials. System trust roots and hostname
+verification remain enabled; STARTTLS is mandatory in `starttls` mode, and AUTH
+is sent only after TLS. There is no plaintext or skip-verification mode.
+
+The outbox reuses `lmm_store.commands`, requiring no DDL or expanded Core grants.
+It distinguishes `accepted_by_smtp` from inbox delivery and preserves SMTP ACK
+uncertainty as `unknown`, never an automatic resend. See the store README for
+restart, backoff, cancellation, key retention and operator-resolution semantics.
+Development integration tests use a disposable PostgreSQL cluster and a private
+TLS SMTP receiver with a durable local spool, not a real recipient or provider.

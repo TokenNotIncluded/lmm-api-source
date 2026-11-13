@@ -8,6 +8,7 @@ import (
 )
 
 type Purchase struct {
+	PickupEmail   string                `json:"-"`
 	ShopID        string                `json:"shop_id"`
 	VariantID     string                `json:"variant_id"`
 	Buyer         Account               `json:"buyer"`
@@ -43,7 +44,10 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			if out.RequestHash != hash {
 				return ErrConflict
 			}
-			return checkOrderPickup(tx, out, p.PickupCode)
+			if err := checkOrderPickup(tx, out, p.PickupCode); err != nil {
+				return err
+			}
+			return s.checkPickupEmail(tx, p.ShopID, out, p.PickupEmail)
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		}
@@ -79,11 +83,21 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if !v.Price.valid() {
 			return ErrInvalid
 		}
-		if product.Legacy == nil && (p.PromotionCode != "" || p.RequireFree || p.PickupCode != "") {
+		if product.Legacy == nil && (p.PromotionCode != "" || p.RequireFree || p.PickupCode != "" || p.PickupEmail != "") {
 			return ErrInvalid
 		}
 		if product.Legacy != nil {
 			m := product.Legacy
+			if m.EmailPickupLink {
+				if s.pickupMail == nil {
+					return ErrUnavailable
+				}
+				if !pickupEmailValid(p.PickupEmail) {
+					return ErrInvalid
+				}
+			} else if p.PickupEmail != "" {
+				return ErrInvalid
+			}
 			if v.Legacy == nil || !v.Legacy.Enabled || v.Price.Unit != "credits" {
 				return ErrConflict
 			}
@@ -195,6 +209,7 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			out.Legacy.SellerTermsAcceptedAt = termsAcceptedAt
 			loginRequired := product.Legacy.PickupLoginRequired
 			out.Legacy.PickupLoginRequired = &loginRequired
+			out.Legacy.EmailPickupLink = product.Legacy.EmailPickupLink
 			out.Legacy.PickupCodeRequired = protection != nil
 			if protection != nil {
 				if err := tx.Put("commands", ID("legacy-order-pickup-v1", out.ID), protection); err != nil {
@@ -239,6 +254,9 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 				out.Legacy.PaidAt = time.Now().Unix()
 				out.Delivered, out.Delivery, out.State = true, delivery, Settled
 			}
+		}
+		if err := s.preparePickupMail(tx, p.ShopID, out, p.PickupEmail); err != nil {
+			return err
 		}
 		if err := tx.Put("variants", v.ID, v); err != nil {
 			return err

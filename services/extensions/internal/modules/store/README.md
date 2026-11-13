@@ -218,3 +218,46 @@ drops only the schemas created by that test. Do not point this at production.
 
 `VERIFICATION.md` records what was actually run, separately from these runnable
 but environment-dependent acceptance tests.
+
+### Durable pickup email
+
+Pickup email is opt-in and requires the complete `[store.pickup_mail]` TLS SMTP
+configuration documented in the extension host README. A product with
+`email_pickup_link=true` requires a validated `pickup_email` at checkout. The
+order, its frozen encrypted email payload and pickup digest are committed in the
+same shop transaction. Retrying the same order with another address conflicts.
+Existing plaintext pickup tokens remain valid; new mail tokens are stored as a
+digest, with the recoverable token only in the encrypted mail command. The
+configured HTTPS origin supplies the link, never a request Host header.
+
+The existing `lmm_store.commands` table is the outbox; no DDL or new runtime
+grants are required. The normal bounded host recovery worker claims an attempt
+under the shop PostgreSQL lock, releases the transaction before SMTP, then
+persists the result only for the matching attempt. It observes host admission,
+uses a ten-second total network deadline and joins before database close.
+Outcome persistence has a separate three-second cancellation-independent budget.
+The dedicated raw 32-byte mail key must survive restart and remain distinct from
+stock/Extore keys and host/Core credentials. Losing it blocks recovery; startup
+never generates a replacement or rewrites historical pickup records.
+
+Mail states in the private command are:
+
+- `pending`: frozen and waiting for an eligible paid/free order.
+- `retry_wait`: known pre-acceptance failure, retried after a one-minute backoff.
+- `dispatching`: a persisted attempt owns the bounded network operation.
+- `accepted_by_smtp`: the final SMTP DATA response accepted the message; this
+  does not prove inbox delivery. A later disconnect cannot revoke acceptance.
+- `rejected`: explicit SMTP 5xx; retained without automatic retry.
+- `unknown`: final DATA ACK may have been lost, or an unfinished attempt remained
+  after a crash. Never automatically resent, even with the same Message-ID.
+- `canceled`: an unsent order was canceled or fully refunded.
+
+After thirty seconds, a stale `dispatching` attempt becomes `unknown` instead of
+being reclaimed for sending. This can conservatively include a crash before
+SMTP actually began. A stable Message-ID supports diagnosis; SMTP does not offer
+an exactly-once guarantee. An operator must resolve unknown/rejected messages
+before any separately authorized resend; there is no automatic resend endpoint.
+Paused/refunding orders do not become eligible through email recovery. Clicking
+a received link still enforces current order/refund, frozen login and pickup-code
+checks; sending an email grants no Core identity, money or inventory authority.
+Do not log recipients, tokens, message bodies or SMTP/provider error strings.

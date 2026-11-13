@@ -20,7 +20,8 @@ type pickupProtection struct {
 }
 
 type pickupLink struct {
-	Token string `json:"token"`
+	Token string `json:"token,omitempty"`
+	Hash  string `json:"token_hash,omitempty"`
 }
 
 func protectPickup(code string) (*pickupProtection, error) {
@@ -98,6 +99,16 @@ func (s *Service) legacyPickupLink(ctx context.Context, token string, actor Acco
 	err = s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
 		key := ID("store-pickup-v1", id)
 		if err := tx.Get("commands", key, &link); err == nil {
+			if link.Hash != "" {
+				_, payload, err := s.openPickupMail(tx, row.ShopID, id)
+				if err != nil {
+					return err
+				}
+				if link.Hash != ID(payload.Token) {
+					return ErrConflict
+				}
+				link.Token = payload.Token
+			}
 			return nil
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
@@ -146,7 +157,11 @@ func (s *Service) Pickup(ctx context.Context, session string, user int64, token,
 		if err := tx.Get("commands", ID("store-pickup-v1", id), &link); err != nil {
 			return err
 		}
-		if subtle.ConstantTimeCompare([]byte(link.Token), []byte(token)) != 1 {
+		expected, actual := link.Token, token
+		if link.Hash != "" {
+			expected, actual = link.Hash, ID(token)
+		}
+		if subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) != 1 {
 			return ErrNotFound
 		}
 		if err := tx.Get("orders", id, &order); err != nil {
