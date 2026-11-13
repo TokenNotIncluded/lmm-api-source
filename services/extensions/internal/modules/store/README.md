@@ -91,17 +91,19 @@ refund_pending. Before delivery, a successful full refund releases reservation
 and claimed quota. After delivery it does NOT create stock or reset consumed quota.
 A real returned item needs a separate audited stock adjustment. A post-settlement
 refund carries the settlement reference to Rust for controlled reversal.
-This version supports one full refund decision per order, not partial refunds.
+Full refund decisions retain their original command identity. New orders can use
+quantity or amount refunds when Core negotiates `commerce.refund.partial.v1`;
+historical and external-provider refund support must be checked separately.
 
-## Funds are unavailable until Rust implements the port
+## Funds and negotiated Rust commerce
 
-`DisabledFunds` is the default, including a typed-nil dependency. Paid purchase,
-payment, refund and settlement return `payments_unavailable` (HTTP 503), never a
-fake receipt. Paid purchase fails before reserving inventory. No new money RPC
-or public protobuf is invented here; core ledger code alone does not provide
-a working store funds adapter.
+`DisabledFunds` remains the default, including a typed-nil dependency. Without
+the negotiated [Rust funds adapter](rustfunds/adapter.go), paid purchase, payment,
+refund and settlement return `payments_unavailable` (HTTP 503), and paid purchase
+fails before reserving inventory. The host mounts that adapter only after Core
+advertises the required commerce capabilities.
 
-Before enabling `Funds`, the Rust implementation MUST:
+The Rust funds port must:
 
 1. Atomically persist the unique operation key, immutable command, outcome and
    ledger effect. Reuse must return the original result; changed commands conflict.
@@ -116,8 +118,8 @@ Before enabling `Funds`, the Rust implementation MUST:
 
 The hash is SHA-256 of Go JSON encoding of the one-element array `[MoneyCommand]`,
 using declared struct field order and omitting the two empty reference fields.
-This is a local adapter contract, NOT a new cross-language protocol; the future
-protobuf adapter must map this frozen command to the canonical Rust contract.
+The protobuf adapter maps this frozen command to the canonical Rust commerce
+contract; Go does not acquire ledger authority.
 
 Go saves the operation before the RPC and holds no SQL transaction during the
 RPC. Retrying after response loss, process restart or local commit failure uses
@@ -129,9 +131,12 @@ under a fresh key to hide a rejected decision. New purchases need a new order ke
 ## Legacy Web and historical contracts
 
 The [Web client](../../../../../apps/web/src/features/store/api.ts) still requests the
-old `/api/store` API. Its guest pickup/email, delivery templates, partial refunds,
-external gateways and analytics are not supplied by this module. Retained pages
-and tests do not establish backend integration or payment-provider acceptance.
+old `/api/store` API. Anonymous pickup, optional durable pickup email and
+negotiated partial refunds have backend implementations. Guest checkout and
+external-provider purchase/refund remain separate unfinished paths; retained
+pages do not establish backend integration or payment-provider acceptance. See
+[architecture progress](../../../../../docs/progress.md) for the current scope
+and evidence, and [durable pickup email](#durable-pickup-email) for configuration.
 The [delivery parser](../../../../../apps/web/src/features/store/delivery-template.ts)
 interprets only a valid v1 envelope matching the frozen order template; other
 contents remain literal text. This is a legacy Web contract, not a new delivery API.
