@@ -7,6 +7,10 @@ async fn fixture(pool: &PgPool) -> Fixture {
         .execute(pool)
         .await
         .unwrap();
+    sqlx::raw_sql(discounts::MANAGEMENT_SCHEMA)
+        .execute(pool)
+        .await
+        .unwrap();
     f.store = quantity_store(pool, quantity_policy(7, 1));
     f
 }

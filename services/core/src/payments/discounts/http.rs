@@ -6,7 +6,7 @@ use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 
 struct Failure(Error);
@@ -47,7 +47,19 @@ pub fn router(store: PaymentsStore) -> Router {
             "/core/v1/payment-discounts/admin/codes",
             get(list).post(create),
         )
-        .route("/core/v1/payment-discounts/admin/codes/{id}", put(update))
+        .route(
+            "/core/v1/payment-discounts/admin/codes/{id}",
+            put(update).delete(remove),
+        )
+        .route(
+            "/core/v1/payment-discounts/admin/codes/{id}/status",
+            put(status),
+        )
+        .route("/core/v1/payment-discounts/admin/codes/batch", post(batch))
+        .route(
+            "/core/v1/payment-discounts/admin/codes/exhausted",
+            delete(exhausted),
+        )
         .route("/core/v1/payment-discounts/quote", post(quote))
         .route("/core/v1/payment-discounts/prepare", post(prepare))
         .layer(DefaultBodyLimit::max(4096))
@@ -65,14 +77,46 @@ pub fn router(store: PaymentsStore) -> Router {
         ))
         .with_state(store)
 }
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct Page {
-    after_id: i64,
-}
-async fn list(State(s): State<PaymentsStore>, h: HeaderMap, Query(p): Query<Page>) -> HttpResult {
+async fn list(
+    State(s): State<PaymentsStore>,
+    h: HeaderMap,
+    Query(p): Query<CodesQuery>,
+) -> HttpResult {
     Ok(Json(
-        json!({"success":true,"data":s.discount_codes(bearer(&h)?, p.after_id).await?}),
+        json!({"success":true,"data":s.list_discount_codes(bearer(&h)?, &p).await?}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusInput {
+    enabled: bool,
+}
+async fn status(
+    State(s): State<PaymentsStore>,
+    Path(id): Path<i64>,
+    h: HeaderMap,
+    Json(input): Json<StatusInput>,
+) -> HttpResult {
+    Ok(Json(
+        json!({"success":true,"data":s.set_discount_status(bearer(&h)?,id,input.enabled).await?}),
+    ))
+}
+async fn batch(
+    State(s): State<PaymentsStore>,
+    h: HeaderMap,
+    Json(input): Json<Batch>,
+) -> HttpResult {
+    Ok(Json(
+        json!({"success":true,"data":{"items":s.generate_discount_codes(bearer(&h)?, input).await?}}),
+    ))
+}
+async fn remove(State(s): State<PaymentsStore>, Path(id): Path<i64>, h: HeaderMap) -> HttpResult {
+    s.delete_discount_code(bearer(&h)?, id).await?;
+    Ok(Json(json!({"success":true,"data":null})))
+}
+async fn exhausted(State(s): State<PaymentsStore>, h: HeaderMap) -> HttpResult {
+    Ok(Json(
+        json!({"success":true,"data":{"count":s.delete_exhausted_discount_codes(bearer(&h)?).await?.to_string()}}),
     ))
 }
 async fn create(
@@ -80,8 +124,10 @@ async fn create(
     h: HeaderMap,
     Json(input): Json<Definition>,
 ) -> HttpResult {
+    let credential = bearer(&h)?;
+    let code = s.save_discount(credential, None, input).await?;
     Ok(Json(
-        json!({"success":true,"data":s.save_discount(bearer(&h)?, None, input).await?}),
+        json!({"success":true,"data":s.discount_code_view(credential,code.id).await?}),
     ))
 }
 async fn update(
@@ -90,8 +136,10 @@ async fn update(
     h: HeaderMap,
     Json(input): Json<Definition>,
 ) -> HttpResult {
+    let credential = bearer(&h)?;
+    let code = s.save_discount(credential, Some(id), input).await?;
     Ok(Json(
-        json!({"success":true,"data":s.save_discount(bearer(&h)?, Some(id), input).await?}),
+        json!({"success":true,"data":s.discount_code_view(credential,code.id).await?}),
     ))
 }
 #[derive(Deserialize)]

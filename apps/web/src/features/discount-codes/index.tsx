@@ -55,8 +55,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { isNativeWallet } from '@/features/wallet/lib/wallet-projection'
 import { useMediaQuery } from '@/hooks'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createDiscountCodes,
@@ -82,6 +84,7 @@ import {
   isDiscountCodeFormValid,
   validateDiscountCodeForm,
 } from './form-validation.js'
+import { NativeDiscountCodes } from './native-discount-codes'
 import { buildDiscountCodeLink } from './share-link.js'
 import type {
   DiscountCode,
@@ -187,6 +190,15 @@ function TableSkeleton() {
 
 // pi-lens-ignore: high-fan-out, high-complexity
 export function DiscountCodes() {
+  const user = useAuthStore((state) => state.auth.user)
+  return isNativeWallet(user) ? (
+    <NativeDiscountCodes />
+  ) : (
+    <LegacyDiscountCodes />
+  )
+}
+
+function LegacyDiscountCodes() {
   const { t } = useTranslation()
   useDiscountCodeTranslations()
   const queryClient = useQueryClient()

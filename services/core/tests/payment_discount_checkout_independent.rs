@@ -25,6 +25,7 @@ async fn real_discount_checkout_http(pool: PgPool) {
         ledger::SCHEMA,
         lmm_core::payments::SCHEMA,
         discounts::SCHEMA,
+        discounts::MANAGEMENT_SCHEMA,
     ] {
         sqlx::raw_sql(schema).execute(&pool).await.unwrap();
     }

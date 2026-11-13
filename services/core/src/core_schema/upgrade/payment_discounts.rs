@@ -51,4 +51,4 @@ pub(super) async fn grant_runtime(c: &mut PgConnection, runtime: &str) -> Result
 }
 #[cfg(test)]
 #[path = "payment_discounts_tests.rs"]
-mod tests;
+pub(super) mod tests;

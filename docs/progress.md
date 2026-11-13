@@ -65,7 +65,7 @@
 | APP-02 | 实现待验收 | 实时用量来源、SVG与Core历史查询已有实现；固定进程组合、浏览器及公网来源仍待验收。 |
 | APP-03 | 部分实现 | Go目录、报价、购买/取消、重下单、投诉、邮箱批量及管理接口已接线，5项真实本机TCP HTTP契约测试独立通过；6项既有Web API自测通过。Core直接供应商调用、报价与资金状态实现待真实PG验收；正式供应商、进程组合与浏览器未验。无provider ID的UNKNOWN保留人工对账，不能重复购买或假退款。 |
 | APP-04 | 待验收 | io.net 实现及数据库权限缺陷复验通过；真实供应商、Core 授权与浏览器完整链未验收。 |
-| APP-05 | 部分实现 | Core 管理、冻结报价、占用与入账消费及 66→67 升级已有 PG 验证；Web 报价/确认入队已独立联通。管理页、provider 执行与历史优惠连续性待补。 |
+| APP-05 | 部分实现 | Core 管理、冻结报价、占用与入账消费及 66→67→68 分段升级已有 PG 验证；管理页、批量生成丢响应恢复、删除保留旧占用已通过独立浏览器/SQL 验收。provider 执行与历史优惠连续性待补。 |
 | APP-06 | 部分实现 | 原生abuse策略、标记与审计已有；公开安全报告及Moderation旧行为映射仍待补。 |
 | APP-07 | 待验收 | RSS 抓取、缓存、配置有组件证据；目标 edge 路由与浏览器未验收。 |
 | APP-08 | 实现待验收 | 候选已有加密偏好、签名投递、持久重试和前端设置；完整Web类型检查曾通过。旧用户偏好加密续接正在补齐，真实PG/本地TLS及固定组合仍待验。旧ratio通知与投递仅有归档计数路径，未证明旧待投队列为空或已恢复，不能视作迁移完成。 |
@@ -99,6 +99,8 @@
 | 扩展注册与路由 | Web `6657c0b`、Go与开发指南 `b654171`；`go-plugin-targeted.jsonl`中modules/composition/app共34项顶层测试通过，Web第一次编译失败保留；修复后`go-webcompat-final.jsonl`为138项通过、5项PG跳过，均开启race。`go-build.log`退出0；Web8项和类型检查证据绑定`6657c0b`。后续并行i18n提交`e39c2bc`已保留，不把这些自测视为其整站验收。新增包和接口写法见[插件开发](plugin-development.md)。 |
 | Core 模型与原生折扣码 | `lmm-completion-20261113/independent-core/report.json`；涵盖音频、Responses 转换、折扣码与 66→67 升级 |
 | Web 折扣码报价与确认入队 | `lmm-completion-20261113/discount-independent-e924a11361/report.json`；真实 HTTP→Go→Core RPC→PG，不含 provider 执行 |
+| Core 折扣码管理与 67→68 升级 | `lmm-completion-20261113/core-discount-management-68-report.md`、`core-discount-name-search-report.md`；四角色升级、数据/ACL 保留与名称搜索回归 |
+| 折扣码管理页与批量恢复 | `lmm-completion-20261113/admin-browser/run-97fa78b790e7/result.json`；Core/PG/浏览器/SQL，含七语言窄屏与名称搜索；不含钱包 provider 执行 |
 | 匿名提货 | `lmm-completion-20261113/independent-store/final/report.json`、`postgres-report.json` |
 | 支付签名过期与重启 | `lmm-completion-20261113/payment-expiry-79d9d4af2e73/report.json`；真实等待 302 秒，Go 进程重启、Core 服务对象重建 |
 

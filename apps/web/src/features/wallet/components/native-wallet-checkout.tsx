@@ -78,7 +78,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   const [channelVersion, setChannelVersion] = useState(0)
   const [selectedID, setSelectedID] = useState('')
   const [amount, setAmount] = useState('10.00')
-  const [discountCode, setDiscountCode] = useState('')
+  const [discountCode, setDiscountCode] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    const codes = new URLSearchParams(window.location.search).getAll(
+      'discount_code'
+    )
+    return codes.length === 1 ? (nativeDiscountCode(codes[0]) ?? '') : ''
+  })
   const [result, setResult] = useState<NativeCheckout | null>(null)
   const [error, setError] = useState<'unknown' | 'auth' | 'invalid' | null>(
     null

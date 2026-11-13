@@ -3071,3 +3071,6 @@ async fn credit_quantity_signed_credit_and_controlled_remaining_hold(pool: PgPoo
 
 #[path = "payments/app05.rs"]
 mod app05;
+
+#[path = "common/payment_discount_management.rs"]
+mod discount_management;

@@ -192,6 +192,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/subscription_pancake_language_optional.sql"),
     ),
     ("payment-discounts", crate::payments::discounts::SCHEMA),
+    (
+        "payment-discount-management",
+        crate::payments::discounts::MANAGEMENT_SCHEMA,
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

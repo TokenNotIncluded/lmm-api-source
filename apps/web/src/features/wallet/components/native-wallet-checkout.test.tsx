@@ -700,3 +700,71 @@ test('discount quote shows Core charge, permits editing a rejected code and conf
     dom.sessionStorage.clear()
   }
 })
+
+test('a shared discount link only prefills one valid code and never starts a payment', async () => {
+  const adapter = api.defaults.adapter
+  const previousURL = dom.location.href
+  dom.sessionStorage.clear()
+  login(9902, 'discount-link-prefill')
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  let writes = 0
+  api.defaults.adapter = async (config) => {
+    if (config.method !== 'get') writes++
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        success: true,
+        data: {
+          available: true,
+          channels: [
+            {
+              id: '7',
+              provider: 'waffo_pancake',
+              environment: 'test',
+              currency: 'CNY',
+              credit_quantity: true,
+            },
+          ],
+        },
+      },
+    }
+  }
+  try {
+    for (const [search, expected] of [
+      ['?discount_code=save20', 'SAVE20'],
+      ['?discount_code=SAVE20&discount_code=OTHER20', ''],
+      ['?discount_code=%3Cscript%3E', ''],
+    ]) {
+      dom.location.href = `https://wallet.example/wallet${search}`
+      await act(async () => {
+        root.render(
+          <I18nextProvider i18n={i18n}>
+            <NativeWalletCheckout key={search} />
+          </I18nextProvider>
+        )
+        await flush()
+      })
+      const input = container.querySelector('#native-payment-discount')
+      assert.ok(input instanceof HTMLInputElement)
+      assert.equal(input.value, expected)
+      assert.equal(writes, 0)
+      assert.equal(
+        readNativeCheckout(
+          '[9902,"discount-link-prefill"]',
+          dom.sessionStorage
+        ),
+        null
+      )
+    }
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    dom.location.href = previousURL
+    api.defaults.adapter = adapter
+    dom.sessionStorage.clear()
+  }
+})

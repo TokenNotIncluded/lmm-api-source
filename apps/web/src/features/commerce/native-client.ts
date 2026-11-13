@@ -28,7 +28,7 @@ export class CommerceFailure extends Error {
 }
 export async function commerceRequest<T>(
   scope: CommerceScope,
-  method: 'get' | 'post' | 'put',
+  method: 'get' | 'post' | 'put' | 'delete',
   path: string,
   schema: z.ZodType<T>,
   data?: unknown

@@ -20,6 +20,7 @@ mod finance;
 mod historical_fixture;
 mod ledger;
 mod navigation_options;
+mod payment_discount_management;
 mod payment_discounts;
 mod payment_gateways;
 mod request_operations;
@@ -235,6 +236,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
+        if self.procedure == payment_discount_management::PROCEDURE {
+            return payment_discount_management::validate(self);
+        }
         if self.procedure == payment_discounts::PROCEDURE {
             return payment_discounts::validate(self);
         }
@@ -338,6 +342,9 @@ impl UpgradeRequest {
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
         self.validate()?;
+        if self.procedure == payment_discount_management::PROCEDURE {
+            return payment_discount_management::authorize_target();
+        }
         if self.procedure == payment_discounts::PROCEDURE {
             return payment_discounts::authorize_target();
         }
@@ -457,7 +464,9 @@ pub async fn upgrade_database(
 ) -> Result<UpgradeReport, UpgradeError> {
     request.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == payment_discounts::PROCEDURE {
+    let result = if request.procedure == payment_discount_management::PROCEDURE {
+        payment_discount_management::connected(&mut connection, &request).await
+    } else if request.procedure == payment_discounts::PROCEDURE {
         payment_discounts::connected(&mut connection, &request).await
     } else if request.procedure == subscription_pancake_language::PROCEDURE {
         subscription_pancake_language::connected(&mut connection, &request).await

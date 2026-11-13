@@ -188,7 +188,7 @@ async fn app05_66_to67_preserves_data_and_acl(pool: PgPool) {
 
 // Uses the same four-role, real-connection boundary as completion_upgrade.rs.
 // The observer connects to DATABASE_URL's control database, never the target.
-async fn engine_offline_boundary(request: &UpgradeRequest) {
+pub(crate) async fn engine_offline_boundary(request: &UpgradeRequest) {
     let mut control = PgConnection::connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
@@ -217,17 +217,17 @@ async fn engine_offline_boundary(request: &UpgradeRequest) {
     control.close().await.unwrap();
 }
 
-struct EngineBaseline {
+pub(crate) struct EngineBaseline {
     tables: Vec<String>,
     sequences: Vec<String>,
     relations: Vec<i64>,
     types: Vec<i64>,
     keys: std::collections::BTreeSet<String>,
-    data: BTreeMap<String, Vec<u8>>,
-    permissions: Vec<String>,
+    pub(crate) data: BTreeMap<String, Vec<u8>>,
+    pub(crate) permissions: Vec<String>,
 }
 impl EngineBaseline {
-    async fn capture(c: &mut PgConnection) -> Self {
+    pub(crate) async fn capture(c: &mut PgConnection) -> Self {
         let mut tx = c.begin().await.unwrap();
         sqlx::query("SET LOCAL search_path=pg_catalog")
             .execute(&mut *tx)
@@ -262,7 +262,7 @@ impl EngineBaseline {
             permissions,
         }
     }
-    async fn assert_preserved(&self, c: &mut PgConnection) {
+    pub(crate) async fn assert_preserved(&self, c: &mut PgConnection) {
         let mut tx = c.begin().await.unwrap();
         sqlx::query("SET LOCAL search_path=pg_catalog")
             .execute(&mut *tx)

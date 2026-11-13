@@ -571,6 +571,10 @@ GRANT USAGE, SELECT ON SEQUENCE core_payments.intents_id_seq TO :"runtime_role";
 GRANT SELECT,INSERT,UPDATE ON core_payments.discount_codes,core_payments.discount_reservations TO :"runtime_role";
 GRANT USAGE,SELECT ON SEQUENCE core_payments.discount_codes_id_seq TO :"runtime_role";
 -- END payment-discounts runtime grants
+-- BEGIN payment-discount-management runtime grants
+-- Runtime appends management facts; no deletion, rewriting or extension access.
+GRANT SELECT,INSERT ON core_payments.discount_code_tombstones,core_payments.discount_management_batches TO :"runtime_role";
+-- END payment-discount-management runtime grants
 \endif
 \if :enable_humangrant
 GRANT USAGE ON SCHEMA core_humangrant TO :"runtime_role";
