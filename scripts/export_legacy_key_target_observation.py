@@ -30,7 +30,7 @@ def positive(value):
     return type(value) is int and 0 < value < 2**63
 
 
-def validate_bindings(receipt, alias, audit, receipt_raw, alias_raw):
+def validate_alias_mapping(receipt, alias, receipt_raw):
     require(type(receipt) is dict and set(receipt) == {
         "scope", "source_archive_sha256", "records"}, "key_receipt_shape_invalid")
     require(receipt["scope"] == C.RECEIPT_SCOPE, "key_receipt_scope_invalid")
@@ -70,6 +70,11 @@ def validate_bindings(receipt, alias, audit, receipt_raw, alias_raw):
         projected.append({k: row[k] for k in fields})
     require(sorted(projected, key=lambda r: r["source_key_id"]) ==
             sorted(rows, key=lambda r: r["source_key_id"]), "key_alias_mapping_mismatch")
+    return rows
+
+
+def validate_bindings(receipt, alias, audit, receipt_raw, alias_raw):
+    rows = validate_alias_mapping(receipt, alias, receipt_raw)
     require(type(audit) is dict and audit.get("format_version") == 1
             and type(audit["format_version"]) is int
             and audit.get("scope") == "legacy-credential-committed-artifacts-v1"
