@@ -112,6 +112,11 @@ func (s *Service) legacyPickupLink(ctx context.Context, token string, actor Acco
 	return map[string]any{"pickup_url": "/store/claim/" + link.Token}, err
 }
 
+// Orders predating the explicit snapshot retain their original login boundary.
+func orderPickupLoginRequired(order Order) bool {
+	return order.Legacy == nil || order.Legacy.PickupLoginRequired == nil || *order.Legacy.PickupLoginRequired
+}
+
 func (s *Service) Pickup(ctx context.Context, session string, user int64, token, code string, collect bool) (map[string]any, error) {
 	var err error
 	token, err = s.canonicalPickupToken(ctx, token)
@@ -124,9 +129,6 @@ func (s *Service) Pickup(ctx context.Context, session string, user int64, token,
 	}
 	if _, err := hex.DecodeString(id + secret); err != nil {
 		return nil, ErrNotFound
-	}
-	if collect && user == 0 {
-		return nil, ErrUnauthorized
 	}
 	if user > 0 {
 		if _, err := s.check(ctx, session, Account{Kind: "personal", ID: user}, Read); err != nil {
@@ -157,7 +159,14 @@ func (s *Service) Pickup(ctx context.Context, session string, user int64, token,
 	if err != nil {
 		return nil, err
 	}
-	if order.Legacy == nil || user > 0 && order.Buyer != (Account{Kind: "personal", ID: user}) {
+	if order.Legacy == nil {
+		return nil, ErrNotFound
+	}
+	loginRequired := orderPickupLoginRequired(order)
+	if collect && loginRequired && user == 0 {
+		return nil, ErrUnauthorized
+	}
+	if loginRequired && user > 0 && order.Buyer != (Account{Kind: "personal", ID: user}) {
 		return nil, ErrNotFound
 	}
 	view, err := legacyOrderView(LocatedOrder{Order: order})
@@ -165,7 +174,7 @@ func (s *Service) Pickup(ctx context.Context, session string, user int64, token,
 		return nil, err
 	}
 	if !collect {
-		return map[string]any{"order_id": order.ID, "product_title": order.ProductTitle, "variant_id": order.VariantID, "variant_name": order.Title, "delivery_template": order.Legacy.DeliveryTemplate, "quantity": order.Quantity, "status": view["status"], "pickup_login_required": true, "pickup_login_satisfied": user > 0, "pickup_code_required": order.Legacy.PickupCodeRequired}, nil
+		return map[string]any{"order_id": order.ID, "product_title": order.ProductTitle, "variant_id": order.VariantID, "variant_name": order.Title, "delivery_template": order.Legacy.DeliveryTemplate, "quantity": order.Quantity, "status": view["status"], "pickup_login_required": loginRequired, "pickup_login_satisfied": !loginRequired || user > 0, "pickup_code_required": order.Legacy.PickupCodeRequired}, nil
 	}
 	if !validPickupCode(protection, code) {
 		return nil, ErrForbidden

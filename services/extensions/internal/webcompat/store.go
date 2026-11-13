@@ -418,10 +418,6 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 				Code string `json:"pickup_code"`
 			}
 			if collect {
-				if actor == 0 {
-					Respond(w, nil, store.ErrUnauthorized)
-					return
-				}
 				body, err := storeBody(w, r, 4<<10, true)
 				if err != nil {
 					Respond(w, nil, err)

@@ -575,7 +575,7 @@ func validateLegacyInput(in LegacyProductInput) error {
 	if in.MaxQuantityPerOrder != nil && (*in.MaxQuantityPerOrder < 1 || *in.MaxQuantityPerOrder > 1000000) {
 		return ErrInvalid
 	}
-	if in.EmailPickupLink || !in.PickupLoginRequired {
+	if in.EmailPickupLink {
 		return ErrUnavailable
 	}
 	if in.DeliveryStrategy != "" && in.DeliveryStrategy != "sequential" {

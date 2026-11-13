@@ -25,7 +25,7 @@ func (s *pickupTransportFake) Pickup(_ context.Context, session string, user int
 }
 
 func TestStorePickupTransportAuthenticatesCollectionBeforeReadingSecret(t *testing.T) {
-	for _, headers := range [][]string{nil, {"Bearer " + hostToken}, {"Bearer " + webToken, "Bearer " + webToken}} {
+	for _, headers := range [][]string{{"Bearer " + hostToken}, {"Bearer " + webToken, "Bearer " + webToken}} {
 		service := &pickupTransportFake{storeLegacyTransportFake: newStoreLegacyTransportFake()}
 		core := &authCore{}
 		request := storeTransportRequest("POST", "/api/user/auth/store-claim/synthetic-token", headers)
@@ -44,6 +44,20 @@ func TestStorePickupTransportAuthenticatesCollectionBeforeReadingSecret(t *testi
 	storeTransportMux(t, &authCore{}, service).ServeHTTP(response, request)
 	if response.Code != 200 || service.pickupCalls != 1 || service.session != webToken || service.user != 17 || service.token != "synthetic-token" || service.code != "private-synthetic-code" || !service.collect {
 		t.Fatalf("wrong authenticated pickup request: status=%d service=%+v", response.Code, service)
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("private collection response was cacheable")
+	}
+}
+
+func TestStorePickupTransportDelegatesAnonymousCollectionPolicy(t *testing.T) {
+	service := &pickupTransportFake{storeLegacyTransportFake: newStoreLegacyTransportFake()}
+	core := &authCore{}
+	request := httptest.NewRequest("POST", "/api/user/auth/store-claim/synthetic-token", strings.NewReader(`{"pickup_code":"private-synthetic-code"}`))
+	response := httptest.NewRecorder()
+	storeTransportMux(t, core, service).ServeHTTP(response, request)
+	if response.Code != 200 || core.calls != 0 || service.pickupCalls != 1 || service.session != "" || service.user != 0 || service.code != "private-synthetic-code" || !service.collect {
+		t.Fatalf("anonymous collection was not delegated: status=%d calls=%d service=%+v", response.Code, core.calls, service)
 	}
 	if response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("private collection response was cacheable")

@@ -193,6 +193,8 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			out.Legacy.SellerTermsVersion = frozenTerms.Version
 			out.Legacy.SellerTermsContent = frozenTerms.Content
 			out.Legacy.SellerTermsAcceptedAt = termsAcceptedAt
+			loginRequired := product.Legacy.PickupLoginRequired
+			out.Legacy.PickupLoginRequired = &loginRequired
 			out.Legacy.PickupCodeRequired = protection != nil
 			if protection != nil {
 				if err := tx.Put("commands", ID("legacy-order-pickup-v1", out.ID), protection); err != nil {

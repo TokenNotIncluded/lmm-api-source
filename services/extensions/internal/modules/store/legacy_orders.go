@@ -11,6 +11,7 @@ import (
 const legacySafeInteger int64 = 9007199254740991
 
 type LegacyOrderMetadata struct {
+	PickupLoginRequired   *bool  `json:"pickup_login_required,omitempty"`
 	ProductID             string `json:"product_id"`
 	PaymentMethod         string `json:"payment_method"`
 	CreatedAt             int64  `json:"created_at"`
@@ -112,7 +113,7 @@ func legacyOrderView(row LocatedOrder) (map[string]any, error) {
 	case Cancelled:
 		status = "cancelled"
 	}
-	return map[string]any{"record_kind": "legacy", "id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": m.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "delivery_template": m.DeliveryTemplate, "quantity": o.Quantity, "unit_price_quota": o.UnitPrice.Amount, "price_quota": o.Total.Amount, "fee_quota": 0, "payment_method": m.PaymentMethod, "status": status, "amount_minor": 0, "currency": "", "frozen_usd_fx": "0", "created_at": m.CreatedAt, "paid_at": m.PaidAt, "expires_at": 0, "pickup_login_required": true, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": false, "promotion_code": m.PromotionCode, "payment_issued": o.PaymentRef != "", "seller_terms_version": m.SellerTermsVersion, "seller_terms_content": m.SellerTermsContent, "seller_terms_accepted_at": m.SellerTermsAcceptedAt}, nil
+	return map[string]any{"record_kind": "legacy", "id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": m.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "delivery_template": m.DeliveryTemplate, "quantity": o.Quantity, "unit_price_quota": o.UnitPrice.Amount, "price_quota": o.Total.Amount, "fee_quota": 0, "payment_method": m.PaymentMethod, "status": status, "amount_minor": 0, "currency": "", "frozen_usd_fx": "0", "created_at": m.CreatedAt, "paid_at": m.PaidAt, "expires_at": 0, "pickup_login_required": orderPickupLoginRequired(o), "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": false, "promotion_code": m.PromotionCode, "payment_issued": o.PaymentRef != "", "seller_terms_version": m.SellerTermsVersion, "seller_terms_content": m.SellerTermsContent, "seller_terms_accepted_at": m.SellerTermsAcceptedAt}, nil
 }
 
 // Native orders lack legacy timestamps, payment-method and delivery-template
