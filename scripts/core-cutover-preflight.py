@@ -30,7 +30,7 @@ KNOWN_CAPABILITIES = {
     "models_streaming", "events", "payments", "commerce", "abuse_admin",
     "admin_users_read", "images", "assistant", "assistant_tools",
     "tool_market", "web_identity", "oauth2", "market_oauth", "wallet",
-    "bounties",
+    "bounties", "checkins",
 }
 CAPABILITIES = {
     "model_forwarding": ("models", "models_streaming"),

@@ -128,6 +128,21 @@ class Checks(unittest.TestCase):
         self.assertEqual(result["unsafe_enablement"], [])
         self.assertEqual(result["public_edge"], {"mode": "candidate", "candidate_selected": True})
 
+    def test_current_checkins_flag_preserves_required_model_gate(self):
+        for enabled in (False, True):
+            with self.subTest(checkins=enabled):
+                record = self.base()
+                record["core"]["ready"]["capabilities"]["checkins"] = enabled
+                self.assertTrue(P.evaluate(P.parse(record))["safe_to_cutover"])
+                record["core"]["ready"]["capabilities"]["models"] = False
+                self.assertFalse(P.evaluate(P.parse(record))["safe_to_cutover"])
+
+    def test_unknown_capability_is_still_rejected(self):
+        record = self.base()
+        record["core"]["ready"]["capabilities"]["unreviewed_capability"] = True
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            P.parse(record)
+
     def test_cli_blocks_absent_extension_host_credential(self):
         record = self.base()
         with tempfile.TemporaryDirectory() as directory:
