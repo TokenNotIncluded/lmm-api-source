@@ -4,7 +4,7 @@
 
 ## 上线现状与剩余阻塞
 
-- **2026-11-13 本机部署演练正在收口，尚未发布或切换生产**。已修复新装 `check-db` 仍要求已移除签到 schema、工具市场错误版本返回 `not_found`、正式 Docker 构建漏收授权 SQL、DEB 仅接受 `libssl3t64` 而排除 Debian 12 `libssl3`，以及 Web 导航接口接入后的测试夹具；新增并审核 66 组件 `fresh66-module-split` 迁移 profile，保留旧 profile 封印和移除组件的锁表差异。真实 66 组件新装、`check-db`、Go 全量测试、Web 738 个源码加 7 个脚本测试、类型检查通过；29 项相关 profile 定向测试通过。历史基线夹具已改为读取固定 Git 历史树并补齐权限输入，保留漂移拒绝断言；完整 133 项通过（1 项按原条件 skipped）。ArchDmit 当前 `lmm_api` 已只读导出并在私有 PG18.6 恢复，214 表行数对照时 212 表相同，另两表因线上继续写入而增加；八个生产扩展库也已实际恢复。当前发布目标已提交 1247 人身份、4990 个账本账户、883 个 API Key、21199 条路由组、193423 条历史及 500 条 OAuth；保留 5 个托管项目、45 笔未决订阅责任及原钱包负债。真实 raw/sk Key 已分别完成本机 HTTP 鉴权（授权范围不足时为 403，无效 Key 为 401），未外呼供应商。发布库的完整备份已独立恢复，权限收紧后 `check-db` 和实际启动通过。八个独立扩展目标库已建立最小权限身份；store/support 及 payments/operations/community/acquisition 的现有快照已恢复并逐表比对内容摘要，assistant 已导入 1006 会话、3566 历史消息、377 回执，toolmarket 已导入 7 服务、13 版本、42 工具并解密回读新目标快照。修复只读 Core 身份回执默认 owner 绑定被误拒的问题，扩展迁移器 15 项测试通过。本机 Core 与六模块扩展宿主已实际启动，公开商店读取、模块鉴权、401/404 拒绝及扩展独立重启通过；重启后选定有效真实 Key 的 raw/sk 均通过鉴权并因模型组权限得到 403，无效 Key 为 401。资金迁移套件 109 项通过。最终九库备份已生成并验证目录，最新 Core 恢复库 `check-db` 通过；完整模型配置最初因 Key 别名绑定原数据库名/OID/nonce 而拒绝启动，随后新增审核式重绑定工具，真实 883 条映射保持不变，重绑定后的完整模型/RPC 恢复配置已实际启动并 ready。50 条商店库存密文已原样保留，但缺现有部署库存密钥，未验证解密或库存操作；13 条旧工具市场凭据因原密钥缺失未迁移。15 份历史非活跃订阅仍受源时区证据合同阻断；全站业务、负载/容量和独立验收仍未完成。所有材料均标记 rehearsal-only，生产未停止、未写入、未切流。
+- **2026-11-13 本机部署演练正在收口，尚未发布或切换生产**。已修复新装 `check-db` 仍要求已移除签到 schema、工具市场错误版本返回 `not_found`、正式 Docker 构建漏收授权 SQL、DEB 仅接受 `libssl3t64` 而排除 Debian 12 `libssl3`，以及 Web 导航接口接入后的测试夹具；新增并审核 66 组件 `fresh66-module-split` 迁移 profile，保留旧 profile 封印和移除组件的锁表差异。真实 66 组件新装、`check-db`、Go 全量测试、Web 738 个源码加 7 个脚本测试、类型检查通过；29 项相关 profile 定向测试通过。历史基线夹具已改为读取固定 Git 历史树并补齐权限输入，保留漂移拒绝断言；完整 133 项通过（1 项按原条件 skipped）。ArchDmit 当前 `lmm_api` 已只读导出并在私有 PG18.6 恢复，214 表行数对照时 212 表相同，另两表因线上继续写入而增加；八个生产扩展库也已实际恢复。当前发布目标已提交 1247 人身份、4990 个账本账户、883 个 API Key、21199 条路由组、193423 条历史及 500 条 OAuth；保留 5 个托管项目、45 笔未决订阅责任及原钱包负债。真实 raw/sk Key 已分别完成本机 HTTP 鉴权（授权范围不足时为 403，无效 Key 为 401），未外呼供应商。发布库的完整备份已独立恢复，权限收紧后 `check-db` 和实际启动通过。八个独立扩展目标库已建立最小权限身份；store/support 及 payments/operations/community/acquisition 的现有快照已恢复并逐表比对内容摘要，assistant 已导入 1006 会话、3566 历史消息、377 回执，toolmarket 已导入 7 服务、13 版本、42 工具并解密回读新目标快照。修复只读 Core 身份回执默认 owner 绑定被误拒的问题，扩展迁移器 15 项测试通过。本机 Core 与六模块扩展宿主已实际启动，公开商店读取、模块鉴权、401/404 拒绝及扩展独立重启通过；重启后选定有效真实 Key 的 raw/sk 均通过鉴权并因模型组权限得到 403，无效 Key 为 401。资金迁移套件 109 项通过。最终九库备份已生成并验证目录，最新 Core 恢复库 `check-db` 通过；完整模型配置最初因 Key 别名绑定原数据库名/OID/nonce 而拒绝启动，随后新增审核式重绑定工具，真实 883 条映射保持不变，重绑定后的完整模型/RPC 恢复配置已实际启动并 ready。已找回两服务器源端商店/工具密钥，50 条库存与 13 条工具凭据全部解密通过；ArchDmit 现有目标库存 50 条用原部署密钥解密后与源内容逐条一致。库存业务操作、工具凭据重新导入及恢复仍待验。15 份历史非活跃订阅仍受源时区证据合同阻断；全站业务、负载/容量和独立验收仍未完成。所有材料均标记 rehearsal-only，生产未停止、未写入、未切流。
 
 - **66 组件新装边界（方案 A）已确定并自测**。当前二进制只负责新装，旧站升级和历史签到导入保留在匹配的旧二进制；旧站离线迁移另行设计。冻结历史 JSON 与指纹常数未改，测试不再用当前组件前缀生成历史清单。历史签到两条 owner 命令在连接数据库前明确返回 `CHECKIN_HISTORY_USE_PRESERVED_BINARY`。本轮升级测试 44/44、隔离 PostgreSQL 18.6 上的真实 CLI 拒绝与策略/账本不变测试 1/1 通过，Core 二进制构建、CLI 单元/真实 PG 测试串行 19/19、文档与配方检查通过。CLI 首次未配置数据库失败，随后并行新装触发测试 PG 的共享锁内存限制；串行通过，失败日志保留。此前全量 Core 记录为 1567 通过、14 失败；本轮定向复验覆盖其中 12 项升级失败与签到 CLI 用例，不把旧全量结果重标为通过。签到原失败实际是测试二进制缺失，现已构建并验证业务拒绝；image cookie 夹具的基线失败保留。导航/签到迁移、Web 与协议回归沿用本轮交接日志，整站独立验收与部署未执行。
 
@@ -97,11 +97,15 @@
 | 市场审核Go恢复 | 阶段提交 `52f8776`、`6b268e9`；独立PG收据 `pg-market-review-independent-ids9wytd/receipt.json`，包含实际COMMIT后注入ACK丢失再关闭/重建连接池；129个相关源文件验前验后摘要一致。 |
 | HeroSMS HTTP接线 | `6b268e9`；`herosms-go-tcp-independent.log` 的5项本机HTTP契约通过，Core资金与供应商不在此证据范围。原4项Unix socket测试因环境拒绝创建socket而失败，提升权限请求被自动审核拒绝；保留失败，不记为部署通过。 |
 | 扩展注册与路由 | Web `6657c0b`、Go与开发指南 `b654171`；`go-plugin-targeted.jsonl`中modules/composition/app共34项顶层测试通过，Web第一次编译失败保留；修复后`go-webcompat-final.jsonl`为138项通过、5项PG跳过，均开启race。`go-build.log`退出0；Web8项和类型检查证据绑定`6657c0b`。后续并行i18n提交`e39c2bc`已保留，不把这些自测视为其整站验收。新增包和接口写法见[插件开发](plugin-development.md)。 |
+| Responses 旧行为范围 | `lmm-completion-20261113/model02-legacy-behavior-review.md`；对照固定 `go-v0.2.118`，源码核对，不是业务验收 |
+| 原生 compact 开发自测 | `lmm-completion-20261113/compact-freeze-r3/report.json`；绑定最终格式候选；此前开发 PG 自测 9 项与共享输入回归 5 项通过 |
+| compact 独立业务验收 | `lmm-completion-20261113/compact-independent-r3-e0f8c4ed/report.json`；最终制品独立业务 4 项、共享输入 5 项通过；保留原始两项失败与修复复验，不覆盖真实供应商或生产验收 |
 | Core 模型与原生折扣码 | `lmm-completion-20261113/independent-core/report.json`；涵盖音频、Responses 转换、折扣码与 66→67 升级 |
 | Web 折扣码报价与确认入队 | `lmm-completion-20261113/discount-independent-e924a11361/report.json`；真实 HTTP→Go→Core RPC→PG，不含 provider 执行 |
 | Core 折扣码管理与 67→68 升级 | `lmm-completion-20261113/core-discount-management-68-report.md`、`core-discount-name-search-report.md`；四角色升级、数据/ACL 保留与名称搜索回归 |
 | 折扣码管理页与批量恢复 | `lmm-completion-20261113/admin-browser/run-97fa78b790e7/result.json`；Core/PG/浏览器/SQL，含七语言窄屏与名称搜索；不含钱包 provider 执行 |
 | 匿名提货 | `lmm-completion-20261113/independent-store/final/report.json`、`postgres-report.json` |
+| 旧密钥与库存密文回读 | `lmm-completion-20261113/server-crypto-recovery/recovery-receipt.json`；两服务器源端 50/13 解密及现有目标库存 50 逐条内容一致；无生产写入，不代表最终停写迁移或库存业务验收 |
 | 提货邮件开发自测 | `lmm-completion-20261113/store-mail-delivery/delivery-report.json`；TLS/PG/worker/race 与 SMTP 认证，不抵扣真实付费组合独立验收 |
 | 付费邮件独立验收 | `lmm-completion-20261113/independent-paid-mail/INDEPENDENT-PAID-MAIL-REPORT.md`；精确 Core 基线 + mail-only Go，含实际 PG/产品重启、TLS 与丢确认后实等；不含外部邮箱/真实供应商 |
 | 支付签名过期与重启 | `lmm-completion-20261113/payment-expiry-79d9d4af2e73/report.json`；真实等待 302 秒，Go 进程重启、Core 服务对象重建 |
@@ -119,6 +123,3 @@
 - Released 8 reconcile holds on account 359 via `Charging::reconcile(..., Usage::default(), Failed, owner-authorized-zero-settle:launch-scope-v2:2026-11-12)`.
 - Text×3 + image×5; image path needed `failed` operation terminal + zero-settle without receipt.
 - Post-check: open reconcile=0 for those units; reserved=0; wallet restored unused holds.
-| Responses 旧行为范围 | `lmm-completion-20261113/model02-legacy-behavior-review.md`；对照固定 `go-v0.2.118`，源码核对，不是业务验收 |
-| 原生 compact 开发自测 | `lmm-completion-20261113/compact-freeze-r3/report.json`；绑定最终格式候选；此前开发 PG 自测 9 项与共享输入回归 5 项通过 |
-| compact 独立业务验收 | `lmm-completion-20261113/compact-independent-r3-e0f8c4ed/report.json`；最终制品独立业务 4 项、共享输入 5 项通过；保留原始两项失败与修复复验，不覆盖真实供应商或生产验收 |
