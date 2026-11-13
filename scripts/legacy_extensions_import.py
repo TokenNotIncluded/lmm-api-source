@@ -120,7 +120,8 @@ def endpoint_db(args, path: Path, *, database: str | None = None,
     if ((transport != "loopback-tcp" and not (readonly and transport == "unix"))
             or "login_role" not in connection
             or any(actual is not None and actual != expected for actual, expected in
-                   ((database, connection["database"]), (user, login), (role, owner)))):
+                   ((database, connection["database"]), (user, login),
+                    (role if role is not None else owner, owner)))):
         fail("target_connection_binding_mismatch")
     return Db(args.socket, args.port, connection["database"], login, role=owner,
               readonly=readonly, connection=connection, endpoint=endpoint)
