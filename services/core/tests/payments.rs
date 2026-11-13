@@ -2814,6 +2814,7 @@ async fn credit_quantity_personal_prepare_and_legacy_linear_contract(pool: PgPoo
         .prepare_personal(
             &f.secret,
             pb::PreparePersonalTopupRequest {
+                discount_code: String::new(),
                 mutation: mutation("personal_quantity_cny_01"),
                 payment_channel_id: 5003,
                 currency: "CNY".into(),
@@ -2832,6 +2833,7 @@ async fn credit_quantity_personal_prepare_and_legacy_linear_contract(pool: PgPoo
         .prepare_personal(
             &f.secret,
             pb::PreparePersonalTopupRequest {
+                discount_code: String::new(),
                 mutation: mutation("personal_quantity_usd_01"),
                 payment_channel_id: 5001,
                 currency: "USD".into(),
@@ -2847,6 +2849,7 @@ async fn credit_quantity_personal_prepare_and_legacy_linear_contract(pool: PgPoo
         .prepare_personal(
             &f.secret,
             pb::PreparePersonalTopupRequest {
+                discount_code: String::new(),
                 mutation: mutation("personal_legacy_linear_01"),
                 payment_channel_id: 1,
                 currency: "USD".into(),

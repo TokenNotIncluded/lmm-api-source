@@ -18,6 +18,7 @@ type quantityRPCServer struct {
 	pb.UnimplementedCorePaymentsServer
 	t     *testing.T
 	calls int
+	code  string
 }
 
 func (s *quantityRPCServer) quote(key string, qty, amount int64) *pb.PaymentIntent {
@@ -28,6 +29,9 @@ func (s *quantityRPCServer) quote(key string, qty, amount int64) *pb.PaymentInte
 	return &pb.PaymentIntent{IntentId: 31, AccountId: 42, CreatedByUserId: 17, Provider: "waffo_pancake", Merchant: "synthetic", Environment: "test", Currency: "CNY", AmountMinor: 1327, CreditUnits: qty, CreditUnit: "credit_500k_usd", IdempotencyKey: key, RequestSha256: bytes.Repeat([]byte{7}, 32)}
 }
 func (s *quantityRPCServer) PreparePersonalTopup(_ context.Context, r *pb.PreparePersonalTopupRequest) (*pb.PaymentIntent, error) {
+	if r.DiscountCode != s.code {
+		s.t.Error("discount code lost on personal wire", r.DiscountCode, s.code)
+	}
 	return s.quote(r.GetMutation().GetIdempotencyKey(), r.RequestedCreditUnits, r.AmountMinor), nil
 }
 func (s *quantityRPCServer) PrepareTopup(_ context.Context, r *pb.PrepareTopupRequest) (*pb.PaymentIntent, error) {
@@ -65,7 +69,21 @@ func TestBridgeCreditQuantityWireAndCanonicalQuote(t *testing.T) {
 			t.Fatal(intent, err)
 		}
 	}
-	if fixture.calls != 2 {
+	fixture.code = "SAVE20"
+	req.DiscountCode = fixture.code
+	req.AccountID = 0
+	if _, err = bridge.PreparePersonal(context.Background(), strings.Repeat("u", 32), req); err != nil {
+		t.Fatal(err)
+	}
+	req.AccountID = 42
+	if _, err = bridge.Prepare(context.Background(), strings.Repeat("u", 32), req); err != nil {
+		t.Fatal(err)
+	}
+	req.AccountID = 43
+	if _, err = bridge.Prepare(context.Background(), strings.Repeat("u", 32), req); err != p.ErrConflict {
+		t.Fatal("personal discount admitted wrong payer", err)
+	}
+	if fixture.calls != 5 {
 		t.Fatal("RPC path missing")
 	}
 	// Appended proto3 defaults leave old request bytes unchanged.
@@ -78,5 +96,20 @@ func TestBridgeCreditQuantityWireAndCanonicalQuote(t *testing.T) {
 	}
 	if old.ProtoReflect().Descriptor().Fields().ByName("requested_credit_units").Number() != 6 || (&pb.PreparePersonalTopupRequest{}).ProtoReflect().Descriptor().Fields().ByName("requested_credit_units").Number() != 5 {
 		t.Fatal("wrong field numbers")
+	}
+}
+
+func TestDiscountProtoDefaultPreservesPersonalWire(t *testing.T) {
+	r := &pb.PreparePersonalTopupRequest{PaymentChannelId: 3, Currency: "CNY", RequestedCreditUnits: 1000000}
+	before, _ := proto.Marshal(r)
+	r.DiscountCode = ""
+	after, _ := proto.Marshal(r)
+	if !bytes.Equal(before, after) || r.ProtoReflect().Descriptor().Fields().ByName("discount_code").Number() != 6 {
+		t.Fatal("discount default changed old contract")
+	}
+	r.DiscountCode = "SAVE20"
+	coded, _ := proto.Marshal(r)
+	if bytes.Equal(before, coded) {
+		t.Fatal("code missing from wire")
 	}
 }

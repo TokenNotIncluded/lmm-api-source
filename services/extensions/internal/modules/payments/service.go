@@ -79,7 +79,7 @@ func (s *Service) requestedAdapter(req PrepareRequest) (Adapter, error) {
 	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || (req.RequestedCreditUnits < 0 || !validAmount(req.AmountMinor) && !(req.AmountMinor == 0 && req.RequestedCreditUnits > 0)) || req.Currency != a.Channel().Currency {
 		return nil, ErrInvalid
 	}
-	if fixed, ok := a.(interface{ FixedAmountMinor() int64 }); ok && req.AmountMinor != fixed.FixedAmountMinor() {
+	if fixed, ok := a.(interface{ FixedAmountMinor() int64 }); ok && (req.AmountMinor != fixed.FixedAmountMinor() || req.DiscountCode != "") {
 		return nil, ErrInvalid
 	}
 	return a, nil
@@ -97,8 +97,17 @@ func matchesRequestedQuote(req PrepareRequest, intent Intent) bool {
 // Confirmation then calls Create with this exact account, key and amount.
 func (s *Service) Preview(ctx context.Context, credential string, req PrepareRequest) (Intent, error) {
 	a, err := s.requestedAdapter(req)
-	if err != nil || req.AccountID != 0 {
+	if req.AccountID != 0 {
 		return Intent{}, ErrInvalid
+	}
+	if err != nil {
+		// Configuration may change after an unknown successful prepare. Only
+		// structurally invalid requests are safe to abandon with HTTP 400.
+		if validKey(req.Key) && validCurrency(req.Currency) && req.RequestedCreditUnits >= 0 &&
+			(validAmount(req.AmountMinor) || req.AmountMinor == 0 && req.RequestedCreditUnits > 0) {
+			return Intent{}, ErrUnavailable
+		}
+		return Intent{}, err
 	}
 	personal, ok := s.core.(interface {
 		PreparePersonal(context.Context, string, PrepareRequest) (Intent, error)

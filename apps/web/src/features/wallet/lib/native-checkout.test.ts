@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import {
   nativeAmountMinor,
   nativeRequestedCreditUnits,
+  nativeDiscountCode,
   nativeAmountDisplay,
   nativeChannelSchema,
   nativeQuoteSchema,
@@ -187,12 +188,12 @@ test('Coinbase channels keep USD quote units while accepting test and live profi
 })
 
 test('credit quantity preserves source USD units and trusts Core CNY pricing', () => {
-  assert.equal(nativeRequestedCreditUnits('1'), '500000');
-  assert.equal(nativeRequestedCreditUnits('3.5'), '1750000');
-  assert.equal(nativeRequestedCreditUnits('100'), '50000000');
-  assert.equal(nativeRequestedCreditUnits('0.000003'), '1');
+  assert.equal(nativeRequestedCreditUnits('1'), '500000')
+  assert.equal(nativeRequestedCreditUnits('3.5'), '1750000')
+  assert.equal(nativeRequestedCreditUnits('100'), '50000000')
+  assert.equal(nativeRequestedCreditUnits('0.000003'), '1')
   for (const value of ['0', '-1', '1e2', '1.0000001']) {
-    assert.equal(nativeRequestedCreditUnits(value), null);
+    assert.equal(nativeRequestedCreditUnits(value), null)
   }
   const saved: PendingNativeCheckout = {
     channel: {
@@ -210,7 +211,7 @@ test('credit quantity preserves source USD units and trusts Core CNY pricing', (
       request_key: 'quantity_browser_fixture_01',
     },
     submitted: false,
-  };
+  }
   const quote = nativeQuoteSchema.parse({
     ...saved.request,
     amount_minor: '1327',
@@ -220,24 +221,68 @@ test('credit quantity preserves source USD units and trusts Core CNY pricing', (
     environment: 'test',
     credit_units: '1000000',
     credit_unit: 'credit_500k_usd',
-  });
-  assert.equal(validateNativeQuote(quote, saved).amount_minor, '1327');
+  })
+  assert.equal(validateNativeQuote(quote, saved).amount_minor, '1327')
   assert.throws(() =>
-    validateNativeQuote({ ...quote, credit_units: '999999' }, saved),
-  );
-  const values = new Map<string, string>();
+    validateNativeQuote({ ...quote, credit_units: '999999' }, saved)
+  )
+  const values = new Map<string, string>()
   const storage = {
     setItem: (key: string, value: string) => {
-      values.set(key, value);
+      values.set(key, value)
     },
     getItem: (key: string) => values.get(key) ?? null,
     removeItem: (key: string) => {
-      values.delete(key);
+      values.delete(key)
     },
-  };
-  saveNativeCheckout('quantity-owner', { ...saved, quote }, storage);
+  }
+  saveNativeCheckout('quantity-owner', { ...saved, quote }, storage)
   assert.deepEqual(readNativeCheckout('quantity-owner', storage), {
     ...saved,
     quote,
-  });
-});
+  })
+})
+
+test('discounted credit quote binds its code and frozen amount across restoration', () => {
+  assert.equal(nativeDiscountCode(' save-10 '), 'SAVE-10')
+  assert.equal(nativeDiscountCode(' '), '')
+  for (const value of ['ßAVE', 'A', 'BAD CODE', 'X'.repeat(65)]) {
+    assert.equal(nativeDiscountCode(value), null)
+  }
+  const discounted: PendingNativeCheckout = {
+    ...pending,
+    channel: { ...pending.channel, credit_quantity: true },
+    request: {
+      ...pending.request,
+      amount_minor: '0',
+      requested_credit_units: '5000000',
+      discount_code: 'SAVE-10',
+    },
+  }
+  const frozen = nativeQuoteSchema.parse({
+    ...quote,
+    ...discounted.request,
+    amount_minor: '900',
+    credit_units: '5000000',
+  })
+  assert.equal(validateNativeQuote(frozen, discounted).amount_minor, '900')
+  assert.throws(() =>
+    validateNativeQuote({ ...frozen, discount_code: 'OTHER' }, discounted)
+  )
+  assert.throws(() =>
+    validateNativeQuote({ ...frozen, discount_code: undefined }, discounted)
+  )
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value)
+    },
+    removeItem: (key: string) => {
+      values.delete(key)
+    },
+  }
+  const saved = { ...discounted, quote: frozen }
+  saveNativeCheckout('discount-owner', saved, storage)
+  assert.deepEqual(readNativeCheckout('discount-owner', storage), saved)
+})

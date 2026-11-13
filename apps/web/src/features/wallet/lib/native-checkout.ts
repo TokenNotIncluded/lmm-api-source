@@ -34,7 +34,13 @@ export const nativeChannelSchema = z
   .refine(
     (channel) => channel.provider !== 'coinbase' || channel.currency === 'USD'
   )
+const discountCodeSchema = z.string().regex(/^[A-Z0-9][A-Z0-9_-]{2,63}$/)
+export function nativeDiscountCode(value: string): string | null {
+  const code = value.trim().replaceAll(/[a-z]/g, (letter) => letter.toUpperCase())
+  return code === '' || discountCodeSchema.safeParse(code).success ? code : null
+}
 const requestSchema = z.object({
+  discount_code: discountCodeSchema.optional(),
   channel_id: z.string().min(1),
   amount_minor: z.union([integer, z.literal('0')]),
   requested_credit_units: integer.optional(),
@@ -117,7 +123,9 @@ export function validateNativeQuote(
     quote.channel_id !== request.channel_id ||
     quote.request_key !== request.request_key ||
     quote.currency !== request.currency ||
-    (request.amount_minor !== '0' && quote.amount_minor !== request.amount_minor) ||
+    (quote.discount_code ?? '') !== (request.discount_code ?? '') ||
+    (request.amount_minor !== '0' &&
+      quote.amount_minor !== request.amount_minor) ||
     (request.amount_minor === '0' && !request.requested_credit_units) ||
     (request.requested_credit_units !== undefined &&
       quote.credit_units !== request.requested_credit_units) ||

@@ -79,6 +79,7 @@ message PreparePersonalTopupRequest {
   string currency = 3;
   int64 amount_minor = 4;
   int64 requested_credit_units = 5;
+  string discount_code = 6; // Optional; Core validates and binds to the frozen quote.
 }
 message PaymentIntent {
   int64 intent_id = 1;

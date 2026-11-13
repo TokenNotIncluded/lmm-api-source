@@ -159,7 +159,7 @@ async fn app05_parallel_limit_and_failed_prepare_rollback(pool: PgPool) {
     } else {
         (b.unwrap_err(), retry_b)
     };
-    assert!(matches!(failure, Error::Conflict | Error::Unavailable));
+    assert!(matches!(failure, Error::Invalid | Error::Unavailable));
     // Core's existing SERIALIZABLE contract reports whole-call retry on 40001.
     // Once the winner commits, the unchanged losing request must see exhaustion.
     assert_eq!(
@@ -167,7 +167,7 @@ async fn app05_parallel_limit_and_failed_prepare_rollback(pool: PgPool) {
             .prepare_with_discount(&f.secret, retry, "SAVE20")
             .await
             .unwrap_err(),
-        Error::Conflict
+        Error::Invalid
     );
     let counts: (i64, i64) = sqlx::query_as(
         "SELECT count(*),count(*) FILTER(WHERE consumed) FROM core_payments.discount_reservations",
@@ -253,4 +253,65 @@ async fn app05_authority_window_minimum_and_http(pool: PgPool) {
     let response = router.oneshot(Request::builder().method("POST").uri("/core/v1/payment-discounts/quote")
         .header("content-type", "application/json").body(Body::from(r#"{"payment_channel_id":5003,"credit_units":1000000,"discount_code":"SAVE20"}"#)).unwrap()).await.unwrap();
     assert_eq!(response.status(), 403);
+}
+
+#[sqlx::test]
+async fn app05_personal_wire_discount_and_known_rejection(pool: PgPool) {
+    let f = fixture(&pool).await;
+    f.store
+        .save_discount(&f.secret, None, definition())
+        .await
+        .unwrap();
+    let request = pb::PreparePersonalTopupRequest {
+        mutation: mutation("app05_personal_wire_01"),
+        payment_channel_id: 5003,
+        currency: "CNY".into(),
+        amount_minor: 0,
+        requested_credit_units: 1_000_000,
+        discount_code: " save20 ".into(),
+    };
+    let intent = f
+        .store
+        .prepare_personal(&f.secret, request.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        (intent.account_id, intent.amount_minor, intent.credit_units),
+        (f.account, 1109, 1_000_000)
+    );
+    assert_eq!(
+        f.store
+            .prepare_personal(&f.secret, request.clone())
+            .await
+            .unwrap(),
+        intent
+    );
+    let mut changed = request.clone();
+    changed.discount_code.clear();
+    assert_eq!(
+        f.store
+            .prepare_personal(&f.secret, changed)
+            .await
+            .unwrap_err(),
+        Error::Conflict
+    );
+    for code in ["MISSING", "SAVE20"] {
+        let mut rejected = request.clone();
+        rejected.mutation = mutation("app05_known_rejection_01");
+        rejected.discount_code = code.into();
+        assert_eq!(
+            f.store
+                .prepare_personal(&f.secret, rejected)
+                .await
+                .unwrap_err(),
+            Error::Invalid
+        );
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_payments.intents WHERE prepare_key='app05_known_rejection_01'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
 }

@@ -119,3 +119,55 @@ func TestCreditQuantityRejectsWrongCorePriceOrCredit(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscountRequestSerializationAndFrozenReplay(t *testing.T) {
+	r := PrepareRequest{Key: "discount_request_0001", ChannelID: 3, Currency: "CNY", RequestedCreditUnits: 1000000}
+	raw, err := json.Marshal(r)
+	if err != nil || string(raw) != `{"requested_credit_units":1000000,"key":"discount_request_0001","account_id":0,"channel_id":3,"currency":"CNY","amount_minor":0}` {
+		t.Fatal(string(raw), err)
+	}
+	service, _, _ := quantityFixture(t, newMemory())
+	r.DiscountCode = "SAVE20"
+	coded, _ := json.Marshal(r)
+	if bytes.Equal(raw, coded) || !bytes.Contains(coded, []byte(`"discount_code":"SAVE20"`)) {
+		t.Fatal(string(coded))
+	}
+	quote, err := service.Preview(context.Background(), "user", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.AccountID = quote.AccountID
+	order, err := service.Create(context.Background(), "user", r)
+	if err != nil || order.Intent.AmountMinor != 1327 {
+		t.Fatal(order, err)
+	}
+	r.DiscountCode = "OTHER"
+	if _, err := service.Create(context.Background(), "user", r); !errors.Is(err, ErrConflict) {
+		t.Fatal("code changed on replay", err)
+	}
+}
+
+func TestQuoteConfigurationChangeKeepsUnknownRequestRecoverable(t *testing.T) {
+	service, _, adapter := quantityFixture(t, newMemory())
+	req := PrepareRequest{Key: "discount_unknown_0001", ChannelID: 3, Currency: "CNY", RequestedCreditUnits: 1000000}
+	if _, err := service.Preview(context.Background(), "user", req); err != nil {
+		t.Fatal(err)
+	}
+	adapter.c.Enabled = false
+	if _, err := service.Preview(context.Background(), "user", req); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("configuration change must not permit abandoning unknown intent", err)
+	}
+}
+
+func TestDiscountFixedProductDoesNotCreateIntent(t *testing.T) {
+	adapter := creemFixture(t)
+	core := newCore(adapter.Channel())
+	service, err := New(newMemory(), core, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := PrepareRequest{Key: "fixed_discount_0001", AccountID: 99, ChannelID: adapter.Channel().ID, Currency: "USD", AmountMinor: adapter.FixedAmountMinor(), DiscountCode: "SAVE20"}
+	if _, err := service.Create(context.Background(), "user", req); !errors.Is(err, ErrInvalid) || core.count("prepare") != 0 {
+		t.Fatal("fixed product discount reached Core", err)
+	}
+}

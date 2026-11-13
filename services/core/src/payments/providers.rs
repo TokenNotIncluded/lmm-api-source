@@ -1582,6 +1582,7 @@ mod tests {
             .prepare_personal(
                 &session.secret,
                 pb::PreparePersonalTopupRequest {
+                    discount_code: String::new(),
                     requested_credit_units: 0,
                     mutation: Some(pb::MutationContext {
                         idempotency_key: "native_collision_prepare".into(),
@@ -1682,6 +1683,7 @@ mod tests {
                 .prepare_personal(
                     &session.secret,
                     pb::PreparePersonalTopupRequest {
+                        discount_code: String::new(),
                         requested_credit_units: 0,
                         mutation: mutation(format!("gateway_personal_quote_{profile}")),
                         payment_channel_id: c.id,
@@ -1698,6 +1700,7 @@ mod tests {
                     .prepare_personal(
                         &session.secret,
                         pb::PreparePersonalTopupRequest {
+                            discount_code: String::new(),
                             requested_credit_units: 0,
                             mutation: mutation(format!("gateway_personal_quote_{profile}")),
                             payment_channel_id: c.id,
@@ -1870,6 +1873,7 @@ mod tests {
                 .prepare_personal(
                     &session.secret,
                     pb::PreparePersonalTopupRequest {
+                        discount_code: String::new(),
                         requested_credit_units: 0,
                         mutation: mutation(format!("gateway_other_quote_{profile}")),
                         payment_channel_id: c.id,
@@ -1947,6 +1951,7 @@ mod tests {
                 .prepare_personal(
                     &session.secret,
                     pb::PreparePersonalTopupRequest {
+                        discount_code: String::new(),
                         requested_credit_units: 0,
                         mutation: mutation("gateway_personal_quote_epay".into()),
                         payment_channel_id: 1,

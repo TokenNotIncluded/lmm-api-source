@@ -73,6 +73,7 @@ func stableKey(parts ...string) string {
 }
 
 type PrepareRequest struct {
+	DiscountCode         string `json:"discount_code,omitempty"`
 	RequestedCreditUnits int64  `json:"requested_credit_units,omitempty"`
 	Key                  string `json:"key"`
 	AccountID            int64  `json:"account_id"` // Explicit Rust personal OR team account ID.

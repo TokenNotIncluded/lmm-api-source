@@ -575,3 +575,128 @@ test('Coinbase shows the USDC payment before confirming the original USD quote',
     api.post = oldPost
   }
 })
+
+test('discount quote shows Core charge, permits editing a rejected code and confirms the frozen request', async () => {
+  const { z } = await import('zod')
+  const { AxiosError } = await import('axios')
+  const oldAdapter = api.defaults.adapter
+  dom.sessionStorage.clear()
+  login(9901, 'discount-native')
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  const requests: Record<string, string>[] = []
+  api.defaults.adapter = async (config) => {
+    const response = (data: unknown, status = 200) => ({
+      data,
+      status,
+      statusText: status === 200 ? 'OK' : 'Bad Request',
+      headers: {},
+      config,
+    })
+    if (config.url === '/api/user/payments/channels') {
+      return response({
+        success: true,
+        data: {
+          available: true,
+          channels: [
+            {
+              id: '1',
+              provider: 'stripe',
+              environment: 'test',
+              currency: 'USD',
+              credit_quantity: true,
+            },
+          ],
+        },
+      })
+    }
+    assert.equal(typeof config.data, 'string')
+    const body = z.record(z.string(), z.string()).parse(JSON.parse(config.data))
+    requests.push(body)
+    if (body.discount_code === 'BAD') {
+      throw new AxiosError(
+        'Rejected quote',
+        'ERR_BAD_REQUEST',
+        config,
+        undefined,
+        response({ success: false, error: 'PAYMENT_INVALID' }, 400)
+      )
+    }
+    if (config.url === '/api/user/payments/quote') {
+      return response({
+        success: true,
+        data: {
+          ...body,
+          amount_minor: '900',
+          order_id: 'top_9901',
+          account_id: '9901',
+          provider: 'stripe',
+          environment: 'test',
+          credit_units: '5000000',
+          credit_unit: 'credit_500k_usd',
+        },
+      })
+    }
+    assert.equal(config.url, '/api/user/payments/checkout')
+    return response({
+      success: true,
+      data: {
+        order_id: 'top_9901',
+        state: 'awaiting_payment',
+        currency: 'USD',
+        amount_minor: '900',
+        credit_units: '5000000',
+        credit_unit: 'credit_500k_usd',
+        provider_paid: false,
+        core_credit_confirmed: false,
+      },
+    })
+  }
+  const enterCode = async (value: string) => {
+    const input = document.querySelector('#native-payment-discount')
+    assert.ok(input instanceof HTMLInputElement)
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setter)
+    await act(async () => {
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+    })
+  }
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+      await flush()
+    })
+    await enterCode('bad')
+    await click('Review payment')
+    assert.equal(requests[0].discount_code, 'BAD')
+    await click('Edit payment amount')
+    await enterCode(' save10 ')
+    await click('Review payment')
+    assert.equal(requests[1].discount_code, 'SAVE10')
+    assert.equal(requests[1].amount_minor, '0')
+    assert.notEqual(requests[0].request_key, requests[1].request_key)
+    assert.match(container.querySelector('dd')?.textContent ?? '', /USD 9\.00/)
+    assert.ok(container.textContent?.includes('SAVE10'))
+    await click('Confirm payment')
+    assert.deepEqual(requests[2], {
+      ...requests[1],
+      order_id: 'top_9901',
+      expected_credit_units: '5000000',
+      expected_amount_minor: '900',
+    })
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.defaults.adapter = oldAdapter
+    dom.sessionStorage.clear()
+  }
+})

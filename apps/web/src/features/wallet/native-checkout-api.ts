@@ -57,6 +57,7 @@ export async function checkoutNativePayment(
       ...pending.request,
       order_id: pending.quote.order_id,
       expected_credit_units: pending.quote.credit_units,
+      expected_amount_minor: pending.quote.amount_minor,
     },
     config(true)
   )

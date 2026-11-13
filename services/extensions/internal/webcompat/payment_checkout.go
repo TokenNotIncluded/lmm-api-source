@@ -22,6 +22,7 @@ type PaymentCheckoutService interface {
 }
 
 type paymentCheckoutInput struct {
+	DiscountCode         string `json:"discount_code"`
 	RequestedCreditUnits string `json:"requested_credit_units"`
 	ChannelID            string `json:"channel_id"`
 	AmountMinor          string `json:"amount_minor"`
@@ -29,19 +30,21 @@ type paymentCheckoutInput struct {
 	RequestKey           string `json:"request_key"`
 	OrderID              string `json:"order_id"`
 	ExpectedCreditUnits  string `json:"expected_credit_units"`
+	ExpectedAmountMinor  string `json:"expected_amount_minor"`
 }
 
 type paymentQuoteView struct {
-	OrderID     string `json:"order_id"`
-	ChannelID   string `json:"channel_id"`
-	AccountID   string `json:"account_id"`
-	Provider    string `json:"provider"`
-	Environment string `json:"environment"`
-	Currency    string `json:"currency"`
-	AmountMinor string `json:"amount_minor"`
-	CreditUnits string `json:"credit_units"`
-	CreditUnit  string `json:"credit_unit"`
-	RequestKey  string `json:"request_key"`
+	DiscountCode string `json:"discount_code,omitempty"`
+	OrderID      string `json:"order_id"`
+	ChannelID    string `json:"channel_id"`
+	AccountID    string `json:"account_id"`
+	Provider     string `json:"provider"`
+	Environment  string `json:"environment"`
+	Currency     string `json:"currency"`
+	AmountMinor  string `json:"amount_minor"`
+	CreditUnits  string `json:"credit_units"`
+	CreditUnit   string `json:"credit_unit"`
+	RequestKey   string `json:"request_key"`
 }
 
 type paymentCheckoutView struct {
@@ -124,9 +127,9 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 				return
 			}
 			var input paymentCheckoutInput
-			fields := []string{"channel_id", "amount_minor", "currency", "request_key", "requested_credit_units"}
+			fields := []string{"channel_id", "amount_minor", "currency", "request_key", "requested_credit_units", "discount_code"}
 			if confirm {
-				fields = append(fields, "order_id", "expected_credit_units")
+				fields = append(fields, "order_id", "expected_credit_units", "expected_amount_minor")
 			}
 			if r.URL.RawQuery != "" || supportDecode(w, r, 4096, &input, fields...) != nil {
 				writePayment(w, http.StatusBadRequest, "PAYMENT_INVALID", "Invalid payment request.")
@@ -146,7 +149,13 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 				writePayment(w, http.StatusBadRequest, "PAYMENT_INVALID", "Invalid payment amount or channel.")
 				return
 			}
-			req := payments.PrepareRequest{Key: input.RequestKey, ChannelID: channelID, Currency: input.Currency, AmountMinor: amount, RequestedCreditUnits: requestedCredits}
+			code := strings.Map(func(r rune) rune {
+				if r >= 'a' && r <= 'z' {
+					return r - ('a' - 'A')
+				}
+				return r
+			}, strings.TrimSpace(input.DiscountCode))
+			req := payments.PrepareRequest{DiscountCode: code, Key: input.RequestKey, ChannelID: channelID, Currency: input.Currency, AmountMinor: amount, RequestedCreditUnits: requestedCredits}
 			intent, err := service.Preview(r.Context(), token, req)
 			if err != nil {
 				writePaymentError(w, err)
@@ -156,12 +165,12 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 				writePayment(w, http.StatusForbidden, "PAYMENT_ACCESS_DENIED", "Payment account could not be authorized.")
 				return
 			}
-			quote := paymentQuoteView{OrderID: "top_" + strconv.FormatInt(intent.ID, 10), ChannelID: input.ChannelID, AccountID: strconv.FormatInt(intent.AccountID, 10), Provider: intent.Provider, Environment: intent.Environment, Currency: intent.Currency, AmountMinor: strconv.FormatInt(intent.AmountMinor, 10), CreditUnits: strconv.FormatInt(intent.CreditUnits, 10), CreditUnit: intent.CreditUnit, RequestKey: intent.Key}
+			quote := paymentQuoteView{DiscountCode: code, OrderID: "top_" + strconv.FormatInt(intent.ID, 10), ChannelID: input.ChannelID, AccountID: strconv.FormatInt(intent.AccountID, 10), Provider: intent.Provider, Environment: intent.Environment, Currency: intent.Currency, AmountMinor: strconv.FormatInt(intent.AmountMinor, 10), CreditUnits: strconv.FormatInt(intent.CreditUnits, 10), CreditUnit: intent.CreditUnit, RequestKey: intent.Key}
 			if !confirm {
 				checkoutData(w, http.StatusOK, quote)
 				return
 			}
-			if input.OrderID != quote.OrderID || input.ExpectedCreditUnits != quote.CreditUnits {
+			if input.OrderID != quote.OrderID || input.ExpectedCreditUnits != quote.CreditUnits || (input.ExpectedAmountMinor != "" && input.ExpectedAmountMinor != quote.AmountMinor) || (code != "" && input.ExpectedAmountMinor == "") {
 				writePayment(w, http.StatusConflict, "PAYMENT_QUOTE_CHANGED", "Review the original quote before confirming payment.")
 				return
 			}

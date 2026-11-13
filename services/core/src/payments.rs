@@ -919,27 +919,10 @@ impl PaymentsStore {
         credential: &str,
         request: pb::PreparePersonalTopupRequest,
     ) -> Result<pb::PaymentIntent> {
-        let mut tx = self.begin().await?;
-        let actor = identity::authorize_in_transaction(&mut tx, credential).await?;
-        if actor.credential_kind != CredentialKind::Session {
-            return Err(Error::Denied);
-        }
-        let account_id = actor.owner_account_id;
-        tx.commit().await?;
-        // prepare rechecks the current session and account authority in the
-        // transaction that persists the quote, including on idempotent replay.
-        self.prepare(
-            credential,
-            pb::PrepareTopupRequest {
-                mutation: request.mutation,
-                account_id,
-                payment_channel_id: request.payment_channel_id,
-                currency: request.currency,
-                amount_minor: request.amount_minor,
-                requested_credit_units: request.requested_credit_units,
-            },
-        )
-        .await
+        let mut request = request;
+        let code = std::mem::take(&mut request.discount_code);
+        self.prepare_personal_discount(credential, request, &code)
+            .await
     }
 
     pub async fn prepare(
@@ -963,9 +946,6 @@ impl PaymentsStore {
             .channels
             .get(&request.payment_channel_id)
             .ok_or(Error::Unavailable)?;
-        if request.currency != channel.currency {
-            return Err(Error::Invalid);
-        }
         let request_hash = if request.requested_credit_units == 0 {
             hash(json!([
                 request.account_id,
@@ -1017,6 +997,9 @@ impl PaymentsStore {
             tx.commit().await?;
             return Ok(intent);
         }
+        if request.currency != channel.currency {
+            return Err(Error::Invalid);
+        }
         // Preserve original intent reconciliation and provider transitions.
         // Only creation of a new externally payable order is denied.
         identity::reject_marked_new_action(
@@ -1034,7 +1017,11 @@ impl PaymentsStore {
             }
             Some(
                 discounts::eligible(&mut tx, &discount_code, request.requested_credit_units)
-                    .await?,
+                    .await
+                    .map_err(|error| match error {
+                        Error::NotFound | Error::Denied | Error::Conflict => Error::Invalid,
+                        other => other,
+                    })?,
             )
         };
         let (amount_minor, credit_units, quote) = match &channel.credit_quote {

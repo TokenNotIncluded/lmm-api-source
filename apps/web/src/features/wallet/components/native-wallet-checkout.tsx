@@ -17,6 +17,7 @@ import {
   nativeAmountDisplay,
   nativeAmountMinor,
   nativeRequestedCreditUnits,
+  nativeDiscountCode,
   nativeCheckoutFinished,
   nativeCheckoutURL,
   readNativeCheckout,
@@ -77,8 +78,11 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   const [channelVersion, setChannelVersion] = useState(0)
   const [selectedID, setSelectedID] = useState('')
   const [amount, setAmount] = useState('10.00')
+  const [discountCode, setDiscountCode] = useState('')
   const [result, setResult] = useState<NativeCheckout | null>(null)
-  const [error, setError] = useState<'unknown' | 'auth' | null>(null)
+  const [error, setError] = useState<'unknown' | 'auth' | 'invalid' | null>(
+    null
+  )
   const [busy, setBusy] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
@@ -152,7 +156,9 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
     setError(
       axios.isAxiosError(failure) && failure.response?.status === 401
         ? 'auth'
-        : 'unknown'
+        : axios.isAxiosError(failure) && failure.response?.status === 400
+          ? 'invalid'
+          : 'unknown'
     )
   }, [])
   const run = async (action: () => Promise<void>) => {
@@ -172,6 +178,10 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   const review = () =>
     run(async () => {
       if (!selected) return
+      const code = selected.credit_quantity
+        ? nativeDiscountCode(discountCode)
+        : ''
+      if (code === null) return
       const credits = selected.credit_quantity
         ? nativeRequestedCreditUnits(amount)
         : undefined
@@ -186,6 +196,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           currency: selected.currency,
           amount_minor: minor,
           ...(credits ? { requested_credit_units: credits } : {}),
+          ...(code ? { discount_code: code } : {}),
           request_key: crypto.randomUUID(),
         },
         submitted: false,
@@ -360,6 +371,22 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 ) : null}
               </div>
             </div>
+            {selected?.credit_quantity ? (
+              <div className='space-y-2'>
+                <Label htmlFor='native-payment-discount'>
+                  {t('Discount code')}
+                </Label>
+                <Input
+                  id='native-payment-discount'
+                  autoComplete='off'
+                  spellCheck={false}
+                  maxLength={64}
+                  value={discountCode}
+                  disabled={busy}
+                  onChange={(event) => setDiscountCode(event.target.value)}
+                />
+              </div>
+            ) : null}
             {selected?.provider === 'coinbase' ? (
               <p className='text-muted-foreground text-sm'>
                 {t(
@@ -372,6 +399,8 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               disabled={
                 busy ||
                 !selected ||
+                (selected.credit_quantity &&
+                  nativeDiscountCode(discountCode) === null) ||
                 (!selected.fixed_amount_minor &&
                   !(selected.credit_quantity
                     ? nativeRequestedCreditUnits(amount)
@@ -392,13 +421,27 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             ) : null}
           </div>
           <dl className='grid gap-4 sm:grid-cols-2'>
-            <div>
-              <dt className='text-muted-foreground text-sm'>{t('You pay')}</dt>
-              <dd className='text-xl font-semibold break-all tabular-nums'>
-                {paymentCurrency(pending.channel)}{' '}
-                {nativeAmountDisplay(pending.request.amount_minor)}
-              </dd>
-            </div>
+            {quote || pending.request.amount_minor !== '0' ? (
+              <div>
+                <dt className='text-muted-foreground text-sm'>
+                  {t('You pay')}
+                </dt>
+                <dd className='text-xl font-semibold break-all tabular-nums'>
+                  {paymentCurrency(pending.channel)}{' '}
+                  {nativeAmountDisplay(
+                    quote?.amount_minor ?? pending.request.amount_minor
+                  )}
+                </dd>
+              </div>
+            ) : null}
+            {pending.request.discount_code ? (
+              <div>
+                <dt className='text-muted-foreground text-sm'>
+                  {t('Discount code')}
+                </dt>
+                <dd className='break-all'>{pending.request.discount_code}</dd>
+              </div>
+            ) : null}
             {quote ? (
               <div>
                 <dt className='text-muted-foreground text-sm'>
@@ -432,12 +475,19 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           ) : null}
           <div className='flex flex-wrap gap-2'>
             {!quote ? (
-              <Button
-                disabled={busy || storageFailed}
-                onClick={() => void review()}
-              >
-                {t('Recover the same quote')}
-              </Button>
+              <>
+                <Button
+                  disabled={busy || storageFailed}
+                  onClick={() => void review()}
+                >
+                  {t('Recover the same quote')}
+                </Button>
+                {error === 'invalid' ? (
+                  <Button variant='ghost' disabled={busy} onClick={startAgain}>
+                    {t('Edit payment amount')}
+                  </Button>
+                ) : null}
+              </>
             ) : !pending.submitted ? (
               <>
                 <Button
@@ -520,9 +570,11 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           <p>
             {error === 'auth'
               ? t('Restore your session, then explicitly retry this order.')
-              : t(
-                  'The result is uncertain. Your original payment request is saved; refresh or retry the same order.'
-                )}
+              : error === 'invalid'
+                ? t('Payment request failed')
+                : t(
+                    'The result is uncertain. Your original payment request is saved; refresh or retry the same order.'
+                  )}
           </p>
           {error === 'auth' ? (
             <Button

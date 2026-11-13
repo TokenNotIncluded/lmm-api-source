@@ -43,7 +43,7 @@ func (b *Bridge) PreparePersonal(ctx context.Context, user string, r p.PrepareRe
 	if r.AccountID != 0 {
 		return p.Intent{}, p.ErrInvalid
 	}
-	v, err := b.client.PreparePersonalTopup(ctx, user, &pb.PreparePersonalTopupRequest{Mutation: mutation(r.Key), PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor, RequestedCreditUnits: r.RequestedCreditUnits})
+	v, err := b.client.PreparePersonalTopup(ctx, user, &pb.PreparePersonalTopupRequest{Mutation: mutation(r.Key), PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor, RequestedCreditUnits: r.RequestedCreditUnits, DiscountCode: r.DiscountCode})
 	if err != nil {
 		return p.Intent{}, mapError(err)
 	}
@@ -54,6 +54,18 @@ func (b *Bridge) PreparePersonal(ctx context.Context, user string, r p.PrepareRe
 }
 
 func (b *Bridge) Prepare(ctx context.Context, user string, r p.PrepareRequest) (p.Intent, error) {
+	if r.DiscountCode != "" {
+		account := r.AccountID
+		r.AccountID = 0
+		intent, err := b.PreparePersonal(ctx, user, r)
+		if err != nil {
+			return p.Intent{}, err
+		}
+		if intent.AccountID != account {
+			return p.Intent{}, p.ErrConflict
+		}
+		return intent, nil
+	}
 	v, err := b.client.PrepareTopup(ctx, user, &pb.PrepareTopupRequest{Mutation: mutation(r.Key), AccountId: r.AccountID, PaymentChannelId: r.ChannelID, Currency: r.Currency, AmountMinor: r.AmountMinor, RequestedCreditUnits: r.RequestedCreditUnits})
 	if err != nil {
 		return p.Intent{}, mapError(err)

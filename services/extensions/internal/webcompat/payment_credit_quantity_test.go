@@ -46,3 +46,30 @@ func TestBrowserCreditQuantityUsesCoreCharge(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserDiscountCanonicalCodeAndReviewedAmount(t *testing.T) {
+	p := &quantityCheckoutPort{}
+	mux := checkoutMux(t, p)
+	body := `{"channel_id":"5003","amount_minor":"0","requested_credit_units":"1000000","currency":"CNY","request_key":"discount_browser_0001","discount_code":" save20 "}`
+	w := checkoutCall(mux, "POST", "/api/user/payments/quote", webToken, body)
+	if w.Code != 200 || p.observed.DiscountCode != "SAVE20" || !strings.Contains(w.Body.String(), `"discount_code":"SAVE20"`) {
+		t.Fatal(w.Code, w.Body.String(), p.observed)
+	}
+	confirm := strings.TrimSuffix(body, "}") + `,"order_id":"top_21","expected_credit_units":"1000000","expected_amount_minor":"1327"}`
+	w = checkoutCall(mux, "POST", "/api/user/payments/checkout", webToken, confirm)
+	if w.Code != 202 || p.observed.DiscountCode != "SAVE20" || p.observed.AmountMinor != 0 || p.creates != 1 {
+		t.Fatal(w.Code, w.Body.String(), p.observed)
+	}
+	for _, amount := range []string{"0", "1328", ""} {
+		wrong := strings.Replace(confirm, `"expected_amount_minor":"1327"`, `"expected_amount_minor":"`+amount+`"`, 1)
+		w = checkoutCall(mux, "POST", "/api/user/payments/checkout", webToken, wrong)
+		if w.Code != 409 || p.creates != 1 {
+			t.Fatal("unreviewed amount dispatched", amount, w.Code)
+		}
+	}
+	empty := strings.Replace(body, " save20 ", "   ", 1)
+	w = checkoutCall(mux, "POST", "/api/user/payments/quote", webToken, empty)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "discount_code") || p.observed.DiscountCode != "" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

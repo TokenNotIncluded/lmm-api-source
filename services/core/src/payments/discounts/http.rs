@@ -132,6 +132,7 @@ async fn prepare(
         .prepare_personal_discount(
             bearer(&h)?,
             pb::PreparePersonalTopupRequest {
+                discount_code: String::new(),
                 mutation: Some(pb::MutationContext {
                     idempotency_key: input.idempotency_key,
                     expected_version: None,
