@@ -45,9 +45,9 @@
 | REL-02 | 历史范围已验收 | 旧候选镜像资源与启动已验收；当前原生制品见 REL-03。 |
 | REL-03 | 部分完成 | Core7、Go9、Web5 制品与本地组合已验证；剩签名/发布、生产安装及运行核验，CLI 分发仍见 CLI-01。 |
 | AUTH-01 | 实现待验收 | OIDC与WeChat验证码桥已有provider管理、登录绑定和签名校验实现；旧provider配置迁移等价、正式配置和浏览器全链仍待验。见 services/core/src/identity/federated/。 |
-| MODEL-01 | 部分实现 | 文字、视觉输入及Anthropic缓存边界已有实现；hosted tools/fileData完整入口与转换覆盖仍待核实。 |
+| MODEL-01 | 部分实现 | 文字、视觉输入、Anthropic 缓存及 Responses 结构化输出转换已有独立验证；hosted tools/fileData 完整入口与转换覆盖待核实。 |
 | MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
-| MODEL-03 | 部分实现 | 已有Chat音频计费与恢复；独立TTS/STT/translation及双向Realtime未齐。Gemini音频按用户决定延期。 |
+| MODEL-03 | 部分实现 | Chat 音频多轮历史、计费与恢复已通过独立 PG 验证；独立 TTS/STT/translation 及双向 Realtime 未齐。Gemini 音频按决定延期。 |
 | MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
 | MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过。Web配置读回已保留target.client_protocols。29凭据引用已有。OAuth catalog 对日历价用 `PriceSnapshot::template`，recover ApplyPending 已消除。演练旧 Key（cred 312）：FREE/`openrouter/free` chat completed；官key/`gpt-6.1-sol` Responses 200；图片经 piqode ch8/`gpt-image-2.5-flare` 完成 generations（HTTP 200、capture 47000）。8 个在用缺口已书面延期，见 [launch-scope-in-use-deferral.md](launch-scope-in-use-deferral.md)。演练库原 8 笔 reconcile hold（约 6.51M credits）已在业主授权下以 `Usage::default()`/`Failed` 零结算释放（含图片 `failed` 无回执路径）；禁止无证据自动放款的规则不变。 |
 | ASSIST-01 | 实现待验收 | Core/Go实时流、Web历史恢复与取消主要链路已实现；助手/MCP/工具/HumanGrant完整组合仍待验收。见 services/core/src/assistant_model/agent/。 |
@@ -56,7 +56,7 @@
 | PAY-01 | 部分实现 | 余额/免费商店购买已通过固定组合验收；外部商店收款尚未接通。PublicConfig的platform_payment_methods/catalog为空（store/legacy_catalog.go）；external:epay、external:waffo_pancake、platform:waffo_pancake、platform:linuxdo仍缺各自购买交付结算验收。人民币钱包充值及95笔历史充值依据已验证，属于钱包支付范围。 |
 | PAY-02 | 部分实现 | 钱包Stripe/Waffo Global及受EnableLegacyRefund控制的EPay退款、商店余额全额退款已有；新订单部分退款实现见STORE-02。Pancake明确RefundEnabled=false、Refund返回ErrUnsupported（payments/pancake.go）；外部商店退款尚缺冻结交易、退款通知/查询、收入回冲及恢复全链。 |
 | PAY-03 | 部分实现 | catalog/pair/save已接正常router，已有Core绑定的return URL/私钥配置可原子保存并更新运行实例；Session-only customer portal按Core用户绑定customer及单一store/environment。模块、composition、Web入口针对性测试及race通过，含并发保存、SDK本地HTTP、秘密文件持久化与配置重建。更换merchant/store/product仍需Core策略同步，当前明确返回PAYMENT_CORE_POLICY_REQUIRED；真实Core Session、PG、外部provider、浏览器及OS重启组合待验。历史缺字段订单继续在供应商I/O前拒绝。 |
-| STORE-01 | 待补齐 | 游客购买与邮件提货合同未齐 |
+| STORE-01 | 部分实现 | 按订单冻结策略匿名提货已通过独立 Go race 与 PG 18.6 持久化复验，旧订单继续要求原买家登录；游客购买与完整邮件投递链仍未齐。 |
 | STORE-02 | 部分实现 | 新订单数量/金额部分退款及Core资金协议已有；历史余额退款分支仍不支持，完整组合待验。 |
 | STORE-03 | 部分验收 | 当前固定组合购买、付款、库存提货、全额退款通过；显式卖家自购和三态目录的完整浏览器覆盖仍缺。 |
 | STORE-04 | 待验收 | 账户隔离、购物车并发与清理有旧组件证据；最终组合的购物车、收藏、游客合并浏览器验收未完成。 |
@@ -65,7 +65,7 @@
 | APP-02 | 实现待验收 | 实时用量来源、SVG与Core历史查询已有实现；固定进程组合、浏览器及公网来源仍待验收。 |
 | APP-03 | 部分实现 | Go目录、报价、购买/取消、重下单、投诉、邮箱批量及管理接口已接线，5项真实本机TCP HTTP契约测试独立通过；6项既有Web API自测通过。Core直接供应商调用、报价与资金状态实现待真实PG验收；正式供应商、进程组合与浏览器未验。无provider ID的UNKNOWN保留人工对账，不能重复购买或假退款。 |
 | APP-04 | 待验收 | io.net 实现及数据库权限缺陷复验通过；真实供应商、Core 授权与浏览器完整链未验收。 |
-| APP-05 | 待补齐 | 平台充值折扣码缺管理、校验与新消费合同 |
+| APP-05 | 部分实现 | Core 管理、冻结报价、占用与入账消费及 66→67 升级已有 PG 验证；Web 报价/确认入队已独立联通。管理页、provider 执行与历史优惠连续性待补。 |
 | APP-06 | 部分实现 | 原生abuse策略、标记与审计已有；公开安全报告及Moderation旧行为映射仍待补。 |
 | APP-07 | 待验收 | RSS 抓取、缓存、配置有组件证据；目标 edge 路由与浏览器未验收。 |
 | APP-08 | 实现待验收 | 候选已有加密偏好、签名投递、持久重试和前端设置；完整Web类型检查曾通过。旧用户偏好加密续接正在补齐，真实PG/本地TLS及固定组合仍待验。旧ratio通知与投递仅有归档计数路径，未证明旧待投队列为空或已恢复，不能视作迁移完成。 |
