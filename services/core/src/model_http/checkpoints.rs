@@ -863,6 +863,7 @@ mod a07_recovery_tests {
         };
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
+                responses_compaction: false,
                 pre_acceptance_rejection_statuses: Vec::new(),
                 grounding: None,
 

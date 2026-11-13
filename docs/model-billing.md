@@ -62,6 +62,9 @@ usd_micros_per_grounded_request = 35000 # 单位示例，须替换为审核后�
 
 ## 输入预留与精确计数
 
+原生 Responses compact 与加密上下文重放见[压缩上下文](responses-compaction.md)。
+它们使用显式审核的完整上下文上界，不属于下述纯文本精确计数 profile。
+
 `external_models[].reservation` 是[严格 tagged union](../services/core/src/model_http/provider_policy.rs)。省略或 `mode = "context_max"` 使用审核后的完整输入上界，不请求计数器；未知 mode/字段、缺失或为零的 exact timeout 均为配置错误。
 
 `openai_responses_exact_v1` 只接受显式审核的官方 `https://api.openai.com/v1` 基址、`openai_responses` 协议和固定日期模型。日期后缀仅排除 alias，不证明模型存在或供应商计数语义正确。以下仅示范字段，限额和 revision 必须按实际合同替换；原记录中的真实供应商验收仍为 **NOT_RUN**。

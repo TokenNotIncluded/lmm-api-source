@@ -899,7 +899,7 @@ impl Charging {
     /// On false or CommitUnknown, do not dispatch upstream again. A provider
     /// request ID / status check is required to resolve an ambiguous dispatch.
     pub async fn start(&self, id: &str, worker: &[u8; 32]) -> Result<bool> {
-        self.start_authorized(id, worker, None).await
+        self.start_authorized(id, worker, None, None).await
     }
     pub async fn start_oauth(
         &self,
@@ -907,13 +907,24 @@ impl Charging {
         id: &str,
         worker: &[u8; 32],
     ) -> Result<bool> {
-        self.start_authorized(id, worker, Some(issuer)).await
+        self.start_authorized(id, worker, Some(issuer), None).await
+    }
+    pub(crate) async fn start_model_authorized(
+        &self,
+        id: &str,
+        worker: &[u8; 32],
+        secret: &str,
+        peer: Option<std::net::IpAddr>,
+    ) -> Result<bool> {
+        self.start_authorized(id, worker, None, Some((secret, peer)))
+            .await
     }
     async fn start_authorized(
         &self,
         id: &str,
         worker: &[u8; 32],
         issuer: Option<&crate::identity::grants::LmmIssuer>,
+        native: Option<(&str, Option<std::net::IpAddr>)>,
     ) -> Result<bool> {
         let mut tx = self.begin().await?;
         lock(&mut tx, id).await?;
@@ -943,7 +954,24 @@ impl Charging {
                     .map_err(authority::identity_error)?;
                 authority::reject_new_model(&mut tx, source.user_id).await?;
             }
-            (None, None) if stored.charge.key_id.is_some() => (),
+            (None, None) if stored.charge.key_id.is_some() => {
+                if let Some((secret, peer)) = native {
+                    let actor = crate::identity::authorize_model_request_in_transaction(
+                        &mut tx,
+                        secret,
+                        &stored.charge.price.model,
+                        peer,
+                        &stored.charge.price.group,
+                    )
+                    .await
+                    .map_err(authority::identity_error)?;
+                    if Some(actor.credential_id) != stored.charge.key_id
+                        || actor.user_id != stored.charge.actor_user_id
+                    {
+                        return Err(Error::Forbidden);
+                    }
+                }
+            }
             _ => return Err(Error::Forbidden),
         }
         sqlx::query(

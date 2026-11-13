@@ -161,6 +161,7 @@ fn gateway(pool: &PgPool, supplier: &Supplier, price_version: u64) -> ModelGatew
 }
 fn body(kind: Kind) -> Value {
     match kind {
+        Kind::ResponsesCompact | Kind::ResponsesContext => panic!("input-only fixture"),
         Kind::Embeddings => json!({"model":"embed-public","input":["one","two"]}),
         Kind::Rerank => {
             json!({"model":"rank-public","query":"q","documents":["one","two"],"top_n":1})

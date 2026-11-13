@@ -18,6 +18,10 @@ use std::{
 
 /// Reviewed reservation policy. Omission preserves the full reviewed context.
 // @context-fold begin strict-reservation-profile
+fn compaction_disabled(value: &bool) -> bool {
+    !value
+}
+
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReservationProfile {
@@ -37,6 +41,9 @@ impl Default for ReservationProfile {
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalModelContext {
+    /// Explicit supplier guarantee: native compaction and opaque replay share these token bounds.
+    #[serde(default, skip_serializing_if = "compaction_disabled")]
+    pub responses_compaction: bool,
     pub upstream_id: u64,
     pub upstream_model: String,
     pub protocol: Protocol,
@@ -133,6 +140,25 @@ impl ProviderPolicy {
             attempt.upstream_id(),
             attempt.upstream_model(),
         )
+    }
+
+    pub(super) fn require_compaction(&self, attempt: &Attempt) -> Result<(), RelayError> {
+        let endpoint = validate_base_url(attempt.endpoint(), true)?;
+        let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
+        let context = self.context_for_attempt(attempt)?;
+        if attempt.protocol() != Protocol::OpenAiResponses
+            || context.as_ref().is_none_or(|c| {
+                !c.responses_compaction
+                    || !matches!(c.reservation, ReservationProfile::ContextMax {})
+                    || c.protocol != attempt.protocol()
+                    || (!local && c.endpoint != endpoint.as_str())
+            })
+        {
+            return Err(RelayError::Unsupported(
+                "native Responses compaction contract is not configured",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) fn output_bound(
@@ -738,6 +764,7 @@ mod tests {
 
     fn context() -> ExternalModelContext {
         ExternalModelContext {
+            responses_compaction: false,
             pre_acceptance_rejection_statuses: Vec::new(),
             grounding: None,
 

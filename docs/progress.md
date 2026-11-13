@@ -46,7 +46,7 @@
 | REL-03 | 部分完成 | Core7、Go9、Web5 制品与本地组合已验证；剩签名/发布、生产安装及运行核验，CLI 分发仍见 CLI-01。 |
 | AUTH-01 | 实现待验收 | OIDC与WeChat验证码桥已有provider管理、登录绑定和签名校验实现；旧provider配置迁移等价、正式配置和浏览器全链仍待验。见 services/core/src/identity/federated/。 |
 | MODEL-01 | 部分实现 | 文字、视觉输入、Anthropic 缓存及 Responses 结构化输出转换已有独立验证；hosted tools/fileData 完整入口与转换覆盖待核实。 |
-| MODEL-02 | 部分实现 | Responses WebSocket已接previous_response_id续接；持久化、HTTP查询删除及旧同步API等价性尚未证明。 |
+| MODEL-02 | 部分实现 | 原生 compact 与 JSON/SSE 加密重放已通过独立验收；exact 不支持路径在扣款前拒绝，JSON/SSE 检查点绑定实际发送字节。HTTP store/previous_response_id 连续性与 WebSocket 旧行为等价仍待补；本地 GET/DELETE 资源接口并非旧版要求。 |
 | MODEL-03 | 部分实现 | Chat 音频多轮历史、计费与恢复已通过独立 PG 验证；独立 TTS/STT/translation 及双向 Realtime 未齐。Gemini 音频按决定延期。 |
 | MODEL-04 | 待核实 | 视频、Kling/Jimeng、MJ、Suno完整异步闭环尚无充分证据；不据旧审计推断完全无实现。 |
 | MODEL-05 | 部分实现 | 渠道目录、余额探测及原生tag发布/查询/分组分页已有；tag权限、版本冲突、原子发布与重建读回的真实PG针对性自测通过。Web配置读回已保留target.client_protocols。29凭据引用已有。OAuth catalog 对日历价用 `PriceSnapshot::template`，recover ApplyPending 已消除。演练旧 Key（cred 312）：FREE/`openrouter/free` chat completed；官key/`gpt-6.1-sol` Responses 200；图片经 piqode ch8/`gpt-image-2.5-flare` 完成 generations（HTTP 200、capture 47000）。8 个在用缺口已书面延期，见 [launch-scope-in-use-deferral.md](launch-scope-in-use-deferral.md)。演练库原 8 笔 reconcile hold（约 6.51M credits）已在业主授权下以 `Usage::default()`/`Failed` 零结算释放（含图片 `failed` 无回执路径）；禁止无证据自动放款的规则不变。 |
@@ -119,3 +119,6 @@
 - Released 8 reconcile holds on account 359 via `Charging::reconcile(..., Usage::default(), Failed, owner-authorized-zero-settle:launch-scope-v2:2026-11-12)`.
 - Text×3 + image×5; image path needed `failed` operation terminal + zero-settle without receipt.
 - Post-check: open reconcile=0 for those units; reserved=0; wallet restored unused holds.
+| Responses 旧行为范围 | `lmm-completion-20261113/model02-legacy-behavior-review.md`；对照固定 `go-v0.2.118`，源码核对，不是业务验收 |
+| 原生 compact 开发自测 | `lmm-completion-20261113/compact-freeze-r3/report.json`；绑定最终格式候选；此前开发 PG 自测 9 项与共享输入回归 5 项通过 |
+| compact 独立业务验收 | `lmm-completion-20261113/compact-independent-r3-e0f8c4ed/report.json`；最终制品独立业务 4 项、共享输入 5 项通过；保留原始两项失败与修复复验，不覆盖真实供应商或生产验收 |

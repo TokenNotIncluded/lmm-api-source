@@ -1,6 +1,6 @@
 //! Input-only APIs retain the same Core authorization, reservation and ledger authority.
 #[path = "input_contract.rs"]
-mod contract;
+pub(super) mod contract;
 #[cfg(test)]
 #[path = "input_api_tests.rs"]
 mod tests;
@@ -18,6 +18,7 @@ pub(super) fn router(gateway: ModelGateway) -> Router {
     Router::new()
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/rerank", post(rerank))
+        .route("/v1/responses/compact", post(compact))
         .layer(axum::middleware::map_response(no_store))
         .with_state(gateway)
 }
@@ -31,6 +32,30 @@ async fn no_store(mut response: Response) -> Response {
     );
     response
 }
+async fn compact(
+    State(gateway): State<ModelGateway>,
+    peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
+    request: Request,
+) -> Response {
+    handle(
+        gateway,
+        peer.ok().map(|p| p.0.ip()),
+        request,
+        Kind::ResponsesCompact,
+    )
+    .await
+}
+pub(super) async fn responses_context(
+    gateway: ModelGateway,
+    headers: HeaderMap,
+    body: Bytes,
+    peer: Option<IpAddr>,
+) -> Response {
+    let mut request = Request::new(Body::from(body));
+    *request.headers_mut() = headers;
+    handle(gateway, peer, request, Kind::ResponsesContext).await
+}
+
 async fn embeddings(
     State(gateway): State<ModelGateway>,
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
@@ -97,11 +122,42 @@ async fn handle(
         Ok(request) => request,
         Err(error) => return with_request_id(public_error(error), &id),
     };
+    if request.streaming() {
+        let (sender, receiver) = tokio::sync::mpsc::channel(8);
+        let stream_id = id.clone();
+        tokio::spawn(async move {
+            if let Err(error) = execute(
+                gateway,
+                caller,
+                request,
+                stream_id,
+                permit,
+                Some(sender.clone()),
+            )
+            .await
+            {
+                let _ = sender.try_send(Err(error));
+            }
+        });
+        let response = (
+            [
+                (header::CONTENT_TYPE, "text/event-stream"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(receiver)),
+        )
+            .into_response();
+        return with_request_id(response, &id);
+    }
     // The worker owns its admission slot and settles even if the HTTP client disconnects.
     let worker_id = id.clone();
-    let result = tokio::spawn(execute(gateway, caller, request, worker_id, permit)).await;
+    let result = tokio::spawn(execute(gateway, caller, request, worker_id, permit, None)).await;
     let response = match result {
-        Ok(Ok(value)) => Json(value).into_response(),
+        Ok(Ok(packet)) => (
+            [(header::CONTENT_TYPE, "application/json")],
+            Body::from(packet),
+        )
+            .into_response(),
         Ok(Err(error)) => public_error(error),
         Err(_) => public_error(RelayError::SettlementPending),
     };
@@ -112,6 +168,7 @@ pub(super) fn endpoint(base: &str, protocol: Protocol) -> Result<reqwest::Url, R
     let operation = match protocol {
         Protocol::OpenAiEmbeddings => "embeddings",
         Protocol::JinaRerank => "rerank",
+        Protocol::OpenAiResponses => "responses",
         _ => return Err(RelayError::RouteUnavailable),
     };
     let mut url = crate::relay::honeypot_network::validate_base_url(base, true)?;
@@ -134,7 +191,8 @@ async fn execute(
     request: InputRequest,
     id: String,
     _permit: OwnedSemaphorePermit,
-) -> Result<serde_json::Value, RelayError> {
+    stream: Option<super::responses_native::Sender>,
+) -> Result<Bytes, RelayError> {
     if gateway
         .bridge
         .charging
@@ -173,13 +231,18 @@ async fn execute(
     let quote = plan
         .quote()
         .with_credit_rate(CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?);
-    if !quote.price().is_input_only_scalar() {
+    if !request.kind().responses() && !quote.price().is_input_only_scalar() {
         return Err(RelayError::Unsupported(
             "input-only API requires an input-only token tariff",
         ));
     }
     let price = routing::credit_price(quote.price(), plan.canonical_model(), &group)?;
     let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
+    if request.kind().responses() && attempt.protocol() != Protocol::OpenAiResponses {
+        return Err(RelayError::Unsupported(
+            "compaction requires a native Responses provider",
+        ));
+    }
     if attempt.protocol() != protocol
         || attempt.payload_policy() != PayloadPolicy::Adapt
         || !attempt.is_available()
@@ -187,10 +250,34 @@ async fn execute(
     {
         return Err(RelayError::RouteUnavailable);
     }
+    if request.kind().responses() {
+        gateway
+            .bridge
+            .provider_policy
+            .require_compaction(&attempt)?;
+        if price.upstream_cost_group_ppm.is_some()
+            || price.text_request.is_some()
+            || price.grounding.is_some()
+            || price.image.is_some()
+            || price.audio.is_some()
+            || price.tool.is_some()
+            || price.tiered.is_some()
+        {
+            return Err(RelayError::Unsupported(
+                "native compaction requires scalar token pricing",
+            ));
+        }
+    }
+    let output_max = request.output_limit(
+        gateway
+            .bridge
+            .provider_policy
+            .output_bound(&attempt, gateway.limits.max_output_tokens)?,
+    )?;
     let input_max = gateway.bridge.provider_policy.reservation_input_bound(
         &attempt,
         gateway.bridge.policy.input_token_ceiling,
-        0,
+        output_max,
     )?;
     request.validate_bound(input_max as u64)?;
     let reference = attempt.credential_ref();
@@ -199,7 +286,13 @@ async fn execute(
         .credentials
         .get(&(reference.id, reference.revision))
         .ok_or(RelayError::RouteUnavailable)?;
-    let endpoint = endpoint(attempt.endpoint(), protocol)?;
+    let mut endpoint = endpoint(attempt.endpoint(), protocol)?;
+    if request.kind() == Kind::ResponsesCompact {
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| RelayError::RouteUnavailable)?
+            .push("compact");
+    }
     let connection = tokio::time::timeout(
         gateway.limits.total_timeout,
         gateway
@@ -209,7 +302,13 @@ async fn execute(
     )
     .await
     .map_err(|_| RelayError::RouteUnavailable)??;
-    let wire = request.wire(attempt.upstream_model())?;
+    let mut wire = request.wire(attempt.upstream_model())?;
+    if request.kind() == Kind::ResponsesContext {
+        let mut v: serde_json::Value = serde_json::from_slice(&wire)
+            .map_err(|_| RelayError::Invalid("native Responses wire"))?;
+        v["max_output_tokens"] = output_max.into();
+        wire = serde_json::to_vec(&v).map_err(|_| RelayError::Invalid("native Responses wire"))?;
+    }
     if wire.len() > gateway.limits.request_bytes {
         return Err(RelayError::Limit("input-only outbound bytes"));
     }
@@ -217,14 +316,21 @@ async fn execute(
         .client()
         .post(endpoint)
         .bearer_auth(&credential)
-        .header(header::ACCEPT, "application/json")
+        .header(
+            header::ACCEPT,
+            if stream.is_some() {
+                "text/event-stream"
+            } else {
+                "application/json"
+            },
+        )
         .header(header::CONTENT_TYPE, "application/json")
         .body(wire.clone())
         .build()
         .map_err(|_| RelayError::Invalid("input-only provider request"))?;
     let reserve = i64::try_from(
         quote
-            .reservation_ceiling(input_max as u64, 0)
+            .reservation_ceiling(input_max as u64, output_max as u64)
             .map_err(|_| RelayError::BillingUnavailable)?
             .0,
     )
@@ -249,26 +355,50 @@ async fn execute(
         .bridge
         .provider_policy
         .reservation_metadata(&attempt)?;
-    let prepared = charging::contract::PreparedReservation::input_only(
-        charging::contract::hex_digest(&fingerprint),
-        charging::contract::ReservationBinding {
-            route_id: route_id.clone(),
-            target_id: attempt.target_id(),
-            upstream_id: attempt.upstream_id(),
-            protocol: request.kind().name().into(),
-            model_snapshot: attempt.upstream_model().into(),
-            generation_url: upstream_request.url().as_str().into(),
-            credential_ref: reference,
-            payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
-                .map_err(billing::error)?,
-            provider_contract_revision: provider_revision,
-            projection_revision: "input-only-wire-v1".into(),
-            quote_version: attempt.quote().version(),
+    let binding = charging::contract::ReservationBinding {
+        route_id: route_id.clone(),
+        target_id: attempt.target_id(),
+        upstream_id: attempt.upstream_id(),
+        protocol: if request.kind().responses() {
+            "responses".into()
+        } else {
+            request.kind().name().into()
         },
-        charging::contract::digest(&wire),
-        input_max as u64,
-        semantics,
-    )
+        model_snapshot: attempt.upstream_model().into(),
+        generation_url: upstream_request.url().as_str().into(),
+        credential_ref: reference,
+        payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
+            .map_err(billing::error)?,
+        provider_contract_revision: provider_revision,
+        projection_revision: if request.kind().responses() {
+            "native-json-wire-v1".into()
+        } else {
+            "input-only-wire-v1".into()
+        },
+        quote_version: attempt.quote().version(),
+    };
+    let prepared = if request.kind().responses() {
+        charging::contract::PreparedReservation::context_max(
+            charging::contract::hex_digest(&fingerprint),
+            binding,
+            charging::contract::digest(&wire),
+            charging::contract::ReservationBounds {
+                model_input_max: input_max as u64,
+                input: input_max as u64,
+                requested_output: output_max as u64,
+                output: output_max as u64,
+            },
+            semantics,
+        )
+    } else {
+        charging::contract::PreparedReservation::input_only(
+            charging::contract::hex_digest(&fingerprint),
+            binding,
+            charging::contract::digest(&wire),
+            input_max as u64,
+            semantics,
+        )
+    }
     .map_err(billing::error)?;
     crate::request_limits::admit(
         &gateway.bridge.pool,
@@ -302,7 +432,7 @@ async fn execute(
                     route_id,
                     input_token_ceiling: input_max,
                 }),
-                output_token_ceiling: 0,
+                output_token_ceiling: output_max,
                 peer: caller.peer,
                 oauth_issuer: None,
             },
@@ -322,7 +452,7 @@ async fn execute(
     };
     let basis = charging::ReservationBasis::Tokens {
         input: input_max as u64,
-        output: 0,
+        output: u64::from(output_max),
     };
     let charge = billing::retry(|| {
         gateway.bridge.charging.reserve_prepared_model_with_context(
@@ -357,12 +487,28 @@ async fn execute(
         let _ = billing::retry(|| gateway.bridge.charging.release(&id, &worker)).await;
         return Err(RelayError::RouteUnavailable);
     }
-    if !billing::retry(|| gateway.bridge.charging.start(&id, &worker))
-        .await
-        .map_err(billing::error)?
-    {
+    let dispatch = billing::retry(|| {
+        gateway
+            .bridge
+            .charging
+            .start_model_authorized(&id, &worker, &caller.secret, caller.peer)
+    })
+    .await;
+    let dispatch = match dispatch {
+        Err(error @ (charging::Error::Unauthorized | charging::Error::Forbidden)) => {
+            // This transaction rejected dispatch, so releasing its original hold is known safe.
+            billing::retry(|| gateway.bridge.charging.release(&id, &worker))
+                .await
+                .map_err(billing::error)?;
+            return Err(billing::error(error));
+        }
+        result => result.map_err(billing::error)?,
+    };
+    if !dispatch {
         return Err(RelayError::Conflict);
     }
+    let mut terminal_event = None;
+    let mut sequence = 1;
     let completed = async {
         let raw = tokio::time::timeout(gateway.limits.total_timeout, async {
             if !attempt.is_available() {
@@ -379,7 +525,22 @@ async fn execute(
             if !response.status().is_success() {
                 return Err(RelayError::SettlementPending);
             }
-            native_http::read_response_bytes(&connection, response, &gateway.limits).await
+            if let Some(sender) = &stream {
+                let (response, terminal, next) = super::responses_native::read_stream(
+                    &gateway,
+                    &id,
+                    &connection,
+                    response,
+                    sender,
+                    &credential,
+                )
+                .await?;
+                terminal_event = Some(terminal);
+                sequence = next;
+                Ok(response)
+            } else {
+                native_http::read_response_bytes(&connection, response, &gateway.limits).await
+            }
         })
         .await
         .map_err(|_| RelayError::SettlementPending)??;
@@ -402,14 +563,17 @@ async fn execute(
             .await
             .map_err(billing::error)?;
         let usage = billing::frozen_priced_usage(&contract, &frozen, observed.clone())?;
+        // Encode the JSON client body once, then checkpoint and return these same bytes.
+        let client_json = Bytes::from(normalized);
+        let client_packet = terminal_event.as_ref().unwrap_or(&client_json);
         gateway
             .bridge
             .persist_output(
                 &relay::Reservation { id: id.clone() },
                 &relay::OutputCheckpoint {
-                    sequence: 1,
-                    packet_sha256: Sha256::digest(&raw).into(),
-                    packet_bytes: raw.len(),
+                    sequence,
+                    packet_sha256: Sha256::digest(client_packet).into(),
+                    packet_bytes: client_packet.len(),
                     usage: observed,
                     terminal_observed: true,
                 },
@@ -437,7 +601,10 @@ async fn execute(
         }) {
             return Err(RelayError::SettlementPending);
         }
-        Ok(output)
+        if let (Some(sender), Some(event)) = (&stream, terminal_event) {
+            super::responses_native::send_packet(sender, event, &gateway.limits).await?;
+        }
+        Ok(client_json)
     }
     .await;
     if completed.is_err() {

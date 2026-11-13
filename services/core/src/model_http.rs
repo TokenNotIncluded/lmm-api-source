@@ -27,6 +27,7 @@ mod native_http;
 mod native_models;
 pub mod pricing;
 mod provider_policy;
+mod responses_native;
 mod responses_websocket;
 mod routing;
 #[cfg(test)]
@@ -898,6 +899,10 @@ async fn responses(
             "audio Responses contract is not configured",
         ));
     }
+    if responses_native::handles(&body) {
+        return input_api::responses_context(gateway, headers, body, peer.ok().map(|p| p.0.ip()))
+            .await;
+    }
     dispatch(
         gateway,
         headers,
@@ -1168,3 +1173,6 @@ async fn dispatch(
         &id,
     )
 }
+
+#[cfg(test)]
+mod compact_independent;

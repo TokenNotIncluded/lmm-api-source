@@ -32,6 +32,7 @@ mod zconv_request;
 pub(crate) use decode::Decoder as AssistantDecoder;
 #[cfg(test)]
 pub(crate) use decode::usage as provider_usage;
+pub(crate) use decode::usage_with_cache_creation_mode as native_response_usage;
 pub(crate) use decode::usage_with_cache_creation_mode as provider_usage_with_cache_creation_mode;
 pub(crate) use encode::Encoder as AssistantEncoder;
 pub use input_count::CountObservation;

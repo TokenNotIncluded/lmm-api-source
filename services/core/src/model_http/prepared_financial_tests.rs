@@ -302,6 +302,7 @@ async fn gemini_grounding_frozen_request_fee_reaches_ledger_and_native_bill(pool
         price.rates.cache_read = 200_000;
     }
     let context = ExternalModelContext {
+        responses_compaction: false,
         pre_acceptance_rejection_statuses: Vec::new(),
         upstream_id: 1,
         upstream_model: "small-provider".into(),
@@ -471,6 +472,7 @@ fn exact_gateway(f: &Fixture) -> ModelGateway {
     document.pricing.rules.truncate(1);
     document.routing.routes[0].targets[0].upstream_model = "synthetic-model-2026-10-01".into();
     let context = ExternalModelContext {
+        responses_compaction: false,
         pre_acceptance_rejection_statuses: Vec::new(),
         grounding: None,
 

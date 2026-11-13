@@ -431,6 +431,7 @@ fn contexts(small_input: i64) -> Vec<ExternalModelContext> {
     ]
     .into_iter()
     .map(|(model, input, output)| ExternalModelContext {
+        responses_compaction: false,
         pre_acceptance_rejection_statuses: Vec::new(),
         grounding: None,
 

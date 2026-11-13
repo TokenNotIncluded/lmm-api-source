@@ -11,21 +11,29 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Kind {
+pub(in crate::model_http) enum Kind {
     Embeddings,
     Rerank,
+    ResponsesCompact,
+    ResponsesContext,
 }
 impl Kind {
+    pub(super) fn responses(self) -> bool {
+        matches!(self, Self::ResponsesCompact | Self::ResponsesContext)
+    }
     pub(super) fn protocol(self) -> Protocol {
         match self {
             Self::Embeddings => Protocol::OpenAiEmbeddings,
             Self::Rerank => Protocol::JinaRerank,
+            Self::ResponsesCompact | Self::ResponsesContext => Protocol::OpenAiResponses,
         }
     }
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Embeddings => "embeddings",
             Self::Rerank => "rerank",
+            Self::ResponsesCompact => "responses.compact",
+            Self::ResponsesContext => "responses.context",
         }
     }
 }
@@ -104,12 +112,16 @@ pub(super) struct Request {
 enum Body {
     Embeddings(Embeddings),
     Rerank(Rerank),
+    Responses(super::responses_native::Request),
 }
 
 impl Request {
     pub(super) fn parse(kind: Kind, raw: &[u8]) -> Result<Self, RelayError> {
         let invalid = || RelayError::Invalid("invalid input-only model request");
         let body = match kind {
+            Kind::ResponsesCompact | Kind::ResponsesContext => {
+                Body::Responses(super::responses_native::Request::parse(kind, raw)?)
+            }
             Kind::Embeddings => {
                 let body: Embeddings = serde_json::from_slice(raw).map_err(|_| invalid())?;
                 if !body.input.validate()
@@ -150,16 +162,27 @@ impl Request {
         match &self.body {
             Body::Embeddings(body) => &body.model,
             Body::Rerank(body) => &body.model,
+            Body::Responses(body) => body.model(),
         }
     }
     pub(super) fn wire(&self, model: &str) -> Result<Vec<u8>, RelayError> {
         let mut body = match &self.body {
             Body::Embeddings(body) => serde_json::to_value(body),
             Body::Rerank(body) => serde_json::to_value(body),
+            Body::Responses(body) => return body.wire(model),
         }
         .map_err(|_| RelayError::Invalid("input-only request encoding"))?;
         body["model"] = model.into();
         serde_json::to_vec(&body).map_err(|_| RelayError::Invalid("input-only request encoding"))
+    }
+    pub(super) fn streaming(&self) -> bool {
+        matches!(&self.body, Body::Responses(r) if r.streaming())
+    }
+    pub(super) fn output_limit(&self, ceiling: u32) -> Result<u32, RelayError> {
+        match &self.body {
+            Body::Responses(r) => r.output_limit(ceiling),
+            _ => Ok(0),
+        }
     }
     pub(super) fn validate_bound(&self, input_max: u64) -> Result<(), RelayError> {
         if let Body::Embeddings(body) = &self.body
@@ -174,8 +197,12 @@ impl Request {
     }
 
     pub(super) fn response(&self, raw: &[u8]) -> Result<(Value, Usage), RelayError> {
+        if let Body::Responses(request) = &self.body {
+            return request.response(raw);
+        }
         let invalid = || RelayError::Protocol("invalid input-only provider response");
         let (output, input) = match &self.body {
+            Body::Responses(_) => unreachable!(),
             Body::Embeddings(request) => {
                 let response: EmbeddingResponse =
                     serde_json::from_slice(raw).map_err(|_| invalid())?;

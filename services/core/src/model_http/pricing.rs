@@ -818,6 +818,7 @@ pub(crate) mod tests {
             names
                 .into_iter()
                 .map(|name| super::super::ExternalModelContext {
+                    responses_compaction: false,
                     pre_acceptance_rejection_statuses: Vec::new(),
                     grounding: None,
 
@@ -1244,6 +1245,7 @@ pub(crate) mod tests {
                     .find(|t| t.upstream_id == upstream.id)
                     .unwrap();
                 super::super::ExternalModelContext {
+                    responses_compaction: false,
                     pre_acceptance_rejection_statuses: Vec::new(),
                     grounding: None,
 

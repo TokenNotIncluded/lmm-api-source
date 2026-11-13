@@ -43,6 +43,7 @@ pub(super) fn gateway(
         .iter()
         .filter(|_| reject)
         .map(|model| ExternalModelContext {
+            responses_compaction: false,
             upstream_id: 1,
             upstream_model: (*model).into(),
             protocol,
