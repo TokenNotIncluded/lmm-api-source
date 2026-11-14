@@ -69,20 +69,6 @@ type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   title?: ReactNode
 }
 
-type CodeBlockEditorProps = Omit<
-  HTMLAttributes<HTMLDivElement>,
-  'onChange' | 'onKeyDown' | 'title'
-> & {
-  actions?: ReactNode
-  ariaLabel: string
-  language: BundledLanguage | string
-  onChange: (value: string) => void
-  onKeyDown?: (event: globalThis.KeyboardEvent) => void
-  rows?: number
-  title?: ReactNode
-  value: string
-}
-
 type CodeMirrorCodeViewProps = {
   ariaLabel: string
   autoFocus?: boolean
@@ -580,41 +566,6 @@ export const CodeBlock = ({
         />
       </CodeBlockFrame>
     </CodeBlockContext.Provider>
-  )
-}
-
-export const CodeBlockEditor = ({
-  actions,
-  ariaLabel,
-  className,
-  language,
-  onChange,
-  onKeyDown,
-  rows = 8,
-  title,
-  value,
-  ...props
-}: CodeBlockEditorProps) => {
-  return (
-    <CodeBlockFrame
-      bodyClassName='p-0'
-      className={className}
-      endActions={actions}
-      showToolbar
-      title={title}
-      {...props}
-    >
-      <CodeMirrorCodeView
-        ariaLabel={ariaLabel}
-        autoFocus
-        language={language}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-        rows={rows}
-        showLineNumbers
-        value={value}
-      />
-    </CodeBlockFrame>
   )
 }
 

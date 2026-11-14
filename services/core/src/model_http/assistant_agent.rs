@@ -35,9 +35,6 @@ pub(crate) enum AgentAnswer {
 }
 pub(crate) struct AgentObservation {
     pub answer: AgentAnswer,
-    /// Provider message from the same parse as `answer`. Workers branch on `answer`.
-    #[allow(dead_code)]
-    pub assistant_message: Value,
     pub response_json: Vec<u8>,
     pub response_sha256: [u8; 32],
     pub usage: crate::billing::charging::Usage,
@@ -124,18 +121,16 @@ impl ModelGateway {
         )
         .await
         .map_err(|_| RelayError::SettlementPending)??;
-        let (answer, assistant_message) = parse_answer(&value, &prepared.allowed_names)
-            .unwrap_or((AgentAnswer::Refused, Value::Null));
+        let answer = parse_answer(&value, &prepared.allowed_names).unwrap_or(AgentAnswer::Refused);
         Ok(AgentObservation {
             answer,
-            assistant_message,
             response_sha256: Sha256::digest(&bytes).into(),
             response_json: bytes,
             usage,
         })
     }
 }
-fn parse_answer(value: &Value, allowed: &BTreeSet<String>) -> Option<(AgentAnswer, Value)> {
+fn parse_answer(value: &Value, allowed: &BTreeSet<String>) -> Option<AgentAnswer> {
     let choices = value.get("choices")?.as_array()?;
     if choices.len() != 1 {
         return None;
@@ -158,7 +153,7 @@ fn parse_answer(value: &Value, allowed: &BTreeSet<String>) -> Option<(AgentAnswe
             if text.is_empty() || text.len() > 32768 {
                 return None;
             }
-            Some((AgentAnswer::Text(text.to_owned()), message.clone()))
+            Some(AgentAnswer::Text(text.to_owned()))
         }
         "tool_calls" => {
             if message
@@ -203,7 +198,7 @@ fn parse_answer(value: &Value, allowed: &BTreeSet<String>) -> Option<(AgentAnswe
                     arguments: args.as_bytes().to_vec(),
                 });
             }
-            Some((AgentAnswer::Tools(parsed), message.clone()))
+            Some(AgentAnswer::Tools(parsed))
         }
         _ => None,
     }
@@ -215,7 +210,7 @@ mod tests {
     fn provider_calls_preserve_exact_ids_arguments_and_order() {
         let allowed = BTreeSet::from(["discover_tools".into(), "get_account_access".into()]);
         let value = json!({"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"discover_tools","arguments":"{\"names\":[\"get_account_access\"]}"}},{"id":"c2","type":"function","function":{"name":"get_account_access","arguments":"{}"}}]}}]});
-        let Some((AgentAnswer::Tools(calls), _)) = parse_answer(&value, &allowed) else {
+        let Some(AgentAnswer::Tools(calls)) = parse_answer(&value, &allowed) else {
             panic!("complete tool calls expected")
         };
         assert_eq!(

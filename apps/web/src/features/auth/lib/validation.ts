@@ -66,15 +66,3 @@ export function formatBackupCode(value: string): string {
 export function cleanBackupCode(code: string): string {
   return code.replaceAll('-', '')
 }
-
-// ============================================================================
-// Email Validation
-// ============================================================================
-
-/**
- * Basic email validation
- */
-export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
-}

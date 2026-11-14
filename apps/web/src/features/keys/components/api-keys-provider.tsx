@@ -54,7 +54,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
-import useDialogState from '@/hooks/use-dialog'
+import { useDialogState } from '@/hooks/use-dialog'
 import { formatApiKey } from '@/lib/api-key-format'
 
 import { fetchTokenKey, fetchTokenKeysBatch } from '../api'

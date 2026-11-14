@@ -208,7 +208,7 @@ mod tests {
         ].into_iter().map(|v| format!("data: {v}\r\n\r\n")).collect::<String>() + "data: [DONE]\r\n\r\n";
         let (prefixes, value, usage) = decode(&wire).unwrap();
         assert_eq!(prefixes, vec!["hello ", "hello 世界"]);
-        let Some((AgentAnswer::Tools(calls), _)) =
+        let Some(AgentAnswer::Tools(calls)) =
             parse_answer(&value, &BTreeSet::from(["read".into()]))
         else {
             panic!("real assembled call")

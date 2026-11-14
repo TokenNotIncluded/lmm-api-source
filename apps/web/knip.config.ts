@@ -6,7 +6,6 @@ const config: KnipConfig = {
     'src/debug-main.tsx',
     'src/**/*.test.{ts,tsx}',
     'src/**/__tests__/**/*.{ts,tsx}',
-    'scripts/add-missing-keys.mjs',
     'scripts/operator-persona-suite.mjs',
     'scripts/production-acceptance.mjs',
     'scripts/**/*.test.mjs',

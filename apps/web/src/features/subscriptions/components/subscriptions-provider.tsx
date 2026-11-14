@@ -29,7 +29,7 @@ import {
   getOptionValue,
   useSystemOptions,
 } from '@/features/system-settings/hooks/use-system-options'
-import useDialogState from '@/hooks/use-dialog'
+import { useDialogState } from '@/hooks/use-dialog'
 
 import type { PlanRecord, SubscriptionsDialogType } from '../types'
 

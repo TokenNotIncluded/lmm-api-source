@@ -177,14 +177,6 @@ export interface SystemStatus extends SystemStatusData {
 // OAuth
 // ============================================================================
 
-export interface OAuthProvider {
-  name: string
-  type: 'github' | 'discord' | 'oidc' | 'linuxdo' | 'telegram' | 'wechat'
-  enabled: boolean
-  clientId?: string
-  authEndpoint?: string
-}
-
 export interface CustomOAuthProviderInfo {
   id: number
   name: string

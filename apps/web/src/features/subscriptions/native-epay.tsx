@@ -1,19 +1,17 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  currentCommerceScope,
-  readPending,
   requestKey,
-  savePending,
   type CommerceScope,
 } from '@/features/commerce/native-client'
 import { nativeAmountDisplay } from '@/features/wallet/lib/native-checkout'
 
+import { useNativeExternalSubscription } from './hooks/use-native-external-subscription'
 import type { NativePlan } from './native-api'
 import {
   cancelEPayOrder,
@@ -44,88 +42,34 @@ export function NativeEPaySubscriptions({
   onUpdated?: () => void
 }) {
   const { t } = useTranslation()
-  const [prices, setPrices] = useState<EPayPrice[]>([])
-  const [pending, setPending] = useState<EPayPending | null>(null)
   const [order, setOrder] = useState<EPayOrder | null>(null)
-  const [ready, setReady] = useState(false)
-  const [storageBlocked, setStorageBlocked] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState('')
-  const mounted = useRef(false)
-  const running = useRef(false)
-  const current = () => mounted.current && currentCommerceScope(scope)
 
-  function remember(value: EPayPending | null) {
-    if (!current()) return false
-    try {
-      savePending(scope, 'subscription-epay', value)
-      setPending(value)
-      return true
-    } catch {
-      setStorageBlocked(true)
-      return false
-    }
-  }
-  async function acceptRead(value: EPayOrder) {
+  function acceptRead(value: EPayOrder) {
     if (!current()) return
     setOrder(value)
     if (value.subscription_id && value.granted_at_unix) onUpdated?.()
   }
-  async function run(action: () => Promise<void>) {
-    if (running.current || !current() || storageBlocked) return
-    running.current = true
-    setBusy(true)
-    setNotice('')
-    try {
-      await action()
-    } catch {
-      if (current()) {
-        setNotice(
-          t('Result unknown. Retry the saved request before starting another.')
-        )
-      }
-    } finally {
-      running.current = false
-      if (current()) setBusy(false)
-    }
-  }
-  useEffect(() => {
-    mounted.current = true
-    try {
-      const saved = readPending(scope, 'subscription-epay', epayPendingSchema)
-      setPending(saved)
-      // Recovery is read-only: never prepare or confirm automatically.
-      if (saved?.order_id) {
-        void run(async () => acceptRead(await readEPayOrder(scope, saved)))
-      }
-    } catch {
-      setStorageBlocked(true)
-    }
-    setReady(true)
-    return () => {
-      mounted.current = false
-    }
-    // The parent remounts this subtree for each account/session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  useEffect(() => {
-    onBlockedChange(!ready || !!pending || storageBlocked)
-  }, [ready, pending, storageBlocked, onBlockedChange])
-  useEffect(() => {
-    let active = true
-    setPrices([])
-    void Promise.all(plans.map((plan) => listEPayPrices(scope, plan.id)))
-      .then((catalog) => {
-        if (active && current()) setPrices(catalog.flat())
-      })
-      .catch(() => {
-        if (active && current()) setNotice(t('Request failed'))
-      })
-    return () => {
-      active = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plans, scope.userId, scope.sessionId])
+
+  const {
+    prices,
+    pending,
+    ready,
+    storageBlocked,
+    busy,
+    notice,
+    setNotice,
+    current,
+    remember,
+    run,
+  } = useNativeExternalSubscription<EPayPending, EPayPrice>({
+    scope,
+    area: 'subscription-epay',
+    pendingSchema: epayPendingSchema,
+    plans,
+    onBlockedChange,
+    listPrices: listEPayPrices,
+    onRecover: async (saved) => acceptRead(await readEPayOrder(scope, saved)),
+  })
 
   function preview(price: EPayPrice) {
     if (blocked || pending || !ready) return

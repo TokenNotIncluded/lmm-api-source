@@ -25,7 +25,7 @@ import {
   type SetStateAction,
 } from 'react'
 
-import useDialogState from '@/hooks/use-dialog'
+import { useDialogState } from '@/hooks/use-dialog'
 
 import type { Redemption, RedemptionsDialogType } from '../types'
 

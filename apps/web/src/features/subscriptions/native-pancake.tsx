@@ -1,18 +1,16 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
-  currentCommerceScope,
-  readPending,
   requestKey,
-  savePending,
   type CommerceScope,
 } from '@/features/commerce/native-client'
 import { nativeAmountDisplay } from '@/features/wallet/lib/native-checkout'
 
+import { useNativeExternalSubscription } from './hooks/use-native-external-subscription'
 import type { NativePlan } from './native-api'
 import { NativeExternalQuote } from './native-external-quote'
 import {
@@ -42,27 +40,8 @@ export function NativePancakeSubscriptions({
   onUpdated?: () => void
 }) {
   const { t } = useTranslation()
-  const [prices, setPrices] = useState<PancakePrice[]>([])
-  const [pending, setPending] = useState<PancakePending | null>(null)
   const [view, setView] = useState<PancakeView | null>(null)
-  const [ready, setReady] = useState(false)
-  const [storageBlocked, setStorageBlocked] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState('')
-  const mounted = useRef(false)
-  const running = useRef(false)
-  const current = () => mounted.current && currentCommerceScope(scope)
-  function remember(value: PancakePending | null) {
-    if (!current()) return false
-    try {
-      savePending(scope, 'subscription-pancake', value)
-      setPending(value)
-      return true
-    } catch {
-      setStorageBlocked(true)
-      return false
-    }
-  }
+
   function accept(value: PancakeView) {
     if (!current()) return
     setView(value)
@@ -70,24 +49,27 @@ export function NativePancakeSubscriptions({
       onUpdated?.()
     }
   }
-  async function run(action: () => Promise<void>) {
-    if (running.current || !current() || storageBlocked) return
-    running.current = true
-    setBusy(true)
-    setNotice('')
-    try {
-      await action()
-    } catch {
-      if (current()) {
-        setNotice(
-          t('Result unknown. Retry the saved request before starting another.')
-        )
-      }
-    } finally {
-      running.current = false
-      if (current()) setBusy(false)
-    }
-  }
+
+  const {
+    prices,
+    pending,
+    ready,
+    storageBlocked,
+    busy,
+    notice,
+    current,
+    remember,
+    run,
+  } = useNativeExternalSubscription<PancakePending, PancakePrice>({
+    scope,
+    area: 'subscription-pancake',
+    pendingSchema: pancakePendingSchema,
+    plans,
+    onBlockedChange,
+    listPrices: listPancakePrices,
+    onRecover: async (saved) => accept(await readPancakeOrder(scope, saved)),
+  })
+
   async function prepare(value: PancakePending) {
     const order = await preparePancakeOrder(scope, value)
     if (
@@ -100,47 +82,6 @@ export function NativePancakeSubscriptions({
       accept({ order, checkout: null })
     }
   }
-  useEffect(() => {
-    mounted.current = true
-    try {
-      const saved = readPending(
-        scope,
-        'subscription-pancake',
-        pancakePendingSchema
-      )
-      setPending(saved)
-      // Mount recovery only reads; retrying a lost prepare requires the saved key and an explicit action.
-      if (saved?.order_id) {
-        void run(async () => accept(await readPancakeOrder(scope, saved)))
-      }
-    } catch {
-      setStorageBlocked(true)
-    }
-    setReady(true)
-    return () => {
-      mounted.current = false
-    }
-    // The parent remounts for each authenticated account/session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  useEffect(() => {
-    onBlockedChange(!ready || !!pending || storageBlocked)
-  }, [ready, pending, storageBlocked, onBlockedChange])
-  useEffect(() => {
-    let active = true
-    setPrices([])
-    void Promise.all(plans.map((p) => listPancakePrices(scope, p.id)))
-      .then((values) => {
-        if (active && current()) setPrices(values.flat())
-      })
-      .catch(() => {
-        if (active && current()) setNotice(t('Request failed'))
-      })
-    return () => {
-      active = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plans, scope.userId, scope.sessionId])
   const order = view?.order.order
   const granted =
     !!view && (!!view.order.latest_grant_id || !!order?.subscription_id)

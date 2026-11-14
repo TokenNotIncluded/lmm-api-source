@@ -14,7 +14,6 @@
   "rules": {
     "framework-and-toolchain-policy": {
       "disable": [
-        "jscpd:duplicate",
         "go-ignored-call-result",
         "go-bare-error",
         "go-context-background-handler",
@@ -40,8 +39,6 @@
         "no-console-except-error",
         "ts-delete-property",
         "pass-through-wrappers",
-        "no-any-type",
-        "no-as-any",
         "no-extra-boolean-cast",
         "ts-parseint-no-radix",
         "redundant-usestate-type",
@@ -71,11 +68,6 @@
         "shellcheck:SC2318",
         "typos",
         "typos:unknown",
-        "knip:file",
-        "knip:export",
-        "knip:devDependency",
-        "knip:dependency",
-        "knip:unlisted",
         "inactive-code",
         "rust-analyzer:inactive-code",
         "syntax",
@@ -104,14 +96,12 @@
     },
     "architecture-advisories": {
       "disable": [
-        "high-complexity",
         "high-fan-out",
         "high-import-coupling",
         "long-parameter-list",
         "large-class",
         "no-shape-in-symbol-names",
-        "no-flag-argument",
-        "deep-nesting"
+        "no-flag-argument"
       ]
     }
   },

@@ -920,38 +920,6 @@ export function transformFormDataToUpdatePayload(
 // ============================================================================
 
 /**
- * Validate JSON string
- */
-export function validateJSON(value: string): boolean {
-  if (!value || value.trim() === '') return true
-  try {
-    JSON.parse(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Validate model mapping format
- */
-export function validateModelMapping(value: string): boolean {
-  if (!value || value.trim() === '') return true
-  return validateJSON(value)
-}
-
-/**
- * Parse models string to array
- */
-export function parseModels(models: string): string[] {
-  if (!models) return []
-  return models
-    .split(',')
-    .map((m) => m.trim())
-    .filter((m) => m.length > 0)
-}
-
-/**
  * Parse groups string to array
  */
 export function parseGroups(groups: string): string[] {
@@ -960,13 +928,6 @@ export function parseGroups(groups: string): string[] {
     .split(',')
     .map((g) => g.trim())
     .filter((g) => g.length > 0)
-}
-
-/**
- * Format models array to string
- */
-export function formatModels(models: string[]): string {
-  return models.join(',')
 }
 
 /**

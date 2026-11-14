@@ -487,15 +487,3 @@ export async function sendEmailVerification(
   )
   return res.data
 }
-
-// Bind email to OAuth account
-export async function bindEmail(
-  email: string,
-  code: string
-): Promise<ApiResponse> {
-  const res = await api.post('/api/oauth/email/bind', {
-    email,
-    code,
-  })
-  return res.data
-}

@@ -744,20 +744,6 @@ export async function getEnabledModels(): Promise<{
 }
 
 // ============================================================================
-// Ollama Utilities
-// ============================================================================
-
-/**
- * Check Ollama version for a given channel
- */
-export async function getOllamaVersion(
-  channelId: number
-): Promise<{ success: boolean; message?: string; data?: { version: string } }> {
-  const res = await api.get(`/api/channel/ollama/version/${channelId}`)
-  return res.data
-}
-
-// ============================================================================
 // Group Management
 // ============================================================================
 
