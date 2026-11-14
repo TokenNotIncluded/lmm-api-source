@@ -11,9 +11,9 @@ colors:
 
 ## Visual Theme & Atmosphere
 
-- [observed] Authenticated product surfaces use open spacing, neutral tonal surfaces, and theme-aware navigation. The default light canvas is white with pale gray working surfaces; dark mode uses deep charcoal with lighter surfaces.
-- [observed] Public and authentication surfaces may use the warmer Forge editorial palette; authenticated utilities remain in the console semantic-token layer unless an existing route explicitly opts into an editorial preset.
-- [inferred confidence=high] New operational pages should feel direct and quiet. Use whitespace, alignment and type hierarchy to separate work; one workflow region leads while secondary history and metadata recede.
+- [observed] Authenticated product surfaces use a restrained, Google-inspired console with open spacing, neutral tonal surfaces, semantic accents, and theme-aware navigation. The default light canvas is white with pale gray working surfaces; dark mode uses deep charcoal with lighter surfaces. Shared page cards have no decorative border or shadow.
+- [observed] Authentication uses the active semantic palette and a centered, single-column form. Public scenes retain their declared visual exceptions; their editorial palettes do not become defaults for operational pages.
+- [design rule] Make the current task easy to scan through alignment, typography, and space. Give related controls one clear group; let secondary history and metadata recede without surrounding each region with a frame.
 
 ## Color Palette & Roles
 
@@ -26,7 +26,7 @@ colors:
 ## Typography Rules
 
 - [observed] The default authenticated body face is Public Sans through `--font-body`; the optional Lora editorial axis belongs to declared editorial presets, not routine settings or utility screens.
-- [observed] Console page titles use `clamp(1.5rem, 2.5cqi, 2rem)`, weight 600, a 1.25 line height and tight tracking. Shared card titles use medium weight; page and section headings have no decorative cut marker.
+- [observed] Console page titles use `clamp(1.5rem, 2.5cqi, 2rem)`, weight 600, a 1.25 line height and tight tracking. Their scale follows the available content container, and long titles can wrap. Shared card titles use medium weight; page and section headings have no decorative cut marker.
 - [inferred confidence=high] Let a clear title and readable text measure lead the page. Use tabular numerals for comparable values and generous gaps between sections; reserve display/serif treatments for established editorial scenes and explicit typography preferences.
 
 ## Component Stylings
@@ -40,7 +40,7 @@ colors:
 
 ### Component foundation
 
-Luma recipes are applied to the owned primitive source files on the Base UI version pinned in `package.json`. Preserve existing exports, custom sizing, semantic colors, keyboard behavior, menu event adapters and page-level class overrides. `src/components/ui/luma-migration.json` records the component inventory and upstream CSS checksum; `src/components/ui/LUMA-LICENSE.txt` preserves source attribution.
+Luma recipes are applied to the owned primitive source files on the Base UI version pinned in [package.json](package.json). Preserve existing exports, custom sizing, semantic colors, keyboard behavior, menu event adapters and page-level class overrides. `src/components/ui/luma-migration.json` records the component inventory and upstream CSS checksum; `src/components/ui/LUMA-LICENSE.txt` preserves source attribution.
 
 Drawer composes Base UI Portal, Backdrop, Viewport, Popup, Content and VirtualKeyboardProvider. Its trigger uses `render` instead of `asChild`. OTP renders actual Base UI inputs; its authentication consumer maps React Hook Form's value/onChange/ref, keeps numeric validation and backup-code mode, and sets `autoSubmit={false}`. OTPField is project-specific rather than the Luma registry's input-otp recipe. `vaul` and `input-otp` are not direct runtime dependencies.
 
@@ -57,21 +57,53 @@ node scripts/ui-foundation-review.mjs
 
 The loopback-only `/?ui_review=1` component gallery uses a separate debug entry and is not imported by production routes. The review script exercises tabs/drafts, switch geometry, OTP paste/validation/explicit submission, nested dialog select, drawer input/Escape/focus restoration and reduced motion at 1440, 834, 390 and 320 pixels. Set `CONSOLE_REVIEW_OUTPUT` for artifacts; `PLAYWRIGHT_MODULE` may point to an installed Playwright module.
 
-Also run the console page, interaction and navigation scripts and frontend quality gates. The gallery blocks external/API traffic and uses synthetic local data. It does not sign in to production, make payments, buy numbers or change management settings; its screenshots do not establish production service health.
+Choose the console page, interaction or navigation script for the changed behavior, following the [working guide](../../docs/agent-workflows.md#按范围选择检查). The gallery blocks external/API traffic and uses synthetic local data. It does not sign in to production, make payments, buy numbers or change management settings; its screenshots do not establish production service health.
 
 ## Layout Principles
 
-- [observed] The authenticated shell is height-bounded, responsive, safe-area aware, sidebar-based at desktop widths, and reserves bottom navigation space on compact screens.
-- [observed] `SectionPageLayout` owns the title/action row, scrollable content region, and optional footer portal. Its base horizontal gutters are 20px on mobile and 32px from `sm`; wider content containers expand them to 48px. The header and footer use spacing without decorative separators, and actions wrap below the title on compact screens.
-- [observed] Product forms become two columns at `lg`; mobile content remains a single readable column with 16px inputs to avoid focus zoom.
-- [inferred confidence=high] Lists and tables should preserve comparison hierarchy on desktop and switch to deliberate mobile cards or stacked rows instead of horizontal overflow.
-- [inferred confidence=high] Avoid nested decorative frames. Separate regions with spacing and muted surfaces. Keep a divider only when it helps compare rows or defines an interaction boundary; preserve input affordances and keyboard focus rings.
+- [observed] The authenticated shell is height-bounded, safe-area aware, sidebar-based at desktop widths, and reserves bottom navigation space on compact screens. At viewport heights of `36rem` or less, section pages scroll their heading, content and footer together so chrome cannot consume the whole content area.
+- [observed] `SectionPageLayout` aligns its heading, content and optional footer through the same `--page-inset`. This inset combines a `clamp(1rem, 4cqi, 3rem)` gutter with an `80rem` maximum content width; individual forms may use a narrower reading measure inside it.
+- [observed] Heading and action rows wrap according to the actual workspace left after navigation and the assistant. At content-container widths of `40rem` or less, actions occupy their own row and align to the content start. Action labels may wrap, and buttons can grow vertically.
+- [observed] Shared settings forms become two columns at `lg`; mobile content remains a single readable column with 16px inputs to avoid focus zoom.
+- [observed] Authentication uses `min-h-dvh` and natural document scrolling. The centered form has a `25rem` maximum width; the optional arcade remains in a footer disclosure on every screen size.
+- [design rule] Give shrinking grid and flex children `min-width: 0`; wrap long labels and values at the owning component. Keep tables or code that require horizontal comparison inside a local scroll region. Their width must not force the surrounding page to scroll sideways.
+- [design rule] Separate sections with space and, where needed, a quiet surface or one divider. Reserve visible boundaries for controls and meaningful groups; do not stack decorative frames.
 
 ### Developer and wallet workspaces
 
-The developer page uses a sticky reference navigation column beside its integration workspace. Below 1024px, navigation becomes a horizontal scrollable row. A copyable API base URL precedes the request builder; protocol tabs span the builder, with model/prompt fields beside the code preview from 640px and stacked below that width. Language selection and copying sit in the preview header. Fine rules separate workspace groups and endpoint rows, while the pricing and OAuth references retain their source links and expandable integration prompts.
+The developer page uses a sticky reference navigation column beside its integration workspace. At `62rem` or less in the `developers` container, navigation becomes a wrapping row above the workspace. A copyable API base URL precedes the request builder; protocol tabs span the builder. Model/prompt fields sit beside the code preview when the inner `developer-content` container reaches `44rem`, and stack below that width. Endpoint rows stack at `32rem` or less in the same inner container. These breakpoints follow usable workspace width rather than the browser viewport. Language selection and copying sit in the preview header. Fine rules separate workspace groups and endpoint rows, while the pricing and OAuth references retain their source links and expandable integration prompts.
 
 The wallet separates balance, payment, subscriptions and rewards with wider gaps. Balance and quote figures use larger tabular numerals; the quote groups the exact charge, discount code and wallet credit on one muted surface. Payment methods, quote review, explicit confirmation, order recovery and status refresh retain their existing behavior. Visual grouping does not add financial data or authorize a payment.
+
+### Reflow and zoom review
+
+Reflow checks must record the mechanism being tested. A narrow viewport, native browser zoom, and a root-font override exercise different layout constraints; one result does not establish the others. [WCAG 1.4.4](https://www.w3.org/WAI/WCAG22/Understanding/resize-text.html) requires usable text resizing up to 200%, while [WCAG 1.4.10](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html) specifies reflow at 320 CSS pixels for vertically scrolling content, with exceptions for content that needs a two-dimensional layout.
+
+The [layout review script](scripts/layout-reflow-review.mjs) defines the following checks. These are execution targets, not a record of passing results.
+
+| Method              | Scenarios                                                              | Evidence to inspect                                                                                            |
+| ------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Viewport sizing     | 1440×900, 390×844, 320×740, 844×390; light mode plus dark phone layout | Shared left edges, local rather than document overflow, wrapped controls, and reachable content/footer actions |
+| Native browser zoom | 125%, 150%, 175%, 200%; 400% from a 1280-pixel-wide window             | Requested and read-back zoom factor, reduced CSS viewport, screenshots and focus/reachability results          |
+| Root font size      | Twice the initial computed root size at 1440×900                       | Text and controls can grow without clipping; report this as a root-font override, not browser text-only zoom   |
+
+The script covers API keys, users, wallet, developers, system information settings, and sign-in with isolated local fixtures. It checks initial and expanded filter layouts, content/header/footer alignment, horizontal overflow, and whether ending controls can be scrolled into view and focused. Native zoom uses a temporary Chromium extension through [`chrome.tabs.setZoom`](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-setZoom), reads the factor back, and checks the resulting CSS viewport. It does not substitute CSS transforms or device-pixel-ratio changes for browser zoom.
+
+Run the review from `apps/web` with separate debug and production-preview servers. Start the debug server on port 4174 as shown above. In a second terminal:
+
+```sh
+bun run build && bun run preview --port 4175
+```
+
+With both servers running, use Playwright 1.56.1 and its installed Chromium build:
+
+```sh
+LAYOUT_REVIEW_OUTPUT=/tmp/lmm-layout-review node scripts/layout-reflow-review.mjs
+```
+
+`LAYOUT_REVIEW_OUTPUT` is required. Set `PLAYWRIGHT_MODULE` to the installed Playwright module when it is outside the project. `LAYOUT_CONSOLE_ORIGIN` and `LAYOUT_PUBLIC_ORIGIN` may select different loopback ports; the script requires distinct `http://127.0.0.1` origins. The [Layout reflow review workflow](../../.github/workflows/layout-reflow-review.yml) prepares these dependencies and servers and retains screenshots, logs, the source revision, and `report.json` even when a check fails.
+
+Review the saved screenshots as well as the measured results. Report each executed scenario and any failures against its tested revision; an unrun scenario stays unverified. These fixtures establish local layout evidence, not production login/payment behavior or complete accessibility conformance.
 
 ## Motion & Interaction
 
@@ -131,7 +163,7 @@ This section consolidates the useful browser constraints from sixteen former gui
 
 ## Known Gaps & Exceptions
 
-- [inferred confidence=medium] The source-level observations in this guide do not record a visual acceptance result. Runtime contrast, touch targets, text expansion, focus restoration, reduced motion, and target viewports require rendered verification for each changed surface.
+- [inferred confidence=medium] The source-level observations in this guide do not record a visual acceptance result. Runtime contrast, touch targets, text expansion, focus restoration, reduced motion, and the relevant reflow/zoom scenarios require rendered verification for each changed surface.
 - [inferred confidence=medium] A feature may depart from console density only when its own confirmed product declaration or first-party reference explicitly introduces a different visual world.
 
 ### Language Model Mesh logo
@@ -167,7 +199,7 @@ The scene redraws in the canvas `paint` event; resize uses physical pixel dimens
 
 Homepage connection instructions and assistant content use open sections, simple connection-method tabs and a level code panel. The original particle chapters and account-aware destinations remain available.
 
-The login page centers a single form column with a maximum width of 25rem and generous vertical spacing. Branding, language and theme controls remain in the header; 52px tonal inputs and a contrasting submit button establish the form hierarchy. Optional games open from a footer disclosure on both desktop and mobile. Authentication, consent and recovery actions retain their existing paths.
+The login page centers a single form column with a maximum width of 25rem and generous vertical spacing. Branding, language and theme controls remain in the header; tonal inputs with a `3.25rem` minimum height and a contrasting submit button establish the form hierarchy. Optional games open from a footer disclosure on both desktop and mobile. Authentication, consent and recovery actions retain their existing paths.
 
 Public pricing gives the title, model count and funding action room above a sticky search and filter toolbar. Model tables use tabular numerals, taller rows and quiet separators; filter selection uses semantic tonal fills. The public access explanation uses open columns, a muted journey section and a readable question-and-answer area. The card view uses at most three model columns, with quiet resting filters and clear selected states. Model data, price units, cache quotes, visibility rules, comparison actions and payment links retain their existing sources and behavior. The console greeting is unboxed and keeps account information close to the page title.
 
