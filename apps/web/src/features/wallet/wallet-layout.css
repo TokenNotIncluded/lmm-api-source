@@ -1,0 +1,71 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Component classes own appearance; these rules keep it usable as space changes. */
+.wallet-page {
+  container: wallet / inline-size;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wallet-overview-grid,
+.wallet-secondary-grid,
+.wallet-stats,
+.wallet-checkout-fields,
+.wallet-affiliate-content,
+.wallet-affiliate-stats {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.wallet-overview-grid > *,
+.wallet-secondary-grid > *,
+.wallet-checkout-fields > *,
+.wallet-affiliate-content > *,
+.wallet-affiliate-stats > * {
+  min-width: 0;
+}
+.wallet-page [data-slot='button'] {
+  max-width: 100%;
+  height: auto;
+  min-height: 2.75rem;
+  padding-block: 0.625rem;
+  white-space: normal;
+}
+.wallet-checkout {
+  container: checkout / inline-size;
+  min-width: 0;
+}
+.wallet-checkout [data-slot='native-select'] {
+  height: auto;
+  min-height: 3rem;
+}
+.wallet-page [data-native-wallet-details] dl {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wallet-page [data-native-wallet-details] dt {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+@container wallet (min-width: 28rem) {
+  .wallet-stats,
+  .wallet-page [data-native-wallet-details] dl,
+  .wallet-affiliate-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@container wallet (min-width: 48rem) {
+  .wallet-affiliate-content {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: center;
+  }
+}
+@container wallet (min-width: 64rem) {
+  .wallet-overview-grid {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+  .wallet-secondary-grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+@container checkout (min-width: 28rem) {
+  .wallet-checkout-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

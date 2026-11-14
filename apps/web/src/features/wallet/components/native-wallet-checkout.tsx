@@ -44,6 +44,7 @@ const providerNames: Record<NativeChannel['provider'], string> = {
 }
 const paymentCurrency = (channel: NativeChannel) =>
   channel.provider === 'coinbase' ? 'USDC' : channel.currency
+const quickAmounts = ['5.00', '10.00', '25.00', '50.00', '100.00'] as const
 
 function restore(owner: string) {
   try {
@@ -124,9 +125,6 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    setChannelsLoading(true)
-    setChannelsFailed(false)
-    setPortalAvailable(false)
     void getNativePaymentChannels(controller.signal)
       .then((data) => {
         if (isCurrent()) {
@@ -288,7 +286,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   return (
     <section
       aria-labelledby='native-checkout-title'
-      className='bg-card space-y-8 rounded-2xl p-6 sm:p-8'
+      className='wallet-checkout bg-card space-y-8 rounded-2xl p-6 sm:p-8'
     >
       <div className='space-y-3'>
         <h2
@@ -318,7 +316,12 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             </p>
             <Button
               variant='outline'
-              onClick={() => setChannelVersion((value) => value + 1)}
+              onClick={() => {
+                setChannelsLoading(true)
+                setChannelsFailed(false)
+                setPortalAvailable(false)
+                setChannelVersion((value) => value + 1)
+              }}
             >
               {t('Refresh')}
             </Button>
@@ -331,7 +334,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               void review()
             }}
           >
-            <div className='grid gap-6 sm:grid-cols-2'>
+            <div className='wallet-checkout-fields grid gap-6'>
               <div className='space-y-3'>
                 <Label htmlFor='native-payment-channel'>
                   {t('Payment method')}
@@ -374,6 +377,26 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                   disabled={busy}
                   onChange={(event) => setAmount(event.target.value)}
                 />
+                {!selected?.fixed_amount_minor ? (
+                  <div
+                    role='group'
+                    aria-label={t('Amount')}
+                    className='flex flex-wrap gap-2 pt-1'
+                  >
+                    {quickAmounts.map((value) => (
+                      <button
+                        key={value}
+                        type='button'
+                        aria-pressed={amount === value}
+                        disabled={busy}
+                        onClick={() => setAmount(value)}
+                        className='focus-visible:outline-ring bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/65 aria-pressed:bg-foreground aria-pressed:text-background min-h-11 min-w-12 rounded-lg px-3 text-sm font-medium tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
+                      >
+                        {Number(value).toString()}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {selected?.fixed_amount_minor ? (
                   <p className='text-muted-foreground text-xs'>
                     {t('This product has a fixed payment amount.')}
@@ -432,13 +455,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               <Badge variant='outline'>{t('Test payment')}</Badge>
             ) : null}
           </div>
-          <dl className='bg-muted/50 grid gap-6 rounded-xl p-5 sm:grid-cols-2 sm:p-6'>
+          <dl className='wallet-checkout-fields bg-muted/50 grid gap-6 rounded-xl p-5 sm:p-6'>
             {quote || pending.request.amount_minor !== '0' ? (
               <div>
                 <dt className='text-muted-foreground text-sm'>
                   {t('You pay')}
                 </dt>
-                <dd className='mt-2 text-2xl font-medium tracking-tight break-all tabular-nums'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight tabular-nums [overflow-wrap:anywhere]'>
                   {paymentCurrency(pending.channel)}{' '}
                   {nativeAmountDisplay(
                     quote?.amount_minor ?? pending.request.amount_minor
@@ -451,7 +474,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Discount code')}
                 </dt>
-                <dd className='mt-2 font-medium break-all'>
+                <dd className='mt-2 font-medium [overflow-wrap:anywhere]'>
                   {pending.request.discount_code}
                 </dd>
               </div>
@@ -461,7 +484,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Wallet credit')}
                 </dt>
-                <dd className='mt-2 text-2xl font-medium tracking-tight break-all tabular-nums'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight tabular-nums [overflow-wrap:anywhere]'>
                   {BigInt(quote.credit_units).toLocaleString(
                     i18n.resolvedLanguage || i18n.language
                   )}{' '}
@@ -478,7 +501,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             </p>
           ) : null}
           {quote ? (
-            <p className='text-muted-foreground text-xs break-all'>
+            <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
               {t('Order ID')}: {quote.order_id}
             </p>
           ) : null}

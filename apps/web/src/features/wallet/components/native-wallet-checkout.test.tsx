@@ -218,6 +218,14 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
     await render()
     assert.ok(document.body.textContent?.includes('Test payment'))
     assert.equal(writes.length, 0)
+    await click('25')
+    assert.equal(
+      (container.querySelector('#native-payment-amount') as HTMLInputElement)
+        .value,
+      '25.00'
+    )
+    assert.equal(writes.length, 0, 'selecting a preset must not quote or pay')
+    await click('10')
     await click('Review payment')
     assert.equal(writes.length, 1)
     assert.ok(document.body.textContent?.includes('5,000,000 Credits'))
