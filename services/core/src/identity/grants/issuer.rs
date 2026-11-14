@@ -189,17 +189,32 @@ impl LmmIssuer {
     /// Revoke every browser-issued grant owned by the current personal
     /// session. This is the emergency control for a suspected credential leak.
     pub async fn revoke_all_browser_grants(&self, cookie: &str) -> Result<u64> {
+        self.revoke_browser_client(cookie, None).await
+    }
+
+    /// Revoke all of this user's families for one client, including disabled
+    /// clients. Client registration controls issuance, never revocation.
+    pub async fn revoke_browser_client_grants(&self, cookie: &str, client: &str) -> Result<u64> {
+        if client.is_empty() || client.len() > 256 || client.chars().any(char::is_control) {
+            return Err(IdentityError::Invalid);
+        }
+        self.revoke_browser_client(cookie, Some(client)).await
+    }
+
+    async fn revoke_browser_client(&self, cookie: &str, client: Option<&str>) -> Result<u64> {
         let mut tx = transaction(&self.identity.pool).await?;
         let identity = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await?;
         let result = sqlx::query(
             "UPDATE core_oauth.families
              SET revoked_at=COALESCE(revoked_at,clock_timestamp())
              WHERE user_id=$1 AND owner_account_id=$2 AND user_version=$3
-               AND issuance_kind='browser' AND revoked_at IS NULL",
+               AND issuance_kind='browser' AND revoked_at IS NULL
+               AND ($4::text IS NULL OR client_id=$4)",
         )
         .bind(identity.user)
         .bind(identity.account)
         .bind(identity.version)
+        .bind(client)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;

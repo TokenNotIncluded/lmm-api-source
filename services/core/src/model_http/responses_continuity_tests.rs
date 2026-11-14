@@ -151,6 +151,7 @@ fn gateway(pool: &PgPool, c: &WorkerConfig) -> ModelGateway {
     let contexts = [(1, model), (2, "native-model")]
         .into_iter()
         .map(|(id, model)| ExternalModelContext {
+            metadata: None,
             responses_compaction: true,
             responses_continuity: if c.mode == "predecessor" {
                 None

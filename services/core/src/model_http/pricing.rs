@@ -22,6 +22,8 @@ pub enum PricingError {
 pub struct PricingModel {
     pub id: String,
     pub model: String,
+    pub upstream_model: String,
+    pub metadata: super::catalog::ModelMetadata,
     pub group: String,
     pub apis: Vec<&'static str>,
     pub billing_status: &'static str,
@@ -330,6 +332,14 @@ impl PricingSurface {
                 models.push(PricingModel {
                     id: model_id(&route.group, name),
                     model: name.into(),
+                    upstream_model: name.into(),
+                    metadata: super::catalog::model_metadata(
+                        route,
+                        &upstreams,
+                        Some(&gateway.bridge.provider_policy),
+                        routing_version,
+                    )
+                    .map_err(|_| PricingError::Unavailable)?,
                     group: route.group.clone(),
                     apis,
                     billing_status: status,
@@ -354,6 +364,8 @@ impl PricingSurface {
                 } else {
                     let mut entry = PricingModel {
                         id: model_id(&group, &model),
+                        upstream_model: model.clone(),
+                        metadata: super::catalog::ModelMetadata::unknown(),
                         model,
                         group,
                         apis: Vec::new(),
@@ -818,6 +830,7 @@ pub(crate) mod tests {
             names
                 .into_iter()
                 .map(|name| super::super::ExternalModelContext {
+                    metadata: None,
                     responses_compaction: false,
                     responses_continuity: None,
                     pre_acceptance_rejection_statuses: Vec::new(),
@@ -1246,6 +1259,7 @@ pub(crate) mod tests {
                     .find(|t| t.upstream_id == upstream.id)
                     .unwrap();
                 super::super::ExternalModelContext {
+                    metadata: None,
                     responses_compaction: false,
                     responses_continuity: None,
                     pre_acceptance_rejection_statuses: Vec::new(),

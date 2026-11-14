@@ -169,6 +169,7 @@ fn gateway(pool: &PgPool, base: &str, exact: bool, official: bool) -> ModelGatew
     }
     let prices:PriceConfig=serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":PUBLIC,"group":"allowed","speed":"standard","rates":{"input":6000000,"output":10000000,"cache_read":6000000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap();
     let context = ExternalModelContext {
+        metadata: None,
         responses_compaction: true,
         responses_continuity: None,
         upstream_id: 1,

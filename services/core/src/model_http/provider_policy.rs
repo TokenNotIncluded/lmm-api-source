@@ -47,6 +47,9 @@ pub struct ResponsesContinuityContract {
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalModelContext {
+    /// Optional reviewed discovery metadata; never inferred from a model name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<DiscoveryMetadata>,
     /// Explicit supplier guarantee: native compaction and opaque replay share these token bounds.
     #[serde(default, skip_serializing_if = "compaction_disabled")]
     pub responses_compaction: bool,
@@ -86,6 +89,45 @@ pub(super) enum ResponsesCapability {
     Compaction,
 }
 type ContextEntries = BTreeMap<(u64, String), ExternalModelContext>;
+/// Host-reviewed optional metadata, shared by OAuth and Web discovery.
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DiscoveryMetadata {
+    pub context_window: Option<u32>,
+    pub input_modalities: Option<Vec<String>>,
+    pub output_modalities: Option<Vec<String>>,
+    pub reasoning: Option<bool>,
+    pub tool_call: Option<bool>,
+}
+impl DiscoveryMetadata {
+    fn validate(&self, input: u32, output: u32) -> Result<(), RelayError> {
+        if self
+            .context_window
+            .is_some_and(|n| n == 0 || n < input || n < output)
+        {
+            return Err(RelayError::Invalid("invalid discovery context window"));
+        }
+        for modalities in [&self.input_modalities, &self.output_modalities]
+            .into_iter()
+            .flatten()
+        {
+            if modalities.is_empty()
+                || modalities.len() > 5
+                || modalities
+                    .iter()
+                    .any(|m| !matches!(m.as_str(), "text" | "image" | "audio" | "video" | "file"))
+                || modalities
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != modalities.len()
+            {
+                return Err(RelayError::Invalid("invalid discovery modalities"));
+            }
+        }
+        Ok(())
+    }
+}
 type ContextReleases = Arc<RwLock<BTreeMap<u64, Arc<ContextEntries>>>>;
 #[derive(Clone, Default)]
 pub struct ProviderPolicy {
@@ -129,7 +171,7 @@ impl ProviderPolicy {
         Ok(())
     }
 
-    fn context(
+    pub(super) fn context(
         &self,
         version: Option<u64>,
         id: u64,
@@ -393,6 +435,9 @@ impl ProviderPolicy {
                 Protocol::DeepSeekSearch | Protocol::DeepSeekFetch
             );
             let no_output = tool || context.protocol.input_only();
+            if let Some(metadata) = &context.metadata {
+                metadata.validate(context.max_input_tokens, context.max_output_tokens)?;
+            }
             if context.upstream_id == 0
                 || context.upstream_model.is_empty()
                 || context.upstream_model.len() > 256
@@ -839,6 +884,7 @@ mod tests {
 
     fn context() -> ExternalModelContext {
         ExternalModelContext {
+            metadata: None,
             responses_compaction: false,
             responses_continuity: None,
             pre_acceptance_rejection_statuses: Vec::new(),

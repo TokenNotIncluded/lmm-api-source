@@ -25,6 +25,10 @@ pub(super) fn routes() -> Router<AuthState> {
         )
         .route("/api/user/auth/oauth2/consent", post(consent))
         .route("/api/user/auth/oauth2/grants", get(list_grants))
+        .route(
+            "/api/user/auth/oauth2/grants/revoke-client",
+            post(revoke_client_grants),
+        )
         .route("/api/user/auth/oauth2/grants/{id}", delete(revoke_grant))
         .route(
             "/api/user/auth/oauth2/grants/revoke-all",
@@ -93,6 +97,8 @@ fn flow_cookie(
     }
     response
 }
+const CONSENT_STYLE: &str = "*{box-sizing:border-box}html{color-scheme:light dark}body{margin:0;background:#f4f5f7;color:#20242c;font:16px/1.6 system-ui,sans-serif}main{max-width:620px;margin:7vh auto;padding:32px;background:#fff;border:1px solid #dde1e7;border-radius:20px;box-shadow:0 16px 48px #1520350a}header{border-bottom:1px solid #e3e7ed;padding-bottom:20px;margin-bottom:24px}header p{font-size:12px;font-weight:700;letter-spacing:.14em;color:#546277}h1{margin:4px 0;font-size:30px;line-height:1.2}p,li{overflow-wrap:anywhere}ul{display:flex;flex-wrap:wrap;gap:8px;padding:0;list-style:none}li{padding:4px 12px;border-radius:20px;background:#edf1f7;font-size:14px}label{display:block;margin:24px 0;padding:20px;border:1px solid #d9e0ec;border-radius:12px;font-weight:600}input[type=number]{display:block;width:100%;padding:12px;margin-top:12px;border:1px solid #9ba7ba;border-radius:8px;font:inherit;background:transparent;color:inherit}button{padding:12px 18px;margin:8px 8px 0 0;border:1px solid #aab5c5;border-radius:8px;font:600 15px system-ui;cursor:pointer}button[value=allow],button:not([value]){background:#244b8f;color:#fff;border-color:#244b8f}button[value=deny]{background:transparent;color:inherit}a{color:#244b8f}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #6289cc;outline-offset:3px}footer{margin-top:24px;color:#647087;font-size:13px}@media(max-width:640px){main{margin:16px;padding:24px}button{width:100%}}@media(prefers-color-scheme:dark){body{background:#14171c;color:#e5e9f1}main{background:#1c2028;border-color:#343d4c}header{border-color:#343d4c}header p,footer{color:#a8b4c8}li{background:#2c3443}label{border-color:#45516a}a{color:#a9c6ff}}";
+
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     let pi = page.client_id == "lmm-pi";
     let managed = matches!(page.client_id.as_str(), "lmm-cc-switch" | "lmm-magpie");
@@ -107,7 +113,7 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
         "LMM CLI"
     };
     let mut body = format!(
-        "<!doctype html><meta charset=utf-8><title>LMM authorization</title><h1>{client_name}</h1>"
+        "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>LMM authorization</title><style>{CONSENT_STYLE}</style><main><header><p>LMM · CLIENT AUTHORIZATION</p><h1>{client_name}</h1></header>"
     );
     if managed && let (Some(id), Some(label)) = (&page.installation_id, &page.display_label) {
         body.push_str(&format!(
@@ -155,10 +161,13 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     } else {
         body.push_str("<button>Continue after sign in</button>");
     }
-    body.push_str("</form>");
+    body.push_str("</form><footer>You can revoke client access from your account at any time.</footer></main></html>");
     let mut response = axum::response::Html(body).into_response();
-    let mut policy = String::from(
-        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    use base64::Engine as _;
+    let style_hash =
+        base64::engine::general_purpose::STANDARD.encode(Sha256::digest(CONSENT_STYLE.as_bytes()));
+    let mut policy = format!(
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'sha256-{style_hash}'; form-action 'self'"
     );
     if page.account.is_some() {
         // Browsers also enforce form-action on the consent POST's redirect.
@@ -301,6 +310,34 @@ async fn revoke_all_grants(State(state): State<AuthState>, headers: HeaderMap) -
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevokeClient {
+    client_id: String,
+}
+
+async fn revoke_client_grants(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    input: Result<Json<RevokeClient>, JsonRejection>,
+) -> Response {
+    let Some(issuer) = &state.config.oauth2 else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let result = async {
+        let Json(form) = input.map_err(|_| IdentityError::Invalid)?;
+        let cookie = refresh_cookie(&headers)?.ok_or(IdentityError::Unauthorized)?;
+        issuer
+            .revoke_browser_client_grants(cookie, &form.client_id)
+            .await
+    }
+    .await;
+    match result {
+        Ok(count) => success(Some(serde_json::json!({"revoked": count}))),
+        Err(error) => auth_failure(error.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,8 +389,11 @@ mod tests {
                     let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
                         .to_str()
                         .unwrap();
-                    let mut expected = String::from(
-                        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                    use base64::Engine as _;
+                    let hash = base64::engine::general_purpose::STANDARD
+                        .encode(Sha256::digest(CONSENT_STYLE.as_bytes()));
+                    let mut expected = format!(
+                        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'sha256-{hash}'; form-action 'self'"
                     );
                     if signed_in {
                         expected.push(' ');
@@ -364,6 +404,11 @@ mod tests {
                         .await
                         .unwrap();
                     let html = std::str::from_utf8(&body).unwrap();
+                    if signed_in && client == "lmm-pi" && port == 38423 {
+                        if let Ok(path) = std::env::var("LMM_CONSENT_PREVIEW_FILE") {
+                            std::fs::write(path, html).unwrap();
+                        }
+                    }
                     let action = if signed_in { "consent" } else { "continue" };
                     assert!(html.contains(&format!(
                         "<form method=post action=\"/api/user/auth/oauth2/{action}\">"

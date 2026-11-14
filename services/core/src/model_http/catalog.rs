@@ -70,9 +70,154 @@ pub struct CatalogModel {
     pub group: String,
     pub upstream_model: String,
     pub name: String,
+    pub metadata: ModelMetadata,
     pub apis: Vec<&'static str>,
     pub pricing: CatalogPricing,
-    pub native_cost: Option<()>,
+    pub native_cost: Option<NativeCost>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeCost {
+    pub input: Number,
+    pub output: Number,
+    pub cache_read: Number,
+    pub cache_write: Number,
+}
+impl NativeCost {
+    fn from_pricing(price: &CatalogPricing) -> Option<Self> {
+        if price.currency != "USD" || price.unit != "million_tokens" {
+            return None;
+        }
+        Some(Self {
+            input: price.input.clone()?,
+            output: price.output.clone()?,
+            cache_read: price.cache_read.clone()?,
+            cache_write: price.cache_write.clone()?,
+        })
+    }
+}
+
+#[derive(Clone, Default, Serialize)]
+pub struct ModelMetadata {
+    pub context_window: Option<u32>,
+    pub max_input_tokens: Option<u32>,
+    pub max_output_tokens: Option<u32>,
+    pub input_modalities: Option<Vec<String>>,
+    pub output_modalities: Option<Vec<String>>,
+    pub reasoning: Option<bool>,
+    pub tool_call: Option<bool>,
+    pub source: &'static str,
+}
+impl ModelMetadata {
+    pub(super) fn unknown() -> Self {
+        Self {
+            source: "unknown",
+            ..Self::default()
+        }
+    }
+}
+
+/// A fallback route cannot advertise a capability absent from any candidate.
+/// Read the exact release's contracts, never a newer global model-name table.
+pub(super) fn model_metadata(
+    route: &ModelRoute,
+    upstreams: &BTreeMap<u64, &UpstreamConfig>,
+    policy: Option<&super::ProviderPolicy>,
+    version: u64,
+) -> Result<ModelMetadata, CatalogError> {
+    let Some(policy) = policy else {
+        return Ok(ModelMetadata::unknown());
+    };
+    let mut contracts = Vec::new();
+    for target in route
+        .targets
+        .iter()
+        .filter(|t| t.enabled && t.weight > 0 && t.speeds.contains(&Speed::Standard))
+    {
+        let Some(upstream) = upstreams.get(&target.upstream_id).filter(|u| u.enabled) else {
+            continue;
+        };
+        let Some(contract) = policy
+            .context(Some(version), upstream.id, &target.upstream_model)
+            .map_err(|_| CatalogError::Unavailable)?
+        else {
+            return Ok(ModelMetadata::unknown());
+        };
+        if contract.protocol != upstream.protocol
+            || contract.endpoint.trim_end_matches('/')
+                != upstream.endpoint.as_str().trim_end_matches('/')
+        {
+            return Ok(ModelMetadata::unknown());
+        }
+        contracts.push(contract);
+    }
+    if contracts.is_empty() {
+        return Ok(ModelMetadata::unknown());
+    }
+    let minimum = |values: Vec<Option<u32>>| -> Option<u32> {
+        values
+            .into_iter()
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .min()
+    };
+    let boolean = |values: Vec<Option<bool>>| -> Option<bool> {
+        Some(
+            values
+                .into_iter()
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .all(|v| v),
+        )
+    };
+    let modalities = |values: Vec<Option<Vec<String>>>| -> Option<Vec<String>> {
+        let mut values = values.into_iter().collect::<Option<Vec<_>>>()?.into_iter();
+        let mut common = values.next()?;
+        for value in values {
+            common.retain(|m| value.contains(m));
+        }
+        Some(common)
+    };
+    Ok(ModelMetadata {
+        context_window: minimum(
+            contracts
+                .iter()
+                .map(|c| c.metadata.as_ref().and_then(|m| m.context_window))
+                .collect(),
+        ),
+        max_input_tokens: contracts.iter().map(|c| c.max_input_tokens).min(),
+        max_output_tokens: contracts.iter().map(|c| c.max_output_tokens).min(),
+        input_modalities: modalities(
+            contracts
+                .iter()
+                .map(|c| c.metadata.as_ref().and_then(|m| m.input_modalities.clone()))
+                .collect(),
+        ),
+        output_modalities: modalities(
+            contracts
+                .iter()
+                .map(|c| {
+                    c.metadata
+                        .as_ref()
+                        .and_then(|m| m.output_modalities.clone())
+                })
+                .collect(),
+        ),
+        reasoning: boolean(
+            contracts
+                .iter()
+                .map(|c| c.metadata.as_ref().and_then(|m| m.reasoning))
+                .collect(),
+        ),
+        tool_call: boolean(
+            contracts
+                .iter()
+                .map(|c| c.metadata.as_ref().and_then(|m| m.tool_call))
+                .collect(),
+        ),
+        source: "reviewed_provider_contract",
+    })
 }
 
 #[derive(Clone, Serialize)]
@@ -139,6 +284,7 @@ impl CatalogSurface {
                     *rate = super::pricing::scaled_number(rate.as_ref(), discount)
                         .map_err(|_| CatalogError::Unavailable)?;
                 }
+                model.native_cost = NativeCost::from_pricing(&model.pricing);
             }
         }
         if serde_json::to_vec(&result)
@@ -284,6 +430,12 @@ impl CatalogSurface {
                         group: group.name.clone(),
                         upstream_model: name.to_owned(),
                         name: name.to_owned(),
+                        metadata: model_metadata(
+                            route,
+                            &upstreams,
+                            provider_policy.map(|(policy, _)| policy),
+                            document.routing.version,
+                        )?,
                         apis,
                         pricing: pricing(
                             quote,
@@ -507,6 +659,7 @@ impl CatalogSurface {
         };
         for model in &mut result.models {
             model.pricing.updated_at = updated_at;
+            model.native_cost = NativeCost::from_pricing(&model.pricing);
         }
         let used_groups: std::collections::BTreeSet<_> =
             result.models.iter().map(|m| m.group.as_str()).collect();
@@ -728,7 +881,7 @@ fn pricing(quote: PriceQuote, tool: bool) -> Result<CatalogPricing, CatalogError
         input: if tool { None } else { rate(rates.input)? },
         output: if tool { None } else { rate(rates.output)? },
         cache_read: if tool { None } else { rate(rates.cache_read)? },
-        cache_write: None,
+        cache_write: if tool { None } else { rate(rates.cache_write)? },
         request: if tool { rate(rates.request)? } else { None },
         final_cost_depends_on_usage: true,
         updated_at: 0,
@@ -961,6 +1114,83 @@ mod tests {
     }
 
     #[test]
+    fn metadata_uses_reviewed_release_and_conservative_fallback_bounds() {
+        let (mut routing, _) = fixture("new-model");
+        routing.upstreams[0].endpoint =
+            serde_json::from_value(serde_json::json!("https://api.example/v1")).unwrap();
+        let mut second = routing.routes[0].targets[0].clone();
+        second.id = 2;
+        second.upstream_model = "fallback-model".into();
+        routing.routes[0].targets.push(second);
+        let contract = |model: &str, input: u32, output: u32, metadata: serde_json::Value| {
+            serde_json::from_value::<super::super::ExternalModelContext>(serde_json::json!({
+                "upstream_id":1,"upstream_model":model,"protocol":"openai_chat",
+                "endpoint":"https://api.example/v1","max_input_tokens":input,
+                "max_output_tokens":output,"contract_revision":"test-reviewed-v1","metadata":metadata
+            })).unwrap()
+        };
+        let first = contract(
+            "new-model",
+            64000,
+            8000,
+            serde_json::json!({
+                "context_window":128000,"input_modalities":["text","image"],
+                "output_modalities":["text"],"reasoning":true,"tool_call":true
+            }),
+        );
+        let second = contract(
+            "fallback-model",
+            32000,
+            4000,
+            serde_json::json!({
+                "context_window":64000,"input_modalities":["text"],
+                "output_modalities":["text"],"reasoning":false,"tool_call":true
+            }),
+        );
+        let policy =
+            super::super::ProviderPolicy::new(vec![first.clone(), second.clone()], 128000).unwrap();
+        let upstreams = routing.upstreams.iter().map(|u| (u.id, u)).collect();
+        let value = serde_json::to_value(
+            model_metadata(&routing.routes[0], &upstreams, Some(&policy), 1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(value["context_window"], 64000);
+        assert_eq!(value["max_input_tokens"], 32000);
+        assert_eq!(value["max_output_tokens"], 4000);
+        assert_eq!(value["input_modalities"], serde_json::json!(["text"]));
+        assert_eq!(value["reasoning"], false);
+        assert_eq!(value["tool_call"], true);
+        let mut unknown = second.clone();
+        unknown.metadata = None;
+        policy
+            .publish_contexts(2, vec![first.clone(), unknown], 128000)
+            .unwrap();
+        let value = serde_json::to_value(
+            model_metadata(&routing.routes[0], &upstreams, Some(&policy), 2).unwrap(),
+        )
+        .unwrap();
+        assert!(value["context_window"].is_null());
+        assert!(value["input_modalities"].is_null());
+        assert_eq!(value["max_input_tokens"], 32000);
+        assert_eq!(
+            model_metadata(&routing.routes[0], &upstreams, Some(&policy), 1)
+                .unwrap()
+                .context_window,
+            Some(64000)
+        );
+        let incomplete = super::super::ProviderPolicy::new(vec![first.clone()], 128000).unwrap();
+        assert_eq!(
+            model_metadata(&routing.routes[0], &upstreams, Some(&incomplete), 1)
+                .unwrap()
+                .source,
+            "unknown"
+        );
+        let mut invalid = first;
+        invalid.metadata.as_mut().unwrap().context_window = Some(1);
+        assert!(super::super::ProviderPolicy::new(vec![invalid], 128000).is_err());
+    }
+
+    #[test]
     fn configured_rates_are_exact_and_group_price_is_not_multiplied_twice() {
         let (r, p) = fixture("model");
         let (_, s) = surface(r, p);
@@ -973,7 +1203,10 @@ mod tests {
         assert_eq!(v["models"][0]["pricing"]["output"].to_string(), "5");
         assert_eq!(v["models"][0]["pricing"]["cache_read"].to_string(), "1.25");
         assert!(v["models"][0]["pricing"]["trust_multiplier"].is_null());
-        assert!(v["models"][0]["native_cost"].is_null());
+        assert_eq!(
+            v["models"][0]["native_cost"],
+            serde_json::json!({"input":2.5,"output":5,"cacheRead":1.25,"cacheWrite":0})
+        );
         assert_eq!(v["groups"][0]["scope"], "group:c3ludGhldGlj");
     }
 

@@ -199,6 +199,7 @@ fn gateway_with_reservation(
         },
         ProviderPolicy::new(
             vec![ExternalModelContext {
+                metadata: None,
                 responses_compaction: enabled,
                 responses_continuity: None,
                 upstream_id: 1,

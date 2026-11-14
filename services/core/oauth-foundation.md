@@ -116,3 +116,62 @@ Required: compile and owned PG/TCP, independent frozen combined verification,
 actual gateway/normal-provider/ledger negatives, real HTTPS CLI/keyring/browser/
 MFA, installation/upgrade/backup/restore, real Pi delegated model/usage, marked honey-only, and market/
 MCP, Google credentials/Passkey conditions. Failures/UNRUN remain incomplete.
+
+
+## Dynamic discovery and client revocation
+
+`GET /api/oauth2/catalog` authenticates an OAuth Bearer with `catalog:read`.
+The existing `/v1/chat/completions` and `/v1/responses` accept model-enabled OAuth
+Bearer credentials without a manually created API key; `models:invoke`, current
+policy, personal payer and finite family budget still apply. The read-only `lmm`
+client does not acquire invocation authority.
+
+Each catalog model retains `id` (group-qualified client selection ID),
+`upstream_model` (the original public request model ID), `group_id`, `apis` and
+`pricing`. `upstream_model` is not a secret channel/provider identifier. Prices
+are USD per `million_tokens`, or per `successful_requests` for request tariffs.
+Group/speed multipliers are already applied; `effective_user_rates` also includes
+the current trust discount. Do not multiply these prices again. `native_cost`
+is `{input, output, cacheRead, cacheWrite}` only when all four token rates are
+known; it is null for other price contracts. Explicit configured zero is a real
+zero, not an unknown-price fallback.
+
+OAuth catalog and `/core/v1/pricing/public` and `/core/v1/pricing/session` models
+share `metadata`: `context_window`, `max_input_tokens`, `max_output_tokens`,
+`input_modalities`, `output_modalities`, `reasoning`, `tool_call`, `source`.
+Web pricing also supplies `upstream_model`. These are project discovery fields,
+not OAuth-standard claims. Source is `reviewed_provider_contract` or `unknown`.
+All unknown values are null. The published routing release's enabled Standard
+fallback candidates contribute minimum limits and intersection capabilities;
+a missing supplier contract makes the projection unknown. Input/output limits
+come from the existing reviewed `external_models` contracts. Total context and
+capabilities require their optional nested `metadata` configuration, for example
+inside one external model entry in the model configuration document:
+
+```json
+"metadata": {
+  "context_window": 128000,
+  "input_modalities": ["text", "image"],
+  "output_modalities": ["text"],
+  "reasoning": true,
+  "tool_call": true
+}
+```
+
+Use the actual reviewed supplier limits and capabilities, not these example
+values. Allowed modalities are text/image/audio/video/file; omitted metadata
+stays unknown. Input and output token limits are not added to invent a total
+context window. Discovery does not enable a protocol or bypass model admission.
+
+`GET /api/user/auth/oauth2/grants` returns the current user's grant families with
+`client_id`, scopes, lifetime budget, timestamps and managed installation fields.
+`POST /api/user/auth/oauth2/grants/revoke-client` accepts only JSON
+`{"client_id":"lmm-magpie"}` and returns
+`{"success":true,"data":{"revoked":2}}` (plus the normal response message).
+It requires the current browser refresh cookie and trusted Origin; OAuth/API-key
+Bearer credentials cannot replace that session. It revokes all matching browser
+families for that user/account/version, including clients disabled for new
+issuance. Repeated revocation returns zero. Existing single-family DELETE and
+revoke-all endpoints remain available. Revoked families cannot access resources,
+invoke new models, refresh or recover a managed rotation; already accepted
+charges retain their original settlement/refund authority.

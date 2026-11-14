@@ -945,3 +945,185 @@ async fn tcp_parallel_flow_responses_do_not_replace_or_clear_another_tabs_cookie
     })
     .await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn tcp_client_revocation_is_session_bound_and_revokes_all_generations(pool: PgPool) {
+    with_http(pool, |f| async move {
+        let first = tokens(&f).await;
+        let second = tokens(&f).await;
+        let access = first["access_token"].as_str().unwrap();
+        let refresh = first["refresh_token"].as_str().unwrap();
+        let endpoint = f.url("/api/user/auth/oauth2/grants/revoke-client");
+        let list: Value = f
+            .client
+            .get(f.url("/api/user/auth/oauth2/grants"))
+            .header(header::COOKIE, f.browser_cookie())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(list["data"].as_array().unwrap().len(), 2);
+        for request in [
+            f.client
+                .post(&endpoint)
+                .bearer_auth(access)
+                .header(header::ORIGIN, ISSUER),
+            f.client
+                .post(&endpoint)
+                .header(header::COOKIE, f.browser_cookie())
+                .header(header::ORIGIN, "https://wrong.example.test"),
+        ] {
+            assert!(
+                !request
+                    .json(&serde_json::json!({"client_id":"lmm"}))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+                    .is_success()
+            );
+        }
+        let browser = BrowserAuth::new(
+            IdentityStore::from_pool(f.owner.clone()).with_registration_enabled(true),
+            &[43; 32],
+        )
+        .unwrap();
+        browser
+            .register(&BrowserRegistration {
+                username: "bob",
+                password: PASSWORD,
+                email: "",
+            })
+            .await
+            .unwrap();
+        let bob = browser
+            .login("bob", PASSWORD, &BrowserSessionMetadata::default())
+            .await
+            .unwrap();
+        let result: Value = f
+            .client
+            .post(&endpoint)
+            .header(
+                header::COOKIE,
+                format!("new_api_refresh={}", bob.refresh_token),
+            )
+            .header(header::ORIGIN, ISSUER)
+            .json(&serde_json::json!({"client_id":"lmm"}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(result["data"]["revoked"], 0);
+        // A different (including currently disabled) client cannot affect lmm.
+        let result: Value = f
+            .client
+            .post(&endpoint)
+            .header(header::COOKIE, f.browser_cookie())
+            .header(header::ORIGIN, ISSUER)
+            .json(&serde_json::json!({"client_id":"lmm-pi"}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(result["data"]["revoked"], 0);
+        let rotated = token_request(&f, refresh_body(refresh)).await;
+        security(&rotated, StatusCode::OK);
+        let rotated: Value = rotated.json().await.unwrap();
+        for count in [2, 0] {
+            let result: Value = f
+                .client
+                .post(&endpoint)
+                .header(header::COOKIE, f.browser_cookie())
+                .header(header::ORIGIN, ISSUER)
+                .json(&serde_json::json!({"client_id":"lmm"}))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(result["success"], true);
+            assert_eq!(result["data"]["revoked"], count);
+        }
+        for token in [&first, &second, &rotated] {
+            let response = f
+                .client
+                .get(f.url("/api/oauth2/balance"))
+                .bearer_auth(token["access_token"].as_str().unwrap())
+                .send()
+                .await
+                .unwrap();
+            security(&response, StatusCode::UNAUTHORIZED);
+            let response =
+                token_request(&f, refresh_body(token["refresh_token"].as_str().unwrap())).await;
+            security(&response, StatusCode::BAD_REQUEST);
+        }
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM core_oauth.families WHERE revoked_at IS NULL")
+                .fetch_one(&f.owner)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+    })
+    .await;
+}
+
+#[path = "common/model_fixture.rs"]
+#[allow(dead_code)]
+mod model;
+#[path = "common/pi_oauth_fixture.rs"]
+#[allow(dead_code)]
+mod pi;
+
+#[sqlx::test(migrations = false)]
+async fn managed_client_revocation_blocks_model_calls_and_rotation_recovery(pool: PgPool) {
+    use lmm_core::identity::grants::ManagedTokenForm;
+    pi::with_magpie_fixture(pool, true, |f| async move {
+        let installation = "e".repeat(64);
+        let magpie = f.application_token("lmm-magpie", "magpie", 200, &installation).await;
+        let other = f.application_token("lmm-cc-switch", "cc-switch", 200, &"c".repeat(64)).await;
+        let rotate = || ManagedTokenForm {
+            grant_type: "refresh_token".into(), client_id: "lmm-magpie".into(),
+            resource: f.issuer.profile().resource().into(), installation_id: installation.clone(),
+            code: None, redirect_uri: None, code_verifier: None,
+            refresh_token: Some(magpie.refresh_token.clone()), scope: None,
+            rotation_id: Some("a".repeat(64)),
+        }.validate(f.issuer.profile()).unwrap();
+        let successor = f.issuer.token_managed(rotate()).await.unwrap();
+        assert!(f.issuer.token_managed(rotate()).await.is_ok());
+        let catalog = serde_json::to_value(f.issuer.catalog(&successor.access_token).await.unwrap()).unwrap();
+        let model = &catalog["models"][0];
+        assert_eq!(model["upstream_model"], "provider-model");
+        assert_eq!(model["metadata"]["source"], "unknown");
+        assert!(model["metadata"]["context_window"].is_null());
+        for (native, price) in [("input","input"),("output","output"),("cacheRead","cache_read"),("cacheWrite","cache_write")] {
+            assert_eq!(model["native_cost"][native],model["pricing"][price]);
+            assert!(model["native_cost"][native].is_number());
+        }
+        let body = serde_json::json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20});
+        let endpoint = format!("{}/v1/chat/completions",f.base);
+        let response = f.client.post(&endpoint).bearer_auth(&successor.access_token).json(&body).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let _ = response.bytes().await.unwrap();
+        let hits = f.provider.hits.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(hits, 1);
+        assert_eq!(f.issuer.revoke_browser_client_grants(&f.refresh,"lmm-magpie").await.unwrap(),1);
+        assert!(f.issuer.token_managed(rotate()).await.is_err());
+        assert!(f.issuer.managed_application_budget(&other.access_token).await.is_ok());
+        for access in [&magpie.access_token, &successor.access_token] {
+            assert!(f.issuer.managed_application_budget(access).await.is_err());
+            let response = f.client.post(&endpoint).bearer_auth(access).json(&body).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+        assert_eq!(f.provider.hits.load(std::sync::atomic::Ordering::SeqCst), hits);
+        let settled: i64 = sqlx::query_scalar("SELECT sum(settled_units)::bigint FROM core_charging.requests")
+            .fetch_one(&f.owner).await.unwrap();
+        assert_eq!(settled,49);
+    }).await;
+}

@@ -43,6 +43,7 @@ pub(super) fn gateway(
         .iter()
         .filter(|_| reject)
         .map(|model| ExternalModelContext {
+            metadata: None,
             responses_compaction: false,
             responses_continuity: None,
             upstream_id: 1,

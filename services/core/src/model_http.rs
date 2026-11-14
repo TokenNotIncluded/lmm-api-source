@@ -80,7 +80,9 @@ use std::{
 
 pub use catalog::{CatalogError, CatalogSurface, CatalogV1};
 pub use honeypot::{HoneypotCredential, HoneypotGateway};
-pub use provider_policy::{ExternalModelContext, ProviderPolicy, ResponsesContinuityContract};
+pub use provider_policy::{
+    DiscoveryMetadata, ExternalModelContext, ProviderPolicy, ResponsesContinuityContract,
+};
 pub use routing::UpstreamCredential;
 pub const SCHEMA: &str = include_str!("../schema/model_gateway.sql");
 
