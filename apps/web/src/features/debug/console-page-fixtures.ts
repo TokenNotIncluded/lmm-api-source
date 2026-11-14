@@ -452,6 +452,9 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/api/site/navigation') {
+    return { success: true, message: '', data: { value: '{}', revision: 1 } }
+  }
   if (path === '/api/ratio_sync/service_tiers') {
     if (url.username || url.password || (user?.role ?? 0) < ROLE.SUPER_ADMIN) {
       return undefined

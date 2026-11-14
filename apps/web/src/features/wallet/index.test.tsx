@@ -147,6 +147,7 @@ async function renderWallet(
   options: {
     setting?: AuthUser['setting']
     quota?: number
+    preview?: boolean
     selfQuota?: number
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
@@ -223,7 +224,7 @@ async function renderWallet(
   })
   const container = await render(
     <QueryClientProvider client={queryClient}>
-      <Wallet paymentReturn={options.paymentReturn} />
+      <Wallet preview={options.preview} paymentReturn={options.paymentReturn} />
     </QueryClientProvider>
   )
   return { container, queryClient }
@@ -640,4 +641,25 @@ test('native workspaces fail closed when their actual catalogs are unavailable',
   assert.ok(requests.length > 0)
   assert.ok(requests.every((method) => method === 'get'))
   queryClient.clear()
+})
+
+test('L0 wallet preview preserves the signed-in account and mounts no financial clients', async () => {
+  const requests: string[] = []
+  const { container } = await renderWallet(true, {
+    preview: true,
+    user: { wallet_unit: 'core_credit', financial_projection_available: true },
+    nativeResponse: (url) => {
+      requests.push(url)
+      throw new Error('Preview must not request financial data')
+    },
+  })
+  assert.ok(container.textContent?.includes('Your next idea starts here'))
+  assert.equal(requests.length, 0)
+  assert.equal(
+    useAuthStore.getState().auth.user?.developer_access_granted,
+    true
+  )
+  for (const button of container.querySelectorAll('button')) {
+    assert.equal(button.disabled, true, button.textContent ?? '')
+  }
 })

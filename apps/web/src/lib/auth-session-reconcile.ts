@@ -7,7 +7,7 @@ import {
 } from '@/lib/auth-cookie'
 import { clearAuthentication } from '@/lib/auth-session'
 import type { AuthSessionSyncEvent } from '@/lib/auth-session-sync'
-import { useAuthStore } from '@/stores/auth-store'
+import { useCredentialStore as useAuthStore } from '@/stores/auth-store'
 
 export function createAuthSessionReconciler(runtime: {
   reload: () => void

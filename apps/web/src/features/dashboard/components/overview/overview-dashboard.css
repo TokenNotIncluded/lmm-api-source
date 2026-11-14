@@ -1,19 +1,19 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 .overview-dashboard {
   container-type: inline-size;
-  max-width: 76rem;
+  max-width: 72rem;
   margin-inline: auto;
   width: 100%;
 }
 
 .overview-summary {
   display: grid;
-  gap: clamp(1.75rem, 3.5cqi, 3.5rem);
+  gap: 1.25rem;
 }
 
 .overview-balance {
   min-width: 0;
-  padding: clamp(1.5rem, 2.8cqi, 2.35rem);
+  padding: clamp(1.5rem, 3.5cqi, 3rem);
   border: 1px solid color-mix(in oklch, var(--foreground) 6%, transparent);
   background:
     radial-gradient(
@@ -116,9 +116,12 @@
 }
 
 .overview-usage {
-  align-self: center;
+  align-self: stretch;
   min-width: 0;
-  padding-inline: 0.25rem;
+  padding: clamp(1.5rem, 3.5cqi, 3rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, var(--radius));
+  background: var(--card);
 }
 
 .overview-metrics {
@@ -130,7 +133,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
   align-items: baseline;
   gap: 0.5rem 1rem;
-  padding-block: 1.4rem;
+  padding-block: 1.75rem;
 }
 
 .overview-metric + .overview-metric {
@@ -323,12 +326,12 @@
 @container (min-width: 46rem) {
   .overview-summary {
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    align-items: center;
-    gap: clamp(2rem, 5cqi, 4rem);
+    align-items: stretch;
+    gap: 2rem;
   }
 
   .overview-balance {
-    padding: 2rem;
+    padding: 3rem;
   }
 }
 
@@ -374,4 +377,19 @@
     flex: 1;
     justify-content: space-between;
   }
+}
+
+.overview-dashboard > .overview-usage-charts {
+  padding: clamp(1.5rem, 3.5cqi, 3rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, var(--radius));
+  background: var(--card);
+}
+.overview-balance-footer {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.overview-metric-value {
+  font-size: clamp(1.25rem, 2.5cqi, 1.8rem);
 }

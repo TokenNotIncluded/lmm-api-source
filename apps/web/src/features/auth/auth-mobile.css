@@ -219,3 +219,28 @@
     rotate: 405deg;
   }
 }
+
+/* The form and optional arcade share one calm, inset composition. */
+@media (min-width: 1024px) {
+  .auth-editorial .auth-art-stage {
+    margin: 1rem 1rem 1rem 0;
+    height: calc(100dvh - 2rem);
+    border: 1px solid var(--border);
+    border-radius: 1.75rem;
+    padding: 1.5rem clamp(1.25rem, 2.5vw, 3rem);
+    background:
+      radial-gradient(
+        ellipse at 85% 5%,
+        color-mix(in oklch, var(--primary) 7%, transparent),
+        transparent 50%
+      ),
+      var(--background);
+  }
+  .auth-art-masthead {
+    padding-bottom: 1rem;
+  }
+  .auth-editorial .auth-form-stage {
+    max-width: 30rem;
+    padding-inline: 2.5rem;
+  }
+}

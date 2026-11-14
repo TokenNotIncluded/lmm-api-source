@@ -199,6 +199,26 @@ async function gateFixture(
   }
 }
 
+test('pending announcement checks show a neutral loading screen until the response arrives', async () => {
+  const pending = deferred<unknown>()
+  await gateFixture(
+    () => pending.promise,
+    async (container) => {
+      assert.ok(container.querySelector('[role="status"]'))
+      assert.ok(container.textContent?.includes('Loading...'))
+      assert.equal(container.querySelector('h1'), null)
+      assert.equal(container.textContent?.includes('Announcements'), false)
+      assert.equal(container.querySelector('[data-testid="workspace"]'), null)
+      await act(async () =>
+        pending.resolve({ data: { success: true, data: [] } })
+      )
+      await flushQuery()
+      assert.ok(container.querySelector('[data-testid="workspace"]'))
+      assert.equal(container.querySelector('[role="status"]'), null)
+    }
+  )
+})
+
 async function confirmAnnouncement(container: HTMLDivElement) {
   const viewport = container.querySelector('[role="region"]') as HTMLDivElement
   assert.ok(viewport)

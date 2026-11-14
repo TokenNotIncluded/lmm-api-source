@@ -2212,6 +2212,61 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('toggles the assistant with Ctrl Shift Space without losing the draft', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/status') {
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    const rendered = await renderLauncher(null, 1440)
+    const press = async (extra: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent('keydown', {
+        key: ' ',
+        code: 'Space',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+        ...extra,
+      })
+      await act(async () => {
+        window.dispatchEvent(event)
+        await flushEffects()
+      })
+      return event
+    }
+    try {
+      await act(async () => setAssistantRailOpen(false))
+      assert.equal((await press({ isComposing: true })).defaultPrevented, false)
+      assert.equal(isAssistantRailOpen(), false)
+      assert.equal((await press()).defaultPrevented, true)
+      assert.equal(isAssistantRailOpen(), true)
+      await act(async () =>
+        waitForCondition(
+          () => document.querySelector('textarea') !== null,
+          'composer did not mount'
+        )
+      )
+      const textarea = requireValue(document.querySelector('textarea'))
+      await setTextareaValue(textarea, 'Keep my draft')
+      await press({ repeat: true })
+      assert.equal(isAssistantRailOpen(), true)
+      await press()
+      assert.equal(isAssistantRailOpen(), false)
+      await press({ ctrlKey: false, metaKey: true })
+      assert.equal(isAssistantRailOpen(), true)
+      assert.equal(textarea.value, 'Keep my draft')
+    } finally {
+      await act(async () => rendered.root.unmount())
+      setAssistantRailOpen(false)
+      rendered.queryClient.clear()
+    }
+  })
+
   test('mounts exactly one assistant panel on a narrow viewport', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/status') {

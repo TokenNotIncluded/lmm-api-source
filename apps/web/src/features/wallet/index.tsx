@@ -16,19 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { History, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
 import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
+import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
+import { L0UpgradePanel } from './components/l0-upgrade-panel'
 import { NativeWalletCheckout } from './components/native-wallet-checkout'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
@@ -39,6 +41,7 @@ interface WalletProps {
   initialShowHistory?: boolean
   initialTopupAmount?: number
   paymentReturn?: 'return' | 'cancel'
+  preview?: boolean
 }
 
 export function Wallet(props: WalletProps) {
@@ -46,9 +49,13 @@ export function Wallet(props: WalletProps) {
   return <NativeWallet key={ownerKey} {...props} />
 }
 
-function NativeWallet({ initialShowHistory = false }: WalletProps) {
+function NativeWallet({
+  initialShowHistory = false,
+  preview = false,
+}: WalletProps) {
   const { t } = useTranslation()
-  const user = useAuthStore((state) => state.auth.user) as UserWalletData | null
+  const account = useAuthStore((state) => state.auth.user)
+  const user = preview ? null : (account as UserWalletData | null)
   const projection = walletProjection(user)
   const nativeCreditsAvailable =
     user?.financial_projection_available === true &&
@@ -74,57 +81,84 @@ function NativeWallet({ initialShowHistory = false }: WalletProps) {
           <span className='whitespace-nowrap'>{t('Wallet')}</span>
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <div className='flex max-w-[70vw] flex-wrap justify-end gap-2'>
-            <Button variant='outline' onClick={() => setHistoryOpen(true)}>
+          <div className='flex flex-wrap justify-end gap-2'>
+            <Button
+              variant='outline'
+              disabled={preview}
+              onClick={() => setHistoryOpen(true)}
+            >
+              <History className='size-4' aria-hidden='true' />
               {t('Order History')}
             </Button>
             <Button
               variant='outline'
-              disabled={refreshing}
+              disabled={preview || refreshing}
               onClick={() => void refresh()}
             >
+              <RefreshCw
+                className={
+                  refreshing ? 'size-4 motion-safe:animate-spin' : 'size-4'
+                }
+                aria-hidden='true'
+              />
               {t('Refresh account status')}
             </Button>
           </div>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-7 sm:gap-9'>
-            {!nativeCreditsAvailable ? (
-              <Alert>
-                <AlertDescription>
-                  {t(
-                    'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
-                  )}
-                </AlertDescription>
-              </Alert>
-            ) : null}
+          <div className='mx-auto flex w-full max-w-7xl flex-col gap-5 pb-4 sm:gap-6'>
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
-            <WalletStatsCard user={user} />
-            {nativeCreditsAvailable ? <NativeWalletCheckout /> : null}
-            {nativeCreditsAvailable ? (
-              <NativeWalletSubscriptions onUpdated={() => void refresh()} />
-            ) : null}
-            {nativeCreditsAvailable ? (
-              <NativeWalletPromotions onUpdated={() => void refresh()} />
-            ) : null}
-            <div className='flex flex-wrap gap-2'>
-              {!nativeCreditsAvailable ? (
-                <Button disabled>{t('Add funds')}</Button>
-              ) : null}
-              {!nativeCreditsAvailable ? (
-                <Button variant='outline' disabled>
-                  {t('Subscriptions')}
-                </Button>
-              ) : null}
-              <Button variant='outline' disabled>
-                {t('Transfer')}
-              </Button>
+            {(preview || !isConsoleActivated(account)) && (
+              <L0UpgradePanel preview={preview} />
+            )}
+            <div className='grid items-start gap-5 xl:grid-cols-2 xl:gap-6'>
+              <WalletStatsCard
+                user={user}
+                balanceAction={
+                  <Button variant='outline' disabled>
+                    {t('Transfer')}
+                  </Button>
+                }
+              />
+              <div id='wallet-checkout' className='min-w-0 scroll-mt-4'>
+                {nativeCreditsAvailable ? (
+                  <NativeWalletCheckout />
+                ) : (
+                  <section className='bg-card space-y-4 rounded-xl border p-5 sm:p-6'>
+                    <h2 className='text-base font-semibold'>
+                      {t('Add funds')}
+                    </h2>
+                    <p className='text-muted-foreground text-sm'>
+                      {t(
+                        'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
+                      )}
+                    </p>
+                    <div className='flex flex-wrap gap-2'>
+                      <Button disabled>{t('Add funds')}</Button>
+                      <Button variant='outline' disabled>
+                        {t('Subscriptions')}
+                      </Button>
+                    </div>
+                  </section>
+                )}
+              </div>
             </div>
+            {nativeCreditsAvailable ? (
+              <div className='grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:gap-6 [&>*]:min-w-0'>
+                <NativeWalletSubscriptions onUpdated={() => void refresh()} />
+                <NativeWalletPromotions onUpdated={() => void refresh()} />
+              </div>
+            ) : null}
             <AffiliateRewardsCard user={user} />
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
-      <BillingHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
+      {!preview && (
+        <BillingHistoryDialog
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+        />
+      )}
     </>
   )
 }

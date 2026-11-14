@@ -72,7 +72,7 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
-  const { status } = useStatus()
+  const { status, capabilitiesReady } = useStatus()
   const {
     isTurnstileEnabled,
     turnstileSiteKey,
@@ -404,6 +404,7 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
         {!localPreview && oauthRegisterEnabled && hasOAuthRegistration && (
           <OAuthProviders
             status={status}
+            registrationCapabilitiesReady={capabilitiesReady}
             acceptedLegal={agreedToLegal}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
             onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}

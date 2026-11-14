@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,6 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
+import { useRouter } from '@tanstack/react-router'
 import {
   Building2,
   Key,
@@ -51,6 +53,8 @@ import { useAuthStore } from '@/stores/auth-store'
 
 export function ProfileDropdown() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const router = useRouter()
   const navigate = useNavigate()
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
@@ -69,6 +73,7 @@ export function ProfileDropdown() {
           render={
             <Button
               variant='ghost'
+              aria-label={t('Profile')}
               className='relative size-11 p-0 sm:size-8'
             />
           }
@@ -165,6 +170,24 @@ export function ProfileDropdown() {
             </>
           ) : null}
 
+          {isSuperAdmin && (
+            <DropdownMenuItem
+              onClick={async () => {
+                await queryClient.cancelQueries()
+                useAuthStore
+                  .getState()
+                  .startPreview(
+                    window.location.pathname +
+                      window.location.search +
+                      window.location.hash
+                  )
+                queryClient.clear()
+                void navigate({ to: '/wallet' }).then(() => router.invalidate())
+              }}
+            >
+              {t('Preview L0 page')}
+            </DropdownMenuItem>
+          )}
           {isSuperAdmin && (
             <DropdownMenuItem
               onClick={() =>

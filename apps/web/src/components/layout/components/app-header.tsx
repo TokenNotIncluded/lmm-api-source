@@ -19,14 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import { BubbleChatSparkIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, type LinkProps } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
-import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -35,8 +34,7 @@ import {
 } from '@/components/ui/tooltip'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import {
-  isAssistantRailOpen,
-  onAssistantRailChange,
+  useAssistantRailOpen,
   toggleAssistantRail,
 } from '@/features/assistant/assistant-rail'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -97,12 +95,7 @@ export function AppHeader({
   const user = useAuthStore((state) => state.auth.user)
   const assistantEnabled = status?.assistant?.enabled !== false
   const mobileAssistantAvailable = showMobileAssistant && user !== null
-  const [railOpen, setRailOpenState] = useState(false)
-
-  useEffect(
-    () => onAssistantRailChange(() => setRailOpenState(isAssistantRailOpen())),
-    []
-  )
+  const railOpen = useAssistantRailOpen()
 
   const handleAssistantClick = () => {
     if (window.matchMedia('(min-width: 1280px)').matches) {
@@ -224,7 +217,7 @@ export function AppHeader({
                     variant='ghost'
                     size='icon'
                     className={cn(
-                      'relative isolate size-11 overflow-hidden rounded-lg md:size-8',
+                      'relative h-11 w-auto min-w-11 gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 text-primary transition-colors hover:bg-primary/10 md:h-9',
                       !showMobileAssistant && 'hidden md:inline-flex',
                       !assistantEnabled && 'md:hidden',
                       railOpen && 'bg-accent text-accent-foreground'
@@ -232,25 +225,30 @@ export function AppHeader({
                     aria-label={t('Open AI assistant')}
                     title={t('Open AI assistant')}
                     aria-pressed={railOpen}
+                    aria-keyshortcuts='Control+Shift+Space Meta+Shift+Space'
                     data-testid='header-assistant-launcher'
                     onClick={handleAssistantClick}
                   />
                 }
               >
-                <ForgeShaderSurface
-                  variant='assistant'
-                  interaction='intent'
-                  className='absolute inset-0 opacity-70'
-                />
                 <HugeiconsIcon
                   icon={BubbleChatSparkIcon}
                   strokeWidth={1.8}
                   className='relative z-10'
                   aria-hidden='true'
                 />
+                <span className='hidden text-xs font-semibold md:inline'>
+                  {t('AI assistant')}
+                </span>
+                <kbd
+                  className='border-primary/15 text-muted-foreground hidden rounded border px-1.5 py-0.5 font-mono text-[10px] 2xl:inline'
+                  aria-hidden='true'
+                >
+                  Ctrl / ⌘ ⇧ Space
+                </kbd>
               </TooltipTrigger>
               <TooltipContent side='bottom'>
-                {t('Open AI assistant')}
+                {t('Open AI assistant')} · Ctrl / ⌘ + ⇧ + Space
               </TooltipContent>
             </Tooltip>
           )}

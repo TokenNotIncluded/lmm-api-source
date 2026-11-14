@@ -375,10 +375,13 @@ export function TestKeyPage() {
   const { user, session, bootstrapState } = useAuthStore((state) => state.auth)
   const framed = typeof window !== 'undefined' && window.self !== window.top
   return (
-    <main className='bg-background text-foreground min-h-svh px-5 py-7 sm:px-7'>
-      <div className='mx-auto w-full max-w-md'>
+    <main className='bg-muted/30 text-foreground min-h-svh px-4 py-6 sm:px-6'>
+      <div className='bg-card mx-auto w-full max-w-md rounded-2xl border p-5 shadow-sm sm:p-6'>
         <header className='mb-6 border-b pb-5'>
-          <p className='text-muted-foreground mb-2 text-xs font-medium'>LMM</p>
+          <div className='mb-4 flex items-center gap-3'>
+            <img src='/test-key-mark.svg' width={40} height={40} alt='' />
+            <p className='text-muted-foreground text-xs font-semibold tracking-widest'>LMM</p>
+          </div>
           <h1 className='text-2xl font-semibold tracking-tight'>
             {q('title')}
           </h1>

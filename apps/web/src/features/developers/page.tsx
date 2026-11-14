@@ -134,16 +134,18 @@ export function DevelopersPage() {
   const { t } = useTranslation()
   const { rootUrl, loading } = useApiBaseUrl()
   return (
-    <main className='mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-16 lg:py-20'>
-      <h1 className='text-3xl font-semibold tracking-tight sm:text-5xl'>
-        {t('Developers')}
-      </h1>
-      <p className='mt-2 max-w-2xl text-base leading-snug text-balance sm:mt-4 sm:text-xl'>
-        {t('One base URL. Any client.')}
-      </p>
-      <p className='text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed sm:mt-3 sm:text-base'>
-        {t('Build a request below, then copy it into your project.')}
-      </p>
+    <main className='developers-page mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-16 lg:py-20'>
+      <header className='developers-hero'>
+        <h1 className='text-3xl font-semibold tracking-tight sm:text-5xl'>
+          {t('Developers')}
+        </h1>
+        <p className='mt-2 max-w-2xl text-base leading-snug text-balance sm:mt-4 sm:text-xl'>
+          {t('One base URL. Any client.')}
+        </p>
+        <p className='text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed sm:mt-3 sm:text-base'>
+          {t('Build a request below, then copy it into your project.')}
+        </p>
+      </header>
       <nav
         aria-label={t('Integration guide')}
         className='mt-5 flex flex-nowrap gap-x-5 gap-y-1 overflow-x-auto border-y py-2 text-sm whitespace-nowrap sm:mt-8 sm:flex-wrap sm:gap-x-8 sm:overflow-visible sm:whitespace-normal'

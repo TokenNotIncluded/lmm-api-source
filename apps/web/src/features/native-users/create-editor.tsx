@@ -47,8 +47,9 @@ export function NativeCreateUser({
   if (!isCurrentNativeUsersScope(scope)) return null
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (busy.current || phase !== 'ready' || !validNativeUserDraft(draft))
+    if (busy.current || phase !== 'ready' || !validNativeUserDraft(draft)) {
       return
+    }
     busy.current = true
     setPhase('saving')
     setNotice('none')

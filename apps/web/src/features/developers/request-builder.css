@@ -176,3 +176,96 @@ select.dev-builder-input {
     transition: none;
   }
 }
+
+/* The introduction, workbench and reference sections share one quiet rhythm. */
+.developers-page {
+  container-type: inline-size;
+}
+.developers-hero {
+  padding: clamp(2rem, 6cqi, 4.5rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(
+    120deg,
+    color-mix(in oklch, var(--primary) 9%, var(--card)),
+    var(--card) 75%
+  );
+}
+.developers-hero h1 {
+  font-size: clamp(2rem, 5cqi, 3.5rem);
+  letter-spacing: -0.05em;
+}
+.developers-page > nav {
+  border-top: 0;
+  gap: 0.5rem 1.5rem;
+}
+.developers-page .dev-page-link {
+  text-decoration: none;
+  font-weight: 550;
+}
+.developers-page .dev-page-link:hover {
+  color: var(--primary);
+}
+.developers-page > section > h2 {
+  letter-spacing: -0.035em;
+}
+.developers-page > section > h2::before {
+  content: '';
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-inline-end: 0.75rem;
+  background: var(--primary);
+}
+.developers-page aside {
+  align-self: start;
+  padding: clamp(1.5rem, 3cqi, 2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+}
+.developers-page .dev-builder {
+  padding: clamp(1.25rem, 4cqi, 3rem);
+  gap: clamp(1.5rem, 3cqi, 2.5rem);
+  border-radius: var(--radius-xl);
+}
+.developers-page .dev-builder-output {
+  background: var(--muted);
+  border-radius: var(--radius-lg);
+}
+.developers-page .dev-builder-output-head {
+  background: var(--card);
+  padding-block: 0.75rem;
+}
+.developers-page .dev-builder-output pre {
+  padding: 1.5rem;
+  line-height: 1.85;
+}
+.developers-page .dev-builder-tab[aria-pressed='true'] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.developers-page > section {
+  margin-top: clamp(3rem, 7cqi, 5rem);
+}
+.developers-page > section + section {
+  padding-top: clamp(2.5rem, 6cqi, 4.5rem);
+}
+.developers-page > section > p {
+  margin-top: 1rem;
+  line-height: 1.8;
+}
+.developers-page > section > h2 + div {
+  margin-top: 2rem;
+}
+.developers-page .dev-builder {
+  margin-top: 2rem;
+}
+.developers-page .dev-builder-fields {
+  gap: 1.5rem;
+}
+.developers-page .dev-builder-field {
+  gap: 0.75rem;
+}

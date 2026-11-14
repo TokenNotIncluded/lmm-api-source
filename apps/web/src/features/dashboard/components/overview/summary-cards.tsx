@@ -183,8 +183,17 @@ export function SummaryCards() {
         <h3 className='mb-5 text-sm font-semibold'>{t('Usage at a glance')}</h3>
         <dl className='overview-metrics'>
           {items.map((item) => (
-            <div className='overview-metric' key={item.key}>
-              <dt className='text-muted-foreground text-xs'>{item.title}</dt>
+            <div
+              className='overview-metric'
+              data-metric={item.key}
+              key={item.key}
+            >
+              <dt className='flex items-center gap-2 text-xs'>
+                <span className='metric-icon' aria-hidden='true'>
+                  <item.icon size={16} />
+                </span>
+                {item.title}
+              </dt>
               <dd className='overview-metric-value'>
                 {loading ||
                 (item.key === 'todayUsage' && usageTrendQuery.isLoading) ? (

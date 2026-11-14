@@ -21,7 +21,6 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 
-import { NativeResourcesPanel } from './components/native-resources-panel'
 import { SystemInstancesPanel } from './components/system-instances-panel'
 
 export function SystemInfo() {
@@ -38,10 +37,7 @@ export function SystemInfo() {
         </span>
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='space-y-4'>
-          <NativeResourcesPanel />
-          <SystemInstancesPanel />
-        </div>
+        <SystemInstancesPanel />
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

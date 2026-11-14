@@ -51,24 +51,28 @@ export async function createNativeUser(
   scope: NativeUsersScope,
   draft: NativeUserDraft
 ): Promise<string> {
-  if (!isCurrentNativeUsersScope(scope))
+  if (!isCurrentNativeUsersScope(scope)) {
     throw new NativeUserCreationFailure('session_changed')
-  if (!validNativeUserDraft(draft))
+  }
+  if (!validNativeUserDraft(draft)) {
     throw new NativeUserCreationFailure('invalid')
+  }
   try {
     const response = await api.post<unknown>(
       '/core/v1/admin/users',
       { ...draft },
       nativeUsersOptions(scope)
     )
-    if (!isCurrentNativeUsersScope(scope))
+    if (!isCurrentNativeUsersScope(scope)) {
       throw new NativeUserCreationFailure('session_changed')
+    }
     const result = created.safeParse(response.data)
     if (!result.success) throw new NativeUserCreationFailure('unknown')
     return result.data.user_id
   } catch (error) {
-    if (!isCurrentNativeUsersScope(scope))
+    if (!isCurrentNativeUsersScope(scope)) {
       throw new NativeUserCreationFailure('session_changed')
+    }
     if (error instanceof NativeUserCreationFailure) throw error
     const status = (error as { response?: { status?: number } })?.response
       ?.status

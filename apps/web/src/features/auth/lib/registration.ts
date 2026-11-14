@@ -137,12 +137,21 @@ export function isOAuthRegistrationAllowed(
   if (!isOAuthRegistrationEnabled(status)) return false
   const disabled = getDisabledOAuthRegistrationMethods(status)
   if (typeof provider === 'string') {
-    return !disabled.has(provider.trim().toLowerCase())
+    const method = provider.trim().toLowerCase()
+    if (
+      method === 'telegram' &&
+      (status?.telegram_register_enabled ??
+        status?.data?.telegram_register_enabled) !== true
+    ) {
+      return false
+    }
+    return !disabled.has(method)
   }
   return (
     provider.registration_enabled === true &&
     !disabled.has(provider.kind) &&
-    !disabled.has(`custom:${provider.slug}`) &&
+    (provider.kind !== 'custom_oauth' ||
+      !disabled.has(`custom:${provider.slug}`)) &&
     !disabled.has(`federated:${provider.id}`)
   )
 }

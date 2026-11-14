@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 .settings-workspace {
-  --settings-width: 66rem;
+  --settings-width: 74rem;
   font-family: var(--font-sans);
   background: var(--background);
 }
@@ -10,7 +10,7 @@
   padding-inline: max(1.25rem, calc((100% - var(--settings-width)) / 2));
 }
 .settings-workspace .console-section-header {
-  padding-block: 2rem 1.5rem;
+  padding-block: 1.25rem 1rem;
 }
 /* Administrative forms use a consistent sans face, independent of editorial headings. */
 .settings-workspace :is(h1, h2, h3) {
@@ -22,7 +22,7 @@
   padding-bottom: 0;
 }
 .settings-workspace .console-section-header :is(h1, h2) {
-  font-size: 1.7rem;
+  font-size: 1.5rem;
   letter-spacing: -0.035em;
 }
 .settings-workspace .console-section-content {
@@ -40,7 +40,7 @@
   min-width: 0;
   border: 0;
   background: transparent;
-  padding: 1rem 0 2.5rem;
+  padding: 0.25rem 0 1.5rem;
 }
 .settings-save-dock {
   display: flex;
@@ -297,7 +297,7 @@
 }
 @media (max-width: 767px) {
   .console-editorial .console-page.settings-workspace .console-section-header {
-    padding-top: 4rem;
+    padding-top: 1.25rem;
   }
   .settings-workspace .console-section-header :is(h1, h2) {
     font-size: 1.6rem;
@@ -318,5 +318,38 @@
   }
   .settings-workspace .settings-section {
     gap: 1.5rem;
+  }
+}
+
+.settings-workspace .console-section-header {
+  border-bottom: 1px solid var(--border);
+}
+.settings-workspace .console-page-title::before {
+  display: none;
+}
+.settings-workspace .console-section-content {
+  padding-top: 1.25rem;
+}
+.settings-workspace .settings-section {
+  gap: 1.5rem;
+}
+.settings-workspace .settings-disclosure-summary {
+  padding-block: 0.875rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+.settings-workspace .settings-disclosure[open] > .settings-disclosure-summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.settings-workspace .settings-disclosure-body {
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 0.6rem 0.6rem;
+}
+@media (max-width: 767px) {
+  .settings-workspace .console-section-header {
+    padding-right: 6.5rem;
   }
 }

@@ -288,10 +288,10 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   return (
     <section
       aria-labelledby='native-checkout-title'
-      className='bg-card border-foreground/[0.06] space-y-7 rounded-2xl border p-6 sm:p-8'
+      className='bg-card border-t-primary space-y-5 rounded-xl border border-t-2 p-5 sm:p-6'
     >
       <div className='space-y-2'>
-        <h2 id='native-checkout-title' className='text-lg font-semibold'>
+        <h2 id='native-checkout-title' className='text-base font-semibold'>
           {t('Add funds')}
         </h2>
         <p className='text-muted-foreground text-sm'>

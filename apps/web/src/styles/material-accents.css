@@ -1,0 +1,94 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Tonal containers follow the selected preset; status keeps its meaning. */
+.semantic-badge {
+  --badge-tone: var(--info);
+  color: color-mix(in oklch, var(--badge-tone) 72%, var(--foreground));
+  background: color-mix(in oklch, var(--badge-tone) 12%, var(--card));
+  border-color: color-mix(in oklch, var(--badge-tone) 24%, var(--card));
+}
+.semantic-badge-success {
+  --badge-tone: var(--success);
+}
+.semantic-badge-info {
+  --badge-tone: var(--info);
+}
+.semantic-badge-tertiary {
+  --badge-tone: var(--chart-5);
+}
+.semantic-badge-warning {
+  --badge-tone: var(--warning);
+}
+
+.native-user-record {
+  background: var(--card);
+  box-shadow: 0 2px 8px -6px
+    color-mix(in oklch, var(--foreground) 30%, transparent);
+  border-color: var(--border);
+}
+.native-user-record:focus-within {
+  border-color: var(--ring);
+}
+.native-user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, var(--card));
+}
+.native-user-wallet {
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--primary) 4%, var(--card));
+}
+.overview-dashboard .overview-metric {
+  --metric-tone: var(--primary);
+}
+.overview-dashboard .overview-metric[data-metric='usage'] {
+  --metric-tone: var(--chart-5);
+}
+.overview-dashboard .overview-metric[data-metric='requests'] {
+  --metric-tone: var(--info);
+}
+.overview-dashboard .metric-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2rem;
+  height: 2rem;
+  border-radius: var(--radius);
+  color: color-mix(in oklch, var(--metric-tone) 75%, var(--foreground));
+  background: color-mix(in oklch, var(--metric-tone) 12%, var(--card));
+}
+.overview-dashboard .overview-metric-value {
+  color: color-mix(in oklch, var(--metric-tone) 75%, var(--foreground));
+}
+.overview-dashboard .overview-balance {
+  background: color-mix(in oklch, var(--primary) 5%, var(--card));
+  border-color: color-mix(in oklch, var(--primary) 18%, var(--border));
+}
+.overview-dashboard .overview-balance-value {
+  color: var(--primary);
+}
+
+.overview-dashboard .overview-greeting {
+  --muted-foreground: color-mix(
+    in oklch,
+    var(--foreground) 70%,
+    var(--primary)
+  );
+  --border: color-mix(in oklch, var(--primary) 18%, var(--card));
+  background: color-mix(in oklch, var(--primary) 9%, var(--card));
+  color: var(--foreground);
+  border-color: var(--border);
+  box-shadow: none;
+}
+.overview-dashboard .overview-greeting-footer {
+  border-color: var(--border);
+}
+.overview-dashboard .overview-greeting [data-slot='button']:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}

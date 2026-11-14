@@ -10,6 +10,7 @@ for (const key of [
   'document',
   'navigator',
   'HTMLElement',
+  'customElements',
   'HTMLInputElement',
   'HTMLButtonElement',
   'HTMLSelectElement',
@@ -154,43 +155,23 @@ test('the actual page renders exact identity, memberships and signed units witho
     'team-beta',
     '-7',
     'Debt magnitude',
-    '0 ms since Unix epoch',
-    '-1 ms since Unix epoch',
+    '1970',
     'Empty value',
     'Service level',
   ]) {
     expect(row?.textContent).toContain(value)
   }
-  expect(row?.textContent).not.toMatch(/\$|USD|L0|1970/)
+  expect(row?.textContent).not.toMatch(/\$|USD|L0/)
   expect(container.textContent).toContain(
     'Risk, usage, top-up, referral history and legacy trust information are unavailable'
   )
-  const unavailable = Array.from(
-    container.querySelectorAll<HTMLButtonElement>('details button')
-  )
-  for (const label of [
-    'Delete user',
-    'Promote user',
-    'Demote user',
-    'Unbind identity',
-  ]) {
-    const action = unavailable.find((button) => button.textContent === label)
-    expect(action).toBeDefined()
-    expect(action?.disabled).toBe(true)
-  }
-  expect(unavailable.every((button) => button.disabled)).toBe(true)
+  expect(container.textContent).not.toContain('Unavailable user actions')
+  expect(container.textContent).not.toContain('Delete user')
   const security = Array.from(
     row?.querySelectorAll<HTMLButtonElement>('button') ?? []
   ).find((button) => button.textContent === 'Security')
   expect(security).toBeDefined()
   expect(security?.disabled).toBe(false)
-  await act(async () => {
-    for (const action of container.querySelectorAll<HTMLButtonElement>(
-      'details button'
-    )) {
-      action.click()
-    }
-  })
   expect(seen).toEqual(['get /api/status', 'get /core/v1/admin/users'])
 })
 
@@ -705,4 +686,40 @@ test('a denied list replacement unmounts groups and aborts an outstanding group 
   expect(container.textContent).not.toContain('synthetic-private-group')
   expect(container.querySelector('[data-native-user-id]')).toBeNull()
   expect(userReads).toBe(2)
+})
+
+test('clear filters restores the default query and collapses user details initially', async () => {
+  login()
+  const reads: Record<string, unknown>[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url !== '/api/status') reads.push(config.params)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const container = await mount('?keyword=alice&status=disabled')
+  expect(
+    container.querySelector<HTMLDetailsElement>('[data-native-user-id] details')
+      ?.open
+  ).toBe(false)
+  expect(
+    container.querySelector<HTMLDetailsElement>('form details')?.open
+  ).toBe(true)
+  await act(async () => {
+    button(container, 'Clear filters').click()
+    await pause()
+  })
+  expect(reads.at(-1)?.keyword).toBe('')
+  expect(reads.at(-1)?.status).toBe('')
+  expect(reads.at(-1)?.page).toBe(1)
+  expect(
+    container.querySelector<HTMLInputElement>('#native-user-keyword')?.value
+  ).toBe('')
 })

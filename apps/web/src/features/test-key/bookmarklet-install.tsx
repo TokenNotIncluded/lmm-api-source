@@ -165,11 +165,12 @@ export function BookmarkletInstall({ compact = false }: { compact?: boolean }) {
   )
   return (
     <section
-      className='bg-muted/20 min-w-0 rounded-xl border p-5 sm:p-6'
+      className='from-primary/5 via-card to-card min-w-0 rounded-2xl border bg-linear-to-br p-5 sm:p-6'
       aria-labelledby={titleId}
     >
       <div className='flex flex-wrap items-start justify-between gap-5'>
         <div className='max-w-xl'>
+          <img src='/test-key-mark.svg' width={40} height={40} alt='' className='mb-4' />
           <h2 id={titleId} className='text-lg font-semibold tracking-tight'>
             {q('installTitle')}
           </h2>

@@ -1,3 +1,20 @@
+import type { QueryClient } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import {
+  createRootRouteWithContext,
+  Outlet,
+  redirect,
+  useNavigate,
+  useRouterState,
+  type ErrorComponentProps,
+} from '@tanstack/react-router'
+import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { lazy, Suspense, useEffect } from 'react'
+
+import { AuthBootstrapPending } from '@/components/auth-bootstrap-pending'
+import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
+import { FeedbackRewardButton } from '@/components/feedback-reward-button'
+
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,22 +33,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { QueryClient } from '@tanstack/react-query'
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
-import {
-  createRootRouteWithContext,
-  Outlet,
-  redirect,
-  useNavigate,
-  useRouterState,
-  type ErrorComponentProps,
-} from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-import { lazy, Suspense, useEffect } from 'react'
-
-import { AuthBootstrapPending } from '@/components/auth-bootstrap-pending'
-import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
-import { FeedbackRewardButton } from '@/components/feedback-reward-button'
+import '@/styles/l0-preview.css'
+import { L0PreviewBanner } from '@/components/l0-preview-banner'
 import { Footer } from '@/components/layout/components/footer'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
@@ -66,6 +69,7 @@ const PersonaDebugPanel = __LMM_PERSONA_DEBUG__
   : null
 
 function RootComponent() {
+  const preview = useAuthStore((state) => Boolean(state.preview))
   const navigate = useNavigate()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -108,7 +112,12 @@ function RootComponent() {
     <ThemeCustomizationProvider>
       <AuthCookieRecovery />
       <NavigationProgress />
-      <Outlet />
+      <div className={preview ? 'l0-preview-shell' : undefined}>
+        <L0PreviewBanner />
+        <div className={preview ? 'l0-preview-surface' : undefined}>
+          <Outlet key={preview ? 'l0-preview' : 'account'} />
+        </div>
+      </div>
       {!hasConsoleLayout && <SourceConsent />}
       {isHomeIntroSurface && <Footer />}
       {isHomeIntroSurface && <FeedbackRewardButton />}

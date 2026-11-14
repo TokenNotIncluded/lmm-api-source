@@ -21,6 +21,7 @@ import { isAxiosError } from 'axios'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { LoadingState } from '@/components/loading-state'
 import { RichContent } from '@/components/rich-content'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -97,27 +98,36 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   const items = query.data?.items ?? []
   const nextIndex = items.findIndex((item) => !item.read_at)
   const next = nextIndex === -1 ? undefined : items[nextIndex]
-  if (query.isError || query.isPending) {
+  if (query.isPending) {
+    return (
+      <main
+        className='bg-background text-foreground'
+        role='status'
+        aria-live='polite'
+      >
+        <LoadingState className='min-h-dvh p-6' />
+      </main>
+    )
+  }
+  if (query.isError) {
     return (
       <main
         className='mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6'
         aria-live='polite'
       >
         <h1 className='text-xl font-semibold'>{t('Announcements')}</h1>
-        <p>{t(query.isError ? 'Unable to load announcements' : 'Loading')}</p>
-        {query.isError && (
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
-            >
-              {t('Retry')}
-            </Button>
-            <Button variant='outline' render={<a href='/' />}>
-              {t('Back to home')}
-            </Button>
-          </div>
-        )}
+        <p>{t('Unable to load announcements')}</p>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            {t('Retry')}
+          </Button>
+          <Button variant='outline' render={<a href='/' />}>
+            {t('Back to home')}
+          </Button>
+        </div>
       </main>
     )
   }

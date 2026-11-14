@@ -123,8 +123,72 @@ export function FloatingSettingsNavigation() {
   }, [])
 
   const results = searchSettings(index, query)
+  const directory = (
+    <nav
+      className='settings-directory-list'
+      aria-label={t('Go to a settings section')}
+    >
+      {results.length === 0 ? (
+        <p className='text-muted-foreground px-3 py-6'>
+          {t('No settings found')}
+        </p>
+      ) : null}
+      {results.map((group) => (
+        <details
+          key={`${group.group}:${query}`}
+          open={
+            query.trim()
+              ? true
+              : group.entries.some((entry) => entry.url === current?.url)
+          }
+        >
+          <summary>
+            <span>{group.group}</span>
+            <small>{group.entries.length}</small>
+            <ChevronDown aria-hidden='true' className='size-4' />
+          </summary>
+          {group.entries.map((entry) => (
+            <button
+              key={entry.url}
+              type='button'
+              aria-current={entry.url === current?.url ? 'page' : undefined}
+              onClick={() =>
+                select(entries.findIndex((item) => item.url === entry.url))
+              }
+            >
+              {entry.section}
+            </button>
+          ))}
+        </details>
+      ))}
+    </nav>
+  )
   return (
     <>
+      <aside
+        className='settings-desktop-navigation'
+        aria-label={t('System Settings')}
+      >
+        <Link
+          to='/dashboard/$section'
+          params={{ section: 'overview' }}
+          className='settings-desktop-back'
+        >
+          <ArrowLeft aria-hidden='true' className='size-4' />
+          <span>{t('Back to Dashboard')}</span>
+        </Link>
+        <div className='settings-directory-heading'>{t('System Settings')}</div>
+        <div className='settings-directory-search'>
+          <Search aria-hidden='true' className='size-4' />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('Search settings')}
+            aria-label={t('Search settings')}
+          />
+        </div>
+        {directory}
+      </aside>
       <aside className='settings-float-rail' aria-label={t('System Settings')}>
         <Link
           to='/dashboard/$section'
@@ -193,7 +257,7 @@ export function FloatingSettingsNavigation() {
         <SheetContent
           side={isMobile ? 'bottom' : 'left'}
           className='settings-floating-directory'
-          finalFocus={handle}
+          finalFocus={isMobile ? handle : undefined}
         >
           <SheetHeader className='px-5 pt-5 pb-0'>
             <SheetTitle>{t('System Settings')}</SheetTitle>
@@ -214,48 +278,7 @@ export function FloatingSettingsNavigation() {
               className='h-11 rounded-xl pl-9'
             />
           </div>
-          <nav
-            className='settings-directory-list'
-            aria-label={t('Go to a settings section')}
-          >
-            {results.length === 0 ? (
-              <p className='text-muted-foreground px-3 py-6'>
-                {t('No settings found')}
-              </p>
-            ) : null}
-            {results.map((group) => (
-              <details
-                key={`${group.group}:${query}`}
-                open={
-                  query.trim()
-                    ? true
-                    : group.entries.some((entry) => entry.url === current?.url)
-                }
-              >
-                <summary>
-                  <span>{group.group}</span>
-                  <small>{group.entries.length}</small>
-                  <ChevronDown aria-hidden='true' className='size-4' />
-                </summary>
-                {group.entries.map((entry) => (
-                  <button
-                    key={entry.url}
-                    type='button'
-                    aria-current={
-                      entry.url === current?.url ? 'page' : undefined
-                    }
-                    onClick={() =>
-                      select(
-                        entries.findIndex((item) => item.url === entry.url)
-                      )
-                    }
-                  >
-                    {entry.section}
-                  </button>
-                ))}
-              </details>
-            ))}
-          </nav>
+          {directory}
           <p className='text-muted-foreground px-5 pb-4 text-xs'>
             {t('{{count}} sections', { count: entries.length })} ·{' '}
             {t('Changes are saved only with the Save button.')}

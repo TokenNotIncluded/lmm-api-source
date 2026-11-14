@@ -35,7 +35,7 @@ import {
   invalidatePendingLogins,
   revokeLogoutSession,
 } from '@/lib/auth-session'
-import { useAuthStore } from '@/stores/auth-store'
+import { useCredentialStore as useAuthStore } from '@/stores/auth-store'
 
 import {
   appealContextSchema,
@@ -253,6 +253,7 @@ export async function executeLogout(
 
 // User logout
 export async function logout(): Promise<ApiResponse> {
+  useAuthStore.getState().stopPreview()
   invalidatePendingLogins()
   const initial = useAuthStore.getState().auth
   return withAuthCookieActivity(async () => {

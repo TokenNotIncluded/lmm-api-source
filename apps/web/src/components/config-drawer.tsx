@@ -290,7 +290,7 @@ function PresetConfig() {
       <Radio
         value={customization.preset}
         onValueChange={(v) => setPreset(v as ThemePreset)}
-        className='grid w-full grid-cols-4 gap-3'
+        className='grid w-full grid-cols-2 gap-3 sm:grid-cols-4'
         aria-label={t('Select color preset')}
       >
         {THEME_PRESETS.map((preset) => (
@@ -312,16 +312,13 @@ function PresetConfig() {
                 aria-hidden='true'
                 className='absolute inset-0 flex overflow-hidden rounded-md'
               >
-                <span
-                  className='min-w-0 flex-1'
-                  style={{ backgroundColor: preset.swatches[0] }}
-                />
-                <span
-                  className='min-w-0 flex-1'
-                  style={{
-                    backgroundColor: preset.swatches[1] ?? preset.swatches[0],
-                  }}
-                />
+                {preset.swatches.map((color) => (
+                  <span
+                    key={color}
+                    className='min-w-0 flex-1'
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
               </div>
               <CircleCheck
                 className={cn(
@@ -331,7 +328,7 @@ function PresetConfig() {
                 aria-hidden='true'
               />
             </div>
-            <div className='mt-1.5 truncate text-center text-xs'>
+            <div className='mt-1.5 text-center text-xs break-words'>
               {t(`preset.${preset.value}`)}
             </div>
           </Item>
@@ -541,7 +538,7 @@ function ScaleConfig() {
       <Radio
         value={customization.scale}
         onValueChange={(v) => setScale(v as ThemeScale)}
-        className='grid w-full grid-cols-4 gap-3'
+        className='grid w-full grid-cols-2 gap-3 sm:grid-cols-4'
         aria-label={t('Select interface density')}
       >
         {scaleOptions.map((option) => (
@@ -568,7 +565,7 @@ function ScaleConfig() {
               />
               <ScalePreview rows={option.rows} rowGap={option.rowGap} />
             </div>
-            <div className='mt-1.5 truncate text-center text-xs'>
+            <div className='mt-1.5 text-center text-xs break-words'>
               {option.label}
             </div>
           </Item>
@@ -709,7 +706,7 @@ function ContentLayoutConfig() {
               />
               <ContentLayoutPreview centered={option.value === 'centered'} />
             </div>
-            <div className='mt-1.5 truncate text-center text-xs'>
+            <div className='mt-1.5 text-center text-xs break-words'>
               {option.label}
             </div>
           </Item>

@@ -5,7 +5,7 @@
   position: relative;
   min-width: 0;
   overflow: hidden;
-  padding: clamp(1.5rem, 3.2cqi, 2.75rem);
+  padding: clamp(1.5rem, 4cqi, 3rem);
   border: 1px solid
     color-mix(in oklch, var(--forge-paper-light) 8%, transparent);
   border-radius: var(--radius-xl);
@@ -32,16 +32,16 @@
 }
 .overview-greeting-quote {
   display: block;
-  padding: clamp(1.5rem, 3.2cqi, 2.75rem) 0;
+  padding: clamp(1.75rem, 3.5cqi, 3rem) 0;
 }
 .overview-greeting-mark {
   display: none;
 }
 .overview-greeting-message {
   min-width: 0;
-  max-width: 24ch;
+  max-width: 36ch;
   margin: 0;
-  font-size: clamp(1.55rem, 3.6cqi, 3rem);
+  font-size: clamp(1.5rem, 3cqi, 2.5rem);
   font-weight: 520;
   letter-spacing: -0.04em;
   line-height: 1.18;
@@ -63,7 +63,7 @@
   align-items: end;
   justify-content: space-between;
   gap: 1.25rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 2rem;
 }
 .overview-chart-eyebrow {
   margin-bottom: 0.4rem;

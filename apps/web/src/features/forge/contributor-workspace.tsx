@@ -62,7 +62,11 @@ function Step(props: { icon: IconType; step: string; label: string }) {
   )
 }
 
-export function ContributorWorkspace() {
+export function ContributorWorkspace({
+  preview = false,
+}: {
+  preview?: boolean
+}) {
   const { t } = useTranslation()
 
   return (
@@ -165,7 +169,7 @@ export function ContributorWorkspace() {
           <div id='open-work' className='scroll-mt-4'>
             <ChallengeList limit={12} />
           </div>
-          <AcceptedChallengeList />
+          {!preview && <AcceptedChallengeList />}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

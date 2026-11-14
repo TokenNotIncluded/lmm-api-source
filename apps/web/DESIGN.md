@@ -11,7 +11,7 @@ colors:
 
 ## Visual Theme & Atmosphere
 
-- [observed] Authenticated product surfaces use a compact console shell with one restrained emphasis color, neutral semantic surfaces, and persistent inverted/subtle navigation.
+- [observed] Authenticated product surfaces use a compact console shell with Material-inspired tonal surfaces, distinct semantic accents, and theme-aware tonal navigation.
 - [observed] Public and authentication surfaces may use the warmer Forge editorial palette; authenticated utilities remain in the console semantic-token layer unless an existing route explicitly opts into an editorial preset.
 - [inferred confidence=high] New operational pages should feel direct, quiet, and information-dense rather than promotional. One workflow region leads; secondary history and metadata recede.
 
@@ -128,8 +128,8 @@ This section consolidates the useful browser constraints from sixteen former gui
 
 ### Cut system in the application
 
-- [observed] The default preset uses a tighter `--radius` (0.65rem) and a shared `--cut-size` token. A solid 45° cut mark — the logo's base cut — precedes console page titles (`.console-page-title::before`) and homepage section headings (`.lmm-section h2::before`), and replaces round bullets in the homepage protocol and access-note lists. The mark inherits `currentColor`; it adds no new palette entry.
-- [observed] The console sidebar uses a deep charcoal field in both color modes. Its active navigation row is a warm-coral block (`--sidebar-primary` on `--sidebar-primary-foreground`) with a 45° trailing notch. The notch is removed under `:focus-visible` so the focus outline is never clipped. Sidebar rows use an explicit 0.375rem radius because the Luma sidebar rescopes `--radius`.
+- [observed] The default preset uses a soft `--radius` (0.85rem) and a shared `--cut-size` token. A solid 45° cut mark — the logo's base cut — precedes console page titles (`.console-page-title::before`) and homepage section headings (`.lmm-section h2::before`), and replaces round bullets in the homepage protocol and access-note lists. The mark inherits `currentColor`; it adds no new palette entry.
+- [observed] The console sidebar uses a theme-derived tonal surface in both modes. The selected destination uses the secondary container/foreground pair and rounded corners, with an unclipped keyboard focus ring.
 - [observed] Display headings on the homepage and console titles use medium-heavy weights (520–650) with tight tracking. The homepage primary call to action is a compact warm-coral block with a small control radius and a visible keyboard focus ring.
 - [observed] `--font-sans` names the bundled family `'Public Sans Variable'` first, followed by a deterministic CJK sans stack. The previous stack named only `'Public Sans'`, which never matched the Fontsource face, so the app silently rendered the platform sans.
 - [observed] Cards use low, diffuse shadows and semantic borders to establish hierarchy without lifting during reading. Named presets and the user's radius axis continue to override these defaults.
@@ -143,7 +143,7 @@ This section consolidates the useful browser constraints from sixteen former gui
 
 ### HTML-in-Canvas and the quiet interface
 
-The interface uses spacing, typography and a small amount of warm metal color to make the next action clear. Default light surfaces remain warm white; default dark surfaces are deep charcoal. Named themes, user-selected radius, density and typography continue to override defaults. Operational state still uses the existing success, warning and destructive roles.
+The interface uses spacing, typography and semantic accents to make the next action clear. Default light surfaces are cool white; dark surfaces are charcoal with lighter accents. Named themes, user-selected radius, density and typography continue to override defaults. Operational state still uses the existing success, warning and destructive roles.
 
 The shared primitives use restrained corners and consistent spacing. Dialogs have room for their title, explanation and actions; empty states keep their named recovery action. Tables and passive cards stay still during reading. Button and row feedback belongs to the interacted control, so changing a filter no longer starts a staggered entrance for every result.
 
@@ -154,3 +154,7 @@ The scene redraws in the canvas `paint` event; resize uses physical pixel dimens
 The login page pairs its existing form with a dark Signal Path panel on desktop and keeps the optional game disclosure on mobile. Public pricing emphasizes the actual model data, filters and units; the guide uses open sections and a readable text measure. These changes affect presentation without changing their request or confirmation paths.
 
 Implementation: `src/features/home/html-canvas-mesh.tsx`, `homepage-canvas.css`, the shared primitives and semantic theme files. The API choice follows [Chrome's stable HTML-in-Canvas announcement](https://developer.chrome.com/blog/html-in-canvas), published 2026-10-26. Native rendering and ordinary DOM fallback are separate verification targets; source support alone is not a browser result.
+
+### Material accent roles
+
+The default palette uses blue for primary actions, green for success, amber for warnings, purple for privileged roles, and red for destructive states. Roles retain text/icons; color alone never communicates permissions or money state. Named presets, font, radius, scale and layout remain user choices. User records separate identity, account state and exact wallet units; overview metric icons use primary/info/tertiary tonal containers. Sidebar selection follows the chosen palette instead of forcing a fixed charcoal/coral theme. Reference: https://m3.material.io/styles/color/the-color-system/ .

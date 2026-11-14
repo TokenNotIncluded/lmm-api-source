@@ -980,9 +980,7 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--sidebar-foreground);
 }
 
-/* Full-contrast active row: the current destination reads as a solid ink
- * block (paper in dark mode), echoing the cut logo's black/white polarity.
- * A 45° notch on the trailing corner repeats the logo's base cut. */
+/* Tonal selected destination follows the user palette. */
 .console-editorial
   [data-slot='sidebar-menu-button'][data-active]:not([data-active='false']),
 .console-editorial
@@ -992,13 +990,7 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--sidebar-primary);
   color: var(--sidebar-primary-foreground);
   font-weight: 600;
-  clip-path: polygon(
-    0 0,
-    100% 0,
-    100% calc(100% - var(--cut-size, 0.625rem)),
-    calc(100% - var(--cut-size, 0.625rem)) 100%,
-    0 100%
-  );
+  border-radius: var(--radius);
 }
 
 .console-editorial
@@ -1661,21 +1653,13 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial {
-  --sidebar: var(--forge-night);
-  --sidebar-foreground: var(--forge-paper-light);
-  --sidebar-primary: var(--forge-clay-dark);
-  --sidebar-primary-foreground: var(--forge-night);
-  --sidebar-accent: color-mix(
-    in oklch,
-    var(--forge-paper-light) 8%,
-    var(--forge-night)
-  );
-  --sidebar-accent-foreground: var(--forge-paper-light);
-  --sidebar-border: color-mix(
-    in oklch,
-    var(--forge-paper-light) 10%,
-    transparent
-  );
+  --sidebar: color-mix(in oklch, var(--primary) 3%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
 }
 
 .console-editorial [data-slot='sidebar-inner'] {

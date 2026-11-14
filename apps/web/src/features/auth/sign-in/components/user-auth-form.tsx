@@ -342,6 +342,7 @@ export function UserAuthForm({
           setAppealRefreshKey((value) => value + 1)
         }
         status={status}
+        registrationCapabilitiesReady={capabilitiesReady}
         redirectTo={redirectTo}
         acceptedLegal={agreedToLegal}
         disabled={

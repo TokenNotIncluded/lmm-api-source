@@ -97,7 +97,8 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
     control: form.control,
     name: ['RegisterEnabled', 'OAuthRegisterEnabled'],
   })
-  const oauthRegistrationAllowed = registrationEnabled && oauthRegistrationEnabled
+  const oauthRegistrationAllowed =
+    registrationEnabled && oauthRegistrationEnabled
 
   const onSubmit = async (data: BasicAuthFormValues) => {
     const updates: Array<{ key: string; value: string | boolean }> = []
@@ -239,23 +240,62 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   .filter(Boolean)
               )
               const methods = [
-                { id: 'google', label: 'Google', parentIds: [] as string[], aliases: [] as string[] },
-                { id: 'github', label: t('GitHub'), parentIds: [], aliases: [] },
-                { id: 'discord', label: t('Discord'), parentIds: [], aliases: [] },
+                {
+                  id: 'google',
+                  label: 'Google',
+                  parentIds: [] as string[],
+                  aliases: [] as string[],
+                },
+                {
+                  id: 'github',
+                  label: t('GitHub'),
+                  parentIds: [],
+                  aliases: [],
+                },
+                {
+                  id: 'discord',
+                  label: t('Discord'),
+                  parentIds: [],
+                  aliases: [],
+                },
                 {
                   id: 'oidc',
                   label: 'OIDC',
                   parentIds: [],
                   aliases: [],
                 },
-                { id: 'linuxdo', label: t('LinuxDO'), parentIds: [], aliases: [] },
-                { id: 'telegram', label: t('Telegram'), parentIds: [], aliases: [] },
-                { id: 'wechat', label: t('WeChat'), parentIds: [], aliases: [] },
+                {
+                  id: 'custom_oauth',
+                  label: t('Custom OAuth'),
+                  parentIds: [],
+                  aliases: [],
+                },
+                {
+                  id: 'linuxdo',
+                  label: t('LinuxDO'),
+                  parentIds: [],
+                  aliases: [],
+                },
+                {
+                  id: 'telegram',
+                  label: t('Telegram'),
+                  parentIds: [],
+                  aliases: [],
+                },
+                {
+                  id: 'wechat',
+                  label: t('WeChat'),
+                  parentIds: [],
+                  aliases: [],
+                },
                 ...federatedProviders(status).map((provider) => ({
                   id: `federated:${provider.id}`,
                   label: provider.name,
                   parentIds: [provider.kind],
-                  aliases: [`custom:${provider.slug}`],
+                  aliases:
+                    provider.kind === 'custom_oauth'
+                      ? [`custom:${provider.slug}`]
+                      : [],
                 })),
               ]
 
@@ -269,52 +309,73 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   </FormDescription>
                   <div className='grid gap-2 lg:grid-cols-2'>
                     {methods.map((method) => {
+                      const loginOnly =
+                        method.id === 'telegram' &&
+                        status?.telegram_register_enabled !== true
                       const inheritedBlock = method.parentIds.some((id) =>
                         disabledMethods.has(id)
                       )
                       const allowed =
                         oauthRegistrationAllowed &&
+                        !loginOnly &&
                         !inheritedBlock &&
-                        ![method.id, ...method.aliases].some((id) => disabledMethods.has(id))
+                        ![method.id, ...method.aliases].some((id) =>
+                          disabledMethods.has(id)
+                        )
                       return (
-                      <SettingsSwitchItem key={method.id}>
-                        <SettingsSwitchContent>
-                          <FormLabel>{method.label}</FormLabel>
-                          <FormDescription>
-                            {t(allowed ? 'Sign in or register' : 'Sign in only')}
-                            {inheritedBlock ? (
-                              <span className='mt-1 block'>
-                                {t('Registration is disabled by a channel-wide rule.')}
-                              </span>
-                            ) : null}
-                          </FormDescription>
-                        </SettingsSwitchContent>
-                        <FormControl>
-                          <Switch
-                            aria-label={t('Allow new accounts through {{method}}', {
-                              method: method.label,
-                            })}
-                            checked={allowed}
-                            disabled={!oauthRegistrationAllowed || inheritedBlock}
-                            onCheckedChange={(allowed) => {
-                              const next = new Set(disabledMethods)
-                              if (allowed) {
-                                for (const id of [method.id, ...method.aliases]) {
-                                  next.delete(id)
+                        <SettingsSwitchItem key={method.id}>
+                          <SettingsSwitchContent>
+                            <FormLabel>{method.label}</FormLabel>
+                            <FormDescription>
+                              {allowed
+                                ? t('Sign in or register')
+                                : t('Sign in only')}
+                              {inheritedBlock ? (
+                                <span className='mt-1 block'>
+                                  {t(
+                                    'Registration is disabled by a channel-wide rule.'
+                                  )}
+                                </span>
+                              ) : null}
+                            </FormDescription>
+                          </SettingsSwitchContent>
+                          <FormControl>
+                            <Switch
+                              aria-label={t(
+                                'Allow new accounts through {{method}}',
+                                {
+                                  method: method.label,
                                 }
-                              } else next.add(method.id)
-                              field.onChange(
-                                [...next]
-                                  .sort((left, right) =>
-                                    left.localeCompare(right)
-                                  )
-                                  .join(',')
-                              )
-                            }}
-                          />
-                        </FormControl>
-                      </SettingsSwitchItem>
-                    )})}
+                              )}
+                              checked={allowed}
+                              disabled={
+                                !oauthRegistrationAllowed ||
+                                inheritedBlock ||
+                                loginOnly
+                              }
+                              onCheckedChange={(allowed) => {
+                                const next = new Set(disabledMethods)
+                                if (allowed) {
+                                  for (const id of [
+                                    method.id,
+                                    ...method.aliases,
+                                  ]) {
+                                    next.delete(id)
+                                  }
+                                } else next.add(method.id)
+                                field.onChange(
+                                  [...next]
+                                    .sort((left, right) =>
+                                      left.localeCompare(right)
+                                    )
+                                    .join(',')
+                                )
+                              }}
+                            />
+                          </FormControl>
+                        </SettingsSwitchItem>
+                      )
+                    })}
                   </div>
                   <FormMessage />
                 </FormItem>

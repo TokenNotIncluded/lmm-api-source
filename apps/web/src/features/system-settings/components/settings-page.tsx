@@ -168,6 +168,10 @@ const LimitedPricingSection = lazyNamedSection(
   () => import('../general/pricing-section'),
   'PricingSection'
 )
+const LimitedOAuthRegistrationPolicy = lazyNamedSection(
+  () => import('../auth/oauth-registration-policy'),
+  'OAuthRegistrationPolicy'
+)
 
 function LimitedSettings({
   options,
@@ -249,6 +253,9 @@ function LimitedSettings({
           ) : null}
         </AlertDescription>
       </Alert>
+      {activeSection === 'basic-auth' ? (
+        <LimitedOAuthRegistrationPolicy />
+      ) : null}
       {visibleOptions.length > 0 ? (
         <dl className='divide-y border'>
           {visibleOptions.map((option) => (

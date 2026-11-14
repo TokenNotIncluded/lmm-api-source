@@ -24,13 +24,13 @@ export function NativeWalletDetails({
   const projection = walletProjection(user)
   return (
     <div
-      className='relative z-10 mt-3 space-y-2 text-xs'
+      className='border-primary/10 relative z-10 mt-5 flex flex-col gap-4 border-t pt-4 text-xs'
       data-native-wallet-details
     >
-      <p>
+      <p className='text-muted-foreground order-last leading-relaxed'>
         {t('Credit conversion unavailable')}: USD / CNY — {t('Unknown')}
       </p>
-      <dl className='flex flex-wrap gap-x-4 gap-y-2'>
+      <dl className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
         {(
           [
             [
@@ -48,7 +48,7 @@ export function NativeWalletDetails({
         ).map(([field, label, value]) => (
           <div key={field} data-wallet-bucket={field}>
             <dt className='text-muted-foreground break-all'>{label}</dt>
-            <dd className='tabular-nums'>
+            <dd className='mt-1 font-medium break-words tabular-nums'>
               {nativeCreditDisplay(value, t('Credits'), t('Unknown'))}
             </dd>
           </div>

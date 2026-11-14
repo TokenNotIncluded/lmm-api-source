@@ -97,10 +97,10 @@ export function AffiliateRewardsCard({
             [t('Invites'), t('Unavailable')],
           ].map(([label, value]) => (
             <div key={label}>
-              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+              <div className='text-muted-foreground text-xs font-medium'>
                 {label}
               </div>
-              <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
+              <div className='mt-1 text-sm font-semibold break-words tabular-nums'>
                 {value}
               </div>
             </div>

@@ -11,31 +11,31 @@
       "file": "fr.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 53
+      "untranslatedCount": 52
     },
     "ja": {
       "file": "ja.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 125
+      "untranslatedCount": 109
     },
     "ru": {
       "file": "ru.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 125
+      "untranslatedCount": 109
     },
     "vi": {
       "file": "vi.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 53
+      "untranslatedCount": 52
     },
     "zh-CN": {
       "file": "zh-CN.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 4
+      "untranslatedCount": 3
     },
     "zh-TW": {
       "file": "zh-TW.json",

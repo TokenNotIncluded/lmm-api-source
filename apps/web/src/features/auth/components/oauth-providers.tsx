@@ -54,6 +54,7 @@ type OAuthProvidersProps = {
   acceptedLegal?: boolean
   featureGoogle?: boolean
   registrationOnly?: boolean
+  registrationCapabilitiesReady: boolean
 }
 
 type ProviderButton = {
@@ -77,6 +78,7 @@ export function OAuthProviders({
   acceptedLegal = false,
   featureGoogle = false,
   registrationOnly = false,
+  registrationCapabilitiesReady,
   onVerifiedAccountAppeal,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
@@ -99,7 +101,9 @@ export function OAuthProviders({
 
   const providerButtons: ProviderButton[] = []
   const registrationAllowed = (provider: string | FederatedProvider) =>
-    !registrationOnly || isOAuthRegistrationAllowed(status, provider)
+    !registrationOnly ||
+    (registrationCapabilitiesReady &&
+      isOAuthRegistrationAllowed(status, provider))
 
   const builtInGoogleAllowed = registrationAllowed('google')
   if (isBuiltInGoogleConfigured(status) && builtInGoogleAllowed) {
@@ -168,9 +172,7 @@ export function OAuthProviders({
 
   const nativeProviders = federatedProviders(status)
   for (const provider of nativeProviders) {
-    if (
-      !registrationAllowed(provider)
-    ) {
+    if (!registrationAllowed(provider)) {
       continue
     }
     if (provider.kind === 'wechat' && !onWeChatLogin) continue
@@ -199,9 +201,9 @@ export function OAuthProviders({
       provider.key
     )
   }
-  const hasLoginOnlyProvider = providerButtons.some(
-    (provider) => !provider.registrationAllowed
-  )
+  const hasLoginOnlyProvider =
+    registrationCapabilitiesReady &&
+    providerButtons.some((provider) => !provider.registrationAllowed)
   const featuredProvider = providerButtons.find((provider) => provider.featured)
   const otherProviders = providerButtons.filter(
     (provider) => !provider.featured
@@ -215,7 +217,9 @@ export function OAuthProviders({
       type='button'
       aria-label={provider.label}
       aria-describedby={
-        !provider.registrationAllowed ? policyDescriptionId : undefined
+        registrationCapabilitiesReady && !provider.registrationAllowed
+          ? policyDescriptionId
+          : undefined
       }
       disabled={disabled || isLoading || provider.disabled}
       onClick={provider.onClick}
@@ -228,13 +232,17 @@ export function OAuthProviders({
           'border-[#747775] bg-white font-sans text-sm font-medium tracking-normal text-[#1f1f1f] hover:bg-[#f8faff] hover:text-[#1f1f1f] dark:border-[#8e918f] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1f1f1f] dark:hover:text-white'
       )}
     >
-      <span className='flex max-w-full items-center justify-center gap-2 whitespace-normal text-center'>
+      <span className='flex max-w-full items-center justify-center gap-2 text-center whitespace-normal'>
         {provider.icon}
         {provider.featured || !compact ? provider.label : provider.shortLabel}
       </span>
-      <span className='text-xs font-normal opacity-75'>
-        {t(provider.registrationAllowed ? 'Sign in or register' : 'Sign in only')}
-      </span>
+      {registrationCapabilitiesReady ? (
+        <span className='text-xs font-normal opacity-75'>
+          {provider.registrationAllowed
+            ? t('Sign in or register')
+            : t('Sign in only')}
+        </span>
+      ) : null}
     </Button>
   )
 

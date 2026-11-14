@@ -100,16 +100,6 @@ export const usePromptInputController = () => {
 // Optional variants (do NOT throw). Useful for dual-mode components.
 const useOptionalPromptInputController = () => useContext(PromptInputController)
 
-const useProviderAttachments = () => {
-  const ctx = useContext(ProviderAttachmentsContext)
-  if (!ctx) {
-    throw new Error(
-      'Wrap your component inside <PromptInputProvider> to use useProviderAttachments().'
-    )
-  }
-  return ctx
-}
-
 const useOptionalProviderAttachments = () =>
   useContext(ProviderAttachmentsContext)
 

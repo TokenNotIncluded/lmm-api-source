@@ -10,6 +10,7 @@ for (const name of [
   'document',
   'navigator',
   'HTMLElement',
+  'customElements',
   'Element',
   'Node',
   'Event',
@@ -311,23 +312,115 @@ test('system info page displays native resources and instance heartbeats togethe
 
   assert.match(container.querySelector('h1')?.textContent ?? '', /System Info/)
   const sections = [...container.querySelectorAll('section')]
-  const resources = sections.find((section) =>
-    section
-      .querySelector('h3')
-      ?.textContent?.includes('Service resource breakdown')
-  )
-  const instances = sections.find(
-    (section) => section.querySelector('h3')?.textContent === 'Instances'
-  )
-  assert.ok(resources)
-  assert.ok(instances)
-  assert.match(resources.textContent ?? '', /Core process.*PID123/)
-  assert.match(resources.textContent ?? '', /Extensions process/)
-  assert.match(instances.textContent ?? '', /worker-a/)
-  assert.match(instances.textContent ?? '', /test-version/)
-  assert.match(instances.textContent ?? '', /Online/)
+  assert.equal(sections.length, 1)
+  const row = container.querySelector('[data-instance-id]')
+  assert.ok(row)
+  assert.equal(row.querySelectorAll('[role="cell"]').length, 3)
+  assert.equal(container.querySelectorAll('[role="columnheader"]').length, 3)
+  assert.match(row.textContent ?? '', /Core processPID123/)
+  assert.match(row.textContent ?? '', /Extensions process/)
+  assert.match(row.textContent ?? '', /worker-a/)
+  assert.match(row.textContent ?? '', /test-version/)
+  assert.match(row.textContent ?? '', /Online/)
   assert.deepEqual(
     requestedPaths,
     new Set(['/core/v1/admin/system-resources', '/core/v1/admin/instances'])
   )
 })
+
+for (const scenario of [
+  {
+    name: 'stopped boot is neutral history while live and stale boots remain current',
+    items: [
+      heartbeat,
+      {
+        ...heartbeat,
+        boot_id: 'b'.repeat(32),
+        online: false,
+        phase: 'stopped',
+      },
+      { ...heartbeat, boot_id: 'c'.repeat(32), online: false },
+    ],
+    truncated: false,
+    linked: true,
+  },
+  {
+    name: 'multiple online boots do not share local resource samples',
+    items: [heartbeat, { ...heartbeat, boot_id: 'b'.repeat(32) }],
+    truncated: false,
+    linked: false,
+  },
+  {
+    name: 'truncated heartbeat lists cannot identify a unique resource owner',
+    items: [heartbeat],
+    truncated: true,
+    linked: false,
+  },
+]) {
+  test(scenario.name, async () => {
+    const requested: string[] = []
+    api.get = (async (path) => {
+      requested.push(path)
+      return {
+        data:
+          path === '/core/v1/admin/system-resources'
+            ? snapshot
+            : {
+                ...heartbeatList,
+                items: scenario.items,
+                truncated: scenario.truncated,
+              },
+      }
+    }) as typeof api.get
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    dispose = async () => {
+      await act(async () => root.unmount())
+      client.clear()
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <I18nextProvider i18n={i18n}>
+            <SystemInstancesPanel />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+    )
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (
+        container.querySelector('[data-instance-id]') &&
+        (!scenario.linked || container.textContent?.includes('PID123'))
+      ) {
+        break
+      }
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    }
+    assert.equal(
+      requested.includes('/core/v1/admin/system-resources'),
+      scenario.linked
+    )
+    assert.equal(container.textContent?.includes('PID123'), scenario.linked)
+    const history = container.querySelector('details')
+    if (scenario.linked) {
+      assert.ok(history)
+      assert.equal(history.open, false)
+      assert.match(history.textContent ?? '', /Stopped/)
+      assert.doesNotMatch(history.textContent ?? '', /Stale|PID123/)
+      const stale = container.querySelector(
+        `[data-instance-id="${'c'.repeat(32)}"]`
+      )
+      assert.match(stale?.textContent ?? '', /Stale/)
+      assert.equal(stale?.closest('details'), null)
+      assert.doesNotMatch(stale?.textContent ?? '', /PID123/)
+    } else {
+      assert.equal(history, null)
+    }
+  })
+}

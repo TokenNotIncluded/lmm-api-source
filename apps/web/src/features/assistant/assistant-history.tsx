@@ -30,7 +30,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { FolderOpen, Search } from 'lucide-react'
+import { ArrowUpRight, FolderOpen, MessageSquare, Search } from 'lucide-react'
 // `Search` stays imported: the admin audit picker below still uses it.
 import { Fragment, useMemo, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -364,7 +364,7 @@ export function AssistantHistory(props: {
   const historyCanRetry = status !== 400 && status !== 403 && status !== 404
 
   return (
-    <div className='grid gap-6 py-2 sm:gap-8'>
+    <div className='grid min-w-0 gap-6 py-2'>
       {canAudit && !props.ownerUser ? (
         <div className='grid gap-5 border-b pb-6'>
           <div className='flex flex-wrap gap-3'>
@@ -524,7 +524,7 @@ export function AssistantHistory(props: {
         </div>
       ) : null}
       <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
-        <div className='flex flex-wrap gap-3'>
+        <div className='bg-muted/60 flex w-fit max-w-full flex-wrap gap-1 rounded-xl p-1'>
           <Button
             type='button'
             variant={showingArchived ? 'ghost' : 'secondary'}
@@ -611,6 +611,7 @@ export function AssistantHistory(props: {
         </p>
       ) : (
         <div
+          className='grid gap-6'
           data-presentation={props.presentation ?? 'cards'}
           data-testid='assistant-history-list'
         >
@@ -621,7 +622,7 @@ export function AssistantHistory(props: {
             >
               <h3
                 id={`assistant-history-day-${groupIndex}`}
-                className='text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase'
+                className='text-muted-foreground after:bg-border mb-3 flex items-center gap-3 text-[11px] font-semibold tracking-wide after:h-px after:flex-1'
               >
                 {day}
               </h3>
@@ -645,20 +646,36 @@ export function AssistantHistory(props: {
                     ) : null}
                     <article
                       className={cn(
-                        'grid min-w-0 gap-2',
+                        'group grid min-w-0 gap-2 transition-colors focus-within:bg-muted/40 hover:bg-muted/40 motion-reduce:transition-none',
                         props.presentation === 'rows'
-                          ? 'py-4'
-                          : 'mb-3 rounded-lg border p-3 last:mb-0'
+                          ? 'rounded-xl px-3 py-4'
+                          : 'mb-3 rounded-2xl border border-border/70 bg-card p-4 last:mb-0'
                       )}
                       data-testid='assistant-history-item'
                     >
-                      <div className='flex min-w-0 items-start justify-between gap-3'>
+                      <div className='flex min-w-0 flex-col gap-3'>
                         <button
                           type='button'
-                          className='min-w-0 flex-1 cursor-pointer text-left outline-none focus-visible:underline'
+                          className='focus-visible:ring-ring min-w-0 flex-1 cursor-pointer rounded-lg text-start outline-none focus-visible:ring-2 focus-visible:ring-offset-4'
                           onClick={() => props.onOpenConversation(conversation)}
                         >
-                          <p className='line-clamp-2 text-sm font-medium'>
+                          <span className='text-muted-foreground mb-2 flex items-center gap-2'>
+                            <MessageSquare
+                              className='text-primary size-3.5'
+                              aria-hidden='true'
+                            />
+                            <time
+                              className='text-[11px] tabular-nums'
+                              dateTime={new Date(
+                                conversation.updated_at * 1000
+                              ).toISOString()}
+                            >
+                              {dateFormatter.format(
+                                conversation.updated_at * 1000
+                              )}
+                            </time>
+                          </span>
+                          <p className='line-clamp-2 text-sm leading-6 font-semibold tracking-tight break-words'>
                             <span className='sr-only'>
                               {conversation.owner === 'self'
                                 ? `${t('Your conversation')}: `
@@ -666,16 +683,11 @@ export function AssistantHistory(props: {
                             </span>
                             {conversation.title}
                           </p>
-                          <p className='text-muted-foreground mt-0.5 text-xs'>
-                            {dateFormatter.format(
-                              new Date(conversation.updated_at * 1000)
-                            )}
-                          </p>
-                          <p className='text-muted-foreground mt-2 line-clamp-2 text-xs leading-5'>
+                          <p className='text-muted-foreground mt-1 line-clamp-2 text-xs leading-5 break-words'>
                             {safePreview}
                           </p>
                         </button>
-                        <div className='flex shrink-0 flex-wrap justify-end gap-2'>
+                        <div className='border-border/50 flex flex-wrap items-center justify-between gap-2 border-t pt-2'>
                           <Button
                             type='button'
                             variant={
@@ -691,6 +703,10 @@ export function AssistantHistory(props: {
                             }
                           >
                             {t('View')}
+                            <ArrowUpRight
+                              className='size-3.5'
+                              aria-hidden='true'
+                            />
                           </Button>
                           {canManage ? (
                             <Button

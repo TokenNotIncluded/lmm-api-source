@@ -98,6 +98,7 @@ async function render(
     registrationOnly?: boolean
     disabled?: boolean
     acceptedLegal?: boolean
+    registrationCapabilitiesReady?: boolean
   } = {}
 ) {
   const host = document.createElement('div')
@@ -108,6 +109,7 @@ async function render(
     currentRoot.render(
       <OAuthProviders
         status={status}
+        registrationCapabilitiesReady
         featureGoogle
         onWeChatLogin={(provider) =>
           clicks.push(`wechat:${provider?.id}:${provider?.slug}`)
@@ -183,7 +185,12 @@ describe('Google provider buttons', () => {
       ...supported,
       oauth_registration_disabled_methods: ['google', 'custom:legacy-google'],
     })
-    await act(async () => getButton(host).click())
+    const button = getButton(host)
+    assert.match(button.textContent ?? '', /Sign in only/)
+    assert.ok(
+      document.getElementById(button.getAttribute('aria-describedby') ?? '')
+    )
+    await act(async () => button.click())
     assert.deepEqual(clicks, ['builtin:google'])
   })
 
@@ -203,6 +210,111 @@ describe('Google provider buttons', () => {
     const host = await render({ google_client_id: 'native-only-client' })
     assert.equal(host.querySelector('button'), null)
   })
+})
+
+test('global registration switches filter sign-up buttons but preserve labelled sign-in', async () => {
+  for (const policy of [
+    { register_enabled: false },
+    { oauth_register_enabled: false },
+  ]) {
+    const status = { ...supported, ...policy }
+    const signup = await render(status, { registrationOnly: true })
+    assert.equal(signup.querySelector('button'), null)
+    await unmount()
+    const login = await render(status)
+    assert.match(getButton(login).textContent ?? '', /Sign in only/)
+    assert.equal(getButton(login).disabled, false)
+    await unmount()
+  }
+})
+
+test('cached capabilities keep login usable without advertising an unverified registration policy', async () => {
+  const login = await render(supported, {
+    registrationCapabilitiesReady: false,
+  })
+  assert.equal(getButton(login).disabled, false)
+  assert.doesNotMatch(
+    login.textContent ?? '',
+    /Sign in or register|Sign in only/
+  )
+  await unmount()
+  const signup = await render(supported, {
+    registrationOnly: true,
+    registrationCapabilitiesReady: false,
+  })
+  assert.equal(signup.querySelector('button'), null)
+})
+
+test('Telegram remains labelled login-only even when another OAuth provider can register', async () => {
+  const status = {
+    ...supported,
+    telegram_oauth: true,
+    telegram_bot_name: 'synthetic_bot',
+    telegram_register_enabled: false,
+  }
+  const login = await render(status)
+  const telegram = login.querySelector<HTMLButtonElement>(
+    'button[aria-label="Continue with Telegram"]'
+  )
+  assert.ok(telegram)
+  assert.match(telegram.textContent ?? '', /Sign in only/)
+  await unmount()
+  const signup = await render(status, { registrationOnly: true })
+  assert.equal(
+    signup.querySelector('button[aria-label="Continue with Telegram"]'),
+    null
+  )
+  assert.equal(signup.querySelectorAll('button').length, 1)
+})
+
+test('mixed native provider policies show effective capabilities and filter registration independently', async () => {
+  const provider = {
+    id: '91',
+    kind: 'oidc' as const,
+    slug: 'register-sso',
+    name: 'Registration SSO',
+    icon: '',
+    revision: '1',
+    client_id: 'synthetic',
+    authorization_endpoint: 'https://idp.example.test/authorize',
+    scopes: 'openid',
+    qr_code_url: '',
+    native_federated: true as const,
+    registration_enabled: true,
+  }
+  const loginOnly = {
+    ...provider,
+    id: '92',
+    slug: 'login-sso',
+    name: 'Login SSO',
+    registration_enabled: false,
+  }
+  const unknown = {
+    ...provider,
+    id: '93',
+    slug: 'unknown-sso',
+    name: 'Unknown SSO',
+    registration_enabled: undefined,
+  }
+  const status = {
+    native_federated_auth: true,
+    federated_oauth_providers: [provider, loginOnly, unknown],
+  }
+  const login = await render(status)
+  const buttons = [...login.querySelectorAll<HTMLButtonElement>('button')]
+  assert.equal(buttons.length, 3)
+  assert.match(buttons[0].textContent ?? '', /Sign in or register/)
+  assert.match(buttons[1].textContent ?? '', /Sign in only/)
+  assert.match(buttons[2].textContent ?? '', /Sign in only/)
+  await act(async () => buttons[1].click())
+  assert.deepEqual(clicks, ['federated:92:login-sso'])
+  await unmount()
+  const signup = await render(status, { registrationOnly: true })
+  assert.equal(signup.querySelectorAll('button').length, 1)
+  assert.equal(
+    getButton(signup).getAttribute('aria-label'),
+    'Continue with Registration SSO'
+  )
 })
 
 for (const kind of ['oidc', 'custom_oauth', 'wechat'] as const) {

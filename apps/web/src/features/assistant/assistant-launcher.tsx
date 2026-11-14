@@ -20,7 +20,6 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import { useStatus } from '@/hooks/use-status'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -231,21 +230,37 @@ export function AssistantLauncher(props: {
     const handleShortcut = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        (status?.assistant?.enabled === false && !user) ||
         event.altKey ||
         !event.shiftKey ||
         !(event.metaKey || event.ctrlKey) ||
-        event.key.toLowerCase() !== 'a'
+        (event.code !== 'Space' && event.key.toLowerCase() !== 'a')
       ) {
         return
       }
 
       event.preventDefault()
-      showManualAssistant()
+      if (!props.page && (isOverlayViewport ? mobileOpen : railOpen)) {
+        if (isOverlayViewport) setMobileOpen(false)
+        else setAssistantRailOpen(false)
+      } else {
+        showManualAssistant()
+      }
     }
 
     window.addEventListener('keydown', handleShortcut)
     return () => window.removeEventListener('keydown', handleShortcut)
-  }, [showManualAssistant])
+  }, [
+    showManualAssistant,
+    props.page,
+    isOverlayViewport,
+    mobileOpen,
+    railOpen,
+    status?.assistant?.enabled,
+    user,
+  ])
 
   if (status?.assistant?.enabled === false && !user) return null
 
@@ -288,24 +303,22 @@ export function AssistantLauncher(props: {
           <Button
             type='button'
             variant='secondary'
-            className='pointer-events-auto relative isolate h-11 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2 overflow-hidden rounded-full px-4 shadow-sm md:min-w-44'
+            className='border-primary/20 bg-background text-foreground shadow-foreground/10 hover:bg-accent pointer-events-auto relative h-12 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2.5 rounded-full border px-4 shadow-lg md:min-w-44'
             aria-label={accessibleLabel}
             title={accessibleLabel}
             aria-haspopup='dialog'
             aria-expanded={mobileOpen}
             aria-controls='ai-assistant-panel'
             data-testid='assistant-launcher'
+            aria-keyshortcuts='Control+Shift+Space Meta+Shift+Space'
+            onPointerEnter={() => void loadAssistantPanel()}
+            onFocus={() => void loadAssistantPanel()}
             onClick={() => showAssistant({ id: 'manual', autoSend: false })}
           >
-            <ForgeShaderSurface
-              variant='assistant'
-              interaction='intent'
-              className='absolute inset-0 opacity-70'
-            />
             <HugeiconsIcon
               icon={AiChat02Icon}
               strokeWidth={2}
-              className='relative z-10'
+              className='text-primary size-5'
               data-icon='inline-start'
               aria-hidden='true'
             />
@@ -323,7 +336,7 @@ export function AssistantLauncher(props: {
       {!isOverlayViewport ? (
         <div
           className={cn(
-            'hidden shrink-0 overflow-hidden transition-[width,margin,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] xl:block',
+            'hidden shrink-0 overflow-hidden transition-[width,margin,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none xl:block',
             railOpen
               ? cn('opacity-100', RAIL_WIDTH, 'ms-2')
               : 'pointer-events-none w-0 opacity-0'

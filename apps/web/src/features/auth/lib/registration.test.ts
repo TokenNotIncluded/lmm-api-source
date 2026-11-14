@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import type { FederatedProvider } from './federated-oauth'
 import {
   getDisabledOAuthRegistrationMethods,
   canOfferRegistration,
@@ -25,9 +26,88 @@ import {
   hasRegistrationMethod,
   isPasswordRegistrationEnabled,
   isRegistrationEnabled,
+  isOAuthRegistrationAllowed,
 } from './registration'
 
 describe('registration availability', () => {
+  test('login-only Telegram cannot create a misleading registration entry', () => {
+    const status = {
+      register_enabled: true,
+      oauth_register_enabled: true,
+      password_register_enabled: false,
+      telegram_oauth: true,
+      telegram_bot_name: 'synthetic_bot',
+      telegram_register_enabled: false,
+    }
+    assert.equal(hasOAuthLoginProvider(status), true)
+    assert.equal(hasOAuthRegistrationProvider(status), false)
+    assert.equal(hasRegistrationMethod(status), false)
+    assert.equal(isOAuthRegistrationAllowed(status, 'telegram'), false)
+  })
+  test('native providers require a server-confirmed registration capability without hiding login', () => {
+    const provider: FederatedProvider = {
+      id: '41',
+      kind: 'oidc',
+      slug: 'company',
+      name: 'Company',
+      icon: '',
+      revision: '1',
+      native_federated: true,
+      qr_code_url: '',
+      client_id: 'client',
+      authorization_endpoint: 'https://idp.example.test/authorize',
+      scopes: 'openid',
+      registration_enabled: true,
+    }
+    const status = {
+      native_federated_auth: true,
+      password_register_enabled: false,
+      federated_oauth_providers: [provider],
+    }
+    assert.equal(hasOAuthRegistrationProvider(status), true)
+    for (const policy of [
+      { register_enabled: false },
+      { oauth_register_enabled: false },
+      { oauth_registration_disabled_methods: ['oidc'] },
+      { oauth_registration_disabled_methods: ['federated:41'] },
+      {
+        federated_oauth_providers: [
+          { ...provider, registration_enabled: false },
+        ],
+      },
+      {
+        federated_oauth_providers: [
+          { ...provider, registration_enabled: undefined },
+        ],
+      },
+    ]) {
+      const restricted = { ...status, ...policy }
+      assert.equal(
+        hasOAuthRegistrationProvider(restricted),
+        false,
+        JSON.stringify(policy)
+      )
+      assert.equal(
+        hasRegistrationMethod(restricted),
+        false,
+        JSON.stringify(policy)
+      )
+      assert.equal(
+        hasOAuthLoginProvider(restricted),
+        true,
+        JSON.stringify(policy)
+      )
+    }
+    assert.equal(isOAuthRegistrationAllowed(status, provider), true)
+    const custom = { ...provider, kind: 'custom_oauth' as const }
+    const bySlug = {
+      ...status,
+      oauth_registration_disabled_methods: ['custom:company'],
+    }
+    assert.equal(isOAuthRegistrationAllowed(bySlug, provider), true)
+    assert.equal(isOAuthRegistrationAllowed(bySlug, custom), false)
+  })
+
   test('native federation does not advertise replaced legacy WeChat or OIDC entry points', () => {
     const status = {
       native_federated_auth: true,

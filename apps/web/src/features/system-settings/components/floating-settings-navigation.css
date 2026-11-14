@@ -174,3 +174,85 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* Keep the section map visible on desktop; compact screens use the drawer. */
+.settings-desktop-navigation {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .settings-float-rail {
+    display: none;
+  }
+  .settings-desktop-navigation {
+    display: flex;
+    flex: 0 0 15rem;
+    flex-direction: column;
+    min-height: 0;
+    height: 100dvh;
+    padding: 1.25rem 0.75rem;
+    border-right: 1px solid var(--border);
+    background: color-mix(in oklch, var(--muted) 32%, var(--background));
+  }
+  .settings-desktop-back {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    border-radius: 0.5rem;
+  }
+  .settings-desktop-back:hover {
+    color: var(--foreground);
+    background: var(--muted);
+  }
+  .settings-directory-heading {
+    padding: 1.25rem 0.75rem 0.75rem;
+    font-size: 1rem;
+    font-weight: 650;
+  }
+  .settings-directory-search {
+    position: relative;
+    margin: 0 0.25rem 1rem;
+  }
+  .settings-directory-search > svg {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    color: var(--muted-foreground);
+    pointer-events: none;
+  }
+  .settings-directory-search input {
+    height: 2.5rem;
+    padding-left: 2.25rem;
+    background: var(--background);
+  }
+  .settings-desktop-navigation .settings-directory-list {
+    padding: 0 0.25rem 1rem;
+    scrollbar-width: thin;
+  }
+  .settings-desktop-navigation .settings-directory-list summary {
+    min-height: 2.5rem;
+    padding-inline: 0.5rem;
+    font-size: 0.8125rem;
+  }
+  .settings-desktop-navigation .settings-directory-list button {
+    min-height: 2.5rem;
+    margin-block: 0.125rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+  }
+  .settings-desktop-navigation
+    .settings-directory-list
+    button[aria-current='page'] {
+    background: color-mix(in oklch, var(--primary) 12%, var(--background));
+    color: var(--primary);
+    box-shadow: inset 2px 0 var(--primary);
+  }
+  .settings-desktop-navigation :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}

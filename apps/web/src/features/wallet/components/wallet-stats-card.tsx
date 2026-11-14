@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Activity, BarChart3, ShieldCheck, WalletCards } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
@@ -35,6 +36,7 @@ function formatDiscount(percent: number) {
 interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
+  balanceAction?: ReactNode
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
@@ -95,7 +97,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
         : t('Unavailable'),
       description: t('Total consumed quota'),
       icon: BarChart3,
-      tone: 'neutral',
+      tone: 'info',
       available: projection.history,
     },
     {
@@ -121,15 +123,15 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     <div
       id='wallet-balance'
       tabIndex={-1}
-      className='bg-card border-foreground/[0.07] grid grid-cols-3 overflow-hidden rounded-xl border'
+      className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'
     >
       {stats.map((item, index) => (
         <div
           key={item.label}
           className={cn(
-            'min-w-0 p-4 sm:px-8 sm:py-6',
+            'min-w-0 p-3 sm:p-5',
             index === 0
-              ? 'bg-primary/[0.03] relative isolate col-span-3 min-h-36 overflow-hidden border-b sm:min-h-40'
+              ? 'bg-primary/5 relative isolate col-span-3 overflow-hidden border-b p-5 sm:p-6'
               : 'border-e last:border-e-0'
           )}
         >
@@ -153,7 +155,9 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           <div
             className={cn(
               'text-foreground pointer-events-none relative z-10 mt-2.5 font-semibold tracking-tight break-words tabular-nums',
-              index === 0 ? 'text-3xl sm:text-4xl' : 'text-sm sm:text-xl'
+              index === 0
+                ? 'text-3xl sm:text-4xl [overflow-wrap:anywhere]'
+                : 'text-sm sm:text-xl'
             )}
           >
             {item.value}
@@ -170,6 +174,9 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             </div>
           )}
           {index === 0 && <NativeWalletDetails user={props.user} />}
+          {index === 0 && props.balanceAction && (
+            <div className='mt-5 flex justify-end'>{props.balanceAction}</div>
+          )}
         </div>
       ))}
     </div>
