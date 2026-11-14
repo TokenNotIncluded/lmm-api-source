@@ -1,5 +1,8 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { defaultParseSearch } from '@tanstack/react-router'
+import {
+  defaultParseSearch,
+  defaultStringifySearch,
+} from '@tanstack/react-router'
 import { z } from 'zod'
 
 import {
@@ -55,4 +58,17 @@ export function nativeQueryFromSearch(
   }
   const parsed = nativeUsersSearchSchema.safeParse(defaultParseSearch(search))
   return parsed.success ? parsed.data : undefined
+}
+
+export function nativeUsersSearch(query: NativeUsersQuery): string {
+  const validated = nativeUsersQuery(query)
+  // TanStack quotes numeric-looking strings; an ordinary URLSearchParams round
+  // trip would coerce a long user ID or group name into a rounded number.
+  const changed = Object.fromEntries(
+    Object.entries(validated).filter(
+      ([key, value]) =>
+        value !== DEFAULT_NATIVE_USERS_QUERY[key as keyof NativeUsersQuery]
+    )
+  )
+  return defaultStringifySearch(changed)
 }
