@@ -50,7 +50,7 @@ impl ExternalProvider {
 
     fn scope(self) -> &'static str {
         match self {
-            Self::Github => "read:user",
+            Self::Github => "user:email",
             Self::LinuxDo => "user",
             Self::Discord => "identify",
         }

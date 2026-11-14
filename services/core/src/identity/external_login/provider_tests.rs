@@ -144,7 +144,11 @@ fn authorization_has_minimum_scope_state_and_documented_pkce() {
         assert_eq!(url.origin().ascii_serialization(), provider.issuer());
         assert_eq!(
             query.get("scope").map(|v| v.as_ref()),
-            Some(provider.scope())
+            Some(if provider == ExternalProvider::Github {
+                "user:email"
+            } else {
+                provider.scope()
+            })
         );
         assert_eq!(query.get("state").map(|v| v.as_ref()), Some(state.as_str()));
         assert_eq!(
