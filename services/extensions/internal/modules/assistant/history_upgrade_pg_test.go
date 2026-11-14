@@ -161,6 +161,38 @@ func TestHistoryV3ProjectsHumanOrderAuthorsShellsAndRejectsCrossOwner(t *testing
 	if e := f.command("--project-batch", "frozen-fixture"); !errors.Is(e, access.ErrConflict) {
 		t.Fatalf("owner mismatch: %v", e)
 	}
+	f.exec(t, `UPDATE lmm_assistant.legacy_restore_conversations SET owner_user_id=9001 WHERE source_id=101`)
+	for _, field := range []struct{ table, key, original string }{
+		{"legacy_restore_conversations", "user_id", "9001"},
+		{"legacy_restore_conversations", "id", "101"},
+		{"legacy_restore_messages", "id", "1"},
+		{"legacy_restore_messages", "conversation_id", "101"},
+		{"legacy_restore_messages", "sequence", "10"},
+		{"legacy_restore_messages", "role", `"user"`},
+	} {
+		for _, invalid := range []string{"missing", "null", "wrong-type"} {
+			value := "payload - '" + field.key + "'"
+			if invalid != "missing" {
+				literal := "null"
+				if invalid == "wrong-type" {
+					literal = `"1"`
+					if field.key == "role" {
+						literal = "1"
+					}
+				}
+				value = "jsonb_set(payload,'{" + field.key + "}','" + literal + "')"
+			}
+			id := "101"
+			if field.table == "legacy_restore_messages" {
+				id = "1"
+			}
+			f.exec(t, "UPDATE lmm_assistant."+field.table+" SET payload="+value+" WHERE source_id="+id)
+			if e := f.command("--project-batch", "frozen-fixture"); e == nil {
+				t.Fatalf("accepted %s %s %s", field.table, field.key, invalid)
+			}
+			f.exec(t, "DO $$BEGIN IF EXISTS(SELECT FROM lmm_assistant.conversations) THEN RAISE EXCEPTION 'partial commit';END IF;END$$;UPDATE lmm_assistant."+field.table+" SET payload=jsonb_set(payload,'{"+field.key+"}','"+field.original+"') WHERE source_id="+id)
+		}
+	}
 	f.exec(t, `UPDATE lmm_assistant.legacy_restore_conversations SET owner_user_id=9001 WHERE source_id=101;UPDATE lmm_assistant.legacy_restore_messages SET actor_user_id=-1,payload=jsonb_set(payload,'{actor_user_id}','-1') WHERE source_id=2`)
 	if e := f.command("--project-batch", "frozen-fixture"); e == nil {
 		t.Fatal("invalid known author accepted")
