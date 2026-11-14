@@ -7,7 +7,8 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { Check, Copy, KeyRound } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -95,8 +96,10 @@ export function RequestBuilder() {
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const [protocol, setProtocol] = useState<Protocol>('chat')
   const [language, setLanguage] = useState<Language>('curl')
-  const [model, setModel] = useState('')
+  const [enteredModel, setModel] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('Explain LMM in one sentence.')
+  const [copyFailed, setCopyFailed] = useState(false)
+  const code = useRef<HTMLPreElement>(null)
 
   const pricingQuery = useQuery({
     queryKey: pricingQueryKey(user?.id, session?.sid),
@@ -123,11 +126,7 @@ export function RequestBuilder() {
     return sortModels(uniqueModels)
   }, [pricingQuery.data?.data, pricingQuery.isError, protocol])
 
-  useEffect(() => {
-    if (!model && modelOptions.length > 0) {
-      setModel(modelOptions[0] ?? '')
-    }
-  }, [model, modelOptions])
+  const model = enteredModel ?? modelOptions[0] ?? ''
 
   const active = PROTOCOLS.find((item) => item.id === protocol) ?? PROTOCOLS[0]
   const url = rootUrl
@@ -143,109 +142,148 @@ export function RequestBuilder() {
   )
   const copied = copiedText === snippet
 
+  const copy = async () => {
+    if (!url) return
+    const success = await copyToClipboard(snippet)
+    setCopyFailed(!success)
+    if (!success && code.current) {
+      code.current.focus()
+      const range = document.createRange()
+      range.selectNodeContents(code.current)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    }
+  }
+
   return (
-    <div className='dev-builder mt-6'>
-      <div className='dev-builder-row'>
-        <span className='dev-builder-label'>{t('Protocol')}</span>
-        <div
-          role='group'
-          aria-label={t('Protocol')}
-          className='dev-builder-tabs'
-        >
-          {PROTOCOLS.map((item) => (
-            <button
-              key={item.id}
-              type='button'
-              aria-pressed={protocol === item.id}
-              onClick={() => {
-                setProtocol(item.id)
-                setModel('')
-              }}
-              className='dev-builder-tab'
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className='dev-builder-fields'>
-        <div className='dev-builder-field'>
-          <label className='dev-builder-label' htmlFor='dev-builder-model'>
-            {t('Model')}
-          </label>
-          <input
-            id='dev-builder-model'
-            list='dev-builder-model-options'
-            value={model}
-            placeholder='MODEL'
-            onChange={(event) => setModel(event.target.value)}
-            className='dev-builder-input'
-          />
-          <datalist id='dev-builder-model-options'>
-            {modelOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </datalist>
-        </div>
-        <div className='dev-builder-field'>
-          <label className='dev-builder-label' htmlFor='dev-builder-prompt'>
-            {t('Prompt')}
-          </label>
-          <input
-            id='dev-builder-prompt'
-            value={prompt}
-            maxLength={200}
-            onChange={(event) => setPrompt(event.target.value)}
-            className='dev-builder-input dev-builder-prompt'
-          />
-        </div>
-      </div>
-      <div className='dev-builder-row'>
-        <span className='dev-builder-label'>{t('Language')}</span>
-        <div
-          role='group'
-          aria-label={t('Language')}
-          className='dev-builder-tabs'
-        >
-          {LANGUAGES.map((item) => (
-            <button
-              key={item.id}
-              type='button'
-              aria-pressed={language === item.id}
-              onClick={() => setLanguage(item.id)}
-              className='dev-builder-tab'
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className='dev-builder-output'>
-        <div className='dev-builder-output-head'>
-          <code>
-            {url ?? t(loading ? 'Loading...' : 'API address unavailable')}
-          </code>
-          <Button
+    <div className='dev-builder'>
+      <div className='dev-protocols' role='group' aria-label={t('Protocol')}>
+        {PROTOCOLS.map((item) => (
+          <button
+            key={item.id}
             type='button'
-            variant='outline'
-            size='sm'
-            aria-label={`${t('Copy')}: ${active.label} · ${language}`}
-            disabled={!url}
+            aria-pressed={protocol === item.id}
             onClick={() => {
-              if (url) void copyToClipboard(snippet)
+              setProtocol(item.id)
+              setModel(null)
+              setCopyFailed(false)
             }}
-            className='min-h-11 shrink-0'
           >
-            <span aria-live='polite'>{copied ? t('Copied') : t('Copy')}</span>
-          </Button>
-        </div>
-        <pre tabIndex={0} aria-label={`${active.label} · ${language}`}>
-          <code>{snippet}</code>
-        </pre>
+            {item.label}
+          </button>
+        ))}
       </div>
-      <p className='text-muted-foreground text-xs leading-relaxed'>
+      <div className='dev-builder-workspace'>
+        <div className='dev-builder-fields'>
+          <div className='dev-builder-field'>
+            <label className='dev-builder-label' htmlFor='dev-builder-model'>
+              {t('Model')}
+            </label>
+            <input
+              id='dev-builder-model'
+              list='dev-builder-model-options'
+              value={model}
+              placeholder='MODEL'
+              onChange={(event) => setModel(event.target.value)}
+              aria-describedby='dev-model-help'
+              className='dev-builder-input'
+            />
+            <datalist id='dev-builder-model-options'>
+              {modelOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </datalist>
+            <p id='dev-model-help' className='dev-field-help' role='status'>
+              {pricingQuery.isError
+                ? t(
+                    'Model catalog unavailable. You can still enter a model ID.'
+                  )
+                : pricingQuery.isFetching
+                  ? t('Loading...')
+                  : t('Choose from the catalog or enter a model ID.')}
+            </p>
+          </div>
+          <div className='dev-builder-field'>
+            <label className='dev-builder-label' htmlFor='dev-builder-prompt'>
+              {t('Prompt')}
+            </label>
+            <textarea
+              id='dev-builder-prompt'
+              value={prompt}
+              maxLength={200}
+              rows={4}
+              onChange={(event) => setPrompt(event.target.value)}
+              className='dev-builder-input dev-builder-prompt'
+            />
+          </div>
+          <div className='dev-key-note'>
+            <KeyRound aria-hidden='true' />
+            <p>{t('Keep LMM_API_KEY in your server environment.')}</p>
+          </div>
+        </div>
+        <div className='dev-builder-output'>
+          <div className='dev-builder-output-head'>
+            <div
+              role='group'
+              aria-label={t('Language')}
+              className='dev-builder-tabs'
+            >
+              {LANGUAGES.map((item) => (
+                <button
+                  key={item.id}
+                  type='button'
+                  aria-pressed={language === item.id}
+                  onClick={() => {
+                    setLanguage(item.id)
+                    setCopyFailed(false)
+                  }}
+                  className='dev-builder-tab'
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              aria-label={`${t('Copy')}: ${active.label} · ${language}`}
+              disabled={!url}
+              onClick={() => void copy()}
+              className='dev-copy-request'
+            >
+              {copied ? (
+                <Check aria-hidden='true' />
+              ) : (
+                <Copy aria-hidden='true' />
+              )}
+              <span aria-live='polite'>{copied ? t('Copied') : t('Copy')}</span>
+            </Button>
+          </div>
+          <div className='dev-request-address'>
+            <span className='dev-http-method'>POST</span>
+            <code>
+              {url ?? t(loading ? 'Loading...' : 'API address unavailable')}
+            </code>
+          </div>
+          <pre
+            ref={code}
+            tabIndex={0}
+            aria-label={`${active.label} · ${language}`}
+          >
+            <code>{snippet}</code>
+          </pre>
+          {copyFailed && (
+            <p role='alert' className='dev-copy-error'>
+              {t('Copy failed. The code is selected for manual copying.')}
+            </p>
+          )}
+        </div>
+      </div>
+      <p className='dev-builder-footnote'>
         {t(
           'Nothing is sent. Copy the request into your own client and use your own key.'
         )}
