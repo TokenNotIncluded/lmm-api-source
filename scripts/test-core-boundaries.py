@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # ownership. A change requires re-review of the complete owner operation, not
 # extending a runtime SQL allowlist. Comments/formatting do not change tokens.
 OFFLINE_INSTALLER = "services/extensions/internal/freshinstall/install.go"
+OFFLINE_COMMERCE_PLAN = "services/extensions/internal/freshinstall/commerce.go"
 OFFLINE_CLI = "services/extensions/internal/freshinstall/cli.go"
 OFFLINE_WALLET_CLI = "services/extensions/internal/walletupgrade/cli.go"
 OFFLINE_WALLET_UPGRADE = "services/extensions/internal/walletupgrade/upgrade.go"
@@ -23,6 +24,10 @@ OFFLINE_REPOSITORY_UPGRADE = "services/extensions/internal/modules/operations/sc
 OFFLINE_MAIN = "services/extensions/cmd/extensions/main.go"
 OFFLINE_SNAPSHOT = "services/extensions/internal/modules/toolmarket/install_snapshot.go"
 OFFLINE_TOKEN_SHA256 = {
+    # Closed store/support plan; BEGIN/COMMIT are stripped only after one-pair checks.
+    OFFLINE_COMMERCE_PLAN: '97c1a80f76fae7a6bf08cc57ff3174f0ece4f5a67238bf7163fc26e0cbde39f2',
+    # Reviewed 2026-11-14 against exact prior source 2e2ae58; semantic
+    # role/recovery/CAS tests below stay independent of these fingerprints.
     # APP01 owner-only v2->v3: preserve predecessor grants/data, scrub new ACLs,
     # grant only repository SELECT/UPDATE and retain the original receipt.
     OFFLINE_REPOSITORY_UPGRADE: 'c67e86d23867a3ac03320123ed58457645e83572750c731ae404b2b46dc33eb4',
@@ -30,21 +35,23 @@ OFFLINE_TOKEN_SHA256 = {
     # dispatches v3 explicitly, retaining the same owner/runtime writer fences
     # and the original operation's recovery identity.
     'services/extensions/internal/modules/operations/rss_upgrade.go': 'c31909390df3d4b1beea8a9ebaec909fa36c12059be698c62c36576ff3bdff57',
-    'services/extensions/internal/freshinstall/operations_upgrade.go': '0e9b0e3a8ef888c1562dd45feb2182936057cac7b698e8ce7a60ee9730b855f8',
+    'services/extensions/internal/freshinstall/operations_upgrade.go': 'ae7a11320bb66068daf63d1f6c34b37ab709ff8fde2c9cc5e9d4c1b2e3fd3aee',
+    # Checkins/commerce and subscription schemas add compiled plans only;
+    # optional payment/operations addons remain under complete ACL checks.
     # Community/acquisition use compiled schemas and dedicated runtime grants;
     # URL, owner, empty-database and transaction checks remain in place.
-    'services/extensions/internal/freshinstall/install.go': '1bc2ed9c80bc2d031952e7fa390497870b769701eee6ddd3bbb0d63d21635e62',
+    'services/extensions/internal/freshinstall/install.go': 'e44d031e1e38344b36108f1f38edbc317e812f93f36e4872860cc9617170f9e2',
     OFFLINE_WALLET_CLI: '87cf633970571aef5b7abc5b3788c30e6bc62c77b1799815faa845f4e9c1ded7',
     OFFLINE_WALLET_UPGRADE: '923244ef59326a37b79ee2bd7a00132a492cf6e8535854356a77f92f7d092aba',
-    'services/extensions/internal/freshinstall/cli.go': '2729e5b8a551f13392fb02d458eb47168bd58fa97e74abaee8e38bda389623aa',
-    'services/extensions/cmd/extensions/main.go': 'b29e26c3e7c33a5fc926e6104c4d7f1db892a51a3c9db48a073ff6a789699e70',
+    'services/extensions/internal/freshinstall/cli.go': '014929777131a77c2fe599d53b90d7b65f7ccf6be7f51d4355cc57ac18dd2ae8',
+    'services/extensions/cmd/extensions/main.go': 'c81a5a0b3e46f5da7e5f5c5f99ebea3ebed5fa34b5b071d3c187b2563104d6e7',
     'services/extensions/internal/modules/toolmarket/install_snapshot.go': '8f6f852068a5891a490876eb8918a58008d3f80844144f84307ba78c36b56013',
 }
 STORE_READ_QUERIES = {'services/extensions/internal/modules/store/promotions.go': ('QueryContext', "`SELECT body->'legacy'->>'promotion_id',\nCOUNT(*) FILTER (WHERE body->>'state' NOT IN ('awaiting_payment','payment_pending')),\nCOUNT(*) FILTER (WHERE body->>'state' IN ('awaiting_payment','payment_pending'))\nFROM lmm_store.orders WHERE shop_id=$1 AND body->'legacy'->>'product_id'=$2\nAND COALESCE(body->'legacy'->>'promotion_id','')<>'' AND body->>'state' NOT IN ('cancelled','refunded')\nGROUP BY body->'legacy'->>'promotion_id'`"), 'services/extensions/internal/modules/store/purchase_limits.go': ('QueryRowContext', "`SELECT COALESCE(SUM((o.body->>'quantity')::bigint),0)\nFROM lmm_store.orders o JOIN lmm_store.variants v ON v.shop_id=o.shop_id AND v.id=o.body->>'variant_id'\nWHERE o.shop_id=$1 AND v.body->>'product_id'=$2 AND o.body->'buyer'->>'kind'=$3\nAND (o.body->'buyer'->>'id')::bigint=$4 AND o.body->>'state' NOT IN ('cancelled','refunded')`")}
 
 COMPOSITION_BUNDLE = "services/extensions/internal/composition/storage_bundle.go"
-BUNDLE_POLICY_TOKEN_SHA256 = "8202041b0b4b4374b82d80f0a0af1467cbeb1c4d0854e7908ed10d0d7ae1eb0a"
-STORAGE_TOKEN_SHA256 = "08a7db8cb35c09a8b7d7691dcc6b992a65dc733cedaa6b9cd6a15bf16c1f2c12"
+BUNDLE_POLICY_TOKEN_SHA256 = "51c9a41318b6aa6aaa319e99a0d1853f4bdf1cf86e6664bac7a8f5fd7a8df6a1"
+STORAGE_TOKEN_SHA256 = "2aa8a755010114321cdcc6d836f77d266206914d065cee20d9dcbe024a60dfcc"
 COMPOSITION_STORAGE = "services/extensions/internal/composition/storage.go"
 COMPOSITION_PAYMENTS = "services/extensions/internal/composition/payments.go"
 COMPOSITION_ASSISTANT = "services/extensions/internal/composition/assistant.go"
@@ -57,11 +64,13 @@ OPERATIONS_REPOSITORY_FETCH = "services/extensions/internal/modules/operations/s
 # Reviewed SQL contract, independent of the source-token fingerprints. Do not
 # derive these expectations from the implementation or a passing run.
 OPERATIONS_REPOSITORY_QUERIES = (
-    ("Settings", "SELECT revision,repository_url,branch,snapshot_repository_url,snapshot_branch,snapshot_pulled_at FROM lmm_operations.script_repository WHERE singleton"),
-    ("Save", "UPDATE lmm_operations.script_repository SET repository_url=$1,branch=$2,revision=revision+1,updated_by=$3 WHERE singleton AND revision=$4 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at"),
-    ("Pull", "UPDATE lmm_operations.script_repository SET scripts=$1,snapshot_repository_url=repository_url,snapshot_branch=branch,snapshot_pulled_at=clock_timestamp(),updated_by=$2,revision=revision+1 WHERE singleton AND revision=$3 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at"),
+    ("Settings", "SELECT revision,repository_url,branch,snapshot_repository_url,snapshot_branch,snapshot_pulled_at,coalesce(to_jsonb(r)->>'github_key_ciphertext','')<>'' FROM lmm_operations.script_repository r WHERE singleton"),
+    ("SaveWithCredentials", "UPDATE lmm_operations.script_repository AS r SET repository_url=$1,branch=$2,revision=revision+1,updated_by=$3 WHERE singleton AND revision=$4 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at,coalesce(to_jsonb(r)->>'github_key_ciphertext','')<>''"),
+    ("SaveWithCredentials", "UPDATE lmm_operations.script_repository AS r SET repository_url=$1,branch=$2,revision=revision+1,updated_by=$3,github_key_ciphertext=$5 WHERE singleton AND revision=$4 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at,github_key_ciphertext<>''"),
+    ("pull", "UPDATE lmm_operations.script_repository SET scripts=$1,snapshot_repository_url=repository_url,snapshot_branch=branch,snapshot_pulled_at=clock_timestamp(),updated_by=$2,revision=revision+1 WHERE singleton AND revision=$3 RETURNING revision,snapshot_repository_url,snapshot_branch,snapshot_pulled_at"),
     ("snapshot", "SELECT scripts,snapshot_pulled_at FROM lmm_operations.script_repository WHERE singleton"),
 )
+
 SQL_METHODS = {
     "Query", "QueryRow", "Exec", "QueryContext", "QueryRowContext", "ExecContext",
     "Begin", "BeginTx", "Prepare", "PrepareContext", "Conn", "Driver", "Raw",
@@ -82,12 +91,397 @@ PQ_ARRAY_ADAPTERS = {
     "services/extensions/internal/modules/acquisition/visitors.go",
     "services/extensions/internal/modules/assistant_services/web_support.go",
 }
+# Exact file registrations, not directory or provider capability exemptions.
+# These seals bind the reviewed source, while tables/predicates/pool checks below
+# express the storage boundary independently. They are not runtime ACL receipts.
+REVIEWED_BORROWED_SQL = {
+    "services/extensions/internal/modules/assistant/agent_start_fence.go": {
+        "namespace": "lmm_assistant",
+        "tables": [
+            "lmm_assistant.conversations",
+            "lmm_assistant.delegation_conversations",
+            "lmm_assistant.agent_turns"
+        ],
+        "predicates": [
+            "WHERE id=$1 AND user_id=$2 FOR UPDATE",
+            "WHERE user_id=$1 AND conversation_id=$2",
+            "WHERE user_id=$1 AND turn_id=$2"
+        ],
+        "methods": [
+            "BeginTx",
+            "ExecContext",
+            "QueryRowContext",
+            "QueryRowContext",
+            "QueryRowContext",
+            "ExecContext"
+        ],
+        "sha256": "667ec9554cc1a2415f0d08702549eb05833d666e05125b9c67dba5fc2b8a9a49"
+    },
+    "services/extensions/internal/modules/payments/subscription_epay_postgres.go": {
+        "namespace": "payment",
+        "tables": [
+            "payment_subscription_inbox"
+        ],
+        "predicates": [
+            "WHERE evidence_id=$1 AND event_digest=$4 AND payload=$5",
+            "WHERE evidence_id=$1 AND subscription_id IS NULL"
+        ],
+        "methods": [
+            "ExecContext",
+            "QueryRowContext",
+            "QueryContext",
+            "QueryRowContext",
+            "ExecContext"
+        ],
+        "sha256": "16b9adf94f389862bc1b2eb1d65978671e2cfb8afa6a0478f2d4f7224ca2687d"
+    },
+    "services/extensions/internal/modules/payments/subscription_stripe.go": {
+        "namespace": "payment",
+        "tables": [
+            "pg_class",
+            "pg_namespace",
+            "payment_stripe_subscription_checkouts",
+            "payment_stripe_subscription_inbox"
+        ],
+        "predicates": [
+            "WHERE order_id=$1 AND (checkout_id IS NULL OR",
+            "WHERE evidence_id=$1 AND payload=$3",
+            "WHERE evidence_id=$1 AND state<>'accepted'"
+        ],
+        "methods": [
+            "ExecContext",
+            "QueryRowContext",
+            "QueryRowContext",
+            "QueryContext",
+            "QueryContext"
+        ],
+        "sha256": "c05200a79c5c69668728826b2859e26bc88f8e02c7dbb1cf6abdd508fa6bf654"
+    },
+    "services/extensions/internal/modules/payments/subscription_pancake.go": {
+        "namespace": "payment",
+        "tables": [
+            "pg_class",
+            "pg_namespace",
+            "payment_pancake_subscription_checkouts",
+            "payment_pancake_subscription_inbox"
+        ],
+        "predicates": [
+            "WHERE order_id=$1 AND (checkout_id IS NULL OR",
+            "WHERE evidence_id=$1 AND state<>'accepted'"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "ExecContext",
+            "QueryRowContext",
+            "Query",
+            "QueryContext",
+            "QueryContext"
+        ],
+        "sha256": "fd882796f9fe30f2857e823d39368a79f9541b965a33c775fc8835921be768d6"
+    },
+    "services/extensions/internal/modules/payments/subscription_pancake_wallet_recovery.go": {
+        "namespace": "payment",
+        "tables": [
+            "payment_pancake_wallet_inbox"
+        ],
+        "predicates": [
+            "WHERE evidence_id=$1 AND state='pending'"
+        ],
+        "methods": [
+            "QueryContext"
+        ],
+        "sha256": "6a4497188612f9cb150edf0c50dcb3820cb12f2633c67c396d36f190ff410435"
+    },
+    "services/extensions/internal/modules/store/postgres_legacy_pickup.go": {
+        "namespace": "lmm_store",
+        "tables": [
+            "lmm_store.commands"
+        ],
+        "predicates": [
+            "WHERE id=$1 AND body->>'kind'='legacy-store-pickup-v1' AND body->>'token_hash'=$2 LIMIT 2"
+        ],
+        "methods": [
+            "QueryContext"
+        ],
+        "sha256": "3a987a70b8a1650761154073ca50bd33c94701ca2bd9672e1d5a0e5c74f2e534"
+    },
+    "services/extensions/internal/modules/store/postgres_pickup_mail.go": {
+        "namespace": "lmm_store",
+        "tables": [
+            "lmm_store.commands"
+        ],
+        "predicates": [
+            "AND (shop_id,id)>($1,$2)",
+            "ORDER BY shop_id,id LIMIT $3"
+        ],
+        "methods": [
+            "QueryContext"
+        ],
+        "sha256": "48b2f9c236071f3c41eb26862347388f88f1d812cff7fff3310706e67d506629"
+    },
+    "services/extensions/internal/modules/operations/script_repository_credentials.go": {
+        "namespace": "lmm_operations",
+        "tables": [
+            "pg_attribute",
+            "lmm_operations.script_repository"
+        ],
+        "predicates": [
+            "WHERE singleton AND revision=$1"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "QueryRowContext"
+        ],
+        "sha256": "51f436bda228bfd12727081aa91adba87b26c660abbc44e933e5e21cd81e5ba9"
+    },
+    "services/extensions/internal/modules/operations/ionet.go": {
+        "namespace": "lmm_operations",
+        "tables": [
+            "lmm_operations.ionet_config"
+        ],
+        "predicates": [
+            "WHERE singleton AND revision=$4 RETURNING revision"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "QueryRowContext",
+            "QueryRowContext"
+        ],
+        "sha256": "14b0b3fa3bdd67c98f40829ee5ef17dfa786b9bb8fae6bd2bc6922b75f232d2a"
+    },
+    "services/extensions/internal/modules/operations/ionet_journal.go": {
+        "namespace": "lmm_operations",
+        "tables": [
+            "lmm_operations.ionet_operations",
+            "lmm_operations.ionet_config"
+        ],
+        "predicates": [
+            "WHERE actor_user_id=$1 AND operation_key=$2",
+            "WHERE actor_user_id=$4 AND operation_key=$5 AND state='unknown'"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "QueryRowContext",
+            "ExecContext",
+            "QueryContext",
+            "ExecContext"
+        ],
+        "sha256": "8fd0ec7449018e4d24fb1107191d4e8944b64db97353285ac7d44cd077ea5687"
+    },
+    "services/extensions/internal/modules/community/navigation.go": {
+        "namespace": "lmm_community",
+        "tables": [
+            "lmm_community.navigation"
+        ],
+        "predicates": [
+            "WHERE singleton AND ($3::text IS NULL OR value=$3) RETURNING value,revision"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "QueryRowContext"
+        ],
+        "sha256": "4147953ce184901d26951498515725c8bb315592114c43b13e871c77c4da4371"
+    },
+    "services/extensions/internal/modules/checkins/service.go": {
+        "namespace": "lmm_checkins",
+        "tables": [
+            "lmm_checkins.contract",
+            "lmm_checkins.active_policy",
+            "lmm_checkins.policy_revisions",
+            "lmm_checkins.intentions",
+            "lmm_checkins.claim_commands"
+        ],
+        "predicates": [
+            "WHERE account_id=$1 AND day=$2::date",
+            "WHERE user_id=$1 AND operation_key=$2",
+            "WHERE account_id=$2 AND day=$3::date AND state='pending'"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "BeginTx",
+            "ExecContext",
+            "QueryRowContext",
+            "QueryRowContext",
+            "QueryContext",
+            "QueryRowContext",
+            "ExecContext",
+            "QueryRowContext",
+            "ExecContext",
+            "ExecContext",
+            "ExecContext",
+            "ExecContext",
+            "ExecContext"
+        ],
+        "sha256": "6f5f8001dae2333ce52d49ce8faa139f1976042cc12423072cc2a38884faa04d"
+    }
+}
+
+# Exact offline owner closures qualified by actual PG18 CLI/ACL/replay evidence.
+# EPay/Stripe original receipts and Pancake/checkin private probes were reviewed
+# 2026-11-14. This grants no runtime SQL or provider/funds exception. Each CLI
+# remains confined by OWNER_ENTRY_CALLERS; embedded schemas/pins are sealed too.
+REVIEWED_OWNER_BOUNDARIES = {
+    "services/extensions/internal/modules/operations/script_repository_credentials_upgrade.go": "d82054fbba76b66bd18137bf489d05aadfbaa9dfdc2bfe33e0f7ab1cb917dcd7",
+    "services/extensions/internal/modules/operations/ionet_upgrade.go": "6eb4c17261ea53d121385bbdea0d01502e089ad58e48a3bf3e6d01e14be074ab",
+    "services/extensions/internal/freshinstall/payments_upgrade.go": "213cdac0d35354206a4a0dff53b7ad8d52d31dd1b2e5b91e963c4ae57e56cb3c",
+    "services/extensions/internal/freshinstall/checkin_policy.go": "530834845248e3a119442f2913103102ed1472cce2021075151b88b6b59cc2c2",
+    "services/extensions/internal/modules/payments/subscription_epay_upgrade.go": "032e8bfa0774bf7001c761a28d666b48645e85b4786cb07206c4997cedd3bbf7",
+    "services/extensions/internal/modules/payments/subscription_stripe_upgrade.go": "cd89af6c607eca9072726937588fc5365b52e63f50f10a42fbb2350d42e25690",
+    "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go": "3ace1caf899ee56e68f9d8c9711f3421b753da7c1ac01f6fd1f56e4376b1e3ed",
+    "services/extensions/internal/modules/checkins/owner.go": "0736674e5c0939abf39da0f528e3d03818d22045473ae62174ed76dbc3dcec06"
+}
+REVIEWED_OWNER_INPUTS = {
+    "services/extensions/internal/modules/operations/postgres.go": "6e2ad61c0f515461be2b70e97de829d0b8625157eceeaef25b7382bcef38e9ad",
+    "services/extensions/internal/modules/operations/script_repository_credentials_schema.sql": "cb52890bcfa8fea138146523aa5f5d52d0cf10d0add067b6d239eb212f25ebd6",
+    "services/extensions/internal/modules/operations/ionet_schema.sql": "c56821a0c8f7be66145125bacf943a67e0eb3e92726d89868ee33e7ca39921ac",
+    "services/extensions/internal/modules/payments/schema.sql": "2c8575958e00b43ead3040dff527b0758c229dbe91278eaa552fe2e7a9cf8409",
+    "services/extensions/internal/modules/payments/subscription_epay_schema.sql": "819faf495ef46f761970779fc2ff6012f499b0b1e399a22a9bf293f9df3741a6",
+    "services/extensions/internal/modules/payments/subscription_epay_catalog.sql": "45ba53a1611a9eb71f38901f0125cc2d08d10a9f27cf2c0456c5120ac631af33",
+    "services/extensions/internal/modules/payments/subscription_epay_storage_contract.json": "01e777483a88c00aca43987d86773abdb5fa7e5758d1c13c433dae6f8febcba4",
+    "services/extensions/internal/modules/payments/subscription_stripe_schema.sql": "01f966266f339fa634db2f24875ebd6e49a56c91050d1f5df3f6d8369fd40aef",
+    "services/extensions/internal/modules/payments/subscription_stripe_catalog.sql": "3eb72d3a99567067e8ae239213f626c6e2f6f35f06a1cd05eef390802e9e747c",
+    "services/extensions/internal/modules/payments/subscription_stripe_storage_contract.json": "6452e9ab23c39168e7f90c648970aea4bc5fbfcdddd8e1369a0ed32c072ed4b6",
+    "services/extensions/internal/modules/payments/subscription_pancake_schema.sql": "f80fa5b72ff3f4748eadd4787ca7532bead8dc6fa39bcd5b689547c1bcca29a0",
+    "services/extensions/internal/modules/payments/subscription_pancake_catalog.sql": "a814b4b97f21c75c6b4b59719177a96aa1ff375591cee286c0137ee1d41715e1",
+    "services/extensions/internal/modules/payments/subscription_pancake_storage_contract.json": "2f670d4b1570800652c1e13b44c5981b34c144388f6c73f056a8c108d2613916",
+    "services/extensions/internal/modules/checkins/schema.sql": "a5e41379df204162d2aa79fb14fa78102624144b857662be20aa18e87e3ff323",
+    "services/extensions/internal/modules/checkins/types.go": "0cc2333c89ff2ccf3ba16c96375a87edf6cc52ad633cb72561b9e129ed03b76a"
+}
+
+# Source registration only: Io.net has module PG evidence, not native CLI
+# acceptance. ACK-loss, provider/runtime and Core funds remain unqualified.
+PENDING_OWNER_BOUNDARIES = []
+
+# Exact SQL predicates and transaction ownership; tests remove each predicate
+# with body seals disabled so hash matching cannot conceal a semantic regression.
+OWNER_OPERATIONS_GUARDS = (
+    "!upgradeOperation.MatchString(operation)",
+    "current_user=pg_get_userbyid(d.datdba)",
+    "NOT rolcanlogin AND NOT(rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)",
+    "pid<>pg_backend_pid()",
+    "pg_prepared_xacts WHERE database=current_database()",
+    "nspname='lmm_operations' AND nspowner<>d.datdba",
+    "IN ACCESS EXCLUSIVE MODE",
+    "SELECT fingerprint FROM lmm_operations.contract WHERE version=3",
+    "len(actual) != 32",
+    "version=1 AND operation_id=$1 AND database_oid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND installed_by=session_user",
+    "if recoverOnly {",
+    "return ErrNotFound",
+    "a.grantee<>c.relowner",
+    "return SealInstalledSchema(ctx, tx)",
+)
+
+# Private qualification artifacts, relative to the private cache; never loaded
+# by the portable source suite. Hashes bind the reviewed report, not a PG rerun.
+OWNER_EVIDENCE = {
+    "services/extensions/internal/freshinstall/payments_upgrade.go": ('lmm-completion-20261113/pancake-independent-qualification-1794641819/RECEIPT.json',
+        "4e7c62fc69aacac4743722df4131943d9a52a1effeade0cb2c3bbe17aec8fd16"),
+    "services/extensions/internal/freshinstall/checkin_policy.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
+        "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
+    "services/extensions/internal/modules/checkins/owner.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
+        "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
+    "services/extensions/internal/modules/payments/subscription_epay_upgrade.go": ('lmm-owner-pg-selftest-20261114-145129/cases/epay/RESULT.json',
+        "1a06b3f7b466ed69f5013d4612a894a5fb78a1d7241ea50f5d5d79fd4a826877"),
+    "services/extensions/internal/modules/payments/subscription_stripe_upgrade.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
+        "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
+    "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go": ('lmm-completion-20261113/pancake-independent-qualification-1794641819/RECEIPT.json',
+        "4e7c62fc69aacac4743722df4131943d9a52a1effeade0cb2c3bbe17aec8fd16"),
+    "services/extensions/internal/modules/operations/script_repository_credentials_upgrade.go": ('lmm-owner-pg-selftest-20261114-145129/cases/script/RESULT.json',
+        "82a6a377b3063d2ded4c2185eb15e90b9884effa128bc5c1a8e1d80c6dc316c9"),
+    "services/extensions/internal/modules/operations/ionet_upgrade.go": ('lmm-owner-pg-selftest-20261114-145129/cases/ionet/RESULT.json',
+        "8b60bd207c24e9fcfedb7d06547ce91ff4ac444c63bd247c60e26a5ec2ab5b7e"),
+}
+
+OWNER_ENTRY_CALLERS = {
+    "RunPaymentsSubscriptionUpgradeCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ],
+    "RunPaymentsStripeSubscriptionUpgradeCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ],
+    "RunPaymentsPancakeSubscriptionUpgradeCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ],
+    "runPaymentsSubscriptionUpgradeCLI": [
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ],
+    "UpgradeSubscriptionEPay": [
+        "services/extensions/internal/freshinstall/payments_upgrade.go",
+        "services/extensions/internal/modules/payments/subscription_epay_upgrade.go"
+    ],
+    "UpgradeSubscriptionStripe": [
+        "services/extensions/internal/freshinstall/payments_upgrade.go",
+        "services/extensions/internal/modules/payments/subscription_stripe_upgrade.go"
+    ],
+    "UpgradeSubscriptionPancake": [
+        "services/extensions/internal/freshinstall/payments_upgrade.go",
+        "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go"
+    ],
+    "RunCheckinPolicyCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/checkin_policy.go"
+    ],
+    "PublishPolicy": [
+        "services/extensions/internal/freshinstall/checkin_policy.go",
+        "services/extensions/internal/modules/checkins/owner.go"
+    ],
+    "UpgradeScriptRepositoryCredentials": [
+        "services/extensions/internal/freshinstall/operations_upgrade.go",
+        "services/extensions/internal/modules/operations/script_repository_credentials_upgrade.go"
+    ],
+    "UpgradeIoNet": [
+        "services/extensions/internal/freshinstall/operations_upgrade.go",
+        "services/extensions/internal/modules/operations/ionet_upgrade.go"
+    ],
+    "RunIoNetUpgradeCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/operations_upgrade.go"
+    ],
+    "RunScriptRepositoryCredentialsUpgradeCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/operations_upgrade.go"
+    ],
+    "runOperationsUpgradeCLI": [
+        "services/extensions/internal/freshinstall/operations_upgrade.go"
+    ],
+    "\"publish-checkin-policy\"": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/checkin_policy.go"
+    ],
+    "\"upgrade-script-repository-credentials\"": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/operations_upgrade.go"
+    ],
+    "\"upgrade-ionet\"": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/operations_upgrade.go"
+    ],
+    "\"upgrade-payments-subscriptions-db\"": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ],
+    "\"upgrade-payments-stripe-subscriptions-db\"": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ],
+    "\"upgrade-payments-pancake-subscriptions-db\"": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/payments_upgrade.go"
+    ]
+}
+
 CORE_SCHEMAS = (
     "core_abuse.",
     "core_account_appeals.",
     "core_account_lifecycle.",
     "core_account_links.",
     "core_channels.",
+    "core_checkins.",
+    "core_commerce_external.",
+    "core_federated_auth.",
     "core_directory_ads.",
     "core_notifications.",
     "core_operations.",
@@ -125,8 +519,8 @@ CORE_SCHEMAS = (
 # Source guards are an offline contract only. The PostgreSQL role/schema/grant
 # mutations in composition/guards_integration_test.go require a real test DB.
 COMPOSITION_STORAGE_GUARDS = (
-    'regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations|toolmarket|community|acquisition)(_[a-z0-9]+)*$`)',
-    '(c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations" && c.Component != "toolmarket" && c.Component != "community" && c.Component != "acquisition")',
+    'regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations|toolmarket|community|acquisition|checkins)(_[a-z0-9]+)*$`)',
+    '(c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations" && c.Component != "toolmarket" && c.Component != "community" && c.Component != "acquisition" && c.Component != "checkins")',
     '!databaseName.MatchString(c.Database)',
     'strings.HasPrefix(c.Database, "lmm_"+c.Component)',
     'if err := c.validate(); err != nil',
@@ -175,6 +569,8 @@ COMPOSITION_STORAGE_GUARDS = (
     '_ = db.Close()',
 )
 COMPOSITION_RUNTIME_GUARDS = (
+    'openStorage(ctx, cfg.Checkins)',
+    'checkins.New(ctx, db, coreclient.CheckinLedger{Client: client})',
     'openStorage(ctx, cfg.Store)',
     'openStorage(ctx, cfg.Support)',
     'openStorageBundle(ctx, cfg.Assistant, assistantStorageBundle(cfg))',
@@ -255,7 +651,17 @@ if selected["operations"] {
     }
     r.Operations, err = operations.New(ctx, config)
     if err != nil { return nil, err }
-} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
+    if cfg.ScriptRepositoryKeyFile != "" {
+        key, err := scriptRepositoryKey(cfg, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey)
+        if err != nil { return nil, err }
+        if err := r.Operations.Repository.WithCredentialKey(ctx, key); err != nil { return nil, err }
+    }
+    if cfg.IoNetKeyFile != "" {
+        key, err := ioNetKey(cfg, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey)
+        if err != nil { return nil, err }
+        if err := r.Operations.IoNet.WithCredentialKey(ctx, key); err != nil { return nil, err }
+    }
+} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil || cfg.ScriptRepositoryKeyFile != "" || cfg.IoNetKeyFile != "" {
     return nil, errors.New("operations configuration requires explicit module selection")
 }
 """
@@ -267,6 +673,11 @@ if c.Releases != nil {
     if err != nil { return nil, err }
     s.RSS = newRSS(c.Releases)
     s.Repository = NewScriptRepository(c.Releases)
+    var ionet bool
+    if c.Releases.QueryRowContext(ctx, `SELECT to_regclass('lmm_operations.ionet_config') IS NOT NULL`).Scan(&ionet) != nil {
+        return nil, ErrUnavailable
+    }
+    if ionet { s.IoNet = NewIoNet(c.Releases) }
 }
 if c.Scripts != nil {
     s.Scripts, err = LoadScripts(*c.Scripts)
@@ -306,7 +717,7 @@ OPERATIONS_CHECK_GUARDS = (
     "has_database_privilege(current_database(),'TEMP')", "has_schema_privilege(oid,'CREATE')",
     "c.relrowsecurity OR c.relforcerowsecurity", "FROM pg_policy",
     "has_table_privilege($1,'UPDATE')=$3", "'DELETE,TRUNCATE,REFERENCES,TRIGGER'",
-    "a.is_grantable OR a.privilege_type NOT IN", "WHEN c.relname IN ('rss_config','script_repository') THEN 'UPDATE'",
+    "a.is_grantable OR a.privilege_type NOT IN", "WHEN c.relname IN ('rss_config','script_repository','ionet_config') THEN 'UPDATE'",
     "aclexplode(a.attacl)", "has_sequence_privilege('lmm_operations.publication_id','USAGE')",
     "has_sequence_privilege('lmm_operations.publication_id','SELECT')",
     "NOT has_sequence_privilege('lmm_operations.publication_id','UPDATE')",
@@ -415,7 +826,65 @@ class CoreBoundaryTests(unittest.TestCase):
         for name in borrowed:
             self.assertNotRegex(code, r"\b" + re.escape(name) + r" \. Close\b", path)
 
+    def assert_reviewed_owner_boundary(self, path, text, *, check_seal=True):
+        tokens = go_tokens(text)
+        if path.endswith("freshinstall/payments_upgrade.go"):
+            for guard in ("db.SetMaxOpenConns(1)", "db.SetMaxIdleConns(1)",
+                          "SET ROLE ", "session_user<>$3", "NOT rolcanlogin",
+                          "pg_has_role(oid,$2,'SET')", "pg_has_role(oid,$3,'SET')",
+                          'if recoverOnly && receipt.Status != "already_committed"'):
+                self.assertIn(guard, text, path)
+            for provider in ("EPay", "Stripe", "Pancake"):
+                self.token_index(tokens, "payments.UpgradeSubscription" + provider + "(ctx, db, c.ExpectedDatabase, c.RuntimeRole)")
+        elif "/payments/" in path:
+            for guard in ("sql.LevelSerializable", "SET LOCAL synchronous_commit=on",
+                          "SET LOCAL search_path=pg_catalog", "pg_advisory_xact_lock",
+                          "database != expectedDatabase", "after != before", "afterACL != acl",
+                          "tx.Commit()", "receipt.Status = \"already_committed\""):
+                self.assertIn(guard, text, path)
+            if not path.endswith("subscription_epay_upgrade.go"):
+                self.token_index(tokens, "if len(target.After) != 64 { return receipt, ErrUnavailable }")
+        elif "/operations/" in path:
+            for guard in OWNER_OPERATIONS_GUARDS:
+                self.assertIn(guard, text, path)
+            if path.endswith("ionet_upgrade.go"):
+                self.assertIn("NOT has_database_privilege($1,d.oid,'CREATE,TEMPORARY')", text, path)
+                self.assertIn('"ionet_config", "ionet_operations", "ionet_upgrades"', text, path)
+                self.assertIn("GRANT SELECT,UPDATE ON lmm_operations.ionet_config TO ", text, path)
+                self.assertIn("GRANT SELECT,INSERT,UPDATE ON lmm_operations.ionet_operations TO ", text, path)
+            else:
+                self.assertIn("LOCK TABLE lmm_operations.contract,lmm_operations.script_repository IN ACCESS EXCLUSIVE MODE", text, path)
+                self.assertIn("c.oid='lmm_operations.script_repository_credentials_upgrades'::regclass", text, path)
+        elif path.endswith("freshinstall/checkin_policy.go"):
+            for guard in ("d.DisallowUnknownFields()", "current_user<>$3",
+                          "pg_get_userbyid(datdba)=$2", "SET ROLE ", "pq.QuoteIdentifier(c.OwnerRole)",
+                          "version != 1", "command.Policy.Validate() != nil"):
+                self.assertIn(guard, text, path)
+            self.token_index(tokens, "checkins.PublishPolicy(ctx, db, command.OperationKey, command.ExpectedRevision, command.Policy)")
+        else:
+            for guard in ("sql.LevelSerializable", "SET LOCAL synchronous_commit=on",
+                          "pg_advisory_xact_lock", "revision != expected+1",
+                          "current != expected", "revision = current + 1", "tx.Commit()"):
+                self.assertIn(guard, text, path)
+            self.token_index(tokens, "if !matches || revision != expected+1 { return 0, ErrConflict }")
+            self.token_index(tokens, "if current != expected { return 0, ErrConflict }")
+        if check_seal:
+            actual = hashlib.sha256(json.dumps(tokens, separators=(",", ":")).encode()).hexdigest()
+            self.assertEqual(actual, REVIEWED_OWNER_BOUNDARIES[path], path + ": owner closure changed")
+            for source, expected in REVIEWED_OWNER_INPUTS.items():
+                self.assertEqual(hashlib.sha256((ROOT / source).read_bytes()).hexdigest(), expected,
+                                 source + ": embedded owner contract changed; new qualification required")
+
     def assert_offline_installation_boundary(self, path, text):
+        tokens = go_tokens(text)
+        for symbol, callers in OWNER_ENTRY_CALLERS.items():
+            if path not in callers:
+                self.assertNotIn(symbol, tokens, path + ": offline owner call leaked")
+        if path in REVIEWED_OWNER_BOUNDARIES:
+            self.assert_reviewed_owner_boundary(path, text)
+            return True
+        if path in PENDING_OWNER_BOUNDARIES:
+            self.fail(path + ": owner install/ACL/recovery evidence pending; not runtime admission")
         imported = "github.com/TokenNotIncluded/lmm-api/extensions/internal/freshinstall"
         if path not in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI):
             self.assertNotIn(imported, text, path)
@@ -432,6 +901,7 @@ class CoreBoundaryTests(unittest.TestCase):
         # RSS installation is a separate, frozen owner entry point. None of
         # these calls may be borrowed by normal startup or request handlers.
         owner_calls = {
+            "compiledCommerce": (OFFLINE_INSTALLER, OFFLINE_COMMERCE_PLAN),
             "RunOperationsUpgradeCLI": (OFFLINE_MAIN, OFFLINE_OPERATIONS_CLI),
             "UpgradeRSS": (OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE),
             "UpgradeScriptRepository": (OFFLINE_OPERATIONS_CLI, OFFLINE_REPOSITORY_UPGRADE),
@@ -450,7 +920,7 @@ class CoreBoundaryTests(unittest.TestCase):
         if path in OFFLINE_TOKEN_SHA256:
             actual = hashlib.sha256(json.dumps(go_tokens(text), separators=(",", ":")).encode()).hexdigest()
             self.assertEqual(actual, OFFLINE_TOKEN_SHA256[path], path + ": offline owner body needs independent review")
-            if path in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE, OFFLINE_REPOSITORY_UPGRADE):
+            if path in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_COMMERCE_PLAN, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE, OFFLINE_REPOSITORY_UPGRADE):
                 return True
         return False
 
@@ -491,6 +961,9 @@ class CoreBoundaryTests(unittest.TestCase):
         if offline:
             return  # Exact reviewed owner/CLI bodies; never a runtime exception.
         self.assert_borrowed_pool_not_closed(path, text)
+        if path in REVIEWED_BORROWED_SQL:
+            self.assert_registered_borrowed_sql(path, text)
+            return
         if path in STORE_READ_QUERIES:
             method, query = STORE_READ_QUERIES[path]
             # Only the reviewed single literal SELECT is allowed in these adapters.
@@ -553,8 +1026,13 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertNotRegex(text, r"\bsql\s*\.\s*(?:Open|OpenDB)\b", path)
         if path == OPERATIONS_INJECTION:
             self.assert_operations_injection(text)
+            # The exact constructor above admits one catalog-only probe; it
+            # does not grant arbitrary operations SQL to the composition file.
+            catalog_probe = "`SELECT to_regclass('lmm_operations.ionet_config') IS NOT NULL`"
+            self.assertEqual(text.count(catalog_probe), 1)
+            without_probe = text.replace(catalog_probe, "CATALOG_PROBE", 1)
             for schema in CORE_SCHEMAS + tuple(stores.values()):
-                self.assertNotIn(schema, text, path)
+                self.assertNotIn(schema, without_probe, path)
             return
         if path == OPERATIONS_RSS:
             self.assertEqual(re.findall(r"\.\s*(Query|QueryRow|Exec|QueryContext|QueryRowContext|ExecContext|Begin|BeginTx)\s*\(", text),
@@ -621,6 +1099,7 @@ class CoreBoundaryTests(unittest.TestCase):
             for required in COMPOSITION_STORAGE_GUARDS:
                 self.assertIn(required, text, path)
             self.assert_operations_storage(text)
+            self.assert_storage_addons(text)
             wrapper = self.go_function_body(text, "func openStorage(ctx context.Context, c StorageConfig) (*sql.DB, error)")
             self.assertEqual(wrapper, go_tokens("return openStorageBundle(ctx, c, defaultStorageBundle)"))
             pq_selectors = [tokens[i+2] for i in range(len(tokens)-2) if tokens[i:i+2] == ["pq", "."]]
@@ -640,6 +1119,122 @@ class CoreBoundaryTests(unittest.TestCase):
                     self.assertNotRegex(text, r"(?i)\b(?:FROM|JOIN|UPDATE|INTO|TRUNCATE)\s+" + qualifier + re.escape(schema), path)
                 else:
                     self.assertNotIn(schema, text, path)
+
+    def assert_registered_borrowed_sql(self, path, text, *, check_seal=True):
+        spec = REVIEWED_BORROWED_SQL[path]
+        tokens = go_tokens(text)
+        self.assert_borrowed_pool_not_closed(path, text)
+        for forbidden in ("gorm.io", "go-sql-driver", "jackc/pgx", "sqlite"):
+            self.assertNotIn(forbidden, text, path)
+        self.assertNotRegex(" ".join(tokens), r"\bsql \. (?:Open|OpenDB)\b", path)
+        methods = [tokens[i + 2] for i in range(len(tokens) - 2)
+                   if tokens[i + 1] == "." and tokens[i + 2] in SQL_METHODS | {"Open", "OpenDB"}]
+        self.assertEqual(methods, list(spec["methods"]), path)
+        self.assertFalse(set(methods) & {"Conn", "Driver", "Raw", "Open", "OpenDB", "Prepare", "PrepareContext"}, path)
+        if '"github.com/lib/pq"' in tokens:
+            self.assertTrue(path.endswith("/operations/ionet_journal.go"), path)
+            self.assert_named_go_import(text, "github.com/lib/pq")
+            selectors = [tokens[i+2] for i in range(len(tokens)-2) if tokens[i:i+2] == ["pq", "."]]
+            self.assertEqual(selectors, ["Error"], path)
+        if '"database/sql"' in tokens:
+            self.assert_named_go_import(text, "database/sql")
+        queries = [t[1:-1] for t in tokens if t.startswith(('"', "`"))
+                   and re.match(r"^\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH|SET|CREATE|ALTER|DROP|GRANT|REVOKE|LOCK|TRUNCATE)\b", t[1:-1])]
+        self.assertTrue(queries, path)
+        for query in queries:
+            self.assertNotRegex(query, r"(?i)\b(?:CREATE|ALTER|DROP|GRANT|REVOKE|TRUNCATE)\b", path)
+            self.assertNotRegex(query, r"(?i)\bcore_[a-z0-9_]+\s*\.", path)
+            # EXTRACT(epoch FROM ...) contains SQL syntax, not a relation.
+            relations_sql = query.replace("extract(epoch FROM statement_timestamp())", "SQL_CLOCK")
+            for relation in re.findall(r"(?i)\b(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_][a-z0-9_.]*)", relations_sql):
+                if relation.upper() != "SET":  # ON CONFLICT DO UPDATE SET ...
+                    self.assertIn(relation, spec["tables"], path)
+        for predicate in spec["predicates"]:
+            self.assertTrue(any(predicate in query for query in queries), (path, predicate))
+        # The seal is last: semantic mutation tests disable it to prove pool,
+        # relation and ownership predicates are not passing solely via hashes.
+        if check_seal:
+            actual = hashlib.sha256(json.dumps(tokens, separators=(",", ":")).encode()).hexdigest()
+            self.assertEqual(actual, spec["sha256"], path + ": reviewed borrowed body drift")
+
+    def test_registered_borrowed_sql_cannot_expand_authority(self):
+        for path, spec in REVIEWED_BORROWED_SQL.items():
+            source = (ROOT / path).read_text()
+            self.assert_extension_storage(path, source)
+            for extra in ('func extra() { db.ExecContext(ctx, "DELETE FROM lmm_other.records") }',
+                          'func extra() { sql.Open("postgres", input) }',
+                          'func extra() { borrowed := db; borrowed.Close() }',
+                          'var escape = db.QueryContext'):
+                with self.subTest(path=path, extra=extra), self.assertRaises(AssertionError):
+                    self.assert_registered_borrowed_sql(path, source + "\n" + extra, check_seal=False)
+            for predicate in spec["predicates"]:
+                changed = source.replace(predicate, "TRUE", 1)
+                self.assertNotEqual(changed, source, (path, predicate))
+                with self.subTest(path=path, predicate=predicate), self.assertRaises(AssertionError):
+                    self.assert_registered_borrowed_sql(path, changed, check_seal=False)
+            with self.subTest(path=path, unregistered=True), self.assertRaises(AssertionError):
+                self.assert_extension_storage(path.replace(".go", "_unregistered.go"), source)
+
+    def test_reviewed_owner_closures_preserve_authority_and_replay_guards(self):
+        for path in REVIEWED_OWNER_BOUNDARIES:
+            source = (ROOT / path).read_text()
+            self.assert_extension_storage(path, source)
+            if path.endswith("freshinstall/payments_upgrade.go"):
+                old, new = 'receipt.Status != "already_committed"', "false"
+            elif "/payments/" in path:
+                old, new = "after != before", "false"
+            elif path.endswith("freshinstall/checkin_policy.go"):
+                old, new = "current_user<>$3", "true"
+            elif "/operations/" in path:
+                old, new = "operation_id=$1", "true"
+            else:
+                old, new = "current != expected", "false"
+            changed = source.replace(old, new, 1)
+            self.assertNotEqual(changed, source)
+            with self.subTest(owner=path, removed=old), self.assertRaises(AssertionError):
+                self.assert_reviewed_owner_boundary(path, changed, check_seal=False)
+            with self.subTest(owner=path, unregistered=True), self.assertRaises(AssertionError):
+                self.assert_extension_storage(path.replace(".go", "_unregistered.go"), source)
+
+    def test_operations_owner_predicates_without_body_seals(self):
+        self.assertEqual(set(OWNER_EVIDENCE), set(REVIEWED_OWNER_BOUNDARIES))
+        for path in REVIEWED_OWNER_BOUNDARIES:
+            if "/operations/" not in path:
+                continue
+            source = (ROOT / path).read_text()
+            for guard in OWNER_OPERATIONS_GUARDS:
+                changed = source.replace(guard, "REMOVED_OWNER_GUARD", 1)
+                self.assertNotEqual(changed, source, guard)
+                with self.subTest(owner=path, guard=guard), self.assertRaises(AssertionError):
+                    self.assert_reviewed_owner_boundary(path, changed, check_seal=False)
+            # Extra SQL and a new connection must fail even with all predicates.
+            for extra in ('tx.ExecContext(ctx, "DELETE FROM core_billing.accounts")',
+                          'sql.Open("postgres", "unapproved")'):
+                with self.subTest(owner=path, extra=extra), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\nfunc bad() { " + extra + " }")
+
+    def test_pending_owner_closure_is_not_reachable_from_runtime(self):
+        seen = set()
+        for source in (ROOT / "services/extensions").rglob("*.go"):
+            if source.name.endswith("_test.go"):
+                continue
+            path = source.relative_to(ROOT).as_posix()
+            tokens = go_tokens(source.read_text())
+            for symbol, callers in OWNER_ENTRY_CALLERS.items():
+                if symbol in tokens:
+                    seen.add(symbol)
+                    self.assertIn(path, callers, (path, symbol))
+        self.assertEqual(seen, set(OWNER_ENTRY_CALLERS))
+        for path in PENDING_OWNER_BOUNDARIES:
+            with self.subTest(pending=path), self.assertRaises(AssertionError):
+                self.assert_extension_storage(path, (ROOT / path).read_text())
+        for path in REVIEWED_BORROWED_SQL:
+            source = (ROOT / path).read_text()
+            for symbol in OWNER_ENTRY_CALLERS:
+                with self.subTest(path=path, owner=symbol), self.assertRaises(AssertionError):
+                    call = ('exec.Command("extensions", ' + symbol + ').Run()'
+                            if symbol.startswith('"') else symbol + '()')
+                    self.assert_extension_storage(path, source + "\nfunc bad() { " + call + " }")
 
     def test_store_read_adapters_reject_writes_and_extra_calls(self):
         for path, (method, query) in STORE_READ_QUERIES.items():
@@ -713,11 +1308,23 @@ class CoreBoundaryTests(unittest.TestCase):
     def assert_composition_runtime(self, text):
         for required in COMPOSITION_RUNTIME_GUARDS:
             self.assertIn(required, text)
-        self.assertEqual(text.count("openStorage("), 5)
-        self.assertEqual(text.count("openStorageBundle("), 1)
-        self.assertEqual(text.count("r.close = append(r.close, db.Close)"), 6)
+        tokens = go_tokens(text)
+        expected_pools = ("Checkins", "Store", "Support", "Operations", "Community", "Acquisition")
+        calls = [tokens[i + 2:i + 8] for i in range(len(tokens) - 1)
+                 if tokens[i:i + 2] == ["openStorage", "("]]
+        self.assertCountEqual(calls, [go_tokens(f"ctx, cfg.{name})") for name in expected_pools])
+        bundled = [i for i in range(len(tokens) - 1) if tokens[i:i + 2] == ["openStorageBundle", "("]]
+        self.assertEqual(len(bundled), 1)
+        owned_close = go_tokens("r.close = append(r.close, db.Close)")
+        self.assertEqual(sum(tokens[i:i + len(owned_close)] == owned_close
+                             for i in range(len(tokens))), len(calls) + len(bundled))
         body = self.go_function_body(
             text, "func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error)")
+        self.token_index(body, """
+            db, e := openStorage(ctx, cfg.Checkins)
+            if e != nil { return nil, e }
+            r.close = append(r.close, db.Close)
+        """)
         for component in ("Store", "Support", "Operations", "Community", "Acquisition"):
             self.token_index(body, f"""
                 db, err := openStorage(ctx, cfg.{component})
@@ -740,6 +1347,18 @@ class CoreBoundaryTests(unittest.TestCase):
                      if tokens[i:i + len(expected)] == expected]
         self.assertEqual(len(positions), 1, source)
         return positions[0]
+
+    def braced_tokens(self, tokens, opening):
+        self.assertEqual(tokens[opening], "{")
+        depth = 1
+        for end in range(opening + 1, len(tokens)):
+            if tokens[end] == "{":
+                depth += 1
+            elif tokens[end] == "}":
+                depth -= 1
+                if depth == 0:
+                    return tokens[opening + 1:end]
+        self.fail("unterminated token block")
 
     def go_function_body(self, source, signature):
         tokens = go_tokens(source)
@@ -818,8 +1437,10 @@ class CoreBoundaryTests(unittest.TestCase):
         self.token_index(check, "runtime.QueryRowContext(ctx, fingerprintSQL).Scan(&actual)")
         self.token_index(check, "installed != actual || len(actual) != 32")
         self.token_index(check, 'runtime.QueryRowContext(ctx, "SELECT fingerprint FROM lmm_operations.contract WHERE version=3")')
-        self.token_index(check, 'for _, table := range []string{"contract", "publications", "reads", "rss_config", "script_repository"}')
-        self.token_index(check, 'table == "publications" || table == "reads", table == "rss_config" || table == "script_repository"')
+        self.token_index(check, 'tables := []string{"contract", "publications", "reads", "rss_config", "script_repository"}')
+        self.token_index(check, 'if ionet { tables = append(tables, "ionet_config", "ionet_operations") }')
+        self.token_index(check, 'for _, table := range tables {')
+        self.token_index(check, 'table == "publications" || table == "reads" || table == "ionet_operations", table == "rss_config" || table == "script_repository" || table == "ionet_config" || table == "ionet_operations"')
         literals = [token[1:-1] for token in check if token.startswith(('"', '`'))]
         for required in OPERATIONS_CHECK_GUARDS:
             self.assertTrue(any(required in literal for literal in literals), required)
@@ -854,15 +1475,26 @@ class CoreBoundaryTests(unittest.TestCase):
         methods = [tokens[i+1] for i in range(len(tokens)-1)
                    if tokens[i] == "." and tokens[i+1] in SQL_METHODS
                    and i != raw_index+1]
-        self.assertEqual(methods, ["QueryRowContext"] * len(OPERATIONS_REPOSITORY_QUERIES))
+        self.assertEqual(methods, ["QueryRowContext"] * len({method for method, _ in OPERATIONS_REPOSITORY_QUERIES}))
         for method, query in OPERATIONS_REPOSITORY_QUERIES:
             signature = re.search(
                 r"(?m)^func \(s \*ScriptRepository\) " + method + r"\([^\n]+\) \([^\n]+\) \{", text)
             self.assertIsNotNone(signature, method)
             body = self.go_function_body(text, signature.group(0)[:-2])
-            call = go_tokens("s.db.QueryRowContext(ctx, `" + query + "`")
-            index = self.token_index(body, "s.db.QueryRowContext(ctx, `" + query + "`")
-            self.assertIn(body[index+len(call)], {",", ")"}, method)
+            if method == "SaveWithCredentials":
+                normal, sealed = [q for m, q in OPERATIONS_REPOSITORY_QUERIES if m == method]
+                self.token_index(body, "query := `" + normal + "`")
+                self.token_index(body, "args := []any{settings.URL, settings.Branch, actor, settings.Revision}")
+                self.token_index(body, 'if token != "" || clear { query = `' + sealed + '` args = append(args, sealed) }')
+                self.token_index(body, "s.db.QueryRowContext(ctx, query, args...)")
+                # Three uses only: initializer, the one controlled replacement,
+                # and the borrowed-pool call. No additional dynamic SQL producer.
+                self.assertEqual(body.count("query"), 3)
+                self.assertEqual(body.count("args"), 4)
+            else:
+                call = go_tokens("s.db.QueryRowContext(ctx, `" + query + "`")
+                index = self.token_index(body, "s.db.QueryRowContext(ctx, `" + query + "`")
+                self.assertIn(body[index+len(call)], {",", ")"}, method)
             self.assertEqual(sum(body[i:i+2] == [".", "QueryRowContext"]
                                  for i in range(len(body)-1)), 1, method)
 
@@ -899,17 +1531,26 @@ class CoreBoundaryTests(unittest.TestCase):
                 return plan{prefix: "lmm_operations", schema: operations.Schema, namespaces: []string{"lmm_operations"}, grants: []string{
                     "GRANT SELECT ON lmm_operations.contract TO ",
                     "GRANT SELECT,INSERT ON lmm_operations.publications,lmm_operations.reads TO ",
-                    "GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository TO ",
+                    "GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository,lmm_operations.ionet_config TO ",
+                    "GRANT SELECT,INSERT,UPDATE ON lmm_operations.ionet_operations TO ",
                     "GRANT SELECT,USAGE ON SEQUENCE lmm_operations.publication_id TO ",
                 }}, nil
         '''))
 
     def assert_operations_upgrade_dispatch(self, text):
+        for wrapper, mode in (("RunOperationsUpgradeCLI", "upgradeOperationsBase"),
+                              ("RunScriptRepositoryCredentialsUpgradeCLI", "upgradeScriptCredentials"),
+                              ("RunIoNetUpgradeCLI", "upgradeIoNet")):
+            self.assertEqual(self.go_function_body(text,
+                f"func {wrapper}(ctx context.Context, args []string, out io.Writer) error"),
+                go_tokens(f"return runOperationsUpgradeCLI(ctx, args, out, {mode})"))
         body = self.go_function_body(text,
-            "func RunOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer) error")
-        self.token_index(body, 'f.IntVar(&targetVersion, "target-version", 2, "2 for RSS, 3 for script repository")')
+            "func runOperationsUpgradeCLI(ctx context.Context, args []string, out io.Writer, mode operationsUpgradeMode) error")
+        self.token_index(body, "credentials := mode == upgradeScriptCredentials")
+        self.token_index(body, "ionet := mode == upgradeIoNet")
+        self.token_index(body, 'if !credentials && !ionet { f.IntVar(&targetVersion, "target-version", 2, "2 for RSS, 3 for script repository") }')
         self.token_index(body, """
-            if f.Parse(args) != nil || f.NArg() != 0 || (targetVersion != 2 && targetVersion != 3) {
+            if f.Parse(args) != nil || f.NArg() != 0 || (!credentials && !ionet && targetVersion != 2 && targetVersion != 3) {
                 return ErrRejected
             }
         """)
@@ -934,7 +1575,11 @@ class CoreBoundaryTests(unittest.TestCase):
             }
         ''')
         dispatch = self.token_index(body, """
-            if targetVersion == 3 {
+            if ionet {
+                err = operations.UpgradeIoNet(ctx, tx, c.RuntimeRole, operation, recoverOnly)
+            } else if credentials {
+                err = operations.UpgradeScriptRepositoryCredentials(ctx, tx, c.RuntimeRole, operation, recoverOnly)
+            } else if targetVersion == 3 {
                 err = operations.UpgradeScriptRepository(ctx, tx, c.RuntimeRole, operation, recoverOnly)
             } else {
                 err = operations.UpgradeRSS(ctx, tx, c.RuntimeRole, operation, recoverOnly)
@@ -943,13 +1588,20 @@ class CoreBoundaryTests(unittest.TestCase):
             if !recoverOnly {
                 if err := tx.Commit(); err != nil { return ErrCommitUnknown }
             }
-            if err := json.NewEncoder(out).Encode(map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": targetVersion}); err != nil { return ErrCommitUnknown }
+            receipt := map[string]any{"database": c.ExpectedDatabase, "operation_id": operation, "version": targetVersion}
+            if ionet { receipt["version"] = 1
+ receipt["component"] = "ionet" }
+            if credentials { receipt["version"] = 1
+ receipt["component"] = "script_repository_credentials" }
+            if err := json.NewEncoder(out).Encode(receipt); err != nil { return ErrCommitUnknown }
             return nil
         """)
         self.assertLess(fence, role)
         self.assertLess(role, dispatch)
         self.assertEqual(body.count("UpgradeRSS"), 1)
         self.assertEqual(body.count("UpgradeScriptRepository"), 1)
+        self.assertEqual(body.count("UpgradeScriptRepositoryCredentials"), 1)
+        self.assertEqual(body.count("UpgradeIoNet"), 1)
 
     def test_operations_owner_target_dispatch_and_version_seals(self):
         source = (ROOT / OFFLINE_OPERATIONS_CLI).read_text()
@@ -1107,7 +1759,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 self.assert_script_repository_schema(changed)
         installer = (ROOT / OFFLINE_INSTALLER).read_text()
         self.assert_script_repository_install_grants(installer)
-        grant = "GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository TO "
+        grant = "GRANT SELECT,UPDATE ON lmm_operations.rss_config,lmm_operations.script_repository,lmm_operations.ionet_config TO "
         for privilege in ("ALL", "SELECT,UPDATE,INSERT", "SELECT,UPDATE,DELETE", "SELECT,UPDATE,TRUNCATE", "SELECT,UPDATE,MAINTAIN"):
             changed = installer.replace(grant, grant.replace("SELECT,UPDATE", privilege), 1)
             self.assertNotEqual(changed, installer)
@@ -1141,9 +1793,96 @@ class CoreBoundaryTests(unittest.TestCase):
         # another function cannot query, close, alias or export the injected pool.
         accesses = lambda scope: sum(scope[i:i + 2] == [".", "Releases"]
                                      for i in range(len(scope) - 1))
-        self.assertEqual(accesses(tokens), 6)
-        self.assertEqual(accesses(body) + accesses(availability), 6)
+        self.assertEqual(accesses(tokens), accesses(body) + accesses(availability))
         self.assert_no_close_declaration(tokens)
+
+    def assert_storage_addons(self, text):
+        body = self.go_function_body(text,
+            "func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundle) (*sql.DB, error)")
+        self.token_index(body, """
+            if c.Component == "operations" {
+                var config, journal bool
+                if err := db.QueryRowContext(bounded, `SELECT to_regclass('lmm_operations.ionet_config') IS NOT NULL,to_regclass('lmm_operations.ionet_operations') IS NOT NULL`).Scan(&config, &journal); err != nil || config != journal {
+                    return nil, errors.New("io.net storage addon incomplete")
+                }
+                if !config {
+                    policy.tables = slices.DeleteFunc(slices.Clone(policy.tables), func(table storageTable) bool {
+                        return table.name == "lmm_operations.ionet_config" || table.name == "lmm_operations.ionet_operations"
+                    })
+                }
+            }
+        """)
+        self.token_index(body, """
+            if c.Component == "payments" {
+                for _, addon := range [][]string{
+                    {"public.payment_stripe_subscription_checkouts", "public.payment_stripe_subscription_inbox"},
+                    {"public.payment_pancake_subscription_checkouts", "public.payment_pancake_subscription_inbox", "public.payment_pancake_wallet_inbox"},
+                } {
+                    installed, err := paymentStorageAddonInstalled(bounded, db, addon)
+                    if err != nil { return nil, err }
+                    if !installed {
+                        policy.tables = slices.DeleteFunc(slices.Clone(policy.tables), func(t storageTable) bool { return slices.Contains(addon, t.name) })
+                    }
+                }
+            }
+        """)
+        self.assertEqual(self.go_function_body(text,
+            "func paymentStorageAddonInstalled(ctx context.Context, db *sql.DB, names []string) (bool, error)"), go_tokens("""
+            var present, valid int
+            err := db.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE c.relkind='r') FROM unnest($1::text[]) t(name) JOIN pg_class c ON c.oid=to_regclass(t.name)`, pq.Array(names)).Scan(&present, &valid)
+            if err != nil || present != valid || (present != 0 && present != len(names)) {
+                return false, errors.New("payment subscription storage addon incomplete")
+            }
+            return present == len(names), nil
+        """))
+
+    def test_optional_storage_addons_reject_partial_installs_without_hash_shortcut(self):
+        source = (ROOT / COMPOSITION_STORAGE).read_text()
+        self.assert_storage_addons(source)
+        for old, new in (("config != journal", "false"),
+                         ("present != valid", "false"),
+                         ("present != 0 && present != len(names)", "false"),
+                         ("if !installed {", "if installed {"),
+                         ("return present == len(names), nil", "return true, nil")):
+            changed = source.replace(old, new, 1)
+            self.assertNotEqual(changed, source)
+            with self.subTest(removed=old), self.assertRaises(AssertionError):
+                self.assert_storage_addons(changed)
+        plan = (ROOT / OFFLINE_COMMERCE_PLAN).read_text()
+        self.assert_extension_storage(OFFLINE_COMMERCE_PLAN, plan)
+        for old, new in (("strings.Count(p.schema,", "strings.Count(userSQL,"),
+                         ("GRANT SELECT,INSERT,UPDATE ON lmm_support", "GRANT ALL ON lmm_support"),
+                         ('return plan{}, ErrRejected', 'return p, nil')):
+            changed = plan.replace(old, new, 1)
+            self.assertNotEqual(changed, plan)
+            with self.subTest(owner_plan=old), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OFFLINE_COMMERCE_PLAN, changed)
+
+    def test_semantic_initializer_and_cli_guards_reject_rewiring(self):
+        runtime = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
+        payments = (ROOT / COMPOSITION_PAYMENTS).read_text()
+        startup = (ROOT / "services/extensions/internal/app/run.go").read_text()
+        # A field's location in Config is not authority; its checked value is.
+        rearranged = startup.replace("Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,",
+            "HostCredential: credential, TokenFile: tokenFile, Socket: socket, Selected: selected,")
+        self.assertNotEqual(startup, rearranged)
+        self.assert_runtime_credentials(runtime, payments, rearranged)
+        fake = rearranged.replace("HostCredential: credential,", "HostCredential: nil,") + "\n// HostCredential: credential,"
+        with self.assertRaises(AssertionError):
+            self.assert_runtime_credentials(runtime, payments, fake)
+        for changed in (runtime.replace("openStorage(ctx, cfg.Checkins)", "openStorage(ctx, cfg.Store)"),
+                        runtime + "\nfunc bad() { openStorage(ctx, cfg.Store) }"):
+            with self.assertRaises(AssertionError):
+                self.assert_composition_runtime(changed)
+        main = (ROOT / "services/core/src/main.rs").read_text()
+        self.assert_core_command_boundary(main)
+        for old, new in (("Command::Serve => None,", "Command::Serve => Some(admin::Operation::InitDb),"),
+                         ('("init-db", Command::InitDb)', '("init-db", Command::Serve)'),
+                         ('Some(operation) => runtime.block_on(admin::run(operation))', 'Some(operation) => runtime.block_on(run_core())')):
+            changed = main.replace(old, new, 1)
+            self.assertNotEqual(changed, main)
+            with self.subTest(dispatch=old), self.assertRaises(AssertionError):
+                self.assert_core_command_boundary(changed + "\n// " + old)
 
     def assert_operations_storage(self, text):
         body = self.go_function_body(
@@ -1196,6 +1935,8 @@ class CoreBoundaryTests(unittest.TestCase):
                 add("lmm_operations.reads", "SELECT", "INSERT")
                 add("lmm_operations.rss_config", "SELECT", "UPDATE")
                 add("lmm_operations.script_repository", "SELECT", "UPDATE")
+                add("lmm_operations.ionet_config", "SELECT", "UPDATE")
+                add("lmm_operations.ionet_operations", "SELECT", "INSERT", "UPDATE")
             case "acquisition":
         """)
 
@@ -1270,10 +2011,14 @@ class CoreBoundaryTests(unittest.TestCase):
             credential, err := readHostCredential(cfg.Host.TokenFile)
             if err != nil { return err }
         """)
-        composition = self.token_index(run, """
-            runtime, err := composition.New(context.Background(), composition.Config{
-                Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,
-        """)
+        composition = self.token_index(run, "runtime, err := composition.New(context.Background(), composition.Config{")
+        # Validate fields inside this initializer rather than requiring them to
+        # be first. New module config fields must not shadow the checked token.
+        initializer = self.braced_tokens(run, composition + len(go_tokens(
+            "runtime, err := composition.New(context.Background(), composition.Config")))
+        for field, value in (("Selected", "selected"), ("Socket", "socket"),
+                             ("TokenFile", "tokenFile"), ("HostCredential", "credential")):
+            self.token_index(initializer, f"{field}: {value},")
         self.assertLess(loaded, composition)
 
     def test_composition_keeps_distinct_module_pools_and_disabled_funds(self):
@@ -1836,6 +2581,25 @@ class CoreBoundaryTests(unittest.TestCase):
                 with self.subTest(path=path, extra=extra), self.assertRaises(AssertionError):
                     self.assert_extension_storage(path, "package unapproved\nfunc extra() { " + extra + " }")
 
+    def assert_core_command_boundary(self, main):
+        # Rust lifetimes are not Go rune literals. In particular 'static must
+        # not swallow the following command table up to the next apostrophe.
+        tokens = [t for t in re.findall(
+            r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|[A-Za-z_]\w*|\d+|[^\s]', main)
+            if not t.startswith(("//", "/*"))]
+        for name, variant in (("init-db", "InitDb"), ("bootstrap-user", "BootstrapUser")):
+            self.token_index(tokens, f'("{name}", Command::{variant})')
+        self.token_index(tokens, "Command::Serve => None,")
+        self.token_index(tokens, "Command::InitDb => Some(admin::Operation::InitDb),")
+        self.token_index(tokens, "Command::BootstrapUser => Some(admin::Operation::bootstrap(io::stdin().lock())?),")
+        self.token_index(tokens, """match operation {
+            Some(operation) => runtime.block_on(admin::run(operation)),
+            None => runtime.block_on(run_core()),
+        }""")
+        serve = main.split("async fn run_core()", 1)[1]
+        for forbidden in ("core_schema::init", "admin::run", "Operation::InitDb", "init_database"):
+            self.assertNotIn(forbidden, serve)
+
     def test_fresh_schema_is_explicit_and_relational(self):
         schema = (ROOT / "services/core/schema/identity.sql").read_text()
         for table in ("accounts", "users", "teams", "memberships", "credentials", "key_funding_rules"):
@@ -1850,8 +2614,7 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertIn("core_schema::check(&pool)", admin)
         self.assertNotIn('"migrate"', admin)
         main = (ROOT / "services/core/src/main.rs").read_text()
-        self.assertIn('Some("init-db")', main)
-        self.assertIn('Some("bootstrap-user")', main)
+        self.assert_core_command_boundary(main)
         self.assertNotIn("init_database", main.split("async fn run_core()", 1)[1])
 
     def test_core_management_shares_the_single_core_executable(self):

@@ -13,7 +13,7 @@ import re
 import stat
 import struct
 import subprocess
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 def framed(facts):
@@ -36,7 +36,7 @@ def main():
         raise SystemExit("private regular credential file required")
     dsn = credential.read_text().strip()
     parsed = urlparse(dsn)
-    if parsed.hostname != "127.0.0.1" or not parsed.path.startswith("/lmm_payments") or not parsed.path.endswith("_test"):
+    if parsed.hostname != "127.0.0.1" or parsed.port is None or not parsed.path.startswith("/lmm_payments") or not parsed.path.endswith("_test"):
         raise SystemExit("private loopback payments test database required")
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", args.owner_role):
         raise SystemExit("invalid owner role")
@@ -50,7 +50,7 @@ def main():
     catalog = paths[3].read_text().strip().rstrip(";")
     def query(phase, successor):
         body = catalog.replace("$1::boolean", "true" if successor else "false")
-        return "SELECT json_build_object('phase','" + phase + "','facts',(SELECT json_agg(fact ORDER BY fact COLLATE \"C\") FROM (" + body + ") capture));\n"
+        return "SET LOCAL search_path=pg_catalog;\nSELECT json_build_object('phase','" + phase + "','facts',(SELECT json_agg(fact ORDER BY fact COLLATE \"C\") FROM (" + body + ") capture));\n"
     sql = 'BEGIN; SET LOCAL search_path=public,pg_catalog; SET LOCAL lock_timeout=\'2s\'; SET LOCAL statement_timeout=\'10s\'; SET LOCAL ROLE "' + args.owner_role + '";\n'
     sql += """DO $$ BEGIN
  IF current_setting('server_version_num')::int NOT BETWEEN 180000 AND 189999
@@ -64,9 +64,13 @@ def main():
  THEN RAISE EXCEPTION 'isolated PG18 offline predecessor owner required'; END IF;
  END $$;
 """
-    sql += query("before", False) + paths[2].read_text() + "\n" + query("successor", True) + "ROLLBACK;\n"
-    env = os.environ.copy()
-    env.update(PGDATABASE=dsn, PGCLIENTENCODING="UTF8", PGAPPNAME="lmm-sub01-stripe-catalog-capture")
+    sql += query("before", False) + "SET LOCAL search_path=public,pg_catalog;\n" + paths[2].read_text() + "\n" + query("successor", True) + "ROLLBACK;\n"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("PG")}
+    env.update(PGPASSWORD=unquote(parsed.password or ""), PGCLIENTENCODING="UTF8", PGAPPNAME="lmm-sub01-stripe-catalog-capture")
+    # psql expands a URI passed with --dbname, not a URI used as the default
+    # PGDATABASE. Keep the password private while explicitly selecting the host.
+    authority = (parsed.username + "@" if parsed.username else "") + f"127.0.0.1:{parsed.port}"
+    connection = parsed._replace(netloc=authority).geturl()
     def retain_process(returncode, stdout, stderr, timed_out=False):
         def text(value):
             return value.decode("utf-8", "replace") if isinstance(value, bytes) else value
@@ -77,7 +81,7 @@ def main():
             json.dump({"returncode": returncode, "timed_out": timed_out, "stdout": text(stdout), "stderr": text(stderr), "source_sha256": source}, evidence, indent=2)
             evidence.write("\n")
     try:
-        result = subprocess.run(["psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1"], input=sql, text=True, capture_output=True, env=env, timeout=45)
+        result = subprocess.run(["psql", "--dbname", connection, "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1"], input=sql, text=True, capture_output=True, env=env, timeout=45)
     except subprocess.TimeoutExpired as exc:
         retain_process(None, exc.stdout, exc.stderr, True)
         raise SystemExit("capture timed out; inspect retained private evidence and backend before any next operation") from None

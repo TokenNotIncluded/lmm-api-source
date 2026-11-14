@@ -1,6 +1,6 @@
 {
   "pancake_schema_sha256": "f80fa5b72ff3f4748eadd4787ca7532bead8dc6fa39bcd5b689547c1bcca29a0",
   "predecessor_catalog_sha256": "e65a59ef3bee637dda7da9bbe401425fb40b524ff7ff25bde9c5ef90055f001a",
-  "successor_catalog_sha256": null,
-  "validation_status": "REQUIRES_REAL_PG18_CAPTURE_AND_ROW_ACL_PRESERVATION_TEST; offline upgrade fails closed until pinned"
+  "successor_catalog_sha256": "805979840efaab1dd503a24429e1a27232c68bea5af2b4788b07186223cecd44",
+  "validation_status": "PG18_ROLLBACK_CATALOG_AND_ROW_ACL_PRESERVATION_VERIFIED"
 }

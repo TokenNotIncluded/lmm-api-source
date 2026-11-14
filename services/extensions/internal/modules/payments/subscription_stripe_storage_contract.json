@@ -1,6 +1,6 @@
 {
   "stripe_schema_sha256": "01f966266f339fa634db2f24875ebd6e49a56c91050d1f5df3f6d8369fd40aef",
   "predecessor_catalog_sha256": "e65a59ef3bee637dda7da9bbe401425fb40b524ff7ff25bde9c5ef90055f001a",
-  "successor_catalog_sha256": null,
-  "validation_status": "REQUIRES_REAL_PG18_CAPTURE_AND_ROW_ACL_PRESERVATION_TEST; offline upgrade fails closed until pinned"
+  "successor_catalog_sha256": "fc9cc770a1c307dbdc5b6481e0f391a126adf5d6c0d1979691b9ac45292845b8",
+  "validation_status": "PG18_ROLLBACK_CATALOG_AND_ROW_ACL_PRESERVATION_VERIFIED"
 }
