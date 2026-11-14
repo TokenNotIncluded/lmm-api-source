@@ -444,15 +444,70 @@ struct Paused {
     first_bytes: usize,
 }
 async fn pause(client: reqwest::Client, endpoint: String, key: String, label: String) -> Paused {
+    let started = Instant::now();
+    let wall_started = std::time::SystemTime::now();
     let mut response = client
         .post(format!("{endpoint}/v1/chat/completions"))
         .bearer_auth(key)
-        .header("idempotency-key", label)
+        .header("idempotency-key", &label)
         .json(&body("stream-pause", true))
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    if status != StatusCode::OK {
+        let headers_elapsed_us = started.elapsed().as_micros();
+        let wall_headers = std::time::SystemTime::now();
+        let id = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|raw| raw.to_str().ok())
+            .filter(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(str::to_owned);
+        let mut captured = Vec::with_capacity(4096);
+        let capture_started = Instant::now();
+        let read = tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                match response.chunk().await {
+                    Ok(Some(chunk)) => {
+                        let length = (4096 - captured.len()).min(chunk.len());
+                        captured.extend_from_slice(&chunk[..length]);
+                        if captured.len() == 4096 {
+                            break "limit";
+                        }
+                    }
+                    Ok(None) => break "complete",
+                    Err(_) => break "read_error",
+                }
+            }
+        })
+        .await
+        .unwrap_or("timeout");
+        let parsed = serde_json::from_slice::<Value>(&captured).ok();
+        let code = parsed
+            .as_ref()
+            .and_then(|value| value.pointer("/error/code"))
+            .and_then(Value::as_str)
+            .filter(|code| {
+                matches!(
+                    *code,
+                    "core_not_accepting" | "billing_unavailable" | "relay_timeout"
+                )
+            });
+        // Failure-only, allowlisted evidence in the runner's private test log.
+        // Never emit arbitrary provider messages, request bodies or credentials.
+        eprintln!(
+            "resource_fill_failure {}",
+            json!({
+                "label":label,"status":status.as_u16(),"request_id":id,"code":code,
+                "wall_started_ms":wall_started.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+                "wall_headers_ms":wall_headers.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+                "headers_elapsed_us":headers_elapsed_us,"capture_elapsed_us":capture_started.elapsed().as_micros(),
+                "captured_bytes":captured.len(),"read":read,"json_valid":parsed.is_some()
+            })
+        );
+    }
+    assert_eq!(status, StatusCode::OK);
     let id = valid_id(&response).unwrap();
     let first = tokio::time::timeout(Duration::from_secs(2), response.chunk())
         .await
