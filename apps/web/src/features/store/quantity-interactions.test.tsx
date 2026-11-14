@@ -105,6 +105,25 @@ const product: StoreProduct = {
   created_at: 1,
   updated_at: 1,
   review_note: '',
+  default_variant_id: 'fixture-default',
+  variants: [
+    {
+      id: 'fixture-default',
+      product_id: 'guest-product',
+      name: 'Default',
+      price_quota: 500000,
+      template: 'card-key',
+      enabled: true,
+      is_default: true,
+      created_at: 1,
+      updated_at: 1,
+      inventory_total: 5,
+      inventory_available: 5,
+      reserved_stock: 0,
+      sale_available: 5,
+      trading_paused: false,
+    },
+  ],
 }
 const pending: StoreOrder = {
   id: 'guest-fixture-order',
@@ -296,6 +315,14 @@ test('unlimited fixed content can be purchased with zero stock while remaining c
     sale_available: 0,
     sale_limit: null,
     max_quantity_per_order: 3,
+    variants: [
+      {
+        ...product.variants![0],
+        sale_available: 0,
+        template: 'fixed-content' as const,
+        unlimited_supply: true,
+      },
+    ],
   }
   await mount(<StoreCheckout product={fixed} />)
   assert.match(document.body.textContent || '', /Unlimited supply/)
@@ -323,7 +350,14 @@ test('unlimited fixed content can be purchased with zero stock while remaining c
 test('visible quantity controls obey stock and a merchant can order their own whole batch', async () => {
   const writes = mockCheckout()
   await mount(
-    <StoreCheckout product={{ ...product, seller_id: 2, available_stock: 2 }} />
+    <StoreCheckout
+      product={{
+        ...product,
+        seller_id: 2,
+        available_stock: 2,
+        variants: [{ ...product.variants![0], sale_available: 2 }],
+      }}
+    />
   )
   const less = required(
     document.querySelector<HTMLButtonElement>(
@@ -354,19 +388,31 @@ test('visible quantity controls obey stock and a merchant can order their own wh
   assert.equal(writes[0].payment_method, 'external:epay')
   assert.equal('price_quota' in writes[0], false)
   assert.equal('unit_price_quota' in writes[0], false)
-  assert.equal('variant_id' in writes[0], false)
+  assert.equal(writes[0].variant_id, 'fixture-default')
 })
 
 test('restocking keeps quantity controls visible and a refreshed buyer or order cap clamps the count', async () => {
   mockCheckout()
-  await mount(<StoreCheckout product={{ ...product, available_stock: 1 }} />)
+  await mount(
+    <StoreCheckout
+      product={{
+        ...product,
+        available_stock: 1,
+        variants: [{ ...product.variants![0], sale_available: 1 }],
+      }}
+    />
+  )
   const more = required(
     document.querySelector<HTMLButtonElement>(
       '[aria-label="Increase quantity"]'
     )
   )
   assert.equal(more.disabled, true)
-  await replaceCheckout({ ...product, available_stock: 8 })
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    variants: [{ ...product.variants![0], sale_available: 8 }],
+  })
   assert.equal(more.disabled, false)
   await click(more)
   await click(more)
@@ -378,6 +424,7 @@ test('restocking keeps quantity controls visible and a refreshed buyer or order 
     ...product,
     available_stock: 8,
     max_quantity_per_order: 2,
+    variants: [{ ...product.variants![0], sale_available: 8 }],
   })
   assert.equal(
     (document.getElementById('store-quantity') as HTMLInputElement).value,
@@ -389,6 +436,7 @@ test('restocking keeps quantity controls visible and a refreshed buyer or order 
     available_stock: 8,
     max_quantity_per_buyer: 4,
     buyer_purchase_remaining: 1,
+    variants: [{ ...product.variants![0], sale_available: 8 }],
   })
   assert.equal(
     (document.getElementById('store-quantity') as HTMLInputElement).value,
@@ -400,6 +448,7 @@ test('restocking keeps quantity controls visible and a refreshed buyer or order 
     available_stock: 8,
     max_quantity_per_buyer: 4,
     buyer_purchase_remaining: 0,
+    variants: [{ ...product.variants![0], sale_available: 8 }],
   })
   assert.equal(button('Place order').disabled, true)
   assert.ok(document.getElementById('store-quantity'))
@@ -465,6 +514,13 @@ test('fractional, exponent, excessive, empty and unsafe total inputs cannot plac
         ...product,
         available_stock: 1000,
         price_quota: Number.MAX_SAFE_INTEGER,
+        variants: [
+          {
+            ...product.variants![0],
+            sale_available: 1000,
+            price_quota: Number.MAX_SAFE_INTEGER,
+          },
+        ],
       }}
     />
   )
@@ -527,6 +583,7 @@ test('balance quantity can be 1000; switching to a platform gateway clamps the c
         ...product,
         available_stock: 2000,
         payment_methods: ['balance', 'platform:waffo_pancake'],
+        variants: [{ ...product.variants![0], sale_available: 2000 }],
       }}
     />
   )
@@ -563,7 +620,13 @@ test('stock changes clamp excessive input before an explicit purchase', async ()
         <button type='button' onClick={() => setStock(1)}>
           Reduce stock
         </button>
-        <StoreCheckout product={{ ...product, available_stock: stock }} />
+        <StoreCheckout
+          product={{
+            ...product,
+            available_stock: stock,
+            variants: [{ ...product.variants![0], sale_available: stock }],
+          }}
+        />
       </>
     )
   }

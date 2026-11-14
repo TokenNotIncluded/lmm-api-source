@@ -8,23 +8,23 @@
 
 .overview-summary {
   display: grid;
-  gap: 2rem;
+  gap: clamp(1.75rem, 3.5cqi, 3.5rem);
 }
 
 .overview-balance {
   min-width: 0;
-  padding: 1.5rem;
-  border: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+  padding: clamp(1.5rem, 2.8cqi, 2.35rem);
+  border: 1px solid color-mix(in oklch, var(--foreground) 6%, transparent);
   background:
     radial-gradient(
       circle at 100% 0,
-      color-mix(in oklch, var(--chart-1) 10%, transparent),
+      color-mix(in oklch, var(--chart-1) 7%, transparent),
       transparent 52%
     ),
     var(--card);
   border-radius: var(--radius-xl, var(--radius));
-  box-shadow: 0 1rem 3rem -2.5rem
-    color-mix(in oklch, var(--foreground) 25%, transparent);
+  box-shadow: 0 1.25rem 3.5rem -2.75rem
+    color-mix(in oklch, var(--foreground) 18%, transparent);
 }
 
 .overview-balance-heading {
@@ -45,9 +45,9 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
   gap: 0.25rem;
-  padding: 0.25rem;
+  padding: 0.3rem;
   border-radius: var(--radius);
-  background: var(--muted);
+  background: color-mix(in oklch, var(--muted) 75%, var(--background));
 }
 
 .overview-currency-switch [data-slot='toggle-group-item'] {
@@ -64,8 +64,11 @@
 }
 
 .overview-currency-switch [data-slot='toggle-group-item'][aria-pressed='true'] {
-  color: var(--primary-foreground);
-  background: var(--primary);
+  color: var(--foreground);
+  background: var(--card);
+  font-weight: 550;
+  box-shadow: 0 1px 4px -1px
+    color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .overview-currency-switch[aria-busy='true'] {
@@ -81,7 +84,7 @@
 }
 
 .overview-balance-value {
-  margin-block: 2rem 2.25rem;
+  margin-block: 2.25rem 2.5rem;
   min-height: 2.75rem;
   font-size: clamp(2rem, 5cqi, 3.75rem);
   font-weight: 600;
@@ -127,7 +130,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
   align-items: baseline;
   gap: 0.5rem 1rem;
-  padding-block: 1.25rem;
+  padding-block: 1.4rem;
 }
 
 .overview-metric + .overview-metric {

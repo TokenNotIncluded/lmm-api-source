@@ -646,14 +646,12 @@ fn convert(
         )?,
         None => amount,
     };
-    let quotient = amount.0.to_integer();
-    let remainder = amount.0.numer() % amount.0.denom();
-    let round = if ceiling {
-        remainder != BigUint::from(0_u8)
+    let rounded = if ceiling {
+        amount.0.ceil()
     } else {
-        (&remainder << 1_usize) >= amount.0.denom().clone()
+        amount.0.round()
     };
-    let result = quotient + BigUint::from(u8::from(round));
+    let result = rounded.to_integer();
     // The legacy positive-price successful settlement has a one-credit floor.
     // A zero expression or free group remains zero; undispatched cancellation
     // has zero usage and therefore never acquires a minimum charge.

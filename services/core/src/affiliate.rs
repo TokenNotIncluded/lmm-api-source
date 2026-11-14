@@ -31,6 +31,7 @@ pub struct Receipt {
     pub amount_credits: i64,
     pub outcome: Outcome,
 }
+#[derive(Serialize)]
 struct Preview {
     id: i64,
     amount: i64,
@@ -128,6 +129,59 @@ impl Store {
         })
     }
 }
+/// Attach acquisition attribution on the registration transaction, before commit.
+/// Empty codes are allowed; invalid codes fail the whole registration. No funds are minted.
+pub(crate) async fn bind_registration(
+    connection: &mut sqlx::PgConnection,
+    user: i64,
+    code: &str,
+) -> Result<(), crate::identity::IdentityError> {
+    use crate::identity::IdentityError;
+    if code.is_empty() {
+        return Ok(());
+    }
+    if code.len() != 32
+        || !code
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(IdentityError::Invalid);
+    }
+    let inviter: i64 = sqlx::query_scalar("SELECT c.user_id FROM core_identity.affiliate_codes c JOIN core_identity.users u ON u.id=c.user_id WHERE c.code=$1 AND u.active")
+        .bind(code).fetch_optional(&mut *connection).await?.ok_or(IdentityError::Invalid)?;
+    if inviter == user {
+        return Err(IdentityError::Invalid);
+    }
+    sqlx::query(
+        "INSERT INTO core_identity.affiliate_registrations(user_id,inviter_id) VALUES($1,$2)",
+    )
+    .bind(user)
+    .bind(inviter)
+    .execute(connection)
+    .await?;
+    Ok(())
+}
+
+async fn affiliate_code(State(s): State<Browser>, headers: HeaderMap) -> Result<Response, Error> {
+    let mut tx = s.store.pool.begin().await?;
+    let actor = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie(&headers)?).await?;
+    let mut bytes = [0u8; 16];
+    SysRng
+        .try_fill_bytes(&mut bytes)
+        .map_err(|_| Error::Unavailable)?;
+    sqlx::query("INSERT INTO core_identity.affiliate_codes(user_id,code) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING")
+        .bind(actor.user).bind(crate::hex_codec::encode(bytes)).execute(&mut *tx).await?;
+    let code: String =
+        sqlx::query_scalar("SELECT code FROM core_identity.affiliate_codes WHERE user_id=$1")
+            .bind(actor.user)
+            .fetch_one(&mut *tx)
+            .await?;
+    tx.commit().await?;
+    Ok(secure(
+        Json(serde_json::json!({"success":true,"message":"","data":code})).into_response(),
+    ))
+}
+
 async fn payment_policy(c: &mut sqlx::PgConnection) -> Result<(), Error> {
     let confirmed: bool = sqlx::query_scalar("SELECT coalesce(bool_or(key='payment_setting.compliance_confirmed' AND value='true'),false) AND coalesce(bool_or(key='payment_setting.compliance_terms_version' AND value='v1'),false) FROM core_console.options WHERE key IN ('payment_setting.compliance_confirmed','payment_setting.compliance_terms_version')").fetch_one(c).await?;
     if confirmed {
@@ -158,6 +212,9 @@ pub fn router(store: Store, origin: String, local_http: bool) -> Result<Router, 
         return Err(Error::Invalid);
     }
     Ok(Router::new()
+        .route("/api/user/aff", get(affiliate_code))
+        .route("/core/v1/affiliate/code", get(affiliate_code))
+        .route("/core/v1/affiliate/preview", post(preview_json))
         .route("/core/v1/affiliate/claim", get(page))
         .route("/core/v1/affiliate/claim/{id}", post(confirm))
         .layer(DefaultBodyLimit::max(2048))
@@ -198,6 +255,30 @@ fn secure(mut response: Response) -> Response {
 struct Amount {
     amount_credits: Option<String>,
 }
+async fn preview_json(
+    State(s): State<Browser>,
+    headers: HeaderMap,
+    Json(input): Json<Amount>,
+) -> Result<Response, Error> {
+    let mut origins = headers.get_all(header::ORIGIN).iter();
+    if origins.next().and_then(|v| v.to_str().ok()) != Some(s.origin.as_str())
+        || origins.next().is_some()
+    {
+        return Err(Error::Forbidden);
+    }
+    let amount = input
+        .amount_credits
+        .map(|value| {
+            if value.is_empty() || !value.bytes().all(|c| c.is_ascii_digit()) {
+                return Err(Error::Invalid);
+            }
+            value.parse::<i64>().map_err(|_| Error::Invalid)
+        })
+        .transpose()?;
+    let preview = s.store.preview(cookie(&headers)?, amount).await?;
+    Ok(secure(Json(preview).into_response()))
+}
+
 async fn page(
     State(s): State<Browser>,
     headers: HeaderMap,

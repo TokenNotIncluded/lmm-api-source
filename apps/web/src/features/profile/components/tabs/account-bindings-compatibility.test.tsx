@@ -193,7 +193,7 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-describe('legacy Go account binding compatibility', () => {
+describe('native-only account binding entry', () => {
   test('hides binding actions whose required OAuth configuration is missing', async () => {
     const status = misconfiguredOAuthStatus()
     api.get = (async (url) => {
@@ -272,107 +272,33 @@ describe('legacy Go account binding compatibility', () => {
     queryClient.clear()
   })
 
-  test('renders and calls built-in unbind when live status advertises it', async () => {
-    const statusResponse = deferred<{
-      data: { success: boolean; data: ReturnType<typeof cachedStatus> }
-    }>()
-    const deletes: string[] = []
-    api.get = (async (url) => {
-      if (url === '/api/status') return statusResponse.promise
-      return { data: { success: true, data: [] } }
-    }) as typeof api.get
-    api.delete = (async (url) => {
-      deletes.push(url)
-      return { data: { success: true, data: null } }
-    }) as typeof api.delete
-
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    queryClient.setQueryData(['status', 'anonymous'], cachedStatus())
-    const { root } = await renderBindings(queryClient)
-    assert.equal(buttonsWithText('Unbind').length, 0)
-
-    statusResponse.resolve({
-      data: { success: true, data: cachedStatus() },
-    })
-    await act(async () =>
-      waitForCondition(
-        () => buttonsWithText('Unbind').length > 0,
-        'live self-unbind capability did not render'
-      )
-    )
-
-    const unbindButton = buttonsWithText('Unbind')[0]
-    assert.ok(unbindButton)
-    await act(async () => unbindButton.click())
-    await act(async () =>
-      waitForCondition(
-        () => buttonsWithText('Confirm Unbind').length > 0,
-        'unbind confirmation did not render'
-      )
-    )
-    const confirmButton = buttonsWithText('Confirm Unbind')[0]
-    assert.ok(confirmButton)
-    await act(async () => {
-      confirmButton.click()
-      await waitForCondition(
-        () => deletes.length === 1,
-        'self-unbind request was not sent'
-      )
-    })
-    assert.deepEqual(deletes, ['/api/user/bindings/github'])
-
-    await act(async () => root.unmount())
-    queryClient.clear()
-  })
-
-  test('recognizes an already-bound custom provider when the API returns a numeric id', async () => {
-    const status = customOAuthStatus()
-    api.get = (async (url) => {
-      if (url === '/api/status') {
-        return { data: { success: true, data: status } }
-      }
-      if (url === '/api/user/oauth/bindings') {
+  for (const status of [cachedStatus(), customOAuthStatus()]) {
+    test('does not revive monolith bindings from configured legacy providers', async () => {
+      const requests: string[] = []
+      api.get = (async (url) => {
+        requests.push(String(url))
         return {
-          data: {
-            success: true,
-            data: [
-              {
-                provider_id: 42,
-                provider_name: 'Acme SSO',
-                provider_slug: 'acme-sso',
-                provider_icon: 'link',
-                provider_user_id: 'acme-user-1',
-              },
-            ],
-          },
+          data: { success: true, data: url === '/api/status' ? status : [] },
         }
-      }
-      return { data: { success: true, data: [] } }
-    }) as typeof api.get
-
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      }) as typeof api.get
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      const { root } = await renderBindings(queryClient)
+      await act(async () =>
+        waitForCondition(
+          () => document.body.textContent?.includes('Email') === true,
+          'email binding did not render'
+        )
+      )
+      assert.equal(buttonsWithText('Unbind').length, 0)
+      assert.equal(buttonsWithText('Bind').length, 0)
+      assert.equal(document.body.textContent?.includes('GitHub'), false)
+      assert.equal(document.body.textContent?.includes('Acme SSO'), false)
+      assert.equal(requests.includes('/api/user/oauth/bindings'), false)
+      assert.ok(document.body.textContent?.includes('Email'))
+      await act(async () => root.unmount())
+      queryClient.clear()
     })
-    queryClient.setQueryData(['status', 'anonymous'], status)
-    const { root } = await renderBindings(queryClient)
-
-    await act(async () =>
-      waitForCondition(
-        () => document.body.textContent?.includes('Acme SSO') === true,
-        'custom provider did not render'
-      )
-    )
-    await act(async () =>
-      waitForCondition(
-        () => buttonsWithText('Unbind').length === 2,
-        'numeric custom provider binding was not recognized'
-      )
-    )
-    assert.equal(buttonsWithText('Bind').length, 0)
-
-    await act(async () => root.unmount())
-    queryClient.clear()
-  })
+  }
 })

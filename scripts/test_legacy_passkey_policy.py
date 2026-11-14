@@ -60,6 +60,20 @@ class SourcePasskeyPolicyTests(unittest.TestCase):
         _, key = H.passkey_json(row())
         self.assertEqual(key["cred"]["registration_policy"], "required")
 
+    def test_unmapped_passkey_owner_blocks_whole_plan(self):
+        args = SimpleNamespace(source_schema="synthetic")
+        with patch.object(H, "query", side_effect=[[row()], [], []]):
+            with self.assertRaisesRegex(SystemExit, "passkey_owner_unmapped"):
+                H.plan_passkeys(args, object(), object())
+
+    def test_telegram_invalid_or_duplicate_blocks_instead_of_skipping(self):
+        for subjects in (("invalid",), ("42", "42")):
+            rows = [{"id": i + 1, "telegram_id": subject, "deleted_at": None}
+                    for i, subject in enumerate(subjects)]
+            with self.subTest(subjects=subjects), patch.object(H, "query", return_value=rows):
+                with self.assertRaisesRegex(SystemExit, "telegram_invalid_or_duplicate"):
+                    H.plan_telegram(SimpleNamespace(source_schema="synthetic"), object(), object())
+
 
 if __name__ == "__main__":
     unittest.main()

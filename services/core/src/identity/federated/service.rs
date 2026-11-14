@@ -1,7 +1,7 @@
 use super::{
     FederatedKeys, FederatedProvider, ProviderConfiguration, ProviderKind, network::ProviderNetwork,
 };
-use crate::identity::{IdentityError, IdentityStore, Result};
+use crate::identity::{IdentityError, IdentityStore, Result, registration_policy::OAuthRegistrationPolicy};
 use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::sync::Arc;
 
@@ -90,7 +90,7 @@ impl IdentityStore {
 
     pub(crate) async fn federated_catalog(&self) -> Result<serde_json::Value> {
         self.federated_auth()?;
-        public_catalog(&self.pool).await
+        public_catalog(&self.pool, self.oauth_registration_policy()).await
     }
 
     pub(crate) fn validate_federated_configuration(
@@ -265,7 +265,10 @@ impl IdentityStore {
     }
 }
 
-pub(crate) async fn public_catalog(pool: &sqlx::PgPool) -> Result<serde_json::Value> {
+pub(crate) async fn public_catalog(
+    pool: &sqlx::PgPool,
+    registration: OAuthRegistrationPolicy<'_>,
+) -> Result<serde_json::Value> {
     let rows = sqlx::query("SELECT id,kind,slug,name,icon,revision,configuration FROM core_federated_auth.providers WHERE enabled AND deleted_at IS NULL ORDER BY id LIMIT 1001")
         .fetch_all(pool).await?;
     if rows.len() > 1000 {
@@ -273,10 +276,13 @@ pub(crate) async fn public_catalog(pool: &sqlx::PgPool) -> Result<serde_json::Va
     }
     let mut providers = Vec::with_capacity(rows.len());
     for row in rows {
+        let id: i64 = row.try_get("id")?;
+        let kind = ProviderKind::parse(&row.try_get::<String, _>("kind")?)?;
+        let slug: String = row.try_get("slug")?;
         let configuration: ProviderConfiguration =
             serde_json::from_value(row.try_get("configuration")?)
                 .map_err(|_| IdentityError::Storage)?;
-        providers.push(serde_json::json!({"id":row.try_get::<i64,_>("id")?.to_string(),"kind":row.try_get::<String,_>("kind")?,"slug":row.try_get::<String,_>("slug")?,"name":row.try_get::<String,_>("name")?,"icon":row.try_get::<String,_>("icon")?,"revision":row.try_get::<i64,_>("revision")?.to_string(),"client_id":configuration.client_id,"authorization_endpoint":configuration.authorization_endpoint,"scopes":configuration.scopes,"qr_code_url":configuration.qr_code_url,"native_federated":true}));
+        providers.push(serde_json::json!({"id":id.to_string(),"kind":kind,"slug":slug,"name":row.try_get::<String,_>("name")?,"icon":row.try_get::<String,_>("icon")?,"revision":row.try_get::<i64,_>("revision")?.to_string(),"client_id":configuration.client_id,"authorization_endpoint":configuration.authorization_endpoint,"scopes":configuration.scopes,"qr_code_url":configuration.qr_code_url,"native_federated":true,"registration_enabled":registration.allows_federated(id,kind,&slug)}));
     }
     Ok(serde_json::Value::Array(providers))
 }

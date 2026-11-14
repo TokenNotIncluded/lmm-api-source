@@ -29,8 +29,8 @@ const NO_BACKEND_CAPABILITIES: Readonly<BackendCapabilities> = Object.freeze({
 export function getBackendCapabilities(
   status: SystemStatus | null | undefined
 ): BackendCapabilities {
-  const reported =
-    status?.backend_capabilities ?? status?.data?.backend_capabilities
+  // getStatus unwraps the Core response at the API boundary.
+  const reported = status?.backend_capabilities
 
   return {
     bounty_notifications: reported?.bounty_notifications === true,

@@ -8,14 +8,6 @@ use std::{
 #[path = "common/runtime.rs"]
 mod runtime;
 
-fn core(args: &[&str]) -> Command {
-    let mut command = file_core(args);
-    command
-        .arg("--legacy-env")
-        .env("LMM_CORE_WORKER_THREADS", "1");
-    command
-}
-
 fn file_core(args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lmm-core"));
     command
@@ -29,12 +21,57 @@ fn file_core(args: &[&str]) -> Command {
 
 fn run(args: &[&str], input: &[u8], variables: &[(&str, &str)]) -> Output {
     finish(
-        core(args).envs(variables.iter().copied()).spawn().unwrap(),
+        file_core(args)
+            .envs(variables.iter().copied())
+            .spawn()
+            .unwrap(),
         input,
     )
 }
+struct TomlConfig(std::path::PathBuf);
+impl TomlConfig {
+    fn new(url: &str, listen: &str) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "lmm-cli-toml-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let secret = directory.join("database-url");
+        std::fs::write(&secret, url).unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let path = directory.join("core.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "version=1\n[server]\nlisten={listen:?}\n[database]\nurl_file={:?}\n",
+                secret
+            ),
+        )
+        .unwrap();
+        Self(path)
+    }
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = file_core(args);
+        command.args(["--config", self.0.to_str().unwrap()]);
+        command
+    }
+    fn run(&self, args: &[&str], input: &[u8]) -> Output {
+        finish(self.command(args).spawn().unwrap(), input)
+    }
+}
+impl Drop for TomlConfig {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(self.0.parent().unwrap()).unwrap();
+    }
+}
+
 fn finish(mut child: Child, input: &[u8]) -> Output {
-    child.stdin.take().unwrap().write_all(input).unwrap();
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input).unwrap();
+    }
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if child.try_wait().unwrap().is_some() {
@@ -71,17 +108,18 @@ fn help_and_version_ignore_database_and_service_configuration() {
         let output = run(&args, b"", &poisoned);
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        assert!(
-            String::from_utf8(output.stdout)
-                .unwrap()
-                .contains("lmm-core")
-        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("lmm-core"));
+        assert!(!stdout.contains("--legacy-env"));
     }
 }
 
 #[test]
 fn invalid_arguments_are_rejected_without_echoing_or_reading_configuration() {
     for args in [
+        vec!["--legacy-env"],
+        vec!["--legacy-env", "--help"],
+        vec!["--legacy-env", "--version"],
         vec!["do-not-log-this-argument"],
         vec!["serve", "do-not-log-this-argument"],
         vec!["init-db", "do-not-log-this-argument"],
@@ -95,6 +133,25 @@ fn invalid_arguments_are_rejected_without_echoing_or_reading_configuration() {
         let error = String::from_utf8(output.stderr).unwrap();
         assert!(error.contains("Usage: lmm-core"));
         assert!(!error.contains("do-not-log-this-argument"));
+    }
+}
+
+#[test]
+fn retired_checkin_commands_are_rejected_before_config_or_stdin() {
+    for name in ["seed-checkin-history", "publish-checkin-policy"] {
+        let mut child = file_core(&[name, "--config", "/missing-retired-command.toml"])
+            .spawn()
+            .unwrap();
+        // Keep stdin open: rejection must not wait for an owner request.
+        let stdin = child.stdin.take().unwrap();
+        let output = finish(child, b"");
+        drop(stdin);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("Usage: lmm-core"), "{error}");
+        assert!(!error.contains(name));
+        assert!(!error.contains("configuration"));
     }
 }
 
@@ -273,11 +330,8 @@ fn database_url(pool: &PgPool) -> String {
 #[sqlx::test(migrations = false)]
 async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: PgPool) {
     let url = database_url(&pool);
-    let variables = [
-        ("LMM_CORE_DATABASE_URL", url.as_str()),
-        ("LMM_CORE_LISTEN", "invalid"),
-    ];
-    let initialized = run(&["init-db"], b"", &variables);
+    let config = TomlConfig::new(&url, "127.0.0.1:0");
+    let initialized = config.run(&["init-db"], b"");
     assert!(initialized.status.success());
     assert!(initialized.stderr.is_empty());
     let store = IdentityStore::from_pool(pool.clone());
@@ -292,13 +346,13 @@ async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: 
         lmm_core::core_schema::component_count()
     );
     assert!(
-        !run(&["complete-setup"], b"", &variables).status.success(),
+        !config.run(&["complete-setup"], b"").status.success(),
         "an empty installation has no root and cannot be completed"
     );
 
     let mut input = br#"{"user_id":9001,"platform_level":6}"#.to_vec();
     input.resize(4096, b' ');
-    let output = run(&["bootstrap-user"], &input, &variables);
+    let output = config.run(&["bootstrap-user"], &input);
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let issued: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -309,13 +363,13 @@ async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: 
         .unwrap();
     assert_eq!(principal.user_id, 9001);
     assert_eq!(principal.platform_level, 6);
-    assert!(run(&["complete-setup"], b"", &variables).status.success());
+    assert!(config.run(&["complete-setup"], b"").status.success());
     let initialized_at: String =
         sqlx::query_scalar("SELECT initialized_at::text FROM core_console.initialization")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert!(run(&["complete-setup"], b"", &variables).status.success());
+    assert!(config.run(&["complete-setup"], b"").status.success());
     let repeated_at: String =
         sqlx::query_scalar("SELECT initialized_at::text FROM core_console.initialization")
             .fetch_one(&pool)
@@ -327,7 +381,7 @@ async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: 
     );
 
     for args in [vec!["init-db"], vec!["bootstrap-user"]] {
-        let output = run(&args, &input, &variables);
+        let output = config.run(&args, &input);
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
     }
@@ -342,12 +396,9 @@ async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: 
 #[sqlx::test(migrations = false)]
 async fn ordinary_startup_never_initializes_and_init_preserves_an_occupied_database(pool: PgPool) {
     let url = database_url(&pool);
-    let variables = [
-        ("LMM_CORE_DATABASE_URL", url.as_str()),
-        ("LMM_CORE_LISTEN", "127.0.0.1:0"),
-    ];
+    let config = TomlConfig::new(&url, "127.0.0.1:0");
     for args in [vec![], vec!["serve"]] {
-        let output = run(&args, b"", &variables);
+        let output = config.run(&args, b"");
         assert!(!output.status.success());
     }
     let exists: bool =
@@ -360,7 +411,7 @@ async fn ordinary_startup_never_initializes_and_init_preserves_an_occupied_datab
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!run(&["init-db"], b"", &variables).status.success());
+    assert!(!config.run(&["init-db"], b"").status.success());
     let value: String = sqlx::query_scalar("SELECT value FROM sentinel")
         .fetch_one(&pool)
         .await
@@ -502,13 +553,8 @@ async fn default_and_explicit_serve_keep_health_behavior_and_reject_contract_cha
         let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = socket.local_addr().unwrap();
         drop(socket);
-        let mut service = Service(
-            core(&args)
-                .env("LMM_CORE_DATABASE_URL", &url)
-                .env("LMM_CORE_LISTEN", address.to_string())
-                .spawn()
-                .unwrap(),
-        );
+        let config = TomlConfig::new(&url, &address.to_string());
+        let mut service = Service(config.command(&args).spawn().unwrap());
         let endpoint = format!("http://{address}");
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -551,7 +597,7 @@ async fn default_and_explicit_serve_keep_health_behavior_and_reject_contract_cha
     .fetch_one(&pool)
     .await
     .unwrap();
-    let output = run(&["serve"], b"", &[("LMM_CORE_DATABASE_URL", &url)]);
+    let output = TomlConfig::new(&url, "127.0.0.1:0").run(&["serve"], b"");
     assert!(!output.status.success());
     let version: i32 = sqlx::query_scalar("SELECT version FROM core_meta.schema_contract")
         .fetch_one(&pool)
@@ -569,16 +615,10 @@ async fn ordinary_startup_rejects_an_identity_only_installation(pool: PgPool) {
         .unwrap();
     let url = database_url(&pool);
     assert!(
-        !run(
-            &["serve"],
-            b"",
-            &[
-                ("LMM_CORE_DATABASE_URL", &url),
-                ("LMM_CORE_LISTEN", "127.0.0.1:0")
-            ]
-        )
-        .status
-        .success()
+        !TomlConfig::new(&url, "127.0.0.1:0")
+            .run(&["serve"], b"")
+            .status
+            .success()
     );
     let components: bool =
         sqlx::query_scalar("SELECT to_regclass('core_meta.component_contract') IS NOT NULL")

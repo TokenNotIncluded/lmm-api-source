@@ -323,12 +323,13 @@ impl IdentityStore {
         if !exchange.flow.accepted_legal {
             return Err(IdentityError::Forbidden);
         }
-        let method = if exchange.kind() == ProviderKind::CustomOauth {
-            format!("custom:{}", exchange.flow.provider.slug)
-        } else {
-            exchange.kind().as_str().to_owned()
-        };
-        self.require_oauth_registration(&method)?;
+        if !self.oauth_registration_policy().allows_federated(
+            exchange.provider_id(),
+            exchange.kind(),
+            &exchange.flow.provider.slug,
+        ) {
+            return Err(IdentityError::Forbidden);
+        }
         self.require_registration_email(if mapped.email_verified {
             Some(&mapped.email)
         } else {
@@ -369,9 +370,7 @@ impl IdentityStore {
         crate::abuse::registration::record(connection, user, source)
             .await
             .map_err(|_| IdentityError::Storage)?;
-        // The consumed flow retains the affiliate code for the existing
-        // acquisition writer; no arbitrary Core capability comes from it.
-        let _affiliate = &exchange.flow.affiliate;
+        crate::affiliate::bind_registration(connection, user, &exchange.flow.affiliate).await?;
         Ok(user)
     }
 }

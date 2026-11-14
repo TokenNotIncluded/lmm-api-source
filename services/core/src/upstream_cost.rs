@@ -2,6 +2,7 @@
 //! selected model or add token/tool fees to an already inclusive account charge.
 use crate::billing::trust_pricing::DiscountRatio;
 use num_bigint::BigUint;
+use num_rational::Ratio;
 
 pub const ATTO_USD: u128 = 1_000_000_000_000_000_000;
 pub const CREDITS_PER_USD: u128 = 500_000;
@@ -94,8 +95,7 @@ pub(crate) fn ceil_with_discount(
         numerator *= discount.numerator();
         denominator *= discount.denominator();
     }
-    let rounded = &numerator / &denominator
-        + BigUint::from(u8::from(&numerator % &denominator != BigUint::from(0_u8)));
+    let rounded = Ratio::new(numerator, denominator).ceil().to_integer();
     u64::try_from(rounded).ok()
 }
 
@@ -115,15 +115,36 @@ pub(crate) fn half_away_with_discount(
         numerator *= discount.numerator();
         denominator *= discount.denominator();
     }
-    let remainder = &numerator % &denominator;
-    let rounded =
-        &numerator / &denominator + BigUint::from(u8::from(remainder * 2_u8 >= denominator));
+    let rounded = Ratio::new(numerator, denominator).round().to_integer();
     u64::try_from(rounded).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rounding_preserves_ties_zero_and_credit_limits() {
+        for (n, d, ceiling, half_away) in [
+            (0, 1, 0, 0),
+            (1, 3, 1, 0),
+            (1, 2, 1, 1),
+            (2, 3, 1, 1),
+            (5, 2, 3, 3),
+            (u128::MAX - 1, u128::MAX, 1, 1),
+        ] {
+            assert_eq!(ceil_with_discount(n, d, None), Some(ceiling));
+            assert_eq!(half_away_with_discount(n, d, None), Some(half_away));
+        }
+        let discount = Some(DiscountRatio::new(1, 2).unwrap());
+        assert_eq!(half_away_with_discount(1, 1, discount), Some(1));
+        assert_eq!(half_away_with_discount(1, 2, discount), Some(0));
+        for n in [u128::from(u64::MAX), u128::from(u64::MAX) + 1] {
+            assert_eq!(ceil_with_discount(n, 1, None), u64::try_from(n).ok());
+            assert_eq!(half_away_with_discount(n, 1, None), u64::try_from(n).ok());
+        }
+        assert_eq!(half_away_with_discount(1, 0, None), None);
+    }
+
     #[test]
     fn discount_is_applied_before_the_only_credit_ceiling() {
         let discount = Some(DiscountRatio::new(9, 10).unwrap());

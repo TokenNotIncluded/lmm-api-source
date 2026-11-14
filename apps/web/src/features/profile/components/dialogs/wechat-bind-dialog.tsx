@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -31,14 +31,11 @@ import {
 } from '@/features/auth/lib/auth-completion'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { bindWeChat } from '../../api'
-
 interface WeChatBindDialogProps {
   open: boolean
   qrCodeUrl: string
   onOpenChange: (open: boolean) => void
-  onSuccess?: () => void
-  onSubmitCode?: (code: string) => Promise<void>
+  onSubmitCode: (code: string) => Promise<void>
 }
 
 export function WeChatBindDialog(props: WeChatBindDialogProps) {
@@ -54,14 +51,6 @@ export function WeChatBindDialog(props: WeChatBindDialogProps) {
     setVerificationCode('')
     setSubmitting(false)
   }
-  const lifecycle = useRef({ generation: 0 })
-  useEffect(() => {
-    const resource = lifecycle.current
-    return () => {
-      resource.generation++
-    }
-  }, [props.open, userId, sessionId])
-
   const handleOpenChange = (open: boolean) => {
     if (submitting) return
     if (!open) setVerificationCode('')
@@ -73,7 +62,6 @@ export function WeChatBindDialog(props: WeChatBindDialogProps) {
     const code = verificationCode.trim()
     if (!code || submitting) return
 
-    const generation = lifecycle.current.generation
     const auth = useAuthStore.getState().auth
     const owner = JSON.stringify([
       auth.user?.id ?? null,
@@ -87,30 +75,17 @@ export function WeChatBindDialog(props: WeChatBindDialogProps) {
         JSON.stringify([
           current.user?.id ?? null,
           current.session?.sid ?? null,
-        ]) === owner &&
-        (props.onSubmitCode !== undefined ||
-          lifecycle.current.generation === generation)
+        ]) === owner
       )
     }
     setSubmitting(true)
     try {
-      if (props.onSubmitCode) {
-        await props.onSubmitCode(code)
-      } else {
-        const response = await bindWeChat(code)
-        if (!response.success) {
-          if (isCurrent() && !reportOwnedAuthError(response, t)) {
-            reportAuthError(response, t, t('Request failed'))
-          }
-          return
-        }
-      }
+      await props.onSubmitCode(code)
 
       if (!isCurrent()) return
       toast.success(t('Binding successful!'))
       setVerificationCode('')
       props.onOpenChange(false)
-      props.onSuccess?.()
     } catch (error) {
       if (isCurrent() && !reportOwnedAuthError(error, t)) {
         reportAuthError(error, t, t('Request failed'))

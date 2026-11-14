@@ -163,8 +163,7 @@ function ProjectAttribution(props: {
   const { t } = useTranslation()
   const content = (
     <span className='text-muted-foreground/45'>
-      &copy; {props.currentYear} {props.name}.{' '}
-      {t('Bounty collaboration')}
+      &copy; {props.currentYear} {props.name}. {t('Bounty collaboration')}
     </span>
   )
   if (props.inline) {

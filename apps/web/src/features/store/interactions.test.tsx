@@ -139,6 +139,25 @@ const product: StoreProduct = {
   created_at: 1,
   updated_at: 1,
   review_note: '',
+  default_variant_id: 'fixture-default',
+  variants: [
+    {
+      id: 'fixture-default',
+      product_id: 'product-fixture',
+      name: 'Default',
+      price_quota: 500000,
+      template: 'card-key',
+      enabled: true,
+      is_default: true,
+      created_at: 1,
+      updated_at: 1,
+      inventory_total: 5,
+      inventory_available: 5,
+      reserved_stock: 0,
+      sale_available: 5,
+      trading_paused: false,
+    },
+  ],
 }
 const result = (data: unknown) => ({ data: { success: true, data } })
 function spec(id: string, changes: Partial<StoreVariant> = {}): StoreVariant {
@@ -267,6 +286,13 @@ test('fixed-content product edits load private content from the seller endpoint 
     template: 'fixed-content' as const,
     unlimited_supply: true,
     default_variant_id: 'fixed-default',
+    variants: [
+      {
+        ...product.variants![0],
+        template: 'fixed-content' as const,
+        unlimited_supply: true,
+      },
+    ],
   }
   const reads: string[] = []
   const writes: Record<string, unknown>[] = []
@@ -391,7 +417,11 @@ test('fixed-content inventory shows guidance without reading or importing stock'
   }) as typeof api.post
   await mount(
     <StoreInventoryImport
-      product={{ ...product, template: 'fixed-content' }}
+      product={{
+        ...product,
+        template: 'fixed-content',
+        variants: [{ ...product.variants![0], template: 'fixed-content' }],
+      }}
       onClose={() => {}}
       onSaved={async () => {}}
     />
@@ -430,12 +460,18 @@ for (const configured of [false, true]) {
           data: { success: false, message: 'Extore is not configured' },
         }
       }
-      assert.equal(url, `/api/store/products/${product.id}/inventory`)
+      assert.equal(
+        url,
+        `/api/store/products/${product.id}/variants/fixture-default/inventory`
+      )
       stockReads.push(url)
       return result({ items: [], has_more: false })
     }) as typeof api.get
     api.post = (async (url: string, body: unknown) => {
-      assert.equal(url, `/api/store/products/${product.id}/inventory`)
+      assert.equal(
+        url,
+        `/api/store/products/${product.id}/variants/fixture-default/inventory`
+      )
       writes.push(body)
       if (writes.length === 1) throw new Error('Import acknowledgment lost')
       return result({ added: 1 })
@@ -932,6 +968,7 @@ test('taking a product off shelf and relisting use distinct listing requests wit
           paid_quantity: 2,
           reserved_quantity: 3,
           sale_available: 5,
+          variants: [{ ...product.variants![0], sale_available: 5 }],
         },
       ],
       has_more: false,
@@ -971,6 +1008,7 @@ test('remaining sales quota preserves 1000 physical items while setting 10, 0, a
         paid_quantity: 20,
         reserved_quantity: 3,
         sale_available: 997,
+        variants: [{ ...product.variants![0], sale_available: 997 }],
       }}
       onSaved={async () => {
         refreshed++
@@ -1014,6 +1052,7 @@ test('a failed sales limit save keeps the merchant draft and rejects fractional 
         paid_quantity: 1,
         reserved_quantity: 1,
         sale_available: 5,
+        variants: [{ ...product.variants![0], sale_available: 5 }],
       }}
       onSaved={async () => {
         refreshed++
@@ -1053,6 +1092,7 @@ test('remaining quota follows settlements only while pristine and preserves unsa
       paid_quantity: 20,
       reserved_quantity: 3,
       sale_available: 7,
+      variants: [{ ...product.variants![0], sale_available: 7 }],
     })
     replaceProduct = setCurrent
     return <StoreSalesLimit product={current} onSaved={async () => {}} />
@@ -1330,7 +1370,12 @@ test('official products skip independent disclaimer acceptance and unavailable s
   }) as typeof api.post
   await mount(
     <StoreCheckout
-      product={{ ...product, official: true, available_stock: 0 }}
+      product={{
+        ...product,
+        official: true,
+        available_stock: 0,
+        variants: [{ ...product.variants![0], sale_available: 0 }],
+      }}
     />
   )
   assert.equal(button('Place order').disabled, true)
@@ -2032,7 +2077,10 @@ test('multi-line custom inventory remains one item and failed import preserves t
   api.get = (async () =>
     result({ items: [], has_more: false })) as typeof api.get
   api.post = (async (url: string, body: unknown) => {
-    assert.equal(url, `/api/store/products/${product.id}/inventory`)
+    assert.equal(
+      url,
+      `/api/store/products/${product.id}/variants/fixture-default/inventory`
+    )
     calls.push(body)
     if (fail) throw new Error('offline')
     return result({ added: 1 })
@@ -2040,7 +2088,11 @@ test('multi-line custom inventory remains one item and failed import preserves t
   await mount(
     <StoreInventoryImport
       stockItemsSupported
-      product={{ ...product, template: 'custom-text' }}
+      product={{
+        ...product,
+        template: 'custom-text',
+        variants: [{ ...product.variants![0], template: 'custom-text' }],
+      }}
       onClose={() => {}}
       onSaved={async () => {}}
     />
@@ -2069,7 +2121,10 @@ for (const source of ['textarea', 'file']) {
     api.get = (async () =>
       result({ items: [], has_more: false })) as typeof api.get
     api.post = (async (url: string, body: unknown) => {
-      assert.equal(url, `/api/store/products/${product.id}/inventory`)
+      assert.equal(
+        url,
+        `/api/store/products/${product.id}/variants/fixture-default/inventory`
+      )
       writes.push(body)
       return result({ added: 4 })
     }) as typeof api.post
@@ -2167,7 +2222,11 @@ for (const template of [
       return opened ? (
         <StoreInventoryImport
           stockItemsSupported
-          product={{ ...product, template }}
+          product={{
+            ...product,
+            template,
+            variants: [{ ...product.variants![0], template }],
+          }}
           onClose={() => {
             closes++
             setOpened(false)
@@ -2299,7 +2358,11 @@ test('account inventory combines its fields into one item without showing an int
   await mount(
     <StoreInventoryImport
       stockItemsSupported
-      product={{ ...product, template: 'account-details' }}
+      product={{
+        ...product,
+        template: 'account-details',
+        variants: [{ ...product.variants![0], template: 'account-details' }],
+      }}
       onClose={() => {}}
       onSaved={async () => {}}
     />

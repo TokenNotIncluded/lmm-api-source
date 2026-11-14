@@ -682,6 +682,12 @@ const (
 	CoreSubscriptionPayments_ReadStripePurchase_FullMethodName             = "/lmm.core.v1.CoreSubscriptionPayments/ReadStripePurchase"
 	CoreSubscriptionPayments_AcceptStripeSubscriptionEvent_FullMethodName  = "/lmm.core.v1.CoreSubscriptionPayments/AcceptStripeSubscriptionEvent"
 	CoreSubscriptionPayments_GetStripeSubscriptionEvent_FullMethodName     = "/lmm.core.v1.CoreSubscriptionPayments/GetStripeSubscriptionEvent"
+	CoreSubscriptionPayments_ResolveCreemSubscriptionOrder_FullMethodName  = "/lmm.core.v1.CoreSubscriptionPayments/ResolveCreemSubscriptionOrder"
+	CoreSubscriptionPayments_PrepareCreemPurchase_FullMethodName           = "/lmm.core.v1.CoreSubscriptionPayments/PrepareCreemPurchase"
+	CoreSubscriptionPayments_ConfirmCreemPurchase_FullMethodName           = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmCreemPurchase"
+	CoreSubscriptionPayments_ReadCreemPurchase_FullMethodName              = "/lmm.core.v1.CoreSubscriptionPayments/ReadCreemPurchase"
+	CoreSubscriptionPayments_AcceptCreemSubscriptionEvent_FullMethodName   = "/lmm.core.v1.CoreSubscriptionPayments/AcceptCreemSubscriptionEvent"
+	CoreSubscriptionPayments_GetCreemSubscriptionEvent_FullMethodName      = "/lmm.core.v1.CoreSubscriptionPayments/GetCreemSubscriptionEvent"
 	CoreSubscriptionPayments_PrepareEPayPurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/PrepareEPayPurchase"
 	CoreSubscriptionPayments_ConfirmEPayPurchase_FullMethodName            = "/lmm.core.v1.CoreSubscriptionPayments/ConfirmEPayPurchase"
 	CoreSubscriptionPayments_ReadEPayPurchase_FullMethodName               = "/lmm.core.v1.CoreSubscriptionPayments/ReadEPayPurchase"
@@ -710,6 +716,14 @@ type CoreSubscriptionPaymentsClient interface {
 	// subscription proof_ingress and grant capability, never Go API-paid status.
 	AcceptStripeSubscriptionEvent(ctx context.Context, in *AcceptEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*StripeSubscriptionEvent, error)
 	GetStripeSubscriptionEvent(ctx context.Context, in *GetEPaySubscriptionProofRequest, opts ...grpc.CallOption) (*StripeSubscriptionEvent, error)
+	ResolveCreemSubscriptionOrder(ctx context.Context, in *CreemSubscriptionLookup, opts ...grpc.CallOption) (*EPaySubscriptionOrderRequest, error)
+	PrepareCreemPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*CreemSubscriptionOrder, error)
+	ConfirmCreemPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*CreemSubscriptionOrder, error)
+	ReadCreemPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*CreemSubscriptionOrder, error)
+	// Atomic original proof admission + optional transaction grant. Requires both
+	// subscription proof_ingress and grant capability, never Go API-paid status.
+	AcceptCreemSubscriptionEvent(ctx context.Context, in *AcceptCreemSubscriptionEventRequest, opts ...grpc.CallOption) (*CreemSubscriptionEvent, error)
+	GetCreemSubscriptionEvent(ctx context.Context, in *GetCreemSubscriptionEventRequest, opts ...grpc.CallOption) (*CreemSubscriptionEvent, error)
 	PrepareEPayPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
 	ConfirmEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPayCheckout, error)
 	ReadEPayPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error)
@@ -837,6 +851,66 @@ func (c *coreSubscriptionPaymentsClient) GetStripeSubscriptionEvent(ctx context.
 	return out, nil
 }
 
+func (c *coreSubscriptionPaymentsClient) ResolveCreemSubscriptionOrder(ctx context.Context, in *CreemSubscriptionLookup, opts ...grpc.CallOption) (*EPaySubscriptionOrderRequest, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPaySubscriptionOrderRequest)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ResolveCreemSubscriptionOrder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) PrepareCreemPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*CreemSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreemSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_PrepareCreemPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ConfirmCreemPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*CreemSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreemSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ConfirmCreemPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) ReadCreemPurchase(ctx context.Context, in *EPaySubscriptionOrderRequest, opts ...grpc.CallOption) (*CreemSubscriptionOrder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreemSubscriptionOrder)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_ReadCreemPurchase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) AcceptCreemSubscriptionEvent(ctx context.Context, in *AcceptCreemSubscriptionEventRequest, opts ...grpc.CallOption) (*CreemSubscriptionEvent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreemSubscriptionEvent)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_AcceptCreemSubscriptionEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreSubscriptionPaymentsClient) GetCreemSubscriptionEvent(ctx context.Context, in *GetCreemSubscriptionEventRequest, opts ...grpc.CallOption) (*CreemSubscriptionEvent, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreemSubscriptionEvent)
+	err := c.cc.Invoke(ctx, CoreSubscriptionPayments_GetCreemSubscriptionEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *coreSubscriptionPaymentsClient) PrepareEPayPurchase(ctx context.Context, in *PrepareEPayPurchaseRequest, opts ...grpc.CallOption) (*EPaySubscriptionOrder, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EPaySubscriptionOrder)
@@ -926,6 +1000,14 @@ type CoreSubscriptionPaymentsServer interface {
 	// subscription proof_ingress and grant capability, never Go API-paid status.
 	AcceptStripeSubscriptionEvent(context.Context, *AcceptEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error)
 	GetStripeSubscriptionEvent(context.Context, *GetEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error)
+	ResolveCreemSubscriptionOrder(context.Context, *CreemSubscriptionLookup) (*EPaySubscriptionOrderRequest, error)
+	PrepareCreemPurchase(context.Context, *PrepareEPayPurchaseRequest) (*CreemSubscriptionOrder, error)
+	ConfirmCreemPurchase(context.Context, *EPaySubscriptionOrderRequest) (*CreemSubscriptionOrder, error)
+	ReadCreemPurchase(context.Context, *EPaySubscriptionOrderRequest) (*CreemSubscriptionOrder, error)
+	// Atomic original proof admission + optional transaction grant. Requires both
+	// subscription proof_ingress and grant capability, never Go API-paid status.
+	AcceptCreemSubscriptionEvent(context.Context, *AcceptCreemSubscriptionEventRequest) (*CreemSubscriptionEvent, error)
+	GetCreemSubscriptionEvent(context.Context, *GetCreemSubscriptionEventRequest) (*CreemSubscriptionEvent, error)
 	PrepareEPayPurchase(context.Context, *PrepareEPayPurchaseRequest) (*EPaySubscriptionOrder, error)
 	ConfirmEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPayCheckout, error)
 	ReadEPayPurchase(context.Context, *EPaySubscriptionOrderRequest) (*EPaySubscriptionOrder, error)
@@ -975,6 +1057,24 @@ func (UnimplementedCoreSubscriptionPaymentsServer) AcceptStripeSubscriptionEvent
 }
 func (UnimplementedCoreSubscriptionPaymentsServer) GetStripeSubscriptionEvent(context.Context, *GetEPaySubscriptionProofRequest) (*StripeSubscriptionEvent, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStripeSubscriptionEvent not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ResolveCreemSubscriptionOrder(context.Context, *CreemSubscriptionLookup) (*EPaySubscriptionOrderRequest, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveCreemSubscriptionOrder not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) PrepareCreemPurchase(context.Context, *PrepareEPayPurchaseRequest) (*CreemSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareCreemPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ConfirmCreemPurchase(context.Context, *EPaySubscriptionOrderRequest) (*CreemSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmCreemPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) ReadCreemPurchase(context.Context, *EPaySubscriptionOrderRequest) (*CreemSubscriptionOrder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadCreemPurchase not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) AcceptCreemSubscriptionEvent(context.Context, *AcceptCreemSubscriptionEventRequest) (*CreemSubscriptionEvent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptCreemSubscriptionEvent not implemented")
+}
+func (UnimplementedCoreSubscriptionPaymentsServer) GetCreemSubscriptionEvent(context.Context, *GetCreemSubscriptionEventRequest) (*CreemSubscriptionEvent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCreemSubscriptionEvent not implemented")
 }
 func (UnimplementedCoreSubscriptionPaymentsServer) PrepareEPayPurchase(context.Context, *PrepareEPayPurchaseRequest) (*EPaySubscriptionOrder, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareEPayPurchase not implemented")
@@ -1217,6 +1317,114 @@ func _CoreSubscriptionPayments_GetStripeSubscriptionEvent_Handler(srv interface{
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoreSubscriptionPayments_ResolveCreemSubscriptionOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreemSubscriptionLookup)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ResolveCreemSubscriptionOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ResolveCreemSubscriptionOrder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ResolveCreemSubscriptionOrder(ctx, req.(*CreemSubscriptionLookup))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_PrepareCreemPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareEPayPurchaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).PrepareCreemPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_PrepareCreemPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).PrepareCreemPurchase(ctx, req.(*PrepareEPayPurchaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ConfirmCreemPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmCreemPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ConfirmCreemPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ConfirmCreemPurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_ReadCreemPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EPaySubscriptionOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).ReadCreemPurchase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_ReadCreemPurchase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).ReadCreemPurchase(ctx, req.(*EPaySubscriptionOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_AcceptCreemSubscriptionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptCreemSubscriptionEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptCreemSubscriptionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_AcceptCreemSubscriptionEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).AcceptCreemSubscriptionEvent(ctx, req.(*AcceptCreemSubscriptionEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreSubscriptionPayments_GetCreemSubscriptionEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCreemSubscriptionEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreSubscriptionPaymentsServer).GetCreemSubscriptionEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreSubscriptionPayments_GetCreemSubscriptionEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreSubscriptionPaymentsServer).GetCreemSubscriptionEvent(ctx, req.(*GetCreemSubscriptionEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CoreSubscriptionPayments_PrepareEPayPurchase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PrepareEPayPurchaseRequest)
 	if err := dec(in); err != nil {
@@ -1393,6 +1601,30 @@ var CoreSubscriptionPayments_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStripeSubscriptionEvent",
 			Handler:    _CoreSubscriptionPayments_GetStripeSubscriptionEvent_Handler,
+		},
+		{
+			MethodName: "ResolveCreemSubscriptionOrder",
+			Handler:    _CoreSubscriptionPayments_ResolveCreemSubscriptionOrder_Handler,
+		},
+		{
+			MethodName: "PrepareCreemPurchase",
+			Handler:    _CoreSubscriptionPayments_PrepareCreemPurchase_Handler,
+		},
+		{
+			MethodName: "ConfirmCreemPurchase",
+			Handler:    _CoreSubscriptionPayments_ConfirmCreemPurchase_Handler,
+		},
+		{
+			MethodName: "ReadCreemPurchase",
+			Handler:    _CoreSubscriptionPayments_ReadCreemPurchase_Handler,
+		},
+		{
+			MethodName: "AcceptCreemSubscriptionEvent",
+			Handler:    _CoreSubscriptionPayments_AcceptCreemSubscriptionEvent_Handler,
+		},
+		{
+			MethodName: "GetCreemSubscriptionEvent",
+			Handler:    _CoreSubscriptionPayments_GetCreemSubscriptionEvent_Handler,
 		},
 		{
 			MethodName: "PrepareEPayPurchase",

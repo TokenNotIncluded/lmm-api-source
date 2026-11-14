@@ -57,51 +57,31 @@ fn federated_keyring_requires_stable_replay_key_file() {
 }
 
 #[test]
-fn federated_environment_enable_and_key_must_agree() {
-    const CASE: &str = "LMM_TEST_FEDERATED_CONFIG_CASE";
-    if let Ok(case) = env::var(CASE) {
-        initialize(None, true).unwrap();
-        match case.as_str() {
-            "default" | "off" => assert!(!federated_auth_configured().unwrap()),
-            "implicit" | "on" => assert!(federated_auth_configured().unwrap()),
-            "missing" | "disabled_key" | "invalid" => assert!(federated_auth_configured().is_err()),
-            _ => panic!("unknown test case"),
-        }
-        return;
-    }
-    for (case, enabled, key) in [
-        ("default", None, false),
-        ("off", Some("false"), false),
-        ("implicit", None, true),
-        ("on", Some("true"), true),
-        ("missing", Some("true"), false),
-        ("disabled_key", Some("false"), true),
-        ("invalid", Some("yes"), true),
+fn federated_toml_enable_and_key_must_agree() {
+    for (enabled, key, expected) in [
+        (None, false, true),
+        (Some("false"), false, true),
+        (None, true, false),
+        (Some("true"), true, true),
+        (Some("true"), false, false),
+        (Some("false"), true, false),
+        (Some("'yes'"), true, false),
     ] {
-        let mut command = std::process::Command::new(env::current_exe().unwrap());
-        command
-            .args([
-                "--exact",
-                "config::federated_config_tests::federated_environment_enable_and_key_must_agree",
-                "--nocapture",
-            ])
-            .env_clear()
-            .env(CASE, case);
-        if let Some(enabled) = enabled {
-            command.env("LMM_CORE_FEDERATED_AUTH_ENABLED", enabled);
-        }
-        if key {
-            command.env(
-                "LMM_CORE_FEDERATED_AUTH_KEYRING_FILE",
-                "/nonexistent-test/federated-keyring",
-            );
-        }
-        let output = command.output().unwrap();
-        assert!(
-            output.status.success(),
-            "case {case}: {}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
+        let document = format!(
+            "version=1\n{DATABASE}{WEB}[identity.federated_auth]\n{}{}",
+            enabled
+                .map(|value| format!("enabled={value}\n"))
+                .unwrap_or_default(),
+            if key {
+                "keyring_file='/nonexistent-test/federated-keyring'\n"
+            } else {
+                ""
+            }
+        );
+        assert_eq!(
+            parse_core_file(document.as_bytes()).is_ok(),
+            expected,
+            "{document}"
         );
     }
 }

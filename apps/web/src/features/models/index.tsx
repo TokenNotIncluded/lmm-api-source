@@ -22,27 +22,17 @@ import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
-import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { NativeRoutingManagement } from '@/features/channels/components/native-routing-management'
-import { useChannelOps } from '@/features/channels/use-channel-ops'
-import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { ROLE } from '@/lib/roles'
-import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
 import { CreateDeploymentDrawer } from './components/dialogs/create-deployment-drawer'
-import { ModelsDialogs } from './components/models-dialogs'
-import { ModelsPrimaryButtons } from './components/models-primary-buttons'
-import { ModelsProvider, useModels } from './components/models-provider'
-import { ModelsTable } from './components/models-table'
 import { useModelDeploymentSettings } from './hooks/use-model-deployment-settings'
 import { deploymentsQueryKeys } from './lib'
 import {
@@ -65,7 +55,6 @@ const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
 function ModelsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { tabCategory, setTabCategory } = useModels()
   const params = route.useParams()
   const activeSection = (params.section ??
     MODELS_DEFAULT_SECTION) as ModelsSectionId
@@ -75,13 +64,6 @@ function ModelsContent() {
   const canManageDeployments = useAuthStore(
     (s) => s.auth.user?.role === ROLE.SUPER_ADMIN
   )
-
-  // keep context state in sync (for components that rely on it)
-  useEffect(() => {
-    if (tabCategory !== activeSection) {
-      setTabCategory(activeSection)
-    }
-  }, [activeSection, setTabCategory, tabCategory])
 
   const handleSectionChange = useCallback(
     (section: string) => {
@@ -100,9 +82,7 @@ function ModelsContent() {
       <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          {activeSection === 'metadata' ? (
-            <ModelsPrimaryButtons />
-          ) : (
+          {activeSection === 'metadata' ? null : (
             <Button
               disabled={!canManageDeployments}
               onClick={() => setCreateDeploymentOpen(true)}
@@ -126,7 +106,7 @@ function ModelsContent() {
             </Tabs>
             <div className='min-h-0 flex-1'>
               {activeSection === 'metadata' ? (
-                <ModelsTable />
+                <NativeRoutingManagement initialSection='models' />
               ) : (
                 <DeploymentsSection />
               )}
@@ -135,7 +115,6 @@ function ModelsContent() {
         </SectionPageLayout.Content>
       </SectionPageLayout>
 
-      <ModelsDialogs />
       <CreateDeploymentDrawer
         open={createDeploymentOpen}
         onOpenChange={setCreateDeploymentOpen}
@@ -184,35 +163,5 @@ function DeploymentsSection() {
 }
 
 export function Models() {
-  const { t } = useTranslation()
-  const runtime = useRuntimeCapabilities()
-  const local = useChannelOps(!runtime)
-  const capability = runtime?.channels ?? local
-  const phase = useCapabilityFreshness(capability)
-  if (capability.isLoading) return <LoadingState />
-  if (phase !== 'fresh' || capability.isError) {
-    return (
-      <ErrorState
-        description={
-          getServerErrorMessage(capability.error) ?? t('Failed to load')
-        }
-        onRetry={() => void capability.refetch()}
-      />
-    )
-  }
-  if (capability.data?.data?.native_catalog) {
-    return (
-      <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Models')}</SectionPageLayout.Title>
-        <SectionPageLayout.Content>
-          <NativeRoutingManagement initialSection='models' />
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
-    )
-  }
-  return (
-    <ModelsProvider>
-      <ModelsContent />
-    </ModelsProvider>
-  )
+  return <ModelsContent />
 }

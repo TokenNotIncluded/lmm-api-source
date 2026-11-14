@@ -212,7 +212,7 @@ export function Guide() {
     : copy.stages
   const baseUrl = status
     ? resolveApiBaseUrl(
-        status.server_address ?? status.data?.server_address,
+        status.server_address,
         typeof window === 'undefined' ? '' : window.location.origin
       )
     : null

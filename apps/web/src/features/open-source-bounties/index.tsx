@@ -877,10 +877,7 @@ export function OpenSourceBounties({
               onValueChange={setView}
               className='console-page-tabs min-w-0'
             >
-              <TabsList
-                aria-label={t('Bounties')}
-                variant='navigation'
-              >
+              <TabsList aria-label={t('Bounties')} variant='navigation'>
                 <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
                 <TabsTrigger value='owned'>
                   {t('My bounty projects')}

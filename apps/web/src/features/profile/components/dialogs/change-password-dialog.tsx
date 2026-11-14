@@ -80,8 +80,14 @@ export function ChangePasswordDialog({
       return
     }
 
-    if (formData.newPassword.length < 8) {
+    const passwordLength = Array.from(formData.newPassword).length
+    if (passwordLength < 8) {
       toast.error(t('Password must be at least 8 characters'))
+      return
+    }
+
+    if (passwordLength > 20) {
+      toast.error(t('Password must be at most 20 characters long'))
       return
     }
 

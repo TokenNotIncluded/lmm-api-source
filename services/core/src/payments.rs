@@ -12,6 +12,7 @@ pub mod rpc;
 mod stripe;
 pub(crate) mod subscription_epay;
 pub(crate) mod subscription_stripe;
+pub(crate) mod subscription_creem;
 pub(crate) mod waffo;
 pub use credit_quote::{CreditQuotePolicy, CreditQuoteRatio};
 pub use legacy::{LegacyRefundError, cumulative_half_up_credit_delta};

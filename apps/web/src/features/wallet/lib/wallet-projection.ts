@@ -22,13 +22,6 @@ export type WalletProjectionUser = Pick<
   | 'wallet_money_available'
 >
 
-export function isNativeWallet(user: WalletProjectionUser | null | undefined) {
-  return (
-    user?.wallet_unit !== undefined ||
-    user?.wallet_money_available !== undefined
-  )
-}
-
 export function exactCredit(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : null
 }
@@ -36,28 +29,18 @@ export function exactCredit(value: unknown): number | null {
 export function walletProjection(
   user: WalletProjectionUser | null | undefined
 ) {
-  const native = isNativeWallet(user)
-  const financial = user?.financial_projection_available !== false
-  const available = financial
-    ? native
-      ? user?.wallet_unit === 'core_credit'
-        ? exactCredit(user.quota)
-        : null
-      : (user?.quota ?? 0)
-    : null
+  const financial =
+    user?.wallet_unit === 'core_credit' &&
+    user.financial_projection_available === true
+  const available = financial ? exactCredit(user.quota) : null
   const bucket = (value: unknown) => {
     const exact = exactCredit(value)
     return financial && exact !== null && exact >= 0 ? exact : null
   }
-  const history = financial && user?.usage_projection_available !== false
-  const requests =
-    financial && (!native || history)
-      ? user?.usage_projection_available !== undefined || native
-        ? bucket(user?.request_count)
-        : (user?.request_count ?? 0)
-      : null
+  const history = financial && user?.usage_projection_available === true
+  const requests = history ? bucket(user?.request_count) : null
   return {
-    native,
+    native: true as const,
     available,
     spendable: bucket(user?.wallet_spendable_quota),
     reserved: bucket(user?.wallet_reserved_quota),
@@ -65,7 +48,7 @@ export function walletProjection(
     history,
     requests,
     // A read-only wallet DTO is not a checkout capability or a money quote.
-    readOnly: native,
+    readOnly: true as const,
   }
 }
 

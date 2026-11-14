@@ -44,7 +44,8 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativeSubscriptionAdmin } =
   await import('../subscriptions/native-admin')
-const { NativePromotionAdmin } = await import('../promotions/native-admin')
+const { Redemptions: NativePromotionAdmin } =
+  await import('../redemption-codes')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
   lng: 'en',

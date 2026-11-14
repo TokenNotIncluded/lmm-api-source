@@ -110,18 +110,30 @@ describe('check-in calendar accessibility', () => {
     const recordDate = `${now.getFullYear()}-${String(
       now.getMonth() + 1
     ).padStart(2, '0')}-01`
-    api.get = (async () => ({
+    api.get = (async (url) => ({
       data: {
         success: true,
         data: {
-          enabled: true,
-          stats: {
-            checked_in_today: false,
-            total_checkins: 1,
-            total_quota: 100,
-            checkin_count: 1,
-            records: [{ checkin_date: recordDate, quota_awarded: 100 }],
-          },
+          ...nativeStatus(
+            false,
+            new URL(String(url), 'https://test.invalid').searchParams.get(
+              'month'
+            ) ?? recordDate.slice(0, 7)
+          ),
+          today: `${recordDate.slice(0, 7)}-15`,
+          total_checkins: 1,
+          total_quota_awarded: '100',
+          records:
+            !String(url).includes('month=') ||
+            String(url).endsWith(recordDate.slice(0, 7))
+              ? [
+                  {
+                    ...nativeZeroRecord,
+                    checkin_date: recordDate,
+                    quota_awarded: '100',
+                  },
+                ]
+              : [],
         },
       },
     })) as typeof api.get
@@ -222,20 +234,24 @@ test('check-in success uses the newly selected currency without remounting', asy
   api.get = (async () => ({
     data: {
       success: true,
-      data: {
-        enabled: true,
-        stats: {
-          checked_in_today: false,
-          total_checkins: 0,
-          total_quota: 0,
-          checkin_count: 0,
-          records: [],
-        },
-      },
+      data: nativeStatus(false),
     },
   })) as typeof api.get
   api.post = (async () => ({
-    data: { success: true, data: { quota_awarded: 3_500_000 } },
+    data: {
+      success: true,
+      data: {
+        already_claimed: false,
+        record: {
+          ...nativeZeroRecord,
+          quota_awarded: '3500000',
+          origin: 'native',
+          journal_id: 1,
+          policy_revision: 1,
+          trust_level: 1,
+        },
+      },
+    },
   })) as typeof api.post
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },

@@ -31,29 +31,17 @@ import type {
   VersionedCreditPaymentRequest,
   VersionedCreditWaffoPaymentRequest,
   VersionedCreditPancakePaymentRequest,
-  RedemptionRequest,
-  PaymentRequest,
-  AmountRequest,
-  AffiliateTransferRequest,
   ApiResponse,
   TopupInfoResponse,
-  RedemptionResponse,
   AmountResponse,
   PaymentResponse,
   StripePaymentResponse,
   AffiliateCodeResponse,
-  AffiliateInvitationRequest,
-  AffiliateInvitationResponse,
-  AffiliateTransferResponse,
   BillingHistoryResponse,
   BillingHistorySortBy,
   BillingHistorySortOrder,
   CompleteOrderRequest,
-  CreemPaymentRequest,
-  CreemPaymentResponse,
-  WaffoPaymentRequest,
   WaffoPaymentResponse,
-  WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
   DiscountCodeResponse,
 } from './types'
@@ -82,7 +70,7 @@ async function checkoutRequest<T>(request: () => Promise<T>): Promise<T> {
  * Check if API response is successful
  */
 export function isApiSuccess(response: ApiResponse): boolean {
-  return response.success === true || response.message === 'success'
+  return response.success === true
 }
 
 /**
@@ -104,213 +92,41 @@ export async function getTopupInfo(
 }
 
 /**
- * Redeem a topup code
- */
-export async function redeemTopupCode(
-  request: RedemptionRequest
-): Promise<RedemptionResponse> {
-  const res = await api.post('/api/user/topup', request)
-  return res.data
-}
-
-/** Validate a discount code without reserving or consuming it. */
-export async function validateDiscountCode(request: {
-  code: string
-  amount: number
-  payment_method?: string
-}): Promise<DiscountCodeResponse> {
-  const res = await api.post(
-    '/api/user/discount-code/validate',
-    { ...request, amount_unit: 'LEGACY' },
-    {
-      skipBusinessError: true,
-    } as Record<string, unknown>
-  )
-  return res.data
-}
-
-/**
- * Calculate payment amount for regular payment
- */
-export async function calculateAmount(
-  request: AmountRequest
-): Promise<AmountResponse> {
-  const res = await api.post(
-    '/api/user/amount',
-    { ...request, amount_unit: 'LEGACY' },
-    {
-      skipBusinessError: true,
-    } as Record<string, unknown>
-  )
-  return res.data
-}
-
-/**
- * Calculate payment amount for Stripe payment
- */
-export async function calculateStripeAmount(
-  request: AmountRequest
-): Promise<AmountResponse> {
-  const res = await api.post(
-    '/api/user/stripe/amount',
-    { ...request, amount_unit: 'LEGACY' },
-    {
-      skipBusinessError: true,
-    } as Record<string, unknown>
-  )
-  return res.data
-}
-
-/**
- * Calculate payment amount for Waffo payment
- */
-export async function calculateWaffoAmount(
-  request: AmountRequest
-): Promise<AmountResponse> {
-  const res = await api.post(
-    '/api/user/waffo/amount',
-    { ...request, amount_unit: 'LEGACY' },
-    {
-      skipBusinessError: true,
-    } as Record<string, unknown>
-  )
-  return res.data
-}
-
-/**
- * Request regular payment
- */
-export async function requestPayment(
-  request: PaymentRequest
-): Promise<PaymentResponse> {
-  return checkoutRequest(async () => {
-    const res = await api.post(
-      '/api/user/pay',
-      { ...request, amount_unit: 'LEGACY' },
-      {
-        skipBusinessError: true,
-      } as Record<string, unknown>
-    )
-    const legacyUrl = Reflect.get(res, 'url')
-    return {
-      ...res.data,
-      url:
-        res.data.url || (typeof legacyUrl === 'string' ? legacyUrl : undefined),
-    }
-  })
-}
-
-/**
- * Request Stripe payment
- */
-export async function requestStripePayment(
-  request: PaymentRequest
-): Promise<StripePaymentResponse> {
-  return checkoutRequest(async () => {
-    const res = await api.post(
-      '/api/user/stripe/pay',
-      { ...request, amount_unit: 'LEGACY' },
-      {
-        skipBusinessError: true,
-      } as Record<string, unknown>
-    )
-    return res.data
-  })
-}
-
-/**
- * Request Creem payment
- */
-export async function requestCreemPayment(
-  request: CreemPaymentRequest
-): Promise<CreemPaymentResponse> {
-  return checkoutRequest(async () => {
-    const res = await api.post('/api/user/creem/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
-    return res.data
-  })
-}
-
-/**
- * Request Waffo payment
- */
-export async function requestWaffoPayment(
-  request: WaffoPaymentRequest
-): Promise<WaffoPaymentResponse> {
-  return checkoutRequest(async () => {
-    const res = await api.post(
-      '/api/user/waffo/pay',
-      { ...request, amount_unit: 'LEGACY' },
-      {
-        skipBusinessError: true,
-      } as Record<string, unknown>
-    )
-    return res.data
-  })
-}
-
-/**
- * Calculate payment amount for Waffo Pancake payment
- */
-export async function calculateWaffoPancakeAmount(
-  request: AmountRequest
-): Promise<AmountResponse> {
-  const res = await api.post(
-    '/api/user/waffo-pancake/amount',
-    { ...request, amount_unit: 'LEGACY' },
-    {
-      skipBusinessError: true,
-    } as Record<string, unknown>
-  )
-  return res.data
-}
-
-/**
- * Request Waffo Pancake payment
- */
-export async function requestWaffoPancakePayment(
-  request: WaffoPancakePaymentRequest
-): Promise<WaffoPancakePaymentResponse> {
-  return checkoutRequest(async () => {
-    const res = await api.post(
-      '/api/user/waffo-pancake/pay',
-      { ...request, amount_unit: 'LEGACY' },
-      {
-        skipBusinessError: true,
-      } as Record<string, unknown>
-    )
-    return res.data
-  })
-}
-
-/**
  * Get affiliate code
  */
 export async function getAffiliateCode(): Promise<AffiliateCodeResponse> {
-  const res = await api.get('/api/user/aff')
+  const res = await api.get('/core/v1/affiliate/code')
   return res.data
 }
 
-/**
- * Send the current user's affiliate link through the configured SMTP server.
- */
-export async function sendAffiliateInvitation(
-  request: AffiliateInvitationRequest
-): Promise<AffiliateInvitationResponse> {
-  const res = await api.post('/api/user/aff/invite', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+/** Prepare a session-bound transfer; the caller must show it before confirmation. */
+export async function previewAffiliateTransfer(amountCredits: string): Promise<{
+  id: number
+  amount: number
+  csrf: string
+}> {
+  if (
+    !/^[1-9]\d*$/.test(amountCredits) ||
+    !Number.isSafeInteger(Number(amountCredits))
+  ) {
+    throw new Error('Invalid affiliate transfer amount')
+  }
+  const res = await api.post('/core/v1/affiliate/preview', {
+    amount_credits: amountCredits,
+  })
   return res.data
 }
 
-/**
- * Transfer affiliate quota to balance
- */
-export async function transferAffiliateQuota(
-  request: AffiliateTransferRequest
-): Promise<AffiliateTransferResponse> {
-  const res = await api.post('/api/user/aff_transfer', request)
+/** Retry the same preview ID and token to recover the same durable receipt. */
+export async function confirmAffiliateTransfer(
+  id: number,
+  csrf: string
+): Promise<{
+  id: number
+  amount_credits: number
+  outcome: { status: 'posted' | 'rejected' }
+}> {
+  const res = await api.post(`/core/v1/affiliate/claim/${id}`, { csrf })
   return res.data
 }
 

@@ -240,6 +240,14 @@ test('unsupported raw saved filters are visible and never fetch an unfiltered na
     '?sortBy=quota',
     '?sortBy=unknown',
     '?risk=high',
+    '?pageSize=20',
+    '?filter=alice',
+    '?role=["10"]',
+    '?role=user&role=admin',
+    '?keyword=a&keyword=a',
+    '?service_level=5',
+    '?page_size=101',
+    '?sort_by=quota',
   ]) {
     const container = await mount(search)
     expect(container.textContent).toContain(
@@ -250,7 +258,7 @@ test('unsupported raw saved filters are visible and never fetch an unfiltered na
     )
     expect(container.querySelector('[data-native-user-id]')).toBeNull()
   }
-  expect(seen).toEqual(Array(4).fill('/api/status'))
+  expect(seen).toEqual(Array(12).fill('/api/status'))
 })
 
 test('known empty profiles and unavailable wallets remain distinct from invented values', async () => {
@@ -495,7 +503,7 @@ test('saved supported page sizes are represented by a matching select option and
     status: 200,
     statusText: 'OK',
   })
-  const container = await mount('?pageSize=37')
+  const container = await mount('?page_size=37')
   const select = container.querySelector<HTMLSelectElement>(
     '#native-user-page-size'
   )
@@ -504,6 +512,63 @@ test('saved supported page sizes are represented by a matching select option and
     Array.from(select?.options ?? []).some((option) => option.value === '37')
   ).toBe(true)
   expect(container.querySelector('[data-native-user-id]')).not.toBeNull()
+})
+
+test('native saved URL applies every filter and sort directly to Core without translating values', async () => {
+  login()
+  const reads: Record<string, unknown>[] = []
+  api.defaults.adapter = async (config) => {
+    const status = config.url === '/api/status'
+    if (!status) {
+      expect(config.url).toBe('/core/v1/admin/users')
+      reads.push(config.params)
+    }
+    return {
+      config,
+      data: status
+        ? nativeStatusFixture
+        : {
+            ...nativeListFixture(),
+            total: 100,
+            page: config.params.page,
+            page_size: config.params.page_size,
+          },
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const params = new URLSearchParams({
+    page: '2',
+    page_size: '37',
+    keyword: JSON.stringify('9007199254740993'),
+    group: ' exact ',
+    role: 'admin',
+    status: 'disabled',
+    service_level: '0',
+    sort_by: 'display_name',
+    sort_order: 'asc',
+  })
+  const container = await mount(`?${params}`)
+  expect(container.querySelector('[data-native-user-id]')).not.toBeNull()
+  expect(reads).toEqual([
+    {
+      page: 2,
+      page_size: 37,
+      keyword: '9007199254740993',
+      group: ' exact ',
+      role: 'admin',
+      status: 'disabled',
+      service_level: '0',
+      sort_by: 'display_name',
+      sort_order: 'asc',
+    },
+  ])
+  await act(async () => {
+    button(container, 'Apply filters').click()
+    await pause()
+  })
+  expect(reads.at(-1)).toEqual({ ...reads[0], page: 1 })
 })
 
 test('a denied group read clears all private projections and requires explicit retry before any new read', async () => {

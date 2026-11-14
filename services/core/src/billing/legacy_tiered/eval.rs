@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use super::parser::{ClockPart, Node, Op};
 use super::{Error, Program, TokenParams};
+use chrono::{DateTime, Datelike, Timelike};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Financial {
@@ -37,47 +38,19 @@ impl SettlementClock {
             unix_seconds: value,
         })
     }
-    fn part(self, part: ClockPart) -> f64 {
-        match part {
-            ClockPart::Hour => ((self.unix_seconds % 86_400) / 3600) as f64,
-            ClockPart::Weekday => ((self.unix_seconds / 86_400 + 4) % 7) as f64,
+    fn part(self, part: ClockPart) -> Result<f64, Error> {
+        let timestamp = match part {
+            ClockPart::ShanghaiDate => self.unix_seconds + 28_800,
+            _ => self.unix_seconds,
+        };
+        let date = DateTime::from_timestamp(timestamp, 0).ok_or(Error::ClockRange)?;
+        Ok(match part {
+            ClockPart::Hour => f64::from(date.hour()),
+            ClockPart::Weekday => f64::from(date.weekday().num_days_from_sunday()),
             ClockPart::ShanghaiDate => {
-                let mut days = (self.unix_seconds + 28_800) / 86_400;
-                let mut year = 1970;
-                let leap = |y: i64| y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-                loop {
-                    let n = if leap(year) { 366 } else { 365 };
-                    if days < n {
-                        break;
-                    }
-                    days -= n;
-                    year += 1;
-                }
-                let months = [
-                    31,
-                    if leap(year) { 29 } else { 28 },
-                    31,
-                    30,
-                    31,
-                    30,
-                    31,
-                    31,
-                    30,
-                    31,
-                    30,
-                    31,
-                ];
-                let mut month = 1;
-                for n in months {
-                    if days < n {
-                        break;
-                    }
-                    days -= n;
-                    month += 1;
-                }
-                (year * 10000 + month * 100 + days + 1) as f64
+                f64::from(date.year() * 10000 + date.month() as i32 * 100 + date.day() as i32)
             }
-        }
+        })
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,7 +119,7 @@ impl Eval<'_> {
         Ok(match node {
             Node::Number(n) => Value::Number(*n),
             Node::Var(v) => Value::Number(self.params.value(*v).ok_or(Error::Measurement)?),
-            Node::Clock(p) => Value::Number(self.clock.ok_or(Error::MissingClock)?.part(*p)),
+            Node::Clock(p) => Value::Number(self.clock.ok_or(Error::MissingClock)?.part(*p)?),
             Node::Not(n) => Value::Bool(!self.node(n)?.boolean()?),
             Node::Conditional(p, a, b) => {
                 if self.node(p)?.boolean()? {
@@ -234,4 +207,25 @@ pub(super) fn evaluate(
         #[cfg(test)]
         tier_cost_bits: state.tier_cost.to_bits(),
     })
+}
+
+#[cfg(test)]
+mod calendar_tests {
+    use super::*;
+
+    #[test]
+    fn frozen_calendar_preserves_leap_day_and_shanghai_midnight() {
+        for (timestamp, hour, weekday, shanghai_date) in [
+            (951_753_599, 15.0, 1.0, 20000228.0),
+            (951_753_600, 16.0, 1.0, 20000229.0),
+            (951_840_000, 16.0, 2.0, 20000301.0),
+            (4_102_415_999, 15.0, 4.0, 20991231.0),
+            (4_102_416_000, 16.0, 4.0, 21000101.0),
+        ] {
+            let clock = SettlementClock::from_unix_seconds(timestamp).unwrap();
+            assert_eq!(clock.part(ClockPart::Hour), Ok(hour));
+            assert_eq!(clock.part(ClockPart::Weekday), Ok(weekday));
+            assert_eq!(clock.part(ClockPart::ShanghaiDate), Ok(shanghai_date));
+        }
+    }
 }

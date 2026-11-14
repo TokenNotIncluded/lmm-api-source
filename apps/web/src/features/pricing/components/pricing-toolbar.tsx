@@ -313,7 +313,10 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
       </div>
 
-      <div role='note' className='text-muted-foreground text-xs leading-5'>
+      <div
+        role='note'
+        className='text-muted-foreground mt-2.5 text-xs leading-5'
+      >
         {sharedContextModel && (
           <PricingContextLabel
             model={sharedContextModel}

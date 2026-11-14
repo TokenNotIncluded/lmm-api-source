@@ -218,8 +218,7 @@ test('bounty board distinguishes failed requests, retry, cached data and success
     assert.ok(text().includes(project.title), 'retry restores the project')
     assert.ok(!retryButton(), 'successful retry removes error')
     assert.equal(
-      requests.filter((url) => !url.startsWith('/api/bounties?'))
-        .length,
+      requests.filter((url) => !url.startsWith('/api/bounties?')).length,
       otherRequests,
       'retry only refetches this list'
     )

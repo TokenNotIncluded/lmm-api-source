@@ -57,31 +57,30 @@ test('Native preserves zero, imported day, server calendar and exact totals', ()
   assert.equal(claim.data.record.journal_id, null)
 })
 
-test('old Go numeric response remains supported and normalizes to exact units', () => {
-  const response = checkinStatusResponseSchema.parse({
-    success: true,
-    data: {
-      enabled: true,
-      min_quota: 0,
-      max_quota: 100000,
-      trust_level: 1,
-      stats: {
-        checked_in_today: false,
-        total_checkins: 1,
-        total_quota: 0,
-        checkin_count: 1,
-        records: [{ checkin_date: '2030-01-01', quota_awarded: 0 }],
+test('old Go responses are rejected instead of enabling a legacy runtime', () => {
+  assert.equal(
+    checkinStatusResponseSchema.safeParse({
+      success: true,
+      data: {
+        enabled: true,
+        stats: {
+          checked_in_today: false,
+          total_checkins: 0,
+          total_quota: 0,
+          checkin_count: 0,
+          records: [],
+        },
       },
-    },
-  })
-  assert.ok(response.success && response.data.kind === 'legacy')
-  assert.equal(response.data.reward_range?.min_quota, '0')
-  const claim = checkinClaimResponseSchema.parse({
-    success: true,
-    data: { quota_awarded: 0 },
-  })
-  assert.ok(claim.success && claim.data.kind === 'legacy')
-  assert.equal(claim.data.quota_awarded, '0')
+    }).success,
+    false
+  )
+  assert.equal(
+    checkinClaimResponseSchema.safeParse({
+      success: true,
+      data: { quota_awarded: 0 },
+    }).success,
+    false
+  )
 })
 
 test('invalid dates, mixed periods and invalid monetary representations fail at boundary', () => {

@@ -61,12 +61,7 @@ export function SuccessRateSparkline(props: SuccessRateSparklineProps) {
     )
   }
 
-  // Native callers supply the counter-based overall; only legacy callers use a mean.
-  const overall =
-    props.overallRate !== undefined
-      ? props.overallRate
-      : props.series.reduce((s, p) => s + p.success_rate, 0) /
-        props.series.length
+  const overall = props.overallRate ?? null
 
   const containerHeight = size === 'sm' ? 'h-3.5' : 'h-5'
   const barWidth = size === 'sm' ? 'w-[3px]' : 'w-1'

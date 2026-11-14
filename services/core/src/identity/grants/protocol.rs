@@ -10,11 +10,22 @@ use zeroize::Zeroizing;
 
 pub(super) const CLIENT: &str = "lmm";
 pub(super) const MANAGED_CLIENT: &str = "lmm-cc-switch";
+pub(super) const MAGPIE_CLIENT: &str = "lmm-magpie";
+pub(super) fn managed_application(client: &str) -> Option<&'static str> {
+    match client {
+        MANAGED_CLIENT => Some("cc-switch"),
+        MAGPIE_CLIENT => Some("magpie"),
+        _ => None,
+    }
+}
+pub(super) fn is_managed_client(client: &str) -> bool {
+    managed_application(client).is_some()
+}
 const MAX_GROUPS: usize = 64;
 
 /// Historical model-source identity, independent of current issuance settings.
 pub(super) fn is_model_client(client: &str) -> bool {
-    matches!(client, "lmm-pi" | MANAGED_CLIENT)
+    client == "lmm-pi" || is_managed_client(client)
 }
 
 /// Configured at startup; never inferred from a request or forwarding header.
@@ -25,6 +36,7 @@ pub struct LmmProfile {
     groups: BTreeSet<String>,
     pi_max_credits: Option<i64>,
     managed_max_credits: Option<i64>,
+    magpie_max_credits: Option<i64>,
     isolated_loopback_test: bool,
 }
 impl LmmProfile {
@@ -74,6 +86,7 @@ impl LmmProfile {
             groups: allowed,
             pi_max_credits: None,
             managed_max_credits: None,
+            magpie_max_credits: None,
             isolated_loopback_test,
         })
     }
@@ -106,11 +119,19 @@ impl LmmProfile {
         self.managed_max_credits = Some(maximum);
         Ok(self)
     }
+    pub fn with_magpie_budget_limit(mut self, maximum: i64) -> Result<Self> {
+        if !(1..=9_007_199_254_740_991).contains(&maximum) {
+            return Err(IdentityError::Invalid);
+        }
+        self.magpie_max_credits = Some(maximum);
+        Ok(self)
+    }
     /// Configured ceiling only; this is not application-backend readiness.
     pub fn model_budget_limit(&self, client: &str) -> Option<i64> {
         match client {
             "lmm-pi" => self.pi_max_credits,
             MANAGED_CLIENT => self.managed_max_credits,
+            MAGPIE_CLIENT => self.magpie_max_credits,
             _ => None,
         }
     }
@@ -125,7 +146,7 @@ impl LmmProfile {
     }
     pub(super) fn binding(&self, client: &str, resource: &str) -> Result<()> {
         if (client != CLIENT
-            && client != MANAGED_CLIENT
+            && !is_managed_client(client)
             && !(client == "lmm-pi" && self.pi_max_credits.is_some()))
             || resource != self.resource
         {
@@ -147,7 +168,7 @@ impl LmmProfile {
         input: AuthorizationRequest,
     ) -> Result<AuthorizationRequest> {
         // Managed authorization must also validate its mandatory installation fields.
-        if input.client_id == MANAGED_CLIENT {
+        if is_managed_client(&input.client_id) {
             return Err(IdentityError::Invalid);
         }
         self.validate_request(input)
@@ -156,7 +177,9 @@ impl LmmProfile {
         &self,
         input: AuthorizationRequest,
     ) -> Result<AuthorizationRequest> {
-        if input.client_id != MANAGED_CLIENT || self.managed_max_credits.is_none() {
+        if !is_managed_client(&input.client_id)
+            || self.model_budget_limit(&input.client_id).is_none()
+        {
             return Err(IdentityError::Forbidden);
         }
         self.validate_request(input)
@@ -177,7 +200,7 @@ impl LmmProfile {
         let unique: BTreeSet<_> = scopes.iter().copied().collect();
         let valid = if input.client_id == CLIENT {
             scopes == ["balance:read", "catalog:read"]
-        } else if input.client_id == MANAGED_CLIENT {
+        } else if is_managed_client(&input.client_id) {
             scopes
                 == [
                     "balance:read",
@@ -253,7 +276,7 @@ pub enum TokenRequest {
 }
 impl TokenForm {
     pub fn validate(self, profile: &LmmProfile) -> Result<TokenRequest> {
-        if self.client_id == MANAGED_CLIENT {
+        if is_managed_client(&self.client_id) {
             return Err(IdentityError::Invalid);
         }
         profile.binding(&self.client_id, &self.resource)?;
@@ -309,11 +332,13 @@ pub struct RevokeForm {
 }
 impl RevokeForm {
     pub fn validate(&self) -> Result<()> {
-        if !matches!(self.client_id.as_str(), CLIENT | "lmm-pi" | MANAGED_CLIENT)
-            || self
-                .token_type_hint
-                .as_ref()
-                .is_some_and(|s| s != "access_token" && s != "refresh_token")
+        if !matches!(
+            self.client_id.as_str(),
+            CLIENT | "lmm-pi" | MANAGED_CLIENT | MAGPIE_CLIENT
+        ) || self
+            .token_type_hint
+            .as_ref()
+            .is_some_and(|s| s != "access_token" && s != "refresh_token")
         {
             return Err(IdentityError::Invalid);
         }
@@ -340,6 +365,8 @@ pub struct ConsentForm {
 
 #[derive(Serialize)]
 pub struct TokenWire {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
     pub access_token: String,
     pub refresh_token: String,
     pub token_type: &'static str,
@@ -352,6 +379,7 @@ impl TokenWire {
         canonical(&bundle.refresh_token, "lmm_rt_")?;
         valid_ttl(bundle.expires_in, 86400)?;
         Ok(Self {
+            id_token: None,
             access_token: bundle.access_token,
             refresh_token: bundle.refresh_token,
             token_type: "Bearer",

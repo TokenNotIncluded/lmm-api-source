@@ -25,15 +25,40 @@ import {
   normalizeBackendCapabilities,
 } from './backend-capabilities'
 
-describe('backend capability negotiation', () => {
-  test('maps a legacy status response without capabilities to conservative defaults', () => {
-    assert.deepEqual(getBackendCapabilities({ version: 'legacy-go' }), {
+describe('native backend capabilities', () => {
+  test('keeps missing or unconfirmed capabilities disabled', () => {
+    assert.deepEqual(getBackendCapabilities(null), {
       bounty_notifications: false,
       bounty_challenge_cancel: false,
       bounty_public_read: false,
       self_oauth_unbind: false,
       responses_websocket: false,
     })
+  })
+
+  test('ignores nested status envelopes instead of falling back to old capability data', () => {
+    const nested = {
+      data: {
+        backend_capabilities: {
+          bounty_notifications: true,
+          bounty_challenge_cancel: true,
+          bounty_public_read: true,
+          self_oauth_unbind: true,
+          responses_websocket: true,
+        },
+      },
+    }
+
+    assert.deepEqual(
+      getBackendCapabilities(normalizeBackendCapabilities(nested)),
+      getBackendCapabilities(null)
+    )
+    const capabilities = getBackendCapabilities({
+      ...nested,
+      backend_capabilities: { responses_websocket: true },
+    })
+    assert.equal(capabilities.responses_websocket, true)
+    assert.equal(capabilities.bounty_notifications, false)
   })
 
   test('only enables capabilities explicitly advertised by the backend', () => {

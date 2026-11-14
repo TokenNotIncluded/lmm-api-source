@@ -84,6 +84,7 @@ const toastErrors: string[] = []
 const toastErrorIds: Array<string | undefined> = []
 const toastSuccesses: string[] = []
 const loginCalls: unknown[] = []
+const passkeyUsernames: string[] = []
 const wechatStartCalls: unknown[] = []
 const oauthClicks: string[] = []
 const successBundles: unknown[] = []
@@ -224,7 +225,8 @@ async function commitMockResponse(value: unknown) {
   return response
 }
 mock.module('@/features/auth/passkey', () => ({
-  beginPasskeyLogin: async (_username: string, assertCurrent: () => void) => {
+  beginPasskeyLogin: async (username: string, assertCurrent: () => void) => {
+    passkeyUsernames.push(username)
     const response = await beginPasskeyImpl()
     assertCurrent()
     return response
@@ -254,11 +256,11 @@ mock.module('@/features/auth/hooks/use-oauth-login', () => ({
     githubButtonDisabled: false,
     handleGitHubLogin: () => oauthClicks.push('github'),
     handleDiscordLogin: () => oauthClicks.push('discord'),
-    handleOIDCLogin: () => oauthClicks.push('oidc'),
     handleLinuxDOLogin: () => oauthClicks.push('linuxdo'),
     handleTelegramLogin: () => oauthClicks.push('telegram'),
-    handleCustomOAuthLogin: (provider: { slug: string }) =>
-      oauthClicks.push(`custom:${provider.slug}`),
+    handleGoogleLogin: () => oauthClicks.push('google'),
+    handleFederatedLogin: (provider: { id: string }) =>
+      oauthClicks.push(`federated:${provider.id}`),
     isTelegramDialogOpen: false,
     isTelegramPending: false,
     handleTelegramAuthorization: () => {},
@@ -421,6 +423,7 @@ afterEach(async () => {
   toastErrorIds.length = 0
   toastSuccesses.length = 0
   loginCalls.length = 0
+  passkeyUsernames.length = 0
   wechatStartCalls.length = 0
   oauthClicks.length = 0
   successBundles.length = 0
@@ -485,6 +488,8 @@ test('without a legal requirement the password login path is unchanged', async (
     privacy_policy_enabled: false,
   })
   await fillCredentials(host)
+
+  assert.equal(host.querySelectorAll('a[href="/forgot-password"]').length, 1)
 
   assert.equal(
     host.textContent?.includes('I have read and agree to the'),
@@ -574,15 +579,8 @@ test('legal-consent policies for Passkey OAuth and WeChat remain disabled before
         native_federated: true,
       },
     ],
-    custom_oauth_providers: [
-      {
-        name: 'Google',
-        slug: 'google',
-        icon: 'google',
-        authorization_endpoint: 'https://accounts.google.example.test/oauth',
-        client_id: 'google-client',
-      },
-    ],
+    google_oauth: true,
+    google_client_id: 'google-client',
   })
 
   await waitFor(
@@ -622,7 +620,7 @@ test('legal-consent policies for Passkey OAuth and WeChat remain disabled before
   )
 
   await click(buttonByAccessibleName(host, 'Continue with Google'))
-  assert.deepEqual(oauthClicks, ['custom:google'])
+  assert.deepEqual(oauthClicks, ['google'])
   await click(consent as HTMLElement)
   assert.equal(buttonByName(host, 'Sign in with Passkey').disabled, true)
   assert.equal(
@@ -702,6 +700,7 @@ for (const status of [
     assert.equal(host.querySelector('button[type="submit"]'), null)
     assert.equal(host.querySelector('input[name="username"]'), null)
     assert.equal(host.querySelector('input[name="password"]'), null)
+    assert.equal(host.querySelectorAll('a[href="/forgot-password"]').length, 1)
     const consent = host.querySelector('#legal-consent')
     assert.ok(consent)
     await click(consent as HTMLElement)
@@ -709,6 +708,32 @@ for (const status of [
     assert.equal(loginCalls.length, 0)
   })
 }
+
+test('Passkey-only login keeps the username for non-discoverable credentials without password submission', async () => {
+  Object.defineProperty(navigator, 'credentials', {
+    configurable: true,
+    value: { get: async () => ({ id: 'synthetic-passkey' }) },
+  })
+  const host = await render({
+    password_login_enabled: false,
+    passkey_login: true,
+  })
+  assert.equal(host.querySelector('input[name="password"]'), null)
+  await setInputValue(inputByName(host, 'username'), 'security-key-user')
+  beginPasskeyImpl = async () => ({
+    success: false,
+    message: 'synthetic rejection',
+  })
+  await click(buttonByName(host, 'Sign in with Passkey'))
+  assert.deepEqual(passkeyUsernames, ['security-key-user'])
+  await act(async () => {
+    const form = host.querySelector('form')
+    assert.ok(form)
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flush()
+  })
+  assert.equal(loginCalls.length, 0)
+})
 
 function loginHttpError(
   status: number,

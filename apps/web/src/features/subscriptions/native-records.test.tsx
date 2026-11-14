@@ -51,7 +51,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativeSubscriptionRecords } = await import('./native-records')
-const { NativeSubscriptionAdmin } = await import('./native-admin')
+const { Subscriptions } = await import('./index')
 const { UserSubscriptionsDialog } =
   await import('./components/dialogs/user-subscriptions-dialog')
 const i18n = createInstance()
@@ -70,7 +70,6 @@ function login(role = 100, userId = scope.userId, sid = scope.sessionId) {
       id: userId,
       role,
       username: 'synthetic-admin',
-      wallet_unit: 'core_credit',
     },
     access_token: 'synthetic-access-token',
     token_type: 'Bearer',
@@ -275,7 +274,7 @@ test('ordinary administrators can inspect records without exposing financial pla
       statusText: 'OK',
     }
   }
-  const view = await mount(<NativeSubscriptionAdmin />)
+  const view = await mount(<Subscriptions />)
   try {
     assert.match(document.body.textContent ?? '', /synthetic-buyer-52/)
     assert.match(document.body.textContent ?? '', /Reserved quota/)

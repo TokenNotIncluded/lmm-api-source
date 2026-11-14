@@ -28,6 +28,22 @@ import {
 } from './registration'
 
 describe('registration availability', () => {
+  test('native federation does not advertise replaced legacy WeChat or OIDC entry points', () => {
+    const status = {
+      native_federated_auth: true,
+      wechat_login: true,
+      oidc_enabled: true,
+      oidc_client_id: 'client',
+      oidc_authorization_endpoint: 'https://sso.example.test/authorize',
+      password_register_enabled: false,
+    }
+    assert.equal(hasOAuthLoginProvider(status), false)
+    assert.equal(hasRegistrationMethod(status), false)
+    assert.equal(
+      hasOAuthLoginProvider({ ...status, native_federated_auth: false }),
+      false
+    )
+  })
   test('advertises a configured Google-only preset without requiring custom records', () => {
     const status = {
       google_oauth: true,
@@ -79,6 +95,7 @@ describe('registration availability', () => {
       password_register_enabled: false,
       github_oauth: true,
       github_client_id: 'client',
+      external_oauth_browser: true,
     }
 
     assert.equal(isPasswordRegistrationEnabled(status), false)
@@ -86,12 +103,17 @@ describe('registration availability', () => {
     assert.equal(hasRegistrationMethod(status), true)
   })
 
-  test('filters disabled OAuth channels, including custom providers', () => {
+  test('filters disabled OAuth channels, including native custom providers', () => {
     const status = {
       github_oauth: true,
-      custom_oauth_providers: [
+      native_federated_auth: true,
+      federated_oauth_providers: [
         {
-          id: 1,
+          id: '1',
+          kind: 'custom_oauth' as const,
+          revision: '1',
+          native_federated: true as const,
+          qr_code_url: '',
           name: 'Company SSO',
           slug: 'company-sso',
           icon: '',
@@ -114,6 +136,7 @@ describe('registration availability', () => {
     const status = {
       github_oauth: true,
       github_client_id: 'client',
+      external_oauth_browser: true,
       oauth_registration_disabled_methods: ['github'],
     }
 
@@ -152,6 +175,7 @@ describe('registration availability', () => {
     const status = {
       github_oauth: true,
       github_client_id: 'client',
+      external_oauth_browser: true,
       oauth_registration_disabled_methods: ['github'],
     }
 
@@ -166,6 +190,7 @@ describe('registration availability', () => {
       oauth_register_enabled: false,
       github_oauth: true,
       github_client_id: 'client',
+      external_oauth_browser: true,
     }
 
     assert.equal(hasRegistrationMethod(status), false)
@@ -177,6 +202,7 @@ describe('registration availability', () => {
       oauth_register_enabled: false,
       github_oauth: true,
       github_client_id: 'client',
+      external_oauth_browser: true,
     }
 
     assert.equal(hasOAuthRegistrationProvider(status), false)
@@ -190,4 +216,27 @@ describe('registration availability', () => {
     assert.equal(canOfferRegistration(status, true), true)
     assert.equal(canOfferRegistration(status, false, true), true)
   })
+})
+
+test('old OIDC/custom configuration cannot advertise registration or login', () => {
+  const status = {
+    password_register_enabled: false,
+    oidc_enabled: true,
+    oidc_client_id: 'old',
+    oidc_authorization_endpoint: 'https://sso.example.test/authorize',
+    custom_oauth_providers: [
+      {
+        id: 1,
+        name: 'Old SSO',
+        slug: 'old-sso',
+        icon: '',
+        scopes: '',
+        client_id: 'old',
+        authorization_endpoint: 'https://sso.example.test/authorize',
+      },
+    ],
+  }
+  assert.equal(hasOAuthLoginProvider(status), false)
+  assert.equal(hasOAuthRegistrationProvider(status), false)
+  assert.equal(hasRegistrationMethod(status), false)
 })

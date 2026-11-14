@@ -13,10 +13,7 @@ export function ApiBaseUrl() {
   const { t } = useTranslation()
   const { status, loading } = useStatus()
   const baseUrl = status
-    ? resolveApiBaseUrl(
-        status.server_address ?? status.data?.server_address,
-        window.location.origin
-      )
+    ? resolveApiBaseUrl(status.server_address, window.location.origin)
     : null
   const usageCommand = baseUrl
     ? `curl '${baseUrl.replaceAll("'", "'\\''")}/usage' \\\n  -H 'Authorization: Bearer API_KEY'`

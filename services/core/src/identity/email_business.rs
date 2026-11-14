@@ -125,6 +125,17 @@ impl IdentityStore {
         challenges: &EmailChallenges,
         input: &EmailRegistration<'_>,
     ) -> Result<PendingEmailBusiness> {
+        self.register_with_email_and_affiliate(challenges, input, "")
+            .await
+    }
+
+    /// Consumes email proof and binds the referral on the same uncommitted transaction.
+    pub async fn register_with_email_and_affiliate(
+        &self,
+        challenges: &EmailChallenges,
+        input: &EmailRegistration<'_>,
+        aff_code: &str,
+    ) -> Result<PendingEmailBusiness> {
         self.require_password_registration()?;
         self.require_registration_email(Some(input.confirmation.email.as_str()))?;
         let username = input.username.trim();
@@ -160,6 +171,7 @@ impl IdentityStore {
         if occupied {
             return Err(IdentityError::Conflict.into());
         }
+        crate::affiliate::bind_registration(c, user, aff_code).await?;
         let canonical = format!("web_{}", &new_secret("")?[..32]);
         sqlx::query(
             "INSERT INTO core_identity.password_logins(login_name,user_id,password_hash)

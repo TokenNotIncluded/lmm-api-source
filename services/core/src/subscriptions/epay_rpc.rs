@@ -53,6 +53,7 @@ impl EPaySubscriptionsRpc {
                 self.store.clone(),
                 self.payments.clone(),
             ))
+            .merge(super::creem_http::router(self.store.clone(), self.payments.clone()))
     }
     pub fn features(&self) -> Vec<String> {
         [
@@ -334,6 +335,106 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             Ok(super::stripe_rpc::event(
                 self.store
                     .stripe_event(&r.order_id, &r.provider_event_id, &r.payload_sha256)
+                    .await?,
+            ))
+        })
+        .await
+    }
+    async fn resolve_creem_subscription_order(&self, r: Request<pb::CreemSubscriptionLookup>) -> std::result::Result<Response<pb::EPaySubscriptionOrderRequest>, Status> {
+        self.auth.check(r.metadata(), self.permissions.proof_read)?;
+        let r = r.into_inner();
+        self.run(async { Ok(pb::EPaySubscriptionOrderRequest { order_id: self.store.resolve_creem_subscription_order(r.channel_id, &r.provider_subscription_id).await? }) }).await
+    }
+    async fn prepare_creem_purchase(
+        &self,
+        r: Request<pb::PrepareEPayPurchaseRequest>,
+    ) -> std::result::Result<Response<pb::CreemSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
+            super::creem_rpc::order(
+                self.store
+                    .prepare_creem_purchase(
+                        &self.payments,
+                        &user,
+                        &EPayPurchaseRequest {
+                            operation_key: key,
+                            plan_id: r.plan_id,
+                            channel_id: r.payment_channel_id,
+                        },
+                    )
+                    .await?,
+            )
+        })
+        .await
+    }
+    async fn confirm_creem_purchase(
+        &self,
+        r: Request<pb::EPaySubscriptionOrderRequest>,
+    ) -> std::result::Result<Response<pb::CreemSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            super::creem_rpc::order(
+                self.store
+                    .confirm_creem_purchase(&user, &r.order_id)
+                    .await?,
+            )
+        })
+        .await
+    }
+    async fn read_creem_purchase(
+        &self,
+        r: Request<pb::EPaySubscriptionOrderRequest>,
+    ) -> std::result::Result<Response<pb::CreemSubscriptionOrder>, Status> {
+        self.auth
+            .check(r.metadata(), self.permissions.user_orders)?;
+        let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
+        let r = r.into_inner();
+        self.run(async {
+            super::creem_rpc::order(self.store.read_creem_purchase(&user, &r.order_id).await?)
+        })
+        .await
+    }
+    async fn accept_creem_subscription_event(
+        &self,
+        r: Request<pb::AcceptCreemSubscriptionEventRequest>,
+    ) -> std::result::Result<Response<pb::CreemSubscriptionEvent>, Status> {
+        self.auth.check(
+            r.metadata(),
+            self.permissions.proof_ingress && self.permissions.grant,
+        )?;
+        let r = r.into_inner();
+        self.run(async {
+            Ok(super::creem_rpc::event(
+                self.store
+                    .accept_creem_event(
+                        &self.payments,
+                        r.payment_channel_id,
+                        &r.order_id,
+                        &r.signed_payload,
+                        &r.signature,
+                    )
+                    .await?,
+            ))
+        })
+        .await
+    }
+    async fn get_creem_subscription_event(
+        &self,
+        r: Request<pb::GetCreemSubscriptionEventRequest>,
+    ) -> std::result::Result<Response<pb::CreemSubscriptionEvent>, Status> {
+        self.auth.check(r.metadata(), self.permissions.proof_read)?;
+        let r = r.into_inner();
+        self.run(async {
+            Ok(super::creem_rpc::event(
+                self.store
+                    .creem_event(r.payment_channel_id, &r.order_id, &r.provider_event_id, &r.payload_sha256)
                     .await?,
             ))
         })

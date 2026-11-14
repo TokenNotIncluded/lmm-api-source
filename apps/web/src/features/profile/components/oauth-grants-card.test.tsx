@@ -228,7 +228,9 @@ test('managed cc-switch grants show device label and isolate cache by session', 
     ) {
       await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
     }
-    assert.ok(host.textContent?.includes('CC Switch · Workstation A (abcdef01)'))
+    assert.ok(
+      host.textContent?.includes('CC Switch · Workstation A (abcdef01)')
+    )
     assert.equal(requests, 1)
 
     currentGrants = [

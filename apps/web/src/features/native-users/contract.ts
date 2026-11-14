@@ -17,7 +17,7 @@ export const NATIVE_USERS_CAPABILITIES = {
     'role',
     'status',
   ],
-  implemented_write_actions: [],
+  implemented_write_actions: ['create'],
   unavailable_projections: [
     'legacy_group',
     'legacy_trust',
@@ -41,7 +41,6 @@ export const NATIVE_USERS_CAPABILITIES = {
     'user_detail',
   ],
   unavailable_write_actions: [
-    'create',
     'update',
     'delete',
     'enable',
@@ -128,7 +127,9 @@ export const nativeUsersCapabilitiesSchema = z
   .object({
     filters: exactStrings(NATIVE_USERS_CAPABILITIES.filters),
     sorts: exactStrings(NATIVE_USERS_CAPABILITIES.sorts),
-    implemented_write_actions: z.array(z.never()).length(0),
+    implemented_write_actions: exactStrings(
+      NATIVE_USERS_CAPABILITIES.implemented_write_actions
+    ),
     unavailable_projections: exactStrings(
       NATIVE_USERS_CAPABILITIES.unavailable_projections
     ),

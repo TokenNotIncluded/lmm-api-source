@@ -116,7 +116,6 @@ import {
   storeRequestKey,
 } from './utils'
 import { StoreInventoryTotals, StoreProductPrice } from './variant-summary'
-import { legacyVariantProduct } from './variant-utils'
 import { StoreVariantsManager } from './variants-manager'
 
 const EMPTY: StoreProductInput = {
@@ -1684,7 +1683,6 @@ export function StoreInventoryImport({
   const [dirty, setDirty] = useState(false)
   const user = useAuthStore((state) => state.auth.user)
   if (!user) return null
-  const legacy = legacyVariantProduct(product)
   const variant = product.variants?.find(
     (item) => item.id === variantId && item.product_id === product.id
   )
@@ -1723,42 +1721,40 @@ export function StoreInventoryImport({
           value={variantId}
           onValueChange={(id) => selectVariant(String(id))}
         >
-          {!legacy && (
-            <div className='space-y-2'>
-              <TabsList
-                aria-label={t('Variant inventory')}
-                variant='line'
-                className='h-auto flex-wrap justify-start'
-              >
-                {product.variants?.map((item) => (
-                  <TabsTrigger
-                    key={item.id}
-                    value={item.id}
-                    disabled={busy}
-                    className='min-h-11 break-words whitespace-normal'
-                  >
-                    {item.name || t('Default variant')}
-                    {!item.enabled && (
-                      <span className='text-muted-foreground ml-1 text-xs'>
-                        ({t('Disabled')})
-                      </span>
-                    )}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'Imports go only to the selected variant. Disabled variants can still be restocked.'
-                )}
-              </p>
-              {variant && (
-                <StoreInventoryTotals product={product} variant={variant} />
+          <div className='space-y-2'>
+            <TabsList
+              aria-label={t('Variant inventory')}
+              variant='line'
+              className='h-auto flex-wrap justify-start'
+            >
+              {product.variants?.map((item) => (
+                <TabsTrigger
+                  key={item.id}
+                  value={item.id}
+                  disabled={busy}
+                  className='min-h-11 break-words whitespace-normal'
+                >
+                  {item.name || t('Default variant')}
+                  {!item.enabled && (
+                    <span className='text-muted-foreground ml-1 text-xs'>
+                      ({t('Disabled')})
+                    </span>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Imports go only to the selected variant. Disabled variants can still be restocked.'
               )}
-            </div>
-          )}
-          {legacy || variant ? (
+            </p>
+            {variant && (
+              <StoreInventoryTotals product={product} variant={variant} />
+            )}
+          </div>
+          {variant ? (
             <TabsContent value={variantId}>
-              {(variant?.template ?? product.template) === 'fixed-content' ? (
+              {variant.template === 'fixed-content' ? (
                 <p className='text-muted-foreground text-sm'>
                   {t(fixedCopy.noImport)}
                 </p>
@@ -1770,7 +1766,7 @@ export function StoreInventoryImport({
                 </p>
               ) : (
                 <StoreInventoryContent
-                  key={`${user.id}-${variant?.id || 'legacy-default'}`}
+                  key={`${user.id}-${variant.id}`}
                   user={user}
                   product={product}
                   variant={variant}
@@ -1802,7 +1798,7 @@ function StoreInventoryContent({
 }: {
   user: AuthUser
   product: StoreProduct
-  variant?: StoreVariant
+  variant: StoreVariant
   onBusyChange: (value: boolean) => void
   onDirtyChange: (value: boolean) => void
   onSaved: () => Promise<void>
@@ -1815,22 +1811,12 @@ function StoreInventoryContent({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const stock = useQuery({
-    queryKey: [
-      'store',
-      'stock',
-      user.id,
-      product.id,
-      variant?.id || 'legacy-default',
-      page,
-    ],
-    queryFn: () =>
-      variant
-        ? storeApi.variantStock(product.id, variant.id, page)
-        : storeApi.stock(product.id, page),
+    queryKey: ['store', 'stock', user.id, product.id, variant.id, page],
+    queryFn: () => storeApi.variantStock(product.id, variant.id, page),
     retry: false,
   })
   const [removeId, setRemoveId] = useState<string | null>(null)
-  const template = variant?.template ?? product.template
+  const template = variant.template
   const composed = template === 'custom-text' || structuredTemplate(template)
   const [composedItems, setComposedItems] = useState<string[]>([])
   const [composerDirty, setComposerDirty] = useState(false)
@@ -1888,25 +1874,16 @@ function StoreInventoryContent({
       const intent = await prepareStockImport({
         userId: user.id,
         productId: product.id,
-        variantId: variant?.id,
+        variantId: variant.id,
         items,
       })
-      if (variant) {
-        await storeApi.importVariantStock(
-          product.id,
-          variant.id,
-          items,
-          intent.requestKey,
-          authScope
-        )
-      } else {
-        await storeApi.inventory(
-          product.id,
-          items,
-          intent.requestKey,
-          authScope
-        )
-      }
+      await storeApi.importVariantStock(
+        product.id,
+        variant.id,
+        items,
+        intent.requestKey,
+        authScope
+      )
       confirmStockImport(intent)
       setText('')
       setComposedItems([])
@@ -1942,7 +1919,7 @@ function StoreInventoryContent({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <p className='text-sm break-words'>
-            {product.title} · {variant?.name || t('Historic/default variant')}
+            {product.title} · {variant.name || t('Default variant')}
           </p>
           <p className='text-muted-foreground text-xs break-all'>{removeId}</p>
           <AlertDialogFooter>
@@ -2048,7 +2025,7 @@ function StoreInventoryContent({
       )}
       <StoreInventoryImportPreview
         items={previewItems}
-        target={variant?.name || t('Historic/default variant')}
+        target={variant.name || t('Default variant')}
         disabled={busy}
         onRemoveDuplicates={(items) => {
           if (composed) setComposedItems(items)

@@ -110,12 +110,30 @@ test('unavailable projection ignores even populated financial fields', () => {
   assert.equal(value.reserved, null)
   assert.equal(value.debt, null)
 })
-test('legacy DTO with no new flags retains legacy fallback and write routing', () => {
-  const value = walletProjection({ quota: 500000, request_count: 0 })
-  assert.equal(value.native, false)
-  assert.equal(value.available, 500000)
-  assert.equal(value.history, true)
-  assert.equal(value.requests, 0)
-  assert.equal(value.readOnly, false)
-  assert.equal(walletProjection({}).available, 0)
+test('missing native contract never restores legacy quota or default history', () => {
+  for (const user of [{ quota: 500000, request_count: 0 }, {}, null]) {
+    const value = walletProjection(user)
+    assert.equal(value.native, true)
+    assert.equal(value.available, null)
+    assert.equal(value.history, false)
+    assert.equal(value.requests, null)
+    assert.equal(value.readOnly, true)
+  }
+  assert.equal(
+    walletProjection({ ...native, financial_projection_available: undefined })
+      .available,
+    null
+  )
+  assert.equal(
+    walletProjection({
+      ...native,
+      usage_projection_available: undefined,
+      request_count: 0,
+    }).requests,
+    null
+  )
+  assert.equal(
+    walletProjection({ ...native, wallet_unit: 'unknown' }).spendable,
+    null
+  )
 })

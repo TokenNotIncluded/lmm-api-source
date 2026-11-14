@@ -63,7 +63,7 @@ Go 将 gRPC 失败映射为明确 HTTP 状态，不返回底层 SQL 或密钥。
 
 `compose.rpc-core.yml` 和 `compose.rpc-extensions.yml` 分别叠加到独立核心与扩展项目。更新扩展只操作扩展项目，不删除核心或外部 socket 卷。宿主文件用 `LMM_CORE_RPC_TOKEN_SECRET_FILE` 配置，卷名可用 `LMM_CORE_RPC_VOLUME` 配置。
 
-当前进程使用绝对路径 TOML 配置：Core 的 `[rpc].socket` / `token_file`，Go 的 `[core].socket` / `identity_token_file`，见 [Core 示例](../config/core.example.toml) 和 [扩展示例](../config/extensions.example.toml)。`LMM_CORE_RPC_SOCKET` / `LMM_CORE_RPC_TOKEN_FILE` 属于显式 `--legacy-env` 兼容入口，不能与 TOML 配置混用。凭证当前在启动时读取，没有热轮换；更换内部凭证需要协调两端，不能只改 Go 文件就假设 Rust 已更新。
+当前进程使用绝对路径 TOML 配置：Core 的 `[rpc].socket` / `token_file`，Go 的 `[core].socket` / `identity_token_file`，见 [Core 示例](../config/core.example.toml) 和 [扩展示例](../config/extensions.example.toml)。Core 和 Go 均已删除 `--legacy-env` 入口；Core 不再读取 `LMM_CORE_RPC_SOCKET` / `LMM_CORE_RPC_TOKEN_FILE` 环境设置，并拒绝其与 TOML 混用。凭证当前在启动时读取，没有热轮换；更换内部凭证需要协调两端，不能只改 Go 文件就假设 Rust 已更新。
 
 ## 接入 Go 模块
 
@@ -77,7 +77,7 @@ GET /extensions/v1/identity/teams?after_id=0
 
 宿主先检查自己的 `extensions-token`，然后在进入模块前移除该 `Authorization` 请求头。需要用户身份的操作另外读取 `X-LMM-User-Credential` 并交给 Rust 验证。不能把宿主服务密钥发给浏览器，也不能将这些内部接口当成新的公共登录入口。
 
-返回使用 Protobuf JSON，64 位 ID 为字符串。TOML 的 `[host].modules` 控制显式启用列表；`["none"]` 关闭全部模块。`LMM_EXTENSION_MODULES` 仅属于 `--legacy-env` 兼容入口。默认只在 RPC 已配置时启用 identity。未知或重复名称使启动失败，新模块不会自动对所有部署启用。
+返回使用 Protobuf JSON，64 位 ID 为字符串。TOML 的 `[host].modules` 控制显式启用列表；`["none"]` 关闭全部模块。Go 已删除 `--legacy-env` 和 `LMM_EXTENSION_MODULES` 环境入口。默认只在 RPC 已配置时启用 identity。未知或重复名称使启动失败，新模块不会自动对所有部署启用。
 
 这些模块是可信的编译期 Go 代码，不是不可信插件沙箱。需要进程级隔离时，使用独立扩展容器。当前 [`composition/registry.go`](../services/extensions/internal/composition/registry.go) 注册 12 个模块：`checkins`、`identity`、`store`、`support`、`assistant`、`remote-control`、`payments`、`toolmarket`、`hero-sms`、`operations`、`community`、`acquisition`。`support` 必须同时显式选择 `store`；`operations`、`community`、`acquisition` 的 Web 适配器由进程入口装配。注册不等于全部启用，也不证明业务验收或生产部署完成。
 

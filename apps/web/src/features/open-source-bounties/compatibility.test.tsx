@@ -137,9 +137,7 @@ async function renderAction(queryClient: InstanceType<typeof QueryClient>) {
             challenge={challenge}
             pending=''
             onCancel={(challenge) => {
-              void api.post(
-                `/api/bounties/challenges/${challenge.id}/cancel`
-              )
+              void api.post(`/api/bounties/challenges/${challenge.id}/cancel`)
             }}
           />
         </I18nextProvider>

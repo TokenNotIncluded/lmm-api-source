@@ -4,7 +4,6 @@ use super::{
     *,
 };
 use crate::billing::{Credits, trust_pricing::DiscountRatio};
-use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,15 +103,11 @@ impl AudioPrice {
         if let Some(discount) = discount {
             amount *= Exact::new(discount.numerator().into(), discount.denominator().into());
         }
-        let n = amount.numer();
-        let d = amount.denom();
-        let remainder = n % d;
-        let increment = match self.rounding {
-            AudioRounding::Ceiling => remainder != BigUint::from(0_u8),
-            AudioRounding::HalfUp => remainder * BigUint::from(2_u8) >= *d,
+        let rounded = match self.rounding {
+            AudioRounding::Ceiling => amount.ceil(),
+            AudioRounding::HalfUp => amount.round(),
         };
-        let value = i64::try_from(n / d + BigUint::from(u8::from(increment)))
-            .map_err(|_| AudioError::Overflow)?;
+        let value = i64::try_from(rounded.to_integer()).map_err(|_| AudioError::Overflow)?;
         if value > i64::from(self.max_budget) {
             return Err(AudioError::BudgetExceeded);
         }

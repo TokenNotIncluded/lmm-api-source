@@ -71,4 +71,16 @@ func TestPancakePortalUsesAuthenticatedBuyerAndConfiguredStore(t *testing.T) {
 	if svc.PancakePortalAvailable() || calls.Load() != 2 {
 		t.Fatal("disabled portal advertised or contacted provider")
 	}
+	// Subscription admission is independent of wallet admission. Customers
+	// still need the portal when this store only sells subscriptions.
+	cny.cfg.StoreID = usd.cfg.StoreID
+	badResponse.Store(false)
+	subscriptions := &PancakeSubscriptions{adapters: map[int64]*Pancake{usd.Channel().ID: usd}, admission: map[int64]bool{usd.Channel().ID: true}}
+	AttachPancakeConfiguration(svc, subscriptions)
+	if !svc.PancakePortalAvailable() {
+		t.Fatal("subscription-only store lost its customer portal")
+	}
+	if link, err := svc.PancakePortal(context.Background(), 42); err != nil || link == nil || calls.Load() != 3 {
+		t.Fatal("subscription-only portal unavailable", err)
+	}
 }

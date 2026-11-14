@@ -61,11 +61,12 @@ async fn managed70_fresh_real_catalog_and_restricted_runtime(pool: PgPool) {
     crate::core_schema::managed_applications_ready(&pool)
         .await
         .unwrap();
-    let target = captured().unwrap();
+    let target: serde_json::Value =
+        serde_json::from_str(include_str!("fresh70_target.json")).unwrap();
     let mut c = pool.acquire().await.unwrap();
     assert_eq!(
         hex(fingerprint(&definitions(&mut c).await.unwrap())),
-        target.catalog_sha256
+        target["catalog_sha256"].as_str().unwrap()
     );
     drop(c);
     let role = crate::test_runtime::RuntimeRole::create(&pool).await;
@@ -409,4 +410,79 @@ async fn managed70_owner_upgrade_preserves_all_other_data_acl_and_commit_recover
         quote(&request.roles.owner),quote(&original),quote(&request.roles.installer),quote(&request.roles.owner),quote(&request.roles.runtime),quote(&request.roles.extensions),quote(&request.database.name),quote(&original),quote(&request.roles.installer),quote(&request.roles.owner),quote(&request.roles.runtime),quote(&request.roles.extensions))))
         .execute(&mut inspect).await.unwrap();
     inspect.close().await.unwrap();
+}
+
+/// Explicit candidate capture on a disposable database; never admits or repairs
+/// a running database. The owner reviews these pins before normal checks run.
+#[sqlx::test(migrations = false)]
+#[ignore = "explicit candidate capture requires LMM_MANAGED_CAPTURE_FILE"]
+async fn capture_managed_candidate(pool: PgPool) {
+    use crate::core_schema as root;
+    let mut tx = pool.begin().await.unwrap();
+    for (_, ddl) in &COMPONENTS[..69] {
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
+    }
+    for ddl in [
+        root::CONTRACT,
+        root::UPGRADE_METADATA,
+        root::ADDITIVE_UPGRADE_METADATA,
+        root::LEDGER_REVISION_METADATA,
+        root::CONSOLE_REVISION_METADATA,
+        root::OFFLINE_REVISION_METADATA,
+    ] {
+        sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
+    }
+    assert_eq!(
+        hex(fingerprint(&definitions(&mut tx).await.unwrap())),
+        ENGINE.predecessor_catalog
+    );
+    let oauth_predecessor = hex(crate::identity::grants::catalog(&mut tx).await.unwrap());
+    sqlx::raw_sql(COMPONENTS[69].1)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let catalog70 = hex(fingerprint(&definitions(&mut tx).await.unwrap()));
+    let oauth70 = hex(crate::identity::grants::catalog(&mut tx).await.unwrap());
+    // Preserve the declaration order used by schema_manifest, not Value's map order.
+    let mut manifest70 = schema_manifest();
+    manifest70.components.truncate(70);
+    let mut bytes = serde_json::to_vec(&manifest70).unwrap();
+    bytes.push(b'\n');
+    let manifest70_sha = hex(Sha256::digest(bytes));
+    let mut suffixes = serde_json::Map::new();
+    for (index, (_, ddl)) in COMPONENTS.iter().enumerate().skip(70) {
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
+        assert_eq!(
+            hex(crate::identity::grants::catalog(&mut tx).await.unwrap()),
+            oauth70,
+            "later components must preserve the managed OAuth contract"
+        );
+        let mut manifest = schema_manifest();
+        manifest.components.truncate(index + 1);
+        let mut bytes = serde_json::to_vec(&manifest).unwrap();
+        bytes.push(b'\n');
+        suffixes.insert(
+            (index + 1).to_string(),
+            serde_json::json!({
+                "manifest_sha256":hex(Sha256::digest(bytes)),
+                "catalog_sha256":hex(fingerprint(&definitions(&mut tx).await.unwrap()))
+            }),
+        );
+    }
+    let result = serde_json::json!({
+        "managed": {
+            "manifest_sha256":manifest70_sha, "catalog_sha256":catalog70,
+            "oauth_predecessor_catalog_sha256":oauth_predecessor,
+            "oauth_catalog_sha256":oauth70, "raw_schema_sha256":hex(Sha256::digest(COMPONENTS[69].1))
+        },
+        "suffixes":suffixes,
+        "fresh": {"component_count":COMPONENTS.len(), "manifest_sha256":manifest_sha256().unwrap(),
+            "catalog_sha256":hex(fingerprint(&definitions(&mut tx).await.unwrap()))}
+    });
+    std::fs::write(
+        std::env::var_os("LMM_MANAGED_CAPTURE_FILE").unwrap(),
+        serde_json::to_vec_pretty(&result).unwrap(),
+    )
+    .unwrap();
+    tx.rollback().await.unwrap();
 }

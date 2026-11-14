@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { storePromotionApi } from './promotion-api'
 import { verifiedPromotionQuote } from './promotion-utils'
 import type { StoreProduct } from './types'
-import { legacyVariantProduct, selectedStoreVariant } from './variant-utils'
+import { selectedStoreVariant } from './variant-utils'
 
 export function useStoreProductPromotion({
   product,
@@ -49,9 +49,7 @@ export function useStoreProductPromotion({
     retry: false,
   })
   const validSelection =
-    quantity !== undefined &&
-    (legacyVariantProduct(product) ||
-      !!selectedStoreVariant(product, variantId))
+    quantity !== undefined && !!selectedStoreVariant(product, variantId)
   const quote = useQuery({
     queryKey: [
       'store',

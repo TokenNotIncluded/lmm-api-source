@@ -61,7 +61,7 @@ func (f *legacyFake) CreditLegacy(_ context.Context, id, key string) (LegacyRece
 const oldCallback = `{"eventId":"evt_old","data":{"orderMerchantExternalId":"old-order-177","orderId":"ORD_1","amount":"99.99","chargedAmount":"0.123456"}}`
 
 func legacyService(f *legacyFake) *Service {
-	return &Service{now: time.Now, core: f, adapters: map[int64]Adapter{4: &Pancake{cfg: PancakeConfig{Channel: Channel{ID: 4, Provider: "waffo_pancake"}}}}}
+	return &Service{store: newMemory(), now: time.Now, core: f, adapters: map[int64]Adapter{4: &Pancake{cfg: PancakeConfig{Channel: Channel{ID: 4, Provider: "waffo_pancake"}}}}}
 }
 func deliverLegacy(s *Service, raw string) error {
 	r := httptest.NewRequest("POST", "/", strings.NewReader(raw))

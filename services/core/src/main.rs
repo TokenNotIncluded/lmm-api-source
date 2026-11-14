@@ -19,7 +19,7 @@ use std::{
 mod admin;
 mod hex_codec;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | seed-checkin-history | publish-checkin-policy | schema-manifest | check-db | trust-policy-editor]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db | trust-policy-editor]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
@@ -44,14 +44,11 @@ Commands:\n\
   install-tool-market-builtins  Install the compiled tool catalog offline as installation owner.\n\n\
   complete-setup  Record setup completion offline after creating or importing root.\n\
   install-usage-receipt-index  Offline owner-only index installation; requires explicit --config.\n\
-  plan-admin-activation  Read-only candidate binding for one imported admin; requires explicit --config (not --legacy-env).\n\
-  apply-admin-activation Owner-only apply of one human-confirmed activation; requires explicit --config (not --legacy-env).\n\n\
-  seed-checkin-history  Unsupported in this fresh-install binary; use the preserved legacy binary for historical check-ins.\n\
-  publish-checkin-policy  Unsupported here; use the preserved legacy binary, or extensions publish-checkin-policy for new sites.\n\
+  plan-admin-activation  Read-only candidate binding for one imported admin; requires explicit --config.\n\
+  apply-admin-activation Owner-only apply of one human-confirmed activation; requires explicit --config.\n\n\
   publish-subscription-pancake-price  Publish one price for an existing exact plan revision as offline owner; reads private stdin JSON.\n\
 Options:\n\
   --config PATH  Read one absolute TOML file (default /etc/lmm.conf.d/core.toml).\n\
-  --legacy-env   Explicit temporary environment compatibility; conflicts with --config.\n\
   -h, --help      Show this help without reading database configuration.\n\
   -V, --version   Show the core version.\n\n\
 bootstrap-user accepts at most 4096 bytes and writes a one-time credential to\n\
@@ -80,8 +77,6 @@ enum Command {
     PlanAdminKeyContinuity,
     ApplyAdminKeyContinuity,
     PublishSubscriptionPancakePrice,
-    SeedCheckinHistory,
-    PublishCheckinPolicy,
     SchemaManifest,
     CheckDb,
     TrustPolicyEditor,
@@ -92,7 +87,6 @@ enum Command {
 struct Arguments {
     command: Command,
     config: Option<PathBuf>,
-    legacy_env: bool,
 }
 
 const OPERATIONS: &[(&str, Command)] = &[
@@ -124,8 +118,6 @@ const OPERATIONS: &[(&str, Command)] = &[
         "publish-subscription-pancake-price",
         Command::PublishSubscriptionPancakePrice,
     ),
-    ("seed-checkin-history", Command::SeedCheckinHistory),
-    ("publish-checkin-policy", Command::PublishCheckinPolicy),
     ("schema-manifest", Command::SchemaManifest),
     ("check-db", Command::CheckDb),
     ("trust-policy-editor", Command::TrustPolicyEditor),
@@ -142,7 +134,7 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
         arg.as_encoded_bytes().starts_with(b"-")
             && !matches!(
                 arg.to_str(),
-                Some("--config" | "--legacy-env" | "-h" | "--help" | "-V" | "--version")
+                Some("--config" | "-h" | "--help" | "-V" | "--version")
             )
     }) {
         return Err(bad());
@@ -151,8 +143,7 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
     // A single positional keeps options in one scope, before or after the
     // operation. Subcommands would reset presence/duplicate/conflict state.
     let definitions = [
-        Arg::value("config").conflicts("legacy-env"),
-        Arg::flag("legacy-env"),
+        Arg::value("config"),
         Arg::flag("help").short('h').conflicts("version"),
         Arg::flag("version").short('V').conflicts("operation"),
         Arg::positional("operation").one_of(&names),
@@ -161,7 +152,6 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
     let mut parser = cli.parse_os(&args);
     let mut operation = Command::Serve;
     let mut config = None;
-    let mut legacy_env = false;
     let mut help = false;
     let mut version = false;
     while let Some(event) = parser.next().map_err(|_| bad())? {
@@ -186,7 +176,6 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     .map(|(_, command)| *command)
                     .ok_or_else(bad)?;
             }
-            Event::Flag { arg: "legacy-env" } => legacy_env = true,
             Event::Flag { arg: "help" } => help = true,
             Event::Flag { arg: "version" } => version = true,
             _ => return Err(bad()),
@@ -202,7 +191,6 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
             operation
         },
         config,
-        legacy_env,
     })
 }
 
@@ -242,7 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Ok(());
         }
         Command::SchemaManifest => {
-            if arguments.config.is_some() || arguments.legacy_env {
+            if arguments.config.is_some() {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE).into());
             }
             use std::io::Write;
@@ -251,13 +239,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             writeln!(output)?;
             return Ok(());
         }
-        Command::CheckDb => std::process::exit(admin::check_database(
-            arguments.config.as_deref(),
-            arguments.legacy_env,
-        )),
+        Command::CheckDb => std::process::exit(admin::check_database(arguments.config.as_deref())),
         Command::Serve => None,
         Command::TrustPolicyEditor => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "trust-policy-editor requires explicit offline owner --config",
@@ -268,7 +253,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::UpgradeDb => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "upgrade-db requires explicit offline installer-owner --config",
@@ -278,7 +263,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(admin::Operation::upgrade_database(io::stdin().lock())?)
         }
         Command::UpgradeOffline => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "upgrade-offline requires explicit offline installer --config",
@@ -288,7 +273,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(admin::Operation::upgrade_offline(io::stdin().lock())?)
         }
         Command::UpgradeHistory => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "upgrade-history requires explicit offline authority --config",
@@ -298,7 +283,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(admin::Operation::upgrade_history(io::stdin().lock())?)
         }
         Command::CreateFirstOwner => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "create-first-owner requires explicit installer-owner --config",
@@ -310,7 +295,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::BootstrapUser => Some(admin::Operation::bootstrap(io::stdin().lock())?),
         Command::CompleteSetup => Some(admin::Operation::CompleteSetup),
         Command::InstallToolMarketBuiltins => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "builtin catalog installation requires explicit installer-owner --config",
@@ -321,7 +306,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::InstallUsageReceiptIndex => {
             let operation = admin::Operation::usage_receipt_index(io::stdin().lock())?;
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "usage receipt index installation requires explicit installer-owner --config",
@@ -331,7 +316,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(operation)
         }
         Command::RebuildChannelUsage => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "rebuild-channel-usage requires explicit owner --config",
@@ -340,30 +325,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             Some(admin::Operation::RebuildChannelUsage)
         }
-        Command::SeedCheckinHistory | Command::PublishCheckinPolicy => {
-            if arguments.config.is_none() || arguments.legacy_env {
+        Command::PublishSubscriptionPancakePrice => {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "check-in owner commands require explicit --config and cannot use --legacy-env",
+                    "publish-subscription-pancake-price requires explicit owner --config",
                 )
                 .into());
-            }
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "CHECKIN_HISTORY_USE_PRESERVED_BINARY: historical check-in owner commands require the preserved legacy binary; this binary supports fresh installations only",
-            ).into());
-        }
-        Command::PublishSubscriptionPancakePrice => {
-            if arguments.config.is_none() || arguments.legacy_env {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput,
-                    "publish-subscription-pancake-price requires explicit owner --config and cannot use --legacy-env").into());
             }
             Some(admin::Operation::publish_subscription_pancake_price(
                 io::stdin().lock(),
             )?)
         }
         Command::PlanAdminKeyContinuity | Command::ApplyAdminKeyContinuity => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "admin key continuity requires explicit owner --config",
@@ -378,20 +353,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
         }
         Command::PlanAdminActivation => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "plan-admin-activation requires explicit --config and cannot use --legacy-env",
+                    "plan-admin-activation requires explicit --config",
                 )
                 .into());
             }
             Some(admin::Operation::plan_admin_activation(io::stdin().lock())?)
         }
         Command::ApplyAdminActivation => {
-            if arguments.config.is_none() || arguments.legacy_env {
+            if arguments.config.is_none() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "apply-admin-activation requires explicit --config and cannot use --legacy-env",
+                    "apply-admin-activation requires explicit --config",
                 )
                 .into());
             }
@@ -400,7 +375,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?)
         }
     };
-    config::initialize(arguments.config.as_deref(), arguments.legacy_env)?;
+    config::initialize(arguments.config.as_deref())?;
     // One worker and a bounded blocking pool are sufficient for the 1-core
     // profile. Password hashing remains on a separate bounded blocking worker.
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -469,7 +444,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         // Installation belongs solely to the explicit init-db command. Even a
         // valid identity-only installation cannot stand in for the whole core.
         lmm_core::core_schema::check(&pool).await?;
-        // Validate enabled editor authority even when legacy-env omitted console/Web.
+        // Validate the configured editor authority before starting services.
         let trust_policy_editor = config::trust_policy_editor(pool.clone()).await?;
         let (abuse, configured_models) = config::models_and_abuse(pool.clone())?;
         let mut store = config::identity_auth(IdentityStore::from_pool(pool.clone()))?
@@ -1054,7 +1029,9 @@ fn require_oauth_model_gateway(
         if profile.pi_budget_limit().is_some() {
             return Err("Pi delegation requires actual model gateway");
         }
-        if profile.model_budget_limit("lmm-cc-switch").is_some() {
+        if profile.model_budget_limit("lmm-cc-switch").is_some()
+            || profile.model_budget_limit("lmm-magpie").is_some()
+        {
             return Err("managed applications require actual model gateway");
         }
     }
@@ -1077,6 +1054,7 @@ mod check_db_parser_tests {
         for profile in [
             profile().with_pi_budget_limit(100).unwrap(),
             profile().with_managed_budget_limit(100).unwrap(),
+            profile().with_magpie_budget_limit(100).unwrap(),
             profile()
                 .with_pi_budget_limit(100)
                 .unwrap()
@@ -1105,6 +1083,9 @@ mod check_db_parser_tests {
             vec!["--version", "--help"],
             vec!["serve", "--version"],
             vec!["--version", "serve"],
+            vec!["--legacy-env"],
+            vec!["--legacy-env", "--help"],
+            vec!["--legacy-env", "--version"],
             vec!["--legacy-env", "--legacy-env"],
             vec!["--config", "/a", "--config", "/b"],
             vec!["--config", "/a", "--legacy-env"],
@@ -1168,24 +1149,17 @@ mod check_db_parser_tests {
     }
 
     #[test]
-    fn checkin_owner_commands_use_explicit_config_and_reject_extra_commands() {
+    fn retired_checkin_commands_are_unknown_even_with_config_or_help() {
         for name in ["seed-checkin-history", "publish-checkin-policy"] {
-            let parsed = command(args(&[name, "--config", "/private/owner.toml"])).unwrap();
-            assert!(matches!(
-                parsed.command,
-                Command::SeedCheckinHistory | Command::PublishCheckinPolicy
-            ));
-            assert_eq!(parsed.config, Some(PathBuf::from("/private/owner.toml")));
-            assert!(command(args(&[name, "serve"])).is_err());
-            assert!(
-                command(args(&[
-                    name,
-                    "--legacy-env",
-                    "--config",
-                    "/private/owner.toml"
-                ]))
-                .is_err()
-            );
+            for input in [
+                vec![name],
+                vec![name, "--config", "/private/owner.toml"],
+                vec!["--config", "/private/owner.toml", name],
+                vec![name, "--help"],
+            ] {
+                assert!(command(args(&input)).is_err(), "{input:?}");
+            }
+            assert!(!USAGE.contains(name));
         }
     }
     #[test]
@@ -1221,7 +1195,6 @@ mod check_db_parser_tests {
             let v = command(input).unwrap();
             assert!(matches!(v.command, Command::CheckDb));
             assert_eq!(v.config, Some(PathBuf::from("/private/runtime.toml")));
-            assert!(!v.legacy_env);
         }
         let v = command(args(&["check-db"])).unwrap();
         assert!(matches!(v.command, Command::CheckDb));

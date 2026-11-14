@@ -972,3 +972,292 @@ async fn sql_scope_format_accepts_unicode_and_rejects_controls_and_noncanonical_
         assert_eq!(actual, expected, "scope format case {name}");
     }
 }
+
+// OIDC follows the same real browser/session/PKCE fixture as native OAuth.
+fn oidc_keys(id: &str) -> lmm_core::identity::grants::OidcSigningKeys {
+    use rsa::pkcs8::EncodePrivateKey;
+    let key = rsa::PrivateKey::new(&mut rand::rng(), 2048).unwrap();
+    let pem = key.to_pkcs8_pem(Default::default()).unwrap();
+    lmm_core::identity::grants::OidcSigningKeys::from_pem(id, pem.as_bytes(), vec![]).unwrap()
+}
+fn oidc_request(nonce: Option<&str>) -> lmm_core::identity::grants::OidcAuthorizationRequest {
+    let native = request();
+    lmm_core::identity::grants::OidcAuthorizationRequest {
+        response_type: native.response_type,
+        client_id: native.client_id,
+        redirect_uri: native.redirect_uri,
+        scope: format!("openid {}", native.scope),
+        resource: native.resource,
+        code_challenge: native.code_challenge,
+        code_challenge_method: native.code_challenge_method,
+        state: native.state,
+        nonce: nonce.map(str::to_owned),
+    }
+}
+fn verify_id_token(
+    issuer: &LmmIssuer,
+    token: &TokenWire,
+    nonce: Option<&str>,
+    user: i64,
+) -> serde_json::Value {
+    use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+    let jwks: jsonwebtoken::jwk::JwkSet =
+        serde_json::from_value(issuer.oidc_jwks().unwrap()).unwrap();
+    let jwt = token
+        .id_token
+        .as_ref()
+        .expect("openid code exchange must issue an ID token");
+    let header = decode_header(jwt).unwrap();
+    let jwk = jwks.find(header.kid.as_ref().unwrap()).unwrap();
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.set_issuer(&[ISSUER]);
+    validation.set_audience(&["lmm"]);
+    let claims =
+        decode::<serde_json::Value>(jwt, &DecodingKey::from_jwk(jwk).unwrap(), &validation)
+            .unwrap()
+            .claims;
+    assert_eq!(claims["sub"], user.to_string());
+    assert_eq!(claims.get("nonce").and_then(|n| n.as_str()), nonce);
+    assert!(claims["exp"].as_i64().unwrap() > claims["iat"].as_i64().unwrap());
+    assert!(claims["auth_time"].as_i64().unwrap() <= claims["iat"].as_i64().unwrap());
+    claims
+}
+#[sqlx::test(migrations = false)]
+async fn oidc_code_nonce_userinfo_rotation_and_scope_revocation(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let issuer = f
+        .issuer
+        .with_oidc_signing_keys(oidc_keys("first"))
+        .await
+        .unwrap();
+    assert_eq!(issuer.oidc_metadata().unwrap()["issuer"], ISSUER);
+    assert_eq!(
+        issuer.oidc_metadata().unwrap()["id_token_signing_alg_values_supported"],
+        serde_json::json!(["RS256"])
+    );
+    for nonce in [Some("exact-client-nonce"), None] {
+        let first = issuer.begin_oidc(oidc_request(nonce)).await.unwrap();
+        assert!(first.openid);
+        // Multiple unauthenticated continues preserve the immutable nonce.
+        let next = issuer
+            .continue_authorization(&first.binding, &first.csrf, None)
+            .await
+            .unwrap();
+        assert!(next.openid);
+        let page = issuer
+            .continue_authorization(&next.binding, &next.csrf, Some(&f.session.refresh_token))
+            .await
+            .unwrap();
+        assert!(page.openid);
+        let redirect = issuer
+            .consent(
+                &page.binding,
+                &page.csrf,
+                Some(&f.session.refresh_token),
+                true,
+            )
+            .await
+            .unwrap();
+        let url = reqwest::Url::parse(&redirect.uri).unwrap();
+        let code = url
+            .query_pairs()
+            .find(|(k, _)| k == "code")
+            .unwrap()
+            .1
+            .to_string();
+        let issued = exchange(&issuer, code_form(&code)).await.unwrap();
+        assert!(issued.scope.split(' ').any(|s| s == "openid"));
+        let claims = verify_id_token(&issuer, &issued, nonce, f.user);
+        assert_eq!(
+            issuer.userinfo(&issued.access_token).await.unwrap()["sub"],
+            claims["sub"]
+        );
+        assert!(exchange(&issuer, code_form(&code)).await.is_err());
+        let rotated = exchange(&issuer, refresh_form(&issued.refresh_token, None))
+            .await
+            .unwrap();
+        let refreshed = verify_id_token(&issuer, &rotated, nonce, f.user);
+        assert_eq!(refreshed["auth_time"], claims["auth_time"]);
+        let scope = format!("balance:read {}", group_scope("default"));
+        let narrowed = exchange(&issuer, refresh_form(&rotated.refresh_token, Some(scope)))
+            .await
+            .unwrap();
+        assert!(narrowed.id_token.is_none());
+        assert!(matches!(
+            issuer.userinfo(&narrowed.access_token).await,
+            Err(ReadError::Identity(IdentityError::Forbidden))
+        ));
+        let escalation = format!("{} openid", narrowed.scope);
+        assert!(
+            exchange(
+                &issuer,
+                refresh_form(&narrowed.refresh_token, Some(escalation))
+            )
+            .await
+            .is_err()
+        );
+        issuer.revoke(&issued.access_token).await.unwrap();
+        assert!(issuer.userinfo(&issued.access_token).await.is_err());
+    }
+    let native = token(&issuer, &f.session.refresh_token).await;
+    assert!(native.id_token.is_none());
+    assert!(issuer.userinfo(&native.access_token).await.is_err());
+}
+#[sqlx::test(migrations = false)]
+async fn oidc_http_discovery_jwks_bearer_and_disabled_mode(pool: PgPool) {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    let f = fixture(&pool).await;
+    let disabled = lmm_core::oauth2_http::router(f.issuer.clone());
+    for path in [
+        "/.well-known/openid-configuration",
+        "/api/oauth2/jwks",
+        "/api/oauth2/userinfo",
+    ] {
+        assert_eq!(
+            disabled
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let issuer = f
+        .issuer
+        .with_oidc_signing_keys(oidc_keys("active"))
+        .await
+        .unwrap();
+    for bad in ["", "a\nb", &"n".repeat(257)] {
+        assert!(issuer.begin_oidc(oidc_request(Some(bad))).await.is_err());
+    }
+    let app = lmm_core::oauth2_http::router(issuer);
+    let discovery = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/.well-known/openid-configuration")
+                .header("host", "attacker.invalid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(discovery.status(), StatusCode::OK);
+    let document: serde_json::Value =
+        serde_json::from_slice(&to_bytes(discovery.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(document["issuer"], ISSUER);
+    let jwks = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/oauth2/jwks")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let keys: serde_json::Value =
+        serde_json::from_slice(&to_bytes(jwks.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(keys["keys"][0]["kid"], "active");
+    assert!(keys["keys"][0].get("d").is_none());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/oauth2/userinfo")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(response.headers().contains_key("www-authenticate"));
+}
+
+#[test]
+fn oidc_signing_key_rotation_accepts_retired_public_keys_and_rejects_duplicate_ids() {
+    use lmm_core::identity::grants::OidcSigningKeys;
+    use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
+    let old = rsa::PrivateKey::new(&mut rand::rng(), 2048).unwrap();
+    let new = rsa::PrivateKey::new(&mut rand::rng(), 2048).unwrap();
+    let pem = new.to_pkcs8_pem(Default::default()).unwrap();
+    let old_public = old
+        .to_public_key()
+        .to_public_key_pem(Default::default())
+        .unwrap();
+    assert!(
+        OidcSigningKeys::from_pem(
+            "new",
+            pem.as_bytes(),
+            vec![("old".into(), old_public.as_bytes().to_vec())]
+        )
+        .is_ok()
+    );
+    assert!(
+        OidcSigningKeys::from_pem(
+            "new",
+            pem.as_bytes(),
+            vec![("new".into(), old_public.as_bytes().to_vec())]
+        )
+        .is_err()
+    );
+    assert!(OidcSigningKeys::from_pem("new", b"not a private key", vec![]).is_err());
+}
+
+#[sqlx::test(migrations = false)]
+async fn oidc_runtime_role_can_issue_and_revocation_denies_userinfo(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let (role, issuer) = runtime_issuer(&pool).await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(
+        include_str!("../schema/oauth2_oidc_grants.sql")
+            .replace(":\"runtime_role\"", &format!("\"{}\"", role.name)),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let checks = tokio::spawn(async move {
+        let issuer = issuer
+            .with_oidc_signing_keys(oidc_keys("runtime"))
+            .await
+            .unwrap();
+        let first = issuer
+            .begin_oidc(oidc_request(Some("runtime-nonce")))
+            .await
+            .unwrap();
+        let page = issuer
+            .continue_authorization(&first.binding, &first.csrf, Some(&f.session.refresh_token))
+            .await
+            .unwrap();
+        let redirect = issuer
+            .consent(
+                &page.binding,
+                &page.csrf,
+                Some(&f.session.refresh_token),
+                true,
+            )
+            .await
+            .unwrap();
+        let code = reqwest::Url::parse(&redirect.uri)
+            .unwrap()
+            .query_pairs()
+            .find(|(k, _)| k == "code")
+            .unwrap()
+            .1
+            .to_string();
+        let issued = exchange(&issuer, code_form(&code)).await.unwrap();
+        verify_id_token(&issuer, &issued, Some("runtime-nonce"), f.user);
+        assert_eq!(
+            issuer.userinfo(&issued.access_token).await.unwrap()["sub"],
+            f.user.to_string()
+        );
+        issuer.revoke(&issued.access_token).await.unwrap();
+        assert!(issuer.userinfo(&issued.access_token).await.is_err());
+    })
+    .await;
+    role.cleanup().await;
+    checks.unwrap();
+}

@@ -28,15 +28,10 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	var cfg GoConfig
-	if path == "" {
-		cfg, err = legacyConfig(os.Getenv)
-	} else {
-		if err = validateEnvironment(os.Getenv); err != nil {
-			return err
-		}
-		cfg, err = LoadConfig(path)
+	if err = validateEnvironment(os.Getenv); err != nil {
+		return err
 	}
+	cfg, err := LoadConfig(path)
 	if err != nil {
 		return err
 	}

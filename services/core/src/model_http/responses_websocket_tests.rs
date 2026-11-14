@@ -294,13 +294,12 @@ impl Core {
             let address = listener.local_addr().unwrap();
             drop(listener);
             base = format!("http://{address}");
-            command
-                .arg("--legacy-env")
-                .env("LMM_CORE_DATABASE_URL", &config.database)
-                .env("LMM_CORE_LISTEN", address.to_string())
-                .env("LMM_CORE_MODEL_CONFIG_FILE", sidecar)
-                .env("LMM_CORE_MODEL_LOCAL_HTTP", "true")
-                .env("LMM_CORE_MAX_INFLIGHT", "16");
+            let database = save(&format!("{nonce}.database-url"), config.database.as_bytes());
+            let core_config = save(&format!("{nonce}.core.toml"), format!(
+                "version=1\n[server]\nlisten={address:?}\n[database]\nurl_file={database:?}\n[model]\nconfig_file={sidecar:?}\nlocal_http=true\n",
+                address = address.to_string()
+            ).as_bytes());
+            command.args(["--config", core_config.to_str().unwrap()]);
         } else {
             command = Command::new(std::env::current_exe().unwrap());
             command
@@ -319,20 +318,7 @@ impl Core {
             .map(|(key, _)| key)
             .collect();
         for key in inherited {
-            if !product
-                || !matches!(
-                    key.to_str(),
-                    Some(
-                        "LMM_CORE_DATABASE_URL"
-                            | "LMM_CORE_LISTEN"
-                            | "LMM_CORE_MODEL_CONFIG_FILE"
-                            | "LMM_CORE_MODEL_LOCAL_HTTP"
-                            | "LMM_CORE_MAX_INFLIGHT"
-                    )
-                )
-            {
-                command.env_remove(key);
-            }
+            command.env_remove(key);
         }
         command
             .env("LMM_WS_OFFICIAL_LOOPBACK_BASE", &lab.peer.supplier.base)

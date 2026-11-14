@@ -314,9 +314,12 @@ fn input(client: ClientProtocol, stream: bool) -> Value {
             json!({"model":"public-model","input":"hello","stream":stream,"tools":[tool]})
         }
 
-        ClientProtocol::Anthropic | ClientProtocol::Gemini => {
-            unreachable!("native clients require native fixtures")
-        }
+        ClientProtocol::Anthropic => json!({
+            "model":"public-model", "max_tokens":128,
+            "messages":[{"role":"user","content":"hello"}], "stream":stream,
+            "tools":[{"name":"weather","input_schema":function["parameters"]}]
+        }),
+        ClientProtocol::Gemini => unreachable!("Gemini requires its path model and operation"),
     }
 }
 fn request(client: ClientProtocol, stream: bool, l: &Limits) -> Request {
@@ -518,6 +521,60 @@ fn packets(s: &str) -> Vec<Value> {
         .collect()
 }
 fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
+    if client == ClientProtocol::Anthropic {
+        let response = if stream {
+            let events = packets(body);
+            assert_eq!(events.last().unwrap()["type"], "message_stop");
+            let mut text = String::new();
+            let mut thinking = String::new();
+            let mut arguments = String::new();
+            for event in &events {
+                let delta = &event["delta"];
+                if let Some(value) = delta["text"].as_str() {
+                    text.push_str(value);
+                }
+                if let Some(value) = delta["thinking"].as_str() {
+                    thinking.push_str(value);
+                }
+                if let Some(value) = delta["partial_json"].as_str() {
+                    arguments.push_str(value);
+                }
+            }
+            assert_eq!(text, "鲸鱼");
+            assert_eq!(thinking, "think");
+            assert_eq!(
+                serde_json::from_str::<Value>(&arguments).unwrap(),
+                json!({"city":"上海"})
+            );
+            let terminal = events
+                .iter()
+                .find(|e| e["type"] == "message_delta")
+                .unwrap();
+            assert_eq!(terminal["delta"]["stop_reason"], "tool_use");
+            assert_eq!(terminal["usage"]["output_tokens"], 5);
+            events
+                .iter()
+                .find(|e| e["type"] == "message_start")
+                .unwrap()["message"]
+                .clone()
+        } else {
+            let response: Value = serde_json::from_str(body).unwrap();
+            assert_eq!(response["stop_reason"], "tool_use");
+            let content = response["content"].as_array().unwrap();
+            assert!(content.iter().any(|b| b["text"] == "鲸鱼"));
+            assert!(content.iter().any(|b| b["thinking"] == "think"));
+            let tool = content.iter().find(|b| b["type"] == "tool_use").unwrap();
+            assert_eq!(tool["id"], "call_1");
+            assert_eq!(tool["name"], "weather");
+            assert_eq!(tool["input"], json!({"city":"上海"}));
+            assert_eq!(response["usage"]["output_tokens"], 5);
+            response
+        };
+        assert_eq!(response["model"], "public-model");
+        assert!(!body.contains("upstream-test-secret"));
+        assert!(!body.contains("upstream-real"));
+        return;
+    }
     if stream {
         let packets = packets(body);
         let mut text = String::new();
@@ -705,14 +762,18 @@ async fn vision_inputs_reach_four_upstreams_and_preserve_json_sse_usage() {
 }
 
 #[tokio::test]
-async fn sixteen_protocol_streaming_and_json_round_trips_use_real_tcp() {
+async fn twenty_four_protocol_json_sse_cases_use_real_tcp() {
     for p in [
         UpstreamProtocol::Chat,
         UpstreamProtocol::Responses,
         UpstreamProtocol::Anthropic,
         UpstreamProtocol::Gemini,
     ] {
-        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+        for client in [
+            ClientProtocol::Chat,
+            ClientProtocol::Responses,
+            ClientProtocol::Anthropic,
+        ] {
             for stream in [false, true] {
                 let script = if stream {
                     let mut s = Script::sse(Vec::new());
@@ -732,6 +793,25 @@ async fn sixteen_protocol_streaming_and_json_round_trips_use_real_tcp() {
                 let expected_id = id.request_id.clone();
                 let (head, body, done) =
                     collect(relay.start(request(client, stream, &limits), id).unwrap()).await;
+                // Native thinking requires an Anthropic signature. Other providers'
+                // reasoning cannot be silently relabeled as signed Anthropic content.
+                if client == ClientProtocol::Anthropic && p != UpstreamProtocol::Anthropic {
+                    assert!(
+                        matches!(
+                            done.error,
+                            Some(RelayError::Unsupported(_) | RelayError::Protocol(_))
+                        ),
+                        "{p:?} {client:?} {stream}: {:?}",
+                        done.error
+                    );
+                    assert!(!body.contains("\"type\":\"message_stop\""));
+                    assert_eq!(money.finals.lock().unwrap().len(), 1);
+                    assert_eq!(upstream.observed.hits.load(Ordering::SeqCst), 1);
+                    println!(
+                        "unsupported_reasoning provider={p:?} client={client:?} stream={stream} rejected"
+                    );
+                    continue;
+                }
                 assert!(head.is_ok(), "{p:?} {client:?} {stream}: {head:?}");
                 assert!(
                     done.error.is_none(),
@@ -784,6 +864,282 @@ async fn sixteen_protocol_streaming_and_json_round_trips_use_real_tcp() {
             }
         }
     }
+}
+
+struct ConcurrentRoutes {
+    router: lmm_core::routing::Router,
+}
+impl ConcurrentRoutes {
+    fn new(address: &str, protocol: UpstreamProtocol) -> Self {
+        use lmm_core::routing::{Endpoint, PriceConfig, PriceSnapshot, RoutingConfig};
+        let wire_protocol = match protocol {
+            UpstreamProtocol::Chat => "openai_chat",
+            UpstreamProtocol::Responses => "openai_responses",
+            UpstreamProtocol::Anthropic => "anthropic_messages",
+            UpstreamProtocol::Gemini => "gemini",
+        };
+        let mut config: RoutingConfig = serde_json::from_value(json!({
+            "version":42,"groups":[{"name":"load","enabled":true}],
+            "upstreams":[{"id":1,"endpoint":"https://synthetic.invalid","protocol":wire_protocol,
+                "credential":{"id":1,"revision":1},"enabled":true}],
+            "routes":[{"id":1,"model":"public-model","group":"load","enabled":true,"speeds":["standard"],
+                "targets":[{"id":1,"upstream_id":1,"upstream_model":"upstream-real","enabled":true,
+                    "priority":0,"weight":1,"speeds":["standard"],"payload":"adapt","timeout_ms":30000,
+                    "client_protocols":["openai_chat","openai_responses"]}],
+                "failover":{"max_attempts":1,"retry_on":[],"allow_replay_after_send":false}}],"aliases":[]
+        })).unwrap();
+        config.upstreams[0].endpoint = Endpoint::local_loopback(address.into()).unwrap();
+        let prices: PriceConfig = serde_json::from_value(json!({"version":42,"rules":[{
+            "id":1,"model":"public-model","group":"load","speed":"standard","billing_mode":"tokens",
+            "rates":{"input":1000000,"output":2000000,"cache_read":100000,"cache_write":1000000,"request":0},
+            "group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000
+        }]})).unwrap();
+        Self {
+            router: lmm_core::routing::Router::new(
+                config,
+                Arc::new(PriceSnapshot::compile(prices).unwrap()),
+            )
+            .unwrap(),
+        }
+    }
+}
+impl RouteProvider for ConcurrentRoutes {
+    fn select<'a>(&'a self, _: &'a RequestContext, request: &'a Request) -> RelayFuture<'a, Route> {
+        Box::pin(async move {
+            use lmm_core::routing::{Protocol, ReplayPermission, RouteRequest};
+            let protocol = match request.client {
+                ClientProtocol::Chat => Protocol::OpenAiChat,
+                ClientProtocol::Responses => Protocol::OpenAiResponses,
+                _ => return Err(RelayError::RouteUnavailable),
+            };
+            let mut plan = self
+                .router
+                .route(RouteRequest {
+                    model: &request.model,
+                    group: "load",
+                    speed: None,
+                    protocol,
+                    replay: ReplayPermission::Denied,
+                })
+                .map_err(|_| RelayError::RouteUnavailable)?;
+            let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
+            assert!(attempt.is_available());
+            assert_eq!(attempt.upstream_model(), "upstream-real");
+            assert_eq!(attempt.quote().version(), 42);
+            assert_eq!(attempt.credential_ref().id, 1);
+            let protocol = match attempt.protocol() {
+                Protocol::OpenAiChat => UpstreamProtocol::Chat,
+                Protocol::OpenAiResponses => UpstreamProtocol::Responses,
+                Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
+                Protocol::Gemini => UpstreamProtocol::Gemini,
+                _ => return Err(RelayError::RouteUnavailable),
+            };
+            let operation = match protocol {
+                UpstreamProtocol::Chat => "v1/chat/completions".to_owned(),
+                UpstreamProtocol::Responses => "v1/responses".to_owned(),
+                UpstreamProtocol::Anthropic => "v1/messages".to_owned(),
+                UpstreamProtocol::Gemini => format!(
+                    "v1beta/models/{}:{}",
+                    attempt.upstream_model(),
+                    if request.stream {
+                        "streamGenerateContent?alt=sse"
+                    } else {
+                        "generateContent"
+                    }
+                ),
+            };
+            Route::new(
+                attempt.route_key(),
+                protocol,
+                &format!("{}/{operation}", attempt.endpoint().trim_end_matches('/')),
+                attempt.upstream_model().to_owned(),
+                "upstream-test-secret",
+                attempt.quote().version(),
+            )
+        })
+    }
+}
+
+// Explicit load test: real loopback HTTP and protocol conversion, test billing.
+// Debug-profile timings are diagnostic and never a production throughput claim.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run explicitly for protocol concurrency and latency measurements"]
+async fn concurrent_protocol_json_sse_load() {
+    use std::time::Instant;
+    let concurrency: usize = std::env::var("LMM_PROTOCOL_CONCURRENCY")
+        .map(|v| v.parse().unwrap())
+        .unwrap_or(128);
+    let payload_bytes: usize = std::env::var("LMM_PROTOCOL_PAYLOAD_BYTES")
+        .map(|v| v.parse().unwrap())
+        .unwrap_or(0);
+    assert!(payload_bytes <= 1024 * 1024);
+    let count: usize = std::env::var("LMM_PROTOCOL_REQUESTS")
+        .map(|v| v.parse().unwrap())
+        .unwrap_or(256);
+    assert!((1..=1024).contains(&concurrency) && count >= concurrency);
+    let hits = Arc::new(AtomicUsize::new(0));
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new().route(
+        "/{*path}",
+        post({
+            let hits = hits.clone();
+            let active = active.clone();
+            let peak = peak.clone();
+            move |uri: axum::http::Uri, axum::Json(body): axum::Json<Value>| {
+                let (hits, active, peak) = (hits.clone(), active.clone(), peak.clone());
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    // An awaited supplier delay makes overlap observable rather than
+                    // merely counting queued tasks in the load generator.
+                    sleep(Duration::from_millis(2)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    let path = uri.path();
+                    let protocol = if path.contains("chat/completions") {
+                        UpstreamProtocol::Chat
+                    } else if path.ends_with("responses") {
+                        UpstreamProtocol::Responses
+                    } else if path.ends_with("messages") {
+                        UpstreamProtocol::Anthropic
+                    } else {
+                        UpstreamProtocol::Gemini
+                    };
+                    let stream = body["stream"] == true || path.ends_with(":streamGenerateContent");
+                    let (content_type, bytes) = if stream {
+                        ("text/event-stream", streaming(protocol))
+                    } else {
+                        (
+                            "application/json",
+                            serde_json::to_vec(&full(protocol)).unwrap(),
+                        )
+                    };
+                    Response::builder()
+                        .header("content-type", content_type)
+                        .body(Body::from(bytes))
+                        .unwrap()
+                }
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let started = Instant::now();
+    let mut total = 0;
+    for protocol in [
+        UpstreamProtocol::Chat,
+        UpstreamProtocol::Responses,
+        UpstreamProtocol::Anthropic,
+        UpstreamProtocol::Gemini,
+    ] {
+        for stream in [false, true] {
+            let money = Arc::new(Money::default());
+            let limits = Limits {
+                max_in_flight: concurrency,
+                ..Limits::default()
+            };
+            let relay = Arc::new(
+                Relay::new(
+                    Arc::new(ConcurrentRoutes::new(&address, protocol)),
+                    money.clone(),
+                    limits.clone(),
+                )
+                .unwrap(),
+            );
+            let gate = Arc::new(Semaphore::new(concurrency));
+            let mut jobs = tokio::task::JoinSet::new();
+            let batch = Instant::now();
+            for i in 0..count {
+                let permit = gate.clone().acquire_owned().await.unwrap();
+                let relay = relay.clone();
+                let limits = limits.clone();
+                jobs.spawn(async move {
+                    let _permit = permit;
+                    let client = if i % 2 == 0 {
+                        ClientProtocol::Chat
+                    } else {
+                        ClientProtocol::Responses
+                    };
+                    let mut body = input(client, stream);
+                    if payload_bytes > 0 {
+                        let text = "x".repeat(payload_bytes);
+                        match client {
+                            ClientProtocol::Chat => body["messages"][0]["content"] = json!(text),
+                            ClientProtocol::Responses => body["input"] = json!(text),
+                            _ => unreachable!(),
+                        }
+                    }
+                    let request =
+                        Request::parse(client, &serde_json::to_vec(&body).unwrap(), &limits)
+                            .unwrap();
+                    let context = context();
+                    let expected_id = context.request_id.clone();
+                    let start = Instant::now();
+                    let (head, body, done) = collect(relay.start(request, context).unwrap()).await;
+                    assert_eq!(done.report.request_id, expected_id);
+                    assert!(head.is_ok(), "{protocol:?} {stream}: {head:?}");
+                    assert!(
+                        done.error.is_none(),
+                        "{protocol:?} {stream}: {:?}",
+                        done.error
+                    );
+                    assert_eq!(done.settlement, Settlement::Confirmed);
+                    assert_eq!(done.report.usage.input_tokens, Some(10));
+                    assert_eq!(done.report.usage.output_tokens, Some(5));
+                    assert_output(client, stream, &body);
+                    start.elapsed().as_micros()
+                });
+            }
+            let mut latency = Vec::with_capacity(count);
+            while let Some(result) = jobs.join_next().await {
+                latency.push(result.unwrap());
+            }
+            assert_eq!(latency.len(), count);
+            assert_eq!(money.reserves.load(Ordering::SeqCst), count);
+            let finalized: std::collections::HashSet<_> = money
+                .finals
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|report| report.request_id.clone())
+                .collect();
+            assert_eq!(
+                finalized.len(),
+                count,
+                "each request must finalize exactly once"
+            );
+            assert_eq!(money.finals.lock().unwrap().len(), count);
+            assert_eq!(relay.active_requests(), 0);
+            latency.sort_unstable();
+            println!(
+                "protocol_load profile={} upstream={protocol:?} stream={stream} concurrency={concurrency} completed={count} errors=0 elapsed_ms={} requests_per_s={:.1} p50_us={} p95_us={} p99_us={}",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                },
+                batch.elapsed().as_millis(),
+                count as f64 / batch.elapsed().as_secs_f64(),
+                latency[(count - 1) * 50 / 100],
+                latency[(count - 1) * 95 / 100],
+                latency[(count - 1) * 99 / 100]
+            );
+            total += count;
+        }
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), total);
+    if concurrency > 1 {
+        assert!(peak.load(Ordering::SeqCst) > 1);
+    }
+    assert!(peak.load(Ordering::SeqCst) <= concurrency);
+    println!(
+        "protocol_load_total completed={total} upstream_hits={total} peak_upstream={} elapsed_ms={}",
+        peak.load(Ordering::SeqCst),
+        started.elapsed().as_millis()
+    );
+    server.abort();
 }
 
 #[tokio::test]
@@ -1706,14 +2062,18 @@ async fn stopping_the_actual_go_extension_does_not_cut_a_rust_http_stream() {
     let address = port.local_addr().unwrap();
     drop(port);
     let mut command = Command::new(binary);
-    // This isolated fault test intentionally exercises the explicit legacy
-    // environment fixture. TOML startup is accepted separately by Go tests.
+    let configuration = dir.join("extensions.toml");
+    std::fs::write(
+        &configuration,
+        format!(
+            "version=1\n[host]\nlisten={:?}\ntoken_file={token:?}\nmodules=['none']\n",
+            address.to_string()
+        ),
+    )
+    .unwrap();
     command
-        .arg("--legacy-env")
+        .args(["--config", configuration.to_str().unwrap()])
         .env_clear()
-        .env("LMM_EXTENSION_TOKEN_FILE", &token)
-        .env("LMM_EXTENSION_LISTEN", address.to_string())
-        .env("LMM_EXTENSION_MODULES", "none")
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
     let mut process = Process(command.spawn().unwrap());

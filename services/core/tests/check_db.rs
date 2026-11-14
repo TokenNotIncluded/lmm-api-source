@@ -263,7 +263,7 @@ fn explicit_config_legacy_and_unknown_arguments_fail_closed_without_echo() {
     let (_, o) = finish(command(&["check-db"]));
     rejected(&o, 2, "CHECK_DB_CONFIG_REQUIRED");
     let (_, o) = finish(command(&["--legacy-env", "check-db"]));
-    rejected(&o, 2, "CHECK_DB_LEGACY_ENV_FORBIDDEN");
+    rejected(&o, 2, "CHECK_DB_ARGUMENTS_INVALID");
     for args in [
         &["check-db", "--config", "relative-do-not-echo"][..],
         &["check-db", "--unknown", "do-not-echo"],

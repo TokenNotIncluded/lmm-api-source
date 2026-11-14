@@ -78,6 +78,7 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
     turnstileSiteKey,
     turnstileToken,
     setTurnstileToken,
+    resetTurnstile,
     validateTurnstile,
   } = useTurnstile()
   const { redirectToLogin } = useAuthRedirect()
@@ -193,6 +194,8 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
     } catch {
       // Errors are handled by global interceptor
     } finally {
+      setTurnstileToken('')
+      setTurnstileWidgetKey((current) => current + 1)
       setIsLoading(false)
     }
   }
@@ -208,10 +211,11 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
     }
 
     const requestedEmail = emailValue || ''
-    if (await sendCode(requestedEmail)) {
+    const sent = await sendCode(requestedEmail)
+    setTurnstileToken('')
+    setTurnstileWidgetKey((current) => current + 1)
+    if (sent) {
       setVerificationEmail(requestedEmail)
-      setTurnstileToken('')
-      setTurnstileWidgetKey((current) => current + 1)
     }
   }
 
@@ -367,6 +371,7 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
                   key={turnstileWidgetKey}
                   siteKey={turnstileSiteKey}
                   onVerify={setTurnstileToken}
+                  onExpire={resetTurnstile}
                 />
               </div>
             )}

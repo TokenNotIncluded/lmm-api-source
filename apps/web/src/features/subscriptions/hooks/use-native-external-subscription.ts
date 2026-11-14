@@ -33,7 +33,10 @@ export function useNativeExternalSubscription<
   pendingSchema: z.ZodType<TPending>
   plans: NativePlan[]
   onBlockedChange: (blocked: boolean) => void
-  listPrices: (scope: CommerceScope, planId: NativePlan['id']) => Promise<TPrice[]>
+  listPrices: (
+    scope: CommerceScope,
+    planId: NativePlan['id']
+  ) => Promise<TPrice[]>
   onRecover: (saved: TPending) => Promise<void>
 }) {
   const { t } = useTranslation()

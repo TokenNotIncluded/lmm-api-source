@@ -104,6 +104,14 @@ impl BrowserAuth {
         Ok(value)
     }
     pub async fn register(&self, input: &BrowserRegistration<'_>) -> BrowserResult<()> {
+        self.register_with_affiliate(input, "").await
+    }
+    /// Registers identity and referral attribution in one transaction.
+    pub async fn register_with_affiliate(
+        &self,
+        input: &BrowserRegistration<'_>,
+        aff_code: &str,
+    ) -> BrowserResult<()> {
         self.store.require_password_registration()?;
         self.store.require_registration_email(None)?;
         let username = input.username.trim();
@@ -136,6 +144,7 @@ impl BrowserAuth {
         sqlx::query("INSERT INTO core_identity.password_logins(login_name,user_id,password_hash) VALUES ($1,$2,$3)").bind(canonical).bind(user).bind(hash).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO core_identity.user_profiles(user_id,username,display_name,email) VALUES ($1,$2,$2,$3)").bind(user).bind(username).bind("").execute(&mut *tx).await?;
         sqlx::query("INSERT INTO core_identity.audit(actor_user_id,action,target) VALUES ($1,'user.register',jsonb_build_object('user_id',$1::bigint))").bind(user).execute(&mut *tx).await?;
+        crate::affiliate::bind_registration(&mut tx, user, aff_code).await?;
         tx.commit().await?;
         Ok(())
     }

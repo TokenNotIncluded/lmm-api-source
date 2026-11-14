@@ -65,6 +65,12 @@ the transaction before persisting proof. Standard CNY EPay uses GET checkout and
 requires `sign_type=MD5` on callbacks. Linux DO Credit uses POST with signed query
 fields as form inputs; its callback may omit `sign_type`, but a supplied value must be `MD5`.
 
+Pancake's customer portal is available when either wallet checkout or subscription
+admission is enabled for the store. Disabling wallet checkout alone must not hide
+subscription management. Currency aliases may share the portal only for the same
+merchant, environment and store; ambiguous stores require explicit configuration.
+The portal URL is issued for the current authenticated user and is never cached.
+
 Secrets must be bounded private regular files owned by the appropriate service or
 root, with mode `0400` or `0600`. The Go provider document is also private. Keep
 verification material, original callback signatures, provider API keys and checkout
@@ -101,6 +107,10 @@ The worker records `UNKNOWN` before refund provider I/O. After a crash, lost res
 or timeout, it retains the original order, refund, hold, dispatch and request key.
 An ambiguous refund is reconciled by its original provider identity, without sending
 a second refund POST. API observations alone cannot commit or release Core funds.
+After a submitted or ambiguous refund, a durable worker task queries the original
+order at bounded intervals. It survives a Go service restart and stops after the
+original refund reaches a Core-confirmed terminal state. An unsupported lookup
+requires review; a missing signed proof keeps the hold and query task pending.
 Checkout retries also respect the adapter's replay window; no assumed retention period
 authorizes a new operation. Recovery behavior is defined in
 [`worker.go`](../services/extensions/internal/modules/payments/worker.go).
@@ -185,8 +195,8 @@ Protocol authority lives in [Core verification](../services/core/src/payments/pr
 and the [Go payment implementation](../services/extensions/internal/modules/payments/).
 Protocol references include [Linux DO Credit](https://credit.linux.do/docs/api),
 [Creem checkout](https://docs.creem.io/api-reference/endpoint/create-checkout),
-[Waffo Go v2.1.0](https://github.com/waffo-com/waffo-go/tree/v2.1.0) and
-[Pancake v0.17.0](https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.17.0).
+[Waffo Go v2.3.0](https://github.com/waffo-com/waffo-go/tree/v2.3.0) and
+[Pancake v0.19.0](https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.19.0).
 Dependency attribution remains in [THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md).
 Source capability and synthetic tests do not establish real merchant or production
 acceptance; candidate-specific evidence and remaining work are tracked in [project progress](progress.md).

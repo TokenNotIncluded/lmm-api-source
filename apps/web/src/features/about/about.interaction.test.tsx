@@ -400,3 +400,12 @@ test('cached status is not presented as the current API version', async () => {
   await act(flush)
   assert.match(host.textContent ?? '', /API 0\.2\.86-live/)
 })
+
+test('nested monolith version is not presented as the current API version', async () => {
+  const host = await mount({
+    status: async () => ({ data: { version: '9.9.9-nested' } }),
+  })
+  await act(flush)
+  assert.match(host.textContent ?? '', /API Unknown version/)
+  assert.doesNotMatch(host.textContent ?? '', /9\.9\.9-nested/)
+})

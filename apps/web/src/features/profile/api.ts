@@ -22,7 +22,6 @@ import { z } from 'zod'
 import { parseUsageBuckets } from '@/features/dashboard/lib/usage-bucket'
 import { api, type ApiRequestConfig } from '@/lib/api'
 import { withAuthenticatedCookieWrite } from '@/lib/auth-session'
-import type { CustomOAuthBinding } from '@/lib/oauth'
 import { useAuthStore } from '@/stores/auth-store'
 import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
@@ -319,18 +318,6 @@ export async function bindEmail(
   return res.data
 }
 
-/**
- * Bind WeChat account
- */
-export async function bindWeChat(code: string): Promise<ApiResponse> {
-  const res = await api.post(
-    '/api/oauth/wechat/bind',
-    { code },
-    { skipBusinessError: true, skipErrorHandler: true }
-  )
-  return res.data
-}
-
 const telegramBindFlowSchema = z
   .object({
     flow_token: z.string().regex(/^lmmt_[0-9a-fA-F]{64}$/),
@@ -524,44 +511,6 @@ export async function revokeOtherLoginSessions(scope: LoginSessionScope) {
 }
 
 // ============================================================================
-// Custom OAuth Binding APIs
-// ============================================================================
-
-export type { CustomOAuthBinding } from '@/lib/oauth'
-
-/**
- * Get current user's custom OAuth bindings
- */
-export async function getSelfOAuthBindings(): Promise<
-  ApiResponse<CustomOAuthBinding[]>
-> {
-  const res = await api.get('/api/user/oauth/bindings')
-  return res.data
-}
-
-/**
- * Unbind a custom OAuth provider for current user
- */
-export async function unbindCustomOAuth(
-  providerId: number
-): Promise<ApiResponse> {
-  const res = await api.delete(`/api/user/oauth/bindings/${providerId}`)
-  return res.data
-}
-
-/**
- * Unbind a built-in OAuth provider for the current user
- */
-export async function unbindBuiltInOAuth(
-  bindingType: string
-): Promise<ApiResponse> {
-  const res = await api.delete(
-    `/api/user/bindings/${encodeURIComponent(bindingType)}`
-  )
-  return res.data
-}
-
-// ============================================================================
 // Checkin APIs
 // ============================================================================
 
@@ -588,7 +537,6 @@ export async function getCheckinStatus(month?: string) {
   const parsed = checkinStatusResponseSchema.parse(res.data)
   if (
     parsed.success &&
-    parsed.data.kind === 'native' &&
     month !== undefined &&
     parsed.data.month !== month
   ) {

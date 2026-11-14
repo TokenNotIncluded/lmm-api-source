@@ -48,13 +48,10 @@ mock.module('../hooks/use-oauth-login', () => ({
       handleGoogleLogin: () => clicks.push('builtin:google'),
       handleGitHubLogin: () => clicks.push('github'),
       handleDiscordLogin: () => {},
-      handleOIDCLogin: () => {},
       handleFederatedLogin: (provider: { id: string; slug: string }) =>
         clicks.push(`federated:${provider.id}:${provider.slug}`),
       handleLinuxDOLogin: () => {},
       handleTelegramLogin: () => {},
-      handleCustomOAuthLogin: (provider: { id: number }) =>
-        clicks.push(`custom:${provider.id}`),
       isTelegramDialogOpen: false,
       isTelegramPending: false,
       handleTelegramAuthorization: () => {},
@@ -109,7 +106,14 @@ async function render(
   root = currentRoot
   await act(async () =>
     currentRoot.render(
-      <OAuthProviders status={status} featureGoogle {...props} />
+      <OAuthProviders
+        status={status}
+        featureGoogle
+        onWeChatLogin={(provider) =>
+          clicks.push(`wechat:${provider?.id}:${provider?.slug}`)
+        }
+        {...props}
+      />
     )
   )
   return host
@@ -143,7 +147,7 @@ describe('Google provider buttons', () => {
     assert.equal(consent.at(-1), true)
   })
 
-  test('unsupported/disabled/unconfigured/missing-flag native preserves old custom button', async () => {
+  test('unsupported/disabled/unconfigured/missing-flag native does not show old custom buttons', async () => {
     for (const status of [
       { custom_oauth_providers: [legacy] },
       { ...supported, google_oauth: false },
@@ -151,31 +155,27 @@ describe('Google provider buttons', () => {
       { ...supported, google_oauth: undefined },
     ]) {
       const host = await render(status)
-      const button = getButton(host)
-      await act(async () => button.click())
-      assert.equal(clicks.at(-1), 'custom:73')
+      assert.equal(host.querySelector('button'), null)
+      assert.deepEqual(clicks, [])
       await unmount()
     }
   })
 
-  test('multiple old custom Google records remain visible, only one featured', async () => {
+  test('multiple old custom Google records render no buttons', async () => {
     const host = await render({
       custom_oauth_providers: [legacy, { ...legacy, id: 74, slug: 'google' }],
     })
-    const buttons = host.querySelectorAll<HTMLButtonElement>('button')
-    assert.equal(buttons.length, 2)
-    await act(async () => buttons[1].click())
-    assert.deepEqual(clicks, ['custom:74'])
+    assert.equal(host.querySelector('button'), null)
+    assert.deepEqual(clicks, [])
   })
 
-  test('builtin registration disable preserves separately allowed legacy registration', async () => {
+  test('builtin registration disable cannot revive legacy registration', async () => {
     const host = await render(
       { ...supported, oauth_registration_disabled_methods: ['google'] },
       { registrationOnly: true }
     )
-    const button = getButton(host)
-    await act(async () => button.click())
-    assert.deepEqual(clicks, ['custom:73'])
+    assert.equal(host.querySelector('button'), null)
+    assert.deepEqual(clicks, [])
   })
 
   test('registration method restrictions do not hide existing sign-in', async () => {
@@ -205,34 +205,84 @@ describe('Google provider buttons', () => {
   })
 })
 
-test('native catalog buttons retain configured IDs and slugs without duplicate legacy OIDC/custom cards', async () => {
-  const selected = {
-    id: '81',
-    kind: 'oidc' as const,
-    slug: 'controlled-sso',
-    name: 'Synthetic SSO',
-    icon: '',
-    revision: '1',
-    client_id: 'synthetic-client',
-    authorization_endpoint: 'https://idp.example.test/authorize',
-    scopes: 'openid',
-    qr_code_url: '',
-    native_federated: true as const,
-  }
+for (const kind of ['oidc', 'custom_oauth', 'wechat'] as const) {
+  test(`native ${kind} catalog buttons retain configured IDs and slugs without legacy cards`, async () => {
+    const selected = {
+      id: '81',
+      kind,
+      slug: 'controlled-sso',
+      name: 'Synthetic SSO',
+      icon: '',
+      revision: '1',
+      client_id: 'synthetic-client',
+      authorization_endpoint: 'https://idp.example.test/authorize',
+      scopes: 'openid',
+      qr_code_url: '',
+      native_federated: true as const,
+    }
+    const host = await render({
+      native_federated_auth: true,
+      federated_oauth_providers: [selected],
+      oidc_enabled: true,
+      oidc_client_id: 'synthetic-client',
+      oidc_authorization_endpoint: selected.authorization_endpoint,
+      custom_oauth_providers: [{ ...legacy, slug: selected.slug }],
+    })
+    const buttons = host.querySelectorAll<HTMLButtonElement>('button')
+    assert.equal(buttons.length, 1)
+    assert.equal(
+      buttons[0].getAttribute('aria-label'),
+      'Continue with Synthetic SSO'
+    )
+    await act(async () => buttons[0].click())
+    assert.deepEqual(clicks, [
+      kind === 'wechat'
+        ? 'wechat:81:controlled-sso'
+        : 'federated:81:controlled-sso',
+    ])
+  })
+}
+
+test('legacy OIDC and fixed providers without external browser support have no ineffective buttons', async () => {
   const host = await render({
-    native_federated_auth: true,
-    federated_oauth_providers: [selected],
     oidc_enabled: true,
-    oidc_client_id: 'synthetic-client',
-    oidc_authorization_endpoint: selected.authorization_endpoint,
-    custom_oauth_providers: [{ ...legacy, slug: selected.slug }],
+    oidc_client_id: 'old-client',
+    oidc_authorization_endpoint: 'https://idp.example.test/authorize',
+    github_oauth: true,
+    github_client_id: 'github-client',
+    discord_oauth: true,
+    discord_client_id: 'discord-client',
+    linuxdo_oauth: true,
+    linuxdo_client_id: 'linuxdo-client',
+    external_oauth_browser: false,
+  })
+  assert.equal(host.querySelector('button'), null)
+})
+
+test('external browser providers remain actionable', async () => {
+  const host = await render({
+    github_oauth: true,
+    github_client_id: 'github-client',
+    discord_oauth: true,
+    discord_client_id: 'discord-client',
+    linuxdo_oauth: true,
+    linuxdo_client_id: 'linuxdo-client',
+    external_oauth_browser: true,
   })
   const buttons = host.querySelectorAll<HTMLButtonElement>('button')
-  assert.equal(buttons.length, 1)
-  assert.equal(
-    buttons[0].getAttribute('aria-label'),
-    'Continue with Synthetic SSO'
-  )
+  assert.equal(buttons.length, 3)
   await act(async () => buttons[0].click())
-  assert.deepEqual(clicks, ['federated:81:controlled-sso'])
+  assert.deepEqual(clicks, ['github'])
+})
+
+test('old WeChat flag without native catalog never renders a login button', async () => {
+  for (const native of [undefined, false, true]) {
+    const host = await render({
+      wechat_login: true,
+      native_federated_auth: native,
+    })
+    assert.equal(host.querySelector('button'), null)
+    assert.deepEqual(clicks, [])
+    await unmount()
+  }
 })

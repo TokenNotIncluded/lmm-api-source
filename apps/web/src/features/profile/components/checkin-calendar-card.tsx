@@ -42,7 +42,6 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
-import { useLocalDay } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
@@ -141,26 +140,17 @@ function CheckinCalendar({
   })
   /* eslint-enable @tanstack/query/exhaustive-deps */
 
-  // Native days and the default month come from the server. The original Go
-  // response has no calendar fields, so its existing browser fallback remains.
-  const browserDay = useLocalDay()
-  const browserToday = new Date(browserDay)
-  const legacyToday = `${browserToday.getFullYear()}-${String(
-    browserToday.getMonth() + 1
-  ).padStart(2, '0')}-${String(browserToday.getDate()).padStart(2, '0')}`
-  const serverToday =
-    checkinData?.kind === 'native' ? checkinData.today : legacyToday
-  const claimDay =
-    claim?.kind === 'native' ? claim.record.checkin_date : claim?.checkin_date
+  const serverToday = checkinData?.today ?? ''
+  const claimDay = claim?.record.checkin_date
   const todayString =
     claimDay && claimDay > serverToday ? claimDay : serverToday
   const defaultMonth =
-    checkinData?.kind === 'native' && todayString === checkinData.today
+    checkinData && todayString === checkinData.today
       ? checkinData.month
       : todayString.slice(0, 7)
   const currentMonthStr = selectedMonth ?? defaultMonth
   const currentMonth = useMemo(
-    () => new Date(`${currentMonthStr}-01T00:00:00Z`),
+    () => new Date(currentMonthStr ? `${currentMonthStr}-01T00:00:00Z` : 0),
     [currentMonthStr]
   )
   const latestMonth = todayString.slice(0, 7)
@@ -173,8 +163,7 @@ function CheckinCalendar({
   const records = (checkinData?.stats.records ?? []).map(
     ({ checkin_date, quota_awarded }) => ({ checkin_date, quota_awarded })
   )
-  const claimAmount =
-    claim?.kind === 'native' ? claim.record.quota_awarded : claim?.quota_awarded
+  const claimAmount = claim?.record.quota_awarded
   if (
     claimDay?.startsWith(currentMonthStr) &&
     claimAmount !== undefined &&
@@ -190,9 +179,7 @@ function CheckinCalendar({
     .toString()
   const todayAward = claimedToday
     ? claimAmount
-    : checkinData?.kind === 'native'
-      ? checkinData.today_record?.quota_awarded
-      : checkinRecordsMap[todayString]
+    : checkinData?.today_record?.quota_awarded
 
   useEffect(() => {
     if (initialLoaded) return
@@ -226,33 +213,19 @@ function CheckinCalendar({
       inFlight.current = true
       setCheckinLoading(true)
       try {
-        let operationKey: string | undefined
-        if (checkinData?.kind === 'native') {
-          if (pendingOperation.current?.day !== todayString) {
-            pendingOperation.current = {
-              day: todayString,
-              key: crypto.randomUUID(),
-            }
+        if (pendingOperation.current?.day !== todayString) {
+          pendingOperation.current = {
+            day: todayString,
+            key: crypto.randomUUID(),
           }
-          operationKey = pendingOperation.current.key
         }
-        const res = await performCheckin(token, operationKey)
+        const res = await performCheckin(token, pendingOperation.current.key)
         if (res.success) {
-          setClaim(
-            res.data.kind === 'legacy'
-              ? {
-                  ...res.data,
-                  checkin_date: res.data.checkin_date ?? todayString,
-                }
-              : res.data
-          )
+          setClaim(res.data)
           pendingOperation.current = null
-          const amount =
-            res.data.kind === 'native'
-              ? res.data.record.quota_awarded
-              : res.data.quota_awarded
+          const amount = res.data.record.quota_awarded
           toast.success(
-            res.data.kind === 'native' && res.data.already_claimed
+            res.data.already_claimed
               ? t('Checked in')
               : `${t('Check-in successful! Received')} ${formatQuota(amount)}`
           )
@@ -287,7 +260,6 @@ function CheckinCalendar({
       turnstileEnabled,
       turnstileSiteKey,
       formatQuota,
-      checkinData?.kind,
       todayString,
     ]
   )

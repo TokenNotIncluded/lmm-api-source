@@ -270,7 +270,15 @@ describe('native session public API details', () => {
     const originalGet = api.get
     api.get = (async (url: string) => {
       assert.equal(url, '/api/status')
-      return { data: { success: true, data: {} } }
+      return {
+        data: {
+          success: true,
+          data: {
+            serverAddress: 'https://old-alias.example.test',
+            data: { server_address: 'https://nested.example.test' },
+          },
+        },
+      }
     }) as typeof api.get
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

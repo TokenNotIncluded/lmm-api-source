@@ -252,6 +252,25 @@ const product: Product = {
   created_at: 1,
   updated_at: 1,
   review_note: '',
+  default_variant_id: 'fixture-default',
+  variants: [
+    {
+      id: 'fixture-default',
+      product_id: 'product-fixture',
+      name: 'Default',
+      price_quota: 500000,
+      template: 'card-key',
+      enabled: true,
+      is_default: true,
+      created_at: 1,
+      updated_at: 1,
+      inventory_total: 5,
+      inventory_available: 5,
+      reserved_stock: 0,
+      sale_available: 5,
+      trading_paused: false,
+    },
+  ],
 }
 type RequestRecord = {
   method: string
@@ -332,13 +351,25 @@ test('checkout keeps same-product drafts on stock refresh while clamping quantit
   await edit(input('store-pickup-email'), 'buyer@example.test')
   await edit(input('store-quantity'), '4')
   await ui.render(
-    <StoreCheckout product={{ ...product, available_stock: 2 }} />
+    <StoreCheckout
+      product={{
+        ...product,
+        available_stock: 2,
+        variants: [{ ...product.variants![0], sale_available: 2 }],
+      }}
+    />
   )
   assert.equal(input('store-quantity').value, '2')
   assert.equal(input('store-pickup-code').value, 'private-code')
   assert.equal(input('store-pickup-email').value, 'buyer@example.test')
   await ui.render(
-    <StoreCheckout product={{ ...product, available_stock: 5 }} />
+    <StoreCheckout
+      product={{
+        ...product,
+        available_stock: 5,
+        variants: [{ ...product.variants![0], sale_available: 5 }],
+      }}
+    />
   )
   assert.equal(input('store-quantity').value, '2')
   assert.equal(writes().length, 0)
@@ -353,7 +384,13 @@ test('quantity editing retains an incomplete draft until the capacity source act
   await ui.render(<StoreCheckout product={{ ...product }} />)
   assert.equal(input('store-quantity').value, '')
   await ui.render(
-    <StoreCheckout product={{ ...product, available_stock: 2 }} />
+    <StoreCheckout
+      product={{
+        ...product,
+        available_stock: 2,
+        variants: [{ ...product.variants![0], sale_available: 2 }],
+      }}
+    />
   )
   assert.equal(input('store-quantity').value, '1')
   assert.equal(writes().length, 0)
@@ -373,7 +410,13 @@ for (const boundary of ['product', 'seller', 'session'] as const) {
           product={{
             ...product,
             ...(boundary === 'product'
-              ? { id: 'next-product' }
+              ? {
+                  id: 'next-product',
+                  variants: product.variants!.map((variant) => ({
+                    ...variant,
+                    product_id: 'next-product',
+                  })),
+                }
               : { seller_id: 10 }),
           }}
         />

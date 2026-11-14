@@ -21,6 +21,8 @@ import (
 // Fake ports exercise routing and forwarding only. They do not prove Rust RPC,
 // catalogue import, PostgreSQL persistence, or actual payment availability.
 type storeTransportFake struct {
+	actorID                                       int64
+	catalogueQuery                                store.CatalogueQuery
 	calls                                         []string
 	seller                                        int64
 	query                                         string
@@ -33,7 +35,9 @@ type storeTransportFake struct {
 	catalogueFn                                   func(context.Context, int64, string, int, int) ([]map[string]any, error)
 }
 
-func (s *storeTransportFake) PublicCatalogue(ctx context.Context, seller int64, q string, offset, limit int) ([]map[string]any, error) {
+func (s *storeTransportFake) CatalogueForViewer(ctx context.Context, token string, actor int64, query store.CatalogueQuery) ([]map[string]any, error) {
+	s.token, s.actorID, s.catalogueQuery = token, actor, query
+	seller, q, offset, limit := query.Seller, query.Text, query.Offset, query.Limit
 	s.calls = append(s.calls, "catalogue")
 	s.seller, s.query, s.offset, s.limit = seller, q, offset, limit
 	if s.catalogueFn != nil {
@@ -41,7 +45,8 @@ func (s *storeTransportFake) PublicCatalogue(ctx context.Context, seller int64, 
 	}
 	return s.rows, s.catalogueErr
 }
-func (s *storeTransportFake) PublicProduct(_ context.Context, id string) (map[string]any, error) {
+func (s *storeTransportFake) ProductForBuyer(_ context.Context, token string, actor int64, id string) (map[string]any, error) {
+	s.token, s.actorID = token, actor
 	s.calls = append(s.calls, "product")
 	s.id = id
 	return s.product, s.productErr
@@ -157,16 +162,7 @@ func TestStoreTransportValidOptionalSessionIsReverified(t *testing.T) {
 	}
 }
 
-func TestStoreTransportUnsupportedCatalogueFiltersFailExplicitly(t *testing.T) {
-	for _, query := range []string{"sort=newest", "category_id=00000000-0000-4000-8000-000000000001", "tag=featured", "stock=in_stock", "auto_delivery=true", "ai_processing=true", "guest_purchase=true"} {
-		core, service := &authCore{}, newStoreTransportFake()
-		rec := httptest.NewRecorder()
-		storeTransportMux(t, core, service).ServeHTTP(rec, storeTransportRequest("GET", "/api/store/products?"+query, nil))
-		body := supportEnvelope(t, rec)
-		if rec.Code != 503 || body["success"] != false || body["code"] != "STORE_UNAVAILABLE" || len(service.calls) != 0 {
-			t.Fatalf("query=%s status=%d calls=%v body=%v", query, rec.Code, service.calls, body)
-		}
-	}
+func TestStoreTransportInvalidCatalogueFiltersFailExplicitly(t *testing.T) {
 	for _, query := range []string{"sort=latest&sort=oldest", "sort=latest", "stock=available", "category_id=category-1", "category_id=", "auto_delivery=1", "guest_purchase=", "ai_processing=False", "q=%FF", "tag=" + strings.Repeat("x", 513), "seller_id=0", "seller_id=-1", "seller_id=01", "seller_id=%2B1", "seller_id=2147483648", "seller_id=1&seller_id=2", "offset=100001", "limit=101", "limit=", "q=" + strings.Repeat("x", 201), "unknown=1", "q=%ZZ"} {
 		service := newStoreTransportFake()
 		rec := httptest.NewRecorder()
@@ -348,7 +344,6 @@ type storeLegacyTransportFake struct {
 	termsActor int64
 	termsID    string
 	*storeTransportFake
-	catalogueQuery     store.CatalogueQuery
 	config, disclaimer map[string]any
 	disclaimerActor    int64
 	actor              store.Account
@@ -375,7 +370,8 @@ func (s *storeLegacyTransportFake) PublicProductTerms(_ context.Context, actor i
 	s.termsID = id
 	return map[string]any{"seller_id": 99, "version": "v1", "content": "Actual seller terms", "configured": true}, nil
 }
-func (s *storeLegacyTransportFake) PublicCatalogueQuery(_ context.Context, q store.CatalogueQuery) ([]map[string]any, error) {
+func (s *storeLegacyTransportFake) CatalogueForViewer(_ context.Context, token string, actor int64, q store.CatalogueQuery) ([]map[string]any, error) {
+	s.token, s.actorID = token, actor
 	s.calls = append(s.calls, "catalogue_query")
 	s.catalogueQuery = q
 	return s.rows, s.catalogueErr
@@ -480,13 +476,7 @@ func TestStoreTransportCatalogueForwardsMainFiltersAndFalsePresence(t *testing.T
 	if rec.Code != 503 || supportEnvelope(t, rec)["success"] != false {
 		t.Fatal(rec.Code, rec.Body.String())
 	}
-	// A default sort is also compatible with the old catalogue-only port.
-	old := newStoreTransportFake()
-	rec = httptest.NewRecorder()
-	storeTransportMux(t, &authCore{}, old).ServeHTTP(rec, storeTransportRequest("GET", "/api/store/products?sort=comprehensive", nil))
-	if rec.Code != 200 || len(old.calls) != 1 {
-		t.Fatal(rec.Code, old.calls)
-	}
+
 }
 
 type storeLegacyRouteCase struct {
@@ -768,4 +758,37 @@ func TestStoreTransportPublicProductTermsUseOnlyVerifiedOrAnonymousActor(t *test
 
 func (*storeReadOnlyTxFake) ListPublic(string, string, int) ([]json.RawMessage, error) {
 	return nil, store.ErrUnavailable
+}
+
+func TestStoreReadsForwardVerifiedViewerWithoutIdentityFallback(t *testing.T) {
+	for _, path := range []string{"/api/store/products", "/api/store/products/product-1"} {
+		for _, signedIn := range []bool{false, true} {
+			core, service := &authCore{}, newStoreTransportFake()
+			var headers []string
+			var wantActor int64
+			var wantToken string
+			if signedIn {
+				headers = []string{"Bearer " + webToken}
+				wantActor, wantToken = 17, webToken
+			}
+			r := storeTransportRequest("GET", path, headers)
+			r.Header.Set("New-Api-User", "999")
+			r.Header.Set("X-LMM-User-ID", "999")
+			r.Header.Set("X-LMM-User-Credential", hostToken)
+			r.Header.Set("Cookie", "session="+webToken)
+			rec := httptest.NewRecorder()
+			storeTransportMux(t, core, service).ServeHTTP(rec, r)
+			if rec.Code != 200 || service.actorID != wantActor || service.token != wantToken || len(service.calls) != 1 {
+				t.Fatalf("%s signedIn=%t status=%d actor=%d calls=%v", path, signedIn, rec.Code, service.actorID, service.calls)
+			}
+		}
+	}
+	for _, query := range []string{"user_id=999", "account_id=999", "p=1", "page=1", "page_size=24"} {
+		service := newStoreTransportFake()
+		rec := httptest.NewRecorder()
+		storeTransportMux(t, &authCore{}, service).ServeHTTP(rec, storeTransportRequest("GET", "/api/store/products?"+query, nil))
+		if rec.Code != 422 || len(service.calls) != 0 {
+			t.Fatalf("%s status=%d calls=%v", query, rec.Code, service.calls)
+		}
+	}
 }

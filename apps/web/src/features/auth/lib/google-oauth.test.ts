@@ -11,12 +11,10 @@ import {
   GOOGLE_BUILT_IN_PRESET,
   buildGoogleBrowserStartRequest,
   isBuiltInGoogleConfigured,
-  shouldShowCustomGoogleProvider,
   validateGoogleBrowserAuthorizationUrl,
 } from './google-oauth'
 
 const configured = { google_oauth: true, google_client_id: 'test-client' }
-const custom = { name: 'Google', slug: 'old-google', icon: 'google' }
 const origin = 'https://site.example.test'
 
 function authorizationUrl() {
@@ -57,30 +55,6 @@ describe('Google browser capabilities', () => {
         false
       )
     }
-  })
-
-  test('deduplicates only when built-in is usable; leaves legacy fallback and unrelated providers', () => {
-    assert.equal(shouldShowCustomGoogleProvider(configured, custom), false)
-    assert.equal(
-      shouldShowCustomGoogleProvider(configured, custom, false),
-      true
-    )
-    for (const status of [
-      null,
-      {},
-      { ...configured, google_oauth: false },
-      { google_oauth: true },
-    ]) {
-      assert.equal(shouldShowCustomGoogleProvider(status, custom), true)
-    }
-    assert.equal(
-      shouldShowCustomGoogleProvider(configured, {
-        name: 'GitLab',
-        slug: 'gitlab',
-        icon: 'gitlab',
-      }),
-      true
-    )
   })
 
   test('enforces required legal consent without inventing consent when not required', () => {

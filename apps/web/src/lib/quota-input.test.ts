@@ -22,11 +22,7 @@ import {
   getRedemptionFormSchema,
   transformFormDataToPayload as redemptionPayload,
 } from '@/features/redemption-codes/lib/redemption-form'
-import {
-  PLAN_FORM_DEFAULTS,
-  getPlanFormSchema,
-  formValuesToPlanPayload,
-} from '@/features/subscriptions/lib/plan-form'
+import { planTermsSchema } from '@/features/subscriptions/native-api'
 
 import { creditAmountSchema, signedCreditAmountSchema } from './quota-input'
 
@@ -47,12 +43,6 @@ test('money schemas and request mappings preserve literal raw credit and the exa
       quota_credits: raw,
     })
     assert.equal(redemptionPayload(redemption).quota, raw)
-    const plan = getPlanFormSchema(t).parse({
-      ...PLAN_FORM_DEFAULTS,
-      title: 'plan',
-      total_amount: raw,
-    })
-    assert.equal(formValuesToPlanPayload(plan).plan.total_amount, raw)
   }
 })
 test('all quota payload boundaries reject invalid, negative, fractional and unsafe amounts', () => {
@@ -82,14 +72,6 @@ test('all quota payload boundaries reject invalid, negative, fractional and unsa
       }).success,
       false
     )
-    assert.equal(
-      getPlanFormSchema(t).safeParse({
-        ...PLAN_FORM_DEFAULTS,
-        title: 'plan',
-        total_amount: raw,
-      }).success,
-      false
-    )
     assert.throws(() =>
       keyPayload({
         ...getApiKeyFormDefaultValues(false),
@@ -102,9 +84,6 @@ test('all quota payload boundaries reject invalid, negative, fractional and unsa
         ...REDEMPTION_FORM_DEFAULT_VALUES,
         quota_credits: raw,
       })
-    )
-    assert.throws(() =>
-      formValuesToPlanPayload({ ...PLAN_FORM_DEFAULTS, total_amount: raw })
     )
   }
   assert.equal(signedCreditAmountSchema.safeParse(-1).success, true)
@@ -140,4 +119,25 @@ test('creation defaults keep their previous raw budget and bounty escrow multipl
       { rawCredits: true }
     ).rewardAmount
   )
+})
+
+test('native subscription prices and quotas preserve exact credit strings and reject values outside Core limits', () => {
+  for (const name of ['price_units', 'limit_units'] as const) {
+    const schema = planTermsSchema.shape[name]
+    for (const value of ['1', '500001', '1000000000000']) {
+      assert.equal(schema.parse(value), value)
+    }
+    for (const value of [
+      '0',
+      '-1',
+      '0.1',
+      '1000000000001',
+      'NaN',
+      'Infinity',
+      '01',
+      500001,
+    ]) {
+      assert.equal(schema.safeParse(value).success, false)
+    }
+  }
 })

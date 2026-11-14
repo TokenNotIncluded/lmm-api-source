@@ -4,6 +4,7 @@
 pub mod admin_approval;
 pub mod admin_users;
 pub(crate) mod permissions;
+pub mod personal_token;
 pub(crate) use permissions::authorize_admin_read_snapshot;
 pub use permissions::{
     Action, CONTRACT_VERSION as PERMISSIONS_CONTRACT, CatalogDecision, Effect, PermissionReadStore,
@@ -12,6 +13,7 @@ pub use permissions::{
     permission_read_router, policy_sha256,
 };
 mod auth;
+pub(crate) mod registration_policy;
 mod browser;
 pub(crate) use browser::FederatedCallbackInput;
 pub use browser::{
@@ -107,6 +109,7 @@ type Result<T> = std::result::Result<T, IdentityError>;
 pub struct IdentityStore {
     pool: PgPool,
     registration_enabled: bool,
+    turnstile: Option<crate::config::turnstile_config::Turnstile>,
     password_register_enabled: bool,
     oauth_register_enabled: bool,
     oauth_registration_disabled_methods: Vec<String>,
@@ -448,6 +451,7 @@ impl IdentityStore {
         Self {
             pool,
             registration_enabled: false,
+            turnstile: None,
             password_register_enabled: true,
             oauth_register_enabled: true,
             oauth_registration_disabled_methods: Vec::new(),

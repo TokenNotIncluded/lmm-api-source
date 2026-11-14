@@ -87,6 +87,25 @@ const product: StoreProduct = {
   review_note: '',
   max_quantity_per_order: 7,
   max_quantity_per_buyer: 23,
+  default_variant_id: 'fixture-default',
+  variants: [
+    {
+      id: 'fixture-default',
+      product_id: 'product-fixture',
+      name: 'Default',
+      price_quota: 500000,
+      template: 'card-key',
+      enabled: true,
+      is_default: true,
+      created_at: 1,
+      updated_at: 1,
+      inventory_total: 8,
+      inventory_available: 8,
+      reserved_stock: 0,
+      sale_available: 8,
+      trading_paused: false,
+    },
+  ],
 }
 async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 35))

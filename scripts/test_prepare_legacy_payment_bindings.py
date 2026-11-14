@@ -106,7 +106,7 @@ from prepare_legacy_settlement_basis import import_sql as facts_sql
 from prepare_wallet_history_snapshot import literal
 
 
-@unittest.skipUnless(os.environ.get('LMM_BINDING_TEST_DATABASE_URL'), 'explicit fresh isolated PostgreSQL required')
+@unittest.skipUnless(os.environ.get('LMM_BINDING_TEST_DATABASE_URL'), 'explicit fresh isolated PostgreSQL and LMM_BINDING_HISTORICAL_CORE_BIN required')
 class BindingsPostgresTest(unittest.TestCase):
     def test_owner_install_replay_conflict_and_no_money(self):
         url = os.environ['LMM_BINDING_TEST_DATABASE_URL']
@@ -124,7 +124,10 @@ class BindingsPostgresTest(unittest.TestCase):
             return result
         self.assertEqual(sql("SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'core_%'").stdout.strip(), '0')
         root = Path(__file__).resolve().parents[1]
-        binary = root/'services/core/target/debug/lmm-core'
+        # Frozen import executor: the current binary no longer accepts legacy-env
+        # or installs this historical schema. Supply the reviewed historical build.
+        binary = Path(os.environ['LMM_BINDING_HISTORICAL_CORE_BIN']).resolve(strict=True)
+        self.assertNotEqual(binary, (root/'services/core/target/debug/lmm-core').resolve())
         init = subprocess.run([str(binary), '--legacy-env', 'init-db'], capture_output=True, text=True,
                               env={'PATH':os.environ['PATH'], 'HOME':os.environ['HOME'], 'LMM_CORE_DATABASE_URL':url})
         self.assertEqual(init.returncode, 0, init.stderr)

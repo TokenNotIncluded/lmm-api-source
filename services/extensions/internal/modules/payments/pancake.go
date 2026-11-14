@@ -71,10 +71,6 @@ func (*Pancake) ReplayWindow(operation string) time.Duration {
 	}
 	return 0
 }
-func (*Pancake) Refund(context.Context, Order, Refund, string) (RefundResult, error) {
-	return RefundResult{}, ErrUnsupported
-}
-
 func (p *Pancake) Checkout(ctx context.Context, o Order, key string) (Checkout, error) {
 	bound, bindingErr := p.forOrder(o)
 	if bindingErr != nil {
@@ -125,6 +121,9 @@ func (p *Pancake) Verify(r *http.Request, _ time.Time) (Event, error) {
 	var v pancake.TypedWebhookEvent[pancake.WebhookEventData]
 	if jsonObject(raw, &v) != nil || !validID(v.ID) {
 		return Event{}, ErrInvalid
+	}
+	if v.EventType == "refund.succeeded" || v.EventType == "refund.failed" {
+		return p.refundCallback(v, raw, signature)
 	}
 	if v.EventType != "order.completed" {
 		return Event{}, ErrUnsupported

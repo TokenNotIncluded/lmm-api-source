@@ -97,7 +97,6 @@ const { default: globalI18n } = await import('i18next')
 await globalI18n.init({ lng: 'en', resources: { en: { translation: {} } } })
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativeAccountLinks } = await import('./native-account-links')
-const { WeChatBindDialog } = await import('./dialogs/wechat-bind-dialog')
 const { useAccountBindingFlow } =
   await import('../hooks/use-account-binding-flow')
 const fixed = {
@@ -1372,122 +1371,6 @@ test('account A to B to A during Telegram links refresh drops the old list and p
   assert.equal(host.querySelector('script[data-telegram-login]'), null)
   assert.deepEqual(errorToasts, [])
   assert.deepEqual(successToasts, [])
-})
-
-for (const failure of ['cancel', 'known-backend', 'unknown-backend'] as const) {
-  test(`legacy WeChat ${failure} preserves the safe response and never reports success`, async () => {
-    useAuthStore.getState().auth.setBundle(bundle())
-    let posts = 0
-    let completions = 0
-    const changes: boolean[] = []
-    api.defaults.adapter = async (config) => {
-      posts++
-      assert.equal(config.method, 'post')
-      assert.equal(config.url, '/api/oauth/wechat/bind')
-      assert.equal(config.skipBusinessError, true)
-      if (failure === 'cancel') {
-        throw new axios.CanceledError('synthetic cancellation')
-      }
-      return {
-        config,
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        data: {
-          success: false,
-          code:
-            failure === 'known-backend'
-              ? 'MFA_CODE_INVALID'
-              : 'PRIVATE_UNKNOWN_CODE',
-          message: 'PRIVATE_BACKEND_DETAIL',
-        },
-      }
-    }
-    const host = document.createElement('div')
-    document.body.append(host)
-    const localRoot = createRoot(host)
-    root = localRoot
-    await act(async () =>
-      localRoot.render(
-        <WeChatBindDialog
-          open
-          qrCodeUrl=''
-          onOpenChange={(open) => {
-            changes.push(open)
-          }}
-          onSuccess={() => {
-            completions++
-          }}
-        />
-      )
-    )
-    await submitWechat(host)
-    assert.equal(posts, 1)
-    assert.equal(completions, 0)
-    assert.deepEqual(changes, [])
-    assert.deepEqual(successToasts, [])
-    assert.deepEqual(
-      errorToasts,
-      failure === 'cancel'
-        ? []
-        : [failure === 'known-backend' ? 'Invalid code' : 'Request failed']
-    )
-  })
-}
-
-test('legacy WeChat account A to B to A discards its old response and resets the code draft', async () => {
-  useAuthStore.getState().auth.setBundle(bundle())
-  const pending = gate()
-  let posts = 0
-  let completions = 0
-  api.defaults.adapter = async (config) => {
-    posts++
-    assert.equal(config.url, '/api/oauth/wechat/bind')
-    await pending.promise
-    return {
-      config,
-      status: 200,
-      statusText: 'OK',
-      headers: {},
-      data: { success: false, code: 'MFA_CODE_INVALID' },
-    }
-  }
-  const host = document.createElement('div')
-  document.body.append(host)
-  const localRoot = createRoot(host)
-  root = localRoot
-  await act(async () =>
-    localRoot.render(
-      <WeChatBindDialog
-        open
-        qrCodeUrl=''
-        onOpenChange={() => {}}
-        onSuccess={() => {
-          completions++
-        }}
-      />
-    )
-  )
-  await submitWechat(host)
-  assert.equal(posts, 1)
-  await act(async () => useAuthStore.getState().auth.setBundle(laterBundle()))
-  await act(async () => useAuthStore.getState().auth.setBundle(bundle()))
-  await act(async () => {
-    pending.release()
-    await Promise.resolve()
-  })
-  assert.equal(
-    host.querySelector<HTMLInputElement>('#wechat-bind-code')?.value,
-    ''
-  )
-  assert.equal(completions, 0)
-  assert.deepEqual(errorToasts, [])
-  assert.deepEqual(successToasts, [])
-  assert.equal(
-    button(host, 'Bind').disabled,
-    true,
-    'the next attempt requires a new code'
-  )
 })
 
 // Terminal Cookie state is deliberately last; never reset it to make fixtures pass.

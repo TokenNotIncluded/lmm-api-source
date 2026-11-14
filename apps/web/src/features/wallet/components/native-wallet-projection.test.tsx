@@ -32,10 +32,7 @@ const user = {
 function stats(value: UserWalletData) {
   return renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
-      <WalletStatsCard
-        user={value}
-        balanceAction={<button type='button'>unsafe-action</button>}
-      />
+      <WalletStatsCard user={value} />
     </QueryClientProvider>
   )
 }
@@ -75,11 +72,7 @@ function rewards(value: UserWalletData, complianceConfirmed = true) {
   return renderToStaticMarkup(
     <AffiliateRewardsCard
       user={value}
-      affiliateLink=''
       complianceConfirmed={complianceConfirmed}
-      onTransfer={() => {
-        throw new Error('Native navigation must not use the legacy transfer')
-      }}
     />
   )
 }

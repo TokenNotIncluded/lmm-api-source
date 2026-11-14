@@ -23,34 +23,22 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
-import {
-  exactCredit,
-  nativeCreditDisplay,
-  walletProjection,
-} from '../lib/wallet-projection'
+import { exactCredit, nativeCreditDisplay } from '../lib/wallet-projection'
 import type { UserWalletData } from '../types'
-import { AffiliateInviteDialog } from './affiliate-invite-dialog'
-import { ReferralHistoryDialog } from './referral-history-dialog'
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
-  affiliateLink: string
-  onTransfer: () => void
   complianceConfirmed?: boolean
   loading?: boolean
 }
 
 export function AffiliateRewardsCard({
   user,
-  affiliateLink,
-  onTransfer,
   complianceConfirmed = true,
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -66,22 +54,14 @@ export function AffiliateRewardsCard({
     )
   }
 
-  const projection = walletProjection(user)
-  const financialAvailable =
-    user?.financial_projection_available !== false && !projection.readOnly
-  const hasRewards = financialAvailable && (user?.aff_quota ?? 0) > 0
-  // The current affiliate bucket is authoritative; legacy lifetime counters
-  // are not a native earnings total or a currency conversion basis.
+  // Only the current native affiliate bucket is authoritative.
   const nativeRewards =
-    projection.native &&
     user?.wallet_unit === 'core_credit' &&
     user.financial_projection_available === true
       ? exactCredit(user.aff_quota)
       : null
   const nativeDebt = nativeRewards !== null ? exactCredit(user?.aff_debt) : null
-  const rewardDebt = projection.native
-    ? (nativeDebt ?? 0) > 0
-    : financialAvailable && (user?.aff_debt ?? 0) > 0
+  const rewardDebt = (nativeDebt ?? 0) > 0
   const nativeRewardDisplay = nativeCreditDisplay(
     rewardDebt ? nativeDebt : nativeRewards,
     t('Credits'),
@@ -111,28 +91,10 @@ export function AffiliateRewardsCard({
           {[
             [
               rewardDebt ? t('Reward debt') : t('Available Rewards'),
-              projection.native
-                ? nativeRewardDisplay
-                : financialAvailable
-                  ? formatQuota(
-                      (user?.aff_debt ?? 0) > 0
-                        ? (user?.aff_debt ?? 0)
-                        : (user?.aff_quota ?? 0)
-                    )
-                  : t('Unavailable'),
+              nativeRewardDisplay,
             ],
-            [
-              t('Total Earned'),
-              financialAvailable
-                ? formatQuota(user?.aff_history_quota ?? 0)
-                : t('Unavailable'),
-            ],
-            [
-              t('Invites'),
-              financialAvailable
-                ? String(user?.aff_count ?? 0)
-                : t('Unavailable'),
-            ],
+            [t('Total Earned'), t('Unavailable')],
+            [t('Invites'), t('Unavailable')],
           ].map(([label, value]) => (
             <div key={label}>
               <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
@@ -146,11 +108,7 @@ export function AffiliateRewardsCard({
         </div>
 
         <div className='flex flex-wrap items-center justify-end gap-2'>
-          {financialAvailable ? (
-            <AffiliateInviteDialog affiliateLink={affiliateLink} />
-          ) : null}
-          <ReferralHistoryDialog />
-          {projection.native && complianceConfirmed ? (
+          {complianceConfirmed ? (
             <Button
               render={<a href='/core/v1/affiliate/claim' />}
               className='h-9 shrink-0 px-3'
@@ -160,17 +118,14 @@ export function AffiliateRewardsCard({
               {t('Preview reward transfer')}
             </Button>
           ) : (
-            (hasRewards || !financialAvailable) && (
-              <Button
-                onClick={onTransfer}
-                disabled={!complianceConfirmed || !financialAvailable}
-                className='h-9 shrink-0 px-3'
-                size='sm'
-                variant='outline'
-              >
-                {t('Transfer to Balance')}
-              </Button>
-            )
+            <Button
+              disabled
+              className='h-9 shrink-0 px-3'
+              size='sm'
+              variant='outline'
+            >
+              {t('Transfer to Balance')}
+            </Button>
           )}
         </div>
         {!complianceConfirmed ? (

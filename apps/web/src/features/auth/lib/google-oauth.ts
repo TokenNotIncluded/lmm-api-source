@@ -3,7 +3,7 @@ Copyright (C) 2026 LIghtJUNction
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
-import type { CustomOAuthProviderInfo, SystemStatus } from '../types'
+import type { SystemStatus } from '../types'
 
 // These endpoints are owned by the built-in provider, not editable custom
 // templates. Browser entry must use the cookie bridge, never the native API.
@@ -29,27 +29,6 @@ export function isBuiltInGoogleConfigured(
     status?.google_oauth === true &&
     typeof status.google_client_id === 'string' &&
     status.google_client_id.trim().length > 0
-  )
-}
-
-export function isCustomGoogleProvider(
-  provider: Pick<CustomOAuthProviderInfo, 'name' | 'slug' | 'icon'>
-): boolean {
-  return [provider.name, provider.slug, provider.icon].some(
-    (value) => value.trim().toLowerCase() === 'google'
-  )
-}
-
-/** Only a positively advertised built-in browser provider supersedes buttons. */
-export function shouldShowCustomGoogleProvider(
-  status: SystemStatus | null | undefined,
-  provider: Pick<CustomOAuthProviderInfo, 'name' | 'slug' | 'icon'>,
-  builtInAllowed = true
-): boolean {
-  return !(
-    builtInAllowed &&
-    isBuiltInGoogleConfigured(status) &&
-    isCustomGoogleProvider(provider)
   )
 }
 

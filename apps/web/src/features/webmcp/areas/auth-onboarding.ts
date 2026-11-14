@@ -152,10 +152,7 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
           registration_open: isRegistrationEnabled(status),
           // Absent means the server did not restrict it; never advertise a
           // sign-in path as closed on missing data.
-          password_login:
-            (status.password_login_enabled ??
-              status.data?.password_login_enabled ??
-              true) !== false,
+          password_login: (status.password_login_enabled ?? true) !== false,
           password_registration: isPasswordRegistrationEnabled(status),
           can_create_account: hasRegistrationMethod(status),
           providers,
@@ -244,12 +241,12 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
       execute: async (_input, options) => {
         const status = await readSystemStatus(options.signal)
         ensureNotAborted(options.signal)
-        const setup = status.setup ?? status.data?.setup
+        const setup = status.setup
         return {
           setup_required: typeof setup === 'boolean' ? !setup : null,
           setup_path: '/setup',
-          version: clip(status.version ?? status.data?.version, 40),
-          system_name: clip(status.system_name ?? status.data?.system_name, 80),
+          version: clip(status.version, 40),
+          system_name: clip(status.system_name, 80),
         }
       },
     },

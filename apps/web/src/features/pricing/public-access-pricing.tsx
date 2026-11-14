@@ -60,7 +60,7 @@ export function PublicAccessPricing() {
     <ForgePublicShell>
       <main className='pricing-public bg-background text-foreground'>
         <section className='pricing-intro'>
-          <div className='mx-auto grid max-w-7xl gap-12 px-5 py-16 md:px-10 md:py-24 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-24'>
+          <div className='mx-auto grid max-w-7xl gap-14 px-5 py-16 md:px-10 md:py-24 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-24'>
             <div>
               <p className='pricing-eyebrow text-muted-foreground mb-6 text-xs font-medium'>
                 {t('Pay as you go')}

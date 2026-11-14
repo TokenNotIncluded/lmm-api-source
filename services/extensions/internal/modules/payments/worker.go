@@ -73,6 +73,14 @@ func (s *Service) Step(ctx context.Context, id string) error {
 		})
 		for _, key := range keys {
 			j := o.Jobs[key]
+			if j.Kind == "refund_lookup" {
+				r := o.Refunds[j.RefundID]
+				if r.State == "committed" || r.State == "released" || r.State == "rejected" {
+					j.State = "done"
+					o.Jobs[key] = j
+					continue
+				}
+			}
 			if j.Kind == "credit" && o.RefundFence {
 				j.State = "fenced"
 				o.Jobs[key] = j
@@ -92,7 +100,7 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			// Only external writes need a live Go adapter. Receipt lookup and
 			// accepted-proof settlement remain bound and authorized by Rust,
 			// even while this host temporarily lacks provider configuration.
-			if j.Kind == "checkout" || j.Kind == "refund_submit" {
+			if j.Kind == "checkout" || j.Kind == "refund_submit" || j.Kind == "refund_lookup" {
 				candidate, bindingErr := s.orderAdapter(*o)
 				if bindingErr != nil {
 					// No provider call started. Preserve prior dispatch history and
@@ -145,6 +153,8 @@ func (s *Service) Step(ctx context.Context, id string) error {
 	expected := ""
 	var callErr error
 	switch chosen.Kind {
+	case "refund_lookup":
+		callErr = s.Reconcile(bounded, id)
 	case "refund_dispatch":
 		expected = RefundHeld
 		// Registration may have committed before its ACK was lost. Recover the
@@ -278,12 +288,21 @@ func (s *Service) Step(ctx context.Context, id string) error {
 				r.Dispatch = ""
 				o.Refunds[r.ID] = r
 			}
+			if chosen.Kind == "refund_submit" && o.Refunds[j.RefundID].Dispatch == DispatchUnknown {
+				enqueueRefundLookup(o, j.RefundID, s.now())
+			}
 			j.State = "pending"
 			j.ErrorCode = errorCode(callErr)
 			delay := time.Second * time.Duration(1<<min(j.Attempts, 8))
 			j.NextAttempt = s.now().Add(delay)
 			if errors.Is(callErr, ErrConflict) || errors.Is(callErr, ErrInvalid) || errors.Is(callErr, ErrEvidence) || errors.Is(callErr, ErrUnsupported) {
 				j.State = "review"
+			}
+			if j.Kind == "refund_lookup" && errors.Is(callErr, ErrEvidence) {
+				j.State = "pending"
+			}
+			if j.Kind == "refund_lookup" && delay < time.Minute {
+				j.NextAttempt = s.now().Add(time.Minute)
 			}
 			o.Jobs[j.Key] = j
 			return nil
@@ -307,6 +326,11 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			}
 		}
 		switch j.Kind {
+		case "refund_lookup":
+			// An authenticated observation does not settle the hold. Poll until
+			// signed evidence has driven the original Core operation to finality.
+			j.State = "pending"
+			j.NextAttempt = s.now().Add(time.Minute)
 		case "refund_dispatch":
 			r := o.Refunds[j.RefundID]
 			r.DispatchReceipt = receipt.ID
@@ -349,6 +373,7 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			}
 			r.Dispatch = DispatchResponded
 			o.Refunds[r.ID] = r
+			enqueueRefundLookup(o, r.ID, s.now())
 		case "commit", "external_refund":
 			r := o.Refunds[j.RefundID]
 			r.State = "committed"
@@ -369,6 +394,10 @@ func (s *Service) Step(ctx context.Context, id string) error {
 		return s.Step(ctx, id)
 	}
 	return err
+}
+
+func enqueueRefundLookup(o *Order, refundID string, now time.Time) {
+	enqueue(o, Job{Key: stableKey("refund-lookup", refundID), Kind: "refund_lookup", RefundID: refundID}, now.Add(time.Minute))
 }
 
 func (s *Service) acceptedEvidence(ctx context.Context, intent int64, e Evidence) (Evidence, error) {

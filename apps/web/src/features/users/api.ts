@@ -21,7 +21,6 @@ import {
   parsePermissionCatalogResponse,
 } from '@/lib/admin-permissions'
 import { api, type ApiRequestConfig } from '@/lib/api'
-import type { CustomOAuthBinding } from '@/lib/oauth'
 
 import type {
   User,
@@ -303,46 +302,6 @@ export async function getPermissionCatalog(
     ...config,
   })
   return parsePermissionCatalogResponse(res.data)
-}
-
-// ============================================================================
-// Admin Binding Management APIs
-// ============================================================================
-
-export type OAuthBinding = CustomOAuthBinding
-
-/**
- * Get user's custom OAuth bindings (admin)
- */
-export async function getUserOAuthBindings(
-  userId: number
-): Promise<ApiResponse<OAuthBinding[]>> {
-  const res = await api.get(`/api/user/${userId}/oauth/bindings`)
-  return res.data
-}
-
-/**
- * Clear a user's built-in binding (admin)
- */
-export async function adminClearUserBinding(
-  userId: number,
-  bindingType: string
-): Promise<ApiResponse> {
-  const res = await api.delete(`/api/user/${userId}/bindings/${bindingType}`)
-  return res.data
-}
-
-/**
- * Unbind custom OAuth for a user (admin)
- */
-export async function adminUnbindCustomOAuth(
-  userId: number,
-  providerId: number
-): Promise<ApiResponse> {
-  const res = await api.delete(
-    `/api/user/${userId}/oauth/bindings/${providerId}`
-  )
-  return res.data
 }
 
 export type ReferralModerationPayload = {

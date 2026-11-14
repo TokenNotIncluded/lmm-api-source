@@ -338,7 +338,7 @@ test('an API-style Google redirect response is never treated as SPA JSON login a
     config,
     status: 303,
     statusText: 'See Other',
-    headers: { location: '/console', 'content-type': 'text/html' },
+    headers: { location: '/dashboard', 'content-type': 'text/html' },
     data: '<html>See Other</html>',
   })
   await mount()

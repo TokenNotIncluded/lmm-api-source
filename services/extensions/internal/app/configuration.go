@@ -98,32 +98,15 @@ type ReviewedScript struct {
 }
 
 func configPath(args []string) (string, error) {
-	if len(args) == 1 && args[0] == "--legacy-env" {
-		return "", nil
-	}
 	if len(args) == 0 {
 		return defaultConfigPath, nil
 	}
 	if len(args) == 2 && args[0] == "--config" && absolutePath(args[1]) {
 		return args[1], nil
 	}
-	return "", errors.New("lmm-extensions accepts no subcommands; use --config with one absolute TOML file path or explicit --legacy-env")
+	return "", errors.New("lmm-extensions accepts no subcommands; use --config with one absolute TOML file path")
 }
 
-func legacyConfig(getenv func(string) string) (GoConfig, error) {
-	if err := validateDatabaseEnvironment(getenv); err != nil {
-		return GoConfig{}, err
-	}
-	web := getenv("LMM_EXTENSION_WEB_COMPAT")
-	if web != "" && web != "true" && web != "false" {
-		return GoConfig{}, errors.New("invalid legacy Web compatibility option")
-	}
-	var selected []string
-	if raw := getenv("LMM_EXTENSION_MODULES"); raw != "" {
-		selected = strings.Split(raw, ",")
-	}
-	return GoConfig{Version: 1, Host: HostConfig{MaxInFlight: modules.DefaultMaxInFlight, Listen: getenv("LMM_EXTENSION_LISTEN"), TokenFile: getenv("LMM_EXTENSION_TOKEN_FILE"), PluginStateFile: getenv("LMM_EXTENSION_PLUGIN_STATE_FILE"), Modules: selected, WebCompat: web == "true"}, Core: CoreConfig{Socket: getenv("LMM_CORE_RPC_SOCKET"), IdentityTokenFile: getenv("LMM_CORE_RPC_TOKEN_FILE"), CommerceTokenFile: getenv("LMM_CORE_COMMERCE_RPC_TOKEN_FILE")}, Store: StoreConfig{DatabaseName: getenv("LMM_STORE_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_STORE_DATABASE_URL_FILE"), StockKeyFile: getenv("LMM_STORE_STOCK_KEY_FILE")}, Support: DatabaseConfig{DatabaseName: getenv("LMM_SUPPORT_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_SUPPORT_DATABASE_URL_FILE")}, Legal: LegalConfig{ConfigFile: getenv("LMM_LEGAL_CONFIG_FILE")}}, nil
-}
 func absolutePath(path string) bool {
 	return path != "" && filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n")
 }

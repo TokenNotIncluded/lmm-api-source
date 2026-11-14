@@ -1,6 +1,7 @@
 //! Core-owned second-factor state. A password proof never becomes a session
 //! until this module's persisted policy and generation checks have succeeded.
 mod crypto;
+mod legacy_recovery;
 use super::*;
 pub(super) use crypto::MfaKeyring;
 use serde::Deserialize;
@@ -380,7 +381,7 @@ impl IdentityStore {
                 .bind(actor.user_id).bind(revision).fetch_all(&self.pool).await?;
             for row in rows {
                 let hash: String = row.try_get("verifier")?;
-                if self.verify_password(normal.clone(), hash.clone()).await? {
+                if legacy_recovery::verify(self, normal.clone(), hash.clone()).await? {
                     backup = Some((row.try_get("id")?, hash));
                     break;
                 }
@@ -621,7 +622,7 @@ pub(super) async fn prepare_login_code(
         let codes=sqlx::query("SELECT id,verifier FROM core_identity.mfa_backup_codes WHERE user_id=$1 AND factor_revision=$2 AND consumed_at IS NULL ORDER BY id LIMIT 4").bind(user).bind(revision).fetch_all(&store.pool).await?;
         for r in codes {
             let hash: String = r.try_get("verifier")?;
-            if store.verify_password(normal.clone(), hash.clone()).await? {
+            if legacy_recovery::verify(store, normal.clone(), hash.clone()).await? {
                 backup = Some((r.try_get("id")?, hash));
                 break;
             }

@@ -31,7 +31,7 @@ import {
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
-import { createOAuthFlow, executeLogout, login } from './api'
+import { executeLogout, login } from './api'
 import { beginFederatedLogin } from './federated-api'
 
 // Normal supported browser; install after this fixture replaces its globals.
@@ -305,60 +305,6 @@ describe('OAuth flow initialization', () => {
       if (originalWindow) {
         Object.defineProperty(globalThis, 'window', originalWindow)
       } else Reflect.deleteProperty(globalThis, 'window')
-    }
-  })
-
-  test('sends legal consent for login flows', async () => {
-    const originalPost = api.post
-    let requestBody: unknown
-    api.post = (async (url: string, body: unknown) => {
-      assert.equal(url, '/api/oauth/state')
-      requestBody = body
-      return {
-        data: {
-          success: true,
-          data: { flow_token: 'oauth-flow-token' },
-        },
-      }
-    }) as typeof api.post
-
-    try {
-      const token = await createOAuthFlow('linuxdo', 'login', true)
-      assert.equal(token, 'oauth-flow-token')
-      assert.deepEqual(requestBody, {
-        provider: 'linuxdo',
-        intent: 'login',
-        aff: undefined,
-        accepted_legal: true,
-      })
-    } finally {
-      api.post = originalPost
-    }
-  })
-
-  test('does not attach registration consent to binding flows', async () => {
-    const originalPost = api.post
-    let requestBody: unknown
-    api.post = (async (_url: string, body: unknown) => {
-      requestBody = body
-      return {
-        data: {
-          success: true,
-          data: { flow_token: 'oauth-bind-token' },
-        },
-      }
-    }) as typeof api.post
-
-    try {
-      await createOAuthFlow('github', 'bind', true)
-      assert.deepEqual(requestBody, {
-        provider: 'github',
-        intent: 'bind',
-        aff: undefined,
-        accepted_legal: undefined,
-      })
-    } finally {
-      api.post = originalPost
     }
   })
 })

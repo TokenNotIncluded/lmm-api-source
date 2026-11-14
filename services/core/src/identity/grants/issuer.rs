@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub struct LmmIssuer {
+    pub(super) oidc_keys: Option<std::sync::Arc<super::oidc::OidcSigningKeys>>,
     pub(super) identity: IdentityStore,
     pub(super) profile: LmmProfile,
     pub(super) access_ttl: i64,
@@ -15,6 +16,7 @@ pub struct LmmIssuer {
 }
 /// Server-rendered ceremony material only. Never Debug or a login credential.
 pub struct ConsentPage {
+    pub openid: bool,
     pub binding: String,
     pub csrf: String,
     pub expires_at: i64,
@@ -89,6 +91,7 @@ impl LmmIssuer {
             family_ttl,
             catalog_surface: None,
             managed_keys: None,
+            oidc_keys: None,
         })
     }
     /// Only server startup can obtain the opaque validated gateway surface.
@@ -249,6 +252,7 @@ impl LmmIssuer {
             None
         };
         Ok(ConsentPage {
+            openid: false,
             binding,
             csrf,
             expires_at: expires,
@@ -309,8 +313,8 @@ impl LmmIssuer {
             return Err(IdentityError::Unauthorized);
         }
         let original = Self::request(&row)?;
-        let request = if original.client_id == protocol::MANAGED_CLIENT {
-            self.require_managed_issuance()?;
+        let request = if protocol::is_managed_client(&original.client_id) {
+            self.require_managed_issuance(&original.client_id)?;
             self.profile.validate_managed_authorization(original)?
         } else {
             self.profile.validate_authorization(original)?
@@ -362,10 +366,11 @@ impl LmmIssuer {
             }
             Err(error) => return Err(error),
         };
-        if request.client_id == protocol::MANAGED_CLIENT {
+        if protocol::is_managed_client(&request.client_id) {
             self.copy_managed_authorization(&mut tx, binding, &mut page)
                 .await?;
         }
+        self.copy_oidc_request(&mut tx, binding, &mut page).await?;
         tx.commit().await?;
         Ok(page)
     }
@@ -410,8 +415,8 @@ impl LmmIssuer {
             return Err(IdentityError::Unauthorized);
         }
         let client: String = row.try_get("client_id")?;
-        if client == protocol::MANAGED_CLIENT {
-            self.require_managed_issuance()?;
+        if protocol::is_managed_client(&client) {
+            self.require_managed_issuance(&client)?;
         }
         let authority = if protocol::is_model_client(&client) {
             self.current_model_groups(&mut tx, identity.user, identity.account, identity.version)
@@ -469,9 +474,11 @@ impl LmmIssuer {
                 tx.commit().await?;
                 return Err(IdentityError::Unauthorized);
             }
-            if client == protocol::MANAGED_CLIENT {
+            if protocol::is_managed_client(&client) {
                 self.bind_managed_family(&mut tx, &family, binding).await?;
             }
+            self.bind_oidc_family(&mut tx, binding, &family, &identity.sid)
+                .await?;
             let code = protocol::secret("lmm_oc_")?;
             sqlx::query("INSERT INTO core_oauth.authorization_codes(digest,family_id,user_id,owner_account_id,user_version,consent_version,issuer,resource,client_id,redirect_uri,state,pkce_challenge,scopes,expires_at) SELECT $1,id,user_id,owner_account_id,user_version,consent_version,issuer,resource,client_id,$2,$3,$4,$5,LEAST(expires_at,statement_timestamp()+interval '120 seconds') FROM core_oauth.families WHERE id=$6")
                 .bind(digest(&code)?).bind(row.try_get::<String,_>("redirect_uri")?).bind(row.try_get::<String,_>("state")?).bind(row.try_get::<String,_>("pkce_challenge")?).bind(&scopes).bind(family).execute(&mut *tx).await?;
@@ -592,7 +599,7 @@ impl LmmIssuer {
             return Err(IdentityError::Unauthorized);
         }
         let client: String = f.try_get("client_id")?;
-        if client == protocol::MANAGED_CLIENT {
+        if protocol::is_managed_client(&client) {
             self.validate_managed_family_binding(c, f).await?;
             self.profile
                 .validate_model_budget(&client, f.try_get("budget_credits")?)?;
@@ -718,7 +725,8 @@ impl LmmIssuer {
         }
         sqlx::query("UPDATE core_oauth.authorization_codes SET consumed_at=clock_timestamp() WHERE digest=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING digest")
             .bind(hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
-        let issued = self.issue(&mut tx, &f, &scopes).await?;
+        let mut issued = self.issue(&mut tx, &f, &scopes).await?;
+        self.issue_oidc(&mut tx, &f, &mut issued, true).await?;
         tx.commit().await?;
         Ok(issued)
     }
@@ -752,6 +760,8 @@ impl LmmIssuer {
         let current = self
             .live(&mut tx, &f, token.try_get("consent_version")?)
             .await?;
+        let (openid, native_scope) = self.oidc_refresh_scope(&mut tx, refresh, scope).await?;
+        let scope = native_scope.as_deref();
         let previous: Vec<String> = token.try_get("scopes")?;
         let selected: Vec<String> = scope
             .map(|s| s.split(' ').map(str::to_owned).collect())
@@ -776,7 +786,8 @@ impl LmmIssuer {
             .await?;
         sqlx::query("UPDATE core_oauth.refresh_tokens SET consumed_at=clock_timestamp() WHERE digest=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING digest")
             .bind(hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
-        let issued = self.issue(&mut tx, &f, &selected).await?;
+        let mut issued = self.issue(&mut tx, &f, &selected).await?;
+        self.issue_oidc(&mut tx, &f, &mut issued, openid).await?;
         tx.commit().await?;
         Ok(issued)
     }
@@ -788,7 +799,7 @@ impl LmmIssuer {
         // Exact configured issuer/resource/client binding is checked below.
         if !matches!(
             client,
-            protocol::CLIENT | "lmm-pi" | protocol::MANAGED_CLIENT
+            protocol::CLIENT | "lmm-pi" | protocol::MANAGED_CLIENT | protocol::MAGPIE_CLIENT
         ) {
             return Err(IdentityError::Invalid);
         }

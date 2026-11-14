@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use zeroize::{Zeroize, Zeroizing};
 
-const APPLICATION: &str = "cc-switch";
 const MAX_CIPHERTEXT: usize = 16_384;
 
 fn is_lower_hex64(value: &str) -> bool {
@@ -75,7 +74,7 @@ pub struct ManagedAuthorizationRequest {
 }
 impl ManagedAuthorizationRequest {
     fn validate(self, profile: &LmmProfile) -> Result<(AuthorizationRequest, Installation)> {
-        if self.application != APPLICATION
+        if protocol::managed_application(&self.client_id) != Some(self.application.as_str())
             || self.display_label.trim().is_empty()
             || self.display_label.len() > 160
             || self.display_label.chars().any(char::is_control)
@@ -123,12 +122,14 @@ pub struct ManagedTokenForm {
 }
 pub enum ManagedTokenRequest {
     Code {
+        client_id: String,
         installation_id: InstallationId,
         code: String,
         redirect: String,
         verifier: String,
     },
     Refresh {
+        client_id: String,
         installation_id: InstallationId,
         refresh: String,
         rotation_id: RotationId,
@@ -136,7 +137,7 @@ pub enum ManagedTokenRequest {
 }
 impl ManagedTokenForm {
     pub fn validate(self, profile: &LmmProfile) -> Result<ManagedTokenRequest> {
-        if self.client_id != protocol::MANAGED_CLIENT {
+        if !protocol::is_managed_client(&self.client_id) {
             return Err(IdentityError::Invalid);
         }
         let installation_id = InstallationId::parse(self.installation_id)?;
@@ -160,6 +161,7 @@ impl ManagedTokenForm {
                     return Err(IdentityError::Invalid);
                 }
                 Ok(ManagedTokenRequest::Code {
+                    client_id: self.client_id,
                     installation_id,
                     code,
                     redirect,
@@ -177,6 +179,7 @@ impl ManagedTokenForm {
                     RotationId::parse(self.rotation_id.ok_or(IdentityError::Invalid)?)?;
                 protocol::canonical(&refresh, "lmm_rt_")?;
                 Ok(ManagedTokenRequest::Refresh {
+                    client_id: self.client_id,
                     installation_id,
                     refresh,
                     rotation_id,
@@ -193,7 +196,7 @@ pub struct ManagedTokenWire {
     pub token_type: &'static str,
     pub expires_in: i64,
     pub scope: String,
-    pub client_id: &'static str,
+    pub client_id: String,
     pub installation_id: String,
     pub grant_id: String,
     pub budget_credits: i64,
@@ -307,7 +310,7 @@ impl LmmIssuer {
         c: &mut PgConnection,
         f: &PgRow,
     ) -> Result<()> {
-        if f.try_get::<String, _>("client_id")? != protocol::MANAGED_CLIENT
+        if !protocol::is_managed_client(&f.try_get::<String, _>("client_id")?)
             || f.try_get::<String, _>("issuer")? != self.profile.issuer()
             || f.try_get::<String, _>("resource")? != self.profile.resource()
             || f.try_get::<String, _>("issuance_kind")? != "browser"
@@ -316,7 +319,7 @@ impl LmmIssuer {
             return Err(IdentityError::Unauthorized);
         }
         let valid: bool = sqlx::query_scalar(
-            "SELECT b.client_id='lmm-cc-switch' AND b.application='cc-switch'
+            "SELECT b.client_id=$8 AND b.application=$9
                 AND b.installation_id ~ '^[0-9a-f]{64}$'
                 AND b.client_id=a.client_id AND b.application=a.application
                 AND b.installation_id=a.installation_id AND b.display_label=a.display_label
@@ -335,6 +338,8 @@ impl LmmIssuer {
         .bind(self.profile.issuer())
         .bind(self.profile.resource())
         .bind(f.try_get::<Vec<String>, _>("scopes")?)
+        .bind(f.try_get::<String, _>("client_id")?)
+        .bind(protocol::managed_application(&f.try_get::<String, _>("client_id")?).ok_or(IdentityError::Unauthorized)?)
         .fetch_optional(c)
         .await?
         .unwrap_or(false);
@@ -351,15 +356,16 @@ impl LmmIssuer {
         self.managed_keys = Some(std::sync::Arc::new(keys));
         Ok(self)
     }
-    fn has_managed_issuance_configuration(&self) -> bool {
-        self.profile
-            .model_budget_limit(protocol::MANAGED_CLIENT)
-            .is_some()
+    fn has_managed_issuance_configuration(&self, client: &str) -> bool {
+        self.profile.model_budget_limit(client).is_some()
             && self.managed_keys.is_some()
             && self.catalog_surface.is_some()
     }
     pub(crate) async fn managed_discovery_ready(&self) -> Result<bool> {
-        if !self.has_managed_issuance_configuration() {
+        if ![protocol::MANAGED_CLIENT, protocol::MAGPIE_CLIENT]
+            .iter()
+            .any(|client| self.has_managed_issuance_configuration(client))
+        {
             return Ok(false);
         }
         // Check the actual installed contract; a configuration flag alone is
@@ -379,19 +385,19 @@ impl LmmIssuer {
         .map_err(|_| IdentityError::Storage)?;
         Ok(true)
     }
-    pub(super) fn require_managed_issuance(&self) -> Result<()> {
-        if !self.has_managed_issuance_configuration() {
+    pub(super) fn require_managed_issuance(&self, client: &str) -> Result<()> {
+        if !self.has_managed_issuance_configuration(client) {
             return Err(IdentityError::Forbidden);
         }
         Ok(())
     }
     pub async fn begin_managed(&self, input: ManagedAuthorizationRequest) -> Result<ConsentPage> {
-        self.require_managed_issuance()?;
+        self.require_managed_issuance(&input.client_id)?;
         let (request, installation) = input.validate(&self.profile)?;
         let mut tx = transaction(&self.identity.pool).await?;
         let mut page = self.pending(&mut tx, &request, None, &[], None).await?;
-        sqlx::query("INSERT INTO core_oauth.managed_authorization_bindings(binding_digest,client_id,application,installation_id,display_label) VALUES($1,'lmm-cc-switch','cc-switch',$2,$3)")
-            .bind(digest(&page.binding)?).bind(installation.id.as_str()).bind(&installation.label).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO core_oauth.managed_authorization_bindings(binding_digest,client_id,application,installation_id,display_label) VALUES($1,$4,$5,$2,$3)")
+            .bind(digest(&page.binding)?).bind(installation.id.as_str()).bind(&installation.label).bind(&request.client_id).bind(protocol::managed_application(&request.client_id).ok_or(IdentityError::Invalid)?).execute(&mut *tx).await?;
         page.installation_id = Some(installation.id.0);
         page.display_label = Some(installation.label);
         tx.commit().await?;
@@ -451,8 +457,10 @@ impl LmmIssuer {
         f: &PgRow,
         scopes: &[String],
     ) -> Result<(Successor, String)> {
-        self.profile
-            .validate_model_budget(protocol::MANAGED_CLIENT, f.try_get("budget_credits")?)?;
+        self.profile.validate_model_budget(
+            &f.try_get::<String, _>("client_id")?,
+            f.try_get("budget_credits")?,
+        )?;
         let wire = self.issue(c, f, scopes).await?;
         let row = sqlx::query("SELECT id,floor(extract(epoch FROM expires_at))::bigint AS expiry FROM core_oauth.access_tokens WHERE digest=$1 AND family_id=$2")
             .bind(digest(&wire.access_token)?).bind(f.try_get::<String, _>("id")?).fetch_one(c).await?;
@@ -487,7 +495,7 @@ impl LmmIssuer {
             token_type: "Bearer",
             expires_in: remaining,
             scope: row.try_get::<Vec<String>, _>("scopes")?.join(" "),
-            client_id: protocol::MANAGED_CLIENT,
+            client_id: f.try_get("client_id")?,
             installation_id: installation_id.as_str().to_owned(),
             grant_id: f.try_get("id")?,
             budget_credits: f
@@ -498,32 +506,35 @@ impl LmmIssuer {
     pub async fn token_managed(&self, input: ManagedTokenRequest) -> Result<ManagedTokenWire> {
         match input {
             ManagedTokenRequest::Code {
+                client_id,
                 installation_id,
                 code,
                 redirect,
                 verifier,
             } => {
-                self.exchange_managed(&installation_id, &code, &redirect, &verifier)
+                self.exchange_managed(&client_id, &installation_id, &code, &redirect, &verifier)
                     .await
             }
             ManagedTokenRequest::Refresh {
+                client_id,
                 installation_id,
                 refresh,
                 rotation_id,
             } => {
-                self.refresh_managed(&installation_id, &refresh, &rotation_id)
+                self.refresh_managed(&client_id, &installation_id, &refresh, &rotation_id)
                     .await
             }
         }
     }
     async fn exchange_managed(
         &self,
+        client: &str,
         installation_id: &InstallationId,
         code: &str,
         redirect: &str,
         verifier: &str,
     ) -> Result<ManagedTokenWire> {
-        self.require_managed_issuance()?;
+        self.require_managed_issuance(client)?;
         protocol::canonical(code, "lmm_oc_")?;
         super::redirect(redirect)?;
         let hash = digest(code)?;
@@ -536,12 +547,15 @@ impl LmmIssuer {
         .await?
         .ok_or(IdentityError::Unauthorized)?;
         let f = family(&mut tx, &id, true).await?;
+        if f.try_get::<String, _>("client_id")? != client {
+            return Err(IdentityError::Unauthorized);
+        }
         self.managed_installation(&mut tx, &f, installation_id)
             .await?;
         let row = sqlx::query("SELECT *,consumed_at IS NULL AND expires_at>clock_timestamp() AS live FROM core_oauth.authorization_codes WHERE digest=$1 FOR UPDATE")
             .bind(&hash).fetch_one(&mut *tx).await?;
         if !row.try_get::<bool, _>("live")?
-            || row.try_get::<String, _>("client_id")? != protocol::MANAGED_CLIENT
+            || row.try_get::<String, _>("client_id")? != client
             || row.try_get::<String, _>("issuer")? != self.profile.issuer()
             || row.try_get::<String, _>("resource")? != self.profile.resource()
             || row.try_get::<String, _>("redirect_uri")? != redirect
@@ -576,6 +590,7 @@ impl LmmIssuer {
     }
     async fn refresh_managed(
         &self,
+        client: &str,
         installation_id: &InstallationId,
         refresh: &str,
         rotation_id: &RotationId,
@@ -591,6 +606,9 @@ impl LmmIssuer {
                 .ok_or(IdentityError::Unauthorized)?;
         let f = family(&mut tx, &id, true).await?;
         // No functional refusal may mutate a foreign client's installation.
+        if f.try_get::<String, _>("client_id")? != client {
+            return Err(IdentityError::Unauthorized);
+        }
         self.managed_installation(&mut tx, &f, installation_id)
             .await?;
         let token = sqlx::query("SELECT *,consumed_at IS NOT NULL AS consumed,expires_at>clock_timestamp() AS live FROM core_oauth.refresh_tokens WHERE digest=$1 FOR UPDATE")
@@ -599,7 +617,7 @@ impl LmmIssuer {
             serde_json::to_vec(&[
                 self.profile.issuer(),
                 self.profile.resource(),
-                protocol::MANAGED_CLIENT,
+                client,
                 &id,
                 installation_id.as_str(),
                 &crate::hex_codec::encode(&old),
@@ -643,7 +661,7 @@ impl LmmIssuer {
                 return Err(IdentityError::Forbidden);
             }
             let keys = self.managed_keys.as_ref().ok_or(IdentityError::Storage)?;
-            let aad = self.recovery_aad(&lineage, installation_id)?;
+            let aad = self.recovery_aad(&lineage, installation_id, client)?;
             let plaintext = keys.open(
                 &lineage
                     .try_get::<Option<String>, _>("key_id")?
@@ -674,7 +692,7 @@ impl LmmIssuer {
             tx.commit().await?;
             return Ok(wire);
         }
-        self.require_managed_issuance()?;
+        self.require_managed_issuance(client)?;
         if !token.try_get::<bool, _>("live")? {
             return Err(IdentityError::Unauthorized);
         }
@@ -693,7 +711,7 @@ impl LmmIssuer {
             .bind(&old).bind(&id).bind(rotation_id.as_str()).bind(&request_digest).bind(&access_id).bind(digest(&successor.refresh_token)?).fetch_one(&mut *tx).await?;
         let plaintext =
             Zeroizing::new(serde_json::to_vec(&successor).map_err(|_| IdentityError::Storage)?);
-        let aad = self.recovery_aad(&lineage, installation_id)?;
+        let aad = self.recovery_aad(&lineage, installation_id, client)?;
         let keys = self.managed_keys.as_ref().ok_or(IdentityError::Storage)?;
         let (key_id, ciphertext) = keys.seal(&aad, &plaintext)?;
         sqlx::query("INSERT INTO core_oauth.managed_refresh_responses(old_refresh_digest,key_id,encrypted_response) VALUES($1,$2,$3)")
@@ -704,12 +722,17 @@ impl LmmIssuer {
         tx.commit().await?;
         Ok(wire)
     }
-    fn recovery_aad(&self, row: &PgRow, installation_id: &InstallationId) -> Result<Vec<u8>> {
+    fn recovery_aad(
+        &self,
+        row: &PgRow,
+        installation_id: &InstallationId,
+        client: &str,
+    ) -> Result<Vec<u8>> {
         serde_json::to_vec(&[
             "lmm.managed-refresh.v1".to_owned(),
             self.profile.issuer().to_owned(),
             self.profile.resource().to_owned(),
-            protocol::MANAGED_CLIENT.to_owned(),
+            client.to_owned(),
             installation_id.as_str().to_owned(),
             row.try_get("family_id")?,
             crate::hex_codec::encode(row.try_get::<Vec<u8>, _>("old_refresh_digest")?),
@@ -735,7 +758,7 @@ impl LmmIssuer {
             .await?
             .ok_or(IdentityError::Unauthorized)?;
         let f = family(&mut tx, &token.try_get::<String, _>("family_id")?, false).await?;
-        if f.try_get::<String, _>("client_id")? != protocol::MANAGED_CLIENT {
+        if !protocol::is_managed_client(&f.try_get::<String, _>("client_id")?) {
             return Err(IdentityError::Unauthorized);
         }
         let current = self
@@ -766,8 +789,8 @@ impl LmmIssuer {
         let expiry: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM expires_at))::bigint FROM core_oauth.access_tokens WHERE digest=$1 AND expires_at>clock_timestamp()")
             .bind(hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
         let result = serde_json::json!({
-            "contract":"lmm.application-status.v1","client_id":protocol::MANAGED_CLIENT,
-            "application":APPLICATION,"installation_id":installation_id,
+            "contract":"lmm.application-status.v1","client_id":f.try_get::<String,_>("client_id")?,
+            "application":protocol::managed_application(&f.try_get::<String,_>("client_id")?).ok_or(IdentityError::Storage)?,"installation_id":installation_id,
             "grant_id":f.try_get::<String,_>("id")?,
             "budget_credits":f.try_get::<Option<i64>,_>("budget_credits")?.ok_or(IdentityError::Storage)?,
             "scopes":scopes,"access_expires_at":expiry,
@@ -777,9 +800,77 @@ impl LmmIssuer {
     }
 }
 
+impl LmmIssuer {
+    /// Same family projection as financial admission, across every token generation.
+    /// REPEATABLE READ keeps authority and pending/settled receipts in one snapshot.
+    pub async fn managed_application_budget(&self, access: &str) -> Result<serde_json::Value> {
+        let mut tx = transaction(&self.identity.pool).await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await?;
+        let source = self
+            .authorize_model_in_transaction(&mut tx, access, None, None)
+            .await?;
+        let application =
+            protocol::managed_application(&source.client_id).ok_or(IdentityError::Forbidden)?;
+        if !source.scopes.iter().any(|scope| scope == "usage:read") {
+            return Err(IdentityError::Forbidden);
+        }
+        let installation: String = sqlx::query_scalar(
+            "SELECT installation_id FROM core_oauth.managed_family_bindings WHERE family_id=$1",
+        )
+        .bind(&source.grant_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let (consumed, reserved): (i64, i64) = sqlx::query_as(
+            "SELECT coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded)) FILTER(WHERE state='settled'),0)::bigint,
+                    coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded)) FILTER(WHERE state<>'settled'),0)::bigint
+             FROM core_charging.requests WHERE oauth_family_id=$1"
+        ).bind(&source.grant_id).fetch_one(&mut *tx).await?;
+        let safe = 0..=9_007_199_254_740_991;
+        if !safe.contains(&consumed) || !safe.contains(&reserved) {
+            return Err(IdentityError::Storage);
+        }
+        let remaining = source
+            .budget_credits
+            .checked_sub(consumed)
+            .and_then(|v| v.checked_sub(reserved))
+            .ok_or(IdentityError::Storage)?
+            .max(0);
+        let result = serde_json::json!({
+            "contract":"lmm.application-budget.v1", "unit":"credit_500k_usd",
+            "client_id":source.client_id, "application":application,
+            "installation_id":installation, "grant_id":source.grant_id,
+            "budget_credits":source.budget_credits, "consumed_credits":consumed,
+            "reserved_credits":reserved, "remaining_credits":remaining
+        });
+        tx.commit().await?;
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn magpie_requires_its_own_finite_ceiling() {
+        let profile =
+            LmmProfile::new("https://managed.example.test", vec!["allowed".into()]).unwrap();
+        let cc = profile.clone().with_managed_budget_limit(20).unwrap();
+        assert_eq!(cc.model_budget_limit("lmm-magpie"), None);
+        let magpie = profile
+            .clone()
+            .with_magpie_budget_limit(9_007_199_254_740_991)
+            .unwrap();
+        assert_eq!(magpie.model_budget_limit("lmm-cc-switch"), None);
+        assert_eq!(
+            magpie.model_budget_limit("lmm-magpie"),
+            Some(9_007_199_254_740_991)
+        );
+        for cap in [0, -1, 9_007_199_254_740_992] {
+            assert!(profile.clone().with_magpie_budget_limit(cap).is_err());
+        }
+    }
     #[test]
     fn recovery_key_ids_cannot_alias_the_same_material() {
         assert!(

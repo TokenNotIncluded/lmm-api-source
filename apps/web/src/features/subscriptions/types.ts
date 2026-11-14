@@ -133,10 +133,6 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
-export interface PlanPayload {
-  plan: Partial<SubscriptionPlan>
-}
-
 export interface SubscriptionPayRequest {
   plan_id: number
   payment_method?: string
@@ -170,40 +166,6 @@ export interface SubscriptionPayResponse {
     token_expires_at?: number | string
   }
   url?: string
-}
-
-export interface CreateUserSubscriptionRequest {
-  plan_id: number
-}
-
-export interface SubscriptionPlanRemovalResult {
-  action: 'deleted' | 'archived'
-  archived_at?: number
-  cancelled_orders?: number
-}
-
-export interface AdminSubscriptionRecord {
-  id: number
-  user_id: number
-  username: string
-  email: string
-  plan_id: number
-  plan_title: string
-  plan_archived_at: number
-  amount_total: number
-  amount_used: number
-  start_time: number
-  end_time: number
-  status: string
-  next_reset_time: number
-  source: string
-}
-
-export interface AdminSubscriptionRecordPage {
-  items: AdminSubscriptionRecord[]
-  total: number
-  page: number
-  page_size: number
 }
 
 export interface AdminSubscriptionResetEligible {
@@ -310,13 +272,3 @@ export interface SelfSubscriptionData {
   subscriptions: UserSubscriptionRecord[]
   all_subscriptions: UserSubscriptionRecord[]
 }
-
-// ============================================================================
-// Dialog Types
-// ============================================================================
-
-export type SubscriptionsDialogType =
-  | 'create'
-  | 'update'
-  | 'toggle-status'
-  | 'delete-plan'

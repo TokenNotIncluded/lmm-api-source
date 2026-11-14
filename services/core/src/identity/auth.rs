@@ -7,7 +7,6 @@ use argon2::{
 };
 use rand::TryRng;
 use serde::Deserialize;
-use std::env;
 
 const REGISTER_LOCK: i64 = 741_803_121;
 const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$bG1tLWR1bW15LXNhbHQxNg$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -122,7 +121,7 @@ pub(super) fn password_change_error(error: sqlx::Error) -> IdentityError {
 }
 
 fn password_policy(password: &str) -> Result<()> {
-    if password.len() > 1024 || password.chars().count() < 12 {
+    if !(8..=20).contains(&password.chars().count()) {
         return Err(IdentityError::Invalid);
     }
     Ok(())
@@ -132,6 +131,21 @@ fn password_engine() -> Result<Argon2<'static>> {
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 impl IdentityStore {
+    /// Configure the host's challenge verifier for public native auth endpoints.
+    pub fn with_turnstile(
+        mut self,
+        verifier: Option<crate::config::turnstile_config::Turnstile>,
+    ) -> Self {
+        self.turnstile = verifier;
+        self
+    }
+    pub(crate) async fn verify_turnstile(
+        &self,
+        token: &str,
+    ) -> std::result::Result<(), crate::config::turnstile_config::VerifyError> {
+        crate::config::turnstile_config::verify(self.turnstile.as_ref(), token).await
+    }
+
     /// Disabled by default, including on from_pool. Enable explicitly at startup.
     pub fn with_registration_enabled(mut self, enabled: bool) -> Self {
         self.registration_enabled = enabled;
@@ -159,18 +173,7 @@ impl IdentityStore {
             .iter()
             .map(|method| method.trim().to_ascii_lowercase())
             .collect();
-        if methods.iter().any(|method| {
-            !matches!(
-                method.as_str(),
-                "google" | "github" | "linuxdo" | "discord" | "telegram" | "oidc" | "wechat"
-            ) && !method.strip_prefix("custom:").is_some_and(|slug| {
-                !slug.is_empty()
-                    && slug.len() <= 64
-                    && slug
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-            })
-        }) {
+        if methods.iter().any(|method| !super::registration_policy::valid_method(method)) {
             return Err(IdentityError::Invalid);
         }
         methods.sort();
@@ -244,13 +247,7 @@ impl IdentityStore {
         Ok(())
     }
     pub(super) fn require_oauth_registration(&self, method: &str) -> Result<()> {
-        if !self.registration_enabled
-            || !self.oauth_register_enabled
-            || self
-                .oauth_registration_disabled_methods
-                .iter()
-                .any(|disabled| disabled == method)
-        {
+        if !self.oauth_registration_policy().allows(method) {
             return Err(IdentityError::Forbidden);
         }
         Ok(())
@@ -274,31 +271,6 @@ impl IdentityStore {
     pub fn with_google_oauth(mut self, config: GoogleOAuth) -> Self {
         self.google = Some(std::sync::Arc::new(config));
         self
-    }
-    pub fn with_auth_from_env(mut self) -> Result<Self> {
-        self.registration_enabled = match env::var("LMM_CORE_REGISTRATION_ENABLED").as_deref() {
-            Ok("1" | "true") => true,
-            Ok("0" | "false") | Err(env::VarError::NotPresent) => false,
-            _ => return Err(IdentityError::Invalid),
-        };
-        let values = [
-            "LMM_CORE_GOOGLE_CLIENT_ID",
-            "LMM_CORE_GOOGLE_CLIENT_SECRET",
-            "LMM_CORE_GOOGLE_REDIRECT_URI",
-        ]
-        .map(env::var);
-        match values {
-            [
-                Err(env::VarError::NotPresent),
-                Err(env::VarError::NotPresent),
-                Err(env::VarError::NotPresent),
-            ] => {}
-            [Ok(id), Ok(secret), Ok(uri)] => {
-                self = self.with_google_oauth(GoogleOAuth::new(id, secret, uri)?)
-            }
-            _ => return Err(IdentityError::Invalid),
-        }
-        Ok(self)
     }
     /// Database-backed fixed windows are shared by all Rust replicas. Do not
     /// derive the peer key from untrusted forwarded headers.
@@ -513,9 +485,7 @@ impl IdentityStore {
         original_password: &str,
         password: &str,
     ) -> Result<PreparedPasswordChange> {
-        if password.is_empty() || password.len() > 1024 {
-            return Err(IdentityError::Invalid);
-        }
+        password_policy(password)?;
         // Password hashing holds no database transaction or authority locks.
         let actor = {
             let mut c = self.pool.acquire().await?;
@@ -772,9 +742,14 @@ mod tests {
         ] {
             assert_eq!(normalize_login(bad), Err(IdentityError::Invalid));
         }
-        assert!(password_policy("a long passphrase with spaces").is_ok());
-        assert!(password_policy("12345678901").is_err());
-        assert!(password_policy(&"a".repeat(1025)).is_err());
+        for length in [8, 20] {
+            assert!(password_policy(&"密".repeat(length)).is_ok());
+            assert!(password_policy(&"a".repeat(length)).is_ok());
+        }
+        for length in [0, 7, 21] {
+            assert!(password_policy(&"🔐".repeat(length)).is_err());
+        }
+        assert!(password_policy("12345678901").is_ok());
         let dummy = PasswordHash::new(DUMMY_HASH).unwrap();
         assert!(
             password_engine()
@@ -842,7 +817,7 @@ mod tests {
                 closed
                     .register(&LoginRequest {
                         login_name: "blocked-user".into(),
-                        password: "test-only long passphrase".into(),
+                        password: "test-only passphrase".into(),
                     })
                     .await,
                 Err(IdentityError::Forbidden)
@@ -871,7 +846,7 @@ mod tests {
         store.init_database().await.unwrap();
         let request = LoginRequest {
             login_name: "existing-email-policy".into(),
-            password: "test-only long passphrase".into(),
+            password: "test-only passphrase".into(),
         };
         let original = store.register(&request).await.unwrap();
         let restricted = store
@@ -901,7 +876,7 @@ mod tests {
                 restricted
                     .register(&LoginRequest {
                         login_name: "blocked-email-policy".into(),
-                        password: "test-only long passphrase".into(),
+                        password: "test-only passphrase".into(),
                     })
                     .await,
                 Err(IdentityError::Forbidden)
@@ -955,7 +930,7 @@ mod tests {
         let credential = store
             .register(&LoginRequest {
                 login_name: "password-test".into(),
-                password: "original test passphrase".into(),
+                password: "original test pass".into(),
             })
             .await
             .unwrap();
@@ -966,11 +941,7 @@ mod tests {
     async fn password_change_rechecks_policy_generation_after_password_verification(pool: PgPool) {
         let (store, credential) = password_change_fixture(pool.clone()).await;
         let prepared = store
-            .prepare_password_change(
-                &credential.secret,
-                "original test passphrase",
-                "replacement test passphrase",
-            )
+            .prepare_password_change(&credential.secret, "original test pass", "replacement pass")
             .await
             .unwrap();
         // Returning to the same policy must not make an old proof current again.
@@ -1017,15 +988,11 @@ mod tests {
     ) {
         let (store, credential) = password_change_fixture(pool.clone()).await;
         let prepared = store
-            .prepare_password_change(
-                &credential.secret,
-                "original test passphrase",
-                "replacement test passphrase",
-            )
+            .prepare_password_change(&credential.secret, "original test pass", "replacement pass")
             .await
             .unwrap();
         let changed = store
-            .hash_password("different owner password".into())
+            .hash_password("different owner pass".into())
             .await
             .unwrap();
         sqlx::query("UPDATE core_identity.password_logins SET password_hash=$2 WHERE user_id=$1")
@@ -1059,8 +1026,8 @@ mod tests {
         let prepared = store
             .prepare_password_change(
                 &credential.secret,
-                "different owner password",
-                "replacement test passphrase",
+                "different owner pass",
+                "replacement pass",
             )
             .await
             .unwrap();
@@ -1088,11 +1055,7 @@ mod tests {
     ) {
         let (store, credential) = password_change_fixture(pool.clone()).await;
         let prepared = store
-            .prepare_password_change(
-                &credential.secret,
-                "original test passphrase",
-                "replacement test passphrase",
-            )
+            .prepare_password_change(&credential.secret, "original test pass", "replacement pass")
             .await
             .unwrap();
         let mut blocker = pool.begin().await.unwrap();
@@ -1148,11 +1111,7 @@ mod tests {
         .await
         .unwrap();
         let updated = store
-            .change_password(
-                &credential.secret,
-                "legacy-test-pass",
-                "replacement test passphrase",
-            )
+            .change_password(&credential.secret, "legacy-test-pass", "replacement pass")
             .await
             .unwrap();
         assert!(store.authorize(&updated.secret).await.is_ok());
@@ -1165,7 +1124,7 @@ mod tests {
             store
                 .login(&LoginRequest {
                     login_name: "password-test".into(),
-                    password: "replacement test passphrase".into(),
+                    password: "replacement pass".into(),
                 })
                 .await
                 .is_ok()

@@ -12,7 +12,7 @@ import (
 )
 
 // Waffo Global and Waffo Pancake are different protocols and credentials.
-// This adapter follows the Global v2.1.0 SDK's order API and RSA request signing.
+// This adapter follows the Global v2.3.0 SDK's order API and RSA request signing.
 type WaffoConfig struct {
 	Channel       Channel
 	APIKey        string
@@ -182,6 +182,10 @@ func (w *Waffo) Lookup(ctx context.Context, o Order) ([]Event, error) {
 	}
 	var v waffoPayment
 	if jsonObject(raw, &v) != nil || v.MerchantOrderID != o.ID || v.PaymentRequestID != o.ID || v.MerchantInfo.MerchantID != w.cfg.Channel.Merchant {
+		return nil, ErrConflict
+	}
+	amount, err := minorDecimal(v.OrderAmount)
+	if err != nil || amount != o.Intent.AmountMinor || v.OrderCurrency != o.Intent.Currency || v.AcquiringOrderID != "" && (!validID(v.AcquiringOrderID) || o.PaymentID != "" && v.AcquiringOrderID != o.PaymentID) {
 		return nil, ErrConflict
 	}
 	var events []Event

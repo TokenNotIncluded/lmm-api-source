@@ -30,7 +30,7 @@ def main():
         "--core",
         type=Path,
         required=True,
-        help="Sealed Core executable built from the matching schema",
+        help="Sealed historical Core executor built from the matching frozen schema; not the current binary (requires removed --legacy-env)",
     )
     parser.add_argument("--expected-core-sha256", required=True)
     parser.add_argument(
@@ -45,6 +45,10 @@ def main():
     INCLUDE_COUNTERS = args.include_opening_counters
     ROOT = args.source_root.resolve(strict=True)
     CORE = args.core.resolve(strict=True)
+    # Historical schema and executor contract; never substitute the current Core.
+    assert CORE != (ROOT / "services/core/target/debug/lmm-core").resolve(), (
+        "requires a sealed historical executor, not the current development binary"
+    )
     assert hashlib.sha256(CORE.read_bytes()).hexdigest() == args.expected_core_sha256, (
         "selected Core SHA mismatch"
     )

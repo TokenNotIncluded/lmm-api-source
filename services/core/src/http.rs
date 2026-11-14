@@ -134,13 +134,6 @@ pub struct PublicStatus {
     pub federated_auth: bool,
 }
 
-fn oauth_method_enabled(status: &PublicStatus, method: &str) -> bool {
-    !status
-        .oauth_registration_disabled_methods
-        .iter()
-        .any(|disabled| disabled == method)
-}
-
 #[derive(Clone)]
 struct Readiness {
     pool: PgPool,
@@ -239,6 +232,10 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
         false
     };
     let status = state.public_status;
+    let registration = crate::identity::registration_policy::OAuthRegistrationPolicy {
+        enabled: status.registration_enabled && status.oauth_register_enabled,
+        disabled_methods: &status.oauth_registration_disabled_methods,
+    };
     let google_client_id = status
         .google_client_id
         .as_deref()
@@ -257,11 +254,11 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             "google_oauth":google_enabled,"google_client_id":google_client_id,
             "google_browser_callback":status.google_browser_callback,
             "external_oauth_browser":true,
-            "oauth_register_enabled":status.registration_enabled && status.oauth_register_enabled && (
-                (google_enabled && oauth_method_enabled(&status, "google"))
-                || (status.github_client_id.is_some() && oauth_method_enabled(&status, "github"))
-                || (status.linuxdo_client_id.is_some() && oauth_method_enabled(&status, "linuxdo"))
-                || (status.discord_client_id.is_some() && oauth_method_enabled(&status, "discord"))
+            "oauth_register_enabled": (
+                (google_enabled && registration.allows("google"))
+                || (status.github_client_id.is_some() && registration.allows("github"))
+                || (status.linuxdo_client_id.is_some() && registration.allows("linuxdo"))
+                || (status.discord_client_id.is_some() && registration.allows("discord"))
             ),
             "github_oauth":status.github_client_id.is_some(),"github_client_id":status.github_client_id,
             "discord_oauth":status.discord_client_id.is_some(),"discord_client_id":status.discord_client_id,
@@ -274,10 +271,15 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     {
         data["checkin_enabled"] = json!(checkin_enabled);
     }
+    let turnstile_site_key = state
+        .capabilities
+        .legacy_web_auth
+        .then(crate::config::turnstile_config::public_site_key)
+        .flatten();
     let extra = json!({
             "wechat_login":false,"passkey_login":status.passkey_login_enabled,"email_verification":status.email_verification_enabled,
             "native_account_bindings":status.native_account_bindings,
-            "turnstile_check":false,"two_factor_enabled":status.two_factor_enabled,"payments_enabled":false,
+            "turnstile_check":turnstile_site_key.is_some(),"turnstile_site_key":turnstile_site_key.unwrap_or_default(),"two_factor_enabled":status.two_factor_enabled,"payments_enabled":false,
             "payments_test_rpc_enabled":state.capabilities.payments,
             "commerce_rpc_enabled":state.capabilities.commerce,
             "assistant":{"enabled":false},"custom_oauth_providers":[],
@@ -298,7 +300,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
         .expect("status data is a JSON object")
         .extend(extra);
     if status.federated_auth {
-        let providers = match crate::identity::federated::public_catalog(&state.pool).await {
+        let providers = match crate::identity::federated::public_catalog(&state.pool, registration).await {
             Ok(Value::Array(providers)) => providers,
             _ => return public_configuration_unavailable(),
         };
@@ -323,15 +325,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             data["wechat_login"] = json!(true);
             data["wechat_qrcode"] = wechat["qr_code_url"].clone();
         }
-        let new_registration = providers.iter().any(|provider| {
-            let method = if provider["kind"] == "custom_oauth" {
-                format!("custom:{}", provider["slug"].as_str().unwrap_or_default())
-            } else {
-                provider["kind"].as_str().unwrap_or_default().to_owned()
-            };
-            oauth_method_enabled(&status, &method)
-        });
-        if status.registration_enabled && status.oauth_register_enabled && new_registration {
+        if providers.iter().any(|provider| provider["registration_enabled"] == true) {
             data["oauth_register_enabled"] = json!(true);
         }
     }

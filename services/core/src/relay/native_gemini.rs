@@ -9,7 +9,7 @@ use serde::{
     de::{MapAccess, SeqAccess, Visitor},
 };
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 // Value normally overwrites duplicate keys. Walk every object, including tool
 // arguments and schemas, before any conversion can hide ambiguous input.
@@ -24,9 +24,8 @@ impl<'de> Deserialize<'de> for Unique {
             }
             fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Unique, A::Error> {
                 let mut out = Map::new();
-                let mut seen = BTreeSet::new();
                 while let Some(k) = a.next_key::<String>()? {
-                    if !seen.insert(k.to_ascii_lowercase()) {
+                    if out.contains_key(&k) {
                         return Err(serde::de::Error::custom("duplicate key"));
                     }
                     out.insert(k, a.next_value::<Unique>()?.0);
@@ -800,6 +799,58 @@ impl NativeEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn case_sensitive_tool_keys_survive_native_round_trip() {
+        let body = json!({
+            "contents":[
+                {"role":"user","parts":[{"text":"run f"}]},
+                {"role":"model","parts":[{"functionCall":{"id":"call_1","name":"f","args":{"a":1,"A":2}}}]},
+                {"role":"user","parts":[{"functionResponse":{"id":"call_1","name":"f","response":{"a":3,"A":4}}}]}
+            ],
+            "tools":[{"functionDeclarations":[{"name":"f","parameters":{
+                "type":"OBJECT","properties":{"a":{"type":"INTEGER"},"A":{"type":"INTEGER"}},"required":["a","A"]
+            }}]}]
+        });
+        for stream in [false, true] {
+            let request = parse(
+                "model",
+                stream,
+                &serde_json::to_vec(&body).unwrap(),
+                &Limits::default(),
+            )
+            .unwrap();
+            let wire = request
+                .upstream_to(UpstreamProtocol::Gemini, "model")
+                .unwrap();
+            let properties =
+                &wire["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"]["properties"];
+            assert!(properties.get("a").is_some());
+            assert!(properties.get("A").is_some());
+            let parts: Vec<_> = wire["contents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|c| c["parts"].as_array().unwrap())
+                .collect();
+            assert!(
+                parts
+                    .iter()
+                    .any(|p| p["functionCall"]["args"] == json!({"a":1,"A":2}))
+            );
+            assert!(
+                parts
+                    .iter()
+                    .any(|p| p["functionResponse"]["response"] == json!({"a":3,"A":4}))
+            );
+        }
+        for duplicate in [
+            br#"{"a":1,"a":2}"#.as_slice(),
+            br#"{"nested":{"a":1,"\u0061":2}}"#.as_slice(),
+        ] {
+            assert!(serde_json::from_slice::<Unique>(duplicate).is_err());
+        }
+    }
 
     #[test]
     fn gemini_grounding_request_is_native_and_does_not_mix_tool_semantics() {

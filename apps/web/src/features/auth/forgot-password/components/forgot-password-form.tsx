@@ -50,12 +50,14 @@ export function ForgotPasswordForm({
 }: React.HTMLAttributes<HTMLFormElement>) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
+  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
 
   const {
     isTurnstileEnabled,
     turnstileSiteKey,
     turnstileToken,
     setTurnstileToken,
+    resetTurnstile,
     validateTurnstile,
   } = useTurnstile()
   const {
@@ -90,6 +92,8 @@ export function ForgotPasswordForm({
     } catch {
       // Errors are handled by global interceptor
     } finally {
+      setTurnstileToken('')
+      setTurnstileWidgetKey((current) => current + 1)
       setIsLoading(false)
     }
   }
@@ -108,7 +112,12 @@ export function ForgotPasswordForm({
             <FormItem>
               <FormLabel>{t('Email')}</FormLabel>
               <FormControl>
-                <Input placeholder='name@example.com' {...field} />
+                <Input
+                  type='email'
+                  autoComplete='email'
+                  placeholder='name@example.com'
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -129,8 +138,10 @@ export function ForgotPasswordForm({
         {isTurnstileEnabled && (
           <div className='mt-2'>
             <Turnstile
+              key={turnstileWidgetKey}
               siteKey={turnstileSiteKey}
               onVerify={setTurnstileToken}
+              onExpire={resetTurnstile}
             />
           </div>
         )}

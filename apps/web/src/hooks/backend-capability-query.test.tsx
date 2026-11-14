@@ -186,10 +186,7 @@ describe('backend capability query safety', () => {
       await flushQueries()
     })
 
-    assert.equal(
-      gets.includes('/api/bounties/notifications'),
-      false
-    )
+    assert.equal(gets.includes('/api/bounties/notifications'), false)
 
     await act(async () => {
       statusResponse.resolve({
@@ -198,28 +195,16 @@ describe('backend capability query safety', () => {
       await flushQueries()
     })
 
-    assert.equal(
-      gets.includes('/api/bounties/tips/received'),
-      false
-    )
-    assert.equal(
-      gets.includes('/api/bounties/notifications'),
-      false
-    )
+    assert.equal(gets.includes('/api/bounties/tips/received'), false)
+    assert.equal(gets.includes('/api/bounties/notifications'), false)
 
     await act(async () => {
       latestNotifications?.openPopover('bounty-tips')
       await latestNotifications?.thankTip(1)
       await flushQueries()
     })
-    assert.equal(
-      posts.includes('/api/bounties/tips/received/read'),
-      false
-    )
-    assert.equal(
-      posts.includes('/api/bounties/notifications/read'),
-      false
-    )
+    assert.equal(posts.includes('/api/bounties/tips/received/read'), false)
+    assert.equal(posts.includes('/api/bounties/notifications/read'), false)
     assert.equal(
       posts.some((url) => url.includes('/tips/1/thank')),
       false
@@ -268,10 +253,7 @@ describe('backend capability query safety', () => {
       await flushQueries()
     })
 
-    assert.equal(
-      gets.includes('/api/bounties/notifications'),
-      false
-    )
+    assert.equal(gets.includes('/api/bounties/notifications'), false)
 
     await act(async () => root.unmount())
     queryClient.clear()

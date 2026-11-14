@@ -32,61 +32,16 @@ import {
   walletProjection,
 } from '@/features/wallet/lib/wallet-projection'
 import { useStatus } from '@/hooks/use-status'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
-import { normalizedUserUsage } from '@/lib/cumulative-user-usage'
+import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
 import { formatNumber } from '@/lib/format'
 import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { BalanceCurrencySwitch } from './balance-currency-switch'
-
-function getRunwayDays(
-  remainQuota: number,
-  recentUsage: number
-): number | null {
-  if (remainQuota <= 0 || recentUsage <= 0) return null
-  const days = remainQuota / recentUsage
-  if (!Number.isFinite(days)) return null
-  return days
-}
-
-type HealthLevel = 'healthy' | 'caution' | 'critical'
-
-function getHealthLevel(remainQuota: number, recentUsage: number): HealthLevel {
-  if (remainQuota <= 0) return 'critical'
-  const days = getRunwayDays(remainQuota, recentUsage)
-  if (days !== null && days < 3) return 'caution'
-  return 'healthy'
-}
-
-const HEALTH_CONFIG: Record<
-  HealthLevel,
-  { dotClass: string; labelKey: string }
-> = {
-  healthy: {
-    dotClass: 'bg-success',
-    labelKey: 'Healthy',
-  },
-  caution: {
-    dotClass: 'bg-warning',
-    labelKey: 'Low balance',
-  },
-  critical: {
-    dotClass: 'bg-destructive',
-    labelKey: 'Balance depleted',
-  },
-}
-
 export function SummaryCards() {
   const { t, i18n } = useTranslation()
-  const {
-    formatQuota,
-    formatUserUsage,
-    label: currencyLabel,
-  } = useWalletCurrency()
   const user = useAuthStore((state) => state.auth.user)
   const { loading } = useStatus()
 
@@ -116,11 +71,14 @@ export function SummaryCards() {
 
   // Formatting follows the current language and currency configuration on every render.
   const summaryValues = {
-    usedDisplay:
-      user?.financial_projection_available !== false &&
-      (!projection.native || projection.history)
-        ? formatUserUsage(user)
-        : t('Unavailable'),
+    usedDisplay: projection.history
+      ? formatCumulativeUserUsage(
+          user,
+          (quota) => nativeCreditDisplay(quota, t('Credits'), t('Unknown')),
+          t('Credits'),
+          i18n.language
+        )
+      : t('Unavailable'),
     requestCountDisplay:
       requestCount === null ? t('Unavailable') : formatNumber(requestCount),
   }
@@ -139,17 +97,8 @@ export function SummaryCards() {
     usageTrendQuery.isSuccess &&
     usageTrendQuery.data.success === true
   const usageFailed = usageTrendQuery.isError
-  // Without captured bucket units, raw history cannot predict the current wallet's runway.
-  const usageComparable = !projection.native && usageReady && recentUsage === 0
-  const healthLevel =
-    remainQuota === null
-      ? null
-      : getHealthLevel(remainQuota, usageComparable ? recentUsage : 0)
-  const healthCfg = healthLevel === null ? null : HEALTH_CONFIG[healthLevel]
-  const runwayDays =
-    remainQuota !== null && usageComparable
-      ? getRunwayDays(remainQuota, recentUsage)
-      : null
+  // Unpriced history cannot predict the current native wallet's runway.
+  const depleted = remainQuota !== null && remainQuota <= 0
 
   const todayUsageDisplay = usageReady
     ? formatHistoricalRawQuota(
@@ -160,34 +109,19 @@ export function SummaryCards() {
     : projection.history
       ? '—'
       : t('Unavailable')
-  let runwayDisplay: string
-  if (remainQuota === null) {
-    runwayDisplay = t('Unavailable')
-  } else if (!usageReady) {
-    runwayDisplay = t('Unknown')
-  } else if (remainQuota <= 0) {
-    runwayDisplay = t('Balance depleted')
-  } else if (!usageComparable) {
-    runwayDisplay = t('Unknown')
-  } else if (runwayDays !== null) {
-    if (runwayDays < 1) {
-      runwayDisplay = t('Less than 1 day left')
-    } else if (runwayDays > 999) {
-      runwayDisplay = `999+ ${t('days')}`
-    } else {
-      runwayDisplay = `~${formatNumber(Math.floor(runwayDays))} ${t('days')}`
-    }
-  } else {
-    runwayDisplay = t('No recent usage')
-  }
+  const runwayDisplay =
+    remainQuota === null
+      ? t('Unavailable')
+      : usageReady && depleted
+        ? t('Balance depleted')
+        : t('Unknown')
 
   const items = useSummaryCardsConfig({
     ...summaryValues,
     todayUsageDisplay,
-    currencyLabel,
+    currencyLabel: t('Credits'),
     todayCurrencyLabel: t('Raw credits'),
-    usedCurrencyLabel:
-      normalizedUserUsage(user) === null ? t('Credits') : currencyLabel,
+    usedCurrencyLabel: t('Credits'),
     currencyEnabled: true,
   })
 
@@ -198,45 +132,29 @@ export function SummaryCards() {
           <h3 className='text-muted-foreground text-sm font-medium'>
             {t('Credit remaining')}
           </h3>
-          {healthCfg &&
-          remainQuota !== null &&
-          (usageComparable || remainQuota <= 0) ? (
+          {depleted ? (
             <span className='overview-health'>
               <span
-                className={cn('size-1.5 rounded-full', healthCfg.dotClass)}
+                className='bg-destructive size-1.5 rounded-full'
                 aria-hidden='true'
               />
-              {t(healthCfg.labelKey)}
+              {t('Balance depleted')}
             </span>
           ) : null}
         </div>
-        {!projection.native && <BalanceCurrencySwitch />}
         <div
           className='overview-balance-value'
           aria-live='polite'
           aria-atomic='true'
         >
           {remainQuota === null ? (
-            projection.native ? (
-              t('Unknown')
-            ) : (
-              t('Unavailable')
-            )
+            t('Unknown')
           ) : loading ? (
             <Skeleton className='h-12 w-48 max-w-full' />
           ) : (
-            <>
-              {projection.native ? (
-                <span>
-                  {nativeCreditDisplay(remainQuota, t('Credits'), t('Unknown'))}
-                </span>
-              ) : (
-                <>
-                  <span>{formatQuota(remainQuota, { showSymbol: false })}</span>{' '}
-                  <span className='overview-unit'>{currencyLabel}</span>
-                </>
-              )}
-            </>
+            <span>
+              {nativeCreditDisplay(remainQuota, t('Credits'), t('Unknown'))}
+            </span>
           )}
         </div>
         <NativeWalletDetails user={user} />
@@ -246,8 +164,7 @@ export function SummaryCards() {
             <dd
               className={cn(
                 'mt-1 font-medium tabular-nums',
-                healthLevel === 'critical' && 'text-destructive',
-                usageReady && healthLevel === 'caution' && 'text-warning'
+                depleted && 'text-destructive'
               )}
             >
               {runwayDisplay}

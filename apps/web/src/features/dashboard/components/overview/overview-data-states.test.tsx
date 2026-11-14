@@ -359,6 +359,9 @@ test('failed usage stays unknown and a new account fetches its own usage', async
   const user = {
     id: 901,
     username: 'qa',
+    wallet_unit: 'core_credit',
+    financial_projection_available: true,
+    usage_projection_available: true,
     role: 1,
     quota: 5000000,
     used_quota: 1000,
@@ -395,8 +398,7 @@ test('failed usage stays unknown and a new account fetches its own usage', async
   )
   await until(
     () =>
-      usageCalls === 2 &&
-      container.textContent?.includes('No recent usage') === true
+      usageCalls === 2 && container.textContent?.includes('Unknown') === true
   )
   assert.doesNotMatch(container.textContent ?? '', /Failed to load data/)
 })
@@ -406,6 +408,9 @@ test('successful null usage renders an empty overview without crashing', async (
   useAuthStore.getState().auth.setUser({
     id: 903,
     username: 'empty-usage',
+    wallet_unit: 'core_credit',
+    financial_projection_available: true,
+    usage_projection_available: true,
     role: 1,
     quota: 5000000,
     used_quota: 0,
@@ -427,12 +432,12 @@ test('successful null usage renders an empty overview without crashing', async (
     throw new Error(`Unexpected ${url}`)
   }) as typeof api.get
   const container = await mount(SummaryCards)
-  await until(() => container.textContent?.includes('No recent usage') === true)
+  await until(() => container.textContent?.includes('0 Raw credits') === true)
   assert.match(container.textContent ?? '', /Usage at a glance/)
   assert.match(container.textContent ?? '', /Last 24h usage/)
   assert.doesNotMatch(
     container.textContent ?? '',
-    /Failed to load data|Unknown/
+    /Failed to load data|No recent usage/
   )
 })
 
@@ -481,6 +486,8 @@ function configureCurrencyOverview() {
   useAuthStore.getState().auth.setUser({
     id: 905,
     username: 'review',
+    wallet_unit: 'core_credit',
+    financial_projection_available: true,
     role: 10,
     quota: 5000000,
     used_quota: 1000000,
@@ -570,7 +577,7 @@ for (const shape of ['nonzero', 'zero', 'absent'] as const) {
       () =>
         container
           .querySelector('.overview-balance-value')
-          ?.textContent?.trim() === 'Unavailable'
+          ?.textContent?.trim() === 'Unknown'
     )
     assert.equal(container.querySelector('.overview-health'), null)
     assert.equal(
@@ -590,34 +597,27 @@ for (const shape of ['nonzero', 'zero', 'absent'] as const) {
   })
 }
 
-for (const projection of [undefined, true]) {
-  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} preserves real nonzero balance and requests when usage is unavailable`, async () => {
+for (const financial of [undefined, true]) {
+  test(`native balance requires explicit financial facts (${financial}) and missing usage stays unavailable`, async () => {
     configureCurrencyOverview()
-    const current = useAuthStore.getState().auth.user
-    assert.ok(current)
+    const user = useAuthStore.getState().auth.user
+    assert.ok(user)
     useAuthStore.getState().auth.setUser({
-      ...current,
-      financial_projection_available: projection,
+      ...user,
+      financial_projection_available: financial,
       usage_projection_available: false,
       normalized_used_quota: null,
     })
     const container = await mount(SummaryCards)
-    await until(
-      () =>
-        container
-          .querySelector('.overview-balance-value')
-          ?.textContent?.includes('10 USD') === true
+    assert.equal(
+      container.querySelector('.overview-balance-value')?.textContent?.trim(),
+      financial === true ? '5,000,000 Credits' : 'Unknown'
     )
-    const metricValue = (title: string) =>
-      [...container.querySelectorAll('.overview-metric')]
-        .find((row) => row.querySelector('dt')?.textContent === title)
-        ?.querySelector('.overview-metric-value')?.textContent
-    assert.equal(metricValue('Request Count'), '20')
-    assert.match(metricValue('Historical Usage') ?? '', /1,000,000 Credits/)
-    assert.doesNotMatch(
-      container.querySelector('.overview-balance')?.textContent ?? '',
-      /Unavailable|Balance depleted/
-    )
+    const metrics =
+      container.querySelector('.overview-metrics')?.textContent ?? ''
+    assert.match(metrics, /Unavailable/)
+    assert.doesNotMatch(metrics, /1,000,000|20/)
+    assert.equal(container.querySelector('[data-currency]'), null)
   })
 }
 
@@ -659,14 +659,6 @@ test('native wallet with unknown imported history stays raw and keeps reservatio
   )
 })
 
-function currencyButton(container: HTMLElement, currency: string) {
-  const element = container.querySelector<HTMLButtonElement>(
-    `[data-currency="${currency}"]`
-  )
-  assert.ok(element)
-  return element
-}
-
 function CurrencyOverview() {
   return (
     <>
@@ -676,125 +668,69 @@ function CurrencyOverview() {
   )
 }
 
-test('quick switch updates current balances and normalized usage while unpriced history stays raw', async () => {
+test('native summary stays in credits across preferences while site cash and unpriced history keep their units', async () => {
   configureCurrencyOverview()
+  const user = useAuthStore.getState().auth.user
+  assert.ok(user)
   const writes: unknown[] = []
-  let acknowledge: ((value: { data: { success: boolean } }) => void) | undefined
-  api.put = (async (url, body) => {
-    assert.equal(url, '/api/user/self')
+  api.put = (async (_url, body) => {
     writes.push(body)
-    if (writes.length === 1) {
-      return new Promise<{ data: { success: boolean } }>((resolve) => {
-        acknowledge = resolve
-      })
-    }
     return { data: { success: true } }
   }) as typeof api.put
-  let container = await mount(CurrencyOverview)
-  await until(
-    () =>
-      container
-        .querySelector('.overview-balance-value')
-        ?.textContent?.includes('10 USD') === true
-  )
-  await until(
-    () => container.querySelectorAll('.overview-payment-row').length === 1
-  )
-  const payments = container.querySelector('.overview-payments')?.textContent
-  assert.match(
-    container.querySelector('.overview-metrics')?.textContent ?? '',
-    /250,000 Raw credits/
-  )
-  assert.match(
-    container.querySelector('.overview-balance-footer')?.textContent ?? '',
-    /Unknown/
-  )
-  assert.equal(container.querySelector('.overview-health'), null)
-  await act(async () => currencyButton(container, 'CNY').click())
-  assert.equal(
-    container
-      .querySelector('.overview-currency-switch')
-      ?.getAttribute('aria-busy'),
-    'true'
-  )
-  assert.ok(
-    [...container.querySelectorAll<HTMLButtonElement>('[data-currency]')].every(
-      (button) => button.disabled
+  let payments: string | null | undefined
+  for (const [currency, siteBalance] of [
+    ['USD', '1,000 USD'],
+    ['CNY', '7,000 CNY'],
+    ['CREDIT', '500,000,000 Credits'],
+  ] as const) {
+    useAuthStore.getState().auth.setUser({
+      ...user,
+      setting: {
+        wallet_display_currency: currency,
+        settlement_currency: 'CNY',
+        language: 'en',
+      },
+    })
+    const container = await mount(CurrencyOverview)
+    await until(
+      () => container.querySelectorAll('.overview-payment-row').length === 1
     )
-  )
-  assert.match(
-    container.querySelector('.overview-balance-value')?.textContent ?? '',
-    /10 USD/
-  )
-  await act(async () => {
-    assert.ok(acknowledge)
-    acknowledge({ data: { success: true } })
-  })
-  await until(
-    () =>
-      container
-        .querySelector('.overview-balance-value')
-        ?.textContent?.includes('70 CNY') === true
-  )
-  assert.match(
-    container.querySelector('.overview-metrics')?.textContent ?? '',
-    /250,000 Raw credits/
-  )
-  assert.match(
-    container.querySelector('.overview-metrics')?.textContent ?? '',
-    /14 CNY/
-  )
-  assert.match(
-    container.querySelector('.overview-site-totals')?.textContent ?? '',
-    /7,000 CNY/
-  )
-  assert.equal(
-    container.querySelector('.overview-payments')?.textContent,
-    payments
-  )
-  await act(async () => currencyButton(container, 'CREDIT').click())
-  await until(
-    () =>
-      currencyButton(container, 'CREDIT').getAttribute('aria-pressed') ===
-      'true'
-  )
-  assert.match(
-    container.querySelector('.overview-balance-value')?.textContent ?? '',
-    /5,000,000 Credits/
-  )
-  assert.match(
-    container.querySelector('.overview-site-value')?.textContent ?? '',
-    /9,277,415,232,383,220,730 Credits/
-  )
-  assert.equal(
-    container.querySelector('.overview-payments')?.textContent,
-    payments
-  )
-  await act(async () => currencyButton(container, 'CREDIT').click())
-  assert.equal(
-    currencyButton(container, 'CREDIT').getAttribute('aria-pressed'),
-    'true'
-  )
-  assert.deepEqual(writes, [
-    { wallet_display_currency: 'CNY' },
-    { wallet_display_currency: 'CREDIT' },
-  ])
-  assert.deepEqual(
-    JSON.parse(String(useAuthStore.getState().auth.user?.setting)),
-    {
-      wallet_display_currency: 'CREDIT',
-      settlement_currency: 'CNY',
-      language: 'en',
+    assert.match(
+      container.querySelector('.overview-balance-value')?.textContent ?? '',
+      /5,000,000 Credits/
+    )
+    assert.match(
+      container.querySelector('.overview-metrics')?.textContent ?? '',
+      /2,000,000 Credits|1,000,000 Credits/
+    )
+    assert.match(
+      container.querySelector('.overview-metrics')?.textContent ?? '',
+      /250,000 Raw credits/
+    )
+    assert.match(
+      container.querySelector('.overview-site-totals')?.textContent ?? '',
+      new RegExp(siteBalance)
+    )
+    assert.match(
+      container.querySelector('.overview-balance-footer')?.textContent ?? '',
+      /Unknown/
+    )
+    assert.equal(container.querySelector('.overview-health'), null)
+    assert.equal(container.querySelector('[data-currency]'), null)
+    const currentPayments =
+      container.querySelector('.overview-payments')?.textContent
+    if (payments !== undefined) assert.equal(currentPayments, payments)
+    payments = currentPayments
+    if (currency === 'CREDIT') {
+      assert.match(
+        container.querySelector('.overview-site-value')?.textContent ?? '',
+        /9,277,415,232,383,220,730 Credits/
+      )
     }
-  )
-  await dispose?.()
-  dispose = undefined
-  container = await mount(CurrencyOverview)
-  assert.equal(
-    currencyButton(container, 'CREDIT').getAttribute('aria-pressed'),
-    'true'
-  )
-  assert.equal(writes.length, 2)
+    await dispose?.()
+    dispose = undefined
+  }
+  assert.deepEqual(writes, [])
 })
 
 test('a depleted current balance stays known when historical quota cannot be valued', async () => {
@@ -827,32 +763,6 @@ test('a depleted current balance stays known when historical quota cannot be val
   }
 })
 
-test('quick-switch save failures retain the current unit and can be retried', async () => {
-  configureCurrencyOverview()
-  let calls = 0
-  api.put = (async () => ({
-    data: { success: ++calls > 1 },
-  })) as typeof api.put
-  const container = await mount(CurrencyOverview)
-  await act(async () => currencyButton(container, 'CNY').click())
-  await until(() => container.querySelector('[role="alert"]') !== null)
-  assert.match(
-    container.querySelector('[role="alert"]')?.textContent ?? '',
-    /Could not save balance display currency/
-  )
-  assert.equal(
-    currencyButton(container, 'USD').getAttribute('aria-pressed'),
-    'true'
-  )
-  await act(async () => currencyButton(container, 'CNY').click())
-  await until(
-    () =>
-      currencyButton(container, 'CNY').getAttribute('aria-pressed') === 'true'
-  )
-  assert.equal(container.querySelector('[role="alert"]'), null)
-  assert.equal(calls, 2)
-})
-
 test('missing FX cannot turn site balances into zero or alter cash payments', async () => {
   configureCurrencyOverview()
   useSystemConfigStore.getState().setConfig({
@@ -861,19 +771,20 @@ test('missing FX cannot turn site balances into zero or alter cash payments', as
       cnyPerUsd: 0,
     },
   })
+  const user = useAuthStore.getState().auth.user
+  assert.ok(user)
+  useAuthStore
+    .getState()
+    .auth.setUser({ ...user, setting: { wallet_display_currency: 'CNY' } })
   api.put = (async () => ({ data: { success: true } })) as typeof api.put
   const container = await mount(CurrencyOverview)
   await until(
     () => container.querySelectorAll('.overview-site-value').length === 2
   )
-  await act(async () => currencyButton(container, 'CNY').click())
-  await until(
-    () =>
-      currencyButton(container, 'CNY').getAttribute('aria-pressed') === 'true'
-  )
+
   assert.equal(
     container.querySelector('.overview-balance-value')?.textContent,
-    '- CNY'
+    '5,000,000 Credits'
   )
   assert.ok(
     [...container.querySelectorAll('.overview-site-value')].every(

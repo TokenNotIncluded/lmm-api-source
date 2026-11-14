@@ -11,6 +11,37 @@ import legacy_cutover_import as CUTOVER
 import legacy_extensions_import as IMPORT
 
 
+class MigrationCoverageTests(unittest.TestCase):
+    def test_reconciled_counts_do_not_hide_archive_or_core_handoffs(self):
+        plan = IMPORT.Plan()
+        plan.mapping = {"history": ("archived", 3, "kept in snapshot"),
+                        "tokens": ("core:credentials", 2, "coordinator required"),
+                        "empty": ("missing_backend", 0, "no rows"),
+                        "orders": ("lmm_store.orders", 5, "imported")}
+        result = IMPORT.migration_coverage(plan)
+        self.assertEqual(result["status"], "SCOPED_WITH_GAPS")
+        self.assertEqual([r["source_table"] for r in result["gaps"]], ["history", "tokens"])
+        self.assertTrue(result["core_handoff_pending"])
+        self.assertFalse(result["runtime_coverage_verified"])
+
+    def test_mixed_mapping_reports_builtin_installation_loss(self):
+        plan = IMPORT.Plan()
+        plan.mapping["installations"] = ("lmm_toolmarket.snapshot", 5, "mixed import")
+        plan.stats["installations_builtin_archived"] = 2
+        plan.stats["preset_clicks_unrepresented"] = 7
+        result = IMPORT.migration_coverage(plan)
+        self.assertEqual(result["status"], "SCOPED_WITH_GAPS")
+        self.assertEqual(result["loss_counters"], {"installations_builtin_archived": 2,
+                                                   "preset_clicks_unrepresented": 7})
+
+    def test_module_only_does_not_claim_end_to_end_completion(self):
+        result = IMPORT.migration_coverage(IMPORT.Plan())
+        self.assertEqual(result["status"], "MODULE_SCOPE_ONLY")
+        self.assertFalse(result["runtime_coverage_verified"])
+        plan = IMPORT.Plan(core_sql=["SELECT 1;"])
+        self.assertTrue(IMPORT.migration_coverage(plan)["core_handoff_pending"])
+
+
 class EndpointTransportTests(unittest.TestCase):
     def endpoint(self, connection, *, readonly, database=None, user=None, role=None):
         import financial_import as F

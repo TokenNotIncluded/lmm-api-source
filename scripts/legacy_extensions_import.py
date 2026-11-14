@@ -165,6 +165,28 @@ def archived(plan: Plan, ctx: Ctx, table: str, reason: str, status: str = "archi
     plan.mapping[table] = (status, ctx.count(table), reason)
 
 
+def migration_coverage(plan: Plan) -> dict[str, Any]:
+    """Separate target row reconciliation from unresolved runtime coverage.
+
+    Core handoffs are pending until the coordinator proves their application.
+    Archived rows remain gaps even when every module target count matches.
+    Mixed mappings (for example builtin installations) also expose loss counters.
+    This inventory does not decide whether an owner may waive historical content.
+    """
+    gaps = []
+    for table, (target, count, reason) in sorted(plan.mapping.items()):
+        if count and (target in {"archived", "missing_backend"} or target.startswith(("core:", "core_sql:"))):
+            gaps.append({"source_table": table, "source_rows": count,
+                         "disposition": target, "reason": reason})
+    counters = {key: value for key, value in sorted(plan.stats.items())
+                if value and any(word in key for word in ("archived", "dropped", "skipped", "missing", "unsupported", "unrepresented"))}
+    return {"status": "SCOPED_WITH_GAPS" if gaps or counters or plan.core_sql else "MODULE_SCOPE_ONLY",
+            "runtime_coverage_verified": False,
+            "gaps": gaps, "loss_counters": counters,
+            "core_handoff_pending": bool(plan.core_sql) or any(
+                row["disposition"].startswith(("core:", "core_sql:")) for row in gaps)}
+
+
 # ---------------------------------------------------------------------------
 # phases (one per Go module database)
 # ---------------------------------------------------------------------------
@@ -1614,6 +1636,7 @@ def main() -> None:
                                                     + "\n".join(plan.core_sql) + "\n")
         entry: dict[str, Any] = {"database": target.database if target is not None else database, "expect": plan.expect, "stats": dict(plan.stats),
                                  "mapping": {k: list(v) for k, v in plan.mapping.items()},
+                                 "coverage": migration_coverage(plan),
                                  "core_sql_statements": len(plan.core_sql)}
         if args.apply and database == "":
             if plan.sql or plan.expect:

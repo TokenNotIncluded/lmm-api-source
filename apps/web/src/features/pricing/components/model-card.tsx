@@ -250,7 +250,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         </div>
       </div>
 
-      <div className='mt-3 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 border-y py-3 text-sm tabular-nums'>
+      <div className='my-3.5 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1.5 border-y py-3.5 text-sm tabular-nums'>
         <PricingContextLabel
           model={props.model}
           className='text-muted-foreground w-full text-xs'
@@ -258,11 +258,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {priceSummary}
       </div>
 
-      <p className='text-muted-foreground mt-3 line-clamp-2 min-h-10 flex-1 text-[13px] leading-5'>
+      <p className='text-muted-foreground line-clamp-2 min-h-10 flex-1 text-[13px] leading-5'>
         {props.model.description || t('No description available.')}
       </p>
 
-      <div className='mt-4 space-y-2'>
+      <div className='mt-4 space-y-3'>
         <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
           {primaryGroup && (
             <span className='text-muted-foreground text-sm font-medium wrap-anywhere'>

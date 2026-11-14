@@ -35,7 +35,7 @@ export function LatestRequestCard() {
   const status = log ? latestRequestStatus(log) : null
   return (
     <section
-      className='space-y-3 rounded-md border p-4'
+      className='border-foreground/[0.06] bg-card/70 space-y-4 rounded-xl border px-6 py-5 sm:px-8 sm:py-6'
       aria-label={t('Latest API request')}
     >
       <h2 className='text-base font-semibold'>{t('Latest API request')}</h2>
@@ -56,7 +56,7 @@ export function LatestRequestCard() {
         </p>
       ) : (
         <>
-          <dl className='grid grid-cols-2 gap-3 text-sm'>
+          <dl className='grid grid-cols-2 gap-4 pt-1 text-sm'>
             <div>
               <dt className='text-muted-foreground'>{t('Model')}</dt>
               <dd className='break-all'>{log.model_name || t('Unknown')}</dd>
@@ -82,7 +82,7 @@ export function LatestRequestCard() {
               <CopyButton value={log.request_id} className='size-11 shrink-0' />
             </div>
           )}
-          <div className='flex flex-wrap gap-2'>
+          <div className='flex flex-wrap gap-2.5 pt-1'>
             <Button
               variant='outline'
               render={

@@ -92,7 +92,7 @@ pub(super) fn valid_channel(c: &Channel) -> bool {
         "creem" => {
             no_checkout
                 && v.store_id.is_empty()
-                && valid_id(&v.product_id)
+                && (v.product_id.is_empty() || valid_id(&v.product_id))
                 && matches!(c.currency.as_str(), "USD" | "CNY" | "EUR")
                 && shared_secret()
         }
@@ -652,6 +652,12 @@ pub(super) fn pancake_envelope(
 
 fn verify_pancake_order(event: &Value, c: &Channel, order: &str, amount: i64) -> Result<Verified> {
     let data = event.get("data").ok_or(Error::Invalid)?;
+    if matches!(
+        text(event, "eventType")?,
+        "refund.succeeded" | "refund.failed"
+    ) {
+        return verify_pancake_refund(event, c, order, amount);
+    }
     let mode = if c.environment == "live" {
         "prod"
     } else {
@@ -705,6 +711,64 @@ fn verify_pancake_order(event: &Value, c: &Channel, order: &str, amount: i64) ->
         id(data, "paymentId")?.to_owned(),
         amount,
     ))
+}
+
+fn verify_pancake_refund(
+    event: &Value,
+    c: &Channel,
+    order: &str,
+    original: i64,
+) -> Result<Verified> {
+    let data = event.get("data").ok_or(Error::Invalid)?;
+    let (status, kind) = match text(event, "eventType")? {
+        "refund.succeeded" => ("succeeded", EventKind::RefundSucceeded),
+        "refund.failed" => ("failed", EventKind::RefundFailed),
+        _ => return Err(Error::Invalid),
+    };
+    let mode = if c.environment == "live" {
+        "prod"
+    } else {
+        "test"
+    };
+    // RefundedAmount is channel evidence; Amount/OriginalPayment.Total may
+    // describe a requested amount or a price snapshot and cannot replace it.
+    let amount = decimal_minor(text(data, "refundedAmount")?)?;
+    if text(event, "mode")? != mode
+        || text(event, "storeId")? != c.verification.store_id
+        || text(data, "orderMerchantExternalId")? != order
+        || text(data, "currency")? != c.currency
+        || text(data, "refundStatus")? != status
+        || decimal_minor(text(data, "originalChargedAmount")?)? != original
+        || amount > original
+        || data
+            .get("paymentStatus")
+            .filter(|v| !v.is_null())
+            .is_some_and(|v| v.as_str() != Some("succeeded"))
+        || data
+            .get("orderMetadata")
+            .and_then(|v| v.get("lmm_product_id"))
+            .and_then(Value::as_str)
+            != Some(&c.verification.product_id)
+        || data
+            .get("orderMetadata")
+            .and_then(|v| v.get("lmm_merchant"))
+            .and_then(Value::as_str)
+            != Some(&c.merchant)
+    {
+        return Err(Error::Conflict);
+    }
+    // The fixed predecessor's waffoPancakeRefundEventID uses EventID for
+    // financial deduplication; the envelope ID only deduplicates delivery.
+    // External ticket references never grant authority over a local hold.
+    Ok(Verified {
+        event_id: id(event, "id")?.to_owned(),
+        transaction: id(data, "paymentId")?.to_owned(),
+        kind,
+        amount_minor: amount,
+        refund_id: Some(id(event, "eventId")?.to_owned()),
+        hold_receipt_id: None,
+        dispatch_key: None,
+    })
 }
 
 #[cfg(test)]
@@ -1133,6 +1197,71 @@ mod tests {
         let mut signed = format!("{timestamp}.").into_bytes();
         signed.extend_from_slice(raw);
         format!("t={timestamp},v1={}", signed_rsa(&signed))
+    }
+
+    #[test]
+    fn pancake_external_refund_signed_identity_and_amount_binding() {
+        let c = channel("waffo_pancake");
+        let mut event = pancake_event();
+        event["eventType"] = json!("refund.succeeded");
+        event["eventId"] = json!("REF_business");
+        event["data"]["refundStatus"] = json!("succeeded");
+        event["data"]["refundedAmount"] = json!("0.40");
+        event["data"]["originalChargedAmount"] = json!("1.00");
+        event["data"]["refundTicketMerchantExternalId"] = json!("untrusted_local_hold");
+        let check = |value: &Value| {
+            let raw = serde_json::to_vec(value).unwrap();
+            let signature = signed_pancake(&raw, NOW * 1000);
+            verify(&raw, signature.as_bytes(), &c, 42, "USD", 100, NOW)
+        };
+        let verified = check(&event).unwrap();
+        assert_eq!(verified.kind, EventKind::RefundSucceeded);
+        assert_eq!(verified.amount_minor, 40);
+        assert_eq!(verified.event_id, "delivery_fixture");
+        assert_eq!(verified.refund_id.as_deref(), Some("REF_business"));
+        assert_eq!(verified.transaction, "PAY_fixture");
+        assert!(verified.hold_receipt_id.is_none());
+        assert!(verified.dispatch_key.is_none());
+        let mut retry = event.clone();
+        retry["id"] = json!("delivery_second");
+        assert_eq!(check(&retry).unwrap().refund_id, verified.refund_id);
+        event["eventType"] = json!("refund.failed");
+        event["data"]["refundStatus"] = json!("failed");
+        assert_eq!(check(&event).unwrap().kind, EventKind::RefundFailed);
+        for (field, value) in [
+            ("refundStatus", json!("succeeded")),
+            ("refundedAmount", Value::Null),
+            ("refundedAmount", json!("0.00")),
+            ("refundedAmount", json!("1.01")),
+            ("originalChargedAmount", Value::Null),
+            ("originalChargedAmount", json!("2.00")),
+            ("orderMerchantExternalId", json!("top_43")),
+            ("currency", json!("CNY")),
+            ("paymentId", Value::Null),
+            ("paymentStatus", json!("failed")),
+            (
+                "orderMetadata",
+                json!({"lmm_product_id":"other","lmm_merchant":c.merchant}),
+            ),
+        ] {
+            let mut wrong = event.clone();
+            wrong["data"][field] = value;
+            assert!(check(&wrong).is_err(), "accepted mismatched {field}");
+        }
+        for (field, value) in [
+            ("eventId", Value::Null),
+            ("mode", json!("prod")),
+            ("storeId", json!("other")),
+        ] {
+            let mut wrong = event.clone();
+            wrong[field] = value;
+            assert!(check(&wrong).is_err(), "accepted mismatched {field}");
+        }
+        let raw = serde_json::to_vec(&event).unwrap();
+        let signature = signed_pancake(&raw, NOW * 1000);
+        let mut tampered = raw.clone();
+        tampered.push(b' ');
+        assert!(verify(&tampered, signature.as_bytes(), &c, 42, "USD", 100, NOW).is_err());
     }
 
     #[test]

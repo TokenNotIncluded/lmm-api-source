@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
 // These are in-process transport/lifecycle tests using fake domain ports.
@@ -241,7 +242,9 @@ func TestMountTransportReleasesAdmissionOnAuthAndValidationFailures(t *testing.T
 		if err := host.MarkReady(); err != nil {
 			t.Fatal(err)
 		}
-		handler := Mount(host, newAuth(t, core), newStoreTransportFake(), &supportFake{})
+		service := newStoreTransportFake()
+		service.catalogueErr = store.ErrUnavailable
+		handler := Mount(host, newAuth(t, core), service, &supportFake{})
 		rec := mountTransportCall(handler, "GET", tc.path, tc.headers)
 		if rec.Code != tc.want {
 			t.Fatal(tc.path, rec.Code, rec.Body.String())
@@ -279,11 +282,15 @@ func TestMountTransportLegacyCatalogueAndConfigReachOnlyReadyHost(t *testing.T) 
 	if core.calls != 0 || len(service.calls) != 3 {
 		t.Fatal(core.calls, service.calls)
 	}
-	// No Web fulfill/settle route existed in main, and unsupported pickup proof
-	// cannot be replaced with an unguarded generic order mutation.
+	// Fulfill/settle are unregistered; pickup-link only supports its declared
+	// method. None may become an unguarded generic order mutation.
 	for _, path := range []string{"/api/store/orders/order-1/fulfill", "/api/store/orders/order-1/settle", "/api/store/orders/order-1/pickup-link"} {
 		rec := mountTransportCall(handler, "POST", path, []string{"Bearer " + webToken})
-		if rec.Code != 503 || len(service.calls) != 3 {
+		want := http.StatusNotFound
+		if strings.HasSuffix(path, "/pickup-link") {
+			want = http.StatusMethodNotAllowed
+		}
+		if rec.Code != want || len(service.calls) != 3 {
 			t.Fatal(path, rec.Code, service.calls)
 		}
 	}
@@ -306,16 +313,16 @@ func TestCompatibilitySharesGlobalAdmission(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	handler := Mount(host, nil, nil, nil)
+	handler := Mount(host, nil, newStoreTransportFake(), nil)
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/store/items", nil))
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/store/products", nil))
 	if w.Code != 503 || !strings.Contains(w.Body.String(), "EXTENSION_BUSY") || w.Header().Get("Retry-After") != "1" {
 		t.Fatal(w)
 	}
 	host.BeginDrain()
 	release()
 	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/store/items", nil))
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/store/products", nil))
 	if w.Code != 503 || !strings.Contains(w.Body.String(), "EXTENSION_NOT_ACCEPTING") {
 		t.Fatal(w)
 	}
@@ -329,7 +336,7 @@ type blockedCatalogue struct {
 	finish <-chan struct{}
 }
 
-func (s blockedCatalogue) PublicCatalogue(context.Context, int64, string, int, int) ([]map[string]any, error) {
+func (s blockedCatalogue) CatalogueForViewer(context.Context, string, int64, store.CatalogueQuery) ([]map[string]any, error) {
 	s.enter()
 	defer s.leave()
 	<-s.finish
@@ -396,5 +403,30 @@ func TestNativeAndCompatibilityMixedGlobalBound(t *testing.T) {
 	defer mu.Unlock()
 	if peak != 2 || active != 0 {
 		t.Fatal("mixed peak", peak, "active", active)
+	}
+}
+
+func TestMountRetiredStorePathsAreNotRegistered(t *testing.T) {
+	host, core := mountTransportHost(t, nil)
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	handler := Mount(host, newAuth(t, core), newStoreTransportFake(), &supportFake{})
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{"GET", "/api/store/retired", http.StatusNotFound},
+		{"POST", "/api/store/config", http.StatusMethodNotAllowed},
+	} {
+		for _, headers := range [][]string{nil, {"Bearer " + webToken}} {
+			rec := mountTransportCall(handler, tc.method, tc.path, headers)
+			if rec.Code != tc.status {
+				t.Fatalf("%s %s: got %d, want %d: %s", tc.method, tc.path, rec.Code, tc.status, rec.Body.String())
+			}
+		}
+	}
+	if core.calls != 0 {
+		t.Fatalf("unregistered routes reached identity RPC: %d", core.calls)
 	}
 }

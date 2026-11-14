@@ -6,7 +6,6 @@ import type { StoreProduct, StoreVariant } from './types'
 import { storeTotal } from './utils'
 import {
   initialStoreVariant,
-  legacyVariantProduct,
   selectedStoreVariant,
   storeVariantCapacity,
   storeVariantPrice,
@@ -111,16 +110,18 @@ test('a partial new projection fails closed instead of reverting to legacy defau
     { ...product, default_variant_id: 'default' },
     { ...product, variants: [] },
   ]) {
-    assert.equal(legacyVariantProduct(current), false)
     assert.equal(storeVariantPrice(current, ''), undefined)
     assert.equal(storeVariantCapacity(current, ''), 0)
   }
 })
 
-test('legacy default-only projections retain their existing integer price and clipped sale limit', () => {
-  assert.equal(legacyVariantProduct(product), true)
-  assert.equal(storeVariantPrice(product, ''), 500000)
-  assert.equal(storeVariantCapacity(product, ''), 2)
+test('products without variants cannot use product-level purchase terms', () => {
+  for (const record_kind of [undefined, 'legacy', 'native'] as const) {
+    const current = { ...product, record_kind, unlimited_supply: true }
+    assert.equal(initialStoreVariant(current), '')
+    assert.equal(storeVariantPrice(current, ''), undefined)
+    assert.equal(storeVariantCapacity(current, ''), 0)
+  }
 })
 
 test('fixed content has unbounded supply only for its exact eligible variant and absent sales cap', () => {

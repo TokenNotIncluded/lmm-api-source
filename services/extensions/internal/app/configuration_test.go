@@ -12,7 +12,7 @@ func TestConfigArguments(t *testing.T) {
 	if err != nil || path != defaultConfigPath {
 		t.Fatal(path, err)
 	}
-	for _, args := range [][]string{{"serve"}, {"--config"}, {"--config", "relative.toml"}, {"--config", "/tmp/../other"}, {"--config", "/tmp/a", "extra"}, {"--unknown", "/tmp/a"}} {
+	for _, args := range [][]string{{"--legacy-env"}, {"serve"}, {"--config"}, {"--config", "relative.toml"}, {"--config", "/tmp/../other"}, {"--config", "/tmp/a", "extra"}, {"--unknown", "/tmp/a"}} {
 		if _, err := configPath(args); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
@@ -102,9 +102,6 @@ func TestStrictTypedConfig(t *testing.T) {
 	if _, err := configPath([]string{"--legacy-env", "--config", "/tmp/file"}); err == nil {
 		t.Fatal("mixed configuration modes accepted")
 	}
-	if p, err := configPath([]string{"--legacy-env"}); err != nil || p != "" {
-		t.Fatal("explicit legacy mode rejected", err)
-	}
 }
 
 func TestHostAdmissionConfig(t *testing.T) {
@@ -125,10 +122,6 @@ func TestHostAdmissionConfig(t *testing.T) {
 		} else if e != nil || cfg.Host.MaxInFlight != tc.want {
 			t.Fatal(cfg, e)
 		}
-	}
-	cfg, e := legacyConfig(func(string) string { return "" })
-	if e != nil || cfg.Host.MaxInFlight != 16 {
-		t.Fatal(cfg, e)
 	}
 }
 

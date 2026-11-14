@@ -2,6 +2,8 @@
 //! Historical rule evidence: main 3948a0a relaykit/dto/openai_image.go:135-170.
 use crate::billing::trust_pricing::DiscountRatio;
 use crate::billing::{CREDITS_PER_USD, Credits};
+use num_bigint::BigUint;
+use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 pub(crate) mod native_tokens;
@@ -437,14 +439,6 @@ fn request_for(r: &ImagePriceRule, n: u32) -> ImageQuoteRequest {
         n,
     }
 }
-fn gcd(mut a: u128, mut b: u128) -> u128 {
-    while b != 0 {
-        let rem = a % b;
-        a = b;
-        b = rem;
-    }
-    a
-}
 fn cost(r: &ImagePriceRule, n: u32) -> Result<Credits, ImagePriceError> {
     cost_with_discount(r, n, None)
 }
@@ -461,35 +455,23 @@ fn cost_with_discount(
         return Credits::try_from(tariff.credits(None, r.group_multiplier, discount)?)
             .map_err(|_| ImagePriceError::Overflow);
     }
-    let mut numerators = [
-        u128::from(r.usd_micros_per_image.numerator),
-        u128::from(r.group_multiplier.numerator),
-        u128::from(n),
-        CREDITS_PER_USD as u128,
-    ];
-    let mut denominators = [
-        u128::from(r.usd_micros_per_image.denominator),
-        u128::from(r.group_multiplier.denominator),
-        1_000_000,
-    ];
-    if denominators.contains(&0) {
+    if r.usd_micros_per_image.denominator == 0 || r.group_multiplier.denominator == 0 {
         return Err(ImagePriceError::InvalidConfig);
     }
-    for a in &mut numerators {
-        for b in &mut denominators {
-            let divisor = gcd(*a, *b);
-            *a /= divisor;
-            *b /= divisor;
-        }
-    }
-    let numerator = numerators
-        .into_iter()
-        .try_fold(1_u128, |a, b| a.checked_mul(b))
-        .ok_or(ImagePriceError::Overflow)?;
-    let denominator = denominators
-        .into_iter()
-        .try_fold(1_u128, |a, b| a.checked_mul(b))
-        .ok_or(ImagePriceError::Overflow)?;
+    let amount = Ratio::new(
+        BigUint::from(r.usd_micros_per_image.numerator)
+            * BigUint::from(r.group_multiplier.numerator)
+            * BigUint::from(n)
+            * BigUint::from(CREDITS_PER_USD as u64),
+        BigUint::from(r.usd_micros_per_image.denominator)
+            * BigUint::from(r.group_multiplier.denominator)
+            * BigUint::from(1_000_000_u64),
+    );
+    // Retain the existing reduced-base bounds before applying a discount.
+    let numerator =
+        u128::try_from(amount.numer().clone()).map_err(|_| ImagePriceError::Overflow)?;
+    let denominator =
+        u128::try_from(amount.denom().clone()).map_err(|_| ImagePriceError::Overflow)?;
     let credits = crate::upstream_cost::ceil_with_discount(numerator, denominator, discount)
         .ok_or(ImagePriceError::Overflow)?;
     let credits = i64::try_from(credits).map_err(|_| ImagePriceError::Overflow)?;

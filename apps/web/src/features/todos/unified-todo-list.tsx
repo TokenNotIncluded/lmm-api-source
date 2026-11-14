@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { DEFAULT_NATIVE_USERS_QUERY } from '@/features/native-users/contract'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -108,13 +109,8 @@ function UnifiedTodoListContent() {
       await navigate({
         to: '/users',
         search: {
-          page: 1,
-          pageSize: undefined,
-          filter: todoDetailString(item, 'username'),
-          status: [],
-          role: [],
-          group: '',
-          l0Only: false,
+          ...DEFAULT_NATIVE_USERS_QUERY,
+          keyword: todoDetailString(item, 'username'),
         },
       })
     } else {

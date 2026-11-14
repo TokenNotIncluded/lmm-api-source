@@ -18,15 +18,17 @@ For commercial licensing, please contact support@quantumnous.com
 */
 /* Shared page rhythm; no color literals or marketing-page overrides. */
 .console-editorial .console-page {
-  --page-gutter: clamp(1rem, 3.2cqi, 3.25rem);
+  --page-gutter: clamp(1.25rem, 4cqi, 4.25rem);
   --page-radius: var(--radius);
 }
 .console-editorial .console-page .console-section-header {
-  padding: clamp(1.5rem, 3cqi, 2.75rem) var(--page-gutter) 1.5rem;
+  padding: clamp(1.75rem, 3.5cqi, 3.25rem) var(--page-gutter)
+    clamp(1.25rem, 2.5cqi, 2rem);
 }
 .console-editorial .console-page .console-section-content {
   padding-inline: var(--page-gutter);
-  scroll-padding-block: 1.25rem;
+  padding-bottom: clamp(2.5rem, 5cqi, 4.5rem);
+  scroll-padding-block: 1.5rem;
 }
 .console-editorial .console-page .console-section-footer {
   padding: 0.85rem var(--page-gutter);
@@ -58,9 +60,9 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 0.5rem;
 }
 .console-editorial .console-page [data-slot='card'] {
-  box-shadow: 0 0.75rem 2.5rem -2.5rem
-    color-mix(in oklch, var(--foreground) 25%, transparent);
-  border-color: color-mix(in oklch, var(--foreground) 8%, transparent);
+  box-shadow: 0 1.25rem 3.5rem -2.75rem
+    color-mix(in oklch, var(--foreground) 18%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 .console-editorial .console-page [data-slot='card-description'] {
   line-height: 1.65;
@@ -358,7 +360,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 @media (max-width: 767px) {
   .console-editorial .console-page .console-section-header {
-    padding: 1.25rem var(--page-gutter) 1rem;
+    padding: 1.25rem var(--page-gutter) 1.25rem;
   }
   .console-editorial .console-page-heading {
     gap: 1rem;
@@ -367,7 +369,7 @@ For commercial licensing, please contact support@quantumnous.com
     display: none;
   }
   .console-editorial .console-page .console-section-content {
-    padding-bottom: 1.5rem;
+    padding-bottom: 2.25rem;
   }
   .console-editorial .console-page :is(input, textarea, select) {
     font-size: 1rem;

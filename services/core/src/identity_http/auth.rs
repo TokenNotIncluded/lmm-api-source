@@ -1,7 +1,10 @@
 use super::*;
 use crate::identity::{LoginOutcome, LoginRequest, MfaCompletion, MfaError};
 use axum::{
-    extract::{ConnectInfo, rejection::JsonRejection},
+    extract::{
+        ConnectInfo,
+        rejection::{JsonRejection, QueryRejection},
+    },
     response::Redirect,
 };
 use rand::TryRng as _;
@@ -43,18 +46,67 @@ pub(super) async fn rate_limit(
         Err(e) => e.into_response(),
     }
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasswordInput {
+    login_name: String,
+    password: String,
+    #[serde(default)]
+    turnstile: String,
+}
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChallengeQuery {
+    #[serde(default)]
+    turnstile: String,
+}
+async fn password_input(
+    store: &IdentityStore,
+    query: std::result::Result<Query<ChallengeQuery>, QueryRejection>,
+    input: std::result::Result<Json<PasswordInput>, JsonRejection>,
+) -> std::result::Result<LoginRequest, Response> {
+    let (Ok(Query(query)), Ok(Json(body))) = (query, input) else {
+        return Err(IdentityError::Invalid.into_response());
+    };
+    if !query.turnstile.is_empty() && !body.turnstile.is_empty() {
+        return Err(IdentityError::Invalid.into_response());
+    }
+    let token = if query.turnstile.is_empty() {
+        &body.turnstile
+    } else {
+        &query.turnstile
+    };
+    store
+        .verify_turnstile(token)
+        .await
+        .map_err(|error| error.response())?;
+    Ok(LoginRequest {
+        login_name: body.login_name,
+        password: body.password,
+    })
+}
 async fn register(
     State(store): State<IdentityStore>,
-    Json(body): Json<LoginRequest>,
-) -> Result<impl IntoResponse> {
-    Ok((StatusCode::CREATED, Json(store.register(&body).await?)))
+    query: std::result::Result<Query<ChallengeQuery>, QueryRejection>,
+    input: std::result::Result<Json<PasswordInput>, JsonRejection>,
+) -> Response {
+    let body = match password_input(&store, query, input).await {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    match store.register(&body).await {
+        Ok(issued) => (StatusCode::CREATED, Json(issued)).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 async fn login(
     State(store): State<IdentityStore>,
-    input: std::result::Result<Json<LoginRequest>, JsonRejection>,
+    query: std::result::Result<Query<ChallengeQuery>, QueryRejection>,
+    input: std::result::Result<Json<PasswordInput>, JsonRejection>,
 ) -> Response {
-    let Ok(Json(body)) = input else {
-        return IdentityError::Invalid.into_response();
+    let body = match password_input(&store, query, input).await {
+        Ok(body) => body,
+        Err(response) => return response,
     };
     match store.login_with_mfa(&body).await {
         Ok(LoginOutcome::Session(issued)) => Json(issued).into_response(),
@@ -224,5 +276,43 @@ mod tests {
             HeaderValue::from_str(&format!("{FLOW_COOKIE}={}", "b".repeat(64))).unwrap(),
         );
         assert!(flow_cookie(&headers).is_err());
+    }
+}
+
+#[cfg(test)]
+mod turnstile_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn native_auth_rejects_missing_challenge_before_identity_work() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap();
+        let store = IdentityStore::from_pool(pool)
+            .with_registration_enabled(true)
+            .with_turnstile(Some(crate::config::turnstile_config::tests::verifier()));
+        let input = || {
+            Ok(Json(PasswordInput {
+                login_name: "test-user".into(),
+                password: "12345678".into(),
+                turnstile: String::new(),
+            }))
+        };
+        assert_eq!(
+            register(
+                State(store.clone()),
+                Ok(Query(ChallengeQuery::default())),
+                input()
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            login(State(store), Ok(Query(ChallengeQuery::default())), input())
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
     }
 }

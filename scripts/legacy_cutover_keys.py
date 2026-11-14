@@ -42,6 +42,7 @@ CONSOLE_KEYS = ("Notice", "console_setting.announcements", "Announcements", "Hea
                 "payment_setting.compliance_confirmed", "payment_setting.compliance_terms_version")
 RECEIPT_FILE = "credential-mapping-receipt.private.json"
 ALIAS_FILE = "legacy-api-key-wire-aliases.private.json"
+REKEY_FILE = "legacy-api-key-rekey-plan.private.json"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _pending: dict = {}
 
@@ -152,7 +153,7 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
         if len(key) != 32:
             fail("api_key_encryption_key_must_be_32_bytes")
     cipher = _cipher(key) if key else None
-    records, digests = [], set()
+    records, digests, rekeys = [], set(), []
     for t in data["tokens"]:
         tid, uid, raw = t["id"], t["user_id"], t["key"] or ""
         user = users.get(uid)
@@ -164,7 +165,16 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
             fail("token_secret_unsupported")
         digests.add(digest)
         deleted = t["deleted_at"] is not None
-        managed = bool(t["oauth_managed"]) or t["creation_source"] == "assistant_runtime" or not ordinary(raw)
+        delegated = bool(t["oauth_managed"]) or t["creation_source"] == "assistant_runtime"
+        managed = delegated or not ordinary(raw)
+        if managed and not deleted:
+            rekeys.append({"source_key_id": tid, "target_credential_id": tid,
+                           "target_user_id": uid, "target_account_id": account,
+                           "source_secret_sha256": digest,
+                           "reason": "delegated_credential" if delegated else "special_wire_format",
+                           "action": "issuer_reauthorization" if delegated else "authenticated_key_creation",
+                           "required_proof": "issuer_consent" if delegated else "owner_session_with_current_mfa",
+                           "automatic_reissue": False})
         # Managed credentials have no Core API-key equivalent; keep them visible
         # to the alias layer as revoked so clients receive a rekey error.
         revoked_at = (lit(t["deleted_at"]) + "::timestamptz" if deleted
@@ -290,7 +300,14 @@ def plan_keys(data: dict, a, target) -> tuple[list[str], dict]:
     manifest_text = canonical(manifest) + "\n"
     if any(v in manifest_text or v in receipt_text for v in raw_values):
         fail("secret_echo_in_artifact")
-    _pending["keys"] = {RECEIPT_FILE: receipt_text, ALIAS_FILE: manifest_text}
+    rekey_text = canonical({"scope": "legacy-api-key-rekey-plan.v1",
+                            "source_archive_sha256": a.archive_sha256,
+                            "credential_receipt_sha256": sha(receipt_text.encode()),
+                            "target": manifest["target"], "records": rekeys,
+                            "replacement_credentials_issued": 0}) + "\n"
+    _pending["keys"] = {RECEIPT_FILE: receipt_text, ALIAS_FILE: manifest_text, REKEY_FILE: rekey_text}
+    stats["rekey_owner_session_required"] = sum(r["action"] == "authenticated_key_creation" for r in rekeys)
+    stats["rekey_issuer_reauthorization_required"] = sum(r["action"] == "issuer_reauthorization" for r in rekeys)
     stats.update(tokens=len(records), alias_keys=len(keys), credential_id_equals_token_id=1)
     granted = set(json.loads(data["options"].get("UserUsableGroups") or "{}"))
     ungranted = Counter(g for g in (t["group"] or (users[t["user_id"]].get("group") or "default")

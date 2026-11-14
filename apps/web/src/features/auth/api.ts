@@ -42,7 +42,6 @@ import {
   appealReceiptSchema,
   type AccountAppealReceipt,
 } from './lib/account-appeal'
-import { getAffiliateCode } from './lib/storage'
 import {
   parseTelegramMFAChallenge,
   parseTelegramMFARequirement,
@@ -352,32 +351,6 @@ export async function resetPassword(payload: {
 // ----------------------------------------------------------------------------
 // OAuth
 // ----------------------------------------------------------------------------
-
-// Get OAuth state for CSRF protection
-export async function createOAuthFlow(
-  provider: string,
-  intent: 'login' | 'bind',
-  acceptedLegal = false
-): Promise<string> {
-  const aff = intent === 'login' ? getAffiliateCode() : ''
-  const res = await api.post(
-    '/api/oauth/state',
-    {
-      provider,
-      intent,
-      aff: aff || undefined,
-      accepted_legal: intent === 'login' ? acceptedLegal : undefined,
-    },
-    { skipAuthRefresh: intent === 'login' }
-  )
-  if (res.data?.success) {
-    if (typeof res.data.data === 'string') return res.data.data
-    if (typeof res.data.data?.flow_token === 'string') {
-      return res.data.data.flow_token
-    }
-  }
-  throw new Error(res.data?.message || 'Failed to initialize OAuth')
-}
 
 export async function startTelegramLogin(
   signal?: AbortSignal

@@ -74,10 +74,6 @@ const { useWalletCurrencyPreferenceStore } =
   await import('@/stores/wallet-currency-preference-store')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
-const { SubscriptionsProvider } =
-  await import('@/features/subscriptions/components/subscriptions-provider')
-const { SubscriptionsMutateDrawer } =
-  await import('@/features/subscriptions/components/subscriptions-mutate-drawer')
 const { OpenSourceBounties } = await import('@/features/open-source-bounties')
 const globals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -113,14 +109,6 @@ async function change(
     await flush()
   })
 }
-function inputFor(labelText: string) {
-  const label = [...document.querySelectorAll<HTMLLabelElement>('label')].find(
-    (candidate) => candidate.textContent?.trim() === labelText
-  )
-  assert.ok(label, labelText)
-  assert.ok(label.control)
-  return label.control as HTMLInputElement
-}
 function button(text: string) {
   const element = [
     ...document.querySelectorAll<HTMLButtonElement>('button'),
@@ -128,7 +116,7 @@ function button(text: string) {
   assert.ok(element, text)
   return element
 }
-async function render(component: 'subscription' | 'bounty') {
+async function render() {
   const requests: Array<{ url: string; data: Record<string, unknown> }> = []
   useSystemConfigStore.getState().setConfig({
     currency: {
@@ -171,13 +159,7 @@ async function render(component: 'subscription' | 'bounty') {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          {component === 'subscription' ? (
-            <SubscriptionsProvider>
-              <SubscriptionsMutateDrawer open onOpenChange={() => {}} />
-            </SubscriptionsProvider>
-          ) : (
-            <OpenSourceBounties />
-          )}
+          <OpenSourceBounties />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -185,36 +167,8 @@ async function render(component: 'subscription' | 'bounty') {
   })
   return { requests, root, queryClient }
 }
-test('subscription submit keeps fiat list price and exact raw quota after USD to CNY display change', async () => {
-  const rendered = await render('subscription')
-  try {
-    await change(inputFor('Plan Title'), 'Plan')
-    await change(inputFor('Plan Price'), '6.8')
-    await change(inputFor('Quota (USD)'), '1.25')
-    await act(async () => {
-      useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
-      await flush()
-    })
-    assert.equal(inputFor('Quota (CNY)').value, '9')
-    const form = document.querySelector<HTMLFormElement>('#subscription-form')!
-    await act(async () => {
-      form.dispatchEvent(
-        new Event('submit', { bubbles: true, cancelable: true })
-      )
-      await flush()
-    })
-    assert.equal(rendered.requests[0]?.url, '/api/subscription/admin/plans')
-    const plan = rendered.requests[0]?.data.plan as Record<string, unknown>
-    assert.equal(plan.total_amount, 625000)
-    assert.equal(plan.price_amount, 6.8)
-    assert.equal(plan.currency, 'CNY')
-  } finally {
-    await act(async () => rendered.root.unmount())
-    rendered.queryClient.clear()
-  }
-})
 test('bounty draft submit keeps its literal raw reward after USD to CNY display change', async () => {
-  const rendered = await render('bounty')
+  const rendered = await render()
   try {
     await act(async () => {
       button('Create bounty').click()

@@ -16,14 +16,13 @@ import (
 )
 
 type StoreService interface {
-	PublicCatalogue(context.Context, int64, string, int, int) ([]map[string]any, error)
-	PublicProduct(context.Context, string) (map[string]any, error)
+	CatalogueForViewer(context.Context, string, int64, store.CatalogueQuery) ([]map[string]any, error)
+	ProductForBuyer(context.Context, string, int64, string) (map[string]any, error)
 	LocateOrder(context.Context, string) (store.LocatedOrder, error)
 	GetOrder(context.Context, string, string, string) (store.Order, error)
 }
 
-// Optional ports let older hosts retain their supported reads without making a
-// missing implementation appear to support the rest of the legacy Web API.
+// Optional feature ports return unavailable when a feature is not assembled.
 type storeConfigService interface {
 	PublicConfig(context.Context) (map[string]any, error)
 }
@@ -33,17 +32,8 @@ type storeDisclaimerService interface {
 type storeProductTermsService interface {
 	PublicProductTerms(context.Context, int64, string) (map[string]any, error)
 }
-type storeViewerCatalogueService interface {
-	CatalogueForViewer(context.Context, string, int64, store.CatalogueQuery) ([]map[string]any, error)
-}
-type storeCatalogueService interface {
-	PublicCatalogueQuery(context.Context, store.CatalogueQuery) ([]map[string]any, error)
-}
 type storeCategoriesService interface {
 	PublicCategories(context.Context, int, int) (map[string]any, error)
-}
-type storeBuyerProductService interface {
-	ProductForBuyer(context.Context, string, int64, string) (map[string]any, error)
 }
 type storePromotionService interface {
 	ResolvePromotion(context.Context, string, string) (map[string]any, error)
@@ -130,18 +120,7 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			Respond(w, nil, err)
 			return
 		}
-		var items []map[string]any
-		if port, ok := service.(storeViewerCatalogueService); ok {
-			items, err = port.CatalogueForViewer(r.Context(), bearer(r), actor, query)
-		} else if port, ok := service.(storeCatalogueService); ok {
-			items, err = port.PublicCatalogueQuery(r.Context(), query)
-		} else {
-			if query.Sort != "comprehensive" || query.CategoryID != "" || query.Tag != "" || query.Stock != "" || query.AutoDelivery != nil || query.AIProcessing != nil || query.GuestPurchase != nil {
-				Respond(w, nil, store.ErrUnavailable)
-				return
-			}
-			items, err = service.PublicCatalogue(r.Context(), query.Seller, query.Text, query.Offset, query.Limit)
-		}
+		items, err := service.CatalogueForViewer(r.Context(), bearer(r), actor, query)
 		if err != nil {
 			Respond(w, nil, err)
 			return
@@ -174,13 +153,7 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		var value map[string]any
-		var err error
-		if port, ok := service.(storeBuyerProductService); ok {
-			value, err = port.ProductForBuyer(r.Context(), bearer(r), actor, r.PathValue("id"))
-		} else {
-			value, err = service.PublicProduct(r.Context(), r.PathValue("id"))
-		}
+		value, err := service.ProductForBuyer(r.Context(), bearer(r), actor, r.PathValue("id"))
 		Respond(w, value, err)
 	}))
 	mux.HandleFunc("GET /api/store/products/{id}/terms", public(func(w http.ResponseWriter, r *http.Request, actor int64) {

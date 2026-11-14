@@ -11,7 +11,6 @@ import { describe, test } from 'node:test'
 
 import { createInstance } from 'i18next'
 
-import { discountCodeTranslations } from '@/features/discount-codes/i18n.js'
 import {
   heroSmsTranslations,
   registerHeroSmsTranslations,
@@ -21,15 +20,6 @@ import {
   temporaryActivationTranslations,
 } from '@/features/email-activations/temporary-i18n.js'
 
-const discountLocales = [
-  'en',
-  'zh-CN',
-  'zh-TW',
-  'fr',
-  'ja',
-  'ru',
-  'vi',
-] as const
 const heroSmsLocales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 
 function placeholders(value: string) {
@@ -92,9 +82,5 @@ describe('lazy feature translations', () => {
     assert.equal(instance.t('Temporary activations'), '临时接码')
     await instance.changeLanguage('zh-TW')
     assert.equal(instance.t('Purchase activation'), '購買接碼')
-  })
-
-  test('discount cleanup resources are complete in every supported locale', () => {
-    assertCompleteFeatureTranslations(discountCodeTranslations, discountLocales)
   })
 })

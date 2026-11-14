@@ -53,7 +53,6 @@ import {
   isConsoleActivated,
   isRestrictedPublicRoute,
 } from '@/lib/console-activation'
-import { resolveLegacyRoute } from '@/lib/legacy-route'
 import { isPublicDirectoryPath } from '@/lib/public-directory-route'
 import { bootstrapPublicEntry } from '@/lib/public-entry-bootstrap'
 import { useAuthStore } from '@/stores/auth-store'
@@ -219,11 +218,6 @@ export const Route = createRootRouteWithContext<{
 }>()({
   // 应用初始化与路由解析前统一校验会话
   beforeLoad: async ({ location, abortController }) => {
-    const legacyTarget = resolveLegacyRoute(location.href)
-    if (legacyTarget) {
-      throw redirect({ href: legacyTarget, replace: true })
-    }
-
     const pathname = location?.pathname || ''
     if (bootstrapPublicEntry(pathname, bootstrapAuthentication)) return
     const needsSetupCheck =

@@ -112,14 +112,6 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	RegisterOperations(routes.forPlugins("operations"), auth, operationsService)
 	RegisterPayments(routes.forPlugins("payments"), auth, paymentReader)
 	RegisterPaymentCheckout(routes.forPlugins("payments"), auth, paymentCheckout, paymentPortal)
-	// Unassembled old routes are explicit failures, never a successful empty DTO.
-	routes.forPlugins("store").HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := auth.Verify(r.Context(), r); err != nil {
-			Respond(w, nil, err)
-			return
-		}
-		Respond(w, nil, store.ErrUnavailable)
-	})
 	// Forward only the host's own namespaces so its fallback cannot swallow
 	// method-not-allowed responses from registered Web routes.
 	mux.Handle("/extensions/v1/", host)

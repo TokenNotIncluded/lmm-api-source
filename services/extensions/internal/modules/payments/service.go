@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -332,6 +333,32 @@ func (s *Service) receiveOriginal(ctx context.Context, channelID int64, req *htt
 		if handled, err := s.receiveLegacyPancake(ctx, a, req); handled || err != nil {
 			return err
 		}
+		// Native callbacks must use the checkout's frozen product/store, just
+		// like checkout and reconciliation, rather than today's configuration.
+		raw, _, err := callbackBytes(req, "X-Waffo-Signature")
+		if err != nil {
+			return err
+		}
+		var reference struct {
+			Data struct {
+				Order string `json:"orderMerchantExternalId"`
+			} `json:"data"`
+		}
+		if jsonObject(raw, &reference) != nil || !validTopupOrderID(reference.Data.Order) {
+			return ErrInvalid
+		}
+		o, err := s.store.Get(ctx, reference.Data.Order)
+		if err != nil {
+			return err
+		}
+		if o.ChannelID != channelID {
+			return ErrConflict
+		}
+		a, err = s.orderAdapter(o)
+		if err != nil {
+			return err
+		}
+		req.Body = io.NopCloser(bytes.NewReader(raw))
 	}
 	if gated, ok := a.(proofGatedCallback); ok {
 		e, err := gated.parseCallback(req)

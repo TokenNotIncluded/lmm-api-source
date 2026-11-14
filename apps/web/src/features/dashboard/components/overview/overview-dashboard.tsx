@@ -51,7 +51,7 @@ export function OverviewDashboard() {
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   return (
-    <div className='dashboard-editorial overview-dashboard flex flex-col gap-10'>
+    <div className='dashboard-editorial overview-dashboard flex flex-col gap-8 sm:gap-12'>
       <OverviewGreeting />
       {!isAdmin && <LatestRequestCard />}
       <SummaryCards />
@@ -61,7 +61,7 @@ export function OverviewDashboard() {
       {showContentPanels && (
         <div
           className={cn(
-            'grid grid-cols-1 items-start gap-8',
+            'grid grid-cols-1 items-start gap-8 sm:gap-10',
             showLeftContentPanels &&
               showUptimePanel &&
               'xl:grid-cols-[minmax(0,1fr)_22rem]'
@@ -70,7 +70,7 @@ export function OverviewDashboard() {
           {showLeftContentPanels && (
             <div
               className={cn(
-                'grid min-w-0 grid-cols-1 items-start gap-8',
+                'grid min-w-0 grid-cols-1 items-start gap-8 sm:gap-10',
                 (showApiInfoPanel || showAnnouncementsPanel || showFAQPanel) &&
                   'lg:grid-cols-2'
               )}

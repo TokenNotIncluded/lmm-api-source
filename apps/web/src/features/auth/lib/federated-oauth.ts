@@ -22,6 +22,7 @@ const catalogFields = {
   scopes: z.string(),
   qr_code_url: z.string(),
   native_federated: z.literal(true),
+  registration_enabled: z.boolean().optional(),
 }
 const federatedProviderSchema = z.discriminatedUnion('kind', [
   z

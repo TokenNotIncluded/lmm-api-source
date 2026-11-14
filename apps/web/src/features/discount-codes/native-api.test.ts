@@ -259,7 +259,7 @@ test('the native management page renders its search controls and fetched code re
   const { createRoot } = await import('react-dom/client')
   const { createInstance } = await import('i18next')
   const { I18nextProvider, initReactI18next } = await import('react-i18next')
-  const { NativeDiscountCodes } = await import('./native-discount-codes')
+  const { DiscountCodes } = await import('./index')
   const i18n = createInstance()
   await i18n
     .use(initReactI18next)
@@ -277,11 +277,7 @@ test('the native management page renders its search controls and fetched code re
   try {
     await act(async () => {
       root.render(
-        createElement(
-          I18nextProvider,
-          { i18n },
-          createElement(NativeDiscountCodes)
-        )
+        createElement(I18nextProvider, { i18n }, createElement(DiscountCodes))
       )
       await new Promise((resolve) => setTimeout(resolve, 20))
     })

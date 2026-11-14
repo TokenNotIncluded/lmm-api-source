@@ -35,6 +35,8 @@ await i18n.use(initReactI18next).init({
 const user: UserWalletData = {
   id: 1,
   username: 'tester',
+  wallet_unit: 'core_credit',
+  financial_projection_available: true,
   quota: 0,
   used_quota: 0,
   request_count: 0,
@@ -47,11 +49,7 @@ const user: UserWalletData = {
 function renderCard() {
   return renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
-      <AffiliateRewardsCard
-        user={user}
-        affiliateLink='https://api.lmm.best/sign-up?ref=abc'
-        onTransfer={() => {}}
-      />
+      <AffiliateRewardsCard user={user} />
     </I18nextProvider>
   )
 }
@@ -74,18 +72,14 @@ describe('AffiliateRewardsCard referral description', () => {
 test('shows reward debt and hides transfer when rewards have been clawed back', () => {
   const markup = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
-      <AffiliateRewardsCard
-        user={{ ...user, aff_debt: 500000 }}
-        affiliateLink='https://example.com/signup?aff=x'
-        onTransfer={() => {}}
-      />
+      <AffiliateRewardsCard user={{ ...user, aff_debt: 500000 }} />
     </I18nextProvider>
   )
   assert.match(markup, /Reward debt/)
   assert.doesNotMatch(markup, /Transfer to Balance/)
 })
 
-test('unavailable financial projections never display stale rewards as money or allow transfer', () => {
+test('unavailable financial projections never display stale rewards or submit transfers', () => {
   const markup = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <AffiliateRewardsCard
@@ -96,19 +90,13 @@ test('unavailable financial projections never display stale rewards as money or 
           aff_history_quota: 900000,
           aff_count: 12,
         }}
-        affiliateLink='https://example.test/signup?aff=x'
-        onTransfer={() => {
-          throw new Error('Unavailable transfer must not execute')
-        }}
       />
     </I18nextProvider>
   )
   assert.equal((markup.match(/Unavailable/g) ?? []).length, 3)
   assert.doesNotMatch(markup, /500,000|900,000/)
-  assert.match(
-    markup,
-    /<button[^>]*\sdisabled(?:=""|\s|>)[^>]*>Transfer to Balance<\/button>/
-  )
+  assert.match(markup, /href="\/core\/v1\/affiliate\/claim"/)
+  assert.doesNotMatch(markup, /<form|aff_transfer|amount_credits/)
 })
 
 test('unavailable usage does not disable authoritative available rewards', () => {
@@ -121,13 +109,12 @@ test('unavailable usage does not disable authoritative available rewards', () =>
           usage_projection_available: false,
           aff_quota: 500000,
         }}
-        affiliateLink='https://example.test/signup?aff=x'
-        onTransfer={() => {}}
       />
     </I18nextProvider>
   )
-  assert.doesNotMatch(markup, /Unavailable/)
-  assert.match(markup, /Transfer to Balance/)
+  assert.match(markup, /500,000 Credits/)
+  assert.match(markup, /Unavailable/)
+  assert.match(markup, /Preview reward transfer/)
   assert.doesNotMatch(
     markup,
     /<button[^>]*\sdisabled(?:=""|\s|>)[^>]*>Transfer to Balance<\/button>/

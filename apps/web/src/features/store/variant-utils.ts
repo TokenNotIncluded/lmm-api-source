@@ -1,13 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import type { StoreProduct, StoreVariant } from './types'
 
-export function legacyVariantProduct(product: StoreProduct) {
-  return (
-    product.record_kind !== 'native' &&
-    product.variants === undefined &&
-    !product.default_variant_id
-  )
-}
 export function enabledStoreVariants(product: StoreProduct): StoreVariant[] {
   return (product.variants || []).filter((variant) => variant.enabled)
 }
@@ -24,9 +17,7 @@ export function storeVariantPrice(
   product: StoreProduct,
   id: string
 ): number | undefined {
-  const price = legacyVariantProduct(product)
-    ? product.price_quota
-    : selectedStoreVariant(product, id)?.price_quota
+  const price = selectedStoreVariant(product, id)?.price_quota
   return typeof price === 'number' && Number.isSafeInteger(price) && price > 0
     ? price
     : undefined
@@ -36,7 +27,7 @@ export function storeVariantCapacity(
   id: string
 ): number {
   const variant = selectedStoreVariant(product, id)
-  if (!legacyVariantProduct(product) && (!variant || variant.trading_paused)) {
+  if (!variant || variant.trading_paused) {
     return 0
   }
   // An unbounded capacity is not a stock count. Checkout applies payment,
@@ -44,9 +35,7 @@ export function storeVariantCapacity(
   if (storeVariantUnlimitedSupply(product, id) && product.sale_limit == null) {
     return Infinity
   }
-  const capacity = legacyVariantProduct(product)
-    ? (product.sale_available ?? product.available_stock)
-    : variant?.sale_available
+  const capacity = variant.sale_available
   return typeof capacity === 'number' &&
     Number.isSafeInteger(capacity) &&
     capacity >= 0
@@ -55,7 +44,5 @@ export function storeVariantCapacity(
 }
 
 export function storeVariantUnlimitedSupply(product: StoreProduct, id: string) {
-  return legacyVariantProduct(product)
-    ? product.unlimited_supply === true
-    : selectedStoreVariant(product, id)?.unlimited_supply === true
+  return selectedStoreVariant(product, id)?.unlimited_supply === true
 }

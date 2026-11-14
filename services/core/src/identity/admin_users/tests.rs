@@ -707,7 +707,7 @@ async fn unsupported_filters_sorts_and_invalid_bounds_never_mutate(pool: PgPool)
     let result = page(&f, &f.admin, UsersQuery::default()).await;
     assert_eq!(
         result["capabilities"]["implemented_write_actions"],
-        json!([])
+        json!(["create"])
     );
     assert!(
         result["capabilities"]["unavailable_projections"]

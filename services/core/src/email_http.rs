@@ -22,6 +22,7 @@ pub struct EmailHttp {
     store: IdentityStore,
     challenges: EmailChallenges,
     outbox: Outbox,
+    turnstile: Option<crate::config::turnstile_config::Turnstile>,
 }
 
 #[derive(Clone, Copy)]
@@ -31,7 +32,6 @@ pub(crate) enum Failure {
     Unauthorized,
     Forbidden,
     Unavailable,
-    FeatureUnavailable,
 }
 
 type Result<T> = std::result::Result<T, Failure>;
@@ -91,13 +91,6 @@ fn address(raw: &str) -> Result<EmailAddress> {
     EmailAddress::parse(raw).map_err(|_| Failure::Invalid)
 }
 
-fn unsupported_challenge(turnstile: Option<&str>) -> Result<()> {
-    if turnstile.is_some_and(|value| !value.is_empty()) {
-        return Err(Failure::FeatureUnavailable);
-    }
-    Ok(())
-}
-
 fn identity_error(error: IdentityError) -> Failure {
     match error {
         IdentityError::Unauthorized => Failure::Unauthorized,
@@ -152,6 +145,22 @@ fn credentials(headers: &HeaderMap) -> Result<(&str, &str)> {
 }
 
 impl EmailHttp {
+    pub(crate) fn with_turnstile(
+        mut self,
+        turnstile: Option<crate::config::turnstile_config::Turnstile>,
+    ) -> Self {
+        self.turnstile = turnstile;
+        self
+    }
+
+    async fn verify_challenge(&self, token: Option<&str>) -> Result<()> {
+        crate::config::turnstile_config::verify(self.turnstile.as_ref(), token.unwrap_or_default())
+            .await
+            .map_err(|error| match error {
+                crate::config::turnstile_config::VerifyError::Rejected => Failure::Forbidden,
+                crate::config::turnstile_config::VerifyError::Unavailable => Failure::Unavailable,
+            })
+    }
     pub(crate) fn with_identity_store(mut self, store: IdentityStore) -> Self {
         self.store = store;
         self
@@ -163,6 +172,7 @@ impl EmailHttp {
             store,
             challenges,
             outbox,
+            turnstile: None,
         }
     }
 
@@ -172,7 +182,7 @@ impl EmailHttp {
         body: VerificationRequest,
     ) -> Result<()> {
         let email = address(&body.email)?;
-        unsupported_challenge(body.turnstile.as_deref())?;
+        self.verify_challenge(body.turnstile.as_deref()).await?;
         let request = match body.purpose {
             VerificationPurpose::Register => {
                 if !self.store.email_registration_allowed(&email) {
@@ -197,7 +207,7 @@ impl EmailHttp {
 
     pub(crate) async fn request_reset(&self, body: ResetRequest) -> Result<()> {
         let email = address(&body.email)?;
-        unsupported_challenge(body.turnstile.as_deref())?;
+        self.verify_challenge(body.turnstile.as_deref()).await?;
         let _ = self
             .outbox
             .issue(&self.challenges, Request::PasswordReset, &email)
@@ -209,14 +219,11 @@ impl EmailHttp {
         if legal_required && body.accepted_legal != Some(true) {
             return Err(Failure::Invalid);
         }
-        unsupported_challenge(Some(&body.turnstile))?;
-        if !body.aff_code.is_empty() {
-            return Err(Failure::FeatureUnavailable);
-        }
+        self.verify_challenge(Some(&body.turnstile)).await?;
         let email = address(&body.email)?;
         let pending = self
             .store
-            .register_with_email(
+            .register_with_email_and_affiliate(
                 &self.challenges,
                 &EmailRegistration {
                     username: &body.username,
@@ -226,6 +233,7 @@ impl EmailHttp {
                         code: &body.verification_code,
                     },
                 },
+                &body.aff_code,
             )
             .await
             .map_err(business_error)?;
@@ -289,10 +297,6 @@ pub(crate) fn failure(error: Failure) -> Response {
         Failure::Unauthorized => (StatusCode::UNAUTHORIZED, "AUTH_UNAUTHORIZED"),
         Failure::Forbidden => (StatusCode::FORBIDDEN, "AUTH_FORBIDDEN"),
         Failure::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "EMAIL_UNAVAILABLE"),
-        Failure::FeatureUnavailable => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "AUTH_REGISTRATION_FEATURE_UNAVAILABLE",
-        ),
     };
     let mut response = (
         status,

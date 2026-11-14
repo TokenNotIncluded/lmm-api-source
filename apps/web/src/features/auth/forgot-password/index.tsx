@@ -49,6 +49,15 @@ export function ForgotPassword() {
         </div>
 
         <ForgotPasswordForm className='space-y-0' />
+
+        <div className='text-center'>
+          <Link
+            to='/sign-in'
+            className='text-muted-foreground hover:text-foreground rounded-sm text-sm font-medium underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4'
+          >
+            {t('Back to login')}
+          </Link>
+        </div>
       </div>
     </AuthLayout>
   )

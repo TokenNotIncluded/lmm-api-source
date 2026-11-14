@@ -346,9 +346,7 @@ export function QuotaSettingsSection({
               name='OpenSourceBountyFeeRate'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>
-                    {t('Bounty platform fee (%)')}
-                  </FormLabel>
+                  <FormLabel>{t('Bounty platform fee (%)')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'

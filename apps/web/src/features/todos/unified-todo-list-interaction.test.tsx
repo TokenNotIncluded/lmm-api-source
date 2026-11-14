@@ -58,6 +58,10 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { UnifiedTodoList } = await import('./unified-todo-list')
+const { nativeUsersSearchSchema, nativeQueryFromSearch } =
+  await import('@/features/native-users/search')
+const { DEFAULT_NATIVE_USERS_QUERY } =
+  await import('@/features/native-users/contract')
 
 const originalGet = api.get
 const originalPost = api.post
@@ -93,8 +97,14 @@ async function renderList() {
     path: '/',
     component: () => null,
   })
+  const usersRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/users',
+    validateSearch: nativeUsersSearchSchema,
+    component: () => null,
+  })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute]),
+    routeTree: rootRoute.addChildren([indexRoute, usersRoute]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   const container = document.createElement('div')
@@ -106,7 +116,7 @@ async function renderList() {
     await flushEffects()
   })
   await act(flushEffects)
-  return { container, queryClient, root }
+  return { container, queryClient, root, router }
 }
 
 async function unmount(rendered: Awaited<ReturnType<typeof renderList>>) {
@@ -498,5 +508,59 @@ describe('human support staff workflow', () => {
         await unmount(rendered)
       }
     })
+  }
+})
+
+test('security incident navigation uses native keyword and defaults accepted by the users route', async () => {
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 'security_incident:7',
+            source_id: 7,
+            category: 'security_incident',
+            type: 'security_incident',
+            title: 'assistant.security_incident',
+            summary: 'Native user search',
+            read: true,
+            created_at: 1786400000,
+            updated_at: 1786400000,
+            details: { username: '9007199254740993' },
+          },
+        ],
+        page: 1,
+        page_size: 50,
+        total: 1,
+        category: 'all',
+        unread_count: 0,
+        total_unread_count: 0,
+        unread_by_category: { security_incident: 0 },
+        categories: [{ key: 'security_incident', total: 1, unread: 0 }],
+      },
+    },
+  })) as typeof api.get
+  const rendered = await renderList()
+  try {
+    const row = [...rendered.container.querySelectorAll('button')].find(
+      (candidate) => candidate.textContent?.includes('Native user search')
+    )
+    assert.ok(row)
+    await act(async () => {
+      row.click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    assert.equal(rendered.router.state.location.pathname, '/users')
+    assert.deepEqual(
+      nativeQueryFromSearch(rendered.router.state.location.searchStr),
+      {
+        ...DEFAULT_NATIVE_USERS_QUERY,
+        keyword: '9007199254740993',
+      }
+    )
+  } finally {
+    await unmount(rendered)
   }
 })

@@ -52,7 +52,7 @@ export const CONSOLE_SHORTCUTS: readonly ShortcutDefinition[] = [
     id: 'Go to settings',
     group: 'navigation',
     keys: ['G', 'S'],
-    to: '/settings',
+    to: '/profile',
   },
   { id: 'Toggle sidebar', group: 'appearance', keys: ['⌘', 'B'] },
 ]

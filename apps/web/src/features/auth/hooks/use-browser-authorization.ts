@@ -6,12 +6,10 @@ import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
 import {
-  capturePasswordLoginGuard,
   prepareLoginIntentVersion,
   type PreparedLoginIntent,
 } from '@/lib/auth-session'
 
-import { createOAuthFlow, logout } from '../api'
 import { beginFederatedLogin } from '../federated-api'
 import {
   reportAuthError,
@@ -24,62 +22,14 @@ import {
   validateExternalBrowserAuthorizationUrl,
   type ExternalBrowserProvider,
 } from '../lib/external-oauth'
-import {
-  federatedProviders,
-  type FederatedProvider,
-} from '../lib/federated-oauth'
+import type { FederatedProvider } from '../lib/federated-oauth'
 import {
   GOOGLE_BUILT_IN_PRESET,
   buildGoogleBrowserStartRequest,
   validateGoogleBrowserAuthorizationUrl,
 } from '../lib/google-oauth'
-import {
-  buildGitHubOAuthUrl,
-  buildDiscordOAuthUrl,
-  buildLinuxDOOAuthUrl,
-  buildOIDCOAuthUrl,
-} from '../lib/oauth'
-import type { CustomOAuthProviderInfo, SystemStatus } from '../types'
+import type { SystemStatus } from '../types'
 
-const fixed = {
-  github: {
-    endpoint: 'https://github.com/login/oauth/authorize',
-    build: buildGitHubOAuthUrl,
-  },
-  discord: {
-    endpoint: 'https://discord.com/oauth2/authorize',
-    build: buildDiscordOAuthUrl,
-  },
-  linuxdo: {
-    endpoint: 'https://connect.linux.do/oauth2/authorize',
-    build: buildLinuxDOOAuthUrl,
-  },
-} as const
-const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
-function legacyAuthorizationUrl(value: string, configured: string) {
-  const url = new URL(value),
-    endpoint = new URL(configured)
-  for (const target of [url, endpoint]) {
-    const local =
-      import.meta.env.DEV &&
-      target.protocol === 'http:' &&
-      loopback.has(window.location.hostname) &&
-      loopback.has(target.hostname)
-    if (
-      (target.protocol !== 'https:' && !local) ||
-      !target.hostname ||
-      target.username ||
-      target.password ||
-      target.hash
-    ) {
-      throw new Error('Untrusted OAuth authorization endpoint')
-    }
-  }
-  if (url.origin !== endpoint.origin || url.pathname !== endpoint.pathname) {
-    throw new Error('Untrusted OAuth authorization endpoint')
-  }
-  return url.toString()
-}
 type Strategy = {
   enabled?: boolean
   timeoutMs?: number
@@ -92,29 +42,18 @@ type Strategy = {
     prepared?: PreparedLoginIntent
   ) => Promise<string>
 }
-type StrategyDefinition = Strategy & { resetSession?: boolean }
-function authorizationStrategy({
-  resetSession,
-  ...strategy
-}: StrategyDefinition): Strategy {
+type StrategyDefinition = Strategy
+function authorizationStrategy(strategy: StrategyDefinition): Strategy {
   return {
     ...strategy,
     authorize: async (signal) => {
-      if (resetSession) {
-        const response = await logout()
-        if (!response.success) throw new Error('Failed to sign out session')
-      }
       if (signal.aborted) {
         throw new axios.CanceledError('Browser authorization cancelled')
       }
-      // Legacy reset's own logout/capture lifecycle is a separate boundary.
-      const ready = resetSession
-        ? undefined
-        : await prepareLoginIntentVersion(signal)
-      const assertCurrent = ready?.assertCurrent ?? capturePasswordLoginGuard()
-      assertCurrent()
+      const ready = await prepareLoginIntentVersion(signal)
+      ready.assertCurrent()
       const url = await strategy.authorize(signal, ready)
-      assertCurrent()
+      ready.assertCurrent()
       return url
     },
   }
@@ -196,7 +135,6 @@ export function useBrowserAuthorization(
   ): StrategyDefinition | undefined => {
     const clientId = status?.[`${provider}_client_id`]
     if (!clientId) return
-    const preset = fixed[provider]
     if (status?.external_oauth_browser === true) {
       const payload = buildExternalBrowserStartRequest(
         provider,
@@ -222,17 +160,7 @@ export function useBrowserAuthorization(
         },
       }
     }
-    return {
-      error: providerErrors[provider],
-      resetSession: true,
-      authorize: async () => {
-        const state = await createOAuthFlow(provider, 'login', acceptedLegal)
-        return legacyAuthorizationUrl(
-          preset.build(clientId, state),
-          preset.endpoint
-        )
-      },
-    }
+    return undefined
   }
   const federatedStrategy = (
     provider: FederatedProvider
@@ -274,68 +202,6 @@ export function useBrowserAuthorization(
       t('Login failed')
     )
   }
-  const handleOIDCLogin = async () => {
-    if (status?.native_federated_auth === true) {
-      const provider = federatedProviders(status).find(
-        (row) => row.kind === 'oidc'
-      )
-      return start(provider ? federatedStrategy(provider) : undefined)
-    }
-    const endpoint = status?.oidc_authorization_endpoint,
-      clientId = status?.oidc_client_id
-    return start(
-      endpoint && clientId
-        ? {
-            error: t('Failed to start OIDC login'),
-            resetSession: true,
-            authorize: async () => {
-              const state = await createOAuthFlow(
-                'oidc',
-                'login',
-                acceptedLegal
-              )
-              return legacyAuthorizationUrl(
-                buildOIDCOAuthUrl(endpoint, clientId, state),
-                endpoint
-              )
-            },
-          }
-        : undefined
-    )
-  }
-  const handleCustomOAuthLogin = async (provider: CustomOAuthProviderInfo) =>
-    start(
-      provider.authorization_endpoint && provider.client_id
-        ? {
-            error: t('Failed to start {{provider}} login', {
-              provider: provider.name,
-            }),
-            resetSession: true,
-            authorize: async () => {
-              const state = await createOAuthFlow(
-                provider.slug,
-                'login',
-                acceptedLegal
-              )
-              const url = new URL(provider.authorization_endpoint)
-              url.searchParams.set('client_id', provider.client_id)
-              url.searchParams.set(
-                'redirect_uri',
-                `${window.location.origin}/oauth/${provider.slug}`
-              )
-              url.searchParams.set('response_type', 'code')
-              url.searchParams.set('state', state)
-              if (provider.scopes) {
-                url.searchParams.set('scope', provider.scopes)
-              }
-              return legacyAuthorizationUrl(
-                url.toString(),
-                provider.authorization_endpoint
-              )
-            },
-          }
-        : undefined
-    )
   return {
     isLoading,
     githubButtonText:
@@ -363,9 +229,7 @@ export function useBrowserAuthorization(
     },
     handleDiscordLogin: () => start(fixedStrategy('discord')),
     handleLinuxDOLogin: () => start(fixedStrategy('linuxdo')),
-    handleOIDCLogin,
     handleFederatedLogin: (provider: FederatedProvider) =>
       start(federatedStrategy(provider)),
-    handleCustomOAuthLogin,
   }
 }

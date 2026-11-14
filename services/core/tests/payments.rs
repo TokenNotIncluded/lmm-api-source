@@ -25,6 +25,8 @@ use std::{
 };
 
 const SECRET: &str = "whsec_local_synthetic_endpoint_only";
+#[path = "payments/pancake_refunds.rs"]
+mod pancake_refunds;
 const MERCHANT: &str = "acct_local_synthetic";
 struct Fixture {
     store: IngressStore,

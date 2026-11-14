@@ -11,6 +11,7 @@ mod checkins;
 mod federated_auth;
 mod managed_applications;
 mod operations;
+mod personal_tokens;
 mod product_features;
 mod telegram;
 mod tool_market_credit;
@@ -180,7 +181,7 @@ pub(crate) async fn check_connection(
             OR ((n.nspname='core_console' AND c.relname='announcement_reads'
                OR n.nspname='core_payments' AND c.relname IN ('receipts','provider_events','provider_refunds','blocked_refunds','accepted_proofs','refund_dispatches','refund_dispatch_bindings','legacy_proofs','provider_identifiers','legacy_applications','discount_code_tombstones','discount_management_batches')
                OR n.nspname='core_charging' AND c.relname IN ('budget_checks','usage_events','refunds','policy_events','ledger_commands')
-               OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials')
+               OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials','affiliate_codes','affiliate_registrations')
                OR n.nspname='core_commerce' AND c.relname IN ('operations','refund_operations')
                OR n.nspname='core_bounties' AND c.relname='operations'
                OR n.nspname='core_tool_market' AND c.relname='quotes'
@@ -314,6 +315,7 @@ pub(crate) async fn check_connection(
     checkins::check(connection, required.checkins).await?;
     product_features::check(connection, required.console).await?;
     account_security::check(connection, required.web_identity).await?;
+    personal_tokens::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;
     channel_projection::check(connection, required.models).await?;
     channel_observations::check(connection, required.models).await?;
@@ -444,7 +446,9 @@ pub(crate) async fn check_connection(
     }
     if required.web_identity {
         let complete: bool = sqlx::query_scalar(r#"
-          SELECT has_column_privilege('core_console.options','key','SELECT')
+          SELECT has_table_privilege('core_identity.affiliate_codes','SELECT,INSERT')
+            AND has_table_privilege('core_identity.affiliate_registrations','SELECT,INSERT')
+            AND has_column_privilege('core_console.options','key','SELECT')
             AND has_column_privilege('core_console.options','value','SELECT')
             AND has_schema_privilege('core_wallet','USAGE')
             AND has_table_privilege('core_wallet.affiliate_claims','SELECT')

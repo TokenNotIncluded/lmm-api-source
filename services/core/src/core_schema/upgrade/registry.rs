@@ -239,7 +239,10 @@ registrations! {
         PAYMENT_DISCOUNTS => payment_discounts, "PAYMENT_DISCOUNTS_", |c,r| Box::pin(payment_discounts::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         PAYMENT_DISCOUNT_MANAGEMENT => payment_discount_management, "PAYMENT_DISCOUNT_MANAGEMENT_", |c,r| Box::pin(payment_discount_management::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         RESPONSES_CONTINUITY => responses_continuity, "RESPONSES_CONTINUITY_", |c,r| Box::pin(responses_continuity::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { #[cfg(test)] after_ddl: continuity_after_ddl, ..SuffixPolicy::DEFAULT };
+        AFFILIATE_REGISTRATION => affiliate_registration, "AFFILIATE_REGISTRATION_", |c,r| Box::pin(affiliate_registration::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        PERSONAL_TOKENS => personal_tokens, "PERSONAL_TOKENS_", |c,r| Box::pin(personal_tokens::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         MANAGED_APPLICATIONS => managed_applications, "MANAGED_APPLICATIONS_", |c,r| Box::pin(managed_applications::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { target: TargetSource::Captured(managed_applications::captured_target), projection: DataProjection::ManagedApplications, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
+        OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
 fn lookup(procedure: &str) -> &'static Registration {
@@ -279,6 +282,9 @@ mod tests {
             "core-payment-discount-management-v1",
             "core-responses-continuity-v1",
             "core-managed-applications-v1",
+            "core-affiliate-registration-v1",
+            "core-oauth2-oidc-v1",
+            "core-personal-tokens-v1",
         ]
         .into_iter()
         .collect();
@@ -363,6 +369,9 @@ mod tests {
             ),
             ("core-responses-continuity-v1", "RESPONSES_CONTINUITY_"),
             ("core-managed-applications-v1", "MANAGED_APPLICATIONS_"),
+            ("core-affiliate-registration-v1", "AFFILIATE_REGISTRATION_"),
+            ("core-oauth2-oidc-v1", "OIDC_"),
+            ("core-personal-tokens-v1", "PERSONAL_TOKENS_"),
         ];
         let errors = [
             (
@@ -423,7 +432,7 @@ mod tests {
                 .iter()
                 .filter(|r| matches!(r.engine, Engine::Suffix(_)))
                 .count(),
-            15
+            18
         );
         for (name, prefix) in expected {
             let entry = lookup(name);
@@ -458,6 +467,11 @@ mod tests {
             assert!(std::ptr::fn_addr_eq(
                 entry.hooks.authorize,
                 match name {
+                    "core-personal-tokens-v1" => personal_tokens::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-oauth2-oidc-v1" =>
+                        oidc::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-affiliate-registration-v1" =>
+                        affiliate_registration::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-functional-completion-v1" =>
                         completion::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-account-appeals-v1" =>

@@ -150,50 +150,35 @@ export function hasPerformanceCounters(
   )
 }
 
-/** Sum exact integer counters before converting the final ratio for display.
- * Legacy responses have no denominators: retain their unweighted mean only.
- * Never mix native counters and legacy means into a purported weighted value.
- */
+/** Sum native integer counters before converting the final ratio for display. */
 export function aggregatePerformanceMetric(
   rows: PerformanceStatistics[],
   metric: PerformanceMetric
 ): number | null {
-  if (rows.length === 0) return null
-  if (rows.some((row) => row.success_count !== undefined)) {
-    if (!rows.every(hasPerformanceCounters)) return null
-    let numerator = 0n
-    let denominator = 0n
-    for (const row of rows) {
-      switch (metric) {
-        case 'avg_ttft_ms':
-          numerator += BigInt(row.ttft_sum_us)
-          denominator += BigInt(row.ttft_count) * 1000n
-          break
-        case 'avg_latency_ms':
-          numerator += BigInt(row.latency_sum_us)
-          denominator += BigInt(row.request_count) * 1000n
-          break
-        case 'avg_tps':
-          numerator += BigInt(row.output_tokens) * 1_000_000n
-          denominator += BigInt(row.throughput_time_us)
-          break
-        case 'success_rate':
-          numerator += BigInt(row.success_count) * 100n
-          denominator += BigInt(row.request_count)
-          break
-      }
+  if (rows.length === 0 || !rows.every(hasPerformanceCounters)) return null
+  let numerator = 0n
+  let denominator = 0n
+  for (const row of rows) {
+    switch (metric) {
+      case 'avg_ttft_ms':
+        numerator += BigInt(row.ttft_sum_us)
+        denominator += BigInt(row.ttft_count) * 1000n
+        break
+      case 'avg_latency_ms':
+        numerator += BigInt(row.latency_sum_us)
+        denominator += BigInt(row.request_count) * 1000n
+        break
+      case 'avg_tps':
+        numerator += BigInt(row.output_tokens) * 1_000_000n
+        denominator += BigInt(row.throughput_time_us)
+        break
+      case 'success_rate':
+        numerator += BigInt(row.success_count) * 100n
+        denominator += BigInt(row.request_count)
+        break
     }
-    return denominator > 0n ? Number(numerator) / Number(denominator) : null
   }
-  const values = rows.flatMap((row) => {
-    const value = row[metric]
-    if (value == null || !Number.isFinite(value)) return []
-    if (metric === 'success_rate') return [Math.min(100, Math.max(0, value))]
-    return value > 0 ? [value] : []
-  })
-  return values.length
-    ? values.reduce((sum, value) => sum + value, 0) / values.length
-    : null
+  return denominator > 0n ? Number(numerator) / Number(denominator) : null
 }
 
 export function isPerformancePartial(

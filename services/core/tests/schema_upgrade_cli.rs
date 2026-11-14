@@ -19,14 +19,14 @@ fn invoke(args: &[&str], input: &[u8]) -> Output {
 }
 #[test]
 fn upgrade_cli_requires_explicit_config_and_never_legacy_environment() {
-    for args in [
-        vec!["upgrade-db"],
-        vec!["upgrade-db", "--legacy-env"],
-        vec!["--legacy-env", "upgrade-db"],
+    for (args, expected) in [
+        (vec!["upgrade-db"], "upgrade-db requires explicit"),
+        (vec!["upgrade-db", "--legacy-env"], "Usage: lmm-core"),
+        (vec!["--legacy-env", "upgrade-db"], "Usage: lmm-core"),
     ] {
         let output = invoke(&args, b"");
         assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("upgrade-db requires explicit"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected));
         assert!(output.stdout.is_empty());
     }
 }

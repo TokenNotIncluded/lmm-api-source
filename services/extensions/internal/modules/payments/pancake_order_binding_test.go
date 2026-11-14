@@ -4,8 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
+
+func TestPancakeCallbackUsesOriginalOrderBinding(t *testing.T) {
+	c := Channel{ID: 4, Provider: "waffo_pancake", Merchant: "MER_0123456789abcdefghijkl", Environment: "test", Currency: "USD", Enabled: false}
+	p := &Pancake{cfg: PancakeConfig{Channel: c, StoreID: "new_store", ProductID: "new_product"}}
+	for _, tc := range []struct {
+		name, payload string
+		channel       int64
+		want          error
+	}{
+		{"original_disabled_channel", pancakePaid, c.ID, ErrEvidence},
+		{"replacement_product", strings.Replace(pancakePaid, "PROD_0123456789abcdefghijkl", "new_product", 1), c.ID, ErrConflict},
+		{"replacement_store", strings.Replace(pancakePaid, "STO_0123456789abcdefghijkl", "new_store", 1), c.ID, ErrConflict},
+		{"other_channel", pancakePaid, c.ID + 1, ErrConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memory := newMemory()
+			o := gatewayOrder(c)
+			o.ChannelID = tc.channel
+			if err := memory.Insert(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+			core := newCore(c)
+			s, err := New(memory, callbackRejectProofCore{Core: core}, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = s.Receive(context.Background(), c.ID, gatewayCallback(tc.payload, "X-Waffo-Signature"))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+			if len(memory.events) != 0 || core.count("credit") != 0 {
+				t.Fatal("callback bypassed Core proof admission")
+			}
+		})
+	}
+}
 
 func TestPancakeOrderBindingSurvivesConfigurationChange(t *testing.T) {
 	c := Channel{ID: 1, Provider: "waffo_pancake", Merchant: "merchant", Environment: "test", Currency: "USD", Enabled: true}

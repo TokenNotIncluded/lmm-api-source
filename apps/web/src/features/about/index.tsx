@@ -43,9 +43,7 @@ function EmptyAboutState() {
   const { t } = useTranslation()
   const { systemName } = useSystemConfig()
   const { status, capabilitiesReady } = useStatus()
-  const apiVersion = capabilitiesReady
-    ? status?.version?.trim() || status?.data?.version?.trim()
-    : undefined
+  const apiVersion = capabilitiesReady ? status?.version?.trim() : undefined
 
   return (
     <main className='mx-auto max-w-5xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>

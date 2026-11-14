@@ -239,16 +239,12 @@ async fn observe(
     pool.close().await;
     result
 }
-pub fn run(path: Option<&Path>, legacy_env: bool) -> i32 {
+pub fn run(path: Option<&Path>) -> i32 {
     let result = (|| {
-        if legacy_env {
-            return Err(Rejection::new("CHECK_DB_LEGACY_ENV_FORBIDDEN", 2));
-        }
         let path = path
             .filter(|p| p.is_absolute())
             .ok_or(Rejection::new("CHECK_DB_CONFIG_REQUIRED", 2))?;
-        config::initialize(Some(path), false)
-            .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?;
+        config::initialize(Some(path)).map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?;
         let url = config::database_url()
             .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?
             .ok_or(Rejection::new("CHECK_DB_CONFIG_REQUIRED", 2))?;

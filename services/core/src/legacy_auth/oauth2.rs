@@ -8,6 +8,7 @@ use crate::identity::grants::{
 #[derive(serde::Deserialize)]
 #[serde(untagged)]
 enum AuthorizationInput {
+    Oidc(crate::identity::grants::OidcAuthorizationRequest),
     Legacy(AuthorizationRequest),
     Managed(ManagedAuthorizationRequest),
 }
@@ -94,10 +95,12 @@ fn flow_cookie(
 }
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     let pi = page.client_id == "lmm-pi";
-    let managed = page.client_id == "lmm-cc-switch";
+    let managed = matches!(page.client_id.as_str(), "lmm-cc-switch" | "lmm-magpie");
     let model = pi || managed;
     let client_name = if pi {
         "LMM Pi"
+    } else if page.client_id == "lmm-magpie" {
+        "LMM Magpie"
     } else if managed {
         "LMM CC Switch"
     } else {
@@ -108,10 +111,20 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     );
     if managed && let (Some(id), Some(label)) = (&page.installation_id, &page.display_label) {
         body.push_str(&format!(
-            "<p>Application: CC Switch</p><p>Installation: {}</p><p>Device: {}</p>",
+            "<p>Application: {}</p><p>Installation: {}</p><p>Device: {}</p>",
+            if page.client_id == "lmm-magpie" {
+                "Magpie"
+            } else {
+                "CC Switch"
+            },
             escape(id),
             escape(label)
         ));
+    }
+    if page.openid {
+        body.push_str(
+            "<p>Share your stable account identifier with this client (OpenID Connect).</p>",
+        );
     }
     let action = if let Some(account) = &page.account {
         body.push_str(&format!("<p>Account: {}</p><p>Read the model catalog and your personal wallet balance.</p><p>Approved groups:</p><ul>",escape(account)));
@@ -176,6 +189,7 @@ async fn authorize(
     };
     let result = match input {
         AuthorizationInput::Legacy(input) => issuer.begin(input).await,
+        AuthorizationInput::Oidc(input) => issuer.begin_oidc(input).await,
         AuthorizationInput::Managed(input) => issuer.begin_managed(input).await,
     };
     match result {
@@ -321,6 +335,7 @@ mod tests {
                 for signed_in in [false, true] {
                     let response = page(
                         ConsentPage {
+                            openid: false,
                             binding: "B".repeat(43),
                             csrf: "C".repeat(43),
                             expires_at: 300,
@@ -364,6 +379,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn oidc_query_discriminates_openid_without_requiring_nonce() {
+        for scope in [
+            "catalog%3Aread+balance%3Aread",
+            "openid+catalog%3Aread+balance%3Aread",
+        ] {
+            let uri:axum::http::Uri=format!("/api/oauth2/authorize?response_type=code&client_id=lmm&redirect_uri=http%3A%2F%2F127.0.0.1%3A38423%2Foauth%2Flmm%2Fcallback&scope={scope}&resource=https%3A%2F%2Fissuer.example.test%2Fapi%2Foauth2&code_challenge={}&code_challenge_method=S256&state=test", "A".repeat(43)).parse().unwrap();
+            let Query(parsed) = Query::<AuthorizationInput>::try_from_uri(&uri).unwrap();
+            assert_eq!(
+                matches!(parsed, AuthorizationInput::Oidc(_)),
+                scope.starts_with("openid")
+            );
+        }
+    }
     #[test]
     fn stage_cookie_selection_requires_its_own_random_binding() {
         let config = LegacyAuthConfig::new("https://issuer.example.test", &[3; 32]).unwrap();

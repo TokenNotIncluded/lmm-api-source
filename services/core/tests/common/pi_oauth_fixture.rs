@@ -157,6 +157,7 @@ pub(super) struct Fixture {
 enum FixtureApplications {
     PiOnly,
     PiAndManaged,
+    PiAndAllManaged,
 }
 
 pub(super) enum ManagedKeyring {
@@ -257,7 +258,7 @@ impl Fixture {
             role.optional(scope).await;
         }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_oauth TO {0}; GRANT SELECT ON core_oauth.contract TO {0}; GRANT SELECT,INSERT ON core_oauth.families,core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {0}; GRANT UPDATE(scopes,revoked_at) ON core_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.refresh_tokens TO {0}; GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]),core_oauth.client_scope_set(text,text[],boolean) TO {0};",role.name))).execute(owner).await.unwrap();
-        if matches!(applications, FixtureApplications::PiAndManaged) {
+        if !matches!(applications, FixtureApplications::PiOnly) {
             let grants = include_str!("../../schema/managed_applications_grants.sql")
                 .replace(":\"runtime_role\"", &format!("\"{}\"", role.name));
             sqlx::raw_sql(sqlx::AssertSqlSafe(grants))
@@ -270,7 +271,7 @@ impl Fixture {
             RequiredCapabilities {
                 models: true,
                 oauth2: true,
-                managed_applications: matches!(applications, FixtureApplications::PiAndManaged),
+                managed_applications: !matches!(applications, FixtureApplications::PiOnly),
                 web_identity: true,
                 ..Default::default()
             },
@@ -284,14 +285,17 @@ impl Fixture {
             .unwrap()
             .with_pi_budget_limit(1000)
             .unwrap();
-        if matches!(applications, FixtureApplications::PiAndManaged) {
+        if !matches!(applications, FixtureApplications::PiOnly) {
             profile = profile.with_managed_budget_limit(1000).unwrap();
+            if matches!(applications, FixtureApplications::PiAndAllManaged) {
+                profile = profile.with_magpie_budget_limit(1000).unwrap();
+            }
         }
         let mut issuer = LmmIssuer::open(store.clone(), profile, 900, 86400)
             .await
             .unwrap()
             .with_catalog_surface(gateway.oauth_catalog_surface());
-        if matches!(applications, FixtureApplications::PiAndManaged) {
+        if !matches!(applications, FixtureApplications::PiOnly) {
             let keys = ManagedRecoveryKeys::new(
                 "fixture-managed-v1",
                 vec![("fixture-managed-v1".into(), vec![83; 32])],
@@ -364,17 +368,26 @@ impl Fixture {
     }
     /// Real Core/PG consent for financial tests, not browser/TLS acceptance.
     pub async fn managed_token(&self, cap: i64, installation: &str) -> ManagedTokenWire {
-        let pending = self
-            .issuer
-            .begin_managed(self.managed_request(installation))
+        self.application_token("lmm-cc-switch", "cc-switch", cap, installation)
             .await
-            .unwrap();
+    }
+    pub async fn application_token(
+        &self,
+        client: &str,
+        application: &str,
+        cap: i64,
+        installation: &str,
+    ) -> ManagedTokenWire {
+        let mut request = self.managed_request(installation);
+        request.client_id = client.into();
+        request.application = application.into();
+        let pending = self.issuer.begin_managed(request).await.unwrap();
         let consent = self
             .issuer
             .continue_authorization(&pending.binding, &pending.csrf, Some(&self.refresh))
             .await
             .unwrap();
-        assert_eq!(consent.client_id, "lmm-cc-switch");
+        assert_eq!(consent.client_id, client);
         let redirect = self
             .issuer
             .consent_with_budget(
@@ -407,7 +420,7 @@ impl Fixture {
             .into_owned();
         let request = ManagedTokenForm {
             grant_type: "authorization_code".into(),
-            client_id: "lmm-cc-switch".into(),
+            client_id: client.into(),
             resource: format!("{ISSUER}/api/oauth2"),
             installation_id: installation.into(),
             code: Some(code),
@@ -523,6 +536,10 @@ impl Fixture {
         assert_eq!(value["token_type"], "Bearer");
         assert!((1..=900).contains(&value["expires_in"].as_i64().unwrap()));
         TokenWire {
+            id_token: value
+                .get("id_token")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
             access_token: value["access_token"].as_str().unwrap().into(),
             refresh_token: value["refresh_token"].as_str().unwrap().into(),
             token_type: "Bearer",
@@ -625,6 +642,14 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     with_fixture_applications(pool, developer, FixtureApplications::PiAndManaged, case).await;
+}
+
+pub(super) async fn with_magpie_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
+where
+    F: FnOnce(Fixture) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    with_fixture_applications(pool, developer, FixtureApplications::PiAndAllManaged, case).await;
 }
 
 async fn with_fixture_applications<F, Fut>(

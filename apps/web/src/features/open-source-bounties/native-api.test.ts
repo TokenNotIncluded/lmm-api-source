@@ -80,17 +80,13 @@ test('202 waits for original confirmation and restored business result, never po
   })
   await tick()
   assert.equal(resolved, false)
-  assert.deepEqual(posts, [
-    '/api/bounties/challenges/claim_hash/cancel',
-  ])
+  assert.deepEqual(posts, ['/api/bounties/challenges/claim_hash/cancel'])
   assert.deepEqual(gets, [])
   assert.equal(bountyOperationsSnapshot()[0]?.id, operationID)
   assert.equal(settleBountyOperation(operationID), true)
   const result = await action
   assert.equal(result.id, 'claim_hash')
-  assert.deepEqual(gets, [
-    `/api/bounties/operations/${operationID}/result`,
-  ])
+  assert.deepEqual(gets, [`/api/bounties/operations/${operationID}/result`])
   assert.equal(posts.length, 1)
   assert.equal(bountyOperationsSnapshot().length, 0)
 })
@@ -107,10 +103,7 @@ test('lost HTTP response retains exact operation key and waits for recovery inst
     }
   )
   replace('get', async (url: string) => {
-    assert.equal(
-      url,
-      `/api/bounties/operations/${originalID}/result`
-    )
+    assert.equal(url, `/api/bounties/operations/${originalID}/result`)
     return {
       status: 200,
       data: { success: true, data: { id: 'claim_hash', status: 'cancelled' } },

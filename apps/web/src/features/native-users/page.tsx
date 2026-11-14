@@ -23,8 +23,9 @@ import {
   type NativeUsersQuery,
   type NativeUsersResponse,
 } from './contract'
-import { nativeQueryFromLegacySearch } from './legacy-search'
+import { NativeCreateUser } from './create-editor'
 import { NativeDisplayNameEditor } from './profile-editor'
+import { nativeQueryFromSearch } from './search'
 import { NativeUserSecurity } from './security-editor'
 
 type Props = { scope: NativeUsersScope; recheck: () => void; search: string }
@@ -254,7 +255,6 @@ function UserRecord({
 function UnavailableActions() {
   const { t } = useTranslation()
   const actions = [
-    t('Create user'),
     t('Edit user'),
     t('Delete user'),
     t('Promote user'),
@@ -555,6 +555,17 @@ function UsersWorkspace({
           )}
         </AlertDescription>
       </Alert>
+      {state.status === 'ready' &&
+        state.data.capabilities.implemented_write_actions.includes(
+          'create'
+        ) && (
+          <NativeCreateUser
+            key={`${scope.userId}:${scope.sessionId}`}
+            scope={scope}
+            onCreated={() => setReload((value) => value + 1)}
+            onAccessDenied={onAccessDenied}
+          />
+        )}
       <form
         onSubmit={submit}
         className='space-y-4 rounded-lg border p-4'
@@ -803,7 +814,7 @@ export function NativeUsersPage({ scope, recheck, search }: Props) {
       </Alert>
     )
   }
-  const initial = nativeQueryFromLegacySearch(search)
+  const initial = nativeQueryFromSearch(search)
   if (!initial) {
     return (
       <Alert role='alert'>

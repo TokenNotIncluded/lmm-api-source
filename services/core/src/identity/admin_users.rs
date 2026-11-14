@@ -1,5 +1,7 @@
 //! Core-owned administrator user reads and a separate conditional display-name update.
 mod appeals;
+mod create;
+pub use create::{CreateUserRequest, CreatedUser};
 mod balance_adjustments;
 pub use appeals::{
     AccountAppealAdmin, AccountAppealsPage, AccountAppealsQuery, AppealReviewAction,
@@ -246,7 +248,7 @@ fn capabilities() -> ReadCapabilities {
             "role",
             "status",
         ],
-        implemented_write_actions: &[],
+        implemented_write_actions: &["create"],
         unavailable_projections: &[
             "legacy_group",
             "legacy_trust",
@@ -270,7 +272,6 @@ fn capabilities() -> ReadCapabilities {
             "user_detail",
         ],
         unavailable_write_actions: &[
-            "create",
             "update",
             "delete",
             "enable",

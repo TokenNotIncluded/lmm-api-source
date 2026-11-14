@@ -14,10 +14,6 @@ const source = readFileSync(
   new URL('./reset-workspace.tsx', import.meta.url),
   'utf8'
 )
-const recordSource = readFileSync(
-  new URL('./components/subscription-records.tsx', import.meta.url),
-  'utf8'
-)
 const typeSource = readFileSync(new URL('./types.ts', import.meta.url), 'utf8')
 const routeSource = readFileSync(
   new URL(
@@ -95,14 +91,5 @@ describe('subscription reset workspace safety contract', () => {
     assert.match(voucherSource, /next\.add\(selected\.id\)/)
     assert.match(voucherSource, /voucher\.expired === true/)
     assert.match(voucherSource, /void vouchersQuery\.refetch\(\)/)
-  })
-
-  test('renders the backend subscription id field', () => {
-    assert.match(
-      typeSource,
-      /interface AdminSubscriptionRecord {[\s\S]*\n\s+id: number/
-    )
-    assert.match(recordSource, /key={record\.id}/)
-    assert.doesNotMatch(recordSource, /record\.subscription_id/)
   })
 })

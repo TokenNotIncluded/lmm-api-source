@@ -287,6 +287,19 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
         url.set_username(&name).unwrap();
         url.set_password(Some(&password)).unwrap();
         let url = url.to_string();
+        let personal_tokens_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_personal_tokens') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if personal_tokens_installed {
+            let grants = include_str!("../../src/identity/personal_token/grants.sql")
+                .replace(":\"runtime_role\"", &name);
+            sqlx::raw_sql(sqlx::AssertSqlSafe(grants))
+                .execute(owner)
+                .await
+                .unwrap();
+        }
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect(&url)

@@ -51,9 +51,15 @@ func (s *Service) PancakePortalAvailable() bool {
 
 func (s *Service) pancakePortalAdapter() (*Pancake, error) {
 	var selected *Pancake
-	for _, adapter := range s.adapterSnapshot() {
+	adapters := s.adapters
+	var admission map[int64]bool
+	if s.configuration != nil {
+		snapshot := s.configuration.current.Load()
+		adapters, admission = snapshot.wallet, snapshot.admission
+	}
+	for _, adapter := range adapters {
 		p, ok := adapter.(*Pancake)
-		if !ok || !p.cfg.Channel.Enabled {
+		if !ok || (!p.cfg.Channel.Enabled && !admission[p.cfg.Channel.ID]) {
 			continue
 		}
 		if selected != nil && (selected.cfg.Channel.namespace() != p.cfg.Channel.namespace() || selected.cfg.StoreID != p.cfg.StoreID) {

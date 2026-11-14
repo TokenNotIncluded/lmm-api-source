@@ -2,6 +2,8 @@
 //! PKCE uses oxide-auth (MIT OR Apache-2.0), pinned in Cargo.toml.
 mod delegated;
 mod issuer;
+mod oidc;
+pub use oidc::{OidcAuthorizationRequest, OidcSigningKeys};
 mod managed;
 mod protocol;
 mod readonly;

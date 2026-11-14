@@ -42,14 +42,108 @@ import type {
 // Model CRUD Operations
 // ============================================================================
 
+const CORE_ROUTING_MODELS = '/core/v1/admin/routing/models'
+const CORE_ROUTING_VENDORS = '/core/v1/admin/routing/vendors'
+
+interface CoreVendor {
+  id: number
+  name: string
+  description: string
+}
+
+interface CoreModelItem {
+  route: {
+    id: number
+    model: string
+    group: string
+    enabled: boolean
+  }
+  metadata?: {
+    display_name?: string
+    description?: string
+    vendor_id?: number | null
+  } | null
+}
+
+function mapCoreVendor(vendor: CoreVendor): Vendor {
+  return {
+    id: vendor.id,
+    name: vendor.name,
+    description: vendor.description,
+    status: 1,
+    created_time: 0,
+    updated_time: 0,
+  }
+}
+
+function mapCoreModel(item: CoreModelItem): Model {
+  return {
+    id: item.route.id,
+    model_name: item.route.model,
+    description: item.metadata?.description || undefined,
+    vendor_id: item.metadata?.vendor_id ?? undefined,
+    status: item.route.enabled ? 1 : 2,
+    sync_official: 0,
+    created_time: 0,
+    updated_time: 0,
+    name_rule: 0,
+    enable_groups: item.route.group ? [item.route.group] : undefined,
+  }
+}
+
+function paginateItems<T>(items: T[], page = 1, pageSize = 20) {
+  const safePage = Math.max(1, page)
+  const safeSize = Math.max(1, pageSize)
+  const start = (safePage - 1) * safeSize
+  return {
+    items: items.slice(start, start + safeSize),
+    total: items.length,
+    page: safePage,
+    page_size: safeSize,
+  }
+}
+
+async function fetchCoreModels() {
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data?: { version: unknown; items: CoreModelItem[] }
+  }>(CORE_ROUTING_MODELS)
+  return res.data
+}
+
+async function fetchCoreVendors() {
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data?: { version: unknown; items: CoreVendor[] }
+  }>(CORE_ROUTING_VENDORS)
+  return res.data
+}
+
 /**
  * Get paginated list of models
  */
 export async function getModels(
   params: GetModelsParams = {}
 ): Promise<GetModelsResponse> {
-  const res = await api.get('/api/models/', { params })
-  return res.data
+  const payload = await fetchCoreModels()
+  if (!payload.success || !payload.data) {
+    return { success: payload.success, message: payload.message }
+  }
+  let items = payload.data.items.map(mapCoreModel)
+  if (params.vendor) {
+    const vendorId = Number(params.vendor)
+    items = items.filter((item) => item.vendor_id === vendorId)
+  }
+  if (params.status) {
+    const status = Number(params.status)
+    items = items.filter((item) => item.status === status)
+  }
+  return {
+    success: true,
+    data: paginateItems(items, params.p, params.page_size),
+  }
 }
 
 /**
@@ -58,16 +152,49 @@ export async function getModels(
 export async function searchModels(
   params: SearchModelsParams
 ): Promise<GetModelsResponse> {
-  const res = await api.get('/api/models/search', { params })
-  return res.data
+  const payload = await fetchCoreModels()
+  if (!payload.success || !payload.data) {
+    return { success: payload.success, message: payload.message }
+  }
+  const keyword = params.keyword?.trim().toLowerCase()
+  let items = payload.data.items.map(mapCoreModel)
+  if (keyword) {
+    items = items.filter(
+      (item) =>
+        item.model_name.toLowerCase().includes(keyword) ||
+        (item.description?.toLowerCase().includes(keyword) ?? false)
+    )
+  }
+  if (params.vendor) {
+    const vendorId = Number(params.vendor)
+    items = items.filter((item) => item.vendor_id === vendorId)
+  }
+  if (params.status) {
+    const status = Number(params.status)
+    items = items.filter((item) => item.status === status)
+  }
+  return {
+    success: true,
+    data: paginateItems(items, params.p, params.page_size),
+  }
 }
 
 /**
  * Get single model by ID
  */
 export async function getModel(id: number): Promise<GetModelResponse> {
-  const res = await api.get(`/api/models/${id}`)
-  return res.data
+  const payload = await fetchCoreModels()
+  if (!payload.success || !payload.data) {
+    return { success: payload.success, message: payload.message }
+  }
+  const found = payload.data.items.find((item) => item.route.id === id)
+  if (!found) {
+    return { success: false, message: 'Model not found' }
+  }
+  return {
+    success: true,
+    data: mapCoreModel(found),
+  }
 }
 
 /**
@@ -122,10 +249,15 @@ export async function getVendors(params?: {
   p?: number
   page_size?: number
 }): Promise<GetVendorsResponse> {
-  const res = await api.get('/api/vendors/', {
-    params: params || { page_size: 1000 },
-  })
-  return res.data
+  const payload = await fetchCoreVendors()
+  if (!payload.success || !payload.data) {
+    return { success: payload.success, message: payload.message }
+  }
+  const items = payload.data.items.map(mapCoreVendor)
+  return {
+    success: true,
+    data: paginateItems(items, params?.p ?? 1, params?.page_size ?? 1000),
+  }
 }
 
 /**
@@ -136,16 +268,41 @@ export async function searchVendors(params: {
   p?: number
   page_size?: number
 }): Promise<GetVendorsResponse> {
-  const res = await api.get('/api/vendors/search', { params })
-  return res.data
+  const payload = await fetchCoreVendors()
+  if (!payload.success || !payload.data) {
+    return { success: payload.success, message: payload.message }
+  }
+  const keyword = params.keyword?.trim().toLowerCase()
+  let items = payload.data.items.map(mapCoreVendor)
+  if (keyword) {
+    items = items.filter(
+      (item) =>
+        item.name.toLowerCase().includes(keyword) ||
+        (item.description?.toLowerCase().includes(keyword) ?? false)
+    )
+  }
+  return {
+    success: true,
+    data: paginateItems(items, params.p ?? 1, params.page_size ?? 20),
+  }
 }
 
 /**
  * Get single vendor by ID
  */
 export async function getVendor(id: number): Promise<GetVendorResponse> {
-  const res = await api.get(`/api/vendors/${id}`)
-  return res.data
+  const payload = await fetchCoreVendors()
+  if (!payload.success || !payload.data) {
+    return { success: payload.success, message: payload.message }
+  }
+  const found = payload.data.items.find((item) => item.id === id)
+  if (!found) {
+    return { success: false, message: 'Vendor not found' }
+  }
+  return {
+    success: true,
+    data: mapCoreVendor(found),
+  }
 }
 
 /**
@@ -154,8 +311,32 @@ export async function getVendor(id: number): Promise<GetVendorResponse> {
 export async function createVendor(
   data: Partial<Vendor>
 ): Promise<{ success: boolean; message?: string; data?: Vendor }> {
-  const res = await api.post('/api/vendors/', data)
-  return res.data
+  const current = await fetchCoreVendors()
+  if (!current.success || !current.data) {
+    return { success: current.success, message: current.message }
+  }
+  const nextId =
+    data.id && data.id > 0
+      ? data.id
+      : current.data.items.reduce((max, item) => Math.max(max, item.id), 0) + 1
+  const vendor: CoreVendor = {
+    id: nextId,
+    name: data.name?.trim() ?? '',
+    description: data.description ?? '',
+  }
+  const res = await api.post<{
+    success: boolean
+    message?: string
+    data?: { version: unknown; id: number }
+  }>(CORE_ROUTING_VENDORS, {
+    expected_version: current.data.version,
+    vendor,
+  })
+  return {
+    success: res.data.success,
+    message: res.data.message,
+    data: res.data.success ? mapCoreVendor(vendor) : undefined,
+  }
 }
 
 /**
@@ -164,8 +345,28 @@ export async function createVendor(
 export async function updateVendor(
   data: Partial<Vendor> & { id: number }
 ): Promise<{ success: boolean; message?: string; data?: Vendor }> {
-  const res = await api.put('/api/vendors/', data)
-  return res.data
+  const current = await fetchCoreVendors()
+  if (!current.success || !current.data) {
+    return { success: current.success, message: current.message }
+  }
+  const vendor: CoreVendor = {
+    id: data.id,
+    name: data.name?.trim() ?? '',
+    description: data.description ?? '',
+  }
+  const res = await api.put<{
+    success: boolean
+    message?: string
+    data?: { version: unknown; id: number }
+  }>(`${CORE_ROUTING_VENDORS}/${data.id}`, {
+    expected_version: current.data.version,
+    vendor,
+  })
+  return {
+    success: res.data.success,
+    message: res.data.message,
+    data: res.data.success ? mapCoreVendor(vendor) : undefined,
+  }
 }
 
 /**
@@ -174,7 +375,13 @@ export async function updateVendor(
 export async function deleteVendor(
   id: number
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await api.delete(`/api/vendors/${id}`)
+  const current = await fetchCoreVendors()
+  if (!current.success || !current.data) {
+    return { success: current.success, message: current.message }
+  }
+  const res = await api.delete(`${CORE_ROUTING_VENDORS}/${id}`, {
+    data: { expected_version: current.data.version },
+  })
   return res.data
 }
 

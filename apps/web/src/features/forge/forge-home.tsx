@@ -163,7 +163,7 @@ export function ForgeHome() {
   const { status, loading: statusLoading } = useStatus()
   const apiBaseUrl = status
     ? resolveApiBaseUrl(
-        status.server_address ?? status.data?.server_address,
+        status.server_address,
         typeof window === 'undefined' ? '' : window.location.origin
       )
     : null

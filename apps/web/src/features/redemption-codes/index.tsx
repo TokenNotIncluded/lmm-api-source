@@ -16,37 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useTranslation } from 'react-i18next'
-
-import { SectionPageLayout } from '@/components/layout'
 import { NativePromotionAdmin } from '@/features/promotions/native-admin'
-import { isNativeWallet } from '@/features/wallet/lib/wallet-projection'
-import { useAuthStore } from '@/stores/auth-store'
-
-import { RedemptionsDialogs } from './components/redemptions-dialogs'
-import { RedemptionsPrimaryButtons } from './components/redemptions-primary-buttons'
-import { RedemptionsProvider } from './components/redemptions-provider'
-import { RedemptionsTable } from './components/redemptions-table'
 
 export function Redemptions() {
-  const { t } = useTranslation()
-  const user = useAuthStore((state) => state.auth.user)
-  if (isNativeWallet(user)) return <NativePromotionAdmin />
-  return (
-    <RedemptionsProvider>
-      <SectionPageLayout fixedContent>
-        <SectionPageLayout.Title>
-          {t('Redemption Codes')}
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <RedemptionsPrimaryButtons />
-        </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          <RedemptionsTable />
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
-
-      <RedemptionsDialogs />
-    </RedemptionsProvider>
-  )
+  return <NativePromotionAdmin />
 }

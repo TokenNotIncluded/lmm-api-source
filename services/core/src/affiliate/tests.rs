@@ -312,3 +312,88 @@ async fn policy_gate_is_authoritative_and_does_not_hide_completed_receipts(pool:
     ));
     assert_eq!(journals(&pool).await, 1);
 }
+
+#[sqlx::test(migrations = false)]
+async fn affiliate_code_and_registration_are_persistent_and_atomic(pool: PgPool) {
+    let f = fixture(&pool, 0, 1_000_000).await;
+    let app = router(f.store.clone(), "https://affiliate.test".into(), false).unwrap();
+    let mut codes = Vec::new();
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/api/user/aff")
+                    .header("cookie", format!("new_api_refresh={}", f.cookie))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        codes.push(value["data"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(codes[0], codes[1]);
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::builder()
+                .uri("/core/v1/affiliate/preview")
+                .method("POST")
+                .header("cookie", format!("new_api_refresh={}", f.cookie))
+                .header("origin", "https://affiliate.test")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"amount_credits":"500000"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(value["amount"], 500000);
+    assert!(value["id"].as_i64().unwrap() > 0);
+    assert_eq!(value["csrf"].as_str().unwrap().len(), 64);
+
+    let input = BrowserRegistration {
+        username: "referred",
+        password: "synthetic password",
+        email: "",
+    };
+    f.browser
+        .register_with_affiliate(&input, &codes[0])
+        .await
+        .unwrap();
+    let owner: i64 =
+        sqlx::query_scalar("SELECT user_id FROM core_identity.affiliate_codes WHERE code=$1")
+            .bind(&codes[0])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let bound: i64 = sqlx::query_scalar("SELECT inviter_id FROM core_identity.affiliate_registrations r JOIN core_identity.user_profiles p ON p.user_id=r.user_id WHERE p.username='referred'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(owner, bound);
+    let invalid = BrowserRegistration {
+        username: "invalid_referral",
+        ..input
+    };
+    assert!(
+        f.browser
+            .register_with_affiliate(&invalid, &"0".repeat(32))
+            .await
+            .is_err()
+    );
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT FROM core_identity.user_profiles WHERE username='invalid_referral')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        !exists,
+        "invalid referral must roll back the identity transaction"
+    );
+    assert_eq!(journals(&pool).await, 0, "binding cannot mint funds");
+}

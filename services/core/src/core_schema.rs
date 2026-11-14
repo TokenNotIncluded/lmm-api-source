@@ -204,6 +204,13 @@ const COMPONENTS: &[(&str, &str)] = &[
         "managed-applications",
         include_str!("../schema/managed_applications.sql"),
     ),
+    (
+        "affiliate-registration",
+        include_str!("../schema/affiliate_registration.sql"),
+    ),
+    ("oauth2-oidc", include_str!("../schema/oauth2_oidc.sql")),
+    ("personal-tokens", crate::identity::personal_token::SCHEMA),
+    ("subscription-creem", crate::subscriptions::CREEM_SCHEMA),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

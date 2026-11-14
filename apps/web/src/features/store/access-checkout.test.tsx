@@ -99,6 +99,25 @@ const product: StoreProduct = {
   created_at: 1,
   updated_at: 1,
   review_note: '',
+  default_variant_id: 'fixture-default',
+  variants: [
+    {
+      id: 'fixture-default',
+      product_id: 'product-fixture',
+      name: 'Default',
+      price_quota: 500000,
+      template: 'card-key',
+      enabled: true,
+      is_default: true,
+      created_at: 1,
+      updated_at: 1,
+      inventory_total: 5,
+      inventory_available: 5,
+      reserved_stock: 0,
+      sale_available: 5,
+      trading_paused: false,
+    },
+  ],
 }
 const result = (data: unknown) => ({ data: { success: true, data } })
 async function flush() {
@@ -206,7 +225,7 @@ const order = {
   id: 'guest-order',
   product_id: product.id,
   product_title: product.title,
-  variant_id: '',
+  variant_id: 'fixture-default',
   variant_name: 'Frozen variant',
   quantity: 1,
   payment_method: 'external:epay',
@@ -987,7 +1006,7 @@ test('a guest free offer uses the authenticated guest quote and dedicated create
         ] === guestSession.token
       return result({
         product_id: product.id,
-        variant_id: '',
+        variant_id: 'fixture-default',
         quantity: body.quantity,
         promotion_code: 'GIFT',
         discount_bps: 10000,
@@ -1603,7 +1622,13 @@ test('zero stock disables consistent quantity controls and fresh restocking unlo
         <button type='button' onClick={() => setCount(3)}>
           Restock fixture
         </button>
-        <StoreCheckout product={{ ...product, available_stock: count }} />
+        <StoreCheckout
+          product={{
+            ...product,
+            available_stock: count,
+            variants: [{ ...product.variants![0], sale_available: count }],
+          }}
+        />
       </>
     )
   }

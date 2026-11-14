@@ -37,6 +37,18 @@ func NewCreem(cfg CreemConfig) (*Creem, error) {
 	return &Creem{cfg: cfg, client: outboundClient()}, nil
 }
 
+// NewCreemSubscriptionAdapter configures independent recurring checkout access.
+// It does not register a fixed-price wallet product or carry a webhook secret.
+func NewCreemSubscriptionAdapter(cfg CreemConfig) (*Creem, error) {
+	if !cfg.Channel.valid() || cfg.Channel.Provider != "creem" || cfg.Channel.Currency != "USD" || !validProviderCredential(cfg.APIKey) {
+		return nil, ErrInvalid
+	}
+	if _, err := secureURL(cfg.SuccessURL); err != nil {
+		return nil, err
+	}
+	return &Creem{cfg: cfg, client: outboundClient()}, nil
+}
+
 func (c *Creem) Channel() Channel        { return c.cfg.Channel }
 func (c *Creem) FixedAmountMinor() int64 { return c.cfg.ProductAmountMinor }
 func (c *Creem) channelBinding() string  { return c.cfg.ProductID }
@@ -111,13 +123,13 @@ type creemCheckout struct {
 	Product   json.RawMessage   `json:"product"`
 	Metadata  map[string]string `json:"metadata"`
 	Order     struct {
-		Transaction string `json:"transaction"`
-		Status      string `json:"status"`
-		AmountPaid  int64  `json:"amount_paid"`
-		Currency    string `json:"currency"`
-		Mode        string `json:"mode"`
-		Type        string `json:"type"`
-		Product     string `json:"product"`
+		Transaction string          `json:"transaction"`
+		Status      string          `json:"status"`
+		AmountPaid  int64           `json:"amount_paid"`
+		Currency    string          `json:"currency"`
+		Mode        string          `json:"mode"`
+		Type        string          `json:"type"`
+		Product     json.RawMessage `json:"product"`
 	} `json:"order"`
 }
 
@@ -156,7 +168,7 @@ func (c *Creem) Verify(r *http.Request, _ time.Time) (Event, error) {
 
 func (c *Creem) payment(v creemCheckout) (Event, error) {
 	if v.Object != "checkout" || v.Status != "completed" || v.Mode != c.mode() || v.Order.Mode != c.mode() || v.Order.Status != "paid" || refID(v.Product) != c.cfg.ProductID ||
-		v.Metadata["lmm_merchant"] != c.cfg.Channel.Merchant || v.Order.Type != "" && v.Order.Type != "onetime" || v.Order.Product != "" && v.Order.Product != c.cfg.ProductID ||
+		v.Metadata["lmm_merchant"] != c.cfg.Channel.Merchant || v.Order.Type != "" && v.Order.Type != "onetime" || len(v.Order.Product) != 0 && refID(v.Order.Product) != c.cfg.ProductID ||
 		!validTopupOrderID(v.RequestID) || !validID(v.Order.Transaction) || v.Order.AmountPaid != c.cfg.ProductAmountMinor || strings.ToUpper(v.Order.Currency) != c.cfg.Channel.Currency {
 		return Event{}, ErrConflict
 	}

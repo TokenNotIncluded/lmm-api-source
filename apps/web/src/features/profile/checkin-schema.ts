@@ -7,7 +7,6 @@ export const checkinCapabilitiesResponseSchema = z.object({
 })
 
 const units = z.string().regex(/^(0|[1-9]\d*)$/)
-const legacyUnits = z.number().int().nonnegative().safe().transform(String)
 const integer = z.number().int().nonnegative().safe()
 export const checkinMonthSchema = z
   .string()
@@ -74,40 +73,6 @@ const nativeStatusSchema = z
     },
   }))
 
-const legacyRecordSchema = z.object({
-  checkin_date: z.iso.date(),
-  quota_awarded: legacyUnits,
-})
-const legacyStatusSchema = z
-  .object({
-    enabled: z.boolean(),
-    min_quota: legacyUnits.optional(),
-    max_quota: legacyUnits.optional(),
-    trust_level: integer.optional(),
-    stats: z.object({
-      checked_in_today: z.boolean(),
-      total_checkins: integer,
-      total_quota: legacyUnits,
-      checkin_count: integer,
-      records: z.array(legacyRecordSchema).max(31),
-    }),
-  })
-  .transform((data) => ({
-    kind: 'legacy' as const,
-    enabled: data.enabled,
-    reward_range:
-      data.min_quota !== undefined &&
-      data.max_quota !== undefined &&
-      data.trust_level !== undefined
-        ? {
-            min_quota: data.min_quota,
-            max_quota: data.max_quota,
-            trust_level: data.trust_level,
-          }
-        : null,
-    stats: data.stats,
-  }))
-
 const failureSchema = z.object({
   success: z.literal(false),
   message: z.string().optional(),
@@ -116,24 +81,16 @@ export const checkinStatusResponseSchema = z.discriminatedUnion('success', [
   failureSchema,
   z.object({
     success: z.literal(true),
-    data: z.union([nativeStatusSchema, legacyStatusSchema]),
+    data: nativeStatusSchema,
   }),
 ])
 export const checkinClaimResponseSchema = z.discriminatedUnion('success', [
   failureSchema,
   z.object({
     success: z.literal(true),
-    data: z.union([
-      z
-        .object({ already_claimed: z.boolean(), record: recordSchema })
-        .transform((data) => ({ kind: 'native' as const, ...data })),
-      z
-        .object({
-          quota_awarded: legacyUnits,
-          checkin_date: z.iso.date().optional(),
-        })
-        .transform((data) => ({ kind: 'legacy' as const, ...data })),
-    ]),
+    data: z
+      .object({ already_claimed: z.boolean(), record: recordSchema })
+      .transform((data) => ({ kind: 'native' as const, ...data })),
   }),
 ])
 

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"time"
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	"google.golang.org/grpc/codes"
@@ -99,7 +98,8 @@ func (s *EPaySubscriptions) Confirm(ctx context.Context, user, id string) (*pb.E
 	if err != nil {
 		return nil, err
 	}
-	if s.adapters[o.PaymentChannelId] == nil {
+	a := s.adapters[o.PaymentChannelId]
+	if a == nil || !a.Channel().Enabled && o.ConfirmedAtUnix == nil {
 		return nil, ErrUnavailable
 	}
 	c, err := s.core.ConfirmEPayPurchase(ctx, user, id)
@@ -138,7 +138,9 @@ func (s *EPaySubscriptions) Accept(ctx context.Context, channel int64, r *http.R
 	if a == nil {
 		return ErrNotFound
 	}
-	event, err := a.Verify(r, time.Now())
+	// Core checks the original frozen payment type. The current adapter type
+	// may have changed since this subscription checkout was issued.
+	event, err := a.verify(r, true)
 	if err != nil {
 		return err
 	}

@@ -29,6 +29,28 @@ import type {
 
 import { toLatencySeries, toSuccessRateSeries } from './performance-series.ts'
 
+function observed(
+  ts: number,
+  success: number,
+  ttft?: number
+): PerformanceSeriesPoint {
+  return {
+    ts,
+    avg_ttft_ms: null,
+    avg_latency_ms: null,
+    avg_tps: null,
+    success_rate: null,
+    request_count: 100,
+    success_count: success,
+    latency_sum_us: '0',
+    ttft_count: ttft === undefined ? 0 : 1,
+    ttft_sum_us: String((ttft ?? 0) * 1000),
+    output_tokens: '0',
+    throughput_time_us: '0',
+    throughput_count: 0,
+  }
+}
+
 function group(series: Partial<PerformanceSeriesPoint>[]): PerformanceGroup {
   return {
     group: 'default',
@@ -54,17 +76,11 @@ describe('model performance observations', () => {
     assert.deepEqual(toSuccessRateSeries([group([{}])]), [])
   })
 
-  test('sorts actual timestamps and averages only observed group latency', () => {
+  test('sorts actual timestamps and weights native group latency', () => {
     assert.deepEqual(
       toLatencySeries([
-        group([
-          { ts: 120, avg_ttft_ms: 90 },
-          { ts: 60, avg_ttft_ms: 100 },
-        ]),
-        group([
-          { ts: 60, avg_ttft_ms: 201 },
-          { ts: 90, avg_ttft_ms: 0 },
-        ]),
+        group([observed(120, 100, 90), observed(60, 100, 100)]),
+        group([observed(60, 100, 201), observed(90, 100)]),
       ]),
       [
         {
@@ -97,11 +113,8 @@ describe('model performance observations', () => {
   test('keeps a real zero success rate and does not infer incidents or downtime', () => {
     assert.deepEqual(
       toSuccessRateSeries([
-        group([
-          { ts: 120, success_rate: 0 },
-          { ts: 60, success_rate: 99 },
-        ]),
-        group([{ ts: 60, success_rate: 95 }, { ts: 90 }]),
+        group([observed(120, 0), observed(60, 99)]),
+        group([observed(60, 95), { ts: 90 }]),
       ]),
       [
         { timestamp: '1970-01-01T00:01:00.000Z', success_rate: 97 },
@@ -110,7 +123,7 @@ describe('model performance observations', () => {
     )
   })
 
-  test('bounds reported percentages and omits non-finite values', () => {
+  test('rejects old percentage-only buckets instead of inventing counters', () => {
     const points = toSuccessRateSeries([
       group([
         { ts: 0, success_rate: -10 },
@@ -120,7 +133,7 @@ describe('model performance observations', () => {
     ])
     assert.deepEqual(
       points.map((point) => point.success_rate),
-      [0, 100]
+      []
     )
   })
 

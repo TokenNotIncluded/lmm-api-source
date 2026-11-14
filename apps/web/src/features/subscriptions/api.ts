@@ -16,18 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api, type ApiRequestConfig } from '@/lib/api'
+import { api } from '@/lib/api'
 import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
 
 import type {
   ApiResponse,
   PlanRecord,
-  PlanPayload,
-  SubscriptionPlan,
   UserSubscriptionRecord,
-  CreateUserSubscriptionRequest,
-  SubscriptionPlanRemovalResult,
-  AdminSubscriptionRecordPage,
   AdminSubscriptionResetEligiblePage,
   SubscriptionResetPreviewRequest,
   SubscriptionResetPreviewResult,
@@ -38,7 +33,6 @@ import type {
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   WaffoPancakeSubscriptionPayRequest,
-  WaffoPancakeProductType,
   SelfSubscriptionData,
 } from './types'
 
@@ -51,115 +45,6 @@ export async function getAdminPlans(
 ): Promise<ApiResponse<PlanRecord[]>> {
   const res = await api.get('/api/subscription/admin/plans', {
     params: includeArchived ? { include_archived: '1' } : undefined,
-  })
-  return res.data
-}
-
-export async function createPlan(
-  data: PlanPayload,
-  config?: Pick<ApiRequestConfig, 'authScope'>
-): Promise<ApiResponse<PlanRecord>> {
-  const res = await api.post('/api/subscription/admin/plans', data, config)
-  return res.data
-}
-
-export async function updatePlan(
-  id: number,
-  data: PlanPayload,
-  config?: Pick<ApiRequestConfig, 'authScope'>
-): Promise<ApiResponse<PlanRecord>> {
-  const res = await api.put(`/api/subscription/admin/plans/${id}`, data, config)
-  return res.data
-}
-
-export async function deletePlan(
-  id: number
-): Promise<ApiResponse<SubscriptionPlanRemovalResult>> {
-  const res = await api.delete(`/api/subscription/admin/plans/${id}`, {
-    skipBusinessError: true,
-    skipErrorHandler: true,
-  })
-  return res.data
-}
-
-export async function restorePlan(
-  id: number
-): Promise<ApiResponse<SubscriptionPlan>> {
-  const res = await api.post(`/api/subscription/admin/plans/${id}/restore`)
-  return res.data
-}
-
-export async function patchPlanStatus(
-  id: number,
-  enabled: boolean
-): Promise<ApiResponse> {
-  const res = await api.patch(`/api/subscription/admin/plans/${id}`, {
-    enabled,
-  })
-  return res.data
-}
-
-// ============================================================================
-// Admin User Subscription Management
-// ============================================================================
-
-export async function getUserSubscriptions(
-  userId: number
-): Promise<ApiResponse<UserSubscriptionRecord[]>> {
-  const res = await api.get(
-    `/api/subscription/admin/users/${userId}/subscriptions`
-  )
-  return res.data
-}
-
-export async function createUserSubscription(
-  userId: number,
-  data: CreateUserSubscriptionRequest
-): Promise<ApiResponse<{ message?: string }>> {
-  const res = await api.post(
-    `/api/subscription/admin/users/${userId}/subscriptions`,
-    data
-  )
-  return res.data
-}
-
-export async function invalidateUserSubscription(
-  subId: number
-): Promise<ApiResponse<{ message?: string }>> {
-  const res = await api.post(
-    `/api/subscription/admin/user_subscriptions/${subId}/invalidate`
-  )
-  return res.data
-}
-
-export async function deleteUserSubscription(
-  subId: number
-): Promise<ApiResponse> {
-  const res = await api.delete(
-    `/api/subscription/admin/user_subscriptions/${subId}`
-  )
-  return res.data
-}
-
-export async function getAdminSubscriptionRecords(
-  params: {
-    page: number
-    pageSize: number
-    query?: string
-    planId?: number
-    status?: string
-  },
-  signal?: AbortSignal
-): Promise<ApiResponse<AdminSubscriptionRecordPage>> {
-  const res = await api.get('/api/subscription/admin/records', {
-    params: {
-      page: params.page,
-      page_size: params.pageSize,
-      query: params.query || undefined,
-      plan_id: params.planId || undefined,
-      status: params.status || 'all',
-    },
-    signal,
   })
   return res.data
 }
@@ -236,65 +121,11 @@ export async function paySubscriptionBalance(
   return res.data
 }
 
-// Mints the selected Pancake plan product. amount and currency are the plan's
-// real ISO-fiat list price; the server converts it to Pancake USD.
-export async function createWaffoPancakePlanProduct(
-  data: {
-    name: string
-    amount: string
-    currency: string
-    duration_unit: string
-    duration_value: number
-    product_type: WaffoPancakeProductType
-  },
-  config?: Pick<ApiRequestConfig, 'authScope'>
-): Promise<
-  ApiResponse<{
-    product_id: string
-    product_name: string
-    store_id: string
-    settlement_currency: 'USD'
-    settlement_amount: string
-    product_type: WaffoPancakeProductType
-  }>
-> {
-  const res = await api.post(
-    '/api/option/waffo-pancake/subscription-product',
-    data,
-    config
-  )
-  return res.data
-}
-
-// Returns both one-time and recurring products in the saved Pancake store.
-export async function listWaffoPancakePlanProductOptions(): Promise<
-  ApiResponse<{
-    store_id: string
-    products: {
-      id: string
-      name: string
-      status: string
-      billingPeriod?: string
-      product_type?: WaffoPancakeProductType
-    }[]
-  }>
-> {
-  const res = await api.get(
-    '/api/option/waffo-pancake/subscription-product-options'
-  )
-  return res.data
-}
-
 export async function paySubscriptionEpay(
   data: SubscriptionPayRequest & { payment_method: string }
 ): Promise<SubscriptionPayResponse & { url?: string }> {
   const res = await api.post('/api/subscription/epay/pay', data)
-  return {
-    ...res.data,
-    // SAFETY: the legacy EPay interceptor can expose `url` on the response
-    // wrapper even though Axios' static type only models the `data` payload.
-    url: res.data.url || (res as unknown as { url?: string }).url,
-  }
+  return res.data
 }
 
 // ============================================================================

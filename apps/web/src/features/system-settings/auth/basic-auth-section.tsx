@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { federatedProviders } from '@/features/auth/lib/federated-oauth'
 import { useStatus } from '@/hooks/use-status'
 
 import {
@@ -91,6 +92,12 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
   })
 
   useResetForm(form, formDefaults)
+
+  const [registrationEnabled, oauthRegistrationEnabled] = useWatch({
+    control: form.control,
+    name: ['RegisterEnabled', 'OAuthRegisterEnabled'],
+  })
+  const oauthRegistrationAllowed = registrationEnabled && oauthRegistrationEnabled
 
   const onSubmit = async (data: BasicAuthFormValues) => {
     const updates: Array<{ key: string; value: string | boolean }> = []
@@ -232,18 +239,23 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   .filter(Boolean)
               )
               const methods = [
-                { id: 'github', label: t('GitHub') },
-                { id: 'discord', label: t('Discord') },
+                { id: 'google', label: 'Google', parentIds: [] as string[], aliases: [] as string[] },
+                { id: 'github', label: t('GitHub'), parentIds: [], aliases: [] },
+                { id: 'discord', label: t('Discord'), parentIds: [], aliases: [] },
                 {
                   id: 'oidc',
-                  label: status?.oidc_display_name?.trim() || 'OIDC',
+                  label: 'OIDC',
+                  parentIds: [],
+                  aliases: [],
                 },
-                { id: 'linuxdo', label: t('LinuxDO') },
-                { id: 'telegram', label: t('Telegram') },
-                { id: 'wechat', label: t('WeChat') },
-                ...(status?.custom_oauth_providers ?? []).map((provider) => ({
-                  id: `custom:${provider.slug}`,
+                { id: 'linuxdo', label: t('LinuxDO'), parentIds: [], aliases: [] },
+                { id: 'telegram', label: t('Telegram'), parentIds: [], aliases: [] },
+                { id: 'wechat', label: t('WeChat'), parentIds: [], aliases: [] },
+                ...federatedProviders(status).map((provider) => ({
+                  id: `federated:${provider.id}`,
                   label: provider.name,
+                  parentIds: [provider.kind],
+                  aliases: [`custom:${provider.slug}`],
                 })),
               ]
 
@@ -256,23 +268,41 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                     )}
                   </FormDescription>
                   <div className='grid gap-2 lg:grid-cols-2'>
-                    {methods.map((method) => (
+                    {methods.map((method) => {
+                      const inheritedBlock = method.parentIds.some((id) =>
+                        disabledMethods.has(id)
+                      )
+                      const allowed =
+                        oauthRegistrationAllowed &&
+                        !inheritedBlock &&
+                        ![method.id, ...method.aliases].some((id) => disabledMethods.has(id))
+                      return (
                       <SettingsSwitchItem key={method.id}>
                         <SettingsSwitchContent>
                           <FormLabel>{method.label}</FormLabel>
                           <FormDescription>
-                            {t('Allow new accounts through {{method}}', {
-                              method: method.label,
-                            })}
+                            {t(allowed ? 'Sign in or register' : 'Sign in only')}
+                            {inheritedBlock ? (
+                              <span className='mt-1 block'>
+                                {t('Registration is disabled by a channel-wide rule.')}
+                              </span>
+                            ) : null}
                           </FormDescription>
                         </SettingsSwitchContent>
                         <FormControl>
                           <Switch
-                            checked={!disabledMethods.has(method.id)}
+                            aria-label={t('Allow new accounts through {{method}}', {
+                              method: method.label,
+                            })}
+                            checked={allowed}
+                            disabled={!oauthRegistrationAllowed || inheritedBlock}
                             onCheckedChange={(allowed) => {
                               const next = new Set(disabledMethods)
-                              if (allowed) next.delete(method.id)
-                              else next.add(method.id)
+                              if (allowed) {
+                                for (const id of [method.id, ...method.aliases]) {
+                                  next.delete(id)
+                                }
+                              } else next.add(method.id)
                               field.onChange(
                                 [...next]
                                   .sort((left, right) =>
@@ -284,7 +314,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                           />
                         </FormControl>
                       </SettingsSwitchItem>
-                    ))}
+                    )})}
                   </div>
                   <FormMessage />
                 </FormItem>

@@ -75,9 +75,7 @@ async function unwrap<T>(
     const id = pendingBountyOperation(response.data.data, expectedOperationID)
     await waitForBountyOperation(id)
     return unwrap<T>(
-      api.get(
-        `/api/bounties/operations/${encodeURIComponent(id)}/result`
-      )
+      api.get(`/api/bounties/operations/${encodeURIComponent(id)}/result`)
     )
   }
   return response.data.data
@@ -94,9 +92,7 @@ async function nativeMutation<T>(
   if (!beginBountyOperation(id)) {
     await waitForBountyOperation(id)
     return unwrap<T>(
-      api.get(
-        `/api/bounties/operations/${encodeURIComponent(id)}/result`
-      )
+      api.get(`/api/bounties/operations/${encodeURIComponent(id)}/result`)
     )
   }
   try {
@@ -136,9 +132,7 @@ async function nativeMutation<T>(
     updateBountyOperation(id, { phase: 'unknown' })
     await waitForBountyOperation(id)
     const result = await unwrap<T>(
-      api.get(
-        `/api/bounties/operations/${encodeURIComponent(id)}/result`
-      )
+      api.get(`/api/bounties/operations/${encodeURIComponent(id)}/result`)
     )
     completeBountyOperation(id)
     return result
@@ -169,9 +163,7 @@ export function getBountyConfig() {
 
 export function listOwnedBounties(archived = false) {
   return unwrap<BountyProject[]>(
-    api.get(
-      `/api/bounties/mine?archived=${archived ? 'true' : 'false'}`
-    )
+    api.get(`/api/bounties/mine?archived=${archived ? 'true' : 'false'}`)
   )
 }
 
@@ -188,16 +180,12 @@ export async function getPendingBountyReviewCount() {
 }
 
 export function listAcceptedBounties() {
-  return unwrap<BountyChallenge[]>(
-    api.get('/api/bounties/accepted')
-  )
+  return unwrap<BountyChallenge[]>(api.get('/api/bounties/accepted'))
 }
 
 export function getBountyDetail(projectId: BountyId) {
   return unwrap<BountyProjectDetail>(
-    api.get(
-      `/api/bounties/projects/${encodeURIComponent(projectId)}`
-    )
+    api.get(`/api/bounties/projects/${encodeURIComponent(projectId)}`)
   )
 }
 
@@ -207,10 +195,7 @@ export function createBounty(input: BountyDraftInput) {
 
 export function updateBounty(projectId: BountyId, input: BountyDraftInput) {
   return unwrap<BountyProject>(
-    api.put(
-      `/api/bounties/projects/${encodeURIComponent(projectId)}`,
-      input
-    )
+    api.put(`/api/bounties/projects/${encodeURIComponent(projectId)}`, input)
   )
 }
 
@@ -247,9 +232,7 @@ export function closeBounty(projectId: BountyId) {
 }
 export function archiveBounty(projectId: BountyId) {
   return unwrap<BountyProject>(
-    api.post(
-      `/api/bounties/projects/${encodeURIComponent(projectId)}/archive`
-    )
+    api.post(`/api/bounties/projects/${encodeURIComponent(projectId)}/archive`)
   )
 }
 
@@ -352,9 +335,7 @@ export function markBountyNotificationsRead() {
 }
 
 export function listReceivedBountyTips() {
-  return unwrap<BountyTipNotification[]>(
-    api.get('/api/bounties/tips/received')
-  )
+  return unwrap<BountyTipNotification[]>(api.get('/api/bounties/tips/received'))
 }
 
 export function markReceivedBountyTipsRead() {
@@ -380,9 +361,7 @@ export function markCompatibleBountyNotificationsRead(
 
 export function thankBountyTip(tipId: BountyId) {
   return unwrap<BountyTipNotification>(
-    api.post(
-      `/api/bounties/tips/${encodeURIComponent(tipId)}/thank`
-    )
+    api.post(`/api/bounties/tips/${encodeURIComponent(tipId)}/thank`)
   )
 }
 
@@ -407,15 +386,11 @@ export function openBountyDispute(
   )
 }
 export function listMyBountyDisputes() {
-  return unwrap<BountyDispute[]>(
-    api.get('/api/bounties/disputes/mine')
-  )
+  return unwrap<BountyDispute[]>(api.get('/api/bounties/disputes/mine'))
 }
 
 export function listAdminBountyDisputes() {
-  return unwrap<BountyDispute[]>(
-    api.get('/api/bounties/disputes/admin')
-  )
+  return unwrap<BountyDispute[]>(api.get('/api/bounties/disputes/admin'))
 }
 
 export function resolveBountyDispute(

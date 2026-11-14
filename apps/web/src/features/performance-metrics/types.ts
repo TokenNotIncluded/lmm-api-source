@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/** Native counters are optional only for compatibility with legacy responses. */
+/** Exact counters used for native metric aggregation. */
 export type PerformanceCounters = {
   request_count: number
   success_count: number

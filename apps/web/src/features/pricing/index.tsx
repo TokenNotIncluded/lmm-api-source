@@ -228,7 +228,7 @@ export function Pricing() {
             compareModels.length > 0 ? 'pb-32' : 'pb-20'
           )}
         >
-          <div className='border-foreground/20 mb-5 border-b pt-7 pb-5 sm:mb-8 sm:pt-14 sm:pb-8'>
+          <div className='border-border/70 mb-6 border-b pt-10 pb-7 sm:mb-10 sm:pt-16 sm:pb-10'>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
                 <div className='forge-kicker mb-4'>{t('API Endpoints')}</div>
@@ -263,8 +263,8 @@ export function Pricing() {
             </div>
           </div>
 
-          <div className='bg-background border-foreground/20 sticky top-16 z-40 -mx-5 mb-4 border-b py-3 sm:mb-8 sm:py-4 md:-mx-10'>
-            <div className='flex min-w-0 flex-col gap-2 px-5 sm:gap-3 md:px-10'>
+          <div className='bg-background/92 border-border/70 sticky top-16 z-40 -mx-5 mb-6 border-b py-4 backdrop-blur-md sm:mb-10 sm:py-5 md:-mx-10'>
+            <div className='flex min-w-0 flex-col gap-3 px-5 sm:gap-4 md:px-10'>
               <SearchBar
                 value={searchInput}
                 onChange={setSearchInput}

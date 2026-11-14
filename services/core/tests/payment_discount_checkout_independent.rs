@@ -30,7 +30,9 @@ async fn real_discount_checkout_http(pool: PgPool) {
         sqlx::raw_sql(schema).execute(&pool).await.unwrap();
     }
     let owner = identity.bootstrap_user(7191, 6).await.unwrap();
-    lmm_core::config::initialize(None, true).unwrap();
+    let core_config = out.join("discount-core.toml");
+    fs::write(&core_config, "version=1\n").unwrap();
+    lmm_core::config::initialize(Some(&core_config)).unwrap();
     let store = PaymentsStore::new(
         pool.clone(),
         lmm_core::config::configured_payment_channels().unwrap(),

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { SystemStatus } from '../types'
-import { federatedProviders } from './federated-oauth'
+import { federatedProviders, type FederatedProvider } from './federated-oauth'
 import { isBuiltInGoogleConfigured } from './google-oauth'
 
 type RegistrationSetting =
@@ -42,35 +42,30 @@ export function isOAuthProviderConfigured(
 
   const normalizedMethod = method.trim().toLowerCase()
   switch (normalizedMethod) {
-    case 'wechat':
-      return status.wechat_login === true
     case 'google':
       return isBuiltInGoogleConfigured(status)
     case 'github':
-      return status.github_oauth === true && hasText(status.github_client_id)
-    case 'discord':
-      return status.discord_oauth === true && hasText(status.discord_client_id)
-    case 'oidc':
       return (
-        status.oidc_enabled === true &&
-        hasText(status.oidc_authorization_endpoint) &&
-        hasText(status.oidc_client_id)
+        status.external_oauth_browser === true &&
+        status.github_oauth === true &&
+        hasText(status.github_client_id)
+      )
+    case 'discord':
+      return (
+        status.external_oauth_browser === true &&
+        status.discord_oauth === true &&
+        hasText(status.discord_client_id)
       )
     case 'linuxdo':
-      return status.linuxdo_oauth === true && hasText(status.linuxdo_client_id)
+      return (
+        status.external_oauth_browser === true &&
+        status.linuxdo_oauth === true &&
+        hasText(status.linuxdo_client_id)
+      )
     case 'telegram':
       return status.telegram_oauth === true && hasText(status.telegram_bot_name)
     default:
-      if (!normalizedMethod.startsWith('custom:')) return false
-      {
-        const slug = normalizedMethod.slice('custom:'.length)
-        return (status.custom_oauth_providers ?? []).some(
-          (provider) =>
-            provider.slug.trim().toLowerCase() === slug &&
-            hasText(provider.authorization_endpoint) &&
-            hasText(provider.client_id)
-        )
-      }
+      return false
   }
 }
 
@@ -79,17 +74,8 @@ export function hasOAuthLoginProvider(
 ): boolean {
   return (
     federatedProviders(status).length > 0 ||
-    [
-      'wechat',
-      'google',
-      'github',
-      'discord',
-      'oidc',
-      'linuxdo',
-      'telegram',
-    ].some((method) => isOAuthProviderConfigured(status, method)) ||
-    (status?.custom_oauth_providers ?? []).some((provider) =>
-      isOAuthProviderConfigured(status, `custom:${provider.slug}`)
+    ['google', 'github', 'discord', 'linuxdo', 'telegram'].some((method) =>
+      isOAuthProviderConfigured(status, method)
     )
   )
 }
@@ -144,6 +130,23 @@ export function getDisabledOAuthRegistrationMethods(
   )
 }
 
+export function isOAuthRegistrationAllowed(
+  status: SystemStatus | null | undefined,
+  provider: string | FederatedProvider
+): boolean {
+  if (!isOAuthRegistrationEnabled(status)) return false
+  const disabled = getDisabledOAuthRegistrationMethods(status)
+  if (typeof provider === 'string') {
+    return !disabled.has(provider.trim().toLowerCase())
+  }
+  return (
+    provider.registration_enabled === true &&
+    !disabled.has(provider.kind) &&
+    !disabled.has(`custom:${provider.slug}`) &&
+    !disabled.has(`federated:${provider.id}`)
+  )
+}
+
 /**
  * Returns whether at least one configured provider can create a new account.
  * Existing sign-in providers intentionally do not use this helper: the
@@ -154,45 +157,18 @@ export function hasOAuthRegistrationProvider(
 ): boolean {
   if (!status || !isOAuthRegistrationEnabled(status)) return false
 
-  const disabled = getDisabledOAuthRegistrationMethods(status)
-  const isAllowed = (method: string) => !disabled.has(method)
   if (
-    federatedProviders(status).some(
-      (provider) =>
-        isAllowed(provider.kind) &&
-        isAllowed(`custom:${provider.slug}`) &&
-        isAllowed(`federated:${provider.id}`)
+    federatedProviders(status).some((provider) =>
+      isOAuthRegistrationAllowed(status, provider)
     )
   ) {
     return true
   }
 
-  if (isOAuthProviderConfigured(status, 'wechat') && isAllowed('wechat')) {
-    return true
-  }
-  if (isOAuthProviderConfigured(status, 'google') && isAllowed('google')) {
-    return true
-  }
-  if (isOAuthProviderConfigured(status, 'github') && isAllowed('github')) {
-    return true
-  }
-  if (isOAuthProviderConfigured(status, 'discord') && isAllowed('discord')) {
-    return true
-  }
-  if (isOAuthProviderConfigured(status, 'oidc') && isAllowed('oidc')) {
-    return true
-  }
-  if (isOAuthProviderConfigured(status, 'linuxdo') && isAllowed('linuxdo')) {
-    return true
-  }
-  if (isOAuthProviderConfigured(status, 'telegram') && isAllowed('telegram')) {
-    return true
-  }
-
-  return (status.custom_oauth_providers ?? []).some(
-    (provider) =>
-      isOAuthProviderConfigured(status, `custom:${provider.slug}`) &&
-      isAllowed(`custom:${provider.slug.trim().toLowerCase()}`)
+  return ['google', 'github', 'discord', 'linuxdo', 'telegram'].some(
+    (method) =>
+      isOAuthProviderConfigured(status, method) &&
+      isOAuthRegistrationAllowed(status, method)
   )
 }
 

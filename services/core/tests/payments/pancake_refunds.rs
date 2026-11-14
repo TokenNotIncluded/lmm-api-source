@@ -1,0 +1,139 @@
+//! Synthetic signed Pancake callbacks through real Core proof and ledger paths.
+use super::*;
+
+fn refund_proof(
+    intent: &pb::PaymentIntent,
+    refund: &str,
+    delivery: &str,
+    amount: i64,
+    status: &str,
+) -> pb::ProviderEvidence {
+    let mut evidence = quantity_paid_proof(intent);
+    let mut value: Value = serde_json::from_slice(&evidence.signed_payload).unwrap();
+    value["id"] = json!(delivery);
+    value["eventId"] = json!(refund);
+    value["eventType"] = json!(format!("refund.{status}"));
+    value["data"]["refundStatus"] = json!(status);
+    value["data"]["originalChargedAmount"] = value["data"]["chargedAmount"].clone();
+    value["data"]["refundedAmount"] = json!(format!("{}.{:02}", amount / 100, amount % 100));
+    // A ticket reference resembling a hold must remain external evidence.
+    value["data"]["refundTicketMerchantExternalId"] = json!("not_local_hold_authority");
+    evidence.signed_payload = serde_json::to_vec(&value).unwrap();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let mut signed = format!("{timestamp}.").into_bytes();
+    signed.extend_from_slice(&evidence.signed_payload);
+    let signature = quantity_fixture_rsa()
+        .sign(Pkcs1v15Sign::new::<Sha256>(), &Sha256::digest(&signed))
+        .unwrap();
+    evidence.signature = format!("t={timestamp},v1={}", STANDARD.encode(signature)).into_bytes();
+    evidence.provider_event_id = delivery.into();
+    evidence
+}
+
+#[sqlx::test]
+async fn pancake_signed_external_refunds_use_original_payment_and_cumulative_cap(pool: PgPool) {
+    let mut f = fresh(&pool).await;
+    f.store = quantity_store(&pool, quantity_policy(1, 1));
+    let intent = f
+        .store
+        .prepare(
+            &f.secret,
+            quantity_request(&f, "pancake_refund_prepare", 500_000),
+        )
+        .await
+        .unwrap();
+    f.store
+        .credit(credit_request(
+            &intent,
+            "pancake_refund_credit",
+            quantity_paid_proof(&intent),
+        ))
+        .await
+        .unwrap();
+    balance(&f, intent.credit_units, 0).await;
+    let before = journals(&pool).await;
+
+    let failed = refund_proof(&intent, "REF_failure", "delivery_failure", 20, "failed");
+    let mut admitted = Some(failed.clone());
+    f.store
+        .receive(intent.intent_id, &mut admitted)
+        .await
+        .unwrap();
+    let failure = pb::ExternalRefundRequest {
+        mutation: mutation("pancake_failed_no_money"),
+        intent_id: intent.intent_id,
+        evidence: admitted,
+    };
+    assert_eq!(
+        f.store.external_refund(failure).await.unwrap_err(),
+        Error::Invalid
+    );
+    balance(&f, intent.credit_units, 0).await;
+    assert_eq!(journals(&pool).await, before);
+
+    let evidence = refund_proof(&intent, "REF_partial", "delivery_partial", 40, "succeeded");
+    let request = pb::ExternalRefundRequest {
+        mutation: mutation("pancake_partial_refund"),
+        intent_id: intent.intent_id,
+        evidence: Some(evidence),
+    };
+    let applied = f.store.external_refund(request.clone()).await.unwrap();
+    assert_eq!(f.store.external_refund(request).await.unwrap(), applied);
+    balance(&f, intent.credit_units * 60 / 100, 0).await;
+
+    // A second delivery of one business refund is not a second refund.
+    let retry = pb::ExternalRefundRequest {
+        mutation: mutation("pancake_new_delivery"),
+        intent_id: intent.intent_id,
+        evidence: Some(refund_proof(
+            &intent,
+            "REF_partial",
+            "delivery_partial_again",
+            40,
+            "succeeded",
+        )),
+    };
+    assert_eq!(
+        f.store.external_refund(retry).await.unwrap_err(),
+        Error::Conflict
+    );
+    assert_eq!(journals(&pool).await, before + 1);
+
+    // Each callback is below the original charge; cumulative capacity still
+    // belongs to Core, not to the provider parser.
+    let over = pb::ExternalRefundRequest {
+        mutation: mutation("pancake_cumulative_overflow"),
+        intent_id: intent.intent_id,
+        evidence: Some(refund_proof(
+            &intent,
+            "REF_over",
+            "delivery_over",
+            70,
+            "succeeded",
+        )),
+    };
+    assert_eq!(
+        f.store.external_refund(over).await.unwrap_err(),
+        Error::Conflict
+    );
+    balance(&f, intent.credit_units * 60 / 100, 0).await;
+    let rest = pb::ExternalRefundRequest {
+        mutation: mutation("pancake_refund_remainder"),
+        intent_id: intent.intent_id,
+        evidence: Some(refund_proof(
+            &intent,
+            "REF_rest",
+            "delivery_rest",
+            60,
+            "succeeded",
+        )),
+    };
+    f.store.external_refund(rest).await.unwrap();
+    balance(&f, 0, 0).await;
+    let totals: (i64, i64) = sqlx::query_as("SELECT refunded_minor,(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1) FROM core_payments.intents WHERE id=$1")
+        .bind(intent.intent_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(totals, (100, 2));
+}

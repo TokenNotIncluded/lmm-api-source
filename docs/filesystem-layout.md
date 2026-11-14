@@ -27,7 +27,7 @@
 
 核心允许 `--config` 位于子命令前后，例如 `lmm-core --config /absolute/private/owner.toml init-db`。初始化配置必须使用独立安装 owner，运行配置必须使用受限 runtime；不能把 owner 配置交给网络服务。`--help` 和 `--version` 不要求读取服务配置。
 
-新服务模板和新部署流程只使用文件配置。两个服务的显式 `--legacy-env` 都是旧测试和受控迁移的临时兼容入口，与 `--config` 互斥；默认文件缺失也不能自动退回环境变量。文件模式拒绝旧运行时环境变量混入。兼容入口不改变规范路径，也不应写进新安装步骤。工具链变量、操作系统变量与构建用变量仍遵守各自契约。
+Core 和 Extensions 均只使用 TOML 文件配置，已删除 `--legacy-env` 入口；默认文件缺失不能退回环境变量，旧运行时环境变量混入时启动失败。冻结导入脚本仅可调用匹配 schema 的历史 executor，不能用于当前二进制。工具链变量、操作系统变量与构建用变量仍遵守各自契约。
 
 主配置和功能配置引用均使用 TOML；连接串、口令和密钥通过绝对路径引用独立私密文件。文件模式不允许环境变量混合覆盖，不展开 `$VARIABLE`、`%d` 或任意 shell 内容。示例见 [core.example.toml](../config/core.example.toml) 和 [extensions.example.toml](../config/extensions.example.toml)。示例不含可用凭据，配置解析测试也不能证明数据库和业务已验收。
 

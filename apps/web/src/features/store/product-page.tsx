@@ -87,7 +87,6 @@ import {
 import {
   enabledStoreVariants,
   initialStoreVariant,
-  legacyVariantProduct,
   selectedStoreVariant,
   storeVariantCapacity,
   storeVariantUnlimitedSupply,
@@ -607,7 +606,7 @@ function ResolvedStoreCheckout({
       }
       const body = {
         product_id: product.id,
-        ...(!legacyVariantProduct(product) ? { variant_id: variantId } : {}),
+        variant_id: variantId,
         quantity: count,
         payment_method: actualMethod as StorePaymentMethod | 'free',
         ...(promotion.quote
@@ -628,7 +627,7 @@ function ResolvedStoreCheckout({
       const created = await recovery.submit(
         {
           productId: product.id,
-          ...(!legacyVariantProduct(product) ? { variantId } : {}),
+          variantId,
           quantity: count,
           ...(promotion.quote
             ? { promotionCode: promotion.quote.promotion_code }
@@ -881,62 +880,60 @@ function ResolvedStoreCheckout({
             promotion={promotion}
             onRemove={() => setPromotionCode('')}
           />
-          {!legacyVariantProduct(product) && (
-            <fieldset className='space-y-2'>
-              <legend className='text-sm font-medium'>
-                {t('Product variant')}
-              </legend>
-              {!enabledStoreVariants(product).length && (
-                <p className='text-muted-foreground text-sm'>
-                  {t('No variants are currently available.')}
-                </p>
-              )}
-              {enabledStoreVariants(product).map((variant) => (
-                <label
-                  key={variant.id}
-                  className='has-[:checked]:border-primary flex items-start gap-2 rounded-md border p-3 text-sm'
-                >
-                  <input
-                    type='radio'
-                    name='store-variant'
-                    value={variant.id}
-                    checked={variantId === variant.id}
-                    onChange={() => setVariantId(variant.id)}
-                    disabled={
-                      !(
-                        promotion.resolved &&
-                        (promotion.resolved.variant_ids.length === 0 ||
-                          promotion.resolved.variant_ids.includes(variant.id))
-                      ) &&
-                      (variant.trading_paused ||
-                        storeVariantCapacity(product, variant.id) <= 0)
-                    }
-                  />
-                  <span className='min-w-0 flex-1 break-words'>
-                    {variant.name || t('Default variant')}
-                    <span className='text-muted-foreground block text-xs'>
-                      {variant.unlimited_supply &&
-                      product.sale_limit == null &&
-                      promotion.quote?.variant_id !== variant.id
-                        ? t(fixedCopy.unlimited)
-                        : t('Available to buy: {{count}}', {
-                            count:
-                              promotion.quote?.variant_id === variant.id
-                                ? promotion.quote.max_quantity
-                                : variant.sale_available,
-                          })}
-                    </span>
+          <fieldset className='space-y-2'>
+            <legend className='text-sm font-medium'>
+              {t('Product variant')}
+            </legend>
+            {!enabledStoreVariants(product).length && (
+              <p className='text-muted-foreground text-sm'>
+                {t('No variants are currently available.')}
+              </p>
+            )}
+            {enabledStoreVariants(product).map((variant) => (
+              <label
+                key={variant.id}
+                className='has-[:checked]:border-primary flex items-start gap-2 rounded-md border p-3 text-sm'
+              >
+                <input
+                  type='radio'
+                  name='store-variant'
+                  value={variant.id}
+                  checked={variantId === variant.id}
+                  onChange={() => setVariantId(variant.id)}
+                  disabled={
+                    !(
+                      promotion.resolved &&
+                      (promotion.resolved.variant_ids.length === 0 ||
+                        promotion.resolved.variant_ids.includes(variant.id))
+                    ) &&
+                    (variant.trading_paused ||
+                      storeVariantCapacity(product, variant.id) <= 0)
+                  }
+                />
+                <span className='min-w-0 flex-1 break-words'>
+                  {variant.name || t('Default variant')}
+                  <span className='text-muted-foreground block text-xs'>
+                    {variant.unlimited_supply &&
+                    product.sale_limit == null &&
+                    promotion.quote?.variant_id !== variant.id
+                      ? t(fixedCopy.unlimited)
+                      : t('Available to buy: {{count}}', {
+                          count:
+                            promotion.quote?.variant_id === variant.id
+                              ? promotion.quote.max_quantity
+                              : variant.sale_available,
+                        })}
                   </span>
-                  <StoreAmount quota={variant.price_quota} />
-                </label>
-              ))}
-              {!selectedVariant && enabledStoreVariants(product).length > 0 && (
-                <p className='text-muted-foreground text-xs'>
-                  {t('Choose a variant before ordering.')}
-                </p>
-              )}
-            </fieldset>
-          )}
+                </span>
+                <StoreAmount quota={variant.price_quota} />
+              </label>
+            ))}
+            {!selectedVariant && enabledStoreVariants(product).length > 0 && (
+              <p className='text-muted-foreground text-xs'>
+                {t('Choose a variant before ordering.')}
+              </p>
+            )}
+          </fieldset>
           <StoreQuantityControl
             value={quantity}
             max={capacity}

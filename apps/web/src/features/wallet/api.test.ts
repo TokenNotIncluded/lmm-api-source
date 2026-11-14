@@ -23,11 +23,6 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
-  validateDiscountCode,
-  calculateAmount,
-  calculateStripeAmount,
-  calculateWaffoAmount,
-  calculateWaffoPancakeAmount,
   calculateCreditAmount,
   calculateCreditStripeAmount,
   calculateCreditWaffoAmount,
@@ -37,14 +32,12 @@ import {
   requestCreditStripePayment,
   requestCreditWaffoPayment,
   requestCreditPancakePayment,
-  requestPayment,
-  requestStripePayment,
-  requestCreemPayment,
-  requestWaffoPayment,
-  requestWaffoPancakePayment,
+  isApiSuccess,
   getAllBillingHistory,
   getUserBillingHistory,
-  sendAffiliateInvitation,
+  getAffiliateCode,
+  previewAffiliateTransfer,
+  confirmAffiliateTransfer,
 } from './api'
 import { prepareTopup, readPendingTopups } from './lib/topup-cloud-storage'
 
@@ -82,42 +75,33 @@ test('billing history APIs send the global sort contract to user and admin route
   )
 })
 
-test('sendAffiliateInvitation posts only the recipient to the SMTP-backed route', async () => {
-  let capturedUrl = ''
-  let capturedBody: unknown
-  let capturedConfig: Record<string, unknown> | undefined
-
-  api.post = (async (
-    url: string,
-    body: unknown,
-    config?: Record<string, unknown>
-  ) => {
-    capturedUrl = url
-    capturedBody = body
-    capturedConfig = config
-    return { data: { success: true, message: 'sent' } }
+test('affiliate APIs use native code and explicit preview confirmation routes', async () => {
+  const calls: Array<[string, unknown]> = []
+  api.get = (async (url: string) => {
+    calls.push([url, undefined])
+    return { data: { success: true, data: 'abc' } }
+  }) as typeof api.get
+  api.post = (async (url: string, body: unknown) => {
+    calls.push([url, body])
+    return { data: { id: 7, amount: 500000, csrf: 'token' } }
   }) as typeof api.post
-
-  const response = await sendAffiliateInvitation({
-    email: 'friend@example.com',
-  })
-
-  assert.deepEqual(response, { success: true, message: 'sent' })
-  assert.equal(capturedUrl, '/api/user/aff/invite')
-  assert.deepEqual(capturedBody, { email: 'friend@example.com' })
-  assert.equal(capturedConfig?.skipBusinessError, true)
+  await getAffiliateCode()
+  await previewAffiliateTransfer('500000')
+  await confirmAffiliateTransfer(7, 'token')
+  assert.deepEqual(calls, [
+    ['/core/v1/affiliate/code', undefined],
+    ['/core/v1/affiliate/preview', { amount_credits: '500000' }],
+    ['/core/v1/affiliate/claim/7', { csrf: 'token' }],
+  ])
+  await assert.rejects(previewAffiliateTransfer('9007199254740992'))
+  assert.equal(calls.length, 3)
 })
 
-test('canonical money gateways and Creem bind the server order before returning to redirect hooks', async () => {
+test('credit money gateways bind the server order before returning to their caller', async () => {
   useAuthStore.getState().auth.setUser({ id: 7, username: 'test', role: 1 })
   const calls = [
     () => requestCreditPayment({ amount: 1, payment_method: 'alipay' }),
     () => requestCreditStripePayment({ amount: 1, payment_method: 'stripe' }),
-    () =>
-      requestCreemPayment({
-        product_id: 'test-product',
-        payment_method: 'creem',
-      }),
     () => requestCreditWaffoPayment({ amount: 1 }),
     () => requestCreditPancakePayment({ amount: 1 }),
   ]
@@ -160,64 +144,6 @@ test('a late gateway response cannot bind a receipt after account switch', async
   await response
   assert.equal(readPendingTopups(7)[0]?.tradeNo, undefined)
   assert.deepEqual(readPendingTopups(8), [])
-})
-
-test('quote and checkout keep fractional legacy batches explicit, with the payment ISO unchanged', async () => {
-  const captured: Array<{ url: string; body: Record<string, unknown> }> = []
-  api.post = (async (url: string, body: Record<string, unknown>) => {
-    captured.push({ url, body })
-    return {
-      data: {
-        success: true,
-        data: '0.01',
-        ...grantFields(Number(body.amount)),
-      },
-    }
-  }) as typeof api.post
-  const amount = 0.000002 // Exactly one raw Credit at QPU=500000.
-  await calculateAmount({ amount, payment_method: 'alipay' })
-  await calculateStripeAmount({ amount })
-  await calculateWaffoAmount({ amount })
-  await calculateWaffoPancakeAmount({ amount })
-  await requestPayment({ amount, payment_method: 'alipay' })
-  await requestStripePayment({ amount, payment_method: 'stripe' })
-  await requestWaffoPayment({ amount })
-  await requestWaffoPancakePayment({
-    amount,
-    settlement_amount: '0.01',
-    settlement_currency: 'USD',
-  })
-  assert.equal(captured.length, 8)
-  for (const call of captured) {
-    assert.equal(call.body.amount, 0.000002, call.url)
-    assert.equal(call.body.amount_unit, 'LEGACY', call.url)
-  }
-  assert.equal(captured.at(-1)?.body.settlement_amount, '0.01')
-  assert.equal(captured.at(-1)?.body.settlement_currency, 'USD')
-})
-
-test('discount validation uses the same fractional batch unit as quote and checkout', async () => {
-  let body: unknown
-  api.post = (async (_url: string, request: unknown) => {
-    body = request
-    return {
-      data: {
-        success: true,
-        data: { code: 'SAVE', discount_percent: 10, min_amount: 3500000 },
-      },
-    }
-  }) as typeof api.post
-  await validateDiscountCode({
-    code: 'SAVE',
-    amount: 7.3,
-    payment_method: 'card',
-  })
-  assert.deepEqual(body, {
-    code: 'SAVE',
-    amount: 7.3,
-    payment_method: 'card',
-    amount_unit: 'LEGACY',
-  })
 })
 
 function grantFields(amount: number) {
@@ -597,3 +523,35 @@ for (const currency of ['CNY', 'USD'] as const) {
     )
   })
 }
+
+test('payment redirect reads only the native payload, never a legacy response wrapper', async () => {
+  const payload = {
+    success: true,
+    url: 'https://native.test/pay',
+    ...grantFields(1),
+  }
+  api.post = (async () => ({
+    data: payload,
+    url: 'https://legacy.test/pay',
+  })) as typeof api.post
+  assert.deepEqual(
+    await requestCreditPayment({ amount: 1, payment_method: 'alipay' }),
+    payload
+  )
+  api.post = (async () => ({
+    data: { success: true, ...grantFields(1) },
+    url: 'https://legacy.test/pay',
+  })) as typeof api.post
+  assert.equal(
+    (await requestCreditPayment({ amount: 1, payment_method: 'alipay' })).url,
+    undefined
+  )
+})
+
+test('wallet success requires the explicit native success flag', () => {
+  assert.equal(isApiSuccess({ success: true }), true)
+  assert.equal(isApiSuccess({ success: true, message: 'failure' }), true)
+  assert.equal(isApiSuccess({ message: 'success' }), false)
+  assert.equal(isApiSuccess({ success: false, message: 'success' }), false)
+  assert.equal(isApiSuccess({}), false)
+})

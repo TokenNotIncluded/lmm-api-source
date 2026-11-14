@@ -133,6 +133,7 @@ async function renderGuide(user: AuthUser | null, serverAddress?: string) {
           data: {
             assistant: { enabled: false },
             server_address: serverAddress,
+            data: { server_address: 'https://nested.example.test' },
             system_name: 'Custom Relay',
           },
         },

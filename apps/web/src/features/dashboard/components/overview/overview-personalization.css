@@ -5,20 +5,20 @@
   position: relative;
   min-width: 0;
   overflow: hidden;
-  padding: clamp(1.4rem, 3cqi, 2.5rem);
+  padding: clamp(1.5rem, 3.2cqi, 2.75rem);
   border: 1px solid
     color-mix(in oklch, var(--forge-paper-light) 8%, transparent);
   border-radius: var(--radius-xl);
   background:
     radial-gradient(
       ellipse at 100% 0,
-      color-mix(in oklch, var(--forge-clay-dark) 18%, transparent),
-      transparent 58%
+      color-mix(in oklch, var(--forge-clay-dark) 14%, transparent),
+      transparent 56%
     ),
     var(--forge-night);
   color: var(--forge-paper-light);
   box-shadow: 0 1.5rem 4rem -3rem
-    color-mix(in oklch, var(--forge-night) 60%, transparent);
+    color-mix(in oklch, var(--forge-night) 55%, transparent);
 }
 .overview-greeting-meta,
 .overview-greeting-footer {
@@ -31,38 +31,28 @@
   font-size: 0.75rem;
 }
 .overview-greeting-quote {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: clamp(0.25rem, 1.4cqi, 1rem);
-  padding: clamp(1.25rem, 3.5cqi, 3rem) 0;
+  display: block;
+  padding: clamp(1.5rem, 3.2cqi, 2.75rem) 0;
 }
 .overview-greeting-mark {
-  align-self: start;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(5rem, 12cqi, 10rem);
-  line-height: 0.78;
-  color: color-mix(in oklch, var(--foreground) 45%, var(--background));
-  user-select: none;
-}
-.overview-greeting-mark-end {
-  align-self: end;
-  transform: translateY(0.35em);
+  display: none;
 }
 .overview-greeting-message {
   min-width: 0;
+  max-width: 24ch;
   margin: 0;
-  font-size: clamp(1.7rem, 4.3cqi, 3.9rem);
-  font-weight: 500;
-  letter-spacing: -0.045em;
-  line-height: 1.25;
+  font-size: clamp(1.55rem, 3.6cqi, 3rem);
+  font-weight: 520;
+  letter-spacing: -0.04em;
+  line-height: 1.18;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   text-wrap: balance;
 }
 .overview-greeting-footer {
-  border-top: 1px solid var(--border);
-  padding-top: 1.15rem;
+  border-top: 1px solid
+    color-mix(in oklch, var(--forge-paper-light) 10%, transparent);
+  padding-top: 1.25rem;
 }
 .overview-usage-charts {
   min-width: 0;
@@ -100,26 +90,6 @@
   padding: 1.5rem;
   text-align: center;
 }
-.overview-greeting-quote {
-  display: block;
-  padding: clamp(2.25rem, 5cqi, 4.5rem) 0;
-}
-
-.overview-greeting-mark {
-  display: none;
-}
-
-.overview-greeting-message {
-  max-width: 22ch;
-  font-size: clamp(2rem, 4.3cqi, 4rem);
-  font-weight: 520;
-  line-height: 1.12;
-}
-
-.overview-greeting-footer {
-  padding-top: 1.25rem;
-}
-
 .overview-greeting [data-slot='button']:hover {
   background: color-mix(in oklch, var(--forge-paper-light) 10%, transparent);
   color: var(--forge-paper-light);

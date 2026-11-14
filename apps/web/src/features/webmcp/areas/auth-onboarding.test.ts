@@ -307,3 +307,27 @@ test('an aborted signal stops a status read before it starts', async () => {
   )
   assert.equal(reads, 0)
 })
+
+test('public tools ignore nested monolith status fields', async () => {
+  mockStatus({
+    data: {
+      password_login_enabled: false,
+      setup: false,
+      version: 'nested-version',
+      system_name: 'nested-name',
+    },
+  })
+  const { tools } = buildTools()
+  const methods = (await byName(tools, 'lmm_auth_methods').execute(
+    {},
+    { signal: signal() }
+  )) as Record<string, unknown>
+  assert.equal(methods.password_login, true)
+  const setup = (await byName(tools, 'lmm_setup_status').execute(
+    {},
+    { signal: signal() }
+  )) as Record<string, unknown>
+  assert.equal(setup.setup_required, null)
+  assert.equal(setup.version, null)
+  assert.equal(setup.system_name, null)
+})

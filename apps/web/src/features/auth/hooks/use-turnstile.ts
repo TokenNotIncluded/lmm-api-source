@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useStatus } from '@/hooks/use-status'
@@ -29,6 +29,7 @@ import { isLocalPreview } from '@/lib/local-preview'
 export function useTurnstile() {
   const { status } = useStatus()
   const [turnstileToken, setTurnstileToken] = useState('')
+  const resetTurnstile = useCallback(() => setTurnstileToken(''), [])
   const localPreview = isLocalPreview()
 
   const isTurnstileEnabled = !!(
@@ -56,6 +57,7 @@ export function useTurnstile() {
     turnstileSiteKey,
     turnstileToken,
     setTurnstileToken,
+    resetTurnstile,
     validateTurnstile,
   }
 }

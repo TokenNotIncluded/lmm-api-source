@@ -650,11 +650,7 @@ impl Worker {
         }
         Ok(())
     }
-    async fn open(
-        &mut self,
-        route: &Route,
-        body: Vec<u8>,
-    ) -> Result<reqwest::Response, RelayError> {
+    async fn open(&mut self, route: &Route, body: Bytes) -> Result<reqwest::Response, RelayError> {
         loop {
             if self.gate.cancel.is_cancelled() {
                 return Err(RelayError::Cancelled);
@@ -812,7 +808,7 @@ impl Worker {
         ) {
             self.request.validate_exact_input_count()?;
         }
-        let mut body = self.request.upstream_body(&route)?;
+        let mut body = Bytes::from(self.request.upstream_body(&route)?);
         if body.len() > self.inner.limits.request_bytes {
             return Err(RelayError::Limit("encoded request"));
         }
@@ -923,7 +919,7 @@ impl Worker {
                 ));
             }
             route = next;
-            body = self.request.upstream_body(&route)?;
+            body = Bytes::from(self.request.upstream_body(&route)?);
             if body.len() > self.inner.limits.request_bytes {
                 return Err(RelayError::Limit("encoded request"));
             }

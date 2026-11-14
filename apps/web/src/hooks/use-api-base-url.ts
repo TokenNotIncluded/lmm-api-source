@@ -8,7 +8,7 @@ export function useApiBaseUrl() {
   const { status, loading } = useStatus()
   const baseUrl = status
     ? resolveApiBaseUrl(
-        status.server_address ?? status.data?.server_address,
+        status.server_address,
         typeof window === 'undefined' ? '' : window.location.origin
       )
     : null

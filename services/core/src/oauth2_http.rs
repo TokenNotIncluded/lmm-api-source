@@ -29,10 +29,14 @@ pub fn router(issuer: LmmIssuer) -> Router {
             "/.well-known/oauth-protected-resource/api/oauth2",
             get(resource_metadata),
         )
+        .route("/.well-known/openid-configuration", get(oidc_metadata))
+        .route("/api/oauth2/jwks", get(oidc_jwks))
+        .route("/api/oauth2/userinfo", get(userinfo).post(userinfo))
         .route("/api/oauth2/token", post(token))
         .route("/api/oauth2/revoke", post(revoke))
         .route("/api/oauth2/catalog", get(catalog))
         .route("/api/oauth2/application", get(application))
+        .route("/api/oauth2/application/budget", get(application_budget))
         .route("/api/oauth2/inventory", get(inventory))
         .route("/api/oauth2/balance", get(balance))
         .route("/api/oauth2/usage", get(usage))
@@ -99,16 +103,31 @@ async fn metadata(State(issuer): State<LmmIssuer>) -> Response {
         ]);
     }
     if managed {
-        document["lmm_client_ids_supported"] = if p.pi_budget_limit().is_some() {
-            json!(["lmm", "lmm-pi", "lmm-cc-switch"])
-        } else {
-            json!(["lmm", "lmm-cc-switch"])
-        };
-        document["lmm_managed_clients"] = json!([{
-            "client_id":"lmm-cc-switch", "application":"cc-switch",
-            "status_endpoint":format!("{resource}/application"),
-            "refresh_recovery":{"contract":"lmm.refresh-recovery.v1","window_seconds":600}
-        }]);
+        let mut clients = vec!["lmm"];
+        if p.pi_budget_limit().is_some() {
+            clients.push("lmm-pi");
+        }
+        let mut applications = Vec::new();
+        for (client, application) in [("lmm-cc-switch", "cc-switch"), ("lmm-magpie", "magpie")] {
+            if p.model_budget_limit(client).is_some() {
+                clients.push(client);
+                applications.push(json!({
+                    "client_id":client, "application":application,
+                    "status_endpoint":format!("{resource}/application"),
+                    "refresh_recovery":{"contract":"lmm.refresh-recovery.v1","window_seconds":600}
+                }));
+            }
+        }
+        document["lmm_client_ids_supported"] = json!(clients);
+        document["lmm_managed_clients"] = json!(applications);
+    }
+    if let Some(oidc) = issuer.oidc_metadata() {
+        document["jwks_uri"] = oidc["jwks_uri"].clone();
+        document["userinfo_endpoint"] = oidc["userinfo_endpoint"].clone();
+        document["scopes_supported"]
+            .as_array_mut()
+            .expect("scope metadata is an array")
+            .push(json!("openid"));
     }
     Json(document).into_response()
 }
@@ -328,5 +347,56 @@ async fn application(
     match issuer.managed_application_status(access).await {
         Ok(value) => Json(value).into_response(),
         Err(error) => read_error(ReadError::Identity(error)),
+    }
+}
+
+async fn application_budget(
+    State(issuer): State<LmmIssuer>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    if uri.query().is_some() {
+        return read_error(ReadError::Identity(IdentityError::Unauthorized));
+    }
+    let access = match bearer(&headers) {
+        Ok(v) => v,
+        Err(e) => return read_error(ReadError::Identity(e)),
+    };
+    match issuer.managed_application_budget(access).await {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => read_error(ReadError::Identity(error)),
+    }
+}
+
+async fn oidc_metadata(State(issuer): State<LmmIssuer>) -> Response {
+    match issuer.oidc_metadata() {
+        Some(document) => Json(document).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+async fn oidc_jwks(State(issuer): State<LmmIssuer>) -> Response {
+    match issuer.oidc_jwks() {
+        Some(document) => Json(document).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+async fn userinfo(
+    State(issuer): State<LmmIssuer>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    if issuer.oidc_metadata().is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if uri.query().is_some() {
+        return read_error(ReadError::Identity(IdentityError::Unauthorized));
+    }
+    let access = match bearer(&headers) {
+        Ok(token) => token,
+        Err(e) => return read_error(ReadError::Identity(e)),
+    };
+    match issuer.userinfo(access).await {
+        Ok(value) => Json(value).into_response(),
+        Err(e) => read_error(e),
     }
 }

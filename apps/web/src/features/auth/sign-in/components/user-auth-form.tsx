@@ -75,6 +75,7 @@ export function UserAuthForm({
   const [appealRefreshKey, setAppealRefreshKey] = useState(0)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
+  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
   const loginFailedMessage = t('Login failed')
 
@@ -91,6 +92,7 @@ export function UserAuthForm({
     turnstileSiteKey,
     turnstileToken,
     setTurnstileToken,
+    resetTurnstile,
     validateTurnstile,
   } = useTurnstile()
   const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
@@ -102,6 +104,7 @@ export function UserAuthForm({
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
   const [agreedToLegal, setAgreedToLegal] = useState(!requiresLegalConsent)
   const passkeyButtonDisabled =
+    isLoading ||
     isPasskeyLoading ||
     !passkeySupported ||
     (requiresLegalConsent && !agreedToLegal)
@@ -151,6 +154,7 @@ export function UserAuthForm({
   )
 
   async function onSubmit(data: z.infer<typeof loginFormSchema>) {
+    if (!passwordLoginEnabled) return
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
       return
@@ -206,6 +210,8 @@ export function UserAuthForm({
       )
     } finally {
       if (pendingLogin.current === controller) pendingLogin.current = null
+      setTurnstileToken('')
+      setTurnstileWidgetKey((current) => current + 1)
       setIsLoading(false)
     }
   }
@@ -215,6 +221,7 @@ export function UserAuthForm({
   }
 
   async function handlePasskeyLogin() {
+    if (!passkeyLoginEnabled) return
     if (pendingLogin.current) return
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
@@ -337,7 +344,11 @@ export function UserAuthForm({
         status={status}
         redirectTo={redirectTo}
         acceptedLegal={agreedToLegal}
-        disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+        disabled={
+          isLoading ||
+          isPasskeyLoading ||
+          (requiresLegalConsent && !agreedToLegal)
+        }
         onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
         isWeChatLoading={isWeChatSubmitting}
         featureGoogle
@@ -409,7 +420,7 @@ export function UserAuthForm({
           </div>
         ) : null}
 
-        {passwordLoginEnabled && (
+        {(passwordLoginEnabled || passkeyLoginEnabled) && (
           <>
             {/* Username Field */}
             <FormField
@@ -430,13 +441,17 @@ export function UserAuthForm({
                 </FormItem>
               )}
             />
+          </>
+        )}
 
+        {passwordLoginEnabled && (
+          <>
             {/* Password Field */}
             <FormField
               control={form.control}
               name='password'
               render={({ field }) => (
-                <FormItem className='relative'>
+                <FormItem>
                   <FormLabel>{t('Password')}</FormLabel>
                   <FormControl>
                     <PasswordInput
@@ -447,12 +462,6 @@ export function UserAuthForm({
                     />
                   </FormControl>
                   <FormMessage />
-                  <Link
-                    to='/forgot-password'
-                    className='text-muted-foreground absolute end-0 -top-0.5 z-10 text-sm font-medium hover:opacity-75'
-                  >
-                    {t('Forgot password?')}
-                  </Link>
                 </FormItem>
               )}
             />
@@ -461,7 +470,7 @@ export function UserAuthForm({
             <Button
               type='submit'
               className='mt-1 h-11 w-full justify-center gap-2 rounded-xl'
-              disabled={isLoading}
+              disabled={isLoading || isPasskeyLoading}
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
@@ -471,13 +480,24 @@ export function UserAuthForm({
             {isTurnstileEnabled && (
               <div className='mt-2'>
                 <Turnstile
+                  key={turnstileWidgetKey}
                   siteKey={turnstileSiteKey}
                   onVerify={setTurnstileToken}
+                  onExpire={resetTurnstile}
                 />
               </div>
             )}
           </>
         )}
+
+        <div className='flex justify-end'>
+          <Link
+            to='/forgot-password'
+            className='text-muted-foreground hover:text-foreground rounded-sm text-sm font-medium underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4'
+          >
+            {t('Forgot password?')}
+          </Link>
+        </div>
 
         <LegalConsent
           status={status}

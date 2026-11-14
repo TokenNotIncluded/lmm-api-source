@@ -28,6 +28,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from legacy_sql import literal as lit
+from legacy_identity_formats import legacy_cose_key
 
 PHASES = ("discounts", "history", "oauth_apps", "mfa", "passkeys", "telegram", "channel_identities", "channels_history")
 GUARDS = {
@@ -499,7 +500,7 @@ def plan_mfa(a, src, tgt):
     schema, stats, sql = a.source_schema, Counter(), []
     factors = query(src, "SELECT id,user_id,secret,is_enabled,last_used_at,deleted_at,"
                          "floor(extract(epoch FROM last_used_at))::bigint AS last_used FROM two_fas ORDER BY id", schema)
-    codes = query(src, "SELECT user_id,is_used,deleted_at FROM two_fa_backup_codes", schema)
+    codes = query(src, "SELECT id,user_id,code_hash,is_used,deleted_at FROM two_fa_backup_codes ORDER BY id", schema)
     required = {r["user_id"] for r in query(tgt, "SELECT user_id FROM core_identity.user_profiles "
                                                   "WHERE second_factor_required")}
     enabled = [f for f in factors if f["is_enabled"] and f["deleted_at"] is None]
@@ -521,11 +522,19 @@ def plan_mfa(a, src, tgt):
                        f"last_used_step) VALUES({f['user_id']},1,TRUE,{lit(key_id)},'\\x{blob.hex()}'::bytea,{lit(step)});")
             stats["factors_imported"] += 1
         stats["mfa_key_id"] = key_id
-    # Legacy backup codes are bcrypt; Core recovery verifiers are PHC (Argon2).
-    live_codes = [c for c in codes if not c["is_used"] and c["deleted_at"] is None]
-    stats["backup_codes_not_imported"] = len(codes)
-    stats["backup_codes_unused_for_enabled_factors"] = sum(
-        1 for c in live_codes if c["user_id"] in {f["user_id"] for f in enabled})
+    # go-v0.2.118 common/totp.go hashes normalized XXXX-XXXX with
+    # common.Password2Hash (bcrypt.DefaultCost=10). Keep verifiers, never secrets.
+    live_codes = [c for c in codes if not c["is_used"] and c["deleted_at"] is None
+                  and c["user_id"] in required]
+    if any(n > 4 for n in Counter(c["user_id"] for c in live_codes).values()):
+        fail("mfa_backup_code_count_unsupported")
+    for c in live_codes:
+        if re.fullmatch(r"\$2[aby]\$10\$[./A-Za-z0-9]{53}", c["code_hash"] or "") is None:
+            fail("mfa_backup_verifier_unsupported")
+        sql.append("INSERT INTO core_identity.mfa_backup_codes(user_id,factor_revision,verifier) "
+                   f"VALUES({c['user_id']},1,{lit('legacy-bcrypt:' + c['code_hash'])});")
+    stats["backup_codes_imported"] = len(live_codes)
+    stats["backup_codes_not_imported"] = len(codes) - len(live_codes)
     sql.append("DO $$BEGIN IF EXISTS(SELECT 1 FROM core_identity.user_profiles p LEFT JOIN core_identity.mfa_factors f "
                "ON f.user_id=p.user_id WHERE p.second_factor_required IS DISTINCT FROM COALESCE(f.enabled,FALSE)) "
                "THEN RAISE EXCEPTION 'mfa_policy_mismatch'; END IF; END$$;")
@@ -545,13 +554,11 @@ def passkey_json(row, *, registration_policy="required") -> tuple[bytes, dict]:
         fail("passkey_source_verification_unsupported")
     cred_id = base64.b64decode(row["credential_id"], validate=True)
     cose = base64.b64decode(row["public_key"], validate=True)
-    if not (len(cose) == 77 and cose.startswith(COSE_ES256) and cose[42:45] == bytes.fromhex("225820")):
-        fail("passkey_cose_key_unsupported")
+    public_key = legacy_cose_key(cose)
     transports = [t for t in json.loads(row["transports"] or "[]")
                   if t in ("usb", "nfc", "ble", "internal", "hybrid", "test")]
     cred = {"cred_id": b64url(cred_id),
-            "cred": {"type_": "ES256", "key": {"EC_EC2": {"curve": "SECP256R1", "x": b64url(cose[10:42]),
-                                                          "y": b64url(cose[45:77])}}},
+            "cred": public_key,
             "counter": row["sign_count"] or 0, "transports": transports or None,
             "user_verified": bool(row["user_verified"]), "backup_eligible": bool(row["backup_eligible"]),
             "backup_state": bool(row["backup_state"]), "registration_policy": registration_policy,
@@ -578,8 +585,7 @@ def plan_passkeys(a, src, tgt):
     source_records = []
     for r in rows:
         if r["user_id"] not in users:
-            stats["passkeys_user_missing"] += 1
-            continue
+            fail("passkey_owner_unmapped")
         # Go stores no per-credential registration policy. This is its captured
         # current authentication policy, not reconstructed registration history.
         cred_id, key = passkey_json(r, registration_policy=raw_policy)
@@ -619,8 +625,7 @@ def plan_telegram(a, src, tgt):
     for r in rows:
         subject = r["telegram_id"].strip()
         if not re.fullmatch(r"[1-9][0-9]{0,18}", subject) or int(subject) > (1 << 63) - 1 or subject in seen:
-            stats["telegram_invalid_or_duplicate"] += 1
-            continue
+            fail("telegram_invalid_or_duplicate")
         seen.add(subject)
         sql.append(f"INSERT INTO core_telegram_auth.bindings(subject,user_id) VALUES({lit(subject)},{r['id']});")
         stats["telegram_bindings"] += 1

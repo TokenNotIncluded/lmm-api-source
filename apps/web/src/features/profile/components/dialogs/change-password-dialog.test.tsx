@@ -184,6 +184,36 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('ChangePasswordDialog secret reset', () => {
+  for (const length of [7, 8, 20, 21]) {
+    test(`validates ${length} Unicode code points before changing a password`, async () => {
+      const requests: unknown[] = []
+      const errors: string[] = []
+      api.put = (async (_url: string, data: unknown) => {
+        requests.push(data)
+        return { data: { success: true } }
+      }) as typeof api.put
+      toast.success = (() => 'success-toast') as typeof toast.success
+      toast.error = ((message: string) => {
+        errors.push(message)
+        return 'error-toast'
+      }) as typeof toast.error
+      const { root } = await renderDialog(() => {})
+      try {
+        await setInputValue('currentPassword', 'old-password')
+        await setInputValue('newPassword', '🔑'.repeat(length))
+        await setInputValue('confirmPassword', '🔑'.repeat(length))
+        await act(async () => {
+          findButton('Change Password').click()
+          await flushEffects()
+        })
+        const valid = length >= 8 && length <= 20
+        assert.equal(requests.length, valid ? 1 : 0)
+        assert.equal(errors.length, valid ? 0 : 1)
+      } finally {
+        await unmount(root)
+      }
+    })
+  }
   test('keeps fields while open but clears them across controlled close and reopen', async () => {
     const onOpenChange = () => undefined
     const { root } = await renderDialog(onOpenChange)

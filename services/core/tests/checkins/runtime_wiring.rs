@@ -136,7 +136,7 @@ async fn fresh_binary_refuses_historical_owner_commands_without_mutating_policy(
         assert!(output.stdout.is_empty());
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(
-            error.contains("CHECKIN_HISTORY_USE_PRESERVED_BINARY"),
+            error.contains("Usage: lmm-core"),
             "unexpected rejection: {error}"
         );
     };

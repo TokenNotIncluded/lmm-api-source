@@ -304,31 +304,32 @@ password_file = "/nonexistent-email-test/smtp-password"
     }
 
     #[tokio::test]
-    async fn legacy_email_startup_uses_selected_source_and_fails_closed() {
+    async fn toml_email_startup_uses_selected_source_and_fails_closed() {
         const CASE: &str = "LMM_TEST_EMAIL_RUNTIME_CONFIG_CASE";
         if let Ok(case) = env::var(CASE) {
-            super::super::initialize(None, true).unwrap();
+            let document = match case.as_str() {
+                "disabled" => "version=1\n",
+                "missing" => {
+                    "version=1\n[database]\nurl_file='/nonexistent-test/database-url'\n[identity]\nemail_verification_enabled=true\n"
+                }
+                "configured" => {
+                    "version=1\n[database]\nurl_file='/nonexistent-test/database-url'\n[identity]\nemail_config_file='/nonexistent-email-test/email.toml'\n"
+                }
+                _ => panic!("unknown test case"),
+            };
+            let initialized = super::super::initialize_test_document(document);
+            if case != "disabled" {
+                assert!(initialized.is_err(), "unsafe email configuration accepted");
+                return;
+            }
+            initialized.unwrap();
             let required = super::super::identity_database_required();
             let pool = sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://test:test@127.0.0.1:1/unused")
                 .unwrap();
             let runtime = email_runtime(IdentityStore::from_pool(pool.clone()), pool);
-            match case.as_str() {
-                "disabled" => {
-                    assert!(!required.unwrap());
-                    assert!(runtime.unwrap().is_none());
-                }
-                "missing" => {
-                    assert!(required.is_err());
-                    assert!(runtime.is_err());
-                }
-                "configured" => {
-                    assert!(required.unwrap());
-                    // A selected but unavailable sidecar cannot silently disable email.
-                    assert!(runtime.is_err());
-                }
-                _ => panic!("unknown test case"),
-            }
+            assert!(!required.unwrap());
+            assert!(runtime.unwrap().is_none());
             return;
         }
         for case in ["disabled", "missing", "configured"] {
@@ -336,22 +337,11 @@ password_file = "/nonexistent-email-test/smtp-password"
             command
                 .args([
                     "--exact",
-                    "config::email_config::tests::legacy_email_startup_uses_selected_source_and_fails_closed",
+                    "config::email_config::tests::toml_email_startup_uses_selected_source_and_fails_closed",
                     "--nocapture",
                 ])
                 .env_clear()
-                .env(CASE, case)
-                .env("LMM_CORE_EMAIL_VERIFICATION_ENABLED", if case == "missing" {
-                    "true"
-                } else {
-                    "false"
-                });
-            if case == "configured" {
-                command.env(
-                    "LMM_CORE_EMAIL_CONFIG_FILE",
-                    "/nonexistent-email-test/email.toml",
-                );
-            }
+                .env(CASE, case);
             let output = command.output().unwrap();
             assert!(
                 output.status.success(),

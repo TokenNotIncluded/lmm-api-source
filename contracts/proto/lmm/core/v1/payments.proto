@@ -216,6 +216,14 @@ service CoreSubscriptionPayments {
   // subscription proof_ingress and grant capability, never Go API-paid status.
   rpc AcceptStripeSubscriptionEvent(AcceptEPaySubscriptionProofRequest) returns (StripeSubscriptionEvent);
   rpc GetStripeSubscriptionEvent(GetEPaySubscriptionProofRequest) returns (StripeSubscriptionEvent);
+  rpc ResolveCreemSubscriptionOrder(CreemSubscriptionLookup) returns (EPaySubscriptionOrderRequest);
+  rpc PrepareCreemPurchase(PrepareEPayPurchaseRequest) returns (CreemSubscriptionOrder);
+  rpc ConfirmCreemPurchase(EPaySubscriptionOrderRequest) returns (CreemSubscriptionOrder);
+  rpc ReadCreemPurchase(EPaySubscriptionOrderRequest) returns (CreemSubscriptionOrder);
+  // Atomic original proof admission + optional transaction grant. Requires both
+  // subscription proof_ingress and grant capability, never Go API-paid status.
+  rpc AcceptCreemSubscriptionEvent(AcceptCreemSubscriptionEventRequest) returns (CreemSubscriptionEvent);
+  rpc GetCreemSubscriptionEvent(GetCreemSubscriptionEventRequest) returns (CreemSubscriptionEvent);
   rpc PrepareEPayPurchase(PrepareEPayPurchaseRequest) returns (EPaySubscriptionOrder);
   rpc ConfirmEPayPurchase(EPaySubscriptionOrderRequest) returns (EPayCheckout);
   rpc ReadEPayPurchase(EPaySubscriptionOrderRequest) returns (EPaySubscriptionOrder);
@@ -256,6 +264,42 @@ message StripeSubscriptionEvent {
   string kind = 4;
   string state = 5;
   string invoice_id = 6;
+  optional int64 subscription_id = 7;
+  int64 period_start = 8;
+  int64 period_end = 9;
+}
+message CreemSubscriptionPrice {
+  int64 plan_id = 1;
+  int64 plan_revision = 2;
+  int64 channel_id = 3;
+  string currency = 4;
+  string amount_minor = 5;
+  string provider_price_id = 6;
+  string interval = 7;
+  int64 interval_count = 8;
+  string success_url = 9;
+  string cancel_url = 10;
+}
+message CreemSubscriptionOrder {
+  EPaySubscriptionOrder order = 1;
+  CreemSubscriptionPrice price = 2;
+  string merchant = 3;
+  string environment = 4;
+  string provider_subscription_id = 5;
+  string provider_customer_id = 6;
+  string state = 7;
+  int64 state_created = 8;
+  int64 current_period_start = 9;
+  int64 current_period_end = 10;
+  optional int64 latest_grant_id = 11;
+}
+message CreemSubscriptionEvent {
+  string order_id = 1;
+  string event_id = 2;
+  bytes payload_sha256 = 3;
+  string kind = 4;
+  string state = 5;
+  string transaction_id = 6;
   optional int64 subscription_id = 7;
   int64 period_start = 8;
   int64 period_end = 9;
@@ -351,3 +395,8 @@ message PancakeSubscriptionEvent {
  optional string payment_id=7; string cycle_key=8;
  optional int64 subscription_id=9; int64 period_start=10; int64 period_end=11;
 }
+
+message CreemSubscriptionLookup { int64 channel_id = 1; string provider_subscription_id = 2; }
+
+message AcceptCreemSubscriptionEventRequest { string order_id = 1; bytes signed_payload = 2; bytes signature = 3; int64 payment_channel_id = 4; }
+message GetCreemSubscriptionEventRequest { string order_id = 1; string provider_event_id = 2; bytes payload_sha256 = 3; int64 payment_channel_id = 4; }

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -35,13 +35,9 @@ import {
   federatedProviders,
   type FederatedProvider,
 } from '../lib/federated-oauth'
+import { isBuiltInGoogleConfigured } from '../lib/google-oauth'
 import {
-  isBuiltInGoogleConfigured,
-  isCustomGoogleProvider,
-  shouldShowCustomGoogleProvider,
-} from '../lib/google-oauth'
-import {
-  getDisabledOAuthRegistrationMethods,
+  isOAuthRegistrationAllowed,
   isOAuthProviderConfigured,
 } from '../lib/registration'
 import type { SystemStatus } from '../types'
@@ -52,7 +48,7 @@ type OAuthProvidersProps = {
   status: SystemStatus | null
   disabled?: boolean
   className?: string
-  onWeChatLogin?: (provider?: FederatedProvider) => void
+  onWeChatLogin?: (provider: FederatedProvider) => void
   isWeChatLoading?: boolean
   redirectTo?: string
   acceptedLegal?: boolean
@@ -68,6 +64,7 @@ type ProviderButton = {
   disabled?: boolean
   shortLabel: string
   featured?: boolean
+  registrationAllowed?: boolean
 }
 
 export function OAuthProviders({
@@ -83,6 +80,7 @@ export function OAuthProviders({
   onVerifiedAccountAppeal,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
+  const policyDescriptionId = useId()
   const {
     isLoading,
     githubButtonText,
@@ -90,11 +88,9 @@ export function OAuthProviders({
     handleGoogleLogin,
     handleGitHubLogin,
     handleDiscordLogin,
-    handleOIDCLogin,
     handleFederatedLogin,
     handleLinuxDOLogin,
     handleTelegramLogin,
-    handleCustomOAuthLogin,
     isTelegramDialogOpen,
     isTelegramPending,
     handleTelegramAuthorization,
@@ -102,11 +98,8 @@ export function OAuthProviders({
   } = useOAuthLogin(status, redirectTo, acceptedLegal, onVerifiedAccountAppeal)
 
   const providerButtons: ProviderButton[] = []
-  const disabledRegistrationMethods = registrationOnly
-    ? getDisabledOAuthRegistrationMethods(status)
-    : new Set<string>()
-  const registrationAllowed = (method: string) =>
-    !disabledRegistrationMethods.has(method.trim().toLowerCase())
+  const registrationAllowed = (provider: string | FederatedProvider) =>
+    !registrationOnly || isOAuthRegistrationAllowed(status, provider)
 
   const builtInGoogleAllowed = registrationAllowed('google')
   if (isBuiltInGoogleConfigured(status) && builtInGoogleAllowed) {
@@ -117,22 +110,6 @@ export function OAuthProviders({
       onClick: handleGoogleLogin,
       icon: <IconGoogle className='size-[18px]' />,
       featured: featureGoogle,
-    })
-  }
-
-  if (
-    status?.native_federated_auth !== true &&
-    isOAuthProviderConfigured(status, 'wechat') &&
-    onWeChatLogin &&
-    registrationAllowed('wechat')
-  ) {
-    providerButtons.push({
-      key: 'wechat',
-      label: t('Continue with WeChat'),
-      shortLabel: 'WeChat',
-      onClick: () => onWeChatLogin(),
-      icon: <IconWeChat className='h-4 w-4' />,
-      disabled: isWeChatLoading,
     })
   }
 
@@ -160,22 +137,6 @@ export function OAuthProviders({
       shortLabel: 'Discord',
       onClick: handleDiscordLogin,
       icon: <IconDiscord className='h-4 w-4' />,
-    })
-  }
-
-  if (
-    status?.native_federated_auth !== true &&
-    isOAuthProviderConfigured(status, 'oidc') &&
-    registrationAllowed('oidc')
-  ) {
-    const oidcDisplayName = status?.oidc_display_name?.trim() || 'OIDC'
-    providerButtons.push({
-      key: 'oidc',
-      label: t('Continue with {{name}}', {
-        name: oidcDisplayName,
-      }),
-      shortLabel: oidcDisplayName,
-      onClick: handleOIDCLogin,
     })
   }
 
@@ -208,15 +169,14 @@ export function OAuthProviders({
   const nativeProviders = federatedProviders(status)
   for (const provider of nativeProviders) {
     if (
-      !registrationAllowed(`federated:${provider.id}`) ||
-      !registrationAllowed(`custom:${provider.slug}`) ||
-      !registrationAllowed(provider.kind)
+      !registrationAllowed(provider)
     ) {
       continue
     }
     if (provider.kind === 'wechat' && !onWeChatLogin) continue
     providerButtons.push({
       key: `federated-${provider.id}`,
+      registrationAllowed: isOAuthRegistrationAllowed(status, provider),
       label: t('Continue with {{name}}', { name: provider.name }),
       shortLabel: provider.name,
       onClick:
@@ -231,39 +191,17 @@ export function OAuthProviders({
     })
   }
 
-  // Custom OAuth providers
-  const customProviders = status?.custom_oauth_providers
-  if (customProviders && customProviders.length > 0) {
-    for (const provider of customProviders) {
-      if (
-        nativeProviders.some((native) => native.slug === provider.slug) ||
-        !isOAuthProviderConfigured(status, `custom:${provider.slug}`) ||
-        !registrationAllowed(`custom:${provider.slug}`) ||
-        !shouldShowCustomGoogleProvider(status, provider, builtInGoogleAllowed)
-      ) {
-        continue
-      }
-      const google = isCustomGoogleProvider(provider)
-      providerButtons.push({
-        key: `custom-${provider.slug}`,
-        label: google
-          ? t('Continue with Google')
-          : t('Continue with {{name}}', { name: provider.name }),
-        shortLabel: google ? 'Google' : provider.name,
-        onClick: () => handleCustomOAuthLogin(provider),
-        icon: google ? <IconGoogle className='size-[18px]' /> : undefined,
-        // Only one button occupies the featured slot; keep other legacy
-        // Google entries visible when the built-in provider is unavailable.
-        featured:
-          featureGoogle &&
-          google &&
-          !providerButtons.some((button) => button.featured),
-      })
-    }
-  }
-
   if (providerButtons.length === 0) return null
 
+  for (const provider of providerButtons) {
+    provider.registrationAllowed ??= isOAuthRegistrationAllowed(
+      status,
+      provider.key
+    )
+  }
+  const hasLoginOnlyProvider = providerButtons.some(
+    (provider) => !provider.registrationAllowed
+  )
   const featuredProvider = providerButtons.find((provider) => provider.featured)
   const otherProviders = providerButtons.filter(
     (provider) => !provider.featured
@@ -276,19 +214,27 @@ export function OAuthProviders({
       variant='outline'
       type='button'
       aria-label={provider.label}
+      aria-describedby={
+        !provider.registrationAllowed ? policyDescriptionId : undefined
+      }
       disabled={disabled || isLoading || provider.disabled}
       onClick={provider.onClick}
       className={cn(
-        'w-full justify-center gap-2 rounded-xl shadow-none',
-        compact ? 'h-10 px-2 text-sm' : 'h-11',
+        'h-auto w-full min-w-0 flex-col justify-center gap-1 rounded-xl py-2.5 shadow-none',
+        compact ? 'min-h-14 px-2 text-sm' : 'min-h-16',
         compact &&
           'text-muted-foreground border-transparent bg-transparent hover:bg-muted/50 hover:text-foreground',
         provider.featured &&
           'border-[#747775] bg-white font-sans text-sm font-medium tracking-normal text-[#1f1f1f] hover:bg-[#f8faff] hover:text-[#1f1f1f] dark:border-[#8e918f] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1f1f1f] dark:hover:text-white'
       )}
     >
-      {provider.icon}
-      {provider.featured || !compact ? provider.label : provider.shortLabel}
+      <span className='flex max-w-full items-center justify-center gap-2 whitespace-normal text-center'>
+        {provider.icon}
+        {provider.featured || !compact ? provider.label : provider.shortLabel}
+      </span>
+      <span className='text-xs font-normal opacity-75'>
+        {t(provider.registrationAllowed ? 'Sign in or register' : 'Sign in only')}
+      </span>
     </Button>
   )
 
@@ -322,6 +268,13 @@ export function OAuthProviders({
               renderProviderButton(provider, featureGoogle)
             )}
           </div>
+        ) : null}
+        {hasLoginOnlyProvider ? (
+          <p id={policyDescriptionId} className='text-muted-foreground text-xs'>
+            {t(
+              'Sign-in-only providers require an account already linked to that provider.'
+            )}
+          </p>
         ) : null}
       </div>
 

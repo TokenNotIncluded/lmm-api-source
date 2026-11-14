@@ -1,6 +1,9 @@
 mod email_config;
 mod managed_recovery_config;
-pub use email_config::{EmailRuntime, email_runtime};
+mod oidc_config;
+pub mod turnstile_config;
+pub use email_config::EmailRuntime;
+pub use turnstile_config::email_runtime;
 mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
 #[cfg(test)]
@@ -32,54 +35,57 @@ fn invalid_config(message: &'static str) -> io::Error {
 
 pub const DEFAULT_CONFIG: &str = "/etc/lmm.conf.d/core.toml";
 
-enum Source {
-    LegacyEnv,
-    File(BTreeMap<&'static str, OsString>),
-}
-static SOURCE: OnceLock<Source> = OnceLock::new();
+static SOURCE: OnceLock<BTreeMap<&'static str, OsString>> = OnceLock::new();
 
-/// Called once by the executable before reading any runtime settings. File mode
-/// never reads or changes process environment, and never falls back to it.
-pub fn initialize(path: Option<&Path>, legacy_env: bool) -> io::Result<()> {
-    if legacy_env && path.is_some() {
+/// Loads the selected TOML configuration once, without an environment fallback.
+pub fn initialize(path: Option<&Path>) -> io::Result<()> {
+    if env::vars_os().any(|(key, _)| key.as_encoded_bytes().starts_with(b"LMM_CORE_")) {
         return Err(invalid_config(
-            "--config and --legacy-env are mutually exclusive",
+            "TOML configuration cannot be mixed with LMM_CORE environment settings",
         ));
     }
-    let source = if legacy_env {
-        Source::LegacyEnv
-    } else {
-        if env::vars_os().any(|(key, _)| key.as_encoded_bytes().starts_with(b"LMM_CORE_")) {
-            return Err(invalid_config(
-                "TOML configuration cannot be mixed with LMM_CORE environment settings",
-            ));
-        }
-        let document = configuration_file(path.unwrap_or(Path::new(DEFAULT_CONFIG)), 256 * 1024)?;
-        let values = parse_core_file(&document)?;
-        // Even an offline command must not accept references to broadly
-        // readable secrets or unsafe sidecar paths in its selected config.
-        for (name, path) in &values {
-            if name.ends_with("_FILE") {
-                if name.ends_with("_CONFIG_FILE") {
-                    configuration_file(Path::new(path), 16 * 1024 * 1024)?;
-                } else {
-                    private_file(Path::new(path), 16 * 1024)?;
-                }
+    let document = configuration_file(path.unwrap_or(Path::new(DEFAULT_CONFIG)), 256 * 1024)?;
+    let values = parse_core_file(&document)?;
+    // Offline commands enforce the same file permissions as service startup.
+    for (name, path) in &values {
+        if name.ends_with("_FILE") {
+            if name.ends_with("_CONFIG_FILE") {
+                configuration_file(Path::new(path), 16 * 1024 * 1024)?;
+            } else {
+                private_file(Path::new(path), 16 * 1024)?;
             }
         }
-        Source::File(values)
-    };
+    }
     SOURCE
-        .set(source)
+        .set(values)
         .map_err(|_| invalid_config("core configuration was already initialized"))
 }
 
+#[cfg(test)]
+fn initialize_test_document(document: &str) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = env::temp_dir().join(format!(
+        "lmm-config-toml-{}-{}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    fs::create_dir(&directory)?;
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+    let database = directory.join("database-url");
+    fs::write(&database, "postgres://test:test@127.0.0.1:1/unused")?;
+    fs::set_permissions(&database, fs::Permissions::from_mode(0o600))?;
+    let path = directory.join("core.toml");
+    fs::write(
+        &path,
+        document.replace("/nonexistent-test/database-url", database.to_str().unwrap()),
+    )?;
+    let result = initialize(Some(&path));
+    fs::remove_dir_all(directory)?;
+    result
+}
+
 pub fn setting_os(name: &str) -> Option<OsString> {
-    match SOURCE.get() {
-        Some(Source::LegacyEnv) => env::var_os(name),
-        Some(Source::File(values)) => values.get(name).cloned(),
-        None => None,
-    }
+    SOURCE.get()?.get(name).cloned()
 }
 
 pub fn setting(name: &str) -> Result<String, env::VarError> {
@@ -152,6 +158,7 @@ struct IdentityFile {
     mfa: Option<MfaFile>,
     oauth2: Option<OAuth2File>,
     web: Option<WebFile>,
+    turnstile: Option<turnstile_config::TurnstileFile>,
     google: Option<GoogleFile>,
     github: Option<GoogleFile>,
     linuxdo: Option<GoogleFile>,
@@ -177,6 +184,7 @@ impl Default for IdentityFile {
             mfa: None,
             oauth2: None,
             web: None,
+            turnstile: None,
             google: None,
             github: None,
             linuxdo: None,
@@ -196,7 +204,9 @@ struct OAuth2File {
     isolated_secret_directory: Option<PathBuf>,
     pi_max_credits: Option<i64>,
     cc_switch_max_credits: Option<i64>,
+    magpie_max_credits: Option<i64>,
     managed_refresh_keyring_file: Option<PathBuf>,
+    oidc_keyring_file: Option<PathBuf>,
     groups: Vec<String>,
     access_ttl_seconds: u32,
     family_ttl_seconds: u32,
@@ -703,8 +713,22 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             }
             put("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS", maximum.to_string());
         }
+        if let Some(maximum) = oauth2.magpie_max_credits {
+            if file.model.is_none()
+                || oauth2.managed_refresh_keyring_file.is_none()
+                || !(1..=9_007_199_254_740_991).contains(&maximum)
+            {
+                return Err(invalid_config(
+                    "managed applications require model service, dedicated keyring and finite ceiling",
+                ));
+            }
+            put("LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS", maximum.to_string());
+        }
         if let Some(path) = oauth2.managed_refresh_keyring_file {
             paths.push(("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE", path));
+        }
+        if let Some(path) = oauth2.oidc_keyring_file {
+            paths.push(("LMM_CORE_OAUTH2_OIDC_KEYRING_FILE", path));
         }
         put("LMM_CORE_OAUTH2_ISSUER", oauth2.issuer);
         put(
@@ -742,6 +766,17 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             "LMM_CORE_HUMANGRANT_SMTP_FILE",
             path.to_string_lossy().into_owned(),
         );
+    }
+    if let Some(turnstile) = file.identity.turnstile {
+        if file.identity.web.is_none() {
+            return Err(invalid_config("Turnstile requires Web authentication"));
+        }
+        turnstile.validate()?;
+        put("LMM_CORE_TURNSTILE_SITE_KEY", turnstile.site_key);
+        paths.push((
+            "LMM_CORE_TURNSTILE_SECRET_KEY_FILE",
+            turnstile.secret_key_file,
+        ));
     }
     if let Some(web) = file.identity.web {
         put("LMM_CORE_WEB_ORIGIN", web.origin);
@@ -1031,26 +1066,20 @@ pub fn rpc_shared_group() -> io::Result<Option<u32>> {
 pub fn identity_auth(
     store: crate::identity::IdentityStore,
 ) -> io::Result<crate::identity::IdentityStore> {
-    let mut store = if matches!(SOURCE.get(), Some(Source::LegacyEnv)) {
-        store
-            .with_auth_from_env()
-            .map_err(|_| invalid_config("invalid identity authentication configuration"))?
-    } else {
-        let mut store =
-            store.with_registration_enabled(bool_setting("LMM_CORE_REGISTRATION_ENABLED")?);
-        if let (Ok(id), Some(path), Ok(uri)) = (
-            setting("LMM_CORE_GOOGLE_CLIENT_ID"),
-            setting_os("LMM_CORE_GOOGLE_CLIENT_SECRET_FILE"),
-            setting("LMM_CORE_GOOGLE_REDIRECT_URI"),
-        ) {
-            let secret = String::from_utf8(private_file(Path::new(&path), 4096)?)
-                .map_err(|_| invalid_config("invalid OAuth credential"))?;
-            let google = crate::identity::GoogleOAuth::new(id, secret.trim().to_owned(), uri)
-                .map_err(|_| invalid_config("invalid OAuth configuration"))?;
-            store = store.with_google_oauth(google);
-        }
-        store
-    };
+    let mut store = store
+        .with_registration_enabled(bool_setting("LMM_CORE_REGISTRATION_ENABLED")?)
+        .with_turnstile(turnstile_config::load()?);
+    if let (Ok(id), Some(path), Ok(uri)) = (
+        setting("LMM_CORE_GOOGLE_CLIENT_ID"),
+        setting_os("LMM_CORE_GOOGLE_CLIENT_SECRET_FILE"),
+        setting("LMM_CORE_GOOGLE_REDIRECT_URI"),
+    ) {
+        let secret = String::from_utf8(private_file(Path::new(&path), 4096)?)
+            .map_err(|_| invalid_config("invalid OAuth credential"))?;
+        let google = crate::identity::GoogleOAuth::new(id, secret.trim().to_owned(), uri)
+            .map_err(|_| invalid_config("invalid OAuth configuration"))?;
+        store = store.with_google_oauth(google);
+    }
     let password_enabled = optional_bool_setting("LMM_CORE_PASSWORD_REGISTER_ENABLED")?;
     let oauth_enabled = optional_bool_setting("LMM_CORE_OAUTH_REGISTER_ENABLED")?;
     let disabled_methods = match setting("LMM_CORE_REGISTRATION_DISABLED_METHODS") {
@@ -1246,6 +1275,11 @@ fn validate_registration_policy(
     oauth_enabled: Option<bool>,
     disabled_methods: Option<&[String]>,
 ) -> io::Result<()> {
+    if disabled_methods.is_some_and(|methods| methods.iter().any(|method| {
+        !crate::identity::registration_policy::valid_method(&method.trim().to_ascii_lowercase())
+    })) {
+        return Err(invalid_config("unknown registration disabled method"));
+    }
     if enabled
         && (password_enabled.is_none() || oauth_enabled.is_none() || disabled_methods.is_none())
     {
@@ -1332,18 +1366,13 @@ pub fn edge_access_config() -> io::Result<Option<crate::edge_access::TypedConfig
     if proof.is_none() {
         return Ok(None);
     }
-    let tokens: Vec<PathBuf> = match SOURCE.get() {
-        Some(Source::File(values)) => values
-            .iter()
-            .filter(|(name, _)| edge_service_token_setting(name))
-            .map(|(_, path)| PathBuf::from(path))
-            .collect(),
-        Some(Source::LegacyEnv) => env::vars_os()
-            .filter(|(name, _)| name.to_str().is_some_and(edge_service_token_setting))
-            .map(|(_, path)| PathBuf::from(path))
-            .collect(),
-        None => vec![],
-    };
+    let tokens = SOURCE
+        .get()
+        .into_iter()
+        .flat_map(|values| values.iter())
+        .filter(|(name, _)| edge_service_token_setting(name))
+        .map(|(_, path)| PathBuf::from(path))
+        .collect::<Vec<_>>();
     checked_edge_access_config(proof, &tokens)
 }
 
@@ -2587,6 +2616,7 @@ fn read_file_with_metadata(
 
 pub fn managed_applications_configured() -> bool {
     setting_os("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS").is_some()
+        || setting_os("LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS").is_some()
         || setting_os("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE").is_some()
 }
 
@@ -2595,6 +2625,7 @@ pub fn oauth2_configured() -> bool {
         "LMM_CORE_OAUTH2_ISSUER",
         "LMM_CORE_OAUTH2_PI_MAX_CREDITS",
         "LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE",
         "LMM_CORE_OAUTH2_GROUPS",
         "LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS",
@@ -2820,6 +2851,22 @@ pub async fn oauth2_issuer(
             .with_managed_budget_limit(maximum)
             .map_err(|_| invalid_config("invalid managed application ceiling"))?;
     }
+    if let Some(value) = setting_os("LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS") {
+        if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none()
+            || setting_os("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE").is_none()
+        {
+            return Err(invalid_config(
+                "managed applications require model service and dedicated recovery keyring",
+            ));
+        }
+        let maximum = value
+            .to_str()
+            .and_then(|v| v.parse::<i64>().ok())
+            .ok_or_else(|| invalid_config("invalid managed application ceiling"))?;
+        profile = profile
+            .with_magpie_budget_limit(maximum)
+            .map_err(|_| invalid_config("invalid managed application ceiling"))?;
+    }
     let lifetime = |name, maximum| -> io::Result<i64> {
         required(name)?
             .parse::<i64>()
@@ -2846,6 +2893,13 @@ pub async fn oauth2_issuer(
             .with_managed_recovery_keys(keys)
             .await
             .map_err(|_| invalid_config("managed application schema is unavailable"))?;
+    }
+    if let Some(path) = setting_os("LMM_CORE_OAUTH2_OIDC_KEYRING_FILE") {
+        let keys = oidc_config::load(Path::new(&path), isolated_directory.as_deref())?;
+        issuer = issuer
+            .with_oidc_signing_keys(keys)
+            .await
+            .map_err(|_| invalid_config("OIDC installed schema is unavailable"))?;
     }
     Ok(Some(issuer))
 }
@@ -2875,8 +2929,9 @@ pub fn legacy_auth() -> io::Result<Option<WebAuthConfig>> {
     let origin = setting("LMM_CORE_WEB_ORIGIN");
     let key_file = setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE");
     let local_http = bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?;
+    let turnstile = turnstile_config::load()?;
     match (origin, key_file) {
-        (Err(env::VarError::NotPresent), None) if !local_http => Ok(None),
+        (Err(env::VarError::NotPresent), None) if !local_http && turnstile.is_none() => Ok(None),
         (Ok(origin), Some(path)) => {
             let agreement = setting("LMM_CORE_WEB_USER_AGREEMENT_ENABLED");
             let privacy = setting("LMM_CORE_WEB_PRIVACY_POLICY_ENABLED");
@@ -2885,6 +2940,7 @@ pub fn legacy_auth() -> io::Result<Option<WebAuthConfig>> {
             let key = private_file(Path::new(&path), 128)?;
             let config = crate::legacy_auth::LegacyAuthConfig::new(&origin, &key)
                 .map_err(|_| invalid_config("invalid Web authentication configuration"))?;
+            let config = config.with_turnstile(turnstile);
             let mut config = if local_http {
                 config
                     .with_insecure_local_http()
@@ -3710,6 +3766,50 @@ pub fn checkin_rewards_configured() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn magpie_toml_ceiling_is_independent_and_requires_model_and_keyring() {
+        let document = |ceiling: i64| {
+            format!(
+                r#"version=1
+[database]
+url_file='/private/test-db'
+[identity.web]
+origin='https://managed.example.test'
+refresh_key_file='/private/web-key'
+user_agreement_enabled=false
+privacy_policy_enabled=false
+[identity.oauth2]
+issuer='https://managed.example.test'
+groups=['allowed']
+access_ttl_seconds=900
+family_ttl_seconds=86400
+magpie_max_credits={ceiling}
+managed_refresh_keyring_file='/private/managed-keyring'
+[model]
+config_file='/private/model'
+"#
+            )
+        };
+        let text = document(90);
+        let values = super::parse_core_file(text.as_bytes()).unwrap();
+        assert_eq!(
+            values["LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS"],
+            std::ffi::OsString::from("90")
+        );
+        assert!(!values.contains_key("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS"));
+        for text in [
+            document(0),
+            document(9_007_199_254_740_992),
+            text.replace(
+                "managed_refresh_keyring_file='/private/managed-keyring'",
+                "",
+            ),
+            text.replace("[model]\nconfig_file='/private/model'", ""),
+        ] {
+            assert!(super::parse_core_file(text.as_bytes()).is_err());
+        }
+    }
+
     use super::*;
     #[test]
     fn registration_email_domain_config_loads_and_requires_whitelist() {
@@ -3773,65 +3873,64 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
     }
 
     #[tokio::test]
-    async fn registration_email_policy_env_requires_each_explicit_field() {
-        // @context-fold begin explicit-email-policy-env-cases
+    async fn registration_email_policy_toml_startup_requires_each_explicit_field() {
+        // @context-fold begin explicit-email-policy-startup-cases
         const CASE: &str = "LMM_TEST_EMAIL_POLICY_CASE";
         if let Ok(case) = env::var(CASE) {
-            initialize(None, true).unwrap();
+            let fields = [
+                "email_verification_enabled=false\n",
+                "email_domain_restriction_enabled=false\n",
+                "email_domain_whitelist=[]\n",
+            ];
+            let mut document = format!(
+                "version=1\n[database]\nurl_file='/nonexistent-test/database-url'\n[identity]\nregistration_enabled={}\npassword_register_enabled=false\noauth_register_enabled=true\nregistration_disabled_methods=[]\n",
+                case != "disabled"
+            );
+            for (index, field) in fields.iter().enumerate() {
+                if case == "complete"
+                    || (case != "missing" && case != "disabled" && case != index.to_string())
+                {
+                    document.push_str(field);
+                }
+            }
+            let initialized = initialize_test_document(&document);
+            if case != "complete" && case != "disabled" {
+                assert!(
+                    initialized
+                        .unwrap_err()
+                        .to_string()
+                        .contains("requires explicit email_")
+                );
+                return;
+            }
+            initialized.unwrap();
             let pool = sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://test:test@127.0.0.1:1/unused")
                 .unwrap();
             let result = identity_auth(crate::identity::IdentityStore::from_pool(pool));
-            if case == "complete" || case == "disabled" {
-                let store = result.unwrap();
-                assert_eq!(store.registration_enabled(), case == "complete");
-            } else {
-                let error = match result {
-                    Ok(_) => panic!("missing email policy was accepted"),
-                    Err(error) => error,
-                };
-                assert!(error.to_string().contains("requires explicit email_"));
-            }
+            let store = result.unwrap();
+            assert_eq!(store.registration_enabled(), case == "complete");
             return;
         }
-        let fields = [
-            ("LMM_CORE_EMAIL_VERIFICATION_ENABLED", "false"),
-            ("LMM_CORE_EMAIL_DOMAIN_RESTRICTION_ENABLED", "false"),
-            ("LMM_CORE_EMAIL_DOMAIN_WHITELIST", "[]"),
-        ];
         for case in ["0", "1", "2", "missing", "complete", "disabled"] {
             let mut command = std::process::Command::new(env::current_exe().unwrap());
             command
                 .args([
                     "--exact",
-                    "config::tests::registration_email_policy_env_requires_each_explicit_field",
+                    "config::tests::registration_email_policy_toml_startup_requires_each_explicit_field",
                     "--nocapture",
                 ])
                 .env_clear()
-                .env(CASE, case)
-                .env(
-                    "LMM_CORE_REGISTRATION_ENABLED",
-                    if case == "disabled" { "false" } else { "true" },
-                )
-                .env("LMM_CORE_PASSWORD_REGISTER_ENABLED", "false")
-                .env("LMM_CORE_OAUTH_REGISTER_ENABLED", "true")
-                .env("LMM_CORE_REGISTRATION_DISABLED_METHODS", "[]");
-            for (index, (key, value)) in fields.iter().enumerate() {
-                if case == "complete"
-                    || (case != "missing" && case != "disabled" && case != index.to_string())
-                {
-                    command.env(key, value);
-                }
-            }
+                .env(CASE, case);
             let output = command.output().unwrap();
             assert!(
                 output.status.success(),
-                "env case {case}: {}{}",
+                "TOML case {case}: {}{}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        // @context-fold end explicit-email-policy-env-cases
+        // @context-fold end explicit-email-policy-startup-cases
     }
 
     #[test]

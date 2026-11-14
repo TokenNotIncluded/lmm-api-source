@@ -4,13 +4,14 @@ import { expect, test } from 'bun:test'
 
 import {
   DEFAULT_NATIVE_USERS_QUERY,
+  NATIVE_USERS_CAPABILITIES,
   nativeGroupsResponseSchema,
   nativeUserSchema,
   nativeUsersQuery,
   nativeUsersResponseSchema,
   nativeWalletSchema,
 } from './contract'
-import { nativeQueryFromLegacySearch } from './legacy-search'
+import { nativeQueryFromSearch } from './search'
 import { nativeListFixture, nativeUserFixture } from './test-fixtures'
 
 test('native identity and financial units remain exact strings beyond JS-safe IDs', () => {
@@ -214,24 +215,20 @@ test('supported queries retain literal metacharacters, exact groups and native l
   }
 })
 
-test('default legacy URLs and explicitly supported filters map without fake trust or group', () => {
-  expect(nativeQueryFromLegacySearch('')).toEqual(DEFAULT_NATIVE_USERS_QUERY)
-  expect(
-    nativeQueryFromLegacySearch(
-      '?l0Only=false&risk=all&sortBy=id&role=%5B%5D&status=%5B%5D'
-    )
-  ).toEqual(DEFAULT_NATIVE_USERS_QUERY)
+test('native URLs preserve all filters, exact text and every native sort', () => {
+  expect(nativeQueryFromSearch('')).toEqual(DEFAULT_NATIVE_USERS_QUERY)
   const params = new URLSearchParams({
     page: '2',
-    pageSize: '50',
-    filter: JSON.stringify('9007199254740993'),
+    page_size: '50',
+    keyword: JSON.stringify('9007199254740993'),
     group: ' spaced ',
-    role: '["10"]',
-    status: '["2"]',
-    sortBy: 'username',
-    sortOrder: 'asc',
+    role: 'admin',
+    status: 'disabled',
+    service_level: '0',
+    sort_by: 'display_name',
+    sort_order: 'asc',
   })
-  expect(nativeQueryFromLegacySearch(params.toString())).toEqual({
+  expect(nativeQueryFromSearch(params.toString())).toEqual({
     ...DEFAULT_NATIVE_USERS_QUERY,
     page: 2,
     page_size: 50,
@@ -239,35 +236,62 @@ test('default legacy URLs and explicitly supported filters map without fake trus
     group: ' spaced ',
     role: 'admin',
     status: 'disabled',
-    sort_by: 'username',
+    service_level: '0',
+    sort_by: 'display_name',
     sort_order: 'asc',
   })
   for (const text of ['null', 'true', '123', '%_']) {
     expect(
-      nativeQueryFromLegacySearch(
-        new URLSearchParams({ filter: JSON.stringify(text) }).toString()
+      nativeQueryFromSearch(
+        new URLSearchParams({ keyword: JSON.stringify(text) }).toString()
       )?.keyword
     ).toBe(text)
   }
+  for (const sort of NATIVE_USERS_CAPABILITIES.sorts) {
+    expect(nativeQueryFromSearch(`?sort_by=${sort}`)?.sort_by).toBe(sort)
+  }
+  for (const level of ['0', '1', '2', '3', '4']) {
+    expect(
+      nativeQueryFromSearch(`?service_level=${level}`)?.service_level
+    ).toBe(level)
+  }
 })
 
-test('raw saved URL filters, unknown sorts and repeated keys are rejected before route coercion', () => {
+test('old fields, invalid native filters and duplicate keys are rejected without dropping filters', () => {
   for (const search of [
-    '?l0Only=true',
-    '?status=["-1"]',
-    '?role=["1","10"]',
-    '?sortBy=quota',
-    '?sortBy=unknown',
-    '?risk=high',
-    '?usage=zero',
-    '?funding=paid',
-    '?transfers=sent',
-    '?checkin=yes',
-    '?service_level=0',
+    '?pageSize=20',
+    '?filter=name',
+    '?sortBy=id',
+    '?sortOrder=asc',
+    '?l0Only=false',
+    '?risk=all',
+    '?usage=all',
+    '?funding=all',
+    '?transfers=all',
+    '?checkin=all',
+    '?status=["2"]',
+    '?role=["10"]',
+    '?role=10',
+    '?role=unknown',
+    '?status=2',
+    '?sort_by=quota',
+    '?sort_by=unknown',
+    '?service_level=5',
+    '?service_level=true',
     '?page=1&page=2',
-    '?filter=true',
+    '?role=user&role=admin',
+    '?keyword=a&keyword=a',
+    '?page_size=20&page_size=20',
+    '?service_level=0&service_level=1',
+    '?keyword=true',
+    '?keyword=9007199254740993',
     '?page=0',
+    '?page_size=101',
+    '?page=1.5',
+    '?page=100001',
+    '?group=%00',
+    '?sort_order=up',
   ]) {
-    expect(nativeQueryFromLegacySearch(search)).toBeUndefined()
+    expect(nativeQueryFromSearch(search)).toBeUndefined()
   }
 })

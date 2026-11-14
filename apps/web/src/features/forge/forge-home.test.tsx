@@ -222,6 +222,7 @@ async function renderHome(
             register_enabled: options.registrationEnabled ?? true,
             HeaderNavModules: options.headerNavModules,
             server_address: options.serverAddress,
+            data: { server_address: 'https://nested.example.test' },
           },
         },
       }

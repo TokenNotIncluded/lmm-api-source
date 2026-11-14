@@ -25,7 +25,6 @@ import { useStatus } from '@/hooks/use-status'
 import type { UserProfile } from '../../types'
 import { BindingCard } from '../binding-card'
 import { EmailBindDialog } from '../dialogs/email-bind-dialog'
-import { LegacyOAuthBindings } from '../legacy-oauth-bindings'
 import { NativeAccountLinks } from '../native-account-links'
 
 type Props = { profile: UserProfile; onUpdate: () => void | Promise<void> }
@@ -71,14 +70,6 @@ export function AccountBindingsTab({
         <NativeAccountLinks status={status} onUpdate={onUpdate} />
       )}
       <EmailAccountBinding profile={profile} onUpdate={onUpdate} />
-      {(!native || status.native_federated_auth !== true) && (
-        <LegacyOAuthBindings
-          status={status}
-          profile={profile}
-          onUpdate={onUpdate}
-          includeFixed={!native}
-        />
-      )}
     </>
   )
 }

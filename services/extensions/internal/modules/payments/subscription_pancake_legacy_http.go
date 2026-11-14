@@ -2,7 +2,6 @@ package payments
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -28,7 +27,7 @@ func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handle
 				Currency  string `json:"currency"`
 			} `json:"data"`
 		}
-		if json.Unmarshal(raw, &event) != nil || event.Mode != r.PathValue("environment") {
+		if jsonObject(raw, &event) != nil || event.Mode != r.PathValue("environment") {
 			paymentError(w, ErrInvalid)
 			return
 		}
@@ -54,9 +53,26 @@ func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handle
 				environment = "live"
 			}
 			var ids []int64
-			for id, a := range s.pancakeSnapshot().adapters {
-				if a.cfg.Channel.Environment == environment && a.cfg.StoreID == event.Store && a.cfg.Channel.Currency == event.Data.Currency {
-					ids = append(ids, id)
+			if strings.HasPrefix(event.Data.Reference, "top_") {
+				if !validTopupOrderID(event.Data.Reference) {
+					paymentError(w, ErrInvalid)
+					return
+				}
+				o, lookupErr := wallet.store.Get(r.Context(), event.Data.Reference)
+				if lookupErr != nil {
+					paymentError(w, lookupErr)
+					return
+				}
+				if o.Intent.Provider != "waffo_pancake" || o.Intent.Environment != environment || o.Intent.Currency != event.Data.Currency {
+					paymentError(w, ErrConflict)
+					return
+				}
+				ids = append(ids, o.ChannelID)
+			} else {
+				for id, a := range s.pancakeSnapshot().adapters {
+					if a.cfg.Channel.Environment == environment && a.cfg.StoreID == event.Store && a.cfg.Channel.Currency == event.Data.Currency {
+						ids = append(ids, id)
+					}
 				}
 			}
 			sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })

@@ -61,7 +61,7 @@ func NewEPay(cfg EPayConfig) (*EPay, error) {
 		}
 	}
 	u, err := secureURL(cfg.Endpoint)
-	if err != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || u.RawQuery != "" || u.Fragment != "" || strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), "credit.linux.do") {
 		return nil, ErrInvalid
 	}
 	if _, err = secureURL(cfg.NotifyURL); err != nil {
@@ -169,6 +169,10 @@ func (e *EPay) Checkout(ctx context.Context, o Order, _ string) (Checkout, error
 	return Checkout{ID: o.ID, URL: e.cfg.Endpoint + "submit.php?" + v.Encode()}, nil
 }
 func (e *EPay) Verify(r *http.Request, _ time.Time) (Event, error) {
+	return e.verify(r, false)
+}
+
+func (e *EPay) verify(r *http.Request, subscription bool) (Event, error) {
 	var raw string
 	switch r.Method {
 	case "GET":
@@ -203,7 +207,7 @@ func (e *EPay) Verify(r *http.Request, _ time.Time) (Event, error) {
 	// LinuxDO's documented callback omits sign_type. If supplied, it must
 	// still identify MD5; the ordinary CNY EPay profile requires the field.
 	signTypeOK := v.Get("sign_type") == "MD5" || (e.cfg.Channel.Currency == "LDC" && !v.Has("sign_type"))
-	if !signTypeOK || v.Get("pid") != e.cfg.Channel.Merchant || v.Get("type") != e.cfg.PaymentType {
+	if !signTypeOK || v.Get("pid") != e.cfg.Channel.Merchant || (!subscription || e.signer == nil) && v.Get("type") != e.cfg.PaymentType {
 		return Event{}, ErrDenied
 	}
 	received, err := hex.DecodeString(v.Get("sign"))
@@ -254,7 +258,7 @@ func (e *EPay) Lookup(ctx context.Context, o Order) ([]Event, error) {
 		return nil, ErrUnavailable
 	}
 	amount, err := minorDecimal(strings.Trim(string(v.Money), "\""))
-	if err != nil || strings.Trim(string(v.PID), "\"") != e.cfg.Channel.Merchant || v.Order != o.ID || amount != o.Intent.AmountMinor || v.Type != e.cfg.PaymentType || v.Status == nil {
+	if err != nil || strings.Trim(string(v.PID), "\"") != e.cfg.Channel.Merchant || v.Order != o.ID || amount != o.Intent.AmountMinor || v.Type != e.cfg.PaymentType || v.Status == nil || !validID(v.Trade) || o.PaymentID != "" && v.Trade != o.PaymentID {
 		return nil, ErrConflict
 	}
 	if *v.Status != 1 {

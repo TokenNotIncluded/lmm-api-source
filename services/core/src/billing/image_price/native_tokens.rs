@@ -388,13 +388,12 @@ fn fraction(value: ExactRatio) -> Result<Ratio<BigUint>, ImagePriceError> {
     ))
 }
 fn rounded_credits(amount: Ratio<BigUint>, ceiling: bool) -> Result<i64, ImagePriceError> {
-    let remainder = amount.numer() % amount.denom();
-    let round = if ceiling {
-        remainder != BigUint::from(0_u8)
+    let rounded = if ceiling {
+        amount.ceil()
     } else {
-        (&remainder << 1_usize) >= amount.denom().clone()
+        amount.round()
     };
-    let mut result = amount.to_integer() + BigUint::from(u8::from(round));
+    let mut result = rounded.to_integer();
     if amount.numer() != &BigUint::from(0_u8) {
         result = result.max(BigUint::from(1_u8));
     }

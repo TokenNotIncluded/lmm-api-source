@@ -111,8 +111,8 @@ mise exec -- bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict
 [Extensions 模板](../config/extensions.example.toml)的 `host.token_file` 是独立宿主
 凭据；`host.modules=["none"]` 关闭受保护模块。identity 还需 RPC socket、独立口令
 和跨用户文件权限。Go 不加载 `.env`，拒绝 `SQL_DSN`、`DATABASE_URL`、
-`LMM_CORE_DATABASE_URL` 等旧单体/Core 库变量。两服务的 `--legacy-env` 仅供既有
-测试兼容，与 `--config` 互斥，不作为新部署模板。
+`LMM_CORE_DATABASE_URL` 等旧单体/Core 库变量。Core 和 Extensions 均已移除 `--legacy-env`，只读取 TOML；Core 同时拒绝混入
+`LMM_CORE_*` 环境设置。冻结导入脚本的旧 executor 调用仅适用于匹配 schema 的历史二进制，不能用于当前 Core。
 
 公开协议页面调试可将 `VITE_REACT_APP_SERVER_URL` 指向本地扩展；仅
 [协议指南](legal/README.md)列出的公开 API 不需要 Core。前端构建与业务接通分别

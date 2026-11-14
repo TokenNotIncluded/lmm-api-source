@@ -46,6 +46,7 @@ pub struct LegacyAuthConfig {
     require_legal_acceptance: bool,
     oauth2: Option<crate::identity::grants::LmmIssuer>,
     passkeys: Option<Arc<crate::identity::PasskeyConfig>>,
+    turnstile: Option<crate::config::turnstile_config::Turnstile>,
 }
 impl LegacyAuthConfig {
     /// Use a newly generated private key, independent from old sessions. The
@@ -72,6 +73,7 @@ impl LegacyAuthConfig {
             require_legal_acceptance: true,
             oauth2: None,
             passkeys: None,
+            turnstile: None,
         })
     }
     /// Uses the same configured origin and local-transport policy as Web auth.
@@ -102,6 +104,14 @@ impl LegacyAuthConfig {
         }
         self.passkeys = Some(Arc::new(config));
         Ok(self)
+    }
+    /// Configure server-side challenge verification for browser authentication.
+    pub fn with_turnstile(
+        mut self,
+        turnstile: Option<crate::config::turnstile_config::Turnstile>,
+    ) -> Self {
+        self.turnstile = turnstile;
+        self
     }
     pub fn passkeys_enabled(&self) -> bool {
         self.passkeys.is_some()
@@ -166,6 +176,7 @@ fn build_router(
     config: LegacyAuthConfig,
     email: Option<crate::email_http::EmailHttp>,
 ) -> Router {
+    let email = email.map(|mail| mail.with_turnstile(config.turnstile.clone()));
     let email_enabled = email.is_some();
     let browser = BrowserAuth::new(store.clone(), &config.refresh_key)
         .expect("validated private refresh key");
@@ -408,39 +419,62 @@ async fn register(
     if state.email.is_some() && (!body.email.is_empty() || !body.verification_code.is_empty()) {
         return email::register(&state, body).await;
     }
-    if !body.email.trim().is_empty()
-        || !body.verification_code.is_empty()
-        || !body.aff_code.is_empty()
-        || !body.turnstile.is_empty()
-    {
+    if !body.email.trim().is_empty() || !body.verification_code.is_empty() {
         return failure(
             StatusCode::SERVICE_UNAVAILABLE,
             "AUTH_REGISTRATION_FEATURE_UNAVAILABLE",
-            "Email, verification, referral and challenge registration are not yet enabled",
+            "Email and verification registration are not yet enabled",
         );
+    }
+    if let Err(error) =
+        crate::config::turnstile_config::verify(state.config.turnstile.as_ref(), &body.turnstile)
+            .await
+    {
+        return error.response();
     }
     match state
         .browser
-        .register(&BrowserRegistration {
-            username: &body.username,
-            password: &body.password,
-            email: &body.email,
-        })
+        .register_with_affiliate(
+            &BrowserRegistration {
+                username: &body.username,
+                password: &body.password,
+                email: &body.email,
+            },
+            &body.aff_code,
+        )
         .await
     {
         Ok(()) => success(None),
         Err(error) => auth_failure(error),
     }
 }
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoginChallenge {
+    #[serde(default)]
+    turnstile: String,
+}
 async fn login(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    challenge: Result<Query<LoginChallenge>, QueryRejection>,
     peer: Result<ConnectInfo<SocketAddr>, axum::extract::rejection::ExtensionRejection>,
     input: Result<Json<Login>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = input else {
         return auth_failure(IdentityError::Invalid.into());
     };
+    let Ok(Query(challenge)) = challenge else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    if let Err(error) = crate::config::turnstile_config::verify(
+        state.config.turnstile.as_ref(),
+        &challenge.turnstile,
+    )
+    .await
+    {
+        return error.response();
+    }
     let metadata = BrowserSessionMetadata {
         ip: peer.map(|peer| peer.0.ip().to_string()).unwrap_or_default(),
         user_agent: headers
@@ -1214,5 +1248,51 @@ mod mfa_http_tests {
             )
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod turnstile_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn register_and_login_require_challenge_before_identity_work() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap();
+        let store = IdentityStore::from_pool(pool).with_registration_enabled(true);
+        let config = LegacyAuthConfig::new("https://app.example.test", &[43; 32])
+            .unwrap()
+            .with_turnstile(Some(crate::config::turnstile_config::tests::verifier()));
+        let state = AuthState {
+            browser: BrowserAuth::new(store.clone(), &[43; 32]).unwrap(),
+            store,
+            config,
+            email: None,
+        };
+        let body = serde_json::from_value(
+            json!({"username":"test-user","password":"12345678","accepted_legal":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            register(State(state.clone()), Ok(Json(body)))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        let peer = Ok(ConnectInfo("127.0.0.1:12345".parse().unwrap()));
+        let input = Ok(Json(Login {
+            username: "test-user".into(),
+            password: "12345678".into(),
+        }));
+        let response = login(
+            State(state),
+            HeaderMap::new(),
+            Ok(Query(LoginChallenge::default())),
+            peer,
+            input,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

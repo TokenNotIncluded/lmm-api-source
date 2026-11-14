@@ -35,7 +35,6 @@ for (const key of [
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const calls: { path: string; payload: unknown; options: unknown }[] = []
-const legacyFlows: { provider: string; mode: string; legal: boolean }[] = []
 const navigations: string[] = []
 const errors: string[] = []
 let logoutCalls = 0
@@ -60,10 +59,6 @@ mock.module('@/lib/api', () => ({
   isAuthBundle: () => false,
 }))
 mock.module('../api', () => ({
-  createOAuthFlow: async (provider: string, mode: string, legal: boolean) => {
-    legacyFlows.push({ provider, mode, legal })
-    return 'legacy-flow-state'
-  },
   logout: async () => {
     logoutCalls++
     return { success: true }
@@ -92,7 +87,7 @@ function Harness({
   provider: ExternalBrowserProvider
   legal: boolean
 }) {
-  const flow = useOAuthLogin(status, '/console', legal)
+  const flow = useOAuthLogin(status, '/dashboard', legal)
   useLayoutEffect(() => {
     controls = flow
     switch (provider) {
@@ -155,7 +150,7 @@ afterEach(async () => {
   if (root) await act(async () => root?.unmount())
   root = undefined
   document.body.replaceChildren()
-  calls.length = legacyFlows.length = navigations.length = errors.length = 0
+  calls.length = navigations.length = errors.length = 0
   logoutCalls = 0
   pendingResponse = undefined
 })
@@ -181,7 +176,6 @@ describe('built-in external browser hook contract', () => {
         validResponse(provider).data.authorization_url,
       ])
       assert.equal(logoutCalls, 0)
-      assert.deepEqual(legacyFlows, [])
       assert.deepEqual(errors, [])
     })
 
@@ -209,7 +203,7 @@ describe('built-in external browser hook contract', () => {
       assert.equal(navigations.length, 1)
     })
 
-    test(`${provider} keeps the old flow only when browser capability is not advertised`, async () => {
+    test(`${provider} does not fall back when browser capability is not advertised`, async () => {
       await mount(
         provider,
         { ...configured(provider), external_oauth_browser: false },
@@ -217,13 +211,8 @@ describe('built-in external browser hook contract', () => {
       )
       await act(async () => login())
       assert.deepEqual(calls, [])
-      assert.equal(logoutCalls, 1)
-      assert.deepEqual(legacyFlows, [{ provider, mode: 'login', legal: true }])
-      assert.equal(navigations.length, 1)
-      assert.equal(
-        new URL(navigations[0]).searchParams.get('state'),
-        'legacy-flow-state'
-      )
+      assert.equal(logoutCalls, 0)
+      assert.deepEqual(navigations, [])
     })
 
     test(`${provider} rejects a malformed native-token or foreign response`, async () => {
@@ -242,7 +231,6 @@ describe('built-in external browser hook contract', () => {
       assert.equal(errors.length, 2)
       assert.deepEqual(navigations, [])
       assert.equal(logoutCalls, 0)
-      assert.deepEqual(legacyFlows, [])
     })
 
     test(`${provider} synchronously ignores double starts while its cookie-binding request is pending`, async () => {

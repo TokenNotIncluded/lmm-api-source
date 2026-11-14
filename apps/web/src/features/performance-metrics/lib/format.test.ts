@@ -85,3 +85,21 @@ test('non-streaming rows do not dilute streaming TTFT', () => {
     135.1295
   )
 })
+
+test('missing native counters never fall back to averaging old aggregate rates', () => {
+  const old = {
+    avg_latency_ms: 10,
+    avg_tps: 20,
+    avg_ttft_ms: 5,
+    success_rate: 80,
+  }
+  for (const metric of [
+    'avg_latency_ms',
+    'avg_tps',
+    'avg_ttft_ms',
+    'success_rate',
+  ] as const) {
+    assert.equal(aggregatePerformanceMetric([old], metric), null)
+    assert.equal(aggregatePerformanceMetric([aggregate, old], metric), null)
+  }
+})

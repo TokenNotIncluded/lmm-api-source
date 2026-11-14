@@ -141,75 +141,20 @@ describe('unified to-do API', () => {
   })
 })
 
-test('retired applications disappear from a previous backend response and unread counts', async () => {
-  const item = (
-    category: TodoItem['category'],
-    source_id: number
-  ): TodoItem => ({
-    id: `${category}:${source_id}`,
-    source_id,
-    category,
-    type: 'test',
-    title: 'test',
-    summary: '',
-    read: false,
-    created_at: 1,
-    updated_at: 1,
-  })
-  const current = item('open_source_bounty_review', 2)
+test('keeps the native server pagination and unread counters without client rewrites', async () => {
   const page: TodoPage = {
-    items: [item('developer_access', 1), current],
-    page: 1,
+    items: [],
+    page: 2,
     page_size: 50,
-    total: 2,
+    total: 73,
     category: 'all',
-    unread_count: 2,
-    total_unread_count: 2,
-    unread_by_category: { developer_access: 1, open_source_bounty_review: 1 },
-    categories: [
-      { key: 'developer_access', total: 1, unread: 1 },
-      { key: 'open_source_bounty_review', total: 1, unread: 1 },
-    ],
+    unread_count: 3,
+    total_unread_count: 7,
+    unread_by_category: { open_source_bounty_review: 7 },
+    categories: [{ key: 'open_source_bounty_review', total: 73, unread: 7 }],
   }
   api.get = (async () => ({
     data: { success: true, data: page },
   })) as typeof api.get
-  const result = await getTodos('all')
-  assert.deepEqual(result.items, [current])
-  assert.deepEqual(result.categories, [
-    { key: 'open_source_bounty_review', total: 1, unread: 1 },
-  ])
-  assert.equal(result.unread_count, 1)
-  assert.equal(result.total_unread_count, 1)
-  assert.deepEqual(result.unread_by_category, { open_source_bounty_review: 1 })
-  assert.equal(
-    result.total,
-    2,
-    'Preserve page positions while the old backend is deployed'
-  )
-})
-
-test('filters retired rows and unread counts even without a category summary', async () => {
-  api.get = (async () => ({
-    data: {
-      success: true,
-      data: {
-        items: [{ category: 'developer_access', source_id: 1, read: false }],
-        page: 1,
-        page_size: 50,
-        total: 1,
-        category: 'all',
-        unread_count: 3,
-        total_unread_count: 3,
-        unread_by_category: { developer_access: 3 },
-        categories: [],
-      },
-    },
-  })) as typeof api.get
-  const result = await getTodos('all')
-  assert.deepEqual(result.items, [])
-  assert.deepEqual(result.categories, [])
-  assert.deepEqual(result.unread_by_category, {})
-  assert.equal(result.unread_count, 0)
-  assert.equal(result.total_unread_count, 0)
+  assert.deepEqual(await getTodos('all', 2), page)
 })

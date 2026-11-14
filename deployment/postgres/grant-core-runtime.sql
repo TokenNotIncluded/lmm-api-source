@@ -440,6 +440,7 @@ GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint)
 
 \if :enable_web_identity
 -- BEGIN affiliate-claims runtime grants
+GRANT SELECT,INSERT ON core_identity.affiliate_codes, core_identity.affiliate_registrations TO :"runtime_role";
 GRANT USAGE ON SCHEMA core_console TO :"runtime_role";
 GRANT SELECT(key,value) ON core_console.options TO :"runtime_role";
 -- Affiliate previews are immutable; only the durable ledger outcome may be sealed.
@@ -766,4 +767,20 @@ GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,
     core_trust_pricing.legacy_paid_orders TO :"runtime_role";
 -- END checkins runtime grants
 \endif
+-- BEGIN personal-tokens runtime grants
+\if :enable_web_identity
+GRANT USAGE ON SCHEMA core_personal_tokens TO :"runtime_role";
+GRANT SELECT, INSERT, UPDATE ON core_personal_tokens.tokens TO :"runtime_role";
+\endif
+-- END personal-tokens runtime grants
+-- BEGIN oidc runtime grants
+\if :{?enable_oidc}
+\else
+\set enable_oidc false
+\endif
+\if :enable_oidc
+GRANT USAGE ON SCHEMA core_oidc TO :"runtime_role";
+GRANT SELECT,INSERT ON core_oidc.authorization_requests,core_oidc.families,core_oidc.tokens TO :"runtime_role";
+\endif
+-- END oidc runtime grants
 COMMIT;

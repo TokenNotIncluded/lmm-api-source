@@ -170,7 +170,7 @@ impl LmmIssuer {
         {
             return Err(IdentityError::Unauthorized);
         }
-        if client == "lmm-cc-switch" {
+        if protocol::is_managed_client(&client) {
             self.validate_managed_family_binding(c, &f).await?;
         }
         let token_scopes: Vec<String> = t.try_get("scopes")?;

@@ -22,7 +22,6 @@ export function NativeWalletDetails({
 }) {
   const { t } = useTranslation()
   const projection = walletProjection(user)
-  if (!projection.native) return null
   return (
     <div
       className='relative z-10 mt-3 space-y-2 text-xs'

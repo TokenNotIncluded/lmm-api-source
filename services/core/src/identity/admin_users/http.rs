@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-fn bearer(h: &HeaderMap) -> ReadResult<&str> {
+pub(super) fn bearer(h: &HeaderMap) -> ReadResult<&str> {
     let mut values = h.get_all(header::AUTHORIZATION).iter();
     let value = values
         .next()
@@ -42,12 +42,13 @@ impl IntoResponse for AdminUsersError {
     }
 }
 pub fn router(store: AdminUsersStore) -> Router {
+    let personal_tokens = super::super::personal_token::router(store.identity.clone());
     Router::new()
         .merge(super::profile_mutation::routes())
         .merge(super::security::routes())
         .merge(super::appeals::routes())
         .merge(super::balance_adjustments::routes())
-        .route("/core/v1/admin/users", get(users))
+        .route("/core/v1/admin/users", get(users).post(super::create::create))
         .route("/core/v1/admin/users/groups", get(groups))
         .route("/core/v1/admin/system-resources", get(system_resources))
         .layer(axum::middleware::from_fn(
@@ -65,6 +66,7 @@ pub fn router(store: AdminUsersStore) -> Router {
             },
         ))
         .with_state(store)
+        .merge(personal_tokens)
 }
 async fn users(
     State(store): State<AdminUsersStore>,

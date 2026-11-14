@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Wire fields and terminal states follow official waffo-go/v2 v2.1.0.
+// Wire fields and terminal states follow official waffo-go/v2 v2.3.0.
 // Global has its own original request identity; it is not Pancake's refund ticket.
 type waffoRefund struct {
 	RequestID        string `json:"refundRequestId"`

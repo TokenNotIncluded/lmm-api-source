@@ -12,15 +12,13 @@ import { afterEach, describe, test } from 'node:test'
 import { api } from '@/lib/api'
 
 import {
-  deletePlan,
   executeSubscriptionReset,
   getAdminPlans,
-  getAdminSubscriptionRecords,
   getSubscriptionResetEligible,
   getSubscriptionResetVouchers,
   previewSubscriptionReset,
+  paySubscriptionEpay,
   redeemSubscriptionResetVoucher,
-  restorePlan,
 } from './api.js'
 import type {
   SubscriptionResetExecuteRequest,
@@ -38,7 +36,7 @@ afterEach(() => {
 })
 
 describe('subscription administration API', () => {
-  test('requests archived plans and preserves archive/delete response options', async () => {
+  test('requests archived plans for reset eligibility', async () => {
     const getCalls: unknown[][] = []
     api.get = (async (...args: unknown[]) => {
       getCalls.push(args)
@@ -49,29 +47,9 @@ describe('subscription administration API', () => {
     assert.deepEqual(getCalls, [
       ['/api/subscription/admin/plans', { params: { include_archived: '1' } }],
     ])
-
-    let deleteCall: unknown[] = []
-    api.delete = (async (...args: unknown[]) => {
-      deleteCall = args
-      return { data: { success: true, data: { action: 'archived' } } }
-    }) as typeof api.delete
-    const deleted = await deletePlan(42)
-    assert.deepEqual(deleteCall, [
-      '/api/subscription/admin/plans/42',
-      { skipBusinessError: true, skipErrorHandler: true },
-    ])
-    assert.equal(deleted.data?.action, 'archived')
-
-    let restorePath = ''
-    api.post = (async (url: string) => {
-      restorePath = url
-      return { data: { success: true } }
-    }) as typeof api.post
-    await restorePlan(42)
-    assert.equal(restorePath, '/api/subscription/admin/plans/42/restore')
   })
 
-  test('serializes record and reset-target filters without losing cancellation', async () => {
+  test('serializes reset-target filters without losing cancellation', async () => {
     const calls: unknown[][] = []
     api.get = (async (...args: unknown[]) => {
       calls.push(args)
@@ -79,16 +57,6 @@ describe('subscription administration API', () => {
     }) as typeof api.get
     const controller = new AbortController()
 
-    await getAdminSubscriptionRecords(
-      {
-        page: 3,
-        pageSize: 20,
-        query: 'alice',
-        planId: 7,
-        status: 'active',
-      },
-      controller.signal
-    )
     await getSubscriptionResetEligible(
       {
         page: 2,
@@ -101,19 +69,6 @@ describe('subscription administration API', () => {
     )
 
     assert.deepEqual(calls, [
-      [
-        '/api/subscription/admin/records',
-        {
-          params: {
-            page: 3,
-            page_size: 20,
-            query: 'alice',
-            plan_id: 7,
-            status: 'active',
-          },
-          signal: controller.signal,
-        },
-      ],
       [
         '/api/subscription/root/reset-targets',
         {
@@ -162,4 +117,20 @@ describe('subscription administration API', () => {
       ['/api/subscription/self/reset-vouchers/99/redeem'],
     ])
   })
+})
+
+test('EPay returns only the response payload and never recovers a wrapper checkout URL', async () => {
+  const payload = { success: true, data: {} }
+  api.post = (async () => ({
+    data: payload,
+    url: 'https://stale.invalid/checkout',
+  })) as typeof api.post
+  assert.equal(
+    await paySubscriptionEpay({ plan_id: 7, payment_method: 'alipay' }),
+    payload
+  )
+  assert.equal(
+    (await paySubscriptionEpay({ plan_id: 7, payment_method: 'alipay' })).url,
+    undefined
+  )
 })
