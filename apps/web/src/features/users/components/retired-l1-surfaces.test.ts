@@ -17,6 +17,7 @@ test('user management has no L1 application or archive component or client API',
   for (const name of [
     'developer-access-requests-panel',
     'user-recommendation-archive-dialog',
+    'data-table-row-actions',
   ]) {
     assert.equal(
       existsSync(new URL(`users/components/${name}.tsx`, root)),
@@ -24,16 +25,8 @@ test('user management has no L1 application or archive component or client API',
     )
   }
   assert.doesNotMatch(
-    read('users/components/data-table-row-actions.tsx'),
-    /UserRecommendationArchive/
-  )
-  assert.doesNotMatch(
     read('users/api.ts'),
     /DeveloperAccessRequest|RecommendationArchive|developer-access/
-  )
-  assert.match(
-    read('users/components/data-table-row-actions.tsx'),
-    /ReferralModerationDialog/
   )
 })
 
