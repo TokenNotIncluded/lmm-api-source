@@ -25,6 +25,8 @@ use std::sync::Arc;
 use tower::ServiceExt;
 #[path = "usage/administrator.rs"]
 mod administrator;
+#[path = "usage/explorer.rs"]
+mod explorer;
 #[path = "usage/receipts.rs"]
 mod receipts;
 #[path = "common/runtime.rs"]
@@ -325,7 +327,7 @@ async fn settled_refunded_failed_cancelled_reserved_streaming_reconcile_and_rele
         assert!(row["id"].as_i64().unwrap() > 0);
         assert!(row["id"].as_i64().unwrap() < (1 << 52));
         assert!(row.get("channel").is_none());
-        assert!(row.get("upstream_request_id").is_none());
+        assert!(row["upstream_request_id"].is_null());
     }
     let stats = ok(&f, "/api/log/self/stat").await;
     assert_eq!(stats["quota"], 127);
@@ -687,7 +689,7 @@ async fn inclusive_time_boundaries_bounded_pagination_and_invalid_queries(pool: 
                 &f.app,
                 &format!(
                     "{path}?start_timestamp={}&end_timestamp={at}",
-                    at - 31 * 86400
+                    at - 365 * 86400
                 ),
                 Some(&f.session.secret)
             )
@@ -704,14 +706,17 @@ async fn inclusive_time_boundaries_bounded_pagination_and_invalid_queries(pool: 
             "p=100002&page_size=1",
             "start_timestamp=-1",
             "start_timestamp=2&end_timestamp=1",
-            "start_timestamp=0&end_timestamp=2678401",
+            "start_timestamp=0&end_timestamp=31536001",
             "end_timestamp=253402300800",
             "start_timestamp=nan",
             "type=8",
             "default_time=unknown",
             "channel=1",
             "username=other",
-            "upstream_request_id=secret",
+            "status=unknown",
+            "min_duration_ms=-1",
+            "min_duration_ms=20&max_duration_ms=10",
+            "sort_order=sideways",
             "unexpected=1",
             "p=1&p=2",
         ] {

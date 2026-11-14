@@ -114,7 +114,9 @@ impl Fixture {
         let management = channel_http::ManagedChannels::recover(role.pool.clone(), gateway.clone())
             .await
             .unwrap();
-        let app = channel_http::managed_router(role.pool.clone(), management);
+        let app = channel_http::managed_router(role.pool.clone(), management).merge(
+            lmm_core::usage::router(lmm_core::usage::UsageStore::new(role.pool.clone())),
+        );
         let charging = Charging::new(role.pool.clone(), Arc::new(TransactionalLedger));
         Self {
             owner,
@@ -383,6 +385,69 @@ async fn actual_fallback_refund_and_subscription_are_one_logical_charge(pool: Pg
     let primary = f.usage(1).await;
     assert_eq!(primary["settled_requests"], "0");
     assert_eq!(primary["net_used_credits"], "0");
+    // The log explorer uses the actual dispatched fallback, never the primary
+    // candidate or today's mutable routing configuration.
+    let (status, logs) = f
+        .get("/core/v1/usage/admin/logs?channel=2&status=refunded")
+        .await;
+    assert_eq!(status, StatusCode::OK, "{logs}");
+    assert_eq!(logs["data"]["total"], 2);
+    for item in logs["data"]["items"].as_array().unwrap() {
+        assert_eq!(item["channel"], 2);
+        assert!(item["channel_name"].is_null());
+        assert!(item["duration_ms"].as_f64().is_some_and(|ms| ms > 0.0));
+        assert_eq!(item["is_stream"], false);
+        let attempts = item["route_attempts"].as_array().unwrap();
+        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts[0]["channel_id"], 1);
+        assert_eq!(attempts[0]["error_kind"], "connect");
+        assert_eq!(attempts[0]["delivery"], "not_sent");
+        assert_eq!(attempts[1]["channel_id"], 2);
+        assert!(attempts[1]["error_kind"].is_null());
+        for attempt in attempts {
+            assert!(attempt.get("wire_sha256").is_none());
+            assert!(attempt.get("credential_ref").is_none());
+        }
+    }
+    let (status, summary) = f
+        .get("/core/v1/usage/admin/stats?channel=2&status=refunded")
+        .await;
+    assert_eq!(status, StatusCode::OK, "{summary}");
+    assert_eq!(summary["data"]["total_count"], 2);
+    assert_eq!(summary["data"]["quota"], 68);
+    assert_eq!(summary["data"]["duration_sample_count"], 2);
+    assert_eq!(
+        f.get("/core/v1/usage/admin/logs?channel=1").await.1["data"]["total"],
+        0
+    );
+    let response = f
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/core/v1/usage/admin/export.csv?channel=2&status=refunded")
+                .header("authorization", format!("Bearer {}", f.admin))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let csv = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+    let mut reader = csv::Reader::from_reader(csv.as_ref());
+    let records: Vec<_> = reader
+        .deserialize::<std::collections::HashMap<String, String>>()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(records.len(), 2);
+    assert!(records.iter().all(|record| record["channel"] == "2"));
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record["net_consumption_credits"].parse::<i64>().unwrap())
+            .sum::<i64>(),
+        68
+    );
     let after: Value = sqlx::query_scalar("SELECT jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id) FROM core_billing.balance_state b")
         .fetch_one(&f.owner).await.unwrap();
     assert_eq!(before, after);

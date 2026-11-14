@@ -746,6 +746,7 @@ async fn execute(
     stream: Option<super::responses_native::Sender>,
     ready: Option<Ready>,
 ) -> Result<Bytes, RelayError> {
+    let started = tokio::time::Instant::now();
     let PreparedRequest {
         parent,
         continuity,
@@ -869,8 +870,12 @@ async fn execute(
     }
     let mut terminal_event = None;
     let mut sequence = 1;
+    let mut upstream_request_id = None;
+    let mut upstream_status = None;
+    let mut elapsed_us = None;
+    let mut finished_at = None;
     let completed = async {
-        let raw = tokio::time::timeout(gateway.limits.total_timeout, async {
+        let received = tokio::time::timeout(gateway.limits.total_timeout, async {
             if !attempt.is_available() {
                 return Err(RelayError::RouteUnavailable);
             }
@@ -881,6 +886,10 @@ async fn execute(
             .await
             .map_err(|_| RelayError::SettlementPending)?
             .map_err(|_| RelayError::SettlementPending)?;
+            if connection.matches_peer(response.remote_addr()) {
+                upstream_request_id = relay::upstream_request_id(response.headers(), &credential);
+                upstream_status = Some(response.status().as_u16());
+            }
             // This API has no supplier contract proving free non-successful dispatches.
             if !response.status().is_success() {
                 return Err(RelayError::SettlementPending);
@@ -903,8 +912,17 @@ async fn execute(
                 native_http::read_response_bytes(&connection, response, &gateway.limits).await
             }
         })
-        .await
-        .map_err(|_| RelayError::SettlementPending)??;
+        .await;
+        // Match the shared relay: measure upstream work before financial finalization.
+        // Native SSE has a different first-output lifecycle and remains unobserved here.
+        if stream.is_none() {
+            elapsed_us = u64::try_from(started.elapsed().as_micros()).ok();
+            finished_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|time| time.as_secs());
+        }
+        let raw = received.map_err(|_| RelayError::SettlementPending)??;
         TerminalFinalization {
             gateway: &gateway,
             request: &request,
@@ -925,6 +943,25 @@ async fn execute(
     .await;
     if completed.is_err() {
         let _ = billing::retry(|| gateway.bridge.charging.mark_unknown(&id, &worker)).await;
+    }
+    if let (Some(elapsed_us), Some(finished_at)) = (elapsed_us, finished_at) {
+        let pool = gateway.bridge.pool.clone();
+        let sample = crate::history_read::performance::Sample {
+            schema: "core.performance.v1".into(),
+            finished_at,
+            elapsed_us,
+            first_output_us: None,
+            // Native usage remains in its validated financial receipt; this observer
+            // does not parse client output or infer an output-token count.
+            output_tokens: None,
+            success: completed.is_ok(),
+            is_stream: Some(false),
+            upstream_request_id,
+            status_code: upstream_status,
+        };
+        tokio::spawn(async move {
+            crate::history_read::performance::record_sample(&pool, &id, sample).await;
+        });
     }
     completed
 }

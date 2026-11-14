@@ -130,7 +130,7 @@ async fn reply(State(p): State<Provider>, headers: HeaderMap, Json(body): Json<V
         )
             .into_response();
     }
-    Json(output).into_response()
+    ([("x-request-id", "req_native_response")], Json(output)).into_response()
 }
 async fn supplier(mode: Reply, paused: bool) -> (Provider, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -283,6 +283,16 @@ async fn compact_pg_roundtrip_restart_and_unique_real_charges(pool: sqlx::PgPool
     );
     let (_, contract) = g.bridge.charging.reservation_contract(&id).await.unwrap();
     assert_eq!(contract.bounds(), (1000, 100));
+    let sample = native_http::test_support::performance_sample(&f.pool, &id).await;
+    assert!(sample.success);
+    assert_eq!(sample.is_stream, Some(false));
+    assert_eq!(
+        sample.upstream_request_id.as_deref(),
+        Some("req_native_response")
+    );
+    assert_eq!(sample.status_code, Some(200));
+    assert!(sample.elapsed_us > 0);
+    assert_eq!(sample.first_output_us, None);
     drop(g);
     let restarted = gateway(&runtime.pool, &p, true, Protocol::OpenAiResponses);
     assert_eq!(
@@ -319,6 +329,17 @@ async fn compact_pg_roundtrip_restart_and_unique_real_charges(pool: sqlx::PgPool
         ),
         (1200, 31, 23, 4)
     );
+    let sample = native_http::test_support::performance_sample(&f.pool, &id).await;
+    assert!(sample.success);
+    assert_eq!(sample.is_stream, Some(false));
+    assert_eq!(
+        sample.upstream_request_id.as_deref(),
+        Some("req_native_response")
+    );
+    assert_eq!(sample.status_code, Some(200));
+    assert!(sample.elapsed_us > 0);
+    assert_eq!(sample.first_output_us, None);
+    assert_eq!(sample.output_tokens, None);
     assert_eq!(p.hits.load(Ordering::SeqCst), 2);
     let b = f.ledger.balance(f.account).await.unwrap();
     assert_eq!((b.available_units, b.reserved_units), (9946, 0));

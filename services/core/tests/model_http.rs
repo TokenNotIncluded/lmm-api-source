@@ -43,6 +43,9 @@ use model_fixture::{Provider, fixture};
 #[path = "model_http/runtime.rs"]
 mod runtime_models;
 
+#[path = "model_http/diagnostics.rs"]
+mod request_diagnostics;
+
 fn routes(
     endpoint: &str,
     cache_write: u64,

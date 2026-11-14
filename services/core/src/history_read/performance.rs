@@ -14,13 +14,62 @@ const EVENT: &str = "performance-v1";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Sample {
-    schema: String,
-    finished_at: u64,
-    elapsed_us: u64,
-    first_output_us: Option<u64>,
-    output_tokens: Option<u64>,
-    success: bool,
+pub(crate) struct Sample {
+    pub(crate) schema: String,
+    pub(crate) finished_at: u64,
+    pub(crate) elapsed_us: u64,
+    pub(crate) first_output_us: Option<u64>,
+    pub(crate) output_tokens: Option<u64>,
+    pub(crate) success: bool,
+    // Missing fields in existing immutable observations remain unknown.
+    #[serde(default)]
+    pub(crate) is_stream: Option<bool>,
+    #[serde(default)]
+    pub(crate) upstream_request_id: Option<String>,
+    #[serde(default)]
+    pub(crate) status_code: Option<u16>,
+}
+
+impl Sample {
+    pub(crate) fn valid(&self) -> bool {
+        self.schema == "core.performance.v1"
+            && self.finished_at <= 253_402_300_799
+            && self.elapsed_us <= 86_400_000_000
+            && self
+                .first_output_us
+                .is_none_or(|time| time <= self.elapsed_us)
+            && self
+                .upstream_request_id
+                .as_deref()
+                .is_none_or(crate::relay::valid_upstream_request_id)
+            && self
+                .status_code
+                .is_none_or(|status| (100..=599).contains(&status))
+    }
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_samples_keep_new_diagnostic_fields_unknown() {
+        let legacy = json!({"schema":"core.performance.v1", "finished_at":1_700_000_000,
+            "elapsed_us":2000,"first_output_us":null,"output_tokens":4,"success":true});
+        let mut sample: Sample = serde_json::from_value(legacy).unwrap();
+        assert!(sample.valid());
+        assert_eq!(sample.is_stream, None);
+        assert_eq!(sample.upstream_request_id, None);
+        assert_eq!(sample.status_code, None);
+        sample.status_code = Some(200);
+        sample.upstream_request_id = Some("req_valid".into());
+        assert!(sample.valid());
+        sample.upstream_request_id = Some("Bearer private".into());
+        assert!(!sample.valid());
+        sample.upstream_request_id = None;
+        sample.status_code = Some(999);
+        assert!(!sample.valid());
+    }
 }
 
 /// Best-effort telemetry never retries dispatch, changes money or delays the
@@ -38,11 +87,20 @@ pub(crate) async fn record(pool: &PgPool, completion: &Completion) {
         elapsed_us,
         first_output_us: report.timings.first_output_us,
         output_tokens: report.usage.output_tokens,
+        is_stream: Some(report.is_stream),
+        upstream_request_id: report.upstream_request_id.clone(),
+        status_code: report.upstream_status,
         success: report.outcome == Outcome::Completed
             && report.provider_complete
             && completion.settlement == Settlement::Confirmed
             && completion.error.is_none(),
     };
+    record_sample(pool, &report.request_id, sample).await;
+}
+
+/// Also used by native non-stream operations after their original finalization.
+/// The observation is not a receipt and cannot authorize a financial transition.
+pub(crate) async fn record_sample(pool: &PgPool, request_id: &str, sample: Sample) {
     let write = async {
         let mut tx = pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -53,7 +111,7 @@ pub(crate) async fn record(pool: &PgPool, completion: &Completion) {
              SELECT $1,$2,$3 WHERE EXISTS (SELECT FROM core_charging.requests WHERE id=$1)
              ON CONFLICT (request_id,event_id) DO NOTHING",
         )
-        .bind(&report.request_id)
+        .bind(request_id)
         .bind(EVENT)
         .bind(json!(sample))
         .execute(&mut *tx)
@@ -198,13 +256,7 @@ impl HistoryStore {
             };
             let sample: Sample =
                 serde_json::from_value(value).map_err(|_| HistoryError::Unavailable)?;
-            if sample.schema != "core.performance.v1"
-                || sample.finished_at > 253_402_300_799
-                || sample.elapsed_us > 86_400_000_000
-                || sample
-                    .first_output_us
-                    .is_some_and(|t| t > sample.elapsed_us)
-            {
+            if !sample.valid() {
                 return Err(HistoryError::Unavailable);
             }
             if sample.finished_at < start as u64 || sample.finished_at >= end as u64 {

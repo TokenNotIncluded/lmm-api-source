@@ -397,6 +397,34 @@ fn rejection_envelope(protocol: UpstreamProtocol, bytes: &[u8]) -> bool {
     })
 }
 
+pub(crate) fn valid_upstream_request_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.:".contains(&byte))
+}
+
+pub(crate) fn upstream_request_id(
+    headers: &reqwest::header::HeaderMap,
+    credential: &str,
+) -> Option<String> {
+    let credential = credential.strip_prefix("Bearer ").unwrap_or(credential);
+    [
+        "x-request-id",
+        "request-id",
+        "x-goog-request-id",
+        "x-amzn-requestid",
+    ]
+    .into_iter()
+    .find_map(|name| {
+        let mut values = headers.get_all(name).iter();
+        let value = values.next()?.to_str().ok()?;
+        (values.next().is_none() && valid_upstream_request_id(value) && !value.contains(credential))
+            .then(|| value.to_owned())
+    })
+}
+
 impl Worker {
     fn new(
         inner: Arc<Inner>,
@@ -409,6 +437,7 @@ impl Worker {
     ) -> Self {
         let report = Report {
             request_id: context.request_id.clone(),
+            is_stream: request.stream,
             route_id: None,
             price_version: None,
             outcome: Outcome::Failed,
@@ -420,6 +449,7 @@ impl Worker {
             rejection_receipt_sha256: None,
             attempts: 0,
             upstream_status: None,
+            upstream_request_id: None,
             upstream_bytes: 0,
             emitted_bytes: 0,
             timings: RelayTimings::default(),
@@ -845,6 +875,7 @@ impl Worker {
             self.report.delivery = crate::routing::DeliveryState::NotSent;
             self.report.rejection_receipt_sha256 = None;
             self.report.upstream_status = None;
+            self.report.upstream_request_id = None;
             self.gate
                 .run(
                     self.inner.limits.hook_timeout,
@@ -856,6 +887,10 @@ impl Worker {
                 Ok(mut response) => {
                     let status = response.status().as_u16();
                     self.report.upstream_status = Some(status);
+                    self.report.upstream_request_id =
+                        route.credential.to_str().ok().and_then(|credential| {
+                            upstream_request_id(response.headers(), credential)
+                        });
                     if status == 200 {
                         break response;
                     }
@@ -1142,3 +1177,42 @@ impl Worker {
 
 #[cfg(test)]
 mod independent_966_schema_tests;
+
+#[cfg(test)]
+mod request_diagnostics_tests {
+    use super::*;
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn request_ids_use_only_bounded_unambiguous_response_headers() {
+        let credential = "Bearer synthetic-credential";
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
+        headers.insert("cookie", HeaderValue::from_static("session=secret"));
+        assert_eq!(upstream_request_id(&headers, credential), None);
+        headers.insert("x-request-id", HeaderValue::from_static("req_test-123.4:5"));
+        assert_eq!(
+            upstream_request_id(&headers, credential).as_deref(),
+            Some("req_test-123.4:5")
+        );
+        headers.append("x-request-id", HeaderValue::from_static("ambiguous"));
+        assert_eq!(upstream_request_id(&headers, credential), None);
+        for value in [
+            "".to_owned(),
+            "x".repeat(129),
+            "Bearer secret".to_owned(),
+            "https://example.test/request".to_owned(),
+            "synthetic-credential".to_owned(),
+            "req_synthetic-credential_echo".to_owned(),
+        ] {
+            headers.insert("x-request-id", HeaderValue::from_str(&value).unwrap());
+            assert_eq!(upstream_request_id(&headers, credential), None);
+        }
+        headers.remove("x-request-id");
+        headers.insert("request-id", HeaderValue::from_static("req_anthropic"));
+        assert_eq!(
+            upstream_request_id(&headers, credential).as_deref(),
+            Some("req_anthropic")
+        );
+    }
+}

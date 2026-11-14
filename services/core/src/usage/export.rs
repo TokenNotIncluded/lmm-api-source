@@ -1,5 +1,5 @@
 //! Streaming construction of a bounded CSV from already validated native receipts.
-use super::{Error, ValidatedRequest};
+use super::{Error, ValidatedRequest, log_details::LogDetails};
 use std::{
     borrow::Cow,
     io::{self, Write},
@@ -40,7 +40,7 @@ const COLUMNS: &[&str] = &[
     "tool_input_tokens",
 ];
 
-pub(super) struct NativeCsv(csv::Writer<BoundedBytes>);
+pub(super) struct NativeCsv(csv::Writer<BoundedBytes>, bool);
 
 struct BoundedBytes(Vec<u8>);
 
@@ -49,17 +49,46 @@ fn number(value: Option<i64>) -> String {
 }
 
 impl NativeCsv {
+    #[cfg(test)]
     pub(super) fn new() -> Result<Self, Error> {
+        Self::new_for_scope(false)
+    }
+
+    pub(super) fn new_for_scope(administrator: bool) -> Result<Self, Error> {
         let mut csv = Self::with_bytes(Vec::new());
-        csv.row(COLUMNS.iter().copied())?;
+        csv.1 = administrator;
+        let mut columns = COLUMNS.to_vec();
+        columns.splice(
+            6..6,
+            [
+                "duration_ms",
+                "first_token_ms",
+                "is_stream",
+                "upstream_request_id",
+                "status_code",
+            ],
+        );
+        if administrator {
+            columns.splice(6..6, ["username", "channel", "route_attempts"]);
+        }
+        csv.row(columns.into_iter())?;
         Ok(csv)
     }
 
+    #[cfg(test)]
     pub(super) fn include(&mut self, request: &ValidatedRequest) -> Result<(), Error> {
+        self.include_with_details(request, &LogDetails::default())
+    }
+
+    pub(super) fn include_with_details(
+        &mut self,
+        request: &ValidatedRequest,
+        details: &LogDetails,
+    ) -> Result<(), Error> {
         let settled = request.settled();
         let text = settled && request.measured_text();
         let creation = request.usage.cache_creation.filter(|_| text);
-        let cells = [
+        let mut cells = vec![
             request.id.clone(),
             request.user.to_string(),
             request.at.to_string(),
@@ -132,6 +161,41 @@ impl NativeCsv {
                 .map(|n| n.to_string())
                 .unwrap_or_default(),
         ];
+        let sample = details.sample.as_ref();
+        cells.splice(
+            6..6,
+            [
+                details
+                    .duration_ms()
+                    .map(|ms| ms.to_string())
+                    .unwrap_or_default(),
+                details
+                    .first_token_ms()
+                    .map(|ms| ms.to_string())
+                    .unwrap_or_default(),
+                sample
+                    .and_then(|sample| sample.is_stream)
+                    .map(|stream| stream.to_string())
+                    .unwrap_or_default(),
+                details.upstream_request_id().unwrap_or_default().to_owned(),
+                number(
+                    sample
+                        .and_then(|sample| sample.status_code)
+                        .or_else(|| request.provider_status())
+                        .map(i64::from),
+                ),
+            ],
+        );
+        if self.1 {
+            cells.splice(
+                6..6,
+                [
+                    details.username.clone().unwrap_or_default(),
+                    number(details.channel),
+                    serde_json::to_string(&details.attempts).map_err(|_| Error::Storage)?,
+                ],
+            );
+        }
         self.row(cells.iter().map(String::as_str))
     }
 
@@ -141,6 +205,7 @@ impl NativeCsv {
                 .quote_style(csv::QuoteStyle::Always)
                 .terminator(csv::Terminator::CRLF)
                 .from_writer(BoundedBytes(bytes)),
+            false,
         )
     }
 
