@@ -23,7 +23,6 @@ import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
-import { TermsFooter } from '../components/terms-footer'
 import { canOfferRegistration } from '../lib/registration'
 import { UserAuthForm } from './components/user-auth-form'
 
@@ -36,33 +35,27 @@ export function SignIn() {
 
   return (
     <AuthLayout>
-      <div className='w-full space-y-7 sm:space-y-8'>
-        <div className='space-y-2.5'>
-          <h2 className='text-left text-2xl font-semibold tracking-tight'>
+      <div className='auth-sign-in w-full space-y-8'>
+        <div className='auth-sign-in-heading'>
+          <h2 className='auth-sign-in-title text-left text-3xl font-semibold tracking-tight'>
             {t('Sign in')}
           </h2>
-          {!status?.self_use_mode_enabled && canRegister && (
-            <p className='text-muted-foreground text-left text-sm leading-6'>
-              {t("Don't have an account?")}{' '}
-              <Link
-                to='/sign-up'
-                search={requestedPath ? { redirect: requestedPath } : {}}
-                className='hover:text-primary font-medium underline underline-offset-4'
-              >
-                {t('Sign up')}
-              </Link>
-              .
-            </p>
-          )}
         </div>
 
         <UserAuthForm redirectTo={redirect} />
 
-        <TermsFooter
-          variant='sign-in'
-          status={status}
-          className='text-left leading-6'
-        />
+        {!status?.self_use_mode_enabled && canRegister && (
+          <p className='auth-sign-in-register text-muted-foreground text-center text-sm leading-6'>
+            {t("Don't have an account?")}{' '}
+            <Link
+              to='/sign-up'
+              search={requestedPath ? { redirect: requestedPath } : {}}
+              className='text-foreground rounded-sm font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
+            >
+              {t('Sign up')}
+            </Link>
+          </p>
+        )}
       </div>
     </AuthLayout>
   )
