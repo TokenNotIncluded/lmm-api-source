@@ -83,7 +83,11 @@
 }
 
 .lmm-home-canvas .lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
-  background: color-mix(in oklch, var(--poster-primary) 88%, var(--poster-ground));
+  background: color-mix(
+    in oklch,
+    var(--poster-primary) 88%,
+    var(--poster-ground)
+  );
   color: var(--poster-primary-ink);
   box-shadow: none;
   transform: none;
