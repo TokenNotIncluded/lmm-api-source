@@ -14,6 +14,8 @@ for (const key of [
   'navigator',
   'localStorage',
   'HTMLElement',
+  'customElements',
+  'CSSStyleSheet',
   'HTMLButtonElement',
   'SVGElement',
   'Node',

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 /*
 Copyright (C) 2026 LIghtJUNction
 */
@@ -56,17 +57,21 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
+import { ErrorState } from '@/components/error-state'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
-import { formatTokens, formatUseTime } from '@/lib/format'
+import { formatTokens } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { readNativeUsageRequest } from '../../api'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -77,8 +82,6 @@ import {
   getTieredBillingSummary,
   hasAnyCacheTokens,
   isViolationFeeLog,
-  getFirstResponseTimeColor,
-  getResponseTimeColor,
   renderAuditContent,
 } from '../../lib/format'
 import {
@@ -91,6 +94,8 @@ import {
 } from '../../lib/money'
 import { usageReceiptState } from '../../lib/receipt-state'
 import { safeLogDiagnostic } from '../../lib/recovery'
+import { readUsageStatisticsScope } from '../../lib/statistics'
+import { formatDurationMs, getLogTiming } from '../../lib/timing'
 import {
   getLogTypeConfig,
   isPerCallBilling,
@@ -127,14 +132,6 @@ const CHANNEL_FIELD_LABELS: Record<string, string> = {
   type: 'Type',
   base_url: 'Base URL',
   key: 'Key',
-}
-
-function timingTextColorClass(
-  variant: 'success' | 'warning' | 'danger'
-): string {
-  if (variant === 'success') return 'console-status-success-text'
-  if (variant === 'warning') return 'console-status-warning-text'
-  return 'console-status-danger-text'
 }
 
 function DetailRow(props: {
@@ -187,8 +184,8 @@ function DetailSection(props: {
       </Label>
       <div
         className={cn(
-          'min-w-0 space-y-1 overflow-hidden rounded-md border p-2.5 max-sm:p-2',
-          isDanger ? 'console-log-danger-panel' : 'bg-muted/30'
+          'min-w-0 space-y-2 overflow-hidden py-2',
+          isDanger && 'console-log-danger-panel rounded-md px-3'
         )}
       >
         {props.children}
@@ -553,6 +550,71 @@ interface DetailsDialogProps {
 }
 
 export function DetailsDialog(props: DetailsDialogProps) {
+  if (props.open && props.log.state !== undefined && props.log.request_id) {
+    return <NativeDetailsDialog {...props} />
+  }
+  return <DetailsDialogContent {...props} />
+}
+
+function NativeDetailsDialog(props: DetailsDialogProps) {
+  const { t } = useTranslation()
+  const auth = useAuthStore((state) => state.auth)
+  const scope = readUsageStatisticsScope(auth)
+  const detail = useQuery({
+    queryKey: [
+      'usage-request-detail',
+      scope?.userId,
+      scope?.sessionId,
+      scope?.role,
+      props.isAdmin,
+      props.log.request_id,
+    ],
+    queryFn: ({ signal }) =>
+      readNativeUsageRequest({
+        requestId: props.log.request_id,
+        isAdmin: props.isAdmin,
+        scope,
+        signal,
+      }),
+    enabled: !!scope && props.open,
+    retry: false,
+    staleTime: 0,
+  })
+  if (detail.isSuccess) {
+    return <DetailsDialogContent {...props} log={detail.data} />
+  }
+  return (
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      title={t('Log Details')}
+      description={t('View the complete details for this log entry')}
+      contentClassName='sm:max-w-2xl'
+    >
+      {detail.isError || !scope ? (
+        <ErrorState
+          title={t('Unable to load request details')}
+          description={t(
+            'The request may be unavailable or outside your current access.'
+          )}
+          onRetry={() => void detail.refetch()}
+        />
+      ) : (
+        <div
+          role='status'
+          aria-label={t('Loading request details')}
+          className='space-y-5 py-5'
+        >
+          <Skeleton className='h-6 w-2/3' />
+          <Skeleton className='h-24 w-full' />
+          <Skeleton className='h-32 w-full' />
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+function DetailsDialogContent(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const currency = useBillingUSD()
   const { formatHistoricalLogQuota, formatRawQuota } = useHistoricalQuotaMoney()
@@ -570,6 +632,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       ? safeLogDiagnostic(props.log.content ?? '')
       : (props.log.content ?? '')
   const other = parseLogOther(props.log.other)
+  const timing = getLogTiming(props.log, other)
   const modelInfo = formatModelName(props.log)
   const typeConfig = getLogTypeConfig(props.log.type)
   const receipt = usageReceiptState(props.log, other)
@@ -724,7 +787,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       contentClassName={cn(
         'min-w-0 overflow-hidden',
         'max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4',
-        isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-lg'
+        isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-2xl'
       )}
       headerClassName='max-sm:gap-1'
       titleClassName='flex items-center gap-2 text-base'
@@ -732,30 +795,74 @@ export function DetailsDialog(props: DetailsDialogProps) {
       contentHeight='min(72dvh, 720px)'
       bodyClassName='pr-2 sm:pr-4'
     >
-      <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3'>
+      <div className='w-full max-w-full min-w-0 space-y-6 overflow-x-hidden py-2'>
         <LogRequestSummary
           log={props.log}
           other={other}
           onClose={() => props.onOpenChange(false)}
         />
         {/* Overview section - key identifiers */}
-        <div className='min-w-0 space-y-1'>
+        <div className='min-w-0 space-y-3'>
           {props.log.request_id && (
             <DetailRow
               label={t('Request ID')}
-              value={props.log.request_id}
+              value={
+                <span className='flex items-start gap-2'>
+                  <span className='min-w-0 flex-1 break-all'>
+                    {props.log.request_id}
+                  </span>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='size-6 shrink-0'
+                    aria-label={t('Copy Request ID')}
+                    onClick={() => void copyToClipboard(props.log.request_id)}
+                  >
+                    {copiedText === props.log.request_id ? (
+                      <Check className='size-3.5' />
+                    ) : (
+                      <Copy className='size-3.5' />
+                    )}
+                  </Button>
+                </span>
+              }
               mono
             />
           )}
           {props.log.upstream_request_id && (
             <DetailRow
               label={t('Upstream Request ID')}
-              value={props.log.upstream_request_id}
+              value={
+                <span className='flex items-start gap-2'>
+                  <span className='min-w-0 flex-1 break-all'>
+                    {props.log.upstream_request_id}
+                  </span>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='size-6 shrink-0'
+                    aria-label={t('Copy Upstream Request ID')}
+                    onClick={() => {
+                      if (props.log.upstream_request_id) {
+                        void copyToClipboard(props.log.upstream_request_id)
+                      }
+                    }}
+                  >
+                    {copiedText === props.log.upstream_request_id ? (
+                      <Check className='size-3.5' />
+                    ) : (
+                      <Copy className='size-3.5' />
+                    )}
+                  </Button>
+                </span>
+              }
               mono
             />
           )}
 
-          {props.isAdmin && props.log.channel > 0 && (
+          {props.isAdmin && (props.log.channel ?? 0) > 0 && (
             <DetailRow
               label={t('Channel')}
               value={
@@ -779,6 +886,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
           {props.log.token_name && (
             <DetailRow label={t('Token')} value={props.log.token_name} mono />
+          )}
+
+          {(props.log.price_version || other?.price_version) && (
+            <DetailRow
+              label={t('Price version')}
+              value={props.log.price_version || other?.price_version}
+              mono
+            />
           )}
 
           {(props.log.group || other?.group) && (
@@ -805,42 +920,102 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {showTiming && props.log.use_time > 0 && (
+          {props.log.status_code != null && (
             <DetailRow
-              label={t('Response Time')}
-              value={
-                <span
-                  className={cn(
-                    'font-medium',
-                    timingTextColorClass(
-                      getResponseTimeColor(
-                        props.log.use_time,
-                        props.log.completion_tokens
-                      )
-                    )
-                  )}
-                >
-                  {formatUseTime(props.log.use_time)}
-                  {props.log.is_stream &&
-                    other?.frt != null &&
-                    other.frt > 0 && (
-                      <span
-                        className={cn(
-                          'font-normal',
-                          timingTextColorClass(
-                            getFirstResponseTimeColor(other.frt / 1000)
-                          )
-                        )}
-                      >
-                        {' '}
-                        (FRT: {formatUseTime(other.frt / 1000)})
-                      </span>
-                    )}
-                </span>
-              }
+              label={t('Status Code')}
+              value={props.log.status_code}
+              mono
             />
           )}
         </div>
+
+        {showTiming && (
+          <DetailSection label={t('Timing')}>
+            <DetailRow
+              label={t('Duration')}
+              value={formatDurationMs(timing.durationMs)}
+              mono
+            />
+            {props.log.is_stream === true && (
+              <DetailRow
+                label={t('First token')}
+                value={formatDurationMs(timing.firstTokenMs)}
+                mono
+              />
+            )}
+            <DetailRow
+              label={t('Request throughput')}
+              value={
+                timing.throughput == null
+                  ? '—'
+                  : `${Number(timing.throughput.toFixed(1))} t/s`
+              }
+              mono
+            />
+            {timing.generationSpeed != null && (
+              <DetailRow
+                label={t('Generation speed (estimated)')}
+                value={`${Number(timing.generationSpeed.toFixed(1))} t/s`}
+                mono
+              />
+            )}
+            <p className='text-muted-foreground pt-1 text-xs'>
+              {t('Output tokens divided by total request duration.')}
+            </p>
+            {timing.generationSpeed != null && (
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Generation speed excludes the wait for the first output and is an estimate.'
+                )}
+              </p>
+            )}
+          </DetailSection>
+        )}
+
+        {props.isAdmin && (props.log.route_attempts?.length ?? 0) > 0 && (
+          <DetailSection label={t('Route attempts')}>
+            <ol className='space-y-3'>
+              {props.log.route_attempts?.map((attempt) => (
+                <li key={attempt.attempt} className='min-w-0 space-y-1.5'>
+                  <p className='text-xs font-medium'>
+                    {t('Attempt {{number}}', { number: attempt.attempt })}
+                  </p>
+                  <DetailRow
+                    label={t('Channel ID')}
+                    value={attempt.channel_id}
+                    mono
+                  />
+                  <DetailRow
+                    label={t('Route ID')}
+                    value={attempt.route_id}
+                    mono
+                  />
+                  {attempt.status_code != null && (
+                    <DetailRow
+                      label={t('Status Code')}
+                      value={attempt.status_code}
+                      mono
+                    />
+                  )}
+                  {attempt.error_kind && (
+                    <DetailRow
+                      label={t('Error')}
+                      value={attempt.error_kind}
+                      mono
+                    />
+                  )}
+                  {attempt.delivery && (
+                    <DetailRow
+                      label={t('Delivery status')}
+                      value={attempt.delivery}
+                      mono
+                    />
+                  )}
+                </li>
+              ))}
+            </ol>
+          </DetailSection>
+        )}
 
         {/* Request conversion (admin only, not for refund) */}
         {showConversion && (

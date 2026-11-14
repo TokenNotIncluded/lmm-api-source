@@ -30,10 +30,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { getFirstResponseTimeColor, getResponseTimeColor } from '../lib/format'
+import { formatDurationMs } from '../lib/timing'
 import type { LogOtherData } from '../types'
 
 /**
@@ -51,10 +51,10 @@ const barColorMap: Record<StatusVariant, string> = {
 }
 
 interface TimingMetricsCellProps {
-  useTimeSec: number
+  durationMs: number | null
   completionTokens: number | null
-  frtMs?: number
-  isStream: boolean
+  frtMs?: number | null
+  isStream: boolean | null
   className?: string
   /**
    * `bar` (default) draws a full-height color segment beside the labels,
@@ -69,19 +69,18 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
   const { t } = useTranslation()
   const indicator = props.indicator ?? 'bar'
   const showFirstToken = props.isStream
-  const firstTokenSeconds =
-    props.frtMs != null && props.frtMs > 0 ? props.frtMs / 1000 : null
+  const firstTokenSeconds = props.frtMs != null ? props.frtMs / 1000 : null
   const firstTokenVariant: StatusVariant =
     firstTokenSeconds == null
       ? 'neutral'
       : getFirstResponseTimeColor(firstTokenSeconds)
-  const totalTimeVariant = getResponseTimeColor(
-    props.useTimeSec,
-    props.completionTokens
-  )
+  const totalTimeVariant =
+    props.durationMs == null
+      ? 'neutral'
+      : getResponseTimeColor(props.durationMs / 1000, props.completionTokens)
   const firstTokenLabel =
-    firstTokenSeconds == null ? t('N/A') : formatUseTime(firstTokenSeconds)
-  const totalTimeLabel = formatUseTime(props.useTimeSec)
+    firstTokenSeconds == null ? t('N/A') : formatDurationMs(props.frtMs)
+  const totalTimeLabel = formatDurationMs(props.durationMs)
 
   const labels = (
     <div className='flex min-h-8 min-w-0 flex-col justify-center gap-0.5 text-xs leading-tight'>
@@ -150,8 +149,9 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
 }
 
 interface StreamTpsCellProps {
-  isStream: boolean
+  isStream: boolean | null
   tokensPerSecond?: number | null
+  generationSpeed?: number | null
   streamStatus?: LogOtherData['stream_status']
   className?: string
 }
@@ -162,9 +162,14 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
     props.isStream && props.streamStatus && props.streamStatus.status !== 'ok'
   const tpsLabel =
     props.tokensPerSecond != null
-      ? `${Math.round(props.tokensPerSecond)} t/s`
+      ? `${Number(props.tokensPerSecond.toFixed(1))} t/s`
       : '—'
-  const streamLabel = props.isStream ? t('Stream') : t('Non-stream')
+  const streamLabel =
+    props.isStream == null
+      ? t('Not recorded')
+      : props.isStream
+        ? t('Stream')
+        : t('Non-stream')
 
   return (
     <div
@@ -203,9 +208,22 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
           </TooltipProvider>
         )}
       </span>
-      <span className='text-muted-foreground/60 px-0.5 tabular-nums'>
+      <span
+        className='text-muted-foreground px-0.5 tabular-nums'
+        title={t('Output tokens divided by total request duration.')}
+      >
         {tpsLabel}
       </span>
+      {props.generationSpeed != null && (
+        <span
+          className='text-muted-foreground px-0.5 tabular-nums'
+          title={t(
+            'Generation speed excludes the wait for the first output and is an estimate.'
+          )}
+        >
+          {t('Generation')}: {Number(props.generationSpeed.toFixed(1))} t/s
+        </span>
+      )}
     </div>
   )
 }

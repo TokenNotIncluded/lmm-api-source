@@ -56,6 +56,10 @@ export interface CommonLogFilters extends CommonFilters {
   username?: string
   requestId?: string
   upstreamRequestId?: string
+  status?: 'success' | 'error' | 'pending' | 'refunded'
+  minDurationMs?: string
+  maxDurationMs?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 /**
@@ -123,6 +127,7 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
+  price_version?: string | null
   // Pricing snapshots record their engine unit separately from true USD.
   pricing_schema_version?: number
   pricing_currency?: string
@@ -388,6 +393,10 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  status?: 'success' | 'error' | 'pending' | 'refunded'
+  min_duration_ms?: number
+  max_duration_ms?: number
+  sort_order?: 'asc' | 'desc'
 }
 
 export interface GetLogsResponse {
@@ -407,6 +416,10 @@ export interface GetLogStatsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  status?: 'success' | 'error' | 'pending' | 'refunded'
+  min_duration_ms?: number
+  max_duration_ms?: number
+  sort_order?: 'asc' | 'desc'
 }
 
 export interface GetLogStatsResponse {

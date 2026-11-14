@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { withConsolePageFixtures } from '@/features/debug/console-page-fixtures'
 import { withConsoleQueryFixtures } from '@/features/debug/console-query-fixtures'
 import { installPersonaDebugRuntime } from '@/features/debug/persona-runtime'
+import { withUsageLogsReviewFixtures } from '@/features/debug/usage-logs-review-fixtures'
 import { api } from '@/lib/http-client'
 
 installPersonaDebugRuntime()
@@ -51,6 +52,10 @@ if (new URLSearchParams(window.location.search).get('console_review') === '1') {
   api.defaults.adapter = withConsoleQueryFixtures(
     withConsolePageFixtures(api.defaults.adapter)
   )
+}
+
+if (new URLSearchParams(window.location.search).get('logs_review') === '1') {
+  api.defaults.adapter = withUsageLogsReviewFixtures(api.defaults.adapter)
 }
 
 if (new URLSearchParams(window.location.search).get('ui_review') === '1') {

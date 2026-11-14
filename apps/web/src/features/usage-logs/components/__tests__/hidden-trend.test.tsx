@@ -149,6 +149,25 @@ for (const admin of [false, true]) {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30))
       })
+      assert.equal(
+        requests.length,
+        1,
+        'the summary does not eagerly request twelve trend buckets'
+      )
+      assert.equal(
+        container.querySelector(
+          '[aria-label="Usage trend for the selected time range"]'
+        ),
+        null
+      )
+      const openTrend = [...container.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === 'Usage trend'
+      )
+      assert.ok(openTrend)
+      await act(async () => openTrend.click())
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      })
       const initialTrend = container.querySelector(
         '[aria-label="Usage trend for the selected time range"]'
       )
@@ -235,7 +254,7 @@ for (const admin of [false, true]) {
         Number(router.state.location.search.startTime),
         1704153600000
       )
-      assert.equal(Number(router.state.location.search.endTime), 1704160800000)
+      assert.equal(Number(router.state.location.search.endTime), 1704160799000)
       assert.equal(router.state.location.search.page, 1)
     } finally {
       await act(async () => root.unmount())

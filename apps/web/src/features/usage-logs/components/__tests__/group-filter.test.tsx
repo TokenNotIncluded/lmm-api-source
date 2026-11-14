@@ -18,6 +18,8 @@ for (const key of [
   'document',
   'navigator',
   'HTMLElement',
+  'customElements',
+  'CSSStyleSheet',
   'HTMLInputElement',
   'HTMLButtonElement',
   'SVGElement',
@@ -604,6 +606,7 @@ for (const change of [
   'filters',
   'session',
   'unmount',
+  'cancel',
 ] as const) {
   test(`historical export cancels on ${change} changes and never downloads a late file`, async () => {
     const fixture = await renderFilter(true)
@@ -642,6 +645,7 @@ for (const change of [
       assert.equal(loading.disabled, true)
       await act(async () => loading.click())
       assert.equal(reads, 1)
+      if (change === 'cancel') await clickButton('Cancel export')
       if (change === 'source') await clickButton('Current test')
       if (change === 'view') await clickButton('Personal test')
       if (change === 'filters') {
@@ -769,3 +773,85 @@ test('time normalization preserves explicit ranges, single bounds and other log 
     )
   }
 })
+
+for (const admin of [false, true]) {
+  test(`native ${admin ? 'admin' : 'personal'} workbench applies request diagnostics to statistics and export`, async () => {
+    const fixture = await renderFilter(admin)
+    const download = captureDownloads()
+    const search = {
+      ...fixture.router.state.location.search,
+      status: 'error',
+      requestId: 'request-filter',
+      upstreamRequestId: 'upstream-filter',
+      minDurationMs: '2.5',
+      maxDurationMs: '4000',
+      sortOrder: 'asc',
+      ...(admin ? { channel: '42' } : {}),
+    }
+    try {
+      await act(async () => {
+        await fixture.router.navigate({
+          to: '/usage-logs/$section',
+          params: { section: 'common' },
+          search,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      })
+      const upstream = fixture.container.querySelector<HTMLInputElement>(
+        '[aria-label="Upstream Request ID"]'
+      )
+      assert.ok(upstream)
+      assert.equal(upstream.value, 'upstream-filter')
+      assert.equal(
+        fixture.container.querySelector<HTMLInputElement>(
+          '[aria-label="Minimum duration (ms)"]'
+        )?.value,
+        '2.5'
+      )
+      assert.equal(
+        !!fixture.container.querySelector('[aria-label="Channel ID"]'),
+        admin
+      )
+      const summary = fixture.requests
+        .map((value) => new URL(value, 'https://example.invalid'))
+        .findLast((url) => url.searchParams.get('status') === 'error')
+      assert.ok(summary)
+      api.defaults.adapter = async (config) => {
+        const url = new URL(config.url ?? '', 'https://example.invalid')
+        assert.equal(
+          url.pathname,
+          `/core/v1/usage/${admin ? 'admin' : 'self'}/export.csv`
+        )
+        for (const field of [
+          'status',
+          'request_id',
+          'upstream_request_id',
+          'min_duration_ms',
+          'max_duration_ms',
+          'sort_order',
+          'start_timestamp',
+          'end_timestamp',
+          'channel',
+        ]) {
+          assert.equal(
+            url.searchParams.get(field),
+            summary.searchParams.get(field),
+            field
+          )
+        }
+        return {
+          config,
+          headers: { 'content-type': 'text/csv' },
+          status: 200,
+          statusText: 'OK',
+          data: new Blob(['request_id\r\nrequest-filter\r\n']),
+        }
+      }
+      await clickButton('Export CSV')
+      assert.deepEqual(download.files, ['lmm-native-usage.csv'])
+    } finally {
+      download.restore()
+      await fixture.cleanup()
+    }
+  })
+}

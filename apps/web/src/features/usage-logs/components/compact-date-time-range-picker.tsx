@@ -77,7 +77,10 @@ export function CompactDateTimeRangePicker({
     setOpen(nextOpen)
   }
 
+  const invalidRange = !!draftStart && !!draftEnd && draftStart > draftEnd
+
   const applyDraft = () => {
+    if (invalidRange) return
     onChange({
       start: fromInputValue(draftStart),
       end: fromInputValue(draftEnd),
@@ -85,9 +88,14 @@ export function CompactDateTimeRangePicker({
     setOpen(false)
   }
 
-  const applyPreset = (kind: 'today' | '7d' | 'week' | '30d' | 'month') => {
+  const applyPreset = (
+    kind: '15m' | '1h' | '24h' | 'today' | '7d' | 'week' | '30d' | 'month'
+  ) => {
     const now = dayjs()
     const presets = {
+      '15m': { start: now.subtract(15, 'minute').toDate(), end: now.toDate() },
+      '1h': { start: now.subtract(1, 'hour').toDate(), end: now.toDate() },
+      '24h': { start: now.subtract(24, 'hour').toDate(), end: now.toDate() },
       today: {
         start: now.startOf('day').toDate(),
         end: now.endOf('day').toDate(),
@@ -146,6 +154,7 @@ export function CompactDateTimeRangePicker({
               </div>
               <Input
                 type='datetime-local'
+                aria-label={t('Start Time')}
                 value={draftStart}
                 onChange={(e) => setDraftStart(e.target.value)}
                 className='h-8 text-sm leading-5 tabular-nums'
@@ -160,6 +169,7 @@ export function CompactDateTimeRangePicker({
               </div>
               <Input
                 type='datetime-local'
+                aria-label={t('End Time')}
                 value={draftEnd}
                 onChange={(e) => setDraftEnd(e.target.value)}
                 className='h-8 text-sm leading-5 tabular-nums'
@@ -167,7 +177,31 @@ export function CompactDateTimeRangePicker({
             </div>
           </div>
 
-          <div className='flex flex-wrap gap-1.5'>
+          <div className='grid grid-cols-3 gap-1.5'>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => applyPreset('15m')}
+            >
+              {t('Last 15 minutes')}
+            </Button>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => applyPreset('1h')}
+            >
+              {t('Last hour')}
+            </Button>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => applyPreset('24h')}
+            >
+              {t('Last 24 hours')}
+            </Button>
             <Button
               type='button'
               variant='secondary'
@@ -215,8 +249,18 @@ export function CompactDateTimeRangePicker({
             </Button>
           </div>
 
+          {invalidRange && (
+            <p role='alert' className='text-destructive text-xs'>
+              {t('Choose a valid time range with the start before the end.')}
+            </p>
+          )}
           <div className='flex justify-end'>
-            <Button size='sm' className='h-8' onClick={applyDraft}>
+            <Button
+              size='sm'
+              className='h-8'
+              onClick={applyDraft}
+              disabled={invalidRange}
+            >
               {t('Confirm')}
             </Button>
           </div>

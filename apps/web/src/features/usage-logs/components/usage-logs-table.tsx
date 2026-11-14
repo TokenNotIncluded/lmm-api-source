@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -34,10 +34,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_ENUM } from '../constants'
-import {
-  canKeepPreviousLogData,
-  getAsyncLogRefreshInterval,
-} from '../lib/async-task-logs'
+import { getAsyncLogRefreshInterval } from '../lib/async-task-logs'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { UsageHistoryUnavailableError } from '../lib/history-response'
@@ -46,6 +43,7 @@ import { fetchLogsByCategory } from '../lib/utils'
 import { useTaskLogsTranslation } from '../task-logs-i18n'
 import type { LogCategory } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
+import { CommonLogsStatus } from './common-logs-status'
 import { HistoricalLogsTable } from './historical-logs-table'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { TaskLogsStatus } from './task-logs-status'
@@ -87,6 +85,25 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [commonAutoRefresh, setCommonAutoRefresh] = useState(false)
+  const [readCancelled, setReadCancelled] = useState(false)
+  const queryClient = useQueryClient()
+  const statsFetching = useIsFetching({
+    queryKey: [
+      'usage-logs-stats',
+      scope?.userId,
+      scope?.sessionId,
+      scope?.role,
+    ],
+  })
+  const trendFetching = useIsFetching({
+    queryKey: [
+      'usage-logs-trend',
+      scope?.userId,
+      scope?.sessionId,
+      scope?.role,
+    ],
+  })
 
   const {
     columnFilters,
@@ -125,6 +142,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         : []),
     ],
   })
+
+  const commonRefreshInterval =
+    commonAutoRefresh && !historical && pagination.pageIndex === 0
+      ? 5000
+      : false
 
   const {
     data,
@@ -172,28 +194,17 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     enabled: !!scope,
     retry: false,
     refetchInterval: (query) =>
-      getAsyncLogRefreshInterval(
-        logCategory,
-        query.state.data?.items || [],
-        autoRefresh,
-        query.state.status === 'error'
-      ),
+      logCategory === 'common'
+        ? query.state.status === 'error'
+          ? false
+          : commonRefreshInterval
+        : getAsyncLogRefreshInterval(
+            logCategory,
+            query.state.data?.items || [],
+            autoRefresh,
+            query.state.status === 'error'
+          ),
     refetchIntervalInBackground: false,
-    placeholderData: (previousData, previousQuery) => {
-      if (
-        scope &&
-        previousQuery?.queryKey.at(-1) === historical &&
-        canKeepPreviousLogData(
-          previousQuery?.queryKey,
-          logCategory,
-          isAdmin,
-          scope
-        )
-      ) {
-        return previousData
-      }
-      return undefined
-    },
   })
 
   const logs = data?.kind === 'historical' ? [] : data?.items || []
@@ -241,6 +252,89 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     </Button>
   )
 
+  const commonToolbar = (
+    <CommonLogsFilterBar
+      table={table}
+      refreshInterval={isError ? false : commonRefreshInterval}
+      refreshControls={
+        <CommonLogsStatus
+          total={isError ? undefined : data?.total}
+          updatedAt={dataUpdatedAt}
+          refreshing={isFetching || statsFetching > 0 || trendFetching > 0}
+          automatic={!!commonRefreshInterval}
+          canAutoRefresh={!historical && pagination.pageIndex === 0}
+          onAutomaticChange={setCommonAutoRefresh}
+          onRefresh={() => {
+            setReadCancelled(false)
+            void refetch()
+            void queryClient.invalidateQueries({
+              queryKey: [
+                'usage-logs-stats',
+                scope?.userId,
+                scope?.sessionId,
+                scope?.role,
+              ],
+            })
+            void queryClient.invalidateQueries({
+              queryKey: [
+                'usage-logs-trend',
+                scope?.userId,
+                scope?.sessionId,
+                scope?.role,
+              ],
+            })
+          }}
+          onCancel={() => {
+            setCommonAutoRefresh(false)
+            setReadCancelled(true)
+            void queryClient.cancelQueries({
+              queryKey: [
+                'logs',
+                logCategory,
+                isAdmin,
+                scope?.userId,
+                scope?.sessionId,
+                scope?.role,
+              ],
+            })
+            void queryClient.cancelQueries({
+              queryKey: [
+                'usage-logs-stats',
+                scope?.userId,
+                scope?.sessionId,
+                scope?.role,
+              ],
+            })
+            void queryClient.cancelQueries({
+              queryKey: [
+                'usage-logs-trend',
+                scope?.userId,
+                scope?.sessionId,
+                scope?.role,
+              ],
+            })
+          }}
+        />
+      }
+    />
+  )
+
+  if (isCommon && readCancelled && !data && !isFetching && !isError) {
+    return (
+      <div className='space-y-5'>
+        {commonToolbar}
+        <ErrorState
+          title={t('Log loading cancelled')}
+          description={t('Refresh to load the selected requests.')}
+          onRetry={() => {
+            setReadCancelled(false)
+            void refetch()
+          }}
+        />
+      </div>
+    )
+  }
+
   if (isError) {
     if (error instanceof UsageHistoryUnavailableError) {
       return (
@@ -257,13 +351,20 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       )
     }
     return (
-      <ErrorState
-        title={t('Failed to load logs')}
-        description={t(
-          'Check your connection and retry without losing filters.'
+      <div className='space-y-5'>
+        {isCommon ? (
+          commonToolbar
+        ) : (
+          <TaskLogsFilterBar table={table} logCategory={logCategory} />
         )}
-        onRetry={() => void refetch()}
-      />
+        <ErrorState
+          title={t('Failed to load logs')}
+          description={t(
+            'Check your connection and retry without losing filters.'
+          )}
+          onRetry={() => void refetch()}
+        />
+      </div>
     )
   }
 
@@ -309,7 +410,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       toolbar={
         isCommon ? (
-          <CommonLogsFilterBar table={table} />
+          commonToolbar
         ) : (
           <TaskLogsFilterBar
             table={table}
@@ -349,7 +450,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
             key={row.id}
             row={row}
             className={cn('transition-colors', tintClass)}
-            getColumnClassName={() => (isCommon ? 'py-2' : 'py-3.5')}
+            getColumnClassName={() => (isCommon ? 'py-3' : 'py-3.5')}
           />
         )
       }}

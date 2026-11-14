@@ -52,6 +52,9 @@ const usageLogsSearchSchema = z.object({
   username: z.string().optional().catch(''),
   requestId: z.string().optional().catch(''),
   upstreamRequestId: z.string().optional().catch(''),
+  minDurationMs: z.string().optional().catch(''),
+  maxDurationMs: z.string().optional().catch(''),
+  sortOrder: z.enum(['asc', 'desc']).optional().catch(undefined),
   startTime: z.number().optional(),
   endTime: z.number().optional(),
 })

@@ -122,9 +122,19 @@ function UsageLogsContent() {
     (scope: string) => {
       if (scope === 'all' || scope === 'self') {
         setViewScope(scope as LogsViewScope)
+        void navigate({
+          to: '/usage-logs/$section',
+          params: { section: activeCategory },
+          search: (previous) => ({
+            ...previous,
+            page: 1,
+            username: undefined,
+            channel: undefined,
+          }),
+        })
       }
     },
-    [setViewScope]
+    [setViewScope, navigate, activeCategory]
   )
 
   const pageMeta = SECTION_META[activeCategory]
@@ -153,6 +163,10 @@ function UsageLogsContent() {
                       page: 1,
                       channel: undefined,
                       upstreamRequestId: undefined,
+                      status: undefined,
+                      minDurationMs: undefined,
+                      maxDurationMs: undefined,
+                      sortOrder: undefined,
                     }),
                   })
                 }}

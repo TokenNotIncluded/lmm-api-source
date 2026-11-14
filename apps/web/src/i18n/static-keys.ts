@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Usage log validation selects these messages from the active filter.
+  'Channel ID must be a positive integer.',
+  'Choose a valid time range with the start before the end.',
+  'Use milliseconds from 0 to 86400000, with minimum no greater than maximum.',
   'Sign-in was interrupted. Recover this browser session before continuing.',
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.',
   'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.',
