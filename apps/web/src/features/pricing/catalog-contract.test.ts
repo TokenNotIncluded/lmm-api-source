@@ -800,3 +800,35 @@ test('usage-priced image variants preserve null prices and operation reservation
     assert.equal(nativeImageVariantSchema.safeParse(wrong).success, false)
   }
 })
+
+test('catalog metadata preserves per-group original ids, unknown context and effective rates', () => {
+  const input = fixture()
+  const original = input.models[0]
+  assert.ok(original)
+  input.models[0] = {
+    ...original,
+    upstream_model: 'provider-original',
+    metadata: {
+      context_window: null,
+      max_input_tokens: 131072,
+      max_output_tokens: 8192,
+      input_modalities: null,
+      output_modalities: null,
+      reasoning: null,
+      tool_call: null,
+      source: 'reviewed_provider_contract',
+    },
+  }
+  const model = adaptNativePricing(nativePricingSchema.parse(input)).data[0]
+  assert.ok(model)
+  assert.deepEqual(model.catalog_metadata?.standard, {
+    original_id: 'provider-original',
+    context_window: null,
+    max_input_tokens: 131072,
+    max_output_tokens: 8192,
+    group_multiplier: input.models[0].token_price?.group_multiplier,
+  })
+  assert.equal(model.catalog_metadata?.premium.context_window, null)
+  assert.equal(model.catalog_metadata?.premium.original_id, undefined)
+  assert.equal(formatPrice(model, 'input', 'M', 'USD', 'standard'), '2 USD')
+})

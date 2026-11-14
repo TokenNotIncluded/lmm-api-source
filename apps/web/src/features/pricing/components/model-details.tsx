@@ -80,6 +80,7 @@ import {
   formatUptimePct,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
+import { toIntlLocale } from '@/i18n/languages'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -311,6 +312,63 @@ function ModalityLabels(props: { items: string[] }) {
         </span>
       ))}
     </span>
+  )
+}
+
+export function ModelCatalogMetadata({ model }: { model: PricingModel }) {
+  const { t, i18n } = useTranslation()
+  if (!model.catalog_metadata) return null
+  const account = model.pricing_context?.user_price
+  const format = (value: number | null) =>
+    value === null
+      ? t('Unknown')
+      : value.toLocaleString(toIntlLocale(i18n.language))
+  return (
+    <section className='space-y-3' aria-label={t('Model metadata')}>
+      <SectionTitle>{t('Model metadata')}</SectionTitle>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Catalog limits are supplied by the server. Unknown values are not unlimited.'
+        )}
+      </p>
+      {Object.entries(model.catalog_metadata).map(([group, metadata]) => (
+        <div key={group} className='space-y-3 rounded-lg border p-3'>
+          <GroupBadge group={group} size='sm' />
+          <dl className='grid grid-cols-2 gap-3 text-sm sm:grid-cols-3'>
+            {[
+              [t('Original model ID'), metadata.original_id ?? t('Unknown')],
+              [t('Context'), format(metadata.context_window)],
+              [t('Max input'), format(metadata.max_input_tokens)],
+              [t('Max output'), format(metadata.max_output_tokens)],
+              [
+                t('Group multiplier'),
+                metadata.group_multiplier === null
+                  ? t('Unknown')
+                  : `×${format(metadata.group_multiplier)}`,
+              ],
+              [
+                t('Account multiplier'),
+                account?.status === 'verified'
+                  ? `${account.multiplier.numerator}/${account.multiplier.denominator}`
+                  : t('Unknown'),
+              ],
+            ].map(([label, value]) => (
+              <div key={label} className='min-w-0'>
+                <dt className='text-muted-foreground text-xs'>{label}</dt>
+                <dd className='mt-1 font-mono break-all tabular-nums'>
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Displayed prices already include applicable multipliers. Do not multiply them again.'
+        )}
+      </p>
+    </section>
   )
 }
 
@@ -550,6 +608,7 @@ function ModelBackendDetailsSection(props: { model: PricingModel }) {
   return (
     <>
       <ModelBackendQuickStats model={props.model} />
+      <ModelCatalogMetadata model={props.model} />
       <ModelBackendSignalsSection model={props.model} />
       <ModelBackendProviderSection model={props.model} />
     </>

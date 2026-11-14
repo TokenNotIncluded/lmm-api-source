@@ -127,6 +127,18 @@ export function adaptNativePricing(
       id: models.length + 1,
       key: name,
       model_name: name,
+      catalog_metadata: Object.fromEntries(
+        rows.map((row) => [
+          row.group,
+          {
+            original_id: row.upstream_model,
+            context_window: row.metadata?.context_window ?? null,
+            max_input_tokens: row.metadata?.max_input_tokens ?? null,
+            max_output_tokens: row.metadata?.max_output_tokens ?? null,
+            group_multiplier: row.token_price?.group_multiplier ?? null,
+          },
+        ])
+      ),
       pricing_schema_version: 2,
       pricing_currency: 'USD',
       pricing_version: String(document.pricing_version),

@@ -109,6 +109,16 @@ export type PricingModel = {
    * Optional model metadata fields reserved for backend-provided catalog data.
    * Keep them data-driven; do not synthesize display values on the client.
    */
+  catalog_metadata?: Record<
+    string,
+    {
+      original_id?: string
+      context_window: number | null
+      max_input_tokens: number | null
+      max_output_tokens: number | null
+      group_multiplier: number | null
+    }
+  >
   context_length?: number
   max_output_tokens?: number
   knowledge_cutoff?: string

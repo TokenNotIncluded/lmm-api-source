@@ -45,7 +45,7 @@ import type {
 
 export type OAuthGrantSummary = {
   id: string
-  client_id: 'lmm' | 'lmm-pi' | 'lmm-cc-switch'
+  client_id: string
   purpose: 'read_only' | 'normal_model' | 'honeypot_only' | string
   scopes: string[]
   budget_credits: number | null
@@ -71,6 +71,17 @@ export async function getOAuthGrantSummaries(): Promise<
 export async function revokeOAuthGrant(id: string): Promise<ApiResponse> {
   const res = await api.delete<ApiResponse>(
     `/api/user/auth/oauth2/grants/${encodeURIComponent(id)}`,
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  return res.data
+}
+
+export async function revokeOAuthClient(
+  clientId: string
+): Promise<ApiResponse<{ revoked: number }>> {
+  const res = await api.post<ApiResponse<{ revoked: number }>>(
+    '/api/user/auth/oauth2/grants/revoke-client',
+    { client_id: clientId },
     { skipBusinessError: true, skipErrorHandler: true }
   )
   return res.data

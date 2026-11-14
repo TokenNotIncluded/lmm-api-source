@@ -266,3 +266,140 @@ test('managed cc-switch grants show device label and isolate cache by session', 
     api.defaults.adapter = originalAdapter
   }
 })
+
+async function renderGrants(
+  adapter: typeof api.defaults.adapter,
+  run: (host: HTMLDivElement) => Promise<void>
+) {
+  const previous = api.defaults.adapter
+  api.defaults.adapter = adapter
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <OAuthGrantsCard />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+    )
+    await run(host)
+  } finally {
+    await act(async () => root.unmount())
+    queryClient.clear()
+    host.remove()
+    api.defaults.adapter = previous
+  }
+}
+async function until(check: () => boolean) {
+  for (let i = 0; i < 60 && !check(); i++) {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+  }
+  assert.ok(check())
+}
+
+test('client revoke requires confirmation, sends only client id and refreshes all installations', async () => {
+  let revoked = false
+  let writes = 0
+  const fields = {
+    purpose: 'normal_model',
+    scopes: ['models:invoke'],
+    budget_credits: 0,
+    created_at: 1_800_000_000,
+    expires_at: 1_900_000_000,
+    revoked_at: null,
+    active: true,
+  }
+  await renderGrants(
+    async (config) => {
+      if (config.method === 'post') {
+        writes++
+        assert.equal(config.url, '/api/user/auth/oauth2/grants/revoke-client')
+        assert.deepEqual(JSON.parse(config.data), {
+          client_id: 'dynamic-client',
+        })
+        revoked = true
+      }
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data:
+          config.method === 'post'
+            ? { success: true, data: { revoked: 2 } }
+            : {
+                success: true,
+                data: [
+                  ...['first', 'second'].map((id) => ({
+                    ...fields,
+                    id,
+                    client_id: 'dynamic-client',
+                    active: !revoked,
+                    revoked_at: revoked ? 1_800_000_001 : null,
+                  })),
+                  { ...fields, id: 'other', client_id: 'other-client' },
+                ],
+              },
+      }
+    },
+    async (host) => {
+      await until(() => host.querySelectorAll('section').length === 2)
+      assert.match(host.textContent ?? '', /Budget: 0/)
+      const section = host.querySelector('section[aria-label="dynamic-client"]')
+      assert.ok(section)
+      await act(async () =>
+        (section.querySelector('button') as HTMLButtonElement).click()
+      )
+      assert.equal(writes, 0)
+      await until(() => document.querySelector('[role="alertdialog"]') !== null)
+      const dialog = document.querySelector('[role="alertdialog"]')
+      assert.ok(dialog)
+      assert.match(dialog.textContent ?? '', /dynamic-client/)
+      const confirm = [...dialog.querySelectorAll('button')].find(
+        (button) => button.textContent === 'Revoke access'
+      )
+      assert.ok(confirm)
+      await act(async () => confirm.click())
+      await until(() => section.textContent?.includes('Revoked') === true)
+      assert.equal(writes, 1)
+      assert.equal(
+        host
+          .querySelector('section[aria-label="other-client"] button')
+          ?.hasAttribute('disabled'),
+        false
+      )
+    }
+  )
+})
+
+test('business failure is shown as an error, never as an empty grant list', async () => {
+  await renderGrants(
+    async (config) => ({
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: false, message: 'Unavailable' },
+    }),
+    async (host) => {
+      await until(
+        () =>
+          host.textContent?.includes('Unable to load authorized clients') ===
+          true
+      )
+      assert.ok(!host.textContent?.includes('No authorized clients'))
+      assert.ok(
+        [...host.querySelectorAll('button')].some(
+          (button) => button.textContent === 'Retry'
+        )
+      )
+    }
+  )
+})

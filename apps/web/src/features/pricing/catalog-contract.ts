@@ -226,6 +226,17 @@ const unavailableReason = z.enum([
   'routing_unavailable',
 ])
 
+export const nativeModelMetadataSchema = z.object({
+  context_window: safeInteger.nullable(),
+  max_input_tokens: safeInteger.nullable(),
+  max_output_tokens: safeInteger.nullable(),
+  input_modalities: z.array(identifier).nullable(),
+  output_modalities: z.array(identifier).nullable(),
+  reasoning: z.boolean().nullable(),
+  tool_call: z.boolean().nullable(),
+  source: z.string(),
+})
+
 export const nativePricingSchema = z
   .object({
     schema_version: z.literal(1),
@@ -245,6 +256,8 @@ export const nativePricingSchema = z
         z.object({
           id: identifier,
           model: identifier,
+          upstream_model: identifier.optional(),
+          metadata: nativeModelMetadataSchema.optional(),
           group: identifier,
           apis: z.array(identifier).max(32),
           billing_status: z.enum([
