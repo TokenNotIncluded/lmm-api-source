@@ -108,9 +108,8 @@ export function useLogsViewScope() {
     setViewScope,
     usageSource,
     setUsageSource,
-    // Administrators read all imported history; everyone else reads their own.
-    historical:
-      usageSource === 'historical' && (!canManageScope || viewScope === 'all'),
+    // Source selection is independent of whether the viewer reads all or self.
+    historical: usageSource === 'historical',
     isAdminView: canManageScope && viewScope === 'all',
   }
 }

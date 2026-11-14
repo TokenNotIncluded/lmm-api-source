@@ -153,7 +153,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
     ]
   )
   const handleExport = async () => {
-    if (!scope || exportController.current) return
+    if (!scope || exportController.current || (historical && !isAdmin)) return
     const controller = new AbortController()
     exportController.current = controller
     setExporting(true)
@@ -558,16 +558,18 @@ export function CommonLogsFilterBar<TData extends RowData>(
       actionStart={
         <>
           {sensitiveToggle}
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            disabled={!scope || exporting}
-            onClick={() => void handleExport()}
-          >
-            <Download aria-hidden='true' />
-            {t(exporting ? 'Exporting usage...' : 'Export CSV')}
-          </Button>
+          {(!historical || isAdmin) && (
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              disabled={!scope || exporting}
+              onClick={() => void handleExport()}
+            >
+              <Download aria-hidden='true' />
+              {t(exporting ? 'Exporting usage...' : 'Export CSV')}
+            </Button>
+          )}
           {exportFailed && (
             <span role='alert' className='text-destructive text-xs'>
               {t('Usage export failed. Narrow the time range or retry.')}

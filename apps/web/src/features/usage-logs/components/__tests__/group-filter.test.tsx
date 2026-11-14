@@ -462,12 +462,6 @@ for (const mode of [
   { name: 'personal', admin: false, historical: false, self: false },
   { name: 'admin', admin: true, historical: false, self: false },
   { name: 'historical admin', admin: true, historical: true, self: false },
-  {
-    name: 'admin returning to personal',
-    admin: true,
-    historical: true,
-    self: true,
-  },
 ]) {
   test(`${mode.name} export downloads the applied filters across pages`, async () => {
     const fixture = await renderFilter(mode.admin)
@@ -520,6 +514,41 @@ for (const mode of [
     }
   })
 }
+
+test('switching historical usage to self preserves the source and never exposes admin export', async () => {
+  const fixture = await renderFilter(true)
+  try {
+    await clickButton('History test')
+    fixture.requests.length = 0
+    await clickButton('Personal test')
+    assert.ok(
+      fixture.requests.some((url) =>
+        url.startsWith('/api/log/self/history/stat?')
+      )
+    )
+    assert.equal(
+      fixture.requests.some((url) => url.startsWith('/api/log/self/stat?')),
+      false
+    )
+    assert.equal(
+      Array.from(fixture.container.querySelectorAll('button')).some((button) =>
+        button.textContent?.includes('Export CSV')
+      ),
+      false
+    )
+    await clickButton('Current test')
+    assert.ok(
+      fixture.requests.some((url) => url.startsWith('/api/log/self/stat?'))
+    )
+    assert.ok(
+      Array.from(fixture.container.querySelectorAll('button')).some((button) =>
+        button.textContent?.includes('Export CSV')
+      )
+    )
+  } finally {
+    await fixture.cleanup()
+  }
+})
 
 test('historical export failures stay visible, create no download and permit retry', async () => {
   const fixture = await renderFilter(true)
