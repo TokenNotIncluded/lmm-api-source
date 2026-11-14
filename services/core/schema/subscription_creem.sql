@@ -1,6 +1,10 @@
 -- Additive Creem entitlement component; never wallet credit or Stripe events.
 ALTER TABLE core_subscriptions.external_orders DROP CONSTRAINT external_orders_provider_check;
 ALTER TABLE core_subscriptions.external_orders ADD CONSTRAINT external_orders_provider_check CHECK(provider IN ('epay','stripe','waffo_pancake','creem'));
+ALTER TABLE core_subscriptions.external_prices DROP CONSTRAINT external_prices_currency_check;
+ALTER TABLE core_subscriptions.external_prices ADD CONSTRAINT external_prices_currency_check CHECK(currency IN ('CNY','LDC','USD','EUR'));
+ALTER TABLE core_subscriptions.external_orders DROP CONSTRAINT external_orders_currency_check;
+ALTER TABLE core_subscriptions.external_orders ADD CONSTRAINT external_orders_currency_check CHECK(currency IN ('CNY','LDC','USD','EUR'));
 CREATE TABLE core_subscriptions.creem_prices (
  plan_id BIGINT NOT NULL, plan_revision BIGINT NOT NULL, channel_id BIGINT NOT NULL,
  provider_price_id TEXT NOT NULL CHECK(provider_price_id ~ '^prod_[A-Za-z0-9_]+$'),
@@ -72,7 +76,7 @@ CREATE FUNCTION core_subscriptions.guard_creem_state() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN
  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'retained Creem state' USING ERRCODE='23514'; END IF;
- IF NOT EXISTS(SELECT FROM core_subscriptions.external_orders WHERE id=NEW.order_id AND provider='creem' AND currency='USD') THEN
+ IF NOT EXISTS(SELECT FROM core_subscriptions.external_orders WHERE id=NEW.order_id AND provider='creem' AND currency IN ('USD','CNY','EUR')) THEN
   RAISE EXCEPTION 'Creem state requires original Creem order' USING ERRCODE='23514'; END IF;
  IF TG_OP='UPDATE' AND (NEW.order_id<>OLD.order_id OR
   (OLD.provider_subscription_id IS NOT NULL AND NEW.provider_subscription_id IS DISTINCT FROM OLD.provider_subscription_id) OR
@@ -91,3 +95,17 @@ CREATE TRIGGER creem_cycles_no_truncate BEFORE TRUNCATE ON core_subscriptions.cr
 CREATE TRIGGER creem_state_no_truncate BEFORE TRUNCATE ON core_subscriptions.creem_state FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
 REVOKE ALL ON core_subscriptions.creem_prices,core_subscriptions.creem_state,core_subscriptions.creem_events,core_subscriptions.creem_cycles FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_subscriptions.check_creem_cycle(),core_subscriptions.guard_creem_state() FROM PUBLIC;
+
+-- Owner-only offline 73 -> 74 receipt, never runtime upgrade authority.
+CREATE TABLE core_meta.subscription_creem_upgrades (
+ upgrade_id TEXT PRIMARY KEY,
+ request_sha256 BYTEA NOT NULL CHECK(octet_length(request_sha256)=32),
+ request JSONB NOT NULL CHECK(jsonb_typeof(request)='object'),
+ preserved_data_sha256 BYTEA NOT NULL CHECK(octet_length(preserved_data_sha256)=32),
+ preserved_permissions_sha256 BYTEA NOT NULL CHECK(octet_length(preserved_permissions_sha256)=32),
+ successor_catalog_sha256 BYTEA NOT NULL CHECK(octet_length(successor_catalog_sha256)=32),
+ recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TRIGGER subscription_creem_upgrades_immutable BEFORE UPDATE OR DELETE ON core_meta.subscription_creem_upgrades FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER subscription_creem_upgrades_no_truncate BEFORE TRUNCATE ON core_meta.subscription_creem_upgrades FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+REVOKE ALL ON core_meta.subscription_creem_upgrades FROM PUBLIC;

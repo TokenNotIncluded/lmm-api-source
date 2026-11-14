@@ -1,0 +1,6 @@
+{
+  "creem_schema_sha256": "89daa51aaf12de5818680f525b973d6dfa28e34b38def27b7f560fd3775333e3",
+  "predecessor_catalog_sha256": "e65a59ef3bee637dda7da9bbe401425fb40b524ff7ff25bde9c5ef90055f001a",
+  "successor_catalog_sha256": "293a5b12fc7e09be686ace47a3c13e14be208bcc9d9fddb7e29355fd84e1ee1c",
+  "validation_status": "PG18_REAL_TRANSACTION_CATALOG_CAPTURE_ROLLED_BACK"
+}

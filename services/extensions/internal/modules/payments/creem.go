@@ -40,7 +40,7 @@ func NewCreem(cfg CreemConfig) (*Creem, error) {
 // NewCreemSubscriptionAdapter configures independent recurring checkout access.
 // It does not register a fixed-price wallet product or carry a webhook secret.
 func NewCreemSubscriptionAdapter(cfg CreemConfig) (*Creem, error) {
-	if !cfg.Channel.valid() || cfg.Channel.Provider != "creem" || cfg.Channel.Currency != "USD" || !validProviderCredential(cfg.APIKey) {
+	if !cfg.Channel.valid() || cfg.Channel.Provider != "creem" || (cfg.Channel.Currency != "USD" && cfg.Channel.Currency != "CNY" && cfg.Channel.Currency != "EUR") || !validProviderCredential(cfg.APIKey) {
 		return nil, ErrInvalid
 	}
 	if _, err := secureURL(cfg.SuccessURL); err != nil {

@@ -40,6 +40,8 @@ func priority(kind string) int {
 		return 2
 	case "checkout":
 		return 3
+	case "refund_lookup":
+		return 5
 	default:
 		return 4
 	}

@@ -97,6 +97,7 @@ type Runtime struct {
 	Payments                    *payments.Service
 	SubscriptionPayments        *payments.EPaySubscriptions
 	StripeSubscriptionPayments  *payments.StripeSubscriptions
+	CreemSubscriptionPayments   *payments.CreemSubscriptions
 	PancakeSubscriptionPayments *payments.PancakeSubscriptions
 	PancakeAdmin                *PancakeAdministration
 	CommerceClient              *coreclient.Client
@@ -163,6 +164,9 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 				}
 				if r.StripeSubscriptionPayments != nil {
 					recovery = append(recovery, func(work context.Context) error { return r.StripeSubscriptionPayments.Recover(work, 1) })
+				}
+				if r.CreemSubscriptionPayments != nil {
+					recovery = append(recovery, func(work context.Context) error { return r.CreemSubscriptionPayments.Recover(work, 1) })
 				}
 				if r.Store != nil {
 					recovery = append(recovery, r.Store.RecoverDeliveries)

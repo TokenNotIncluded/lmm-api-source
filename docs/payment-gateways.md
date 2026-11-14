@@ -41,6 +41,13 @@ verification and conversion, and [Extensions payment configuration](../config/ex
 for outgoing adapters. Both use `version = 2` with explicit provider and environment.
 Version 1 Stripe configuration remains accepted; isolated test profiles are laboratory configuration.
 
+`enabled` admits new wallet orders. `subscription_enabled` separately admits new
+EPay, Stripe, Creem or Pancake subscription purchases and defaults to false.
+Disabling either switch preserves issued orders and provider callbacks. Coinbase
+and Global do not accept this subscription switch. Creem subscriptions can omit
+the wallet product when wallet checkout is disabled; their product and exact
+price come from the published plan revision instead.
+
 The two sides must agree on channel ID, provider, merchant, environment, currency
 and product/store/payment-type binding. A channel ID identifies an immutable policy.
 When changing that policy, allocate a new ID and retain the old channel's verification
@@ -86,6 +93,38 @@ See [Core runtime configuration](../config/core.example.toml),
 [Extensions runtime configuration](../config/extensions.example.toml) and
 [database provisioning](../deployment/postgres/README.md). Ordinary startup performs no DDL.
 
+## External subscription checkout
+
+Publish the provider product/price against a specific Core plan revision before
+enabling new purchases. The browser's subscription price editor writes Core's
+admin price endpoint; the buyer confirms its frozen order before Go creates a
+checkout. Wallet products, conversion rates and paid wallet notifications do not
+grant subscription entitlements.
+
+| Provider | Core plan price suffix | Browser order prefix | Callback prefix |
+| --- | --- | --- | --- |
+| Stripe | `stripe-prices` | `/api/user/payments/subscriptions/stripe/orders` | `/callbacks/subscriptions/stripe/{channel}` |
+| Creem | `creem-prices` | `/api/user/payments/subscriptions/creem/orders` | `/callbacks/subscriptions/creem/{channel}` |
+
+The public price suffix follows `/core/v1/subscriptions/plans/{id}/`; publishing
+uses `/core/v1/subscriptions/admin/plans/{id}/` and requires an administrator
+Session. Use the separate subscription callback, rather than the wallet callback.
+Core's historically named `subscription_epay_*` permissions govern the external
+subscription RPCs for EPay, Stripe, Creem and Pancake. New subscriptions remain
+disabled until their own admission switch and schema are provisioned.
+
+Creem validates the current product, recurring period, exact currency/amount and
+inclusive tax before its first checkout POST. Recovery keeps the original order
+reference and never repeats an ambiguous POST. Only signed `subscription.paid`
+evidence grants a cycle; checkout completion alone does not. Scheduled renewal
+cancellation waits for provider lifecycle evidence to update Core state.
+
+Existing databases require the matching reviewed Core upgrade and the explicit
+Go `upgrade-payments-creem-subscriptions-db` procedure. Its installation-owner
+connection and fenced runtime role are separate from normal application startup.
+Fresh payment installations include the additive subscription tables and narrow
+runtime grants. Do not run fresh installation against an existing payment database.
+
 ## Refunds and recovery
 
 The native [Stripe](../services/extensions/internal/modules/payments/stripe.go) and
@@ -93,6 +132,12 @@ The native [Stripe](../services/extensions/internal/modules/payments/stripe.go) 
 adapters support full and partial refund dispatch.
 Other native profiles do not expose automatic refunds in their normal configuration.
 Unsupported requests are rejected before a refund hold or provider write is created.
+Pancake additionally admits signed external refund callbacks against the original
+payment, store, product and actual charged/refunded amounts. Its business refund
+ID prevents a redelivered refund from debiting twice, and Core enforces cumulative
+limits. Automatic ticket submission remains disabled. Callbacks missing a positive
+actual `refundedAmount`, including failed refunds without that evidence, remain
+unsupported rather than substituting a requested amount or price snapshot.
 Subscription entitlements and store-order refunds remain separate business operations;
 a wallet refund adapter does not authorize either of them.
 

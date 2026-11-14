@@ -63,3 +63,50 @@ func TestRefundWorkerQueriesOriginalUnknownDispatchAfterRestart(t *testing.T) {
 		t.Fatal("final refund continued provider polling")
 	}
 }
+
+func TestSignedRefundFailureSupersedesUnsignedSuccess(t *testing.T) {
+	for _, historical := range []bool{false, true} {
+		h := setup(t)
+		o := h.paid()
+		r, err := h.s.RequestRefund(context.Background(), "user", o.ID, "refund_observation_failure_001", 300)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.work()
+		r = h.get(o.ID).Refunds[r.ID]
+		e := h.event(o, "observed_refund_success", RefundSucceeded, 300)
+		e.RefundID, e.LocalRefundID = r.ProviderID, r.ID
+		e.Evidence.Source, e.Evidence.Signature = "api", nil
+		if historical {
+			failed := h.event(o, "signed_refund_failure", RefundFailed, 300)
+			failed.RefundID, failed.LocalRefundID = r.ProviderID, r.ID
+			h.send(failed)
+			if err := h.m.FinishEvent(context.Background(), eventKey(failed), "done", "", h.s.now()); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.m.Mutate(context.Background(), o.ID, func(order *Order) error {
+				old := order.Refunds[r.ID]
+				old.ProviderState = RefundSucceeded
+				order.Refunds[r.ID] = old
+				order.Jobs["old_unsigned_commit"] = Job{Key: "old_unsigned_commit", Kind: "commit", RefundID: r.ID, State: "review", Evidence: e.Evidence}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			h.a.observations = []Event{e}
+			if err := h.s.Reconcile(context.Background(), o.ID); err != nil {
+				t.Fatal(err)
+			}
+			h.work()
+		}
+		failed := h.event(o, "signed_refund_failure", RefundFailed, 300)
+		failed.RefundID, failed.LocalRefundID = r.ProviderID, r.ID
+		h.send(failed)
+		h.work()
+		got := h.get(o.ID)
+		if got.Refunds[r.ID].State != "released" || got.Refunds[r.ID].ProviderState != RefundFailed || h.c.count("release") != 1 || h.c.count("commit") != 0 || got.State() != "credited" {
+			t.Fatalf("unsigned success suppressed trusted failure (historical=%t): %+v", historical, got.Refunds[r.ID])
+		}
+	}
+}

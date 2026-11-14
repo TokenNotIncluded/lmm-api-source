@@ -29,6 +29,11 @@ func RunPaymentsStripeSubscriptionUpgradeCLI(ctx context.Context, args []string,
 func RunPaymentsPancakeSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
 	return runPaymentsSubscriptionUpgradeCLI(ctx, args, out, "pancake")
 }
+
+// RunPaymentsCreemSubscriptionUpgradeCLI installs only the fenced Creem addon.
+func RunPaymentsCreemSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer) error {
+	return runPaymentsSubscriptionUpgradeCLI(ctx, args, out, "creem")
+}
 func runPaymentsSubscriptionUpgradeCLI(ctx context.Context, args []string, out io.Writer, provider string) error {
 	var c Config
 	var recoverOnly bool
@@ -38,6 +43,9 @@ func runPaymentsSubscriptionUpgradeCLI(ctx context.Context, args []string, out i
 	}
 	if provider == "pancake" {
 		command = "upgrade-payments-pancake-subscriptions-db"
+	}
+	if provider == "creem" {
+		command = "upgrade-payments-creem-subscriptions-db"
 	}
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -92,12 +100,19 @@ func runPaymentsSubscriptionUpgradeCLI(ctx context.Context, args []string, out i
 		if provider == "pancake" {
 			table = "public.payment_pancake_subscription_upgrades"
 		}
+		if provider == "creem" {
+			table = "public.payment_creem_subscription_upgrades"
+		}
 		if err = db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists); err != nil || !exists {
 			return ErrRejected
 		}
 	}
 	var receipt payments.SubscriptionEPayUpgradeReceipt
-	if provider == "stripe" {
+	if provider == "creem" {
+		var result payments.SubscriptionCreemUpgradeReceipt
+		result, err = payments.UpgradeSubscriptionCreem(ctx, db, c.ExpectedDatabase, c.RuntimeRole)
+		receipt = payments.SubscriptionEPayUpgradeReceipt(result)
+	} else if provider == "stripe" {
 		var result payments.SubscriptionStripeUpgradeReceipt
 		result, err = payments.UpgradeSubscriptionStripe(ctx, db, c.ExpectedDatabase, c.RuntimeRole)
 		receipt = payments.SubscriptionEPayUpgradeReceipt(result)

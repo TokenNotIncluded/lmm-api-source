@@ -240,8 +240,12 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	}
 	var pancake []*payments.Pancake
 	var stripe []*payments.Stripe
+	var creem []*payments.Creem
 	var epay []*payments.EPay
 	for _, adapter := range adapters {
+		if channel, ok := adapter.(*payments.Creem); ok {
+			creem = append(creem, channel)
+		}
 		if channel, ok := adapter.(*payments.Pancake); ok {
 			pancake = append(pancake, channel)
 		}
@@ -253,7 +257,7 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 		}
 	}
 	if len(epay) > 0 {
-		r.SubscriptionPayments, err = payments.NewEPaySubscriptions(r.PaymentClient, repo, epay)
+		r.SubscriptionPayments, err = payments.NewEPaySubscriptions(r.PaymentClient, repo, epay, stripeAdmission)
 	}
 	if err != nil {
 		return err
@@ -281,6 +285,21 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	if len(stripe) > 0 && stripeInstalled {
 		r.StripeSubscriptionPayments, err = payments.NewStripeSubscriptions(r.PaymentClient, db, stripe, stripeAdmission)
 	}
+	if err != nil {
+		return err
+	}
+	creemInstalled, err := paymentStorageAddonInstalled(ctx, db, []string{"public.payment_creem_subscription_checkouts", "public.payment_creem_subscription_inbox"})
+	if err != nil {
+		return err
+	}
+	for _, a := range creem {
+		if stripeAdmission[a.Channel().ID] && !creemInstalled {
+			return errors.New("Creem subscription admission requires explicit storage upgrade")
+		}
+	}
+	if len(creem) > 0 && creemInstalled {
+		r.CreemSubscriptionPayments, err = payments.NewCreemSubscriptions(r.PaymentClient, db, creem, stripeAdmission)
+	}
 	if err == nil && len(pancake) > 0 {
 		r.PancakeAdmin, err = newPancakeAdministration(cfg.PaymentConfigFile, r.Payments, r.PancakeSubscriptionPayments)
 	}
@@ -293,13 +312,14 @@ type paymentModule struct {
 	wallet        *payments.Service
 	subscriptions *payments.EPaySubscriptions
 	stripe        *payments.StripeSubscriptions
+	creem         *payments.CreemSubscriptions
 	pancake       *payments.PancakeSubscriptions
 }
 
 func (paymentModule) Name() string { return "payments" }
 func (m paymentModule) Handler() http.Handler {
 	mux := http.NewServeMux()
-	if h := subscriptionPaymentHandler(m.subscriptions, m.stripe, m.pancake); h != nil {
+	if h := subscriptionPaymentHandler(m.subscriptions, m.stripe, m.pancake, m.creem); h != nil {
 		mux.Handle("/subscriptions/", http.StripPrefix("/subscriptions", h))
 	}
 	mux.Handle("/", m.wallet.Handler())
@@ -325,13 +345,16 @@ func isolatedPaymentAPIFile(path, dir string) bool {
 // SubscriptionPaymentHandler is also mounted by the existing Web user Session
 // wrapper. Callback ingress is mounted separately with host admission.
 func (r *Runtime) SubscriptionPaymentHandler() http.Handler {
-	return subscriptionPaymentHandler(r.SubscriptionPayments, r.StripeSubscriptionPayments, r.PancakeSubscriptionPayments)
+	return subscriptionPaymentHandler(r.SubscriptionPayments, r.StripeSubscriptionPayments, r.PancakeSubscriptionPayments, r.CreemSubscriptionPayments)
 }
-func subscriptionPaymentHandler(epay *payments.EPaySubscriptions, stripe *payments.StripeSubscriptions, pancake *payments.PancakeSubscriptions) http.Handler {
-	if epay == nil && stripe == nil && pancake == nil {
+func subscriptionPaymentHandler(epay *payments.EPaySubscriptions, stripe *payments.StripeSubscriptions, pancake *payments.PancakeSubscriptions, creem *payments.CreemSubscriptions) http.Handler {
+	if epay == nil && stripe == nil && pancake == nil && creem == nil {
 		return nil
 	}
 	mux := http.NewServeMux()
+	if creem != nil {
+		mux.Handle("/creem/", http.StripPrefix("/creem", creem.Handler()))
+	}
 	if pancake != nil {
 		mux.Handle("/pancake/", http.StripPrefix("/pancake", pancake.Handler()))
 	}

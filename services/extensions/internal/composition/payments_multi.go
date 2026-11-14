@@ -100,10 +100,10 @@ func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheck
 			return nil, errors.New("invalid or duplicate payment channel")
 		}
 		ids[c.ID] = true
-		if c.SubscriptionEnabled && c.Provider != "stripe" && c.Provider != "waffo_pancake" {
-			return nil, errors.New("subscription_enabled requires Stripe or Pancake")
+		if c.SubscriptionEnabled && c.Provider != "stripe" && c.Provider != "waffo_pancake" && c.Provider != "creem" && c.Provider != "epay" {
+			return nil, errors.New("subscription_enabled requires Stripe, Creem, EPay or Pancake")
 		}
-		if admission != nil && (c.Provider == "stripe" || c.Provider == "waffo_pancake") {
+		if admission != nil && (c.Provider == "stripe" || c.Provider == "waffo_pancake" || c.Provider == "creem" || c.Provider == "epay") {
 			admission[c.ID] = c.SubscriptionEnabled
 		}
 		channel := payments.Channel{CreditQuantity: c.CreditQuantity, ID: c.ID, Provider: c.Provider, Merchant: c.Merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled}
@@ -136,7 +136,12 @@ func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheck
 		case "epay":
 			adapter, err = payments.NewCoreEPay(payments.EPayConfig{Channel: channel, Endpoint: c.Endpoint, PaymentType: c.PaymentType, NotifyURL: c.NotifyURL, ReturnURL: c.ReturnURL}, signer)
 		case "creem":
-			adapter, err = payments.NewCreem(payments.CreemConfig{Channel: channel, APIKey: apiKey, ProductID: c.ProductID, ProductAmountMinor: c.ProductAmountMinor, SuccessURL: c.SuccessURL})
+			creem := payments.CreemConfig{Channel: channel, APIKey: apiKey, ProductID: c.ProductID, ProductAmountMinor: c.ProductAmountMinor, SuccessURL: c.SuccessURL}
+			if !c.Enabled && c.ProductID == "" && c.ProductAmountMinor == 0 {
+				adapter, err = payments.NewCreemSubscriptionAdapter(creem)
+			} else {
+				adapter, err = payments.NewCreem(creem)
+			}
 		case "coinbase":
 			adapter, err = payments.NewCoinbase(payments.CoinbaseConfig{Channel: channel, APIKey: apiKey, PrivateKey: privateKey, SuccessURL: c.SuccessURL, CancelURL: c.CancelURL})
 		case "waffo":

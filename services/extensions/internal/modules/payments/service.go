@@ -604,6 +604,11 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 			}
 			return nil
 		}
+		// Provider queries are observations. In particular an unsigned success
+		// cannot suppress a later signed failure and strand the original hold.
+		if e.Evidence.Source == "api" {
+			return nil
+		}
 		// An external refund without an order ID stays in the inbox until its
 		// payment reference is bound; it is never attributed by an account header.
 		o.PaymentID = e.Evidence.Transaction
@@ -633,7 +638,7 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 			r = Refund{ID: rid, AmountMinor: e.AmountMinor, State: "external_pending"}
 		}
 		r.ProviderID = e.RefundID
-		if r.ProviderState == RefundSucceeded && e.Type != RefundSucceeded {
+		if r.ProviderState == RefundSucceeded && e.Type != RefundSucceeded && verifiedRefundSuccess(*o, rid) {
 			return nil
 		} // No terminal regression.
 		if r.ProviderState == RefundFailed && e.Type == RefundSucceeded && o.ErrorCode == "conflicting_refund_terminal_state" {
@@ -673,6 +678,18 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 		o.Refunds[rid] = r
 		return nil
 	})
+}
+
+func verifiedRefundSuccess(o Order, refundID string) bool {
+	if o.Refunds[refundID].State == "committed" {
+		return true
+	}
+	for _, job := range o.Jobs {
+		if job.RefundID == refundID && (job.Kind == "commit" || job.Kind == "external_refund") && job.Evidence.AcceptedProofID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Reconcile uses authenticated provider reads only as observations. The core

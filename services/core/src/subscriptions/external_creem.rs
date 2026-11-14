@@ -91,7 +91,7 @@ impl SubscriptionStore {
         let amount = p.amount_minor.parse::<i64>().map_err(|_| Error::Invalid)?;
         if !(1..=9_000_000_000_000).contains(&amount)
             || amount.to_string() != p.amount_minor
-            || p.currency != "USD"
+            || !matches!(p.currency.as_str(), "USD" | "CNY" | "EUR")
             || !matches!(
                 (p.interval.as_str(), p.interval_count),
                 ("month", 1 | 3 | 6) | ("year", 1)
@@ -134,7 +134,7 @@ impl SubscriptionStore {
         };
         if current.archived
             || current.revision != p.plan_revision
-            || b.price.currency != "USD"
+            || b.price.currency != p.currency
             || duration.is_some_and(|d| d != current.terms.duration_months)
             || seconds.is_some_and(|d| {
                 current.terms.duration_months != 0 || d != current.terms.duration_seconds
@@ -195,8 +195,8 @@ impl SubscriptionStore {
             .map_err(pay_error)?;
         let at = now(&mut tx).await?;
         let id = format!("sub_{}", random_id());
-        sqlx::query("INSERT INTO core_subscriptions.external_orders(id,actor_user_id,account_id,operation_key,plan_id,plan_revision,channel_id,provider,merchant,environment,currency,amount_minor,channel_binding,quoted_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,'creem',$8,$9,'USD',$10,$11,$12,$12+1800)")
-            .bind(&id).bind(a.user_id).bind(a.owner_account_id).bind(&r.operation_key).bind(p.id).bind(p.revision).bind(r.channel_id).bind(&binding.merchant).bind(&binding.environment).bind(binding.price.amount_minor.parse::<i64>().map_err(|_|Error::Invalid)?).bind(Json(&binding)).bind(at).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO core_subscriptions.external_orders(id,actor_user_id,account_id,operation_key,plan_id,plan_revision,channel_id,provider,merchant,environment,currency,amount_minor,channel_binding,quoted_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,'creem',$8,$9,$10,$11,$12,$13,$13+1800)")
+            .bind(&id).bind(a.user_id).bind(a.owner_account_id).bind(&r.operation_key).bind(p.id).bind(p.revision).bind(r.channel_id).bind(&binding.merchant).bind(&binding.environment).bind(&binding.price.currency).bind(binding.price.amount_minor.parse::<i64>().map_err(|_|Error::Invalid)?).bind(Json(&binding)).bind(at).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO core_subscriptions.creem_state(order_id) VALUES($1)")
             .bind(&id)
             .execute(&mut *tx)

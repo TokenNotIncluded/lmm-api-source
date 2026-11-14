@@ -29,7 +29,7 @@ independent authenticated order inquiry. Go's deprecated `WebhookSecrets` config
 field must be empty. Raw payloads and signatures are private and immutable;
 Go's authenticated provider API reads remain observations. Rust decides provider
 scope, freshness on first acceptance, transaction binding and replay semantics.
-The configured provider set is Stripe, EPay, Creem, Waffo Global and Pancake;
+The configured provider set is Stripe, EPay, Creem, Coinbase Business, Waffo Global and Pancake;
 FastPay is rejected. Adding another provider still requires an independent Rust
 verifier or another explicitly designed trusted boundary; no generic attestation
 is assumed here. See [gateway profiles](../../../../../docs/payment-gateways.md).

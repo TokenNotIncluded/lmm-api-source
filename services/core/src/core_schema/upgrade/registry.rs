@@ -242,6 +242,7 @@ registrations! {
         AFFILIATE_REGISTRATION => affiliate_registration, "AFFILIATE_REGISTRATION_", |c,r| Box::pin(affiliate_registration::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         PERSONAL_TOKENS => personal_tokens, "PERSONAL_TOKENS_", |c,r| Box::pin(personal_tokens::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         MANAGED_APPLICATIONS => managed_applications, "MANAGED_APPLICATIONS_", |c,r| Box::pin(managed_applications::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { target: TargetSource::Captured(managed_applications::captured_target), projection: DataProjection::ManagedApplications, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
+        SUBSCRIPTION_CREEM => subscription_creem, "SUBSCRIPTION_CREEM_", |c,r| Box::pin(subscription_creem::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
@@ -285,6 +286,7 @@ mod tests {
             "core-affiliate-registration-v1",
             "core-oauth2-oidc-v1",
             "core-personal-tokens-v1",
+            "core-subscription-creem-v1",
         ]
         .into_iter()
         .collect();
@@ -372,6 +374,7 @@ mod tests {
             ("core-affiliate-registration-v1", "AFFILIATE_REGISTRATION_"),
             ("core-oauth2-oidc-v1", "OIDC_"),
             ("core-personal-tokens-v1", "PERSONAL_TOKENS_"),
+            ("core-subscription-creem-v1", "SUBSCRIPTION_CREEM_"),
         ];
         let errors = [
             (
@@ -540,6 +543,10 @@ mod tests {
             "core-payment-discount-management-v1",
             "core-responses-continuity-v1",
             "core-managed-applications-v1",
+            "core-affiliate-registration-v1",
+            "core-oauth2-oidc-v1",
+            "core-personal-tokens-v1",
+            "core-subscription-creem-v1",
         ];
         for entry in ENTRIES
             .iter()

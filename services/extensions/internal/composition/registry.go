@@ -43,7 +43,7 @@ var moduleRegistrations = []moduleRegistration{
 	{
 		descriptor: modules.Descriptor{Name: "payments", Version: "1.0.0"},
 		bind: func(r *Runtime) (modules.Module, error) {
-			return paymentModule{wallet: r.Payments, subscriptions: r.SubscriptionPayments, stripe: r.StripeSubscriptionPayments, pancake: r.PancakeSubscriptionPayments}, nil
+			return paymentModule{wallet: r.Payments, subscriptions: r.SubscriptionPayments, stripe: r.StripeSubscriptionPayments, creem: r.CreemSubscriptionPayments, pancake: r.PancakeSubscriptionPayments}, nil
 		},
 	},
 	{

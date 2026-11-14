@@ -6,7 +6,7 @@ use crate::{
     payments::{Channel, PaymentsStore, ProviderVerification},
 };
 use hmac::{Hmac, KeyInit as _, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 const SECRET: &str = "creem_synthetic_subscription_secret_01";
 fn channel() -> Channel {
     Channel {
@@ -65,7 +65,14 @@ async fn creem_original_first_cycle_lifecycle_and_recovery_pg() {
     let user = identity.bootstrap_user(8502, 0).await.unwrap().secret;
     let other = identity.bootstrap_user(8503, 0).await.unwrap().secret;
     let store = SubscriptionStore::new(pool.clone());
-    let payments = PaymentsStore::new(pool.clone(), vec![channel()]).unwrap();
+    let mut channels = vec![channel()];
+    for (id, currency) in [(19, "CNY"), (20, "EUR")] {
+        let mut c = channel();
+        c.id = id;
+        c.currency = currency.into();
+        channels.push(c);
+    }
+    let payments = PaymentsStore::new(pool.clone(), channels).unwrap();
     let plan = store
         .save_plan(
             &admin,
@@ -138,6 +145,25 @@ async fn creem_original_first_cycle_lifecycle_and_recovery_pg() {
     ));
     let t = now(&mut pool.acquire().await.unwrap()).await.unwrap();
     let at = t * 1000;
+    let wallet_result = payments
+        .prepare_personal(
+            &user,
+            crate::internal_rpc::pb::PreparePersonalTopupRequest {
+                mutation: Some(crate::internal_rpc::pb::MutationContext {
+                    idempotency_key: "creem_sub_only_wallet_denied".into(),
+                    ..Default::default()
+                }),
+                payment_channel_id: 18,
+                currency: "USD".into(),
+                amount_minor: 125,
+                ..Default::default()
+            },
+        )
+        .await;
+    assert!(
+        matches!(wallet_result, Err(crate::payments::Error::Unavailable)),
+        "subscription-only channel must reject new wallet orders"
+    );
     let journal_count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM core_billing.ledger_journals")
             .fetch_one(&pool)
@@ -351,4 +377,65 @@ async fn creem_original_first_cycle_lifecycle_and_recovery_pg() {
             .latest_grant_id,
         second.subscription_id
     );
+    for (channel_id, currency, user_id) in [(19, "CNY", 8504), (20, "EUR", 8505)] {
+        let buyer = identity.bootstrap_user(user_id, 0).await.unwrap().secret;
+        let mut p = price.clone();
+        p.channel_id = channel_id;
+        p.currency = currency.into();
+        store
+            .save_creem_price(
+                &payments,
+                &admin,
+                &format!("creem_price_{currency}_fixture"),
+                &p,
+            )
+            .await
+            .unwrap();
+        let o = store
+            .prepare_creem_purchase(
+                &payments,
+                &buyer,
+                &EPayPurchaseRequest {
+                    operation_key: format!("creem_order_{currency}_fixture"),
+                    plan_id: plan.id,
+                    channel_id,
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .confirm_creem_purchase(&buyer, &o.order.order_id)
+            .await
+            .unwrap();
+        let mut paid = event(
+            &format!("evt_creem_paid_{currency}"),
+            "subscription.paid",
+            &o.order.order_id,
+            at + 30,
+            t - 30,
+            t + 2_592_000,
+            &format!("tran_paid_{currency}"),
+        );
+        paid["object"]["id"] = json!(format!("sub_creem_{currency}"));
+        paid["object"]["customer"] = json!(format!("cust_{currency}"));
+        paid["object"]["product"]["currency"] = json!(currency);
+        let (raw, sig) = sign(&paid);
+        assert!(
+            store
+                .accept_creem_event(&payments, channel_id, &o.order.order_id, &raw, &sig)
+                .await
+                .unwrap()
+                .subscription_id
+                .is_some()
+        );
+        paid["id"] = json!(format!("evt_creem_cross_currency_{currency}"));
+        paid["object"]["product"]["currency"] = json!("USD");
+        let (raw, sig) = sign(&paid);
+        assert!(matches!(
+            store
+                .accept_creem_event(&payments, channel_id, &o.order.order_id, &raw, &sig)
+                .await,
+            Err(Error::Conflict)
+        ));
+    }
 }

@@ -998,6 +998,11 @@ impl PaymentsStore {
             tx.commit().await?;
             return Ok(intent);
         }
+        // Subscription-only Creem channels have no wallet product. Existing
+        // intent recovery above remains available; new wallet orders are denied.
+        if channel.provider == "creem" && channel.verification.product_id.is_empty() {
+            return Err(Error::Unavailable);
+        }
         if request.currency != channel.currency {
             return Err(Error::Invalid);
         }

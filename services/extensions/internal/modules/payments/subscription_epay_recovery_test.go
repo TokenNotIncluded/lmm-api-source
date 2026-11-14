@@ -20,12 +20,20 @@ type epaySubscriptionRecoveryCore struct {
 	SubscriptionCore
 	order     *pb.EPaySubscriptionOrder
 	confirms  int
+	prepares  int
 	acceptErr error
 	accepted  int
 	grants    int
 	proof     *pb.EPaySubscriptionProof
 }
 
+func (c *epaySubscriptionRecoveryCore) PrepareEPayPurchase(_ context.Context, _ string, r *pb.PrepareEPayPurchaseRequest) (*pb.EPaySubscriptionOrder, error) {
+	c.prepares++
+	if r.PlanId != c.order.PlanId || r.PaymentChannelId != c.order.PaymentChannelId || r.Mutation == nil || r.Mutation.IdempotencyKey != "original_key_0001" {
+		return nil, ErrConflict
+	}
+	return c.order, nil
+}
 func (c *epaySubscriptionRecoveryCore) ReadEPayPurchase(context.Context, string, string) (*pb.EPaySubscriptionOrder, error) {
 	return c.order, nil
 }
@@ -90,14 +98,14 @@ func epaySubscriptionRecoveryFixture(t *testing.T) (*EPaySubscriptions, *epaySub
 	}
 	c := &epaySubscriptionRecoveryCore{order: &pb.EPaySubscriptionOrder{OrderId: "sub_" + strings.Repeat("a", 64), AccountId: 1, PlanId: 1, PlanRevision: 1, PaymentChannelId: 2, Currency: "CNY", AmountMinor: "1000", ExpiresAtUnix: 1, PlanJson: []byte(`{"id":1}`)}}
 	inbox := &epaySubscriptionRecoveryInbox{}
-	s, err := NewEPaySubscriptions(c, inbox, []*EPay{a})
+	s, err := NewEPaySubscriptions(c, inbox, []*EPay{a}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return s, c, inbox
 }
 
-func TestEPaySubscriptionDisabledChannelBlocksFirstCheckoutPreservesConfirmed(t *testing.T) {
+func TestEPaySubscriptionDisabledAdmissionBlocksFirstCheckoutPreservesConfirmed(t *testing.T) {
 	s, c, _ := epaySubscriptionRecoveryFixture(t)
 	if _, err := s.Prepare(context.Background(), "user", "original_key_0001", 1, 2); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("disabled admission: %v", err)
@@ -136,7 +144,7 @@ func TestEPaySubscriptionChangedTypeCallbacksReachFrozenCoreAndRecover(t *testin
 			}
 			// This fake tests forwarding/recovery only, never actual signature authority.
 			c.acceptErr = nil
-			recovered, err := NewEPaySubscriptions(c, inbox, []*EPay{s.adapters[2]})
+			recovered, err := NewEPaySubscriptions(c, inbox, []*EPay{s.adapters[2]}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -162,5 +170,41 @@ func TestEPaySubscriptionChangedTypeStillRequiresCoreAcceptance(t *testing.T) {
 	s.Handler().ServeHTTP(w, req)
 	if w.Code == http.StatusOK || c.accepted != 1 || c.grants != 0 || inbox.complete || inbox.retries != 1 {
 		t.Fatalf("Core rejection bypassed: status=%d accepts=%d grants=%d", w.Code, c.accepted, c.grants)
+	}
+}
+
+func TestEPaySubscriptionAdmissionDefaultsClosedAndIndependentOfWallet(t *testing.T) {
+	for _, wallet := range []bool{false, true} {
+		for _, admission := range []map[int64]bool{nil, {}, {2: false}, {2: true}} {
+			s, c, inbox := epaySubscriptionRecoveryFixture(t)
+			a := *s.adapters[2]
+			a.cfg.Channel.Enabled = wallet
+			s, err := NewEPaySubscriptions(c, inbox, []*EPay{&a}, admission)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Constructor freezes configuration rather than retaining the caller map.
+			enabled := admission[2]
+			if admission != nil {
+				admission[2] = !enabled
+			}
+
+			_, err = s.Prepare(context.Background(), "user", "original_key_0001", 1, 2)
+			if enabled {
+				if err != nil || c.prepares != 1 {
+					t.Fatalf("SUB prepare enabled wallet=%v: calls=%d err=%v", wallet, c.prepares, err)
+				}
+			} else if !errors.Is(err, ErrInvalid) || c.prepares != 0 {
+				t.Fatalf("SUB prepare disabled wallet=%v: calls=%d err=%v", wallet, c.prepares, err)
+			}
+			_, err = s.Confirm(context.Background(), "user", c.order.OrderId)
+			if enabled {
+				if err != nil || c.confirms != 1 {
+					t.Fatalf("SUB enabled wallet=%v: calls=%d err=%v", wallet, c.confirms, err)
+				}
+			} else if !errors.Is(err, ErrUnavailable) || c.confirms != 0 {
+				t.Fatalf("SUB disabled wallet=%v: calls=%d err=%v", wallet, c.confirms, err)
+			}
+		}
 	}
 }

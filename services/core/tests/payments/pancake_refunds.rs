@@ -45,11 +45,16 @@ async fn pancake_signed_external_refunds_use_original_payment_and_cumulative_cap
         )
         .await
         .unwrap();
-    f.store
+    assert_eq!(intent.amount_minor, 100);
+    let mut paid = Some(quantity_paid_proof(&intent));
+    f.store.receive(intent.intent_id, &mut paid).await.unwrap();
+    assert!(!paid.as_ref().unwrap().accepted_proof_id.is_empty());
+    let credited = f
+        .store
         .credit(credit_request(
             &intent,
             "pancake_refund_credit",
-            quantity_paid_proof(&intent),
+            paid.unwrap(),
         ))
         .await
         .unwrap();
@@ -81,6 +86,8 @@ async fn pancake_signed_external_refunds_use_original_payment_and_cumulative_cap
         evidence: Some(evidence),
     };
     let applied = f.store.external_refund(request.clone()).await.unwrap();
+    assert_ne!(applied.journal_id, credited.journal_id);
+    assert!(applied.journal_id > 0);
     assert_eq!(f.store.external_refund(request).await.unwrap(), applied);
     balance(&f, intent.credit_units * 60 / 100, 0).await;
 
@@ -101,6 +108,7 @@ async fn pancake_signed_external_refunds_use_original_payment_and_cumulative_cap
         Error::Conflict
     );
     assert_eq!(journals(&pool).await, before + 1);
+    balance(&f, intent.credit_units * 60 / 100, 0).await;
 
     // Each callback is below the original charge; cumulative capacity still
     // belongs to Core, not to the provider parser.
@@ -120,6 +128,7 @@ async fn pancake_signed_external_refunds_use_original_payment_and_cumulative_cap
         Error::Conflict
     );
     balance(&f, intent.credit_units * 60 / 100, 0).await;
+    assert_eq!(journals(&pool).await, before + 1);
     let rest = pb::ExternalRefundRequest {
         mutation: mutation("pancake_refund_remainder"),
         intent_id: intent.intent_id,
@@ -136,4 +145,16 @@ async fn pancake_signed_external_refunds_use_original_payment_and_cumulative_cap
     let totals: (i64, i64) = sqlx::query_as("SELECT refunded_minor,(SELECT count(*) FROM core_payments.provider_refunds WHERE intent_id=$1) FROM core_payments.intents WHERE id=$1")
         .bind(intent.intent_id).fetch_one(&pool).await.unwrap();
     assert_eq!(totals, (100, 2));
+    assert_eq!(journals(&pool).await, before + 2);
+    let unbalanced: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units) <> 0) q",
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(unbalanced, 0, "every payment/refund journal must balance");
+    let refund_delta: i64 = sqlx::query_scalar(
+        "SELECT coalesce(sum(e.delta_units),0)::bigint FROM core_billing.ledger_entries e JOIN core_billing.ledger_accounts a ON a.id=e.ledger_account_id JOIN core_billing.ledger_journals j ON j.id=e.journal_id WHERE j.kind='refund_topup' AND a.owner_account_id=$1",
+    ).bind(f.account).fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        refund_delta, -intent.credit_units,
+        "refund journals must reverse exactly the credited units"
+    );
 }

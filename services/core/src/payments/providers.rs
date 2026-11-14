@@ -83,8 +83,13 @@ pub(super) fn valid_channel(c: &Channel) -> bool {
                         && v.notify_url.len() <= 100
                         && v.return_url.len() <= 100
                 } else {
-                    reqwest::Url::parse(&v.endpoint)
-                        .is_ok_and(|u| u.host_str() != Some("credit.linux.do"))
+                    reqwest::Url::parse(&v.endpoint).is_ok_and(|u| {
+                        u.host_str().is_some_and(|host| {
+                            !host
+                                .trim_end_matches('.')
+                                .eq_ignore_ascii_case("credit.linux.do")
+                        })
+                    })
                 }
                 && https_url(&v.notify_url)
                 && https_url(&v.return_url)
@@ -1108,6 +1113,20 @@ mod tests {
     #[test]
     fn epay_checkout_signs_only_core_owned_fields() {
         let c = channel("epay");
+        for endpoint in [
+            "https://credit.linux.do/epay",
+            "https://CREDIT.LINUX.DO/epay",
+            "https://credit.linux.do./epay",
+            "https://CREDIT.LINUX.DO./epay",
+        ] {
+            let mut cash = c.clone();
+            cash.verification.endpoint = endpoint.into();
+            assert!(
+                !cash.validate(),
+                "CNY accepted Linux DO endpoint: {endpoint}"
+            );
+            assert!(epay_checkout(&cash, "top_42", 100).is_err());
+        }
         let url = epay_checkout(&c, "top_42", 100).unwrap();
         let parsed = reqwest::Url::parse(&url).unwrap();
         let query: BTreeMap<_, _> = parsed.query_pairs().into_owned().collect();

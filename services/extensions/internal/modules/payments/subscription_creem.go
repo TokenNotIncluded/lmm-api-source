@@ -105,7 +105,7 @@ func validCreemOrder(o *pb.CreemSubscriptionOrder) bool {
 	}
 	b, p := o.Order, o.Price
 	amount, err := strconv.ParseInt(p.AmountMinor, 10, 64)
-	return err == nil && validAmount(amount) && strconv.FormatInt(amount, 10) == p.AmountMinor && subscriptionOrderID.MatchString(b.OrderId) && b.AccountId > 0 && len(b.PlanJson) > 0 && b.PlanId == p.PlanId && b.PlanRevision == p.PlanRevision && b.PaymentChannelId == p.ChannelId && b.Currency == "USD" && p.Currency == "USD" && b.AmountMinor == p.AmountMinor && strings.HasPrefix(p.ProviderPriceId, "prod_")
+	return err == nil && creemBillingPeriod(p) != "" && validID(p.ProviderPriceId) && validAmount(amount) && strconv.FormatInt(amount, 10) == p.AmountMinor && subscriptionOrderID.MatchString(b.OrderId) && b.AccountId > 0 && len(b.PlanJson) > 0 && b.PlanId == p.PlanId && b.PlanRevision == p.PlanRevision && b.PaymentChannelId == p.ChannelId && (b.Currency == "USD" || b.Currency == "CNY" || b.Currency == "EUR") && p.Currency == b.Currency && b.AmountMinor == p.AmountMinor && strings.HasPrefix(p.ProviderPriceId, "prod_")
 }
 func creemFrozenHash(o *pb.CreemSubscriptionOrder) (string, error) {
 	if !validCreemOrder(o) {
@@ -168,6 +168,28 @@ func (s *CreemSubscriptions) Confirm(ctx context.Context, user, id string) (*Cre
 	}
 	frozen, err := creemFrozenHash(o)
 	if err != nil {
+		return nil, err
+	}
+	// Existing original checkout and ambiguous dispatches must survive mutable
+	// catalog changes. Read them before consulting the current product.
+	var oldHash string
+	var oldCheckout sql.NullString
+	readErr := s.scan(ctx, `SELECT frozen_sha256,checkout_id FROM payment_creem_subscription_checkouts WHERE order_id=$1`, []any{id}, &oldHash, &oldCheckout)
+	if readErr == nil {
+		if oldHash != frozen {
+			return nil, ErrConflict
+		}
+		if oldCheckout.Valid {
+			return s.Read(ctx, user, id)
+		}
+		return nil, ErrUnavailable
+	}
+	if !errors.Is(readErr, sql.ErrNoRows) {
+		return nil, storageError(readErr)
+	}
+	// Validate exactly once, immediately before reserving the first dispatch.
+	// A failed preflight creates no reservation and can be retried safely.
+	if err := a.validateSubscriptionPrice(ctx, o); err != nil {
 		return nil, err
 	}
 	// Persist dispatch identity before ANY upstream mutation. Immutable first
@@ -258,9 +280,6 @@ func (a *Creem) validateSubscriptionPrice(ctx context.Context, o *pb.CreemSubscr
 	return nil
 }
 func (a *Creem) createSubscriptionCheckout(ctx context.Context, o *pb.CreemSubscriptionOrder) (*CreemHostedCheckout, error) {
-	if err := a.validateSubscriptionPrice(ctx, o); err != nil {
-		return nil, err
-	}
 	if _, err := secureURL(o.Price.SuccessUrl); err != nil {
 		return nil, err
 	}
@@ -360,13 +379,6 @@ func (s *CreemSubscriptions) Accept(ctx context.Context, channel int64, r *http.
 	return s.settle(ctx, c)
 }
 func (s *CreemSubscriptions) settle(ctx context.Context, c creemCandidate) (*pb.CreemSubscriptionEvent, error) {
-	order, err := s.core.ResolveCreemSubscriptionOrder(ctx, &pb.CreemSubscriptionLookup{ChannelId: c.Channel, ProviderSubscriptionId: creemSubscriptionID(c.Payload)})
-	if err == nil && (order == nil || order.OrderId != c.Order) {
-		return nil, ErrConflict
-	}
-	// For first events the binding is not installed yet. Core independently
-	// enforces channel_id in the event request as well as merchant/environment.
-
 	digest := sha256.Sum256(c.Payload)
 	receipt, err := s.core.GetCreemSubscriptionEvent(ctx, &pb.GetCreemSubscriptionEventRequest{OrderId: c.Order, ProviderEventId: c.Event, PayloadSha256: digest[:], PaymentChannelId: c.Channel})
 	if status.Code(err) == codes.NotFound {
@@ -517,14 +529,11 @@ func (s *CreemSubscriptions) CancelRenewal(ctx context.Context, user, id string)
 func creemSubscriptionID(raw []byte) string { _, _, id, _ := creemCallbackIdentity(raw); return id }
 func (s *CreemSubscriptions) recoveryCheckoutID(ctx context.Context, id string) string {
 	var raw []byte
-	if s.scan(ctx, `SELECT payload FROM payment_creem_subscription_inbox WHERE order_id=$1 AND state='accepted' ORDER BY evidence_id LIMIT 1`, []any{id}, &raw) != nil {
+	if s.scan(ctx, `SELECT payload FROM payment_creem_subscription_inbox WHERE order_id=$1 AND state='accepted' AND convert_from(payload,'UTF8')::jsonb->>'eventType'='checkout.completed' ORDER BY evidence_id LIMIT 1`, []any{id}, &raw) != nil {
 		return ""
 	}
-	var e struct {
-		Type   string `json:"eventType"`
-		Object struct{ ID string }
-	}
-	if jsonObject(raw, &e) != nil || e.Type != "checkout.completed" {
+	var e struct{ Object struct{ ID string } }
+	if jsonObject(raw, &e) != nil {
 		return ""
 	}
 	return e.Object.ID

@@ -152,6 +152,9 @@ func Run() error {
 		if runtime.StripeSubscriptionPayments != nil {
 			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/stripe/", runtime.StripeSubscriptionPayments.Handler(), handler)
 		}
+		if runtime.CreemSubscriptionPayments != nil {
+			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/creem/", runtime.CreemSubscriptionPayments.Handler(), handler)
+		}
 	}
 	address := cfg.Host.Listen
 	if address == "" {

@@ -12,7 +12,7 @@ func TestPaymentsFreshPlanIncludesStripeWithoutReplacingWalletOrEPay(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"payment_storage_guard", "payment_orders", "payment_events", "payment_subscription_inbox", "payment_stripe_subscription_checkouts", "payment_stripe_subscription_inbox"} {
+	for _, name := range []string{"payment_storage_guard", "payment_orders", "payment_events", "payment_subscription_inbox", "payment_stripe_subscription_checkouts", "payment_stripe_subscription_inbox", "payment_creem_subscription_checkouts", "payment_creem_subscription_inbox"} {
 		if !strings.Contains(p.schema, "CREATE TABLE "+name) {
 			t.Fatal("missing installed table", name)
 		}

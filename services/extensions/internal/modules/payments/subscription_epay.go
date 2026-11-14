@@ -40,28 +40,32 @@ type SubscriptionInbox interface {
 	RetrySubscriptionEvidence(context.Context, SubscriptionEvidence, error) error
 }
 type EPaySubscriptions struct {
-	core     SubscriptionCore
-	inbox    SubscriptionInbox
-	adapters map[int64]*EPay
+	core         SubscriptionCore
+	inbox        SubscriptionInbox
+	adapters     map[int64]*EPay
+	newPurchases map[int64]bool
 }
 
-func NewEPaySubscriptions(core SubscriptionCore, inbox SubscriptionInbox, adapters []*EPay) (*EPaySubscriptions, error) {
+// newPurchases gates new subscription purchases independently of wallet Enabled.
+// Nil or absent entries deny new purchases while retaining issued obligations.
+func NewEPaySubscriptions(core SubscriptionCore, inbox SubscriptionInbox, adapters []*EPay, newPurchases map[int64]bool) (*EPaySubscriptions, error) {
 	if core == nil || inbox == nil || len(adapters) == 0 {
 		return nil, ErrInvalid
 	}
-	s := &EPaySubscriptions{core: core, inbox: inbox, adapters: map[int64]*EPay{}}
+	s := &EPaySubscriptions{core: core, inbox: inbox, adapters: map[int64]*EPay{}, newPurchases: map[int64]bool{}}
 	for _, a := range adapters {
 		// Only Core holds the MD5 key that can sign both checkout and callbacks.
 		if a == nil || a.signer == nil || s.adapters[a.Channel().ID] != nil {
 			return nil, ErrInvalid
 		}
 		s.adapters[a.Channel().ID] = a
+		s.newPurchases[a.Channel().ID] = newPurchases[a.Channel().ID]
 	}
 	return s, nil
 }
 func (s *EPaySubscriptions) Prepare(ctx context.Context, user, key string, plan, channel int64) (*pb.EPaySubscriptionOrder, error) {
 	a := s.adapters[channel]
-	if a == nil || !a.Channel().Enabled || !validKey(key) || plan <= 0 {
+	if a == nil || !s.newPurchases[channel] || !validKey(key) || plan <= 0 {
 		return nil, ErrInvalid
 	}
 	o, err := s.core.PrepareEPayPurchase(ctx, user, &pb.PrepareEPayPurchaseRequest{Mutation: &pb.MutationContext{IdempotencyKey: key}, PlanId: plan, PaymentChannelId: channel})
@@ -99,7 +103,7 @@ func (s *EPaySubscriptions) Confirm(ctx context.Context, user, id string) (*pb.E
 		return nil, err
 	}
 	a := s.adapters[o.PaymentChannelId]
-	if a == nil || !a.Channel().Enabled && o.ConfirmedAtUnix == nil {
+	if a == nil || !s.newPurchases[o.PaymentChannelId] && o.ConfirmedAtUnix == nil {
 		return nil, ErrUnavailable
 	}
 	c, err := s.core.ConfirmEPayPurchase(ctx, user, id)

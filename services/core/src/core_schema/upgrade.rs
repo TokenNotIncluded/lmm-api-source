@@ -31,6 +31,7 @@ mod registry;
 mod request_operations;
 mod responses_continuity;
 mod subscription_epay;
+mod subscription_creem;
 mod subscription_pancake_language;
 mod suffix;
 mod trust_policy;

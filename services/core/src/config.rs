@@ -4354,6 +4354,13 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
     }
     #[test]
     fn payment_configuration_v2_uses_explicit_channel_provider_and_integer_quote() {
+        for currency in ["USD", "CNY", "EUR"] {
+            let document = format!("version=2\n[[channels]]\nid=18\nprovider='creem'\nmerchant='creem_sub_only'\nenvironment='test'\ncurrency='{currency}'\ncredits_per_minor=5000\nmax_amount_minor=10000\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n");
+            let config: PaymentConfig = parse_document(document.as_bytes()).unwrap();
+            assert!(config.validate().is_ok(), "subscription-only Creem {currency}");
+            if let PaymentConfig::Gateways(c) = config { assert!(c.channels[0].product_id.is_empty()); }
+        }
+
         let document = "version=2\n[[channels]]\nid=7\nprovider='creem'\nmerchant='merchant_fixture'\nenvironment='test'\ncurrency='USD'\ncredits_per_minor=5000\nmax_amount_minor=10000\nproduct_id='prod_fixture'\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n";
         let config: PaymentConfig = parse_document(document.as_bytes()).unwrap();
         assert!(config.validate().is_ok());

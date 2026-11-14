@@ -2,6 +2,8 @@
 # Use the same channel ID / provider / merchant / environment / currency and
 # product bindings as Core. Enable only provisioned and verified channels.
 # Core holds all webhook verification secrets and the EPay merchant key.
+# Wallet enabled and subscription_enabled are independent. Omitted subscription
+# admission is false; callbacks and existing confirmed orders remain recoverable.
 version = 2
 
 [[channels]]
@@ -11,6 +13,7 @@ merchant = "acct_REPLACE"
 environment = "test"
 currency = "USD"
 enabled = false
+subscription_enabled = false
 api_key_file = "/etc/lmm.conf.d/secrets/extensions/stripe-api-key"
 api_version = "2025-02-24.acacia"
 success_url = "https://api.example.invalid/console/wallet"
@@ -23,6 +26,7 @@ merchant = "10001"
 environment = "live"
 currency = "CNY"
 enabled = false
+subscription_enabled = false
 payment_type = "alipay"
 
 [[channels]]
@@ -33,6 +37,7 @@ environment = "live"
 currency = "CNY"
 enabled = false
 payment_type = "wxpay"
+subscription_enabled = false
 
 [[channels]]
 id = 4
@@ -42,6 +47,7 @@ environment = "live"
 currency = "LDC"
 enabled = false
 payment_type = "epay"
+subscription_enabled = false
 
 [[channels]]
 id = 5
@@ -50,6 +56,7 @@ merchant = "creem_REPLACE"
 environment = "test"
 currency = "USD"
 enabled = false
+subscription_enabled = false
 api_key_file = "/etc/lmm.conf.d/secrets/extensions/creem-api-key"
 product_id = "prod_REPLACE"
 product_amount_minor = 1000
@@ -77,6 +84,7 @@ merchant = "MER_0123456789abcdefghijkl"
 environment = "test"
 currency = "USD"
 enabled = false
+subscription_enabled = false
 private_key_file = "/etc/lmm.conf.d/secrets/extensions/pancake-private-key.pem"
 store_id = "STO_0123456789abcdefghijkl"
 product_id = "PROD_0123456789abcdefghijkl"

@@ -97,7 +97,7 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapped := &interruptedSubscriptionCore{SubscriptionCore: core, first: f.FirstOrder, transient: "sub_" + strings.Repeat("e", 64)}
-	service, err := p.NewEPaySubscriptions(wrapped, store, []*p.EPay{adapter})
+	service, err := p.NewEPaySubscriptions(wrapped, store, []*p.EPay{adapter}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err = p.NewEPaySubscriptions(wrapped, store, []*p.EPay{adapter})
+	service, err = p.NewEPaySubscriptions(wrapped, store, []*p.EPay{adapter}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer deniedCore.Close()
-	deniedService, err := p.NewEPaySubscriptions(deniedCore, store, []*p.EPay{adapter})
+	deniedService, err := p.NewEPaySubscriptions(deniedCore, store, []*p.EPay{adapter}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestSubscriptionEPayCoreTCPPoisoningRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reassignedCore.Close()
-	reassignedService, err := p.NewEPaySubscriptions(reassignedCore, store, []*p.EPay{adapter})
+	reassignedService, err := p.NewEPaySubscriptions(reassignedCore, store, []*p.EPay{adapter}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

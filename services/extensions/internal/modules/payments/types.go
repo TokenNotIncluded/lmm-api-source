@@ -332,7 +332,7 @@ func (o Order) State() string {
 			if o.Credited() {
 				continue
 			}
-		case "lookup_hold", "refund_dispatch", "refund_submit", "commit", "release", "external_refund":
+		case "lookup_hold", "refund_dispatch", "refund_submit", "refund_lookup", "commit", "release", "external_refund":
 			refund, exists := o.Refunds[job.RefundID]
 			// Signed provider status alone cannot free a hold. Only the
 			// completed Core result makes an older stopped job irrelevant.

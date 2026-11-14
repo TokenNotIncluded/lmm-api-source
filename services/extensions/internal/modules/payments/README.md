@@ -110,8 +110,8 @@ Original evidence remains private; public status exposes no signatures or jobs.
 | `review` | Order-level terminal-state conflict. |
 
 `core_credit_confirmed` refers to the original credit. Clients must read current
-balances from Rust, including after refunds. A job in review leaves the user
-status pending instead of inventing success; inspect private jobs for its reason.
+balances from Rust, including after refunds. A stopped unresolved job exposes
+`review` instead of promising progress; inspect private jobs for its reason.
 
 Event deduplication uses provider + merchant + environment + event ID. Changed meaning or original payload bytes under one event ID are rejected. Distinct paid events for one transaction
 use the same credit job. A database unique index prevents that transaction from

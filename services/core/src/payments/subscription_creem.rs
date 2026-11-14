@@ -105,7 +105,7 @@ pub(crate) fn billing_period(p: &CreemPrice) -> Option<&'static str> {
 impl PaymentsStore {
     pub(crate) fn creem_subscription_channel(&self, channel: i64) -> Result<&Channel> {
         let c = self.channels.get(&channel).ok_or(Error::Unavailable)?;
-        if c.provider != "creem" || c.currency != "USD" {
+        if c.provider != "creem" || !matches!(c.currency.as_str(), "USD" | "CNY" | "EUR") {
             return Err(Error::Conflict);
         }
         Ok(c)
