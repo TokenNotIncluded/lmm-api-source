@@ -206,8 +206,7 @@ test('invalid configured API address disables request copying and hides pricing 
     assert.match(container.textContent ?? '', /API address unavailable/)
     assert.doesNotMatch(container.textContent ?? '', /key:secret/)
     assert.equal(
-      container.querySelector<HTMLButtonElement>('.dev-builder-output button')
-        ?.disabled,
+      container.querySelector<HTMLButtonElement>('.dev-copy-request')?.disabled,
       true
     )
     assert.equal(
@@ -226,6 +225,142 @@ test('invalid configured API address disables request copying and hides pricing 
       container.querySelector(
         'a[href="https://api.lmm.best/.well-known/oauth-authorization-server"]'
       )
+    )
+  } finally {
+    await act(async () => root.unmount())
+    queryClient.clear()
+    container.remove()
+  }
+})
+
+for (const clipboardAvailable of [true, false]) {
+  test(`connection address ${clipboardAvailable ? 'copies the configured Base URL' : 'selects its value when copying is blocked'}`, async () => {
+    let copied = ''
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: clipboardAvailable
+        ? {
+            writeText: async (value: string) => {
+              copied = value
+            },
+          }
+        : undefined,
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => false,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { enabled: false } },
+    })
+    queryClient.setQueryData(['status', 'anonymous'], {
+      server_address: `${publicRoot}/v1`,
+    })
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <DevelopersPage />
+          </QueryClientProvider>
+        )
+      )
+      const address = container.querySelector<HTMLInputElement>('#dev-base-url')
+      const copyButton = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Copy Base URL"]'
+      )
+      assert.ok(address)
+      assert.ok(copyButton)
+      assert.equal(address.value, `${publicRoot}/v1`)
+      assert.ok(container.querySelector('a[href="/keys"]'))
+      await act(async () => copyButton.click())
+      if (clipboardAvailable) {
+        assert.equal(copied, address.value)
+        assert.equal(
+          container.querySelector('.dev-connection [role="alert"]'),
+          null
+        )
+      } else {
+        assert.equal(copied, '')
+        assert.equal(document.activeElement, address)
+        assert.equal(address.selectionStart, 0)
+        assert.equal(address.selectionEnd, address.value.length)
+        assert.ok(container.querySelector('.dev-connection [role="alert"]'))
+      }
+    } finally {
+      await act(async () => root.unmount())
+      queryClient.clear()
+      container.remove()
+    }
+  })
+}
+
+test('request workspace keeps protocol, catalog models and copied language consistent', async () => {
+  let copied = ''
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        copied = value
+      },
+    },
+  })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { enabled: false } },
+  })
+  queryClient.setQueryData(['status', 'anonymous'], {
+    server_address: `${publicRoot}/v1`,
+  })
+  queryClient.setQueryData(['pricing', null, null], {
+    data: [
+      { model_name: 'chat-fixture', supported_endpoint_types: ['openai'] },
+      { model_name: 'claude-fixture', supported_endpoint_types: ['anthropic'] },
+      { model_name: 'gemini-fixture', supported_endpoint_types: ['gemini'] },
+    ],
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <DevelopersPage />
+        </QueryClientProvider>
+      )
+    )
+    const model =
+      container.querySelector<HTMLInputElement>('#dev-builder-model')
+    assert.equal(model?.value, 'chat-fixture')
+    const gemini = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.dev-protocols button')
+    ).find((button) => button.textContent === 'Gemini')
+    const python = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.dev-builder-tabs button')
+    ).find((button) => button.textContent === 'Python')
+    assert.ok(gemini)
+    assert.ok(python)
+    await act(async () => gemini.click())
+    await act(async () => python.click())
+    assert.equal(model?.value, 'gemini-fixture')
+    assert.equal(gemini.getAttribute('aria-pressed'), 'true')
+    assert.equal(python.getAttribute('aria-pressed'), 'true')
+    const button =
+      container.querySelector<HTMLButtonElement>('.dev-copy-request')
+    assert.ok(button)
+    await act(async () => button.click())
+    assert.ok(
+      copied.includes(
+        `${publicRoot}/v1beta/models/gemini-fixture:generateContent`
+      )
+    )
+    assert.ok(copied.includes('requests.post('))
+    assert.ok(copied.includes('Explain LMM in one sentence.'))
+    assert.equal(
+      container.querySelector('.dev-builder-output pre')?.textContent,
+      copied
     )
   } finally {
     await act(async () => root.unmount())

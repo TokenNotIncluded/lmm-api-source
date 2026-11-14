@@ -74,7 +74,9 @@ function quotes(
       />
     </I18nextProvider>
   )
-  const priceBlock = container.querySelector('[class*="border-y"]')
+  const priceBlock = container.querySelector(
+    '[data-slot="model-price-summary"]'
+  )
   assert.ok(priceBlock, 'missing card price summary')
   return [...priceBlock.children]
     .slice(1)

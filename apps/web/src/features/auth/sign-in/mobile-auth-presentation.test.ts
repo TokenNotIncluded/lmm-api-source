@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 
 describe('mobile sign-in presentation', () => {
-  test('features configured Google OAuth and keeps the narrow layout compact', () => {
+  test('features configured Google OAuth and keeps the login form responsive', () => {
     const authLayout = readFileSync(
       new URL('../auth-layout.tsx', import.meta.url),
       'utf8'
@@ -32,7 +32,6 @@ describe('mobile sign-in presentation', () => {
     const signIn = readFileSync(new URL('./index.tsx', import.meta.url), 'utf8')
 
     assert.match(authLayout, /h-dvh/)
-    assert.match(authLayout, /lg:absolute/)
     assert.match(authLayout, /max-w-md/)
     assert.match(authLayout, /<LanguageSwitcher \/>/)
     assert.match(providers, /IconGoogle/)

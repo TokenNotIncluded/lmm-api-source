@@ -91,7 +91,7 @@ export function ConsoleSearch() {
       <SidebarMenuItem>
         <SidebarMenuButton
           tooltip={t('Search')}
-          className='text-muted-foreground border-sidebar-border/70 rounded-lg border'
+          className='text-muted-foreground bg-background/70 rounded-lg'
           onClick={() => {
             setOpenMobile(false)
             setOpen(true)
@@ -182,7 +182,7 @@ export function ConsoleBalanceEntry() {
       <SidebarMenuItem>
         <SidebarMenuButton
           tooltip={`${t('Balance')}: ${balance} · ${walletAction}`}
-          className='border-sidebar-border/70 bg-sidebar-accent/20 h-9 rounded-lg border'
+          className='bg-background/70 h-9 rounded-lg'
           onClick={() => setOpenMobile(false)}
           render={<Link to='/wallet' />}
         >
@@ -231,7 +231,7 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
                   render={
                     <SidebarMenuButton
                       tooltip={t('More')}
-                      className='border-sidebar-border/70 bg-sidebar-accent/20 h-9 rounded-lg border'
+                      className='bg-background/70 h-9 rounded-lg'
                     />
                   }
                 >

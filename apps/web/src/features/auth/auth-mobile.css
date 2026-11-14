@@ -1,246 +1,194 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-.auth-editorial .auth-form-stage {
-  position: relative;
-  max-width: 29rem;
-}
-.auth-editorial .auth-form-stage h2 {
-  font-size: clamp(1.85rem, 2.8vw, 2.65rem);
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.045em;
-  text-wrap: balance;
-}
-.auth-header > a:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 5px;
-}
-.auth-art-stage {
-  --background: var(--forge-surface-dark);
-  --foreground: var(--forge-foreground-dark);
-  --card: var(--forge-card-dark);
-  --card-foreground: var(--forge-foreground-dark);
-  --popover: var(--forge-card-dark);
-  --popover-foreground: var(--forge-foreground-dark);
-  --primary: var(--forge-extra-honey-dark);
-  --primary-foreground: var(--forge-surface-dark);
-  --secondary: var(--forge-secondary-dark);
-  --secondary-foreground: var(--forge-foreground-dark);
-  --muted: var(--forge-muted-dark);
-  --muted-foreground: var(--forge-muted-ink-dark);
-  --accent: var(--forge-secondary-dark);
-  --accent-foreground: var(--forge-foreground-dark);
-  --border: color-mix(in oklch, var(--foreground) 13%, transparent);
-  --input: color-mix(in oklch, var(--foreground) 24%, transparent);
-  --ring: var(--forge-extra-honey-dark);
-  --destructive: var(--forge-destructive-dark);
+.auth-editorial {
   background: var(--background);
   color: var(--foreground);
-  color-scheme: dark;
-  padding: 2rem clamp(1.5rem, 3vw, 3.5rem);
 }
-.auth-art-masthead {
-  display: flex;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border);
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  line-height: 1.7;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+
+.auth-header {
+  gap: 1rem;
+  padding: max(1.25rem, env(safe-area-inset-top)) clamp(1.5rem, 4vw, 4rem);
 }
-.auth-art-masthead > :first-child {
-  min-width: 0;
-  overflow-wrap: anywhere;
+
+.auth-brand {
+  min-height: 2.75rem;
 }
-.auth-art-masthead > :last-child {
-  flex-shrink: 0;
-  color: var(--primary);
+
+.auth-header button {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
 }
-.auth-editorial .auth-art-stage .signal-game {
-  --signal-color: var(--forge-extra-honey-dark);
-  flex: 1;
-  width: 100%;
-  min-height: auto;
-  max-width: 37rem;
-  margin-inline: auto;
-  padding: 2.5rem 0 0;
-  border-radius: 0;
-  background: transparent;
+
+.auth-main {
+  padding: clamp(3rem, 8vh, 6.5rem) 1.5rem clamp(4rem, 9vh, 7.5rem);
 }
-.auth-art-stage .signal-game-heading h2 {
-  font-size: clamp(2.1rem, 3.5vw, 3.4rem);
+
+.auth-form-stage {
+  max-width: 25rem;
+  margin-block: auto;
+}
+
+.auth-form-stage h2 {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
   font-weight: 550;
-  letter-spacing: -0.055em;
+  line-height: 1.25;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
 }
-.auth-art-stage .signal-game-modes {
+
+.auth-sign-in-heading {
+  margin-bottom: 2.5rem;
+}
+
+.auth-form-stage [data-slot='input'] {
+  min-height: 3.25rem;
   border-radius: var(--radius);
+  padding-inline: 1rem;
+  font-size: 1rem;
+  background: color-mix(in oklch, var(--muted) 55%, var(--background));
 }
-.auth-art-stage .signal-game-modes button {
-  border-radius: max(0px, calc(var(--radius) - 2px));
-}
-.auth-art-stage .signal-game-modes button[aria-pressed='true'] {
-  background: var(--foreground);
-  color: var(--background);
+
+.auth-form-stage
+  [data-slot='input']:not(:focus-visible):not([aria-invalid='true']) {
   box-shadow: none;
 }
-.auth-art-stage .signal-game-score {
-  margin-top: 1.75rem;
+
+.auth-form-stage .auth-field {
+  height: 3.25rem;
 }
-.auth-art-stage .signal-game-note {
-  max-width: 44ch;
-  line-height: 1.8;
+
+.auth-form-stage .auth-field input {
+  padding-inline-end: 3.5rem;
 }
-.auth-signal {
-  display: none;
+
+.auth-form-stage button:not([role='checkbox']):not([role='switch']) {
+  min-height: 2.75rem;
 }
-.auth-editorial .auth-game-disclosure > summary {
+
+.auth-form-stage .auth-field button {
+  min-width: 2.75rem;
+}
+
+.auth-password-label {
+  flex-wrap: wrap;
+  column-gap: 1rem;
+  row-gap: 0.25rem;
+}
+
+.auth-forgot-password {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  margin-block: -0.625rem;
+  font-size: 0.8125rem;
+}
+
+.auth-form-stage .auth-submit {
+  min-height: 3.25rem;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 0.9375rem;
+}
+
+.auth-form-stage .auth-submit:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 86%, var(--background));
+}
+
+.auth-sign-in-register a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+}
+
+.auth-footer {
+  padding: 0 1.5rem max(1.5rem, env(safe-area-inset-bottom));
+}
+
+.auth-game-disclosure {
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
+.auth-game-disclosure > summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 3rem;
-  padding: 0.8rem 1rem;
-  border-radius: 0;
-  border-block: 1px solid var(--border);
-  background: transparent;
+  justify-content: center;
+  gap: 0.75rem;
+  width: fit-content;
+  min-height: 2.75rem;
+  margin-inline: auto;
+  padding-inline: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
   list-style: none;
   cursor: pointer;
-  font-size: 0.875rem;
-  color: var(--muted-foreground);
 }
-.auth-editorial .auth-game-disclosure > summary::after {
+
+.auth-game-disclosure > summary::after {
   content: '+';
-  font-size: 1.2rem;
+  font-size: 1rem;
 }
-.auth-editorial .auth-game-disclosure[open] > summary::after {
+
+.auth-game-disclosure[open] > summary::after {
   content: '−';
 }
-.auth-editorial .auth-game-disclosure > summary::-webkit-details-marker {
+
+.auth-game-disclosure > summary::-webkit-details-marker {
   display: none;
 }
-@media (max-width: 1023px) {
-  .auth-editorial {
-    background: var(--background);
-  }
-  .auth-editorial > header {
-    padding-top: env(safe-area-inset-top);
-    min-height: calc(4rem + env(safe-area-inset-top));
-  }
-  .auth-editorial .auth-form-stage {
-    padding-top: clamp(1rem, 3dvh, 2.5rem);
-    padding-bottom: max(2rem, env(safe-area-inset-bottom));
-    justify-content: flex-start;
-  }
-  .auth-signal {
-    position: relative;
-    display: block;
-    width: 100%;
-    height: clamp(4rem, 10svh, 6.5rem);
-    margin-bottom: 1.75rem;
-    overflow: hidden;
-    pointer-events: none;
-    color: var(--forge-extra-honey-light);
-    background-image: radial-gradient(
-      color-mix(in oklch, currentColor 22%, transparent) 1px,
-      transparent 1px
-    );
-    background-size: 13px 13px;
-    mask-image: linear-gradient(to right, black, transparent 88%);
-  }
-  .auth-signal span {
-    position: absolute;
-    top: 50%;
-    left: 3.5rem;
-    width: 3rem;
-    height: 3rem;
-    margin: -1.5rem;
-    border-radius: 35%;
-    border: 1px solid color-mix(in oklch, currentColor 65%, transparent);
-    rotate: 45deg;
-    animation: auth-signal-turn 16s linear infinite;
-  }
-  .auth-signal span:nth-child(2) {
-    scale: 1.45;
-    animation-direction: reverse;
-    opacity: 0.6;
-  }
-  .auth-signal span:nth-child(3) {
-    scale: 1.95;
-    opacity: 0.25;
-  }
-  .auth-editorial .auth-form-stage h2 {
-    font-size: clamp(1.65rem, 7vw, 2.3rem);
-    line-height: 1.18;
-    letter-spacing: -0.04em;
-    text-align: start;
-    text-wrap: balance;
-  }
-  .auth-editorial
-    .auth-form-stage
-    input:not([type='checkbox']):not([type='radio']) {
-    min-height: 50px;
-    border-radius: var(--radius);
-    font-size: 1rem;
-    background: color-mix(in oklch, var(--muted) 45%, var(--background));
-  }
-  .auth-editorial
-    .auth-form-stage
-    button:not([role='checkbox']):not([role='switch']) {
-    min-height: 44px;
-  }
-  .auth-editorial .auth-form-stage input[type='password'] {
-    padding-inline-end: 3.25rem;
-  }
-  .auth-editorial .auth-form-stage button.absolute {
-    min-width: 44px;
-  }
-  .auth-editorial .auth-form-stage button[type='submit'] {
-    min-height: 50px;
-    border-radius: var(--radius);
-  }
-  .auth-editorial .auth-game-disclosure {
-    margin-top: 2rem;
-  }
+
+.auth-brand:focus-visible,
+.auth-game-disclosure > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 0.25rem;
 }
-@media (max-height: 550px), (prefers-reduced-motion: reduce) {
-  .auth-signal span {
-    animation: none;
-  }
+
+.auth-game-disclosure[open] .auth-arcade {
+  margin-top: 2rem;
 }
-@media (max-height: 550px) {
-  .auth-signal {
-    display: none;
-  }
+
+.auth-editorial .arcade-picker button {
+  min-height: 3rem;
+  border-color: transparent;
+  border-radius: var(--radius);
+  background: transparent;
 }
-@keyframes auth-signal-turn {
-  to {
-    rotate: 405deg;
+
+.auth-editorial .arcade-picker button:hover,
+.auth-editorial .arcade-picker button[aria-pressed='true'] {
+  background: color-mix(in oklch, var(--foreground) 8%, var(--background));
+}
+
+.auth-editorial .arcade-picker button[aria-pressed='true'] {
+  color: var(--foreground);
+}
+
+.auth-editorial .arcade-surface {
+  border: 0;
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+@media (max-width: 639px) {
+  .auth-header {
+    padding-inline: 1.5rem;
+  }
+
+  .auth-main {
+    padding-top: clamp(2rem, 7svh, 4rem);
+    padding-bottom: 3.5rem;
+  }
+
+  .auth-sign-in-heading {
+    margin-bottom: 2rem;
   }
 }
 
-/* The form and optional arcade share one calm, inset composition. */
-@media (min-width: 1024px) {
-  .auth-editorial .auth-art-stage {
-    margin: 1rem 1rem 1rem 0;
-    height: calc(100dvh - 2rem);
-    border: 1px solid var(--border);
-    border-radius: 1.75rem;
-    padding: 1.5rem clamp(1.25rem, 2.5vw, 3rem);
-    background:
-      radial-gradient(
-        ellipse at 85% 5%,
-        color-mix(in oklch, var(--primary) 7%, transparent),
-        transparent 50%
-      ),
-      var(--background);
-  }
-  .auth-art-masthead {
-    padding-bottom: 1rem;
-  }
-  .auth-editorial .auth-form-stage {
-    max-width: 30rem;
-    padding-inline: 2.5rem;
+@media (max-height: 550px) {
+  .auth-main {
+    padding-block: 1.5rem 3rem;
   }
 }

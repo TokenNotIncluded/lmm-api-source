@@ -23,12 +23,10 @@ import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { ThemeSwitch } from '@/components/theme-switch'
-import { useMediaQuery } from '@/hooks/use-media-query'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
 import { AuthArcade } from './arcade/arcade'
 
-import '../forge/forge-public-shell.css'
 import './auth-mobile.css'
 
 type AuthLayoutProps = {
@@ -39,8 +37,7 @@ type AuthLayoutProps = {
 export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   const { systemName } = useSystemConfig()
   const { t } = useTranslation()
-  const desktop = useMediaQuery('(min-width: 1024px)')
-  const [mobileGameOpen, setMobileGameOpen] = useState(false)
+  const [gameOpen, setGameOpen] = useState(false)
   useEffect(() => {
     const previousTitle = document.title
     document.title = systemName
@@ -50,51 +47,35 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   }, [systemName])
 
   return (
-    <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]'>
-      <header className='auth-header relative z-20 flex min-h-16 shrink-0 items-center justify-between px-5 sm:min-h-20 sm:px-8 lg:absolute lg:top-0 lg:left-0 lg:min-h-24 lg:w-[46%]'>
+    <div className='auth-editorial flex min-h-dvh flex-col'>
+      <header className='auth-header flex shrink-0 items-center justify-between'>
         <Link
           to='/'
           reloadDocument={reloadDocument}
-          className='flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80'
+          className='auth-brand flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80'
         >
-          <LmmBrandMark className='size-8' title={systemName} />
-          <h1 className='truncate text-base font-semibold tracking-tight sm:text-lg'>
+          <LmmBrandMark className='size-7 shrink-0' title={systemName} />
+          <h1 className='truncate text-sm font-semibold tracking-tight'>
             {systemName}
           </h1>
         </Link>
-        <div className='flex shrink-0 items-center gap-1'>
+        <div className='auth-preferences text-muted-foreground flex shrink-0 items-center gap-1'>
           <LanguageSwitcher />
           <ThemeSwitch />
         </div>
       </header>
-      <div className='grid min-h-0 flex-1 lg:col-start-1 lg:h-full'>
-        <div className='no-scrollbar container min-h-0 overflow-y-auto lg:pt-24'>
-          <div className='auth-form-stage mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
-            <div className='auth-signal' aria-hidden='true'>
-              <span />
-              <span />
-              <span />
-            </div>
-            {children}
-            <details
-              className='auth-game-disclosure mt-8 w-full lg:hidden'
-              onToggle={(event) => setMobileGameOpen(event.currentTarget.open)}
-            >
-              <summary className='text-muted-foreground cursor-pointer py-3 text-center text-sm underline underline-offset-4'>
-                {t('Play a round')}
-              </summary>
-              {!desktop && mobileGameOpen && <AuthArcade />}
-            </details>
-          </div>
-        </div>
-      </div>
-      <div className='auth-art-stage hidden lg:col-start-2 lg:row-start-1 lg:flex lg:h-dvh lg:min-h-0 lg:flex-col lg:overflow-y-auto'>
-        <div className='auth-art-masthead' aria-hidden='true'>
-          <span>{systemName}</span>
-          <span>{t('One endpoint')}</span>
-        </div>
-        {desktop && <AuthArcade />}
-      </div>
+      <main className='auth-main flex flex-1 flex-col items-center'>
+        <div className='auth-form-stage w-full max-w-md'>{children}</div>
+      </main>
+      <footer className='auth-footer'>
+        <details
+          className='auth-game-disclosure'
+          onToggle={(event) => setGameOpen(event.currentTarget.open)}
+        >
+          <summary>{t('Play a round')}</summary>
+          {gameOpen && <AuthArcade />}
+        </details>
+      </footer>
     </div>
   )
 }

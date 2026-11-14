@@ -59,7 +59,7 @@ For commercial licensing, please contact support@quantumnous.com
     var(--foreground) 76%,
     var(--background)
   );
-  --forge-chart-grid: color-mix(in oklch, var(--foreground) 16%, transparent);
+  --forge-chart-grid: color-mix(in oklch, var(--foreground) 8%, transparent);
   --dashboard-clay: var(--primary);
   --dashboard-wash: color-mix(in oklch, var(--accent) 32%, var(--background));
   --dashboard-mark-paper: var(--background);
@@ -83,6 +83,7 @@ For commercial licensing, please contact support@quantumnous.com
   outline-offset: 3px;
 }
 .dashboard-editorial-panel {
+  border: 0;
   border-radius: var(--radius);
   box-shadow: none;
 }
@@ -96,7 +97,7 @@ For commercial licensing, please contact support@quantumnous.com
   background: color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 .dashboard-editorial-rule {
-  border-color: color-mix(in oklch, var(--foreground) 18%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 7%, transparent);
 }
 
 .dashboard-stats__toolbar,
@@ -112,7 +113,7 @@ For commercial licensing, please contact support@quantumnous.com
 .dashboard-stats__toolbar {
   justify-content: space-between;
   flex-wrap: wrap;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.75rem;
 }
 .dashboard-stats__period {
   flex-wrap: wrap;
@@ -127,26 +128,27 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--muted-foreground);
 }
 .dashboard-stats__user {
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--border);
+  padding: 0.35rem 0.65rem;
+  border: 0;
   border-radius: var(--radius);
+  background: var(--muted);
   color: var(--foreground);
   overflow-wrap: anywhere;
 }
 .dashboard-stats__grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 1.25rem;
+  gap: 1.75rem;
   margin: 0;
 }
 .dashboard-stat {
   min-width: 0;
-  padding: 1.25rem 0;
-  border-block-start: 1px solid var(--border);
+  padding: 1.5rem 0;
+  border: 0;
   background: transparent;
 }
-.dashboard-stat[data-primary='true'] {
-  border-color: var(--chart-1);
+.dashboard-stat[data-primary='true'] .dashboard-stat__value {
+  color: var(--primary);
 }
 .dashboard-stat dt {
   display: flex;
@@ -194,8 +196,7 @@ For commercial licensing, please contact support@quantumnous.com
   min-width: 0;
   overflow: hidden;
   border: 0;
-  border-radius: var(--radius-xl, var(--radius));
-  background: var(--card);
+  background: transparent;
   color: var(--foreground);
 }
 .dashboard-usage__header {
@@ -203,9 +204,9 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 1rem;
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border);
+  gap: 1.25rem;
+  padding: 1.5rem 0 2rem;
+  border-bottom: 0;
 }
 .dashboard-usage__header h3 {
   margin: 0;
@@ -249,7 +250,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .dashboard-usage__table th,
 .dashboard-usage__table td {
-  padding: 1rem 1.25rem;
+  padding: 1.25rem 1rem;
   text-align: end;
   vertical-align: middle;
   font-variant-numeric: tabular-nums;
@@ -260,7 +261,7 @@ For commercial licensing, please contact support@quantumnous.com
   text-align: start;
 }
 .dashboard-usage__table thead {
-  background: color-mix(in oklch, var(--foreground) 2%, var(--card));
+  background: color-mix(in oklch, var(--muted) 30%, var(--background));
   color: var(--muted-foreground);
 }
 .dashboard-usage__table thead th {
@@ -325,8 +326,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .dashboard-usage__caption {
   caption-side: bottom;
-  padding: 0.85rem 1.3rem;
-  border-top: 1px solid var(--border);
+  padding: 1.25rem 1rem;
+  border-top: 0;
   text-align: start;
   color: var(--muted-foreground);
   font-size: 0.75rem;
@@ -335,8 +336,8 @@ For commercial licensing, please contact support@quantumnous.com
 .dashboard-usage__footer {
   flex-wrap: wrap;
   justify-content: space-between;
-  padding: 0.7rem 1.1rem;
-  border-top: 1px solid var(--border);
+  padding: 1rem 0;
+  border-top: 0;
   color: var(--muted-foreground);
   font-size: 0.75rem;
 }
@@ -381,7 +382,7 @@ For commercial licensing, please contact support@quantumnous.com
     justify-content: space-between;
   }
   .dashboard-usage__header {
-    padding: 1rem;
+    padding: 1rem 0 1.5rem;
   }
   .dashboard-usage__actions {
     width: 100%;
@@ -400,8 +401,8 @@ For commercial licensing, please contact support@quantumnous.com
   .dashboard-usage__mobile-sort {
     display: flex;
     gap: 0.25rem;
-    padding: 0.4rem 0.75rem;
-    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0;
+    border-bottom: 0;
   }
   .dashboard-usage__mobile-sort button {
     min-height: 2.75rem;
@@ -430,7 +431,7 @@ For commercial licensing, please contact support@quantumnous.com
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.75rem 1rem;
-    padding: 1rem;
+    padding: 1.5rem 0;
   }
   .dashboard-usage__table tbody th:first-child {
     grid-column: 1 / -1;
@@ -459,10 +460,10 @@ For commercial licensing, please contact support@quantumnous.com
   }
   .dashboard-usage__caption {
     display: block;
-    padding: 0.85rem 1rem;
+    padding: 1rem 0;
   }
   .dashboard-usage__footer {
-    padding: 0.75rem;
+    padding: 1rem 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {

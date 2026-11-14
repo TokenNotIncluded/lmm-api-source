@@ -224,16 +224,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   return (
     <div
       className={cn(
-        'group relative flex min-w-0 flex-col rounded-xl border p-4 transition-colors sm:p-5 motion-reduce:transition-none',
-        'hover:bg-muted/20',
-        props.compareSelected && 'border-primary/50 ring-primary/20 ring-2'
+        'group relative flex min-w-0 flex-col rounded-xl bg-muted/25 p-5 transition-colors sm:p-6 motion-reduce:transition-none',
+        'hover:bg-muted/40',
+        props.compareSelected && 'ring-primary/50 ring-2'
       )}
     >
       {/* Keep the full model identifier clear of the action buttons. */}
       <div className='flex flex-col gap-2.5 sm:gap-3'>
         <div className='flex w-full min-w-0 items-start gap-2.5 sm:gap-3'>
           <div
-            className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'
+            className='flex size-9 shrink-0 items-center justify-center sm:size-10'
             aria-hidden='true'
           >
             {modelIcon || (
@@ -250,7 +250,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         </div>
       </div>
 
-      <div className='my-3.5 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1.5 border-y py-3.5 text-sm tabular-nums'>
+      <div
+        data-slot='model-price-summary'
+        className='my-5 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2 text-sm tabular-nums'
+      >
         <PricingContextLabel
           model={props.model}
           className='text-muted-foreground w-full text-xs'
@@ -296,7 +299,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </span>
           )}
         </div>
-        <ModelPerfBadge perf={props.perf} className='border-t pt-3' />
+        <ModelPerfBadge perf={props.perf} className='pt-1' />
       </div>
 
       <div className='mt-4 flex items-center justify-end gap-2'>
@@ -314,9 +317,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 : undefined
             }
             className={cn(
-              'me-auto inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none sm:min-h-8 sm:py-1.5',
+              'me-auto inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none sm:min-h-8 sm:py-1.5',
               props.compareSelected
-                ? 'border-primary/60 bg-primary/10 text-foreground'
+                ? 'bg-primary/10 text-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             )}
           >
@@ -331,7 +334,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <button
           type='button'
           onClick={handleCopy}
-          className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border p-0 transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none sm:min-h-8 sm:min-w-8'
+          className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-0 transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none sm:min-h-8 sm:min-w-8'
           title={t('Copy')}
           aria-label={`${t('Copy')} ${props.model.model_name}`}
         >
@@ -340,7 +343,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <button
           type='button'
           onClick={props.onClick}
-          className='text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-1 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none sm:min-h-8 sm:py-1.5'
+          className='text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-1 rounded-md px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none sm:min-h-8 sm:py-1.5'
         >
           {t('Details')}
           <ChevronRight className='size-3.5' aria-hidden='true' />

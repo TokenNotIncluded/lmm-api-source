@@ -32,8 +32,8 @@ For commercial licensing, please contact support@quantumnous.com
   }
 
   .console-section-header {
-    padding-top: 2rem;
-    padding-bottom: 1.5rem;
+    padding-top: 2.5rem;
+    padding-bottom: 2rem;
   }
 }
 
@@ -891,8 +891,18 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--forge-destructive-dark);
 }
 
-/* The console shell uses flat surfaces and spacing to separate navigation
- * from the active workspace. Semantic colors follow the selected theme. */
+/* Navigation and working space use related tonal surfaces. Spacing carries
+ * their hierarchy, so the shell needs no decorative frames or shadows. */
+.console-editorial {
+  --sidebar: color-mix(in oklch, var(--muted) 45%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: transparent;
+}
+
 /* Mobile privacy controls share the console viewport instead of extending the
  * body below its 100dvh shell. Desktop and public page layouts keep their flow. */
 @media (max-width: 767px) {
@@ -934,7 +944,9 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-inner'] {
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: var(--radius-xl);
+  box-shadow: none;
 }
 
 .console-editorial [data-slot='sidebar-container'] {
@@ -942,8 +954,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-menu-button'] {
-  border-radius: 0.375rem;
-  color: color-mix(in oklch, var(--sidebar-foreground) 76%, transparent);
+  border-radius: var(--radius);
+  color: color-mix(in oklch, var(--sidebar-foreground) 72%, transparent);
   transition:
     background-color 140ms ease,
     color 140ms ease;
@@ -1001,16 +1013,19 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-group-label'] {
-  padding-block: 1.15rem 0.55rem;
+  padding-block: 1.5rem 0.75rem;
   color: color-mix(in oklch, var(--sidebar-foreground) 60%, transparent);
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.025em;
 }
 
-.console-editorial > [data-slot='sidebar-inset'] > header,
-.console-editorial [data-slot='sidebar-inset'] > header {
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
-  background: color-mix(in oklch, var(--background) 94%, transparent);
+.console-editorial
+  [data-slot='sidebar-inset']
+  .mobile-scroll-chrome-inner
+  > header {
+  border-bottom: 0;
+  background: var(--background);
 }
 
 .console-editorial [data-slot='sidebar-inset'] main {
@@ -1033,11 +1048,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial :where(table thead) {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0;
 }
 
 .console-editorial :where(table tbody tr) {
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 72%, transparent);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
 }
 
 .console-editorial :where(table tbody tr:last-child) {
@@ -1131,8 +1146,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial .console-info-panel {
-  border: 1px solid color-mix(in oklch, var(--console-info) 44%, transparent);
-  background: color-mix(in oklch, var(--console-info) 14%, var(--background));
+  border: 0;
+  background: color-mix(in oklch, var(--console-info) 8%, var(--background));
   color: color-mix(in oklch, var(--foreground) 84%, var(--console-info));
 }
 
@@ -1147,7 +1162,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial .console-status-warning {
-  border: 1px solid color-mix(in oklch, var(--console-warning) 35%, transparent);
+  border: 0;
   background: color-mix(in oklch, var(--console-warning) 12%, transparent);
   color: var(--console-warning);
 }
@@ -1199,10 +1214,10 @@ For commercial licensing, please contact support@quantumnous.com
   letter-spacing: -0.025em;
 }
 
-/* Shared card language for wallet, setup, and utility pages: flat surfaces
- * with the theme radius — quiet, but not knife-edged. */
+/* Tonal cards group actual tools. Passive panels never gain borders on hover. */
 .console-editorial :where([data-slot='card']) {
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: var(--radius-xl);
   box-shadow: none;
   transition: none;
 }
@@ -1319,8 +1334,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .setup-editorial-masthead {
-  border-bottom: 1px solid var(--setup-border);
-  padding-bottom: 1.5rem;
+  border-bottom: 0;
+  padding-bottom: 2rem;
 }
 
 .setup-editorial-kicker {
@@ -1346,25 +1361,24 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .setup-editorial-frame {
-  border-color: var(--setup-border);
+  border: 0;
   border-radius: calc(var(--radius) * 0.875);
   background: var(--setup-panel);
   box-shadow: none;
 }
 
 .setup-editorial-frame-header {
-  border-bottom: 1px solid var(--setup-border);
+  border-bottom: 0;
   border-radius: calc(var(--radius) * 0.875) calc(var(--radius) * 0.875) 0 0;
-  padding: 1.5rem;
+  padding: 2rem;
 }
 
 .setup-editorial-frame-content {
-  padding: 1.5rem;
+  padding: 2rem;
 }
 
 .setup-editorial-step-list {
-  border-top: 1px solid var(--setup-border);
-  border-bottom: 1px solid var(--setup-border);
+  border: 0;
 }
 
 .setup-editorial-step {
@@ -1396,7 +1410,7 @@ For commercial licensing, please contact support@quantumnous.com
 .setup-editorial-frame-footer {
   border-radius: 0 0 calc(var(--radius) * 0.875) calc(var(--radius) * 0.875);
   background: transparent;
-  padding: 1.25rem 1.5rem 1.5rem;
+  padding: 1.5rem 2rem 2rem;
 }
 
 .setup-editorial :where([data-slot='button']) {
@@ -1583,10 +1597,6 @@ For commercial licensing, please contact support@quantumnous.com
   );
 }
 
-.wallet-editorial :where([data-slot='card']) {
-  border-color: color-mix(in oklch, var(--foreground) 18%, transparent);
-}
-
 .wallet-editorial :where([data-slot='card-footer']) {
   background: color-mix(in oklch, var(--wallet-wash) 78%, transparent);
 }
@@ -1651,64 +1661,13 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
-.console-editorial {
-  --sidebar: color-mix(in oklch, var(--foreground) 2%, var(--background));
-  --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--secondary);
-  --sidebar-primary-foreground: var(--secondary-foreground);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --sidebar-border: var(--border);
-}
-
-.console-editorial [data-slot='sidebar-inner'] {
-  border: 0;
-  box-shadow: none;
-}
-
-.console-editorial [data-slot='sidebar-menu-button'] {
-  color: color-mix(in oklch, var(--sidebar-foreground) 68%, transparent);
-}
-
-.console-editorial [data-slot='sidebar-menu-button']:hover {
-  background: color-mix(in oklch, var(--sidebar-foreground) 8%, transparent);
-  color: var(--sidebar-foreground);
-}
-
-.console-editorial [data-slot='sidebar-group-label'] {
-  color: var(--muted-foreground);
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-.console-editorial > [data-slot='sidebar-inset'] > header,
-.console-editorial [data-slot='sidebar-inset'] > header {
-  background: var(--background);
-  backdrop-filter: none;
-}
-
-.console-editorial :where([data-slot='card']) {
-  border-color: var(--border);
-  border-radius: var(--radius);
-  box-shadow: none;
-}
-
-.console-editorial :where([data-slot='card']):hover {
-  border-color: var(--border);
-}
-
-.console-editorial .console-section-header {
-  background: var(--background);
-}
-
 .console-editorial :where([data-slot='button'])[data-slot='button'] {
   letter-spacing: -0.01em;
 }
 
 .console-mobile-dock {
-  border-top: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+  border: 0;
   background: var(--background);
-  backdrop-filter: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

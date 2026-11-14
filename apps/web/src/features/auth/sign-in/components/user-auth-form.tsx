@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import axios from 'axios'
-import { Loader2, LogIn, KeyRound } from 'lucide-react'
+import { Loader2, KeyRound } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -395,7 +395,7 @@ export function UserAuthForm({
         onSubmit={(event) => {
           void form.handleSubmit(onSubmit)(event)
         }}
-        className={cn('grid gap-5', className)}
+        className={cn('auth-login-form grid gap-6', className)}
         {...props}
       >
         <HumanGrantButton
@@ -409,15 +409,11 @@ export function UserAuthForm({
         {hasAlternativeLogin && alternativeLoginMethods}
 
         {hasAlternativeLogin && passwordLoginEnabled ? (
-          <div className='relative py-0.5' aria-hidden='true'>
-            <div className='absolute inset-0 flex items-center'>
-              <span className='w-full border-t' />
-            </div>
-            <div className='relative flex justify-center text-xs'>
-              <span className='bg-background text-muted-foreground px-3'>
-                {t('Or')}
-              </span>
-            </div>
+          <div
+            className='auth-login-divider text-muted-foreground py-1 text-center text-xs'
+            aria-hidden='true'
+          >
+            {t('Or')}
           </div>
         ) : null}
 
@@ -433,6 +429,9 @@ export function UserAuthForm({
                   <FormControl>
                     <Input
                       autoComplete='username'
+                      autoCapitalize='none'
+                      autoCorrect='off'
+                      spellCheck={false}
                       placeholder={t('Enter your username or email')}
                       className='auth-field h-11 rounded-xl'
                       {...field}
@@ -453,7 +452,15 @@ export function UserAuthForm({
               name='password'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Password')}</FormLabel>
+                  <div className='auth-password-label flex items-center justify-between gap-4'>
+                    <FormLabel>{t('Password')}</FormLabel>
+                    <Link
+                      to='/forgot-password'
+                      className='auth-forgot-password text-muted-foreground hover:text-foreground rounded-sm text-sm underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
+                    >
+                      {t('Forgot password?')}
+                    </Link>
+                  </div>
                   <FormControl>
                     <PasswordInput
                       autoComplete='current-password'
@@ -470,10 +477,10 @@ export function UserAuthForm({
             {/* Submit Button */}
             <Button
               type='submit'
-              className='mt-1 h-11 w-full justify-center gap-2 rounded-xl'
+              className='auth-submit mt-2 h-12 w-full justify-center gap-2 rounded-xl'
               disabled={isLoading || isPasskeyLoading}
             >
-              {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
+              {isLoading && <Loader2 className='animate-spin' />}
               {t('Sign in')}
             </Button>
 
@@ -491,20 +498,22 @@ export function UserAuthForm({
           </>
         )}
 
-        <div className='flex justify-end'>
-          <Link
-            to='/forgot-password'
-            className='text-muted-foreground hover:text-foreground rounded-sm text-sm font-medium underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4'
-          >
-            {t('Forgot password?')}
-          </Link>
-        </div>
+        {!passwordLoginEnabled && (
+          <div className='flex justify-end'>
+            <Link
+              to='/forgot-password'
+              className='auth-forgot-password text-muted-foreground hover:text-foreground rounded-sm text-sm underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
+            >
+              {t('Forgot password?')}
+            </Link>
+          </div>
+        )}
 
         <LegalConsent
           status={status}
           checked={agreedToLegal}
           onCheckedChange={setAgreedToLegal}
-          className='mt-1'
+          className='auth-legal-consent mt-1 border-0 bg-transparent p-0'
         />
 
         {!hasAlternativeLogin && alternativeLoginMethods}

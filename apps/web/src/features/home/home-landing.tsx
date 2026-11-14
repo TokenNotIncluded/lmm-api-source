@@ -190,11 +190,6 @@ export function HomeLanding({
             data-active
             aria-labelledby='lmm-home-title'
           >
-            <div className='lmm-intro-kicker'>
-              <span aria-hidden='true' />
-              {t('AI community hub')}
-              <small>LMM / 001</small>
-            </div>
             <h1 id='lmm-home-title'>{headline}</h1>
             <p className='lmm-intro-description'>
               {t(
@@ -313,16 +308,6 @@ export function HomeLanding({
           </section>
         </div>
       </section>
-      <div
-        className='lmm-protocols'
-        aria-label={t('Explore {{brand}}', { brand: brandName })}
-      >
-        <span>{t('Tool market')}</span>
-        <span>{t('Models and pricing')}</span>
-        <span>{t('Store')}</span>
-        <span>{t('Ecosystem')}</span>
-      </div>
-
       <section
         className='lmm-section lmm-mesh-section'
         aria-labelledby='lmm-mesh-title'

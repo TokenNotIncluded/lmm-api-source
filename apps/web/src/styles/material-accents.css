@@ -4,7 +4,7 @@
   --badge-tone: var(--info);
   color: color-mix(in oklch, var(--badge-tone) 72%, var(--foreground));
   background: color-mix(in oklch, var(--badge-tone) 12%, var(--card));
-  border-color: color-mix(in oklch, var(--badge-tone) 24%, var(--card));
+  border-color: transparent;
 }
 .semantic-badge-success {
   --badge-tone: var(--success);
@@ -21,9 +21,8 @@
 
 .native-user-record {
   background: var(--card);
-  box-shadow: 0 2px 8px -6px
-    color-mix(in oklch, var(--foreground) 30%, transparent);
-  border-color: var(--border);
+  box-shadow: none;
+  border-color: transparent;
 }
 .native-user-record:focus-within {
   border-color: var(--ring);

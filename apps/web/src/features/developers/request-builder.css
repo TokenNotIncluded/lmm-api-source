@@ -6,266 +6,603 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-.dev-builder {
-  display: grid;
-  min-width: 0;
-  gap: 1.25rem;
-  padding: 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  background: var(--card);
+.developers-page {
+  width: 100%;
+  max-width: 78rem;
+  margin-inline: auto;
+  padding: 3.5rem 2rem 6rem;
+  font-family: var(--font-body);
 }
-.dev-builder-row {
+.developers-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 2rem;
+  padding-bottom: 2.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.dev-eyebrow {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.developers-hero h1 {
+  margin-top: 0.65rem;
+  font-family: var(--font-body);
+  font-size: clamp(2.25rem, 4vw, 3.2rem);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+}
+.dev-introduction {
+  max-width: 40rem;
+  margin-top: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+.developers-hero > [data-slot='button'] {
+  min-height: 2.75rem;
+}
+.dev-page-layout {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  align-items: start;
+  gap: 2.75rem;
+  padding-top: 2.75rem;
+}
+.dev-page-nav {
+  position: sticky;
+  top: 6rem;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.dev-page-nav > .dev-eyebrow {
+  padding: 0.35rem 0.75rem 0.75rem;
+}
+.dev-page-link {
   display: flex;
   min-width: 0;
+  min-height: 2.75rem;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.dev-page-link:hover {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  color: var(--foreground);
+}
+.dev-page-link svg,
+.dev-source-link svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+.dev-nav-related {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.dev-page-content,
+.dev-page-content > section {
+  min-width: 0;
+}
+.dev-page-content > section {
+  scroll-margin-top: 7rem;
+}
+.dev-connection {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin-bottom: 2.75rem;
 }
-.dev-builder-row > :first-child {
-  min-width: 5rem;
+.dev-connection label {
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
-.dev-builder-label {
+.dev-connection p {
+  margin-top: 0.3rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.dev-connection-value {
+  display: flex;
+  flex: 1 1 18rem;
+  max-width: 32rem;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.85rem;
+  border: 1px solid var(--input);
+  border-radius: 0.5rem;
+  background: var(--background);
+}
+.dev-connection-value input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  background: transparent;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
+}
+.dev-connection-value > button {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+.dev-section-heading h2 {
+  font-family: var(--font-body);
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+}
+.dev-section-heading > p {
+  max-width: 45rem;
+  margin-top: 0.55rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+.dev-builder {
+  min-width: 0;
+  margin-top: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  overflow: hidden;
+  background: var(--background);
+}
+.dev-protocols {
+  display: flex;
+  gap: 1.25rem;
+  overflow-x: auto;
+  padding-inline: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.dev-protocols > button {
+  flex-shrink: 0;
+  min-height: 3.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 2px solid transparent;
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 500;
+  white-space: nowrap;
+}
+.dev-protocols > button[aria-pressed='true'] {
+  border-bottom-color: var(--primary);
+  color: var(--foreground);
+}
+.dev-builder-workspace {
+  display: grid;
+  grid-template-columns: minmax(12.5rem, 0.85fr) minmax(0, 1.6fr);
+  min-width: 0;
 }
 .dev-builder-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
-  gap: 1rem;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
 }
 .dev-builder-field {
   display: grid;
   min-width: 0;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
-.dev-builder-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-.dev-builder-tab {
-  min-height: 2.75rem;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    border-color 150ms ease;
-}
-.dev-builder-tab:hover {
+.dev-builder-label {
   color: var(--foreground);
-  border-color: var(--foreground);
-}
-.dev-builder-tab[aria-pressed='true'] {
-  background: var(--foreground);
-  border-color: var(--foreground);
-  color: var(--background);
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 .dev-builder-input {
-  flex: 1 1 12rem;
+  width: 100%;
   min-width: 0;
   min-height: 2.75rem;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--input);
+  border-radius: 0.375rem;
   background: var(--background);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.8125rem;
   caret-color: var(--foreground);
 }
 .dev-builder-prompt {
+  min-height: 8rem;
+  resize: vertical;
   font-family: var(--font-body);
+  line-height: 1.7;
 }
-select.dev-builder-input {
-  cursor: pointer;
+.dev-field-help,
+.dev-key-note p {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+.dev-key-note {
+  display: flex;
+  align-items: start;
+  gap: 0.55rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+.dev-key-note svg {
+  flex-shrink: 0;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: 0.2rem;
+  color: var(--muted-foreground);
 }
 .dev-builder-output {
+  display: flex;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  background: var(--background);
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 48%, var(--background));
 }
 .dev-builder-output-head {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
   padding: 0.5rem 1rem;
+}
+.dev-builder-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 0.15rem;
+}
+.dev-builder-tab {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.3rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.dev-builder-tab[aria-pressed='true'] {
+  background: var(--background);
+  color: var(--foreground);
+  font-weight: 600;
+}
+.dev-builder-tab:hover,
+.dev-protocols > button:hover {
+  color: var(--foreground);
+}
+.dev-copy-request {
+  min-height: 2.75rem;
+}
+.dev-request-address {
+  display: flex;
+  min-width: 0;
+  align-items: start;
+  gap: 0.65rem;
+  margin-inline: 1.5rem;
+  padding: 0.75rem 0 1rem;
   border-bottom: 1px solid var(--border);
 }
-.dev-builder-output-head code {
+.dev-request-address code {
   min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 0.75rem;
   color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.dev-http-method {
+  flex-shrink: 0;
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.8;
+}
+.dev-builder-output pre,
+.dev-reference-code pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 1.5rem;
+  overflow-x: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.9;
+  tab-size: 2;
 }
 .dev-builder-output pre {
-  margin: 0;
-  padding: 1rem;
-  overflow-x: auto;
+  flex: 1;
+  min-height: 16rem;
+}
+.dev-copy-error {
+  margin: 0 1.5rem 1.25rem;
+  color: var(--destructive);
   font-size: 0.75rem;
-  line-height: 1.7;
 }
-.dev-builder :is(button, input, select, pre):focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+.dev-builder-footnote {
+  padding: 0.85rem 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.65;
 }
-.dev-builder-output pre:focus-visible {
-  outline-offset: -2px;
+.dev-reference-section {
+  margin-top: 3.5rem;
+  padding-top: 3rem;
+  border-top: 1px solid var(--border);
 }
-.dev-page-link {
+.dev-endpoints {
+  margin-top: 1.5rem;
+}
+.dev-endpoint {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 1rem;
+  padding-block: 1.05rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.dev-endpoint dt {
+  color: var(--muted-foreground);
+  line-height: 1.75;
+}
+.dev-endpoint dd {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 1rem;
+}
+.dev-endpoint .dev-http-method {
+  width: 2.5rem;
+}
+.dev-endpoint code {
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.dev-reference-note,
+.dev-availability-note {
+  max-width: 45rem;
+  margin-top: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.75;
+}
+.dev-availability-note {
+  padding-left: 1rem;
+  border-left: 2px solid var(--border);
+}
+.dev-reference-subtitle {
+  margin-top: 1.75rem;
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.dev-reference-code {
+  min-width: 0;
+  margin-top: 0.85rem;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: color-mix(in oklch, var(--muted) 48%, var(--background));
+}
+.dev-reference-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.dev-reference-code-head button {
+  min-height: 2.75rem;
+}
+.dev-source-link {
   display: inline-flex;
   min-height: 2.75rem;
   align-items: center;
-  border-radius: 0.25rem;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
   text-decoration: underline;
-  text-underline-offset: 0.25rem;
+  text-underline-offset: 0.2rem;
 }
-.dev-page-link:focus-visible {
+.dev-reference-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+}
+.dev-integration-prompt {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+.dev-prompt-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem 1.25rem;
+}
+.dev-prompt-heading button {
+  min-height: 2.75rem;
+}
+.dev-prompt-heading p {
+  flex: 1 1 18rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+.dev-integration-prompt summary {
+  display: flex;
+  width: fit-content;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  list-style: none;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.dev-integration-prompt summary::-webkit-details-marker {
+  display: none;
+}
+.dev-integration-prompt summary svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.dev-integration-prompt details[open] summary svg {
+  transform: rotate(180deg);
+}
+.dev-integration-prompt textarea {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--input);
+  border-radius: 0.375rem;
+  background: var(--background);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.8;
+  resize: vertical;
+}
+.developers-page :is(a, button, input, textarea, summary, pre):focus-visible {
   outline: 2px solid var(--ring);
-  outline-offset: 4px;
+  outline-offset: 3px;
 }
-.dev-page-link:hover {
-  text-decoration-thickness: 2px;
+.dev-builder :is(button, pre):focus-visible,
+.dev-reference-code pre:focus-visible {
+  outline-offset: -3px;
 }
-@media (max-width: 639px) {
-  .dev-builder {
-    gap: 1rem;
-    padding: 1rem;
+@media (max-width: 1023px) {
+  .developers-page {
+    padding-top: 2.5rem;
   }
-  .dev-builder-fields {
+  .dev-page-layout {
     grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    padding-top: 1rem;
   }
-  .dev-builder-input {
-    font-size: 1rem;
-  }
-  .dev-builder-row > :first-child {
-    flex: 0 0 auto;
-    min-width: 0;
-    white-space: nowrap;
-  }
-  .dev-builder-row {
-    flex-wrap: nowrap;
-    gap: 0.5rem;
-  }
-  .dev-builder-tabs {
-    flex: 1 1 0%;
-    min-width: 0;
-    flex-wrap: nowrap;
+  .dev-page-nav {
+    position: static;
+    display: flex;
+    gap: 0.25rem 1rem;
     overflow-x: auto;
-    padding: 0.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
   }
-  .dev-builder-tab {
-    flex: 0 0 auto;
-    white-space: nowrap;
+  .dev-page-nav > .dev-eyebrow {
+    display: none;
   }
   .dev-page-link {
     flex-shrink: 0;
+    padding-inline: 0.25rem;
+    white-space: nowrap;
+  }
+  .dev-nav-related {
+    display: flex;
+    margin: 0;
+    padding: 0 0 0 1rem;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    gap: 1rem;
+  }
+  .dev-connection {
+    margin-bottom: 2rem;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .dev-builder-tab {
-    transition: none;
+@media (max-width: 639px) {
+  .developers-page {
+    padding: 1.75rem 1.25rem 4rem;
   }
-}
-
-/* The introduction, workbench and reference sections share one quiet rhythm. */
-.developers-page {
-  container-type: inline-size;
-}
-.developers-hero {
-  padding: clamp(2rem, 6cqi, 4.5rem);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: linear-gradient(
-    120deg,
-    color-mix(in oklch, var(--primary) 9%, var(--card)),
-    var(--card) 75%
-  );
-}
-.developers-hero h1 {
-  font-size: clamp(2rem, 5cqi, 3.5rem);
-  letter-spacing: -0.05em;
-}
-.developers-page > nav {
-  border-top: 0;
-  gap: 0.5rem 1.5rem;
-}
-.developers-page .dev-page-link {
-  text-decoration: none;
-  font-weight: 550;
-}
-.developers-page .dev-page-link:hover {
-  color: var(--primary);
-}
-.developers-page > section > h2 {
-  letter-spacing: -0.035em;
-}
-.developers-page > section > h2::before {
-  content: '';
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin-inline-end: 0.75rem;
-  background: var(--primary);
-}
-.developers-page aside {
-  align-self: start;
-  padding: clamp(1.5rem, 3cqi, 2rem);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--muted);
-}
-.developers-page .dev-builder {
-  padding: clamp(1.25rem, 4cqi, 3rem);
-  gap: clamp(1.5rem, 3cqi, 2.5rem);
-  border-radius: var(--radius-xl);
-}
-.developers-page .dev-builder-output {
-  background: var(--muted);
-  border-radius: var(--radius-lg);
-}
-.developers-page .dev-builder-output-head {
-  background: var(--card);
-  padding-block: 0.75rem;
-}
-.developers-page .dev-builder-output pre {
-  padding: 1.5rem;
-  line-height: 1.85;
-}
-.developers-page .dev-builder-tab[aria-pressed='true'] {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-}
-
-.developers-page > section {
-  margin-top: clamp(3rem, 7cqi, 5rem);
-}
-.developers-page > section + section {
-  padding-top: clamp(2.5rem, 6cqi, 4.5rem);
-}
-.developers-page > section > p {
-  margin-top: 1rem;
-  line-height: 1.8;
-}
-.developers-page > section > h2 + div {
-  margin-top: 2rem;
-}
-.developers-page .dev-builder {
-  margin-top: 2rem;
-}
-.developers-page .dev-builder-fields {
-  gap: 1.5rem;
-}
-.developers-page .dev-builder-field {
-  gap: 0.75rem;
+  .developers-hero {
+    align-items: start;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding-bottom: 1.75rem;
+  }
+  .dev-introduction {
+    font-size: 0.875rem;
+  }
+  .dev-page-layout {
+    gap: 1.75rem;
+  }
+  .dev-page-content > section {
+    scroll-margin-top: 6rem;
+  }
+  .dev-connection-value {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .dev-connection-value input,
+  .dev-builder-input,
+  .dev-integration-prompt textarea {
+    font-size: 1rem;
+  }
+  .dev-builder-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dev-builder-fields {
+    gap: 1.25rem;
+    padding: 1.25rem;
+  }
+  .dev-builder-output {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .dev-builder-output-head {
+    padding-inline: 0.5rem;
+  }
+  .dev-copy-request span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .dev-copy-request {
+    min-width: 2.75rem;
+    padding-inline: 0.75rem;
+  }
+  .dev-protocols {
+    gap: 1.25rem;
+    padding-inline: 1.25rem;
+  }
+  .dev-builder-output pre,
+  .dev-reference-code pre {
+    padding: 1.25rem;
+  }
+  .dev-request-address {
+    margin-inline: 1.25rem;
+  }
+  .dev-builder-footnote {
+    padding-inline: 1.25rem;
+  }
+  .dev-reference-section {
+    margin-top: 2.5rem;
+    padding-top: 2rem;
+  }
+  .dev-endpoint {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4rem;
+  }
+  .dev-endpoint dd {
+    gap: 0.5rem;
+  }
+  .dev-reference-code-head {
+    padding-inline: 1.25rem;
+  }
 }

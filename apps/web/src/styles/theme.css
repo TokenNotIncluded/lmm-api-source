@@ -102,7 +102,7 @@ For commercial licensing, please contact support@quantumnous.com
 :root {
   color-scheme: light;
   /* Soft default corners; presets and explicit radius preferences win. */
-  --radius: 0.625rem;
+  --radius: 0.75rem;
   /* Signature 45° corner cut used by brand marks and key surfaces. */
   --cut-size: 0.625rem;
   --app-header-height: 3rem;
@@ -115,17 +115,17 @@ For commercial licensing, please contact support@quantumnous.com
    * identical when no font preference is set. */
   --font-body: var(--font-sans);
   --background: #ffffff;
-  --foreground: #1f1f1f;
-  --card: #ffffff;
-  --card-foreground: #1f1f1f;
+  --foreground: #202124;
+  --card: #f7f8fa;
+  --card-foreground: #202124;
   --popover: #ffffff;
   --popover-foreground: oklch(0.145 0 0);
   --primary: #0b57d0;
   --primary-foreground: #ffffff;
-  --secondary: #e8f0fe;
+  --secondary: #eaf1fc;
   --secondary-foreground: #0842a0;
-  --muted: #f4f5f7;
-  --muted-foreground: #5f6368;
+  --muted: #f0f2f5;
+  --muted-foreground: #606873;
   --accent: #e8f0fe;
   --accent-foreground: #0842a0;
   --destructive: oklch(0.577 0.245 27.325);
@@ -138,8 +138,8 @@ For commercial licensing, please contact support@quantumnous.com
   --info-foreground: oklch(0.985 0 0);
   --neutral: oklch(0.708 0 0);
   --neutral-foreground: oklch(0.145 0 0);
-  --border: #e5e7eb;
-  --input: #bdc1c6;
+  --border: #e9ebef;
+  --input: #c5cbd4;
   --ring: #0b57d0;
   --chart-1: #0b57d0;
   --chart-2: #146c2e;
@@ -149,9 +149,9 @@ For commercial licensing, please contact support@quantumnous.com
   --overview-accent-1: var(--chart-1);
   --overview-accent-2: var(--chart-2);
   --overview-accent-3: var(--chart-3);
-  --sidebar: color-mix(in oklch, var(--foreground) 2%, var(--background));
+  --sidebar: #f7f8fa;
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #d3e3fd;
+  --sidebar-primary: #eaf1fc;
   --sidebar-primary-foreground: #0842a0;
   --sidebar-accent: color-mix(in oklch, var(--primary) 6%, var(--background));
   --sidebar-accent-foreground: var(--forge-ink-light);
@@ -193,18 +193,18 @@ For commercial licensing, please contact support@quantumnous.com
   color-scheme: dark;
   /* Tonal dark surfaces with lighter accents for readable emphasis. */
   --background: #111214;
-  --foreground: #e3e3e3;
-  --card: #191b1f;
-  --card-foreground: #e3e3e3;
-  --popover: #22252a;
+  --foreground: #e8eaed;
+  --card: #1b1d21;
+  --card-foreground: #e8eaed;
+  --popover: #25282d;
   --popover-foreground: var(--foreground);
   --primary: #a8c7fa;
   --primary-foreground: #062e6f;
-  --secondary: #283e60;
+  --secondary: #26344a;
   --secondary-foreground: #d3e3fd;
-  --muted: #24272c;
-  --muted-foreground: #aeb4bd;
-  --accent: #283e60;
+  --muted: #26292e;
+  --muted-foreground: #a8b0bd;
+  --accent: #26344a;
   --accent-foreground: #d3e3fd;
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
@@ -216,17 +216,17 @@ For commercial licensing, please contact support@quantumnous.com
   --info-foreground: oklch(0.145 0 0);
   --neutral: oklch(0.76 0 0);
   --neutral-foreground: oklch(0.155 0 0);
-  --border: oklch(0.93 0.01 85 / 11%);
-  --input: oklch(0.93 0.01 85 / 25%);
+  --border: #2b2e34;
+  --input: #4b515a;
   --ring: #a8c7fa;
   --chart-1: #a8c7fa;
   --chart-2: #81c995;
   --chart-3: #78d5dc;
   --chart-4: #fdd663;
   --chart-5: #d7aefb;
-  --sidebar: oklch(0.155 0.003 85);
+  --sidebar: #17191c;
   --sidebar-foreground: var(--foreground);
-  --sidebar-primary: #283e60;
+  --sidebar-primary: #26344a;
   --sidebar-primary-foreground: #d3e3fd;
   --sidebar-accent: color-mix(in oklch, var(--primary) 9%, var(--background));
   --sidebar-accent-foreground: var(--forge-foreground-dark);
