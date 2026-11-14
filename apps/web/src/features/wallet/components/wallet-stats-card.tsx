@@ -20,7 +20,6 @@ import { Activity, BarChart3, ShieldCheck, WalletCards } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
 import { cn } from '@/lib/utils'
@@ -68,7 +67,6 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     value: string
     description: string
     icon: typeof WalletCards
-    tone: IconBadgeTone
     available?: boolean
   }[] = [
     {
@@ -80,7 +78,6 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
       ),
       description: t('Remaining quota'),
       icon: WalletCards,
-      tone: 'primary',
       available: financialAvailable,
     },
     {
@@ -95,7 +92,6 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
         : t('Unavailable'),
       description: t('Total consumed quota'),
       icon: BarChart3,
-      tone: 'info',
       available: projection.history,
     },
     {
@@ -106,14 +102,12 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           : t('Unavailable'),
       description: t('Total requests made'),
       icon: Activity,
-      tone: 'neutral',
     },
     {
       label: t('Trust level'),
       value: `L${props.user?.trust_level_info?.level ?? 0}`,
       description: `${formatDiscount(props.user?.trust_level_info?.discount_percent ?? 0)} ${t('discount')}`,
       icon: ShieldCheck,
-      tone: 'neutral',
     },
   ]
 
@@ -139,9 +133,10 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               index === 0 ? 'items-center' : 'flex-col items-start'
             )}
           >
-            <IconBadge tone={item.tone} size='stat'>
-              <item.icon />
-            </IconBadge>
+            <item.icon
+              className='text-muted-foreground size-4 shrink-0'
+              aria-hidden='true'
+            />
             <div className='text-muted-foreground min-h-8 text-xs leading-4 font-medium sm:min-h-0'>
               {item.label}
             </div>

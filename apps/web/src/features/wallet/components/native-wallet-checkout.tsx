@@ -44,6 +44,7 @@ const providerNames: Record<NativeChannel['provider'], string> = {
 }
 const paymentCurrency = (channel: NativeChannel) =>
   channel.provider === 'coinbase' ? 'USDC' : channel.currency
+const quickAmounts = ['5.00', '10.00', '25.00', '50.00', '100.00'] as const
 
 function restore(owner: string) {
   try {
@@ -124,9 +125,6 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    setChannelsLoading(true)
-    setChannelsFailed(false)
-    setPortalAvailable(false)
     void getNativePaymentChannels(controller.signal)
       .then((data) => {
         if (isCurrent()) {
@@ -318,7 +316,12 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             </p>
             <Button
               variant='outline'
-              onClick={() => setChannelVersion((value) => value + 1)}
+              onClick={() => {
+                setChannelsLoading(true)
+                setChannelsFailed(false)
+                setPortalAvailable(false)
+                setChannelVersion((value) => value + 1)
+              }}
             >
               {t('Refresh')}
             </Button>
@@ -374,6 +377,26 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                   disabled={busy}
                   onChange={(event) => setAmount(event.target.value)}
                 />
+                {!selected?.fixed_amount_minor ? (
+                  <div
+                    role='group'
+                    aria-label={t('Amount')}
+                    className='flex flex-wrap gap-2 pt-1'
+                  >
+                    {quickAmounts.map((value) => (
+                      <button
+                        key={value}
+                        type='button'
+                        aria-pressed={amount === value}
+                        disabled={busy}
+                        onClick={() => setAmount(value)}
+                        className='focus-visible:outline-ring bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/65 aria-pressed:bg-foreground aria-pressed:text-background min-h-11 min-w-12 rounded-lg px-3 text-sm font-medium tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
+                      >
+                        {Number(value).toString()}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {selected?.fixed_amount_minor ? (
                   <p className='text-muted-foreground text-xs'>
                     {t('This product has a fixed payment amount.')}
