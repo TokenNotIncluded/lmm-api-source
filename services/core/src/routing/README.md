@@ -1,5 +1,9 @@
 # Rust routing and pricing — contract v1
 
+> This is the original Task 04 design and handoff record. Branch, PR and execution
+> status references are historical. See the [current architecture](../../../../docs/core-migration.md)
+> and [current progress](../../../../docs/progress.md) before using this guide.
+
 Task 04, based on `b83723cdac3f148140806b8025cb5360a2f6a26d` of
 `wip/rust-core-go-extensions` / parent PR #675. Working branch: `wip/mk-04-routing`.
 This is a routing component, not a claim that the model HTTP API is ready.

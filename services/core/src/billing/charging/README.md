@@ -1,5 +1,9 @@
 # Task 03: transactional charging
 
+> This is the original Task 03 design and handoff record. Branch, PR and execution
+> status references are historical. See the [current architecture](../../../../../docs/core-migration.md)
+> and [current progress](../../../../../docs/progress.md) before using this guide.
+
 Base: `wip/rust-core-go-extensions` at `b83723cdac3f148140806b8025cb5360a2f6a26d`.
 Work branch: `wip/mk-03-billing`. Integration PR: #675. Fresh PostgreSQL only.
 

@@ -200,11 +200,12 @@ The test memory repository exists only in `_test.go`.
 
 ## Tests
 
-From `services/extensions`, with the repository's Go 1.25 toolchain and dependencies:
+From `services/extensions`, use `mise exec` to select the repository's pinned Go
+toolchain. The language minimum is declared in [go.mod](../../../go.mod):
 
 ```sh
-go test -race -count=1 ./internal/modules/store/... ./internal/modules/support/...
-go vet ./internal/modules/store/... ./internal/modules/support/...
+mise exec -- go test -race -count=1 ./internal/modules/store/... ./internal/modules/support/...
+mise exec -- go vet ./internal/modules/store/... ./internal/modules/support/...
 ```
 
 For actual PostgreSQL, create a new disposable database ending in `_test`, with

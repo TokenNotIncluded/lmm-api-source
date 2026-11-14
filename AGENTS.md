@@ -84,8 +84,8 @@ These rules apply to every agent changing `apps/web`, including small copy fixes
   privacy, legal, payment and permission text. Do not rewrite short labels,
   errors or technical identifiers merely for style.
 - Follow `.agents/skills/i18n-translate/SKILL.md`. Create a temporary patch and
-  apply it with `scripts/apply-translations.mjs`; never hand-edit locale JSON or
-  sync reports. Run `mise exec -- bun run --filter @lmm/web i18n:sync`, review
+  apply it with `.agents/skills/i18n-translate/scripts/apply-translations.mjs`;
+  never hand-edit locale JSON or sync reports. Run `mise exec -- bun run --filter @lmm/web i18n:sync`, review
   every changed locale plus `_reports/_sync-report.json` and `_extras`, and run
   the affected tests and `mise exec -- bun run typecheck:web` for call-site or
   language-code changes. Zero missing keys does not prove translation quality.

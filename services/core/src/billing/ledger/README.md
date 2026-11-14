@@ -1,5 +1,9 @@
 # Rust core ledger — task 02
 
+> This is the original Task 02 design and handoff record. Branch, PR and execution
+> status references are historical. See the [current architecture](../../../../../docs/core-migration.md)
+> and [current progress](../../../../../docs/progress.md) before using this guide.
+
 Parent PR: #675. Task PR: #694. Branch: `wip/mk-02-ledger`.
 Target: `wip/rust-core-go-extensions`. This module is not a production rollout.
 
@@ -211,9 +215,9 @@ termination rights. Those are not runtime privileges.
 ```sh
 cd services/core
 export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres'
-cargo +1.99.0 fmt --all --check
-cargo +1.99.0 clippy --locked --all-targets -- -D warnings
-cargo +1.99.0 test --locked --all-targets -- --nocapture
+mise exec -- cargo fmt --all --check
+mise exec -- cargo clippy --locked --all-targets -- -D warnings
+mise exec -- cargo test --locked --all-targets -- --nocapture
 ```
 
 `tests/ledger.rs` covers concurrent overspending, opposite-direction transfers,

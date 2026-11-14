@@ -147,19 +147,19 @@ instances, and is not guaranteed here.
 
 ## Reproduce verification
 
-Use the repository's pinned Rust 1.99.0 and Go 1.27.2 tools. PostgreSQL is needed
-only for existing core database tests, not the relay HTTP tests. No provider
+Use the repository's pinned Rust and Go tools through `mise exec`. PostgreSQL is
+needed only for existing core database tests, not the relay HTTP tests. No provider
 account, production database, API key or paid model call is used by these tests.
 
 ```sh
 export GOWORK=off
-(cd services/extensions && go build -mod=readonly -o /tmp/lmm-relay-extension ./cmd/extensions)
+(cd services/extensions && mise exec -- go build -mod=readonly -o /tmp/lmm-relay-extension ./cmd/extensions)
 export LMM_RELAY_EXTENSION_BIN=/tmp/lmm-relay-extension
-cargo +1.99.0 fmt --manifest-path services/core/Cargo.toml --all --check
-cargo +1.99.0 clippy --manifest-path services/core/Cargo.toml --locked --all-targets -- -D warnings
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --test relay_http -- --nocapture
+mise exec -- cargo fmt --manifest-path services/core/Cargo.toml --all --check
+mise exec -- cargo clippy --manifest-path services/core/Cargo.toml --locked --all-targets -- -D warnings
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --test relay_http -- --nocapture
 # Set DATABASE_URL to an isolated test PostgreSQL instance before all-targets.
-cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --all-targets -- --nocapture
+mise exec -- cargo test --manifest-path services/core/Cargo.toml --locked --all-targets -- --nocapture
 python3 -B scripts/test-core-boundaries.py
 ```
 
