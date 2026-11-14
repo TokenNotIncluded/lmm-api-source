@@ -9,6 +9,7 @@ import {
 import { useContext, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -104,7 +105,13 @@ function UserRecord({
     >
       <div className='grid items-center gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]'>
         <div className='min-w-0'>
-          <h3 className='font-semibold break-all'>{profile(user.username)}</h3>
+          <h3 className='font-semibold break-all'>
+            <EntityQuickActions
+              kind='username'
+              value={user.username ?? ''}
+              label={profile(user.username)}
+            />
+          </h3>
           <p className='text-muted-foreground text-sm break-all'>
             {profile(user.email)}
           </p>

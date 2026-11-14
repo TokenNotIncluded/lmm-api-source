@@ -34,11 +34,11 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { BadgeListCell } from '@/components/data-table'
+import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { GroupBadge } from '@/components/group-badge'
 import { ProviderBadge } from '@/components/provider-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
-import { TruncatedText } from '@/components/truncated-text'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -645,10 +645,11 @@ export function useChannelsColumns(
             <div className='flex max-w-full min-w-0 items-center gap-2'>
               <div className='flex max-w-full min-w-0 flex-col gap-1'>
                 <div className='flex max-w-full min-w-0 items-center gap-1.5'>
-                  <TruncatedText
-                    text={sensitiveVisible ? name : SENSITIVE_MASK}
-                    className='font-medium'
-                    maxWidth='max-w-full'
+                  <EntityQuickActions
+                    kind='channel'
+                    value={String(channel.id)}
+                    label={sensitiveVisible ? name : SENSITIVE_MASK}
+                    hidden={!sensitiveVisible}
                   />
                   {isPassThrough && (
                     <TooltipProvider delay={100}>

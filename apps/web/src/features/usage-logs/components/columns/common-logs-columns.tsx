@@ -16,13 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { GitBranch, Sparkles, KeyRound } from 'lucide-react'
+import { GitBranch, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Popover,
   PopoverContent,
@@ -36,7 +36,6 @@ import {
 } from '@/components/ui/tooltip'
 import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
-import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import type { ColumnDef } from '@/lib/table'
 import { cn } from '@/lib/utils'
@@ -472,9 +471,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     )}
                   </div>
                   {log.channel_name && (
-                    <span className='text-muted-foreground/70 truncate [font-family:var(--font-body)] !text-xs'>
-                      {channelName}
-                    </span>
+                    <EntityQuickActions
+                      kind='channel'
+                      value={String(log.channel)}
+                      label={channelName ?? String(log.channel)}
+                      hidden={!sensitiveVisible}
+                    />
                   )}
                 </TooltipTrigger>
                 <TooltipContent>
@@ -527,45 +529,16 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           if (!log.username) return null
 
           return (
-            <button
-              type='button'
-              className='flex items-center gap-1.5 text-left'
-              onClick={(e) => {
-                e.stopPropagation()
+            <EntityQuickActions
+              kind='username'
+              value={log.username}
+              label={sensitiveVisible ? log.username : '••••'}
+              hidden={!sensitiveVisible}
+              onDetails={() => {
                 setSelectedUserId(log.user_id)
                 setUserInfoDialogOpen(true)
               }}
-            >
-              <Avatar className='ring-border/60 size-6 ring-1 max-sm:hidden'>
-                <AvatarFallback
-                  className={cn(
-                    'text-[11px] font-semibold',
-                    !sensitiveVisible && 'bg-muted text-muted-foreground'
-                  )}
-                  style={
-                    sensitiveVisible
-                      ? getUserAvatarStyle(log.username)
-                      : undefined
-                  }
-                >
-                  {sensitiveVisible ? getUserAvatarFallback(log.username) : '•'}
-                </AvatarFallback>
-              </Avatar>
-              <TooltipProvider delay={300}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className='text-muted-foreground max-w-[100px] truncate text-sm hover:underline' />
-                    }
-                  >
-                    {sensitiveVisible ? log.username : '••••'}
-                  </TooltipTrigger>
-                  {sensitiveVisible && log.username.length > 12 && (
-                    <TooltipContent side='top'>{log.username}</TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            </button>
+            />
           )
         },
       }
@@ -595,13 +568,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <TooltipProvider delay={300}>
             <Tooltip>
               <TooltipTrigger render={<div className='max-w-full' />}>
-                <StatusBadge
+                <EntityQuickActions
+                  kind='token'
+                  value={tokenName}
                   label={displayName}
-                  icon={KeyRound}
-                  copyText={sensitiveVisible ? tokenName : undefined}
-                  size='sm'
-                  showDot={false}
-                  className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 [font-family:var(--font-body)]'
+                  hidden={!sensitiveVisible}
                 />
               </TooltipTrigger>
               {sensitiveVisible && tokenName.length > 16 && (
@@ -661,11 +632,18 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         return (
           <div className='flex w-fit max-w-full min-w-0 flex-col gap-0.5'>
-            <ModelBadge
-              modelName={modelInfo.name}
-              actualModel={modelInfo.actualModel}
-              responseModel={modelInfo.responseModel}
+            <EntityQuickActions
+              kind='model'
+              value={log.model_name}
+              label={modelInfo.name}
             />
+            {(modelInfo.actualModel || modelInfo.responseModel) && (
+              <ModelBadge
+                modelName={modelInfo.name}
+                actualModel={modelInfo.actualModel}
+                responseModel={modelInfo.responseModel}
+              />
+            )}
           </div>
         )
       },

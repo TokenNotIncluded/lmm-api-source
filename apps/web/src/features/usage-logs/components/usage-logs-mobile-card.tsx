@@ -21,6 +21,7 @@ import { Database } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EntityQuickActions } from '@/components/entity-quick-actions'
 import {
   dotColorMap,
   textColorMap,
@@ -248,21 +249,10 @@ function MobileUserField({ log }: { log: UsageLog }) {
   if (!log.username) return null
 
   return (
-    <button
-      type='button'
-      className='bg-muted/20 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left'
-      onClick={(e) => {
-        e.stopPropagation()
-        setSelectedUserId(log.user_id)
-        setUserInfoDialogOpen(true)
-      }}
-    >
+    <div className='bg-muted/20 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left'>
       <Avatar className='ring-border/60 size-6 shrink-0 ring-1'>
         <AvatarFallback
-          className={cn(
-            'text-[11px] font-semibold',
-            !sensitiveVisible && 'bg-muted text-muted-foreground'
-          )}
+          className='text-[11px] font-semibold'
           style={
             sensitiveVisible ? getUserAvatarStyle(log.username) : undefined
           }
@@ -270,10 +260,17 @@ function MobileUserField({ log }: { log: UsageLog }) {
           {sensitiveVisible ? getUserAvatarFallback(log.username) : '•'}
         </AvatarFallback>
       </Avatar>
-      <span className='text-foreground min-w-0 truncate text-sm'>
-        {sensitiveVisible ? log.username : '••••'}
-      </span>
-    </button>
+      <EntityQuickActions
+        kind='username'
+        value={log.username}
+        label={sensitiveVisible ? log.username : '••••'}
+        hidden={!sensitiveVisible}
+        onDetails={() => {
+          setSelectedUserId(log.user_id)
+          setUserInfoDialogOpen(true)
+        }}
+      />
+    </div>
   )
 }
 

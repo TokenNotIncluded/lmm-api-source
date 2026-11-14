@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
@@ -122,7 +123,7 @@ export function useApiKeysColumns(
       accessorKey: 'name',
       header: t('Name'),
       cell: ({ row }) => (
-        <span className='font-medium'>{row.getValue('name')}</span>
+        <EntityQuickActions kind='token' value={row.original.name} />
       ),
       size: 180,
       meta: { mobileTitle: true },

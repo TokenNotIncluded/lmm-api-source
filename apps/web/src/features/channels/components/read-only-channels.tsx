@@ -1,8 +1,10 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -39,9 +41,13 @@ export function ReadOnlyChannels({
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeRoutingScope(auth)
-  const [input, setInput] = useState('')
-  const [keyword, setKeyword] = useState('')
-  const [page, setPage] = useState(1)
+  const search = useSearch({ from: '/_authenticated/channels/' })
+  const navigate = useNavigate({ from: '/channels/' })
+  const keyword = search.filter ?? ''
+  const page = search.page ?? 1
+  const [input, setInput] = useState<string | undefined>()
+  const setPage = (page: number) =>
+    void navigate({ search: (previous) => ({ ...previous, page }) })
   const [pending, setPending] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
@@ -205,13 +211,19 @@ export function ReadOnlyChannels({
         className='flex flex-col gap-2 sm:flex-row'
         onSubmit={(event) => {
           event.preventDefault()
-          setKeyword(input.trim())
-          setPage(1)
+          void navigate({
+            search: (previous) => ({
+              ...previous,
+              filter: (input ?? keyword).trim(),
+              page: 1,
+            }),
+          })
+          setInput(undefined)
         }}
       >
         <Input
           className='min-h-11 min-w-0'
-          value={input}
+          value={input ?? keyword}
           onChange={(event) => setInput(event.target.value)}
           aria-label={t('Search')}
         />
@@ -239,7 +251,11 @@ export function ReadOnlyChannels({
                 <div className='min-w-0'>
                   <dt className='text-muted-foreground text-xs'>{t('Name')}</dt>
                   <dd className='font-medium [overflow-wrap:anywhere]'>
-                    {channel.name}
+                    <EntityQuickActions
+                      kind='channel'
+                      value={String(channel.id)}
+                      label={channel.name}
+                    />
                   </dd>
                 </div>
                 <div className='grid min-w-0 grid-cols-2 gap-3'>
@@ -299,7 +315,13 @@ export function ReadOnlyChannels({
                 {data.items.map((channel) => (
                   <tr key={channel.id}>
                     <td className='p-3'>{channel.id}</td>
-                    <td className='p-3'>{channel.name}</td>
+                    <td className='p-3'>
+                      <EntityQuickActions
+                        kind='channel'
+                        value={String(channel.id)}
+                        label={channel.name}
+                      />
+                    </td>
                     <td className='p-3'>
                       {channel.status === 1 ? t('Enabled') : t('Disabled')}
                     </td>

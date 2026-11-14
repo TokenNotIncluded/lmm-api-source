@@ -26,6 +26,18 @@ for (const name of [
   'Node',
   'Event',
   'MouseEvent',
+  'scrollTo',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'getComputedStyle',
+  'ResizeObserver',
+  'MutationObserver',
+  'HTMLButtonElement',
+  'HTMLInputElement',
+  'SVGElement',
+  'PointerEvent',
+  'FocusEvent',
+  'KeyboardEvent',
 ] as const) {
   Object.defineProperty(globalThis, name, {
     configurable: true,
@@ -36,6 +48,14 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
 })
+const {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  createMemoryHistory,
+  RouterProvider,
+  Outlet,
+} = await import('@tanstack/react-router')
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
@@ -67,7 +87,11 @@ afterEach(async () => {
 })
 after(() => dom.close())
 
-async function mount(controlsEnabled = false, keysEnabled = false) {
+async function mount(
+  controlsEnabled = false,
+  keysEnabled = false,
+  initialEntry = '/channels/'
+) {
   if (controlsEnabled) {
     useAuthStore.getState().auth.setBundle({
       access_token: 'synthetic-channel-session-token',
@@ -99,14 +123,43 @@ async function mount(controlsEnabled = false, keysEnabled = false) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  const rootRoute = createRootRoute({ component: Outlet })
+  const authRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    id: '_authenticated',
+    component: Outlet,
+  })
+  const channelsRoute = createRoute({
+    getParentRoute: () => authRoute,
+    path: '/channels/',
+    validateSearch: (search: Record<string, unknown>) => ({
+      filter: typeof search.filter === 'string' ? search.filter : '',
+      page: typeof search.page === 'number' ? search.page : 1,
+    }),
+    component: () => (
+      <ReadOnlyChannels
+        controlsEnabled={controlsEnabled}
+        keysEnabled={keysEnabled}
+      />
+    ),
+  })
+  const logsRoute = createRoute({
+    getParentRoute: () => authRoute,
+    path: '/usage-logs/$section',
+    component: () => null,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([
+      authRoute.addChildren([channelsRoute, logsRoute]),
+    ]),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+  })
+  await router.load()
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <ReadOnlyChannels
-            controlsEnabled={controlsEnabled}
-            keysEnabled={keysEnabled}
-          />
+          <RouterProvider router={router} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -180,7 +233,7 @@ test('read-only channels show snapshot fields and paginate without mutation cont
     [...container.querySelectorAll('button')].map(
       (button) => button.textContent
     ),
-    ['Search', 'Previous', 'Next']
+    ['Search', 'Channel 1', 'Channel 1', 'Previous', 'Next']
   )
   assert.doesNotMatch(
     container.querySelector('table')?.textContent ?? '',
@@ -363,4 +416,55 @@ test('native channel controls send the observed release and require delete confi
     url: '/api/channel/1',
     body: { expected_version: { routing: 5, pricing: 2 } },
   })
+})
+
+test('channel quick actions retain the URL filter and link to matching logs', async () => {
+  const requested: string[] = []
+  api.get = (async (
+    _url: string,
+    config?: { params?: { keyword?: string } }
+  ) => {
+    requested.push(config?.params?.keyword ?? '')
+    return {
+      data: {
+        success: true,
+        data: {
+          items: [
+            {
+              id: 42,
+              name: 'Filtered channel',
+              status: 1,
+              group: 'default',
+              models: 'example',
+            },
+          ],
+          total: 1,
+        },
+      },
+    }
+  }) as typeof api.get
+  const container = await mount(false, false, '/channels/?filter=%2242%22')
+  await until(() => !!container.querySelector('tbody button'))
+  assert.equal(
+    (container.querySelector('input') as HTMLInputElement).value,
+    '42'
+  )
+  assert.equal(requested[0], '42')
+  await act(async () =>
+    (container.querySelector('tbody button') as HTMLButtonElement).click()
+  )
+  await until(() => !!document.querySelector('[role="menuitem"][href]'))
+  const link = document.querySelector(
+    '[role="menuitem"][href]'
+  ) as HTMLAnchorElement
+  assert.equal(link.textContent, 'View logs')
+  const destination = new URL(
+    link.getAttribute('href') ?? '',
+    'http://localhost'
+  )
+  assert.equal(destination.pathname, '/usage-logs/common')
+  assert.equal(
+    JSON.parse(destination.searchParams.get('channel') ?? 'null'),
+    '42'
+  )
 })
