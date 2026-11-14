@@ -316,15 +316,14 @@ fn attach(
         .unwrap_or(0);
     let mut seen = BTreeSet::new();
     // Preserve routing policy when a channel edit replaces its targets.
-    let mut previous_client_protocols = BTreeMap::new();
+    let mut previous_target_policy = BTreeMap::new();
     for route in &mut document.routing.routes {
         route.targets.retain(|target| {
             if target.upstream_id != id {
                 return true;
             }
-            if let Some(protocols) = &target.client_protocols {
-                previous_client_protocols.insert(route.id, protocols.clone());
-            }
+            previous_target_policy
+                .insert(route.id, (target.enabled, target.client_protocols.clone()));
             false
         });
     }
@@ -342,15 +341,18 @@ fn attach(
             .iter_mut()
             .find(|r| r.id == attachment.route_id)
             .ok_or(ManagementError::Invalid)?;
+        let (enabled, client_protocols) = previous_target_policy
+            .remove(&route.id)
+            .unwrap_or((true, None));
         route.targets.push(RouteTarget {
             id: next,
             upstream_id: id,
             upstream_model: attachment.upstream_model,
-            enabled: true,
+            enabled,
             priority: attachment.priority,
             weight: attachment.weight,
             speeds: attachment.speeds,
-            client_protocols: previous_client_protocols.remove(&route.id),
+            client_protocols,
             payload: attachment.payload,
             timeout_ms: attachment.timeout_ms,
         });
@@ -360,43 +362,62 @@ fn attach(
 
 #[cfg(test)]
 #[test]
-fn channel_attachment_edit_preserves_client_protocols() {
-    let mut document: ReleaseDocument = serde_json::from_value(json!({
-        "contract_version": 1,
-        "routing": {
-            "version": 1, "groups": [], "upstreams": [], "aliases": [],
-            "routes": [{
-                "id": 1, "model": "example", "group": "default", "enabled": true,
-                "speeds": ["standard"],
-                "failover": {"max_attempts": 1, "retry_on": [], "allow_replay_after_send": false},
-                "targets": [{
-                    "id": 5, "upstream_id": 2, "upstream_model": "before",
-                    "enabled": true, "priority": 0, "weight": 1,
-                    "speeds": ["standard"], "client_protocols": ["anthropic_messages"],
-                    "payload": "adapt", "timeout_ms": 5000
+fn channel_attachment_edit_preserves_target_policy() {
+    for enabled in [false, true] {
+        let mut document: ReleaseDocument = serde_json::from_value(json!({
+            "contract_version": 1,
+            "routing": {
+                "version": 1, "groups": [], "upstreams": [], "aliases": [],
+                "routes": [{
+                    "id": 1, "model": "example", "group": "default", "enabled": true,
+                    "speeds": ["standard"],
+                    "failover": {"max_attempts": 1, "retry_on": [], "allow_replay_after_send": false},
+                    "targets": [{
+                        "id": 5, "upstream_id": 2, "upstream_model": "before",
+                        "enabled": enabled, "priority": 0, "weight": 1,
+                        "speeds": ["standard"], "client_protocols": ["anthropic_messages"],
+                        "payload": "adapt", "timeout_ms": 5000
+                    }]
                 }]
-            }]
-        },
-        "pricing": {"version": 1, "rules": []}
-    }))
-    .unwrap();
-    let attachments = vec![Attachment {
-        route_id: 1,
-        upstream_model: "after".into(),
-        priority: 1,
-        weight: 1,
-        speeds: vec![Speed::Standard],
-        timeout_ms: 5000,
-        payload: PayloadPolicy::Adapt,
-    }];
-    attach(&mut document, 2, attachments).unwrap();
+            },
+            "pricing": {"version": 1, "rules": []}
+        }))
+        .unwrap();
+        let attachments = vec![Attachment {
+            route_id: 1,
+            upstream_model: "after".into(),
+            priority: 1,
+            weight: 1,
+            speeds: vec![Speed::Standard],
+            timeout_ms: 5000,
+            payload: PayloadPolicy::Adapt,
+        }];
+        attach(&mut document, 2, attachments).unwrap();
 
-    let [target] = document.routing.routes[0].targets.as_slice() else {
-        panic!("expected one replacement target");
-    };
-    assert_eq!(target.upstream_model, "after");
-    assert!(target.allows_client(Protocol::AnthropicMessages));
-    assert!(!target.allows_client(Protocol::OpenAiChat));
+        let [target] = document.routing.routes[0].targets.as_slice() else {
+            panic!("expected one replacement target");
+        };
+        assert_eq!(target.enabled, enabled);
+        assert_eq!(target.upstream_model, "after");
+        assert!(target.allows_client(Protocol::AnthropicMessages));
+        assert!(!target.allows_client(Protocol::OpenAiChat));
+        attach(
+            &mut document,
+            3,
+            vec![Attachment {
+                route_id: 1,
+                upstream_model: "new".into(),
+                priority: 1,
+                weight: 1,
+                speeds: vec![Speed::Standard],
+                timeout_ms: 5000,
+                payload: PayloadPolicy::Adapt,
+            }],
+        )
+        .unwrap();
+        assert_eq!(document.routing.routes[0].targets[0].enabled, enabled);
+        assert!(document.routing.routes[0].targets[1].enabled);
+    }
 }
 
 #[derive(Deserialize)]
