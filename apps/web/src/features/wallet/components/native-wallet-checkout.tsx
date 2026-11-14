@@ -288,13 +288,16 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   return (
     <section
       aria-labelledby='native-checkout-title'
-      className='bg-card border-t-primary space-y-5 rounded-xl border border-t-2 p-5 sm:p-6'
+      className='bg-card space-y-8 rounded-2xl p-6 sm:p-8'
     >
-      <div className='space-y-2'>
-        <h2 id='native-checkout-title' className='text-base font-semibold'>
+      <div className='space-y-3'>
+        <h2
+          id='native-checkout-title'
+          className='text-xl font-semibold tracking-tight'
+        >
           {t('Add funds')}
         </h2>
-        <p className='text-muted-foreground text-sm'>
+        <p className='text-muted-foreground max-w-prose text-sm leading-7'>
           {t('Review the exact charge and wallet credit before paying.')}
         </p>
       </div>
@@ -322,20 +325,20 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           </div>
         ) : (
           <form
-            className='space-y-5'
+            className='space-y-6'
             onSubmit={(event) => {
               event.preventDefault()
               void review()
             }}
           >
-            <div className='grid gap-4 sm:grid-cols-2'>
-              <div className='space-y-2'>
+            <div className='grid gap-6 sm:grid-cols-2'>
+              <div className='space-y-3'>
                 <Label htmlFor='native-payment-channel'>
                   {t('Payment method')}
                 </Label>
                 <NativeSelect
                   id='native-payment-channel'
-                  className='w-full'
+                  className='h-12 w-full'
                   value={selected?.id ?? ''}
                   disabled={busy}
                   onChange={(event) => setSelectedID(event.target.value)}
@@ -350,7 +353,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                   <Badge variant='outline'>{t('Test payment')}</Badge>
                 ) : null}
               </div>
-              <div className='space-y-2'>
+              <div className='space-y-3'>
                 <Label htmlFor='native-payment-amount'>
                   {t('Amount')} ·{' '}
                   {selected?.credit_quantity
@@ -359,6 +362,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 </Label>
                 <Input
                   id='native-payment-amount'
+                  className='h-12 text-lg font-medium tabular-nums md:text-lg'
                   inputMode='decimal'
                   autoComplete='off'
                   value={
@@ -378,12 +382,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               </div>
             </div>
             {selected?.credit_quantity ? (
-              <div className='space-y-2'>
+              <div className='space-y-3'>
                 <Label htmlFor='native-payment-discount'>
                   {t('Discount code')}
                 </Label>
                 <Input
                   id='native-payment-discount'
+                  className='h-12'
                   autoComplete='off'
                   spellCheck={false}
                   maxLength={64}
@@ -402,6 +407,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             ) : null}
             <Button
               type='submit'
+              className='min-h-11 w-full sm:w-auto'
               disabled={
                 busy ||
                 !selected ||
@@ -419,20 +425,20 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
         )
       ) : null}
       {pending ? (
-        <div className='space-y-5'>
+        <div className='space-y-6'>
           <div className='flex flex-wrap items-center gap-2 text-sm'>
             <span>{channelLabel(pending.channel)}</span>
             {pending.channel.environment === 'test' ? (
               <Badge variant='outline'>{t('Test payment')}</Badge>
             ) : null}
           </div>
-          <dl className='grid gap-4 sm:grid-cols-2'>
+          <dl className='bg-muted/50 grid gap-6 rounded-xl p-5 sm:grid-cols-2 sm:p-6'>
             {quote || pending.request.amount_minor !== '0' ? (
               <div>
                 <dt className='text-muted-foreground text-sm'>
                   {t('You pay')}
                 </dt>
-                <dd className='text-xl font-semibold break-all tabular-nums'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight break-all tabular-nums'>
                   {paymentCurrency(pending.channel)}{' '}
                   {nativeAmountDisplay(
                     quote?.amount_minor ?? pending.request.amount_minor
@@ -445,7 +451,9 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Discount code')}
                 </dt>
-                <dd className='break-all'>{pending.request.discount_code}</dd>
+                <dd className='mt-2 font-medium break-all'>
+                  {pending.request.discount_code}
+                </dd>
               </div>
             ) : null}
             {quote ? (
@@ -453,7 +461,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Wallet credit')}
                 </dt>
-                <dd className='text-xl font-semibold break-all tabular-nums'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight break-all tabular-nums'>
                   {BigInt(quote.credit_units).toLocaleString(
                     i18n.resolvedLanguage || i18n.language
                   )}{' '}
@@ -475,11 +483,11 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             </p>
           ) : null}
           {pending.submitted ? (
-            <p role='status' className='text-sm'>
+            <p role='status' className='text-sm leading-7'>
               {statusMessage()}
             </p>
           ) : null}
-          <div className='flex flex-wrap gap-2'>
+          <div className='flex flex-wrap gap-3'>
             {!quote ? (
               <>
                 <Button

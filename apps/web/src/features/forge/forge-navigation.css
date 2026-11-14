@@ -9,6 +9,7 @@
   min-width: 0;
   min-height: var(--public-header-height);
   padding-inline: 0;
+  border: 0;
   border-color: color-mix(in oklch, var(--forge-header-ink) 10%, transparent);
 }
 
@@ -18,9 +19,9 @@
   min-height: 2.75rem;
   align-items: center;
   justify-content: center;
-  padding: 0.5rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 
@@ -42,7 +43,7 @@
 
 .forge-public-mobile-overlay .forge-public-mobile-link,
 .forge-public-mobile-overlay .forge-public-mobile-link-active {
-  padding: 0.8rem 1rem;
+  padding: 1rem;
   border-radius: 0.8rem;
   font-size: clamp(1rem, 3vw, 1.35rem);
 }

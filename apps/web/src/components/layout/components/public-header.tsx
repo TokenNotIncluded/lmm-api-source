@@ -70,7 +70,7 @@ function getDisplaySiteName(
 
 function getPublicNavClassName(editorialHeader: boolean | undefined) {
   return cn(
-    'flex h-16 items-center justify-between gap-3 border-b px-2',
+    'flex h-16 items-center justify-between gap-4',
     editorialHeader && 'forge-public-nav'
   )
 }
@@ -361,7 +361,7 @@ export function PublicHeader(props: PublicHeaderProps) {
           props.className
         )}
       >
-        <div className='pointer-events-auto mx-auto max-w-7xl px-4 pt-0 md:px-6'>
+        <div className='pointer-events-auto mx-auto max-w-7xl px-5 pt-0 md:px-10'>
           <nav
             className={getPublicNavClassName(editorialHeader)}
             aria-label={t('Header navigation')}
@@ -506,7 +506,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               {(showLanguageSwitcher ||
                 showThemeSwitch ||
                 showNotifications) && (
-                <div className='bg-border/40 mx-2 h-4 w-px' />
+                <div className='w-3' aria-hidden='true' />
               )}
 
               {showLanguageSwitcher && <LanguageSwitcher />}
@@ -530,7 +530,7 @@ export function PublicHeader(props: PublicHeaderProps) {
 
               {showAuthButtons && (
                 <div className='contents'>
-                  <div className='bg-border/40 mx-1 h-4 w-px' />
+                  <div className='w-2' aria-hidden='true' />
                   {desktopAuthContent}
                 </div>
               )}

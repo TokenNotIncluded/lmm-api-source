@@ -68,7 +68,7 @@ export function PancakeCustomerPortal({ owner }: { owner: string }) {
     }
   }
   return (
-    <div className='space-y-3 border-t pt-4' aria-busy={busy}>
+    <div className='space-y-4 pt-4' aria-busy={busy}>
       <h3 className='text-sm font-medium'>{t('Pancake customer portal')}</h3>
       {link ? (
         <div className='flex flex-wrap items-center gap-3'>

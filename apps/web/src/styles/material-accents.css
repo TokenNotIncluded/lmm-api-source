@@ -78,14 +78,8 @@
     var(--foreground) 70%,
     var(--primary)
   );
-  --border: color-mix(in oklch, var(--primary) 18%, var(--card));
-  background: color-mix(in oklch, var(--primary) 9%, var(--card));
   color: var(--foreground);
-  border-color: var(--border);
   box-shadow: none;
-}
-.overview-dashboard .overview-greeting-footer {
-  border-color: var(--border);
 }
 .overview-dashboard .overview-greeting [data-slot='button']:hover {
   background: var(--accent);

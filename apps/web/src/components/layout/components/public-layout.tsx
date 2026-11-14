@@ -71,7 +71,7 @@ export function PublicLayout(props: PublicLayoutProps) {
         {props.showMainContainer !== false ? (
           <main
             className={cn(
-              'container mx-auto px-5 pt-24 pb-12 sm:px-8 sm:pt-28 sm:pb-16 lg:px-12',
+              'container mx-auto max-w-7xl px-5 pt-28 pb-16 sm:px-8 sm:pt-32 sm:pb-24 lg:px-12',
               props.mainClassName
             )}
           >
