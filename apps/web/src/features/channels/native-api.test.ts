@@ -14,6 +14,7 @@ import {
   nativeRequest,
   parseNativeDocument,
   readNativeRoutingScope,
+  updateNativeChannels,
 } from './native-api'
 
 const adapter = api.defaults.adapter
@@ -42,6 +43,118 @@ function login(sid = 'synthetic-channel-administration') {
 afterEach(() => {
   api.defaults.adapter = adapter
   useAuthStore.setState({ auth: previous })
+})
+
+test('batch configuration uses one versioned write and rejects mismatched or duplicate receipts', async () => {
+  const scope = login()
+  let count = 2
+  let calls = 0
+  api.defaults.adapter = async (config) => {
+    calls += 1
+    assert.equal(config.method, 'put')
+    assert.equal(
+      config.url,
+      '/core/v1/admin/routing/channels/batch/configuration'
+    )
+    assert.deepEqual(JSON.parse(config.data), {
+      expected_version: { routing: 1, pricing: 1 },
+      ids: [1, 2],
+      patch: { priority: 0, weight: 0, tag: '' },
+    })
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        success: true,
+        data: {
+          version: { routing: 2, pricing: 1 },
+          updated: count,
+          target_count: 3,
+        },
+      },
+    }
+  }
+  const result = await updateNativeChannels(
+    scope,
+    { routing: 1, pricing: 1 },
+    [1, 2],
+    { priority: 0, weight: 0, tag: '' }
+  )
+  assert.equal(result.target_count, 3)
+  count = 1
+  await assert.rejects(
+    updateNativeChannels(scope, { routing: 1, pricing: 1 }, [1, 2], {
+      priority: 0,
+      weight: 0,
+      tag: '',
+    }),
+    /unknown/
+  )
+  await assert.rejects(
+    updateNativeChannels(scope, { routing: 1, pricing: 1 }, [1, 1], {
+      enabled: true,
+    }),
+    /Duplicate/
+  )
+  assert.equal(calls, 2)
+})
+
+test('multiple key import checks its atomic receipt and never accepts duplicate plaintext', async () => {
+  const scope = login()
+  let imported = 2
+  let calls = 0
+  const operation = {
+    operation: 'add_many' as const,
+    polling: true,
+    keys: [
+      { label: 'First', secret: 'synthetic-first' },
+      { label: 'Second', secret: 'synthetic-second' },
+    ],
+  }
+  api.defaults.adapter = async (config) => {
+    calls += 1
+    assert.equal(config.url, '/core/v1/admin/routing/channels/1/keys')
+    assert.deepEqual(JSON.parse(config.data), {
+      expected_version: { routing: 1, pricing: 1 },
+      ...operation,
+    })
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        success: true,
+        data: {
+          version: { routing: 2, pricing: 1 },
+          reference: { id: 7, revision: 1 },
+          imported_count: imported,
+        },
+      },
+    }
+  }
+  assert.equal(
+    (await changeNativeKey(scope, 1, { routing: 1, pricing: 1 }, operation))
+      .imported_count,
+    2
+  )
+  imported = 1
+  await assert.rejects(
+    changeNativeKey(scope, 1, { routing: 1, pricing: 1 }, operation),
+    /unknown/
+  )
+  await assert.rejects(
+    changeNativeKey(
+      scope,
+      1,
+      { routing: 1, pricing: 1 },
+      { ...operation, keys: [operation.keys[0], operation.keys[0]] }
+    ),
+    /different keys/
+  )
+  assert.equal(calls, 2)
 })
 
 test('native configuration retains channel tags and target protocol admission on readback', async () => {
