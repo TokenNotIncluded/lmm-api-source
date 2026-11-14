@@ -8,7 +8,7 @@
 
 - **旧 Key 与余额核对**：产线 owner 回读 495 条普通旧 Key 已软删除，`public_remaining=0`；13 条 OAuth 与 1 条 internal runtime 凭据保留；实际回执为 `fresh69-forward-preparation-26752cdaae25/legacy-formal-recovery-20261115/old-key-retirement.actual.json`。两库 1249 位用户逐笔余额一致，总差额 `delta=0`。此结果只覆盖已核对的凭据范围与余额，不抵扣其他历史订单、订阅及持续权益验收。
 
-- **Native69 仍为独立影子环境**：Core、Extensions 与 `*_prod` 模块使用各自独立数据库，名称不表示主站生产承载。`native.api` 的 DNS/TLS 已就绪，入口仍返回 HTTP 503；reconcile 与 RP 候选尚未安装；Core69 最小候选仅在独立容器中 `RUNNING`，尚无通过结论，与当前 74 组件源码分别记录。新原生版本的生产切换、完整业务及独立验收未完成，不记为“新生产 100%”。
+- **Native69 仍为独立影子环境**：Core、Extensions 与 `*_prod` 模块使用各自独立数据库，名称不表示主站生产承载。产线 owner 已将原 2315/Native69 的实际 origin 与邮件重置 origin 改为 `native.api`，重启后 Core/Extensions 健康检查及本机 HTTPS 返回 200；独立入口仅允许 operator IP，外部请求返回 403。密码读写基础已启用，Terra 密码登录尚未验证，旧 Passkey/OAuth 入口明确返回 403。真实 5001/5003 支付渠道停用、扩展回调关闭、Core payments writer 权限关闭，数据库及原余额、库存未改。reconcile 与 RP 新候选构建退出 0，等待真实 Core HTTP 验收且尚未安装；这只证明构建完成，不是运行验收通过。封闭 69 候选与当前 74 组件源码分别记录，旧 Go 主站继续承载；新原生生产切换、完整业务及独立验收未完成，不记为“新生产 100%”。
 
 - **浏览器会话恢复 v2（源码已提交，未安装）**：[`91a99d4`](https://github.com/TokenNotIncluded/lmm-api-source/commit/91a99d4) 只接入 owner 冻结的 13 个 Web 文件，保留原不确定操作 marker，通过新文档、同锁只读证明确认现有权限；仅显式点击续期可执行一次 refresh，并以匹配的终态只读证明完成恢复。逐文件摘要与 v2 manifest 一致，owner 自测 54 项及真实 Chrome 配合受控 HTTP 的 14 组场景通过，范围 lint、格式与七语言同步通过。真实 Core HTTP、共享 Web 全量构建与生产 Root 验证未运行；旧 Go 主站与原生影子入口未因此变更。
 
