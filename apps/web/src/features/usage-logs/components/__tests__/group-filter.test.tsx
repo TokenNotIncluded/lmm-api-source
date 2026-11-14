@@ -785,7 +785,7 @@ for (const admin of [false, true]) {
       upstreamRequestId: 'upstream-filter',
       minDurationMs: '2.5',
       maxDurationMs: '4000',
-      sortOrder: 'asc',
+      sortOrder: 'asc' as const,
       ...(admin ? { channel: '42' } : {}),
     }
     try {
@@ -814,7 +814,8 @@ for (const admin of [false, true]) {
       )
       const summary = fixture.requests
         .map((value) => new URL(value, 'https://example.invalid'))
-        .findLast((url) => url.searchParams.get('status') === 'error')
+        .reverse()
+        .find((url) => url.searchParams.get('status') === 'error')
       assert.ok(summary)
       api.defaults.adapter = async (config) => {
         const url = new URL(config.url ?? '', 'https://example.invalid')
