@@ -286,7 +286,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   return (
     <section
       aria-labelledby='native-checkout-title'
-      className='bg-card space-y-8 rounded-2xl p-6 sm:p-8'
+      className='wallet-checkout bg-card space-y-8 rounded-2xl p-6 sm:p-8'
     >
       <div className='space-y-3'>
         <h2
@@ -334,7 +334,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               void review()
             }}
           >
-            <div className='grid gap-6 sm:grid-cols-2'>
+            <div className='wallet-checkout-fields grid gap-6'>
               <div className='space-y-3'>
                 <Label htmlFor='native-payment-channel'>
                   {t('Payment method')}
@@ -455,13 +455,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               <Badge variant='outline'>{t('Test payment')}</Badge>
             ) : null}
           </div>
-          <dl className='bg-muted/50 grid gap-6 rounded-xl p-5 sm:grid-cols-2 sm:p-6'>
+          <dl className='wallet-checkout-fields bg-muted/50 grid gap-6 rounded-xl p-5 sm:p-6'>
             {quote || pending.request.amount_minor !== '0' ? (
               <div>
                 <dt className='text-muted-foreground text-sm'>
                   {t('You pay')}
                 </dt>
-                <dd className='mt-2 text-2xl font-medium tracking-tight break-all tabular-nums'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight tabular-nums [overflow-wrap:anywhere]'>
                   {paymentCurrency(pending.channel)}{' '}
                   {nativeAmountDisplay(
                     quote?.amount_minor ?? pending.request.amount_minor
@@ -474,7 +474,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Discount code')}
                 </dt>
-                <dd className='mt-2 font-medium break-all'>
+                <dd className='mt-2 font-medium [overflow-wrap:anywhere]'>
                   {pending.request.discount_code}
                 </dd>
               </div>
@@ -484,7 +484,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Wallet credit')}
                 </dt>
-                <dd className='mt-2 text-2xl font-medium tracking-tight break-all tabular-nums'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight tabular-nums [overflow-wrap:anywhere]'>
                   {BigInt(quote.credit_units).toLocaleString(
                     i18n.resolvedLanguage || i18n.language
                   )}{' '}
@@ -501,7 +501,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
             </p>
           ) : null}
           {quote ? (
-            <p className='text-muted-foreground text-xs break-all'>
+            <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
               {t('Order ID')}: {quote.order_id}
             </p>
           ) : null}

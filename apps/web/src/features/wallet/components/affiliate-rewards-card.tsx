@@ -45,13 +45,13 @@ export function AffiliateRewardsCard({
         data-card-hover='false'
         className='bg-muted/30 border-0 py-0 shadow-none'
       >
-        <CardContent className='grid gap-8 p-6 sm:p-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-center'>
+        <CardContent className='wallet-affiliate-content grid gap-8 p-6 sm:p-8'>
           <div>
             <Skeleton className='h-5 w-32' />
             <Skeleton className='mt-2 h-4 w-48' />
           </div>
           <Skeleton className='h-14 rounded-lg' />
-          <Skeleton className='h-10 rounded-lg lg:col-span-2' />
+          <Skeleton className='col-span-full h-10 rounded-lg' />
         </CardContent>
       </Card>
     )
@@ -76,7 +76,7 @@ export function AffiliateRewardsCard({
       data-card-hover='false'
       className='bg-muted/30 border-0 py-0 shadow-none'
     >
-      <CardContent className='grid gap-8 p-6 sm:p-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-center'>
+      <CardContent className='wallet-affiliate-content grid gap-8 p-6 sm:p-8'>
         <div className='flex min-w-0 items-start gap-4'>
           <IconBadge tone='chart-3'>
             <Share2 />
@@ -93,7 +93,7 @@ export function AffiliateRewardsCard({
           </div>
         </div>
 
-        <div className='grid grid-cols-3 gap-5'>
+        <div className='wallet-affiliate-stats grid gap-5'>
           {[
             [
               rewardDebt ? t('Reward debt') : t('Available Rewards'),
@@ -106,14 +106,14 @@ export function AffiliateRewardsCard({
               <div className='text-muted-foreground text-xs font-medium'>
                 {label}
               </div>
-              <div className='mt-3 text-base font-medium break-words tabular-nums'>
+              <div className='mt-3 text-base font-medium [overflow-wrap:anywhere] tabular-nums'>
                 {value}
               </div>
             </div>
           ))}
         </div>
 
-        <div className='flex flex-wrap items-center justify-end gap-3 lg:col-span-2'>
+        <div className='col-span-full flex flex-wrap items-center justify-end gap-3'>
           {complianceConfirmed ? (
             <Button
               render={<a href='/core/v1/affiliate/claim' />}
@@ -135,7 +135,7 @@ export function AffiliateRewardsCard({
           )}
         </div>
         {!complianceConfirmed ? (
-          <p className='text-muted-foreground text-xs leading-6 lg:col-span-2'>
+          <p className='text-muted-foreground col-span-full text-xs leading-6'>
             {t(
               'Referral reward transfer is disabled until the administrator confirms compliance terms.'
             )}

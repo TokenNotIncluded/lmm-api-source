@@ -44,13 +44,13 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const financialAvailable = projection.available !== null
   if (props.loading) {
     return (
-      <div className='bg-muted/40 grid grid-cols-3 overflow-hidden rounded-2xl'>
+      <div className='wallet-stats bg-muted/40 grid overflow-hidden rounded-2xl'>
         {['balance', 'usage', 'requests', 'trust'].map((key, index) => (
           <div
             key={key}
             className={cn(
               'min-w-0 p-4 sm:p-6',
-              index === 0 && 'col-span-3 min-h-48 p-6 sm:p-8'
+              index === 0 && 'col-span-full min-h-48 p-6 sm:p-8'
             )}
           >
             <Skeleton className='h-3.5 w-full' />
@@ -115,7 +115,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     <div
       id='wallet-balance'
       tabIndex={-1}
-      className='bg-muted/40 grid grid-cols-3 overflow-hidden rounded-2xl'
+      className='wallet-stats bg-muted/40 grid overflow-hidden rounded-2xl'
     >
       {stats.map((item, index) => (
         <div
@@ -123,13 +123,13 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           className={cn(
             'min-w-0 p-4 sm:p-6',
             index === 0
-              ? 'relative isolate col-span-3 overflow-hidden p-6 sm:p-8'
+              ? 'relative isolate col-span-full overflow-hidden p-6 sm:p-8'
               : ''
           )}
         >
           <div
             className={cn(
-              'pointer-events-none relative z-10 flex gap-2',
+              'pointer-events-none relative z-10 flex min-w-0 flex-wrap gap-2',
               index === 0 ? 'items-center' : 'flex-col items-start'
             )}
           >
@@ -155,7 +155,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               'text-foreground pointer-events-none relative z-10 mt-4 font-medium tracking-tight break-words tabular-nums',
               index === 0
                 ? 'text-3xl leading-tight sm:text-4xl [overflow-wrap:anywhere]'
-                : 'text-sm sm:text-xl'
+                : 'text-sm sm:text-xl [overflow-wrap:anywhere]'
             )}
           >
             {item.value}

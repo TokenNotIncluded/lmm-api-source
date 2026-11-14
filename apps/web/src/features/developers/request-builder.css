@@ -7,6 +7,9 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 .developers-page {
+  container: developers / inline-size;
+  min-width: 0;
+  overflow-wrap: anywhere;
   width: 100%;
   max-width: 78rem;
   margin-inline: auto;
@@ -15,11 +18,23 @@ License, or (at your option) any later version.
 }
 .developers-hero {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: end;
   gap: 2rem;
   padding-bottom: 2.5rem;
   border-bottom: 1px solid var(--border);
+}
+.developers-hero > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.developers-page [data-slot='button'] {
+  max-width: 100%;
+  height: auto;
+  min-height: 2.75rem;
+  padding-block: 0.625rem;
+  white-space: normal;
 }
 .dev-eyebrow {
   color: var(--muted-foreground);
@@ -92,6 +107,9 @@ License, or (at your option) any later version.
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border);
+}
+.dev-page-content {
+  container: developer-content / inline-size;
 }
 .dev-page-content,
 .dev-page-content > section {
@@ -166,21 +184,24 @@ License, or (at your option) any later version.
 }
 .dev-protocols {
   display: flex;
-  gap: 1.25rem;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 0 1.25rem;
   padding-inline: 1.5rem;
   border-bottom: 1px solid var(--border);
   scrollbar-width: thin;
 }
 .dev-protocols > button {
-  flex-shrink: 0;
+  max-width: 100%;
+  min-width: 0;
   min-height: 3.25rem;
   padding: 0.65rem 0;
   border-bottom: 2px solid transparent;
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 500;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .dev-protocols > button[aria-pressed='true'] {
   border-bottom-color: var(--primary);
@@ -188,7 +209,7 @@ License, or (at your option) any later version.
 }
 .dev-builder-workspace {
   display: grid;
-  grid-template-columns: minmax(12.5rem, 0.85fr) minmax(0, 1.6fr);
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
 .dev-builder-fields {
@@ -250,11 +271,12 @@ License, or (at your option) any later version.
   display: flex;
   min-width: 0;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   background: color-mix(in oklch, var(--muted) 48%, var(--background));
 }
 .dev-builder-output-head {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   justify-content: space-between;
@@ -263,6 +285,7 @@ License, or (at your option) any later version.
 }
 .dev-builder-tabs {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   gap: 0.15rem;
 }
@@ -398,6 +421,7 @@ License, or (at your option) any later version.
 }
 .dev-reference-code-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -411,6 +435,7 @@ License, or (at your option) any later version.
 }
 .dev-source-link {
   display: inline-flex;
+  max-width: 100%;
   min-height: 2.75rem;
   align-items: center;
   gap: 0.4rem;
@@ -426,6 +451,7 @@ License, or (at your option) any later version.
 }
 .dev-integration-prompt {
   display: grid;
+  min-width: 0;
   gap: 0.5rem;
   margin-top: 1.75rem;
   padding-top: 1.5rem;
@@ -448,6 +474,7 @@ License, or (at your option) any later version.
 }
 .dev-integration-prompt summary {
   display: flex;
+  max-width: 100%;
   width: fit-content;
   min-height: 2.75rem;
   align-items: center;
@@ -469,6 +496,7 @@ License, or (at your option) any later version.
 }
 .dev-integration-prompt textarea {
   width: 100%;
+  min-width: 0;
   margin-top: 0.5rem;
   padding: 1rem;
   border: 1px solid var(--input);
@@ -487,10 +515,7 @@ License, or (at your option) any later version.
 .dev-reference-code pre:focus-visible {
   outline-offset: -3px;
 }
-@media (max-width: 1023px) {
-  .developers-page {
-    padding-top: 2.5rem;
-  }
+@container developers (max-width: 62rem) {
   .dev-page-layout {
     grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
@@ -499,8 +524,8 @@ License, or (at your option) any later version.
   .dev-page-nav {
     position: static;
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem 1rem;
-    overflow-x: auto;
     padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--border);
   }
@@ -508,12 +533,12 @@ License, or (at your option) any later version.
     display: none;
   }
   .dev-page-link {
-    flex-shrink: 0;
+    max-width: 100%;
     padding-inline: 0.25rem;
-    white-space: nowrap;
   }
   .dev-nav-related {
     display: flex;
+    flex-wrap: wrap;
     margin: 0;
     padding: 0 0 0 1rem;
     border-top: 0;
@@ -522,6 +547,21 @@ License, or (at your option) any later version.
   }
   .dev-connection {
     margin-bottom: 2rem;
+  }
+}
+@container developer-content (min-width: 44rem) {
+  .dev-builder-workspace {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.6fr);
+  }
+  .dev-builder-output {
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+}
+@container developer-content (max-width: 32rem) {
+  .dev-endpoint {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4rem;
   }
 }
 @media (max-width: 639px) {
@@ -552,16 +592,9 @@ License, or (at your option) any later version.
   .dev-integration-prompt textarea {
     font-size: 1rem;
   }
-  .dev-builder-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .dev-builder-fields {
     gap: 1.25rem;
     padding: 1.25rem;
-  }
-  .dev-builder-output {
-    border-top: 1px solid var(--border);
-    border-left: 0;
   }
   .dev-builder-output-head {
     padding-inline: 0.5rem;

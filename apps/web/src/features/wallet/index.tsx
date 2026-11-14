@@ -37,6 +37,8 @@ import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
 import { walletProjection } from './lib/wallet-projection'
 import type { UserWalletData } from './types'
 
+import './wallet-layout.css'
+
 interface WalletProps {
   initialShowHistory?: boolean
   initialTopupAmount?: number
@@ -106,12 +108,12 @@ function NativeWallet({
           </div>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='mx-auto flex w-full max-w-6xl flex-col gap-8 pb-8 sm:gap-12'>
+          <div className='wallet-page mx-auto flex w-full max-w-6xl flex-col gap-8 pb-8 sm:gap-12'>
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
             {(preview || !isConsoleActivated(account)) && (
               <L0UpgradePanel preview={preview} />
             )}
-            <div className='grid items-start gap-8 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] xl:gap-10'>
+            <div className='wallet-overview-grid grid items-start gap-8 xl:gap-10'>
               <WalletStatsCard
                 user={user}
                 balanceAction={
@@ -124,7 +126,7 @@ function NativeWallet({
                 {nativeCreditsAvailable ? (
                   <NativeWalletCheckout />
                 ) : (
-                  <section className='bg-card space-y-6 rounded-2xl p-6 sm:p-8'>
+                  <section className='wallet-checkout bg-card space-y-6 rounded-2xl p-6 sm:p-8'>
                     <h2 className='text-xl font-semibold tracking-tight'>
                       {t('Add funds')}
                     </h2>
@@ -144,7 +146,7 @@ function NativeWallet({
               </div>
             </div>
             {nativeCreditsAvailable ? (
-              <div className='grid items-start gap-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] xl:gap-10 [&>*]:min-w-0'>
+              <div className='wallet-secondary-grid grid items-start gap-8 xl:gap-10'>
                 <NativeWalletSubscriptions onUpdated={() => void refresh()} />
                 <NativeWalletPromotions onUpdated={() => void refresh()} />
               </div>
