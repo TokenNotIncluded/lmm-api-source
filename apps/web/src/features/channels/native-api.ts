@@ -111,6 +111,11 @@ export type NativeKeyList = {
 }
 export type NativeKeyOperation =
   | { operation: 'add'; label: string; secret: string; activate: boolean }
+  | {
+      operation: 'add_many'
+      keys: Array<{ label: string; secret: string }>
+      polling: boolean
+    }
   | { operation: 'activate'; reference: NativeCredentialRef }
   | { operation: 'set_polling'; enabled: boolean }
   | {
@@ -119,6 +124,14 @@ export type NativeKeyOperation =
       enabled: boolean
     }
   | { operation: 'remove'; reference: NativeCredentialRef }
+
+export type NativeChannelBatchPatch = {
+  enabled?: boolean
+  tag?: string
+  priority?: number
+  weight?: number
+  timeout_ms?: number
+}
 
 /** Reject rounded identifiers and monetary values before any mutation. */
 export function assertNativeIntegers(value: unknown): void {
@@ -229,6 +242,55 @@ export async function nativeRequest<T>(
   return response.data.data
 }
 export const NATIVE_ROOT = '/core/v1/admin/routing'
+
+export async function updateNativeChannels(
+  scope: NativeRoutingScope,
+  expectedVersion: NativeVersion,
+  ids: number[],
+  patch: NativeChannelBatchPatch
+) {
+  const selected = z
+    .array(z.number().int().positive().safe())
+    .min(1)
+    .max(1000)
+    .parse(ids)
+  if (new Set(selected).size !== selected.length) {
+    throw new Error('Duplicate channel selection')
+  }
+  const changes = z
+    .object({
+      enabled: z.boolean().optional(),
+      tag: z.string().max(128).optional(),
+      priority: z.number().int().min(0).max(65_535).optional(),
+      weight: z.number().int().min(0).max(4_294_967_295).optional(),
+      timeout_ms: z.number().int().min(1).max(3_600_000).optional(),
+    })
+    .strict()
+    .refine((value) => Object.keys(value).length > 0)
+    .parse(patch)
+  const receipt = z
+    .object({
+      version: versionSchema,
+      updated: z.number().int().positive().safe(),
+      target_count: z.number().int().nonnegative().safe(),
+    })
+    .parse(
+      await nativeRequest<unknown>(
+        scope,
+        'PUT',
+        `${NATIVE_ROOT}/channels/batch/configuration`,
+        {
+          expected_version: expectedVersion,
+          ids: selected,
+          patch: changes,
+        }
+      )
+    )
+  if (receipt.updated !== selected.length) {
+    throw new Error('The save result is unknown. Reload before continuing.')
+  }
+  return receipt
+}
 export const nativeBalanceProbeSchema = z
   .object({
     path: z
@@ -510,8 +572,26 @@ export async function changeNativeKey(
 ) {
   z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id)
   versionSchema.parse(expectedVersion)
-  return z
-    .object({ version: versionSchema, reference: credentialRefSchema })
+  if (operation.operation === 'add_many') {
+    z.array(
+      z.object({ label: z.string().min(1).max(128), secret: z.string().min(1) })
+    )
+      .min(1)
+      .max(100)
+      .parse(operation.keys)
+    if (
+      new Set(operation.keys.map((key) => key.secret)).size !==
+      operation.keys.length
+    ) {
+      throw new Error('Enter 1 to 100 different keys, one per line.')
+    }
+  }
+  const result = z
+    .object({
+      version: versionSchema,
+      reference: credentialRefSchema,
+      imported_count: z.number().int().positive().optional(),
+    })
     .parse(
       await nativeRequest<unknown>(
         scope,
@@ -520,6 +600,13 @@ export async function changeNativeKey(
         { expected_version: expectedVersion, ...operation }
       )
     )
+  if (
+    operation.operation === 'add_many' &&
+    result.imported_count !== operation.keys.length
+  ) {
+    throw new Error('The save result is unknown. Reload before continuing.')
+  }
+  return result
 }
 
 const copyReceiptSchema = z.object({
