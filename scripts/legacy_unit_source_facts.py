@@ -60,19 +60,80 @@ def validate_code(code: dict) -> None:
     require(code.get("native_ledger_sha256") == NATIVE_SHA256, "unit_native_contract_changed")
 
 
+def _json_policy_archive(review: dict, unit: dict, text: str) -> str:
+    # Parser profile v1 for the original unversioned JSON document. The raw
+    # document is never rewritten or represented as a newly approved policy.
+    try:
+        policy = F.parse_json(text)
+    except (ValueError, TypeError) as error:
+        raise F.MappingError("unit_old_policy_json_invalid") from error
+    fields = {"actual_flush_receipt_sha256", "actual_processes", "conversion_policy", "credits_per_usd",
+              "existing_user_policy_sha256", "runtime_unit_receipt_sha256", "scope",
+              "source_application_revision", "source_archive_sha256"}
+    require(type(policy) is dict and set(policy) == fields, "unit_old_policy_json_fields_invalid")
+    require(policy["scope"] == "actual-final-source-unit-and-existing-user-policy",
+            "unit_old_policy_json_scope_invalid")
+    for name in ("actual_flush_receipt_sha256", "existing_user_policy_sha256",
+                 "runtime_unit_receipt_sha256", "source_archive_sha256"):
+        require(type(policy[name]) is str and HEX.fullmatch(policy[name]) is not None,
+                "unit_old_policy_json_digest_invalid")
+    require(set(unit) == E.UNIT_FIELDS and type(unit.get("format_version")) is int
+            and unit["format_version"] == 1 and unit.get("scope") == "legacy-escrow-source-unit-evidence"
+            and unit.get("unit") == E.UNIT, "unit_old_policy_unit_format_invalid")
+    require(all(type(value) is str and HEX.fullmatch(value) is not None
+                for key, value in unit.items() if key.endswith("_sha256")),
+            "unit_old_policy_unit_digest_invalid")
+    require(type(policy["credits_per_usd"]) is int and policy["credits_per_usd"] == 500000
+            and type(unit.get("credits_per_usd")) is int and unit["credits_per_usd"] == 500000
+            and type(review.get("credits_per_usd")) is int and review["credits_per_usd"] == 500000
+            and policy["conversion_policy"] == unit.get("conversion_policy") == E.POLICY,
+            "unit_old_policy_unit_contract_mismatch")
+    require(policy["source_application_revision"] == unit.get("source_application_revision") == LEGACY_REVISION,
+            "unit_old_policy_revision_mismatch")
+    require(type(review.get("format_version")) is int and review["format_version"] == 2
+            and review.get("escrow_unit_evidence_sha256") == F.digest(unit)
+            and review.get("evidence_sha256") == policy["existing_user_policy_sha256"],
+            "unit_old_policy_review_binding_mismatch")
+    processes = policy["actual_processes"]
+    require(type(processes) is dict and 1 <= len(processes) <= 32,
+            "unit_old_policy_processes_invalid")
+    for name, process in processes.items():
+        require(type(name) is str and 1 <= len(name) <= 128
+                and all(32 <= ord(char) < 127 for char in name)
+                and type(process) is dict and set(process) == {"binary_sha256", "pid", "started_at"},
+                "unit_old_policy_processes_invalid")
+        require(type(process["binary_sha256"]) is str and HEX.fullmatch(process["binary_sha256"]) is not None
+                and type(process["pid"]) is int and process["pid"] > 0
+                and type(process["started_at"]) is int and process["started_at"] > 0,
+                "unit_old_policy_processes_invalid")
+    return policy["source_archive_sha256"]
+
+
 def inspect_parent_policy(review: dict, old_unit: dict, text: str, text_sha256: str) -> dict:
     require(review.get("decision") == "approved-offline-opening-with-legacy-escrow"
             and review.get("scope") == "financial-opening-with-legacy-escrow-v1", "unit_old_review_scope_invalid")
     require(review.get("source_archive_sha256") == old_unit.get("source_archive_sha256"), "unit_old_machine_scope_mismatch")
-    require(old_unit.get("source_policy_evidence_sha256") == text_sha256, "unit_old_policy_bytes_changed")
-    declared = set(re.findall(r"适用归档为\s*([0-9a-f]{64})", text))
-    require(len(declared) == 1, "unit_old_policy_archive_declaration_unproven")
-    prose_archive = next(iter(declared))
-    return {"old_machine_archive_sha256": old_unit["source_archive_sha256"],
-            "old_prose_archive_sha256": prose_archive,
-            "prose_machine_scope_conflict": prose_archive != old_unit["source_archive_sha256"],
-            "role": "historical-policy-reference-only-never-current-batch-approval",
-            "old_batch_approval_inherited": False}
+    require(old_unit.get("source_policy_evidence_sha256") == text_sha256
+            and type(text) is str and hashlib.sha256(text.encode("utf-8")).hexdigest() == text_sha256,
+            "unit_old_policy_bytes_changed")
+    is_json = text.lstrip("\ufeff \t\r\n").startswith(("{", "[", '\"'))
+    if is_json:
+        declared = _json_policy_archive(review, old_unit, text)
+        policy_format = "actual-source-unit-policy-json-parser-v1"
+    else:
+        matches = set(re.findall(r"适用归档为\s*([0-9a-f]{64})", text))
+        require(len(matches) == 1, "unit_old_policy_archive_declaration_unproven")
+        declared = next(iter(matches))
+        policy_format = "archive-declaration-prose-parser-v1"
+    conflict = declared != old_unit["source_archive_sha256"]
+    result = {"old_machine_archive_sha256": old_unit["source_archive_sha256"],
+              "declared_policy_archive_sha256": declared, "policy_format": policy_format,
+              "policy_machine_scope_conflict": conflict,
+              "role": "historical-policy-reference-only-never-current-batch-approval",
+              "old_batch_approval_inherited": False}
+    if not is_json:
+        result.update(old_prose_archive_sha256=declared, prose_machine_scope_conflict=conflict)
+    return result
 
 
 def build_facts(*, source: dict, proof: dict, plan: dict, options: dict, runtime: dict,
@@ -159,9 +220,9 @@ def read_code(repository: Path) -> dict:
 
 def technical_policy_text(facts: dict) -> str:
     b = facts["bindings"]
-    old_scope = ("The old prose archive and old machine archive disagree. "
-                 if facts["historical_policy_reference"]["prose_machine_scope_conflict"]
-                 else "Old prose and machine scope agree for their historical archive only. ")
+    old_scope = ("The old policy archive and old machine archive disagree. "
+                 if facts["historical_policy_reference"]["policy_machine_scope_conflict"]
+                 else "Old policy and machine scope agree for their historical archive only. ")
     return ("Technical source-unit evidence; NOT owner approval, settlement or apply permission.\n\n"
             + "Fresh source archive: " + b["source_archive_sha256"] + "\n"
             + "Fresh typed mapping: " + b["mapping_sha256"] + "\n"
@@ -215,7 +276,7 @@ def main() -> int:
         facts = build_facts(source=source, proof=proof, plan=plan, options=load("options_facts"),
             runtime=load("runtime_observation"), buildinfo=parse_buildinfo(inspected.stdout), binary_sha256=hashes["legacy_binary"],
             code=read_code(args.git_repository), identities=identities, old_review=load("old_source_review"),
-            old_unit=load("old_unit_evidence"), old_policy_text=paths["old_policy"].read_text(), old_policy_sha256=hashes["old_policy"])
+            old_unit=load("old_unit_evidence"), old_policy_text=paths["old_policy"].read_bytes().decode("utf-8"), old_policy_sha256=hashes["old_policy"])
         require(all(F.IDENTITY.sha256_file(path) == hashes[name] for name, path in paths.items()), "unit_input_changed_during_run")
         require(all(F.IDENTITY.sha256_file(Path(path)) == digest for path, digest in tool_hashes.items()), "unit_tool_changed_during_run")
         F.IDENTITY.write_private(output, "source-unit-facts.private.json", F.canonical(facts) + "\n")
@@ -238,7 +299,7 @@ def main() -> int:
             "outputs": {path.name: F.IDENTITY.sha256_file(path) for path in output.iterdir() if path.is_file()}}
         F.IDENTITY.write_private(output, "execution-receipt.private.json", F.canonical(receipt) + "\n")
         print(F.canonical({"status": facts["status"], "source_option_count": 4, "facts_sha256": facts["facts_sha256"],
-            "old_policy_scope_conflict": facts["historical_policy_reference"]["prose_machine_scope_conflict"], "can_apply": False}))
+            "old_policy_scope_conflict": facts["historical_policy_reference"]["policy_machine_scope_conflict"], "can_apply": False}))
         return 0
     except (F.MappingError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         if output is not None:

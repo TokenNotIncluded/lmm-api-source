@@ -1,6 +1,7 @@
 """Synthetic unit-source provenance and non-authority regressions; no database."""
 from copy import deepcopy
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -43,6 +44,34 @@ def inputs():
                      "parent_plan_sha256": audit["declared_plan_sha256"],
                      "parent_audit_row_sha256": audit["source_row_sha256"]},
         "old_policy_text": text, "old_policy_sha256": text_hash}
+
+
+def bind_json_policy(data, policy, text=None):
+    text = json.dumps(policy, sort_keys=True) if text is None else text
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    data["old_policy_text"] = text
+    data["old_policy_sha256"] = digest
+    data["old_unit"]["source_policy_evidence_sha256"] = digest
+    data["old_review"]["escrow_unit_evidence_sha256"] = M.F.digest(data["old_unit"])
+
+
+def json_inputs():
+    # Synthetic representation of the authentic unversioned schema. No private
+    # policy, process identities or real business records are copied here.
+    data = inputs()
+    data["old_unit"].update(format_version=1, scope="legacy-escrow-source-unit-evidence",
+        unit=M.E.UNIT, credits_per_usd=500000, conversion_policy=M.E.POLICY,
+        identity_records_sha256="6" * 64, mapping_sha256="7" * 64, source_export_sha256="8" * 64)
+    data["old_review"].update(format_version=2, credits_per_usd=500000, evidence_sha256="2" * 64)
+    policy = {"scope": "actual-final-source-unit-and-existing-user-policy",
+        "source_archive_sha256": data["old_unit"]["source_archive_sha256"],
+        "source_application_revision": M.LEGACY_REVISION,
+        "credits_per_usd": 500000, "conversion_policy": M.E.POLICY,
+        "actual_flush_receipt_sha256": "3" * 64, "runtime_unit_receipt_sha256": "4" * 64,
+        "existing_user_policy_sha256": "2" * 64,
+        "actual_processes": {"synthetic-host": {"binary_sha256": "5" * 64, "pid": 123, "started_at": 456}}}
+    bind_json_policy(data, policy)
+    return data, policy
 
 
 class UnitSourceFactsTests(unittest.TestCase):
@@ -160,6 +189,91 @@ class UnitSourceFactsTests(unittest.TestCase):
         with self.assertRaisesRegex(M.F.MappingError, "unit_old_machine_scope_mismatch"): M.build_facts(**data)
         data = inputs(); data["old_policy_sha256"] = "c" * 64
         with self.assertRaisesRegex(M.F.MappingError, "unit_old_policy_bytes_changed"): M.build_facts(**data)
+
+    def test_json_policy_declares_archive_without_prose_or_inheriting_approval(self):
+        data, _ = json_inputs()
+        before = deepcopy(data)
+        result = M.build_facts(**data)
+        self.assertEqual(data, before)
+        reference = result["historical_policy_reference"]
+        self.assertEqual(reference["policy_format"], "actual-source-unit-policy-json-parser-v1")
+        self.assertEqual(reference["declared_policy_archive_sha256"], "e" * 64)
+        self.assertNotIn("old_prose_archive_sha256", reference)
+        self.assertNotIn("prose_machine_scope_conflict", reference)
+        self.assertFalse(reference["policy_machine_scope_conflict"])
+        self.assertFalse(reference["old_batch_approval_inherited"])
+        for field in ("can_apply", "current_batch_approved", "economic_approval_verified", "approval_created"):
+            self.assertIs(result[field], False)
+        self.assertEqual((result["source_queries"], result["target_queries"], result["target_writes"]), (0, 0, 0))
+        self.assertIn("Old policy and machine scope agree", M.technical_policy_text(result))
+
+    def test_genuine_json_archive_conflict_is_visible_but_not_authority(self):
+        data, policy = json_inputs()
+        policy["source_archive_sha256"] = "f" * 64
+        bind_json_policy(data, policy)
+        result = M.build_facts(**data)
+        self.assertTrue(result["historical_policy_reference"]["policy_machine_scope_conflict"])
+        self.assertEqual(result["historical_policy_reference"]["declared_policy_archive_sha256"], "f" * 64)
+        self.assertIn("archive disagree", M.technical_policy_text(result))
+        self.assertFalse(result["can_apply"])
+        self.assertFalse(result["current_batch_approved"])
+
+    def test_raw_policy_bytes_must_match_even_when_supplied_hash_matches_unit(self):
+        for data in (inputs(), json_inputs()[0]):
+            data["old_policy_text"] += " "
+            with self.assertRaisesRegex(M.F.MappingError, "unit_old_policy_bytes_changed"):
+                M.build_facts(**data)
+
+    def test_json_policy_missing_extra_or_invalid_declaration_is_rejected(self):
+        for kind in ("missing", "invalid", "extra", "scope", "revision", "conversion", "bool", "float", "process"):
+            data, policy = json_inputs()
+            if kind == "missing": del policy["source_archive_sha256"]
+            elif kind == "invalid": policy["source_archive_sha256"] = "not-an-archive"
+            elif kind == "extra": policy["format_version"] = 1
+            elif kind == "scope": policy["scope"] = "current-batch-approved"
+            elif kind == "revision": policy["source_application_revision"] = "1" * 40
+            elif kind == "conversion": policy["conversion_policy"] = "apply-fx"
+            elif kind == "bool": policy["credits_per_usd"] = True
+            elif kind == "float": policy["credits_per_usd"] = 500000.0
+            else: policy["actual_processes"]["synthetic-host"]["pid"] = True
+            bind_json_policy(data, policy)
+            with self.subTest(kind=kind), self.assertRaises(M.F.MappingError): M.build_facts(**data)
+
+    def test_duplicate_json_archive_keys_never_fall_back_to_prose(self):
+        for second in ("e", "f"):
+            data, policy = json_inputs()
+            raw = json.dumps(policy)
+            needle = '"source_archive_sha256": "' + "e" * 64 + '"'
+            raw = raw.replace(needle, needle + ', "source_archive_sha256": "' + second * 64 + '"')
+            bind_json_policy(data, policy, raw)
+            with self.subTest(second=second), self.assertRaises(M.F.MappingError): M.build_facts(**data)
+
+    def test_unknown_json_shapes_never_fall_back_to_a_prose_declaration(self):
+        for raw in ('[1]', '{}', 'null', '{"unclosed":', '\ufeff{}',
+                    json.dumps("适用归档为 " + "e" * 64)):
+            data, policy = json_inputs()
+            bind_json_policy(data, policy, raw)
+            with self.subTest(raw=raw), self.assertRaises(M.F.MappingError): M.build_facts(**data)
+
+    def test_nested_duplicate_keys_are_rejected(self):
+        data, policy = json_inputs()
+        raw = json.dumps(policy).replace('"pid": 123', '"pid": 123, "pid": 124')
+        bind_json_policy(data, policy, raw)
+        with self.assertRaises(M.F.MappingError): M.build_facts(**data)
+
+    def test_json_policy_review_and_typed_unit_bindings_are_required(self):
+        for kind in ("unit_digest", "user_policy", "review_version", "unit_version", "unit_extra"):
+            data, policy = json_inputs()
+            if kind == "unit_digest": data["old_review"]["escrow_unit_evidence_sha256"] = "0" * 64
+            elif kind == "user_policy": data["old_review"]["evidence_sha256"] = "0" * 64
+            elif kind == "review_version": data["old_review"]["format_version"] = True
+            elif kind == "unit_version":
+                data["old_unit"]["format_version"] = True
+                bind_json_policy(data, policy)
+            else:
+                data["old_unit"]["extra"] = "unknown"
+                bind_json_policy(data, policy)
+            with self.subTest(kind=kind), self.assertRaises(M.F.MappingError): M.build_facts(**data)
 
     def test_buildinfo_reader_requires_unique_exact_static_fields(self):
         raw = "binary\n\tbuild\tvcs.revision=" + M.LEGACY_REVISION + "\n\tbuild\tvcs.modified=false\n"
