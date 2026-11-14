@@ -99,9 +99,14 @@ def historical_tree(revision):
 
 
 def copy_current_tree(root):
-    shutil.copytree(MODULE.ROOT / "services/core/src", root / "services/core/src")
-    shutil.copytree(MODULE.ROOT / "services/core/schema", root / "services/core/schema")
-    shutil.copytree(MODULE.ROOT / "deployment/postgres", root / "deployment/postgres")
+    # Mutation cases need a valid reviewed baseline, including external embeds,
+    # toolchain and test sources. An incomplete copy must not make every negative
+    # case pass before its intended mutation is ever checked.
+    for relative in MODULE.reviewed_files(MODULE.ROOT):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(MODULE.ROOT / relative, destination)
+    MODULE.current_contract(root)
 
 
 @contextlib.contextmanager
@@ -592,7 +597,8 @@ class IdentityContractTests(unittest.TestCase):
             "affiliate-claims", "referral-ledger-revision", "legacy-referrals", "connection-history", "directory-ads",
             "commerce-self-purchase", "display-exchange-rate", "subscription-epay", "federated-auth",
             "commerce-partial-refunds", "subscription-stripe", "subscription-pancake", "commerce-legacy-refunds",
-            "image-native-usage", "payment-credit-quotes", "subscription-pancake-language-optional"])
+            "image-native-usage", "payment-credit-quotes", "subscription-pancake-language-optional",
+            "payment-discounts", "payment-discount-management", "responses-continuity"])
         self.assertIn(b"ALTER TABLE core_billing.ledger_journals", schemas["referral-ledger-revision"])
         self.assertIn(b"CREATE OR REPLACE FUNCTION core_billing.ledger_apply_entry", schemas["referral-ledger-revision"])
 
@@ -943,9 +949,31 @@ class Core59ProfileTests(unittest.TestCase):
         plan = mapped([user()])
         sql = MODULE.build_import_sql(plan, migration_id="profile59-identity", source_sha256=SOURCE_SHA256,
             manifest=manifest_for(plan), target_contract=target_contract(), target_identity=target_identity())
+        suffix = {"component_fingerprints": {
+            name: "fixture" for name in ("payment-discounts",
+                "payment-discount-management", "responses-continuity")}}
+        new_business = set(MODULE.fresh_business_tables(suffix))
         for relation in (*MODULE.fresh_business_tables(MODULE.current_contract()),
                          "core_meta.subscription_epay_upgrades"):
-            self.assertIn(relation, sql)
+            if relation not in new_business:
+                self.assertIn(relation, sql)
+        # The suffix intentionally keeps the historical seed-query domain.
+        # Its new tables are covered by the same unfiltered application-table
+        # inventory at lock, pre-insert and post-insert verification, rather
+        # than appearing as literal names in that old seed query.
+        inventory = ("c.relkind IN ('r','p') AND n.nspname NOT IN "
+            "('pg_catalog','information_schema','core_meta','core_migration') "
+            "AND left(n.nspname,3)<>'pg_'")
+        self.assertEqual(sql.count(inventory), 3)
+        self.assertIn("LOCK TABLE %I.%I IN ACCESS EXCLUSIVE MODE", sql)
+        self.assertEqual(sql.count("SELECT EXISTS(SELECT 1 FROM %I.%I)"), 2)
+        self.assertIn("target business table is not empty", sql)
+        self.assertIn("non-import target table is not empty", sql)
+        for relation in new_business:
+            schema, table = relation.split(".")
+            self.assertNotIn(schema, ("core_meta", "core_migration"))
+            self.assertNotIn("c.relname='" + table + "'", sql)
+            self.assertNotIn("'" + table + "'", sql)
         self.assertIn("t.attname='subscription_order_id'", sql)
         self.assertIn("t.attacl IS NOT NULL", sql)
         self.assertIn(MODULE.current_contract()["fresh_catalog_sha256"], sql)

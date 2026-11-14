@@ -122,6 +122,8 @@ REVIEWED_COMPONENTS = {
     'legacy-history-compat': ('include_str!("../schema/legacy_history_compat.sql")', '02e778e7ee2d07a598844bf7d427e8408c22b256597841219113ea4b496507df'),
 }
 REVIEWED_SCHEMA_ALIASES = {
+    'crate::payments::discounts::SCHEMA': ('services/core/src/payments/discounts.rs', 'SCHEMA', 'include_str!("../../schema/payment_discounts.sql")'),
+    'crate::payments::discounts::MANAGEMENT_SCHEMA': ('services/core/src/payments/discounts.rs', 'MANAGEMENT_SCHEMA', 'include_str!("../../schema/payment_discount_management.sql")'),
     'crate::billing::trust_pricing::SCHEMA': ('services/core/src/billing/trust_pricing.rs', 'SCHEMA', 'concat!(include_str!("../../schema/trust_pricing.sql"),"\\n",include_str!("../../schema/image_trust_extension.sql"))'),
     'crate::identity::TELEGRAM_AUTH_SCHEMA': ('services/core/src/identity/telegram.rs', 'SCHEMA', 'include_str!("../../schema/telegram_auth.sql")'),
     'crate::channel_http::SCHEMA': ('services/core/src/channel_http.rs', 'SCHEMA', 'include_str!("../schema/channel_control.sql")'),
@@ -846,6 +848,86 @@ def reviewed_module_split(*, require_receipts: bool = True) -> dict:
     return review
 
 
+# Exact independent review sealed after native evidence; preserve reviewed bytes.
+# Never derive these pins from an expected target or an unapproved draft.
+SUCCESSOR69_SEED_CONTRACT = "fresh69-continuity-discounts-identity6-complete-seeds-v1"
+SUCCESSOR69_REVIEW_FILE = Path(__file__).with_name("reviewed-fresh69-successor.json")
+SUCCESSOR69_REVIEW_SHA256 = 'ed6d7738ead1f836058df9ff2a5788216d8128809e01742f68ca0341f55b6794'
+SUCCESSOR69_CORE_SCHEMA_SHA256 = '948d3818b157f5698d0305753fd3536108345622ec272cdf9b905f2195534f91'
+
+
+def reviewed_successor69() -> dict:
+    require(all(isinstance(pin, str) and HEX.fullmatch(pin) is not None
+                for pin in (SUCCESSOR69_REVIEW_SHA256, SUCCESSOR69_CORE_SCHEMA_SHA256)),
+            "successor69_review_unsealed")
+    require(SUCCESSOR69_REVIEW_FILE.is_file() and not SUCCESSOR69_REVIEW_FILE.is_symlink(),
+            "successor69_review_missing")
+    data = SUCCESSOR69_REVIEW_FILE.read_bytes()
+    require(hashlib.sha256(data).hexdigest() == SUCCESSOR69_REVIEW_SHA256,
+            "successor69_review_file_changed")
+    review = json.loads(data)
+    require(isinstance(review, dict) and
+            review.get("approval_state") == "reviewed-native-fresh69-v1" and
+            review.get("import_profile") == SUCCESSOR69_SEED_CONTRACT,
+            "successor69_review_unsealed")
+    require(isinstance(review.get("source_schema_revision"), str) and
+            re.fullmatch(r"[0-9a-f]{40}", review["source_schema_revision"]),
+            "successor69_source_revision_not_reviewed")
+    # The immutable review pin is sealed only after the reviewer checks these
+    # actual artifacts against each other. Hash-shaped fields alone are NOT proof.
+    for key in ("source_archive_sha256", "source_input_manifest_sha256",
+                "source_publication_receipt_sha256", "binary_sha256", "build_receipt_sha256",
+                "capture_receipt_sha256", "actual_init_receipt_sha256", "acl_receipt_sha256",
+                "native_upgrade_receipt_sha256", "compiled_manifest_sha256", "fresh_catalog_sha256",
+                "seed_query_sha256"):
+        require(isinstance(review.get(key), str) and HEX.fullmatch(review[key]) is not None,
+                "successor69_actual_evidence_pending")
+    old = reviewed_module_split(require_receipts=False)["components"]
+    components = review.get("components")
+    require(isinstance(components, dict) and list(components) == list(old) +
+            ["payment-discounts", "payment-discount-management", "responses-continuity"] and
+            all(components[name] == old[name] for name in old),
+            "successor69_prefix_not_reviewed")
+    require(all(isinstance(pair, list) and len(pair) == 2 and
+                isinstance(pair[0], str) and isinstance(pair[1], str) and HEX.fullmatch(pair[1])
+                for pair in components.values()), "successor69_components_incomplete")
+    files = review.get("files")
+    require(isinstance(files, dict) and files and
+            all(isinstance(name, str) and name and not Path(name).is_absolute() and
+                ".." not in Path(name).parts and "\\" not in name and
+                isinstance(digest, str) and HEX.fullmatch(digest)
+                for name, digest in files.items()), "successor69_source_closure_incomplete")
+    require(files.get("services/core/src/core_schema.rs") == SUCCESSOR69_CORE_SCHEMA_SHA256,
+            "successor69_registry_pin_mismatch")
+    require(review["seed_query_sha256"] == hashlib.sha256(
+            fresh_seed_hash_query(MODULE_SPLIT_SEED_CONTRACT).encode()).hexdigest(),
+            "successor69_seed_domain_changed")
+    return review
+
+
+def require_successor69_source_closure(root: Path, files: dict) -> None:
+    # Full source trees, not the old hand-picked Rust review subset. The sealed
+    # build input manifest must ALSO cover generated inputs and external embeds.
+    required = {"services/core/Cargo.toml", "services/core/Cargo.lock", "services/core/build.rs",
+                "services/core/rust-toolchain.toml",
+                "mise.toml", "deployment/postgres/grant-core-runtime.sql",
+                "contracts/assistant-tools-v1.json", "contracts/core/v1/funding-cases.json",
+                "services/extensions/internal/modules/payments/schema.sql",
+                "services/extensions/internal/modules/store/schema.sql",
+                "services/extensions/internal/modules/toolmarket/builtin_catalog.json"}
+    for name in (".cargo/config.toml", "services/core/.cargo/config.toml", "rust-toolchain.toml"):
+        if (root / name).is_file():
+            required.add(name)
+    for directory in ("services/core/src", "services/core/schema", "services/core/tests",
+                      "services/core/benches", "services/core/examples", "tests/model_process",
+                      "contracts/proto", "deployment/postgres"):
+        for path in (root / directory).rglob("*"):
+            require(not path.is_symlink(), "successor69_source_symlink_not_reviewed")
+            if path.is_file():
+                required.add(path.relative_to(root).as_posix())
+    require(required <= set(files), "successor69_source_closure_incomplete")
+
+
 def reviewed_profile(root: Path | None = None) -> str:
     """An exact reviewed assembly selects a profile; no arbitrary suffixes."""
     root = ROOT if root is None else Path(root)
@@ -899,12 +981,21 @@ def reviewed_profile(root: Path | None = None) -> str:
         return CORE55_SEED_CONTRACT
     if digest == REVIEWED_RUST_FILES_54["services/core/src/core_schema.rs"]:
         return CORE54_SEED_CONTRACT
+    if SUCCESSOR69_REVIEW_SHA256 is not None and SUCCESSOR69_CORE_SCHEMA_SHA256 is not None and digest == SUCCESSOR69_CORE_SCHEMA_SHA256:
+        review = reviewed_successor69()
+        target = "services/core/src/core_schema/upgrade/fresh_target.json"
+        require(digest == review["files"].get("services/core/src/core_schema.rs") and
+                sha256_file(root / target) == review["files"].get(target) and
+                _matches_reviewed_components(root, review), "successor69_assembly_not_reviewed")
+        return SUCCESSOR69_SEED_CONTRACT
     require(digest == REVIEWED_RUST_FILES["services/core/src/core_schema.rs"],
             "component_rust_source_fingerprint_mismatch")
     return CORE49_SEED_CONTRACT
 
 
 def reviewed_components(root: Path) -> dict:
+    if reviewed_profile(root) == SUCCESSOR69_SEED_CONTRACT:
+        return reviewed_successor69()["components"]
     if reviewed_profile(root) == MODULE_SPLIT_SEED_CONTRACT:
         return reviewed_module_split()["components"]
     if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
@@ -923,6 +1014,8 @@ def reviewed_components(root: Path) -> dict:
 
 
 def reviewed_files(root: Path) -> dict:
+    if reviewed_profile(root) == SUCCESSOR69_SEED_CONTRACT:
+        return reviewed_successor69()["files"]
     if reviewed_profile(root) == MODULE_SPLIT_SEED_CONTRACT:
         return reviewed_module_split()["files"]
     if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
@@ -997,10 +1090,11 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
     parsed = entries.findall(blocks[0])
     names = [name for name, _ in parsed]
     require(len(names) == len(set(names)), "component_contract_duplicate")
-    require(names == list(reviewed_components(root)), "component_contract_incomplete")
+    reviewed = reviewed_components(root)
+    require(names == list(reviewed), "component_contract_incomplete")
     components = {}
     for name, expression in parsed:
-        expected_expression, expected_digest = reviewed_components(root)[name]
+        expected_expression, expected_digest = reviewed[name]
         expression = re.sub(r"\s+", "", expression)
         require(expression == expected_expression, "component_expression_not_reviewed")
         source_path = path
@@ -1056,9 +1150,16 @@ def installer_metadata(root: Path | None = None) -> bytes:
 def current_contract(root: Path | None = None) -> dict:
     """Bind every compiled component, identity version and catalog query."""
     root = ROOT if root is None else Path(root)
+    profile = reviewed_profile(root)
+    if profile == SUCCESSOR69_SEED_CONTRACT:
+        require_successor69_source_closure(root, reviewed_successor69()["files"])
     expected = identity_contract(root)
-    for path in reviewed_files(root):
-        _reviewed_rust(root, path)
+    for path, expected_digest in reviewed_files(root).items():
+        if profile == SUCCESSOR69_SEED_CONTRACT:
+            require(sha256_file(root / path) == expected_digest,
+                    "component_rust_source_fingerprint_mismatch")
+        else:
+            _reviewed_rust(root, path)
     components = {name: hashlib.sha256(data).hexdigest() for name, data in component_schemas(root).items()}
     source = _reviewed_rust(root, "services/core/src/core_schema.rs")
     catalogs = re.findall(r'const CATALOG:\s*&str\s*=\s*r#"(.*?)"#;', source, re.S)
@@ -1080,17 +1181,18 @@ def current_contract(root: Path | None = None) -> dict:
             "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
-    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
+    if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT, SUCCESSOR69_SEED_CONTRACT):
         revision, manifest_pin, catalog_pin = ((CORE54_SCHEMA_REVISION, CORE54_MANIFEST_SHA256, CORE54_CATALOG_SHA256)
             if profile == CORE54_SEED_CONTRACT else (CORE55_SCHEMA_REVISION, CORE55_MANIFEST_SHA256, CORE55_CATALOG_SHA256)
             if profile == CORE55_SEED_CONTRACT else (CORE56_SCHEMA_REVISION, CORE56_MANIFEST_SHA256, CORE56_CATALOG_SHA256)
             if profile == CORE56_SEED_CONTRACT else (CORE58_SCHEMA_REVISION, CORE58_MANIFEST_SHA256, CORE58_CATALOG_SHA256)
             if profile == CORE58_SEED_CONTRACT else (CORE59_SCHEMA_REVISION, CORE59_MANIFEST_SHA256, CORE59_CATALOG_SHA256))
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT, SUCCESSOR69_SEED_CONTRACT):
             review = {CORE65_SEED_CONTRACT: reviewed65, CURRENT_LEDGER_SEED_CONTRACT: reviewed_current_ledger,
                       CREDIT_QUOTES_SEED_CONTRACT: reviewed_credit_quotes,
                       PANCAKE_LANGUAGE_SEED_CONTRACT: reviewed_pancake_language, CHECKINS_SEED_CONTRACT: reviewed_checkins,
-                      MODULE_SPLIT_SEED_CONTRACT: reviewed_module_split}[profile]()
+                      MODULE_SPLIT_SEED_CONTRACT: reviewed_module_split,
+                      SUCCESSOR69_SEED_CONTRACT: reviewed_successor69}[profile]()
             revision, manifest_pin, catalog_pin = (review["source_schema_revision"],
                 review["compiled_manifest_sha256"], review["fresh_catalog_sha256"])
         # Match serde_json::to_vec(schema_manifest()) plus the CLI's final LF.
@@ -1106,11 +1208,11 @@ def current_contract(root: Path | None = None) -> dict:
         digest = hashlib.sha256((json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + "\n").encode()).hexdigest()
         pin = json.loads((root / "services/core/src/core_schema/upgrade/fresh_target.json").read_text())
         expected_pin = {"manifest_sha256": manifest_pin, "catalog_sha256": catalog_pin}
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT, SUCCESSOR69_SEED_CONTRACT):
             expected_pin["component_count"] = len(components)
         require(digest == manifest_pin and pin == expected_pin,
             "compiled_manifest_contract_mismatch")
-        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
+        if profile in (CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT, SUCCESSOR69_SEED_CONTRACT):
             contract["profile_review_evidence"] = {key: review[key] for key in
                 ("capture_receipt_sha256", "actual_init_receipt_sha256", "acl_receipt_sha256")}
         contract.update(import_profile=profile, source_schema_revision=revision,
@@ -1118,7 +1220,6 @@ def current_contract(root: Path | None = None) -> dict:
                         fresh_catalog_sha256=catalog_pin,
                         seed_query_sha256=hashlib.sha256(fresh_seed_hash_query(profile).encode()).hexdigest())
     return contract
-
 
 def catalog_hash_sql(contract: dict) -> str:
     # Match Rust's UTF-8 definitions, each prefixed with its 8-byte BE length.
@@ -1230,7 +1331,13 @@ def upgrade_receipt_tables(contract: dict) -> tuple[str, ...]:
         + (("core_meta.pancake_language_upgrades",)
         if "subscription-pancake-language-optional" in contract["component_fingerprints"] else ())
         + (("core_meta.navigation_options_upgrades",)
-        if "navigation-options" in contract["component_fingerprints"] else ()))
+        if "navigation-options" in contract["component_fingerprints"] else ())
+        + (("core_meta.payment_discount_upgrades",)
+        if "payment-discounts" in contract["component_fingerprints"] else ())
+        + (("core_meta.payment_discount_management_upgrades",)
+        if "payment-discount-management" in contract["component_fingerprints"] else ())
+        + (("core_meta.responses_continuity_upgrades",)
+        if "responses-continuity" in contract["component_fingerprints"] else ()))
 
 
 def fresh_business_tables(contract: dict) -> tuple[str, ...]:
@@ -1256,6 +1363,12 @@ def fresh_business_tables(contract: dict) -> tuple[str, ...]:
         tables += ("core_commerce.legacy_refund_grants", "core_commerce.legacy_refund_operations")
     if "checkins" in components:
         tables += tuple("core_checkins." + name for name in CHECKINS_TABLE_ORDERS)
+    if "payment-discounts" in components:
+        tables += ("core_payments.discount_codes", "core_payments.discount_reservations")
+    if "payment-discount-management" in components:
+        tables += ("core_payments.discount_code_tombstones", "core_payments.discount_management_batches")
+    if "responses-continuity" in components:
+        tables += ("core_model.responses_continuations",)
     return tables
 
 
@@ -1361,12 +1474,37 @@ def profile_acl_guard_sql(contract: dict) -> str:
  JOIN pg_namespace n ON n.oid=c.relnamespace,
  LATERAL aclexplode(t.attacl) a
  WHERE n.nspname='core_checkins' AND a.grantee<>c.relowner)"""
+    for component, table in (
+        ("payment-discounts", "core_meta.payment_discount_upgrades"),
+        ("payment-discount-management", "core_meta.payment_discount_management_upgrades"),
+        ("responses-continuity", "core_meta.responses_continuity_upgrades"),
+    ):
+        if component not in contract["component_fingerprints"]:
+            continue
+        # An inherited grant is still an ACL to a nonowner role. Check both
+        # relation and column ACLs, plus defaults that would reopen owner-only
+        # receipts created by this owner in core_meta.
+        guard += f"""
+ OR EXISTS(SELECT 1 FROM pg_class c,
+ LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+ WHERE c.oid='{table}'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_attribute t JOIN pg_class c ON c.oid=t.attrelid,
+ LATERAL aclexplode(t.attacl) a
+ WHERE c.oid='{table}'::regclass AND a.grantee<>c.relowner)
+ OR EXISTS(SELECT 1 FROM pg_default_acl d JOIN pg_class c
+ ON c.oid='{table}'::regclass AND d.defaclrole=c.relowner,
+ LATERAL aclexplode(d.defaclacl) a
+ WHERE d.defaclobjtype='r' AND d.defaclnamespace IN (0,c.relnamespace)
+ AND a.grantee<>c.relowner)"""
     return guard
 
 
 def fresh_seed_hash_query(profile: str | None = None) -> str:
     """Bind all seed fields in UTC, including the physical sequence row fields."""
     profile = reviewed_profile() if profile is None else profile
+    if profile == SUCCESSOR69_SEED_CONTRACT:
+        reviewed_successor69()
+        profile = MODULE_SPLIT_SEED_CONTRACT
     relations = {
         "ledger_accounts": ("core_billing.ledger_accounts", "id"),
         "balance_state": ("core_billing.balance_state", "ledger_account_id"),
@@ -2008,7 +2146,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
         require(target_contract.get(key) == contract.get(key), "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
-    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT):
+    if contract.get("import_profile") in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT, SUCCESSOR69_SEED_CONTRACT):
         require(catalog_hash == contract["fresh_catalog_sha256"], "target_fresh_catalog_mismatch")
     validate_import_material(plan, source_sha256, manifest)
     require(isinstance(target_identity, dict), "target_identity_incomplete")
