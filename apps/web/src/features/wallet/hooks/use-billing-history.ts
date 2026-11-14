@@ -20,14 +20,7 @@ import i18next from 'i18next'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 
-import { useIsAdmin } from '@/hooks/use-admin'
-
-import {
-  getUserBillingHistory,
-  getAllBillingHistory,
-  completeOrder,
-  isApiSuccess,
-} from '../api'
+import { getUserBillingHistory, isApiSuccess } from '../api'
 import type {
   BillingHistorySortBy,
   BillingHistorySortOrder,
@@ -59,7 +52,6 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     initialSortOrder = 'desc',
     enabled = true,
   } = options
-  const isAdmin = useIsAdmin()
 
   const [records, setRecords] = useState<TopupRecord[]>([])
   const [total, setTotal] = useState(0)
@@ -70,7 +62,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
   const [sortOrder, setSortOrder] =
     useState<BillingHistorySortOrder>(initialSortOrder)
   const [loading, setLoading] = useState(false)
-  const [completing, setCompleting] = useState(false)
+  const [error, setError] = useState(false)
   const activeRequestRef = useRef(0)
 
   /**
@@ -79,22 +71,22 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
   const fetchBillingHistory = useCallback(async () => {
     const requestId = ++activeRequestRef.current
     setLoading(true)
+    setError(false)
     try {
-      const response = isAdmin
-        ? await getAllBillingHistory(page, pageSize, keyword, sortBy, sortOrder)
-        : await getUserBillingHistory(
-            page,
-            pageSize,
-            keyword,
-            sortBy,
-            sortOrder
-          )
+      const response = await getUserBillingHistory(
+        page,
+        pageSize,
+        keyword,
+        sortBy,
+        sortOrder
+      )
 
       if (requestId !== activeRequestRef.current) return
       if (isApiSuccess(response) && response.data) {
         setRecords(response.data.items || [])
         setTotal(response.data.total || 0)
       } else {
+        setError(true)
         toast.error(
           response.message || i18next.t('Failed to load billing history')
         )
@@ -105,6 +97,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
       if (requestId !== activeRequestRef.current) return
       // eslint-disable-next-line no-console
       console.error('Failed to fetch billing history:', error)
+      setError(true)
       toast.error(i18next.t('Failed to load billing history'))
       setRecords([])
       setTotal(0)
@@ -113,41 +106,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
         setLoading(false)
       }
     }
-  }, [isAdmin, page, pageSize, keyword, sortBy, sortOrder])
-
-  /**
-   * Complete a pending order (admin only)
-   */
-  const handleCompleteOrder = useCallback(
-    async (tradeNo: string) => {
-      if (!isAdmin) {
-        toast.error(i18next.t('Admin access required'))
-        return false
-      }
-
-      setCompleting(true)
-      try {
-        const response = await completeOrder({ trade_no: tradeNo })
-        if (isApiSuccess(response)) {
-          toast.success(i18next.t('Order completed successfully'))
-          // Refresh the list
-          await fetchBillingHistory()
-          return true
-        } else {
-          toast.error(response.message || i18next.t('Failed to complete order'))
-          return false
-        }
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to complete order:', error)
-        toast.error(i18next.t('Failed to complete order'))
-        return false
-      } finally {
-        setCompleting(false)
-      }
-    },
-    [isAdmin, fetchBillingHistory]
-  )
+  }, [page, pageSize, keyword, sortBy, sortOrder])
 
   /**
    * Change page
@@ -207,14 +166,12 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     sortBy,
     sortOrder,
     loading,
-    completing,
-    isAdmin,
+    error,
     handlePageChange,
     handlePageSizeChange,
     handleSearch,
     handleSortByChange,
     handleSortOrderChange,
-    handleCompleteOrder,
     refresh: fetchBillingHistory,
   }
 }

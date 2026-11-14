@@ -17,21 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { Alert, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -77,17 +67,15 @@ export function BillingHistoryDialog({
     sortBy,
     sortOrder,
     loading,
-    completing,
-    isAdmin,
+    error,
+    refresh,
     handlePageChange,
     handlePageSizeChange,
     handleSearch,
     handleSortByChange,
     handleSortOrderChange,
-    handleCompleteOrder,
   } = useBillingHistory({ enabled: open })
 
-  const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
@@ -100,22 +88,7 @@ export function BillingHistoryDialog({
     { value: 'money', label: t('Actual payment') },
     { value: 'status', label: t('Status') },
     { value: 'payment_method', label: t('Payment Method') },
-    ...(isAdmin
-      ? [
-          { value: 'user_id' as const, label: t('User ID') },
-          { value: 'trade_no' as const, label: t('Order number') },
-        ]
-      : []),
   ]
-
-  const handleConfirmComplete = async () => {
-    if (confirmTradeNo) {
-      const success = await handleCompleteOrder(confirmTradeNo)
-      if (success) {
-        setConfirmTradeNo(null)
-      }
-    }
-  }
 
   return (
     <>
@@ -242,6 +215,17 @@ export function BillingHistoryDialog({
                   </div>
                 ))}
               </div>
+            ) : error ? (
+              <Alert variant='destructive'>
+                <AlertTitle>{t('Failed to load billing history')}</AlertTitle>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => void refresh()}
+                >
+                  {t('Retry')}
+                </Button>
+              </Alert>
             ) : records.length === 0 ? (
               <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
                 <p className='text-sm font-medium'>
@@ -281,14 +265,6 @@ export function BillingHistoryDialog({
                                 <Copy className='h-3 w-3' />
                               )}
                             </Button>
-                            {isAdmin && record.user_id != null && (
-                              <StatusBadge
-                                label={`${t('User ID')}: ${record.user_id}`}
-                                variant='neutral'
-                                size='sm'
-                                copyText={String(record.user_id)}
-                              />
-                            )}
                           </div>
                           <div className='text-muted-foreground text-xs'>
                             {formatTimestamp(record.create_time)}
@@ -344,20 +320,6 @@ export function BillingHistoryDialog({
                           </div>
                         </div>
                       </div>
-
-                      {/* Admin Actions */}
-                      {isAdmin && record.status === 'pending' && (
-                        <div className='mt-4 flex justify-end'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => setConfirmTradeNo(record.trade_no)}
-                            disabled={completing}
-                          >
-                            {t('Complete Order')}
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   )
                 })}
@@ -366,7 +328,7 @@ export function BillingHistoryDialog({
           </div>
 
           {/* Pagination */}
-          {!loading && records.length > 0 && (
+          {!loading && !error && records.length > 0 && (
             <div className='flex flex-col items-center gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
               <div className='text-muted-foreground text-xs sm:text-sm'>
                 {t('Showing')} {(page - 1) * pageSize + 1}-
@@ -403,34 +365,6 @@ export function BillingHistoryDialog({
           )}
         </div>
       </Dialog>
-
-      {/* Confirm Complete Order Dialog */}
-      <AlertDialog
-        open={!!confirmTradeNo}
-        onOpenChange={(open) => !open && setConfirmTradeNo(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Complete Order')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(
-                'Are you sure you want to manually complete this order? The user will be credited with the corresponding quota.'
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={completing}>
-              {t('Cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmComplete}
-              disabled={completing}
-            >
-              {completing ? t('Processing...') : t('Confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }

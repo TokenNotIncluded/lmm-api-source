@@ -663,3 +663,50 @@ test('L0 wallet preview preserves the signed-in account and mounts no financial 
     assert.equal(button.disabled, true, button.textContent ?? '')
   }
 })
+
+test('personal billing dialog shows a retryable error instead of an empty history for root', async () => {
+  const { BillingHistoryDialog } =
+    await import('./components/dialogs/billing-history-dialog')
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 7, username: 'root-fixture', role: 100 } as AuthUser)
+  const urls: string[] = []
+  let failed = true
+  api.get = (async (url: string) => {
+    urls.push(url)
+    if (failed) throw new Error('503 core_migration_incomplete')
+    return { data: { success: true, data: { items: [], total: 0 } } }
+  }) as typeof api.get
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  await render(
+    <QueryClientProvider client={queryClient}>
+      <BillingHistoryDialog open onOpenChange={() => {}} />
+    </QueryClientProvider>
+  )
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  const dialog = document.querySelector('[role="dialog"]')
+  assert.ok(dialog)
+  assert.match(dialog.textContent ?? '', /Failed to load billing history/)
+  assert.doesNotMatch(dialog.textContent ?? '', /No billing records found/)
+  assert.doesNotMatch(dialog.textContent ?? '', /Complete Order/)
+  const retry = [...dialog.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Retry'
+  )
+  assert.ok(retry)
+  failed = false
+  await act(async () => {
+    retry.click()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  assert.match(dialog.textContent ?? '', /No billing records found/)
+  assert.doesNotMatch(
+    dialog.textContent ?? '',
+    /Failed to load billing history/
+  )
+  assert.ok(urls.every((url) => url.startsWith('/api/user/topup/self?')))
+  queryClient.clear()
+})

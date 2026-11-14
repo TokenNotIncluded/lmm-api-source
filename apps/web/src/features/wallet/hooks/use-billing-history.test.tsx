@@ -13,6 +13,8 @@ import type { AxiosAdapter, AxiosResponse } from 'axios'
 import { Window } from 'happy-dom'
 import type { Root } from 'react-dom/client'
 
+import type { AuthUser } from '@/stores/auth-store'
+
 const domWindow = new Window({ url: 'https://console.example.test/wallet' })
 for (const key of [
   'window',
@@ -34,6 +36,7 @@ for (const key of [
 const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { api } = await import('@/lib/api')
+const { useAuthStore } = await import('@/stores/auth-store')
 const { useBillingHistory } = await import('./use-billing-history')
 
 const originalAPIAdapter = api.defaults.adapter
@@ -105,6 +108,7 @@ async function flushEffects() {
 afterEach(() => {
   api.defaults.adapter = originalAPIAdapter
   currentHook = null
+  useAuthStore.getState().auth.reset('complete')
   domWindow.localStorage.clear()
 })
 
@@ -157,6 +161,45 @@ test('sort changes reset pagination and stale responses cannot replace the new g
     await flushEffects()
     assert.equal(currentHook?.records[0]?.id, 20)
   } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+test('personal wallet uses self history for root and reports failures until a successful retry', async () => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 7, username: 'root-fixture', role: 100 } as AuthUser)
+  const urls: string[] = []
+  const originalGet = api.get
+  let attempt = 0
+  api.get = (async (url: string) => {
+    urls.push(url)
+    attempt++
+    if (attempt === 1) throw new Error('503 core_migration_incomplete')
+    if (attempt === 2) {
+      return { data: { success: false, message: 'Unavailable' } }
+    }
+    return { data: { success: true, data: { items: [], total: 0 } } }
+  }) as typeof api.get
+  const root = createRoot(document.createElement('div'))
+  try {
+    await act(async () => root.render(<Harness />))
+    await flushEffects()
+    assert.equal(currentHook?.error, true)
+    assert.equal(currentHook?.loading, false)
+    await act(async () => {
+      await currentHook?.refresh()
+    })
+    assert.equal(currentHook?.error, true)
+    await act(async () => {
+      await currentHook?.refresh()
+    })
+    assert.equal(currentHook?.error, false)
+    assert.deepEqual(currentHook?.records, [])
+    assert.equal(urls.length, 3)
+    assert.ok(urls.every((url) => url.startsWith('/api/user/topup/self?')))
+  } finally {
+    api.get = originalGet
     await act(async () => root.unmount())
   }
 })
