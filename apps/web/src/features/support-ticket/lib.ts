@@ -22,8 +22,6 @@ import type {
   SupportTicketLabels,
 } from './types'
 
-export const SUPPORT_EMAIL = 'support@lmm.best'
-
 export function buildSupportTicketText(
   draft: SupportTicketDraft,
   account: SupportTicketAccount,
@@ -46,9 +44,4 @@ export function buildSupportTicketText(
   return lines
     .filter((line, index) => line !== '' || index >= lines.length - 3)
     .join('\n')
-}
-
-export function buildSupportMailto(subject: string, body: string): string {
-  const params = new URLSearchParams({ subject, body })
-  return `mailto:${SUPPORT_EMAIL}?${params.toString()}`
 }

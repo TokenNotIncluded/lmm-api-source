@@ -448,7 +448,8 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
           },
         ],
         support: {
-          email: 'support@lmm.best',
+          email: null,
+          email_available: false,
           ticket_path: '/support',
           page_anchor: '#guide-support',
         },

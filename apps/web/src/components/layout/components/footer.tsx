@@ -142,12 +142,9 @@ function ComplianceLinks() {
             {item.label}
           </Link>
         ))}
-        <MailtoLink
-          href='mailto:support@lmm.best'
-          className='hover:text-foreground font-medium transition-colors duration-200'
-        >
-          {t('Customer Support')}: support@lmm.best
-        </MailtoLink>
+        <Link to='/support' className='hover:text-foreground font-medium transition-colors duration-200'>
+          {t('Customer Support')}
+        </Link>
       </div>
     </div>
   )
@@ -389,12 +386,9 @@ export function Footer(props: FooterProps) {
                   >
                     {t('Privacy Policy')}
                   </Link>
-                  <MailtoLink
-                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
-                    href='mailto:support@lmm.best'
-                  >
-                    support@lmm.best
-                  </MailtoLink>
+                  <Link to='/support' className='text-muted-foreground hover:text-primary block transition-colors duration-150'>
+                    {t('Customer Support')}
+                  </Link>
                 </div>
               </div>
             </nav>

@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { buildSupportMailto, buildSupportTicketText } from './lib'
+import { buildSupportTicketText } from './lib'
 
 const labels = {
   ticketType: 'Ticket type',
@@ -53,7 +53,7 @@ describe('support ticket mail composer', () => {
     assert.match(text, /Details:\nThe same order was charged twice\./)
   })
 
-  test('omits empty optional fields and safely encodes the mailto URL', () => {
+  test('omits empty optional fields', () => {
     const text = buildSupportTicketText(
       {
         category: 'technical',
@@ -65,17 +65,8 @@ describe('support ticket mail composer', () => {
       {},
       labels
     )
-    const mailto = buildSupportMailto('[Support ticket] API returns 500', text)
-    const url = new URL(mailto)
 
     assert.doesNotMatch(text, /Account ID:/)
     assert.doesNotMatch(text, /Reference ID:/)
-    assert.equal(url.protocol, 'mailto:')
-    assert.equal(url.pathname, 'support@lmm.best')
-    assert.equal(
-      url.searchParams.get('subject'),
-      '[Support ticket] API returns 500'
-    )
-    assert.equal(url.searchParams.get('body'), text)
   })
 })

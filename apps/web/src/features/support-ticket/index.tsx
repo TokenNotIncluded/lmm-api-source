@@ -59,14 +59,9 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { openBountyDispute } from '@/features/open-source-bounties/api'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
-import { openResolvedExternalUrl } from '@/lib/external-navigation'
 import { useAuthStore } from '@/stores/auth-store'
 
-import {
-  buildSupportMailto,
-  buildSupportTicketText,
-  SUPPORT_EMAIL,
-} from './lib'
+import { buildSupportTicketText } from './lib'
 import { SupportConversation } from './support-conversation'
 import type {
   BountyDisputeReason,
@@ -209,9 +204,7 @@ export function SupportTicket({
       { id: user?.id, username: user?.username },
       labels
     )
-    const subject = `[${t('Support ticket')}] ${values.subject.trim()}`
-
-    return { text, mailto: buildSupportMailto(subject, text) }
+    return { text }
   }
 
   const submitDispute = handleSubmit(async (values) => {
@@ -251,41 +244,6 @@ export function SupportTicket({
     }
   })
 
-  const openEmailTicket = async () => {
-    let ticketPrepared = false
-    setSubmitting(true)
-    try {
-      const opened = await openResolvedExternalUrl(async () => {
-        if (!(await trigger())) return null
-        const { mailto } = prepareTicket(getValues())
-        ticketPrepared = true
-        return mailto
-      })
-
-      if (opened) {
-        toast.info(
-          t('Your email app will open with the ticket details filled in.')
-        )
-      } else if (ticketPrepared) {
-        toast.error(
-          t(
-            'Unable to open email app. Copy the request and email it to {{email}}.',
-            { email: SUPPORT_EMAIL }
-          )
-        )
-      }
-    } catch {
-      toast.error(
-        t(
-          'Unable to open email app. Copy the request and email it to {{email}}.',
-          { email: SUPPORT_EMAIL }
-        )
-      )
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
     if (developerAccessGranted && selectedCategory === 'bounty_dispute') {
       void submitDispute(event)
@@ -293,7 +251,6 @@ export function SupportTicket({
     }
 
     event.preventDefault()
-    void openEmailTicket()
   }
 
   const copyTicket = async () => {
@@ -331,7 +288,7 @@ export function SupportTicket({
                 </h1>
                 <p className='text-muted-foreground mt-1 max-w-2xl text-sm leading-relaxed'>
                   {t(
-                    "Tell us what happened and we'll prepare a structured email for support."
+                    'Choose a topic and include enough context for support to investigate.'
                   )}
                 </p>
               </div>
@@ -463,14 +420,6 @@ export function SupportTicket({
                             }
                             {...register('contactEmail')}
                           />
-                          <FieldDescription>
-                            {t("We'll use this address to reply.")}
-                          </FieldDescription>
-                          <FieldDescription>
-                            {t('Support requests are sent to {{email}}.', {
-                              email: SUPPORT_EMAIL,
-                            })}
-                          </FieldDescription>
                           <FieldError>
                             {errors.contactEmail?.message
                               ? t(errors.contactEmail.message)
@@ -594,16 +543,12 @@ export function SupportTicket({
                         />
                         {t('Copy request')}
                       </Button>
-                      <Button type='submit' disabled={submitting}>
-                        <HugeiconsIcon
-                          icon={MailSend01Icon}
-                          strokeWidth={2}
-                          data-icon='inline-start'
-                        />
-                        {selectedCategory === 'bounty_dispute'
-                          ? t('Submit dispute ticket')
-                          : t('Open email to submit')}
-                      </Button>
+                      {selectedCategory === 'bounty_dispute' && (
+                        <Button type='submit' disabled={submitting}>
+                          <HugeiconsIcon icon={MailSend01Icon} strokeWidth={2} data-icon='inline-start' />
+                          {t('Submit dispute ticket')}
+                        </Button>
+                      )}
                     </div>
                   </FieldGroup>
                 </TitledCard>
@@ -638,45 +583,9 @@ export function SupportTicket({
                           )
                         : t('Describe what happened and when it occurred.')}
                     </li>
-                    <li>
-                      {t(
-                        'You can attach screenshots or files in your email app.'
-                      )}
-                    </li>
                   </ul>
                 </TitledCard>
 
-                <TitledCard
-                  title={t('Email support directly')}
-                  description={SUPPORT_EMAIL}
-                  icon={
-                    <HugeiconsIcon
-                      icon={CustomerSupportIcon}
-                      strokeWidth={1.8}
-                    />
-                  }
-                  iconTone='neutral'
-                  disableHoverEffect
-                  contentClassName='p-3 sm:p-5'
-                >
-                  <Button
-                    variant='outline'
-                    className='w-full'
-                    onClick={async () => {
-                      const opened = await openResolvedExternalUrl(
-                        () => `mailto:${SUPPORT_EMAIL}`
-                      )
-                      if (!opened) toast.error(t('Unable to open email app'))
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={MailSend01Icon}
-                      strokeWidth={2}
-                      data-icon='inline-start'
-                    />
-                    {t('Contact support')}
-                  </Button>
-                </TitledCard>
               </aside>
             </div>
           </CardStaggerItem>

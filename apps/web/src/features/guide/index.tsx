@@ -617,10 +617,6 @@ export function Guide() {
                     <MessageCircle aria-hidden='true' />
                     <h3>{copy.supportTitle}</h3>
                     <p>{copy.supportBody}</p>
-                    <a href='mailto:support@lmm.best'>
-                      support@lmm.best
-                      <ArrowUpRight aria-hidden='true' />
-                    </a>
                     {developerAccessGranted && (
                       <Link to='/support'>
                         {copy.supportTicket}
