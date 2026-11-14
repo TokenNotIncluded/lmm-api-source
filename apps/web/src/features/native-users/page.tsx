@@ -1,21 +1,19 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import {
-  CircleCheck,
-  CircleOff,
-  ShieldCheck,
-  UserRound,
-  Wallet,
+  Copy,
+  Download,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  Users,
 } from 'lucide-react'
 import { useContext, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toIntlLocale } from '@/i18n/languages'
 
 import {
   isCurrentNativeUsersScope,
@@ -23,20 +21,18 @@ import {
   NativeUsersFailure,
   type NativeUsersScope,
 } from './access'
-import { NativeBalanceAdjustment } from './adjustments-editor'
 import { readNativeUserGroups, readNativeUsers } from './api'
 import {
   DEFAULT_NATIVE_USERS_QUERY,
   nativeUsersQuery,
   type NativeGroupsResponse,
-  type NativeUser,
   type NativeUsersQuery,
   type NativeUsersResponse,
 } from './contract'
 import { NativeCreateUser } from './create-editor'
-import { NativeDisplayNameEditor } from './profile-editor'
-import { nativeQueryFromSearch } from './search'
-import { NativeUserSecurity } from './security-editor'
+import { nativeUsersCsv } from './export'
+import { nativeQueryFromSearch, nativeUsersSearch } from './search'
+import { NativeUserList } from './user-list'
 
 type Props = { scope: NativeUsersScope; recheck: () => void; search: string }
 type Load<T> =
@@ -53,11 +49,11 @@ type SelectProps = {
 
 function FieldSelect({ id, label, value, options, onChange }: SelectProps) {
   return (
-    <div className='space-y-2'>
+    <div className='min-w-0 space-y-2'>
       <Label htmlFor={id}>{label}</Label>
       <select
         id={id}
-        className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 sm:min-h-9'
+        className='bg-muted/60 focus-visible:ring-ring min-h-11 w-full rounded-lg border border-transparent px-3 py-2 text-base focus-visible:ring-2 sm:text-sm'
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
@@ -68,303 +64,6 @@ function FieldSelect({ id, label, value, options, onChange }: SelectProps) {
         ))}
       </select>
     </div>
-  )
-}
-
-function UserRecord({
-  user,
-  scope,
-  onUpdated,
-  onAccessDenied,
-}: {
-  user: NativeUser
-  scope: NativeUsersScope
-  onUpdated: () => void
-  onAccessDenied: () => void
-}) {
-  const { t, i18n } = useTranslation()
-  const profile = (value: string | null) =>
-    value === null ? t('Unavailable') : value === '' ? t('Empty value') : value
-  const time = (value: number | null) =>
-    value === null
-      ? t('Unavailable')
-      : new Intl.DateTimeFormat(toIntlLocale(i18n.language), {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        }).format(value)
-  const role = {
-    user: t('User'),
-    admin: t('Administrator'),
-    superadmin: t('Super administrator'),
-  }[user.platform_role]
-  const wallet = user.wallet
-  return (
-    <article
-      data-native-user-id={user.id}
-      className='native-user-record rounded-lg border p-4'
-    >
-      <div className='grid items-center gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]'>
-        <div className='min-w-0'>
-          <h3 className='font-semibold break-all'>
-            <EntityQuickActions
-              kind='username'
-              value={user.username ?? ''}
-              label={profile(user.username)}
-            />
-          </h3>
-          <p className='text-muted-foreground text-sm break-all'>
-            {profile(user.email)}
-          </p>
-          <p className='text-muted-foreground text-xs break-all'>
-            {t('User ID')}: {user.id}
-          </p>
-        </div>
-        <div className='flex flex-wrap gap-2'>
-          <Badge variant={user.active ? 'success' : 'destructive'}>
-            {user.active ? (
-              <CircleCheck aria-hidden='true' />
-            ) : (
-              <CircleOff aria-hidden='true' />
-            )}
-            {user.active ? t('Active user') : t('Disabled user')}
-          </Badge>
-          <Badge variant={user.platform_role === 'user' ? 'info' : 'tertiary'}>
-            {role}
-          </Badge>
-          <Badge variant='outline'>
-            {t('Service level')}: {user.service_level}
-          </Badge>
-        </div>
-        <div className='text-sm'>
-          <p className='text-muted-foreground'>{t('Spendable wallet')}</p>
-          <p className='font-mono font-semibold break-all'>
-            {wallet.status === 'available'
-              ? wallet.wallet_units
-              : t('Unavailable')}
-          </p>
-        </div>
-      </div>
-      <div className='mt-3 flex flex-wrap items-center gap-2'>
-        {user.platform_role === 'user' && (
-          <div className='flex flex-wrap gap-2'>
-            <NativeDisplayNameEditor
-              scope={scope}
-              userId={user.id}
-              onUpdated={onUpdated}
-              onAccessDenied={onAccessDenied}
-            />
-            <NativeUserSecurity
-              scope={scope}
-              userId={user.id}
-              onUpdated={onUpdated}
-              onAccessDenied={onAccessDenied}
-            />
-          </div>
-        )}
-        {user.platform_role === 'user' && wallet.status === 'available' && (
-          <NativeBalanceAdjustment
-            scope={scope}
-            userId={user.id}
-            onUpdated={onUpdated}
-            onAccessDenied={onAccessDenied}
-          />
-        )}
-      </div>
-      <details className='mt-3 border-t pt-3'>
-        <summary className='text-muted-foreground focus-visible:outline-ring cursor-pointer text-sm font-medium focus-visible:outline-2'>
-          {t('User details')}
-        </summary>
-        <div className='mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-4'>
-          <div className='min-w-0 space-y-2'>
-            <h3 className='flex items-center gap-3 font-semibold break-all'>
-              <span className='native-user-avatar' aria-hidden='true'>
-                {user.platform_role === 'user' ? (
-                  <UserRound size={20} />
-                ) : (
-                  <ShieldCheck size={20} />
-                )}
-              </span>
-              {profile(user.username)}
-            </h3>
-            <dl className='space-y-1 text-sm break-all'>
-              <div>
-                <dt className='text-muted-foreground inline'>
-                  {t('User ID')}:{' '}
-                </dt>
-                <dd className='inline font-mono'>{user.id}</dd>
-              </div>
-              <div>
-                <dt className='text-muted-foreground inline'>
-                  {t('Display name')}:{' '}
-                </dt>
-                <dd className='inline'>{profile(user.display_name)}</dd>
-              </div>
-              <div>
-                <dt className='text-muted-foreground inline'>{t('Email')}: </dt>
-                <dd className='inline'>{profile(user.email)}</dd>
-              </div>
-              {!user.profile_available && (
-                <p className='text-muted-foreground'>
-                  {t('Profile unavailable')}
-                </p>
-              )}
-            </dl>
-          </div>
-          <div className='min-w-0 space-y-2 text-sm'>
-            <h4 className='font-medium'>{t('Account')}</h4>
-            <div className='flex flex-wrap gap-2'>
-              <Badge
-                variant={user.platform_role === 'user' ? 'info' : 'tertiary'}
-              >
-                {role}
-              </Badge>
-              <Badge variant={user.active ? 'success' : 'destructive'}>
-                {user.active ? (
-                  <CircleCheck aria-hidden='true' />
-                ) : (
-                  <CircleOff aria-hidden='true' />
-                )}
-                {user.active ? t('Active user') : t('Disabled user')}
-              </Badge>
-            </div>
-            <dl className='space-y-1'>
-              <div>
-                <dt className='text-muted-foreground inline'>
-                  {t('Account status')}:{' '}
-                </dt>
-                <dd className='inline'>
-                  {user.account_active ? t('Active') : t('Inactive')}
-                </dd>
-              </div>
-              <div>
-                <dt className='text-muted-foreground inline'>
-                  {t('Service level')}:{' '}
-                </dt>
-                <dd className='inline'>
-                  <Badge variant='tertiary'>{user.service_level}</Badge>
-                </dd>
-              </div>
-              <div>
-                <dt className='text-muted-foreground inline'>
-                  {t('Developer access')}:{' '}
-                </dt>
-                <dd className='inline'>
-                  <Badge
-                    variant={user.developer_access_granted ? 'info' : 'outline'}
-                  >
-                    {user.developer_access_granted
-                      ? t('Granted')
-                      : t('Not granted')}
-                  </Badge>
-                </dd>
-              </div>
-            </dl>
-            <h4 className='font-medium'>{t('Explicit group memberships')}</h4>
-            {user.groups.length === 0 ? (
-              <p className='text-muted-foreground'>
-                {t('No explicit group memberships')}
-              </p>
-            ) : (
-              <ul className='flex flex-wrap gap-1'>
-                {user.groups.map((group) => (
-                  <li key={group} className='max-w-full'>
-                    <Badge
-                      variant='outline'
-                      className='break-all whitespace-normal'
-                    >
-                      {group}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className='native-user-wallet min-w-0 space-y-2 text-sm'>
-            <h4 className='flex items-center gap-2 font-medium'>
-              <Wallet size={16} className='text-primary' aria-hidden='true' />
-              {t('Wallet (Core credits)')}
-            </h4>
-            {wallet.status === 'unavailable' ? (
-              <p>{t('Unavailable')}</p>
-            ) : (
-              <dl className='space-y-1 font-mono break-all'>
-                <div>
-                  <dt className='text-muted-foreground font-sans'>
-                    {t('Economic position')}
-                  </dt>
-                  <dd
-                    className={
-                      wallet.available_units.startsWith('-')
-                        ? 'text-destructive font-semibold'
-                        : 'text-primary font-semibold'
-                    }
-                  >
-                    {wallet.available_units}
-                  </dd>
-                </div>
-                <div>
-                  <dt className='text-muted-foreground font-sans'>
-                    {t('Spendable wallet')}
-                  </dt>
-                  <dd>{wallet.wallet_units}</dd>
-                </div>
-                <div>
-                  <dt className='text-muted-foreground font-sans'>
-                    {t('Reserved funds')}
-                  </dt>
-                  <dd>{wallet.reserved_units}</dd>
-                </div>
-                <div>
-                  <dt className='text-muted-foreground font-sans'>
-                    {t('Debt magnitude')}
-                  </dt>
-                  <dd
-                    className={
-                      wallet.debt_units !== '0'
-                        ? 'text-destructive font-semibold'
-                        : undefined
-                    }
-                  >
-                    {wallet.debt_units}
-                  </dd>
-                </div>
-              </dl>
-            )}
-            <p className='text-muted-foreground'>
-              {t(
-                'Currency and money basis are unavailable. Amounts are exact Core credit units.'
-              )}
-            </p>
-          </div>
-          <dl className='min-w-0 space-y-2 text-sm break-all'>
-            <div>
-              <dt className='text-muted-foreground'>
-                {t('Core account created')}
-              </dt>
-              <dd>{time(user.core_account_created_at_unix_ms)}</dd>
-            </div>
-            <div>
-              <dt className='text-muted-foreground'>
-                {t('Observed registration time')}
-              </dt>
-              <dd>{time(user.registered_at_unix_ms)}</dd>
-            </div>
-            <div>
-              <dt className='text-muted-foreground'>
-                {t('Personal account ID')}
-              </dt>
-              <dd className='font-mono'>{user.personal_account_id}</dd>
-            </div>
-            <div>
-              <dt className='text-muted-foreground'>
-                {t('Authentication version')}
-              </dt>
-              <dd className='font-mono'>{user.auth_version}</dd>
-            </div>
-          </dl>
-        </div>
-      </details>
-    </article>
   )
 }
 
@@ -400,7 +99,6 @@ function GroupsBrowser({
       holder.alive &&
       holder.generation === generation &&
       isCurrentNativeUsersScope(captured)
-    setState({ status: 'loading' })
     void readNativeUserGroups(captured, page, controller.signal).then(
       (data) => {
         if (owns()) setState({ status: 'ready', data })
@@ -437,7 +135,7 @@ function GroupsBrowser({
   return (
     <section
       aria-label={t('Group directory')}
-      className='space-y-3 rounded-lg border p-4'
+      className='bg-muted/30 space-y-4 rounded-xl p-5'
       aria-busy={state.status === 'loading'}
     >
       <h3 className='font-medium'>{t('Group directory')}</h3>
@@ -540,6 +238,15 @@ function UsersWorkspace({
   })
   const [invalidQuery, setInvalidQuery] = useState(false)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(
+    Boolean(
+      initial.group || initial.role || initial.status || initial.service_level
+    )
+  )
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [feedback, setFeedback] = useState<
+    'none' | 'copied' | 'copy_failed' | 'exported' | 'export_failed'
+  >('none')
   const [reload, setReload] = useState(0)
   const request = useRef({
     alive: true,
@@ -558,7 +265,6 @@ function UsersWorkspace({
       holder.alive &&
       holder.generation === generation &&
       isCurrentNativeUsersScope(captured)
-    setState({ status: 'loading' })
     void readNativeUsers(captured, query, controller.signal).then(
       (data) => {
         if (owns()) setState({ status: 'ready', data })
@@ -586,13 +292,23 @@ function UsersWorkspace({
       controller.abort()
     }
   }, [userId, sessionId, role, query, reload, onAccessDenied])
+
+  const clearResults = () => {
+    request.current.generation++
+    request.current.controller?.abort()
+    setSelected(new Set())
+    setFeedback('none')
+    setState({ status: 'loading' })
+  }
+  const refresh = () => {
+    clearResults()
+    setReload((value) => value + 1)
+  }
   const applyQuery = (next: NativeUsersQuery) => {
     try {
       const validated = nativeUsersQuery(next)
-      request.current.generation++
-      request.current.controller?.abort()
+      clearResults()
       setInvalidQuery(false)
-      setState({ status: 'loading' })
       setQuery(validated)
       setDraft(validated)
     } catch {
@@ -607,6 +323,68 @@ function UsersWorkspace({
     key: Key,
     value: NativeUsersQuery[Key]
   ) => setDraft((previous) => ({ ...previous, [key]: value }))
+  const copyFilters = async () => {
+    if (!isCurrentNativeUsersScope(scope)) return
+    const generation = request.current.generation
+    const owns = () =>
+      request.current.alive &&
+      request.current.generation === generation &&
+      isCurrentNativeUsersScope(scope)
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/users${nativeUsersSearch(query)}`
+      )
+      if (owns()) setFeedback('copied')
+    } catch {
+      if (owns()) setFeedback('copy_failed')
+    }
+  }
+  const exportUsers = () => {
+    if (state.status !== 'ready' || !isCurrentNativeUsersScope(scope)) return
+    const rows = selected.size
+      ? state.data.items.filter((user) => selected.has(user.id))
+      : state.data.items
+    if (!rows.length) return
+    try {
+      const csv = nativeUsersCsv(rows, [
+        t('User ID'),
+        t('Profile available'),
+        t('Username'),
+        t('Display name'),
+        t('Email'),
+        t('Role'),
+        t('User status'),
+        t('Account status'),
+        t('Service level'),
+        t('Developer access'),
+        t('Explicit group memberships'),
+        t('Registration time (Unix ms)'),
+        t('Account creation time (Unix ms)'),
+        t('Wallet status'),
+        t('Unit'),
+        t('Economic position'),
+        t('Spendable wallet'),
+        t('Reserved funds'),
+        t('Debt magnitude'),
+      ])
+      const url = URL.createObjectURL(
+        new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      )
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `users-page-${query.page}-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(anchor)
+      try {
+        anchor.click()
+      } finally {
+        anchor.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+      setFeedback('exported')
+    } catch {
+      setFeedback('export_failed')
+    }
+  }
   const sorts = {
     id: t('User ID'),
     username: t('Username'),
@@ -620,143 +398,201 @@ function UsersWorkspace({
   }
   if (!isCurrentNativeUsersScope(scope)) return null
   return (
-    <div className='space-y-5'>
+    <div className='mx-auto w-full max-w-7xl space-y-7'>
+      <div className='flex flex-wrap items-center justify-between gap-3'>
+        <p className='text-muted-foreground max-w-xl text-sm'>
+          {t('Find accounts, update access and review balances.')}
+        </p>
+        <div className='flex flex-wrap gap-1'>
+          <Button
+            type='button'
+            variant='ghost'
+            className='min-h-11'
+            onClick={copyFilters}
+          >
+            <Copy aria-hidden='true' />
+            {t('Copy filter link')}
+          </Button>
+          <Button
+            type='button'
+            variant='ghost'
+            className='min-h-11'
+            onClick={refresh}
+            disabled={state.status === 'loading'}
+          >
+            <RefreshCw aria-hidden='true' />
+            {t('Refresh users')}
+          </Button>
+        </div>
+      </div>
       {state.status === 'ready' &&
         state.data.capabilities.implemented_write_actions.includes(
           'create'
         ) && (
-          <NativeCreateUser
-            key={`${scope.userId}:${scope.sessionId}`}
-            scope={scope}
-            onCreated={() => setReload((value) => value + 1)}
-            onAccessDenied={onAccessDenied}
-          />
+          <div className='[&>section]:rounded-none [&>section]:border-0 [&>section]:p-0'>
+            <NativeCreateUser
+              key={`${scope.userId}:${scope.sessionId}`}
+              scope={scope}
+              onCreated={refresh}
+              onAccessDenied={onAccessDenied}
+            />
+          </div>
         )}
       <form
         onSubmit={submit}
-        className='space-y-4 rounded-lg border p-4'
+        className='space-y-5'
         aria-label={t('User filters')}
       >
-        <div>
-          <div className='space-y-2'>
+        <div className='grid grid-cols-2 items-end gap-3 xl:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]'>
+          <div className='col-span-2 space-y-2 xl:col-span-1'>
             <Label htmlFor='native-user-keyword'>
               {t('Search username, display name, email or user ID')}
             </Label>
-            <Input
-              id='native-user-keyword'
-              className='min-h-11 sm:min-h-9'
-              value={draft.keyword}
-              onChange={(event) => set('keyword', event.target.value)}
-            />
-          </div>
-        </div>
-        <details
-          open={Boolean(
-            initial.group ||
-            initial.role ||
-            initial.status ||
-            initial.service_level
-          )}
-        >
-          <summary className='focus-visible:outline-ring cursor-pointer text-sm font-medium focus-visible:outline-2'>
-            {t('Advanced filters')}
-          </summary>
-          <div className='mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='native-user-group'>
-                {t('Exact group membership')}
-              </Label>
+            <div className='relative'>
+              <Search
+                className='text-muted-foreground pointer-events-none absolute top-3.5 left-3 size-4'
+                aria-hidden='true'
+              />
               <Input
-                id='native-user-group'
-                className='min-h-11 sm:min-h-9'
-                value={draft.group}
-                onChange={(event) => set('group', event.target.value)}
+                id='native-user-keyword'
+                type='search'
+                className='min-h-11 pl-10'
+                value={draft.keyword}
+                onChange={(event) => set('keyword', event.target.value)}
               />
             </div>
-            <FieldSelect
-              id='native-user-role'
-              label={t('Role')}
-              value={draft.role}
-              onChange={(value) =>
-                set('role', value as NativeUsersQuery['role'])
-              }
-              options={[
-                { value: '', label: t('All roles') },
-                { value: 'user', label: t('User') },
-                { value: 'admin', label: t('Administrator') },
-                { value: 'superadmin', label: t('Super administrator') },
-              ]}
-            />
-            <FieldSelect
-              id='native-user-status'
-              label={t('User status')}
-              value={draft.status}
-              onChange={(value) =>
-                set('status', value as NativeUsersQuery['status'])
-              }
-              options={[
-                { value: '', label: t('All user statuses') },
-                { value: 'active', label: t('Active user') },
-                { value: 'disabled', label: t('Disabled user') },
-              ]}
-            />
-            <FieldSelect
-              id='native-user-level'
-              label={t('Service level')}
-              value={draft.service_level}
-              onChange={(value) =>
-                set('service_level', value as NativeUsersQuery['service_level'])
-              }
-              options={[
-                { value: '', label: t('All service levels') },
-                ...['0', '1', '2', '3', '4'].map((value) => ({
-                  value,
-                  label: value,
-                })),
-              ]}
-            />
-            <FieldSelect
-              id='native-user-sort'
-              label={t('Sort by')}
-              value={draft.sort_by}
-              onChange={(value) =>
-                set('sort_by', value as NativeUsersQuery['sort_by'])
-              }
-              options={Object.entries(sorts).map(([value, label]) => ({
-                value,
-                label,
-              }))}
-            />
-            <FieldSelect
-              id='native-user-order'
-              label={t('Sort order')}
-              value={draft.sort_order}
-              onChange={(value) =>
-                set('sort_order', value as NativeUsersQuery['sort_order'])
-              }
-              options={[
-                { value: 'desc', label: t('Descending') },
-                { value: 'asc', label: t('Ascending') },
-              ]}
-            />
-            <FieldSelect
-              id='native-user-page-size'
-              label={t('Users per page')}
-              value={String(draft.page_size)}
-              onChange={(value) => set('page_size', Number(value))}
-              options={[...new Set([draft.page_size, 20, 50, 100])]
-                .sort((a, b) => a - b)
-                .map((value) => ({
-                  value: String(value),
-                  label: String(value),
-                }))}
-            />
           </div>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Service level is the native account level, independent of legacy trust. Group names match exactly, including spaces.'
-            )}
-          </p>
+          <FieldSelect
+            id='native-user-status'
+            label={t('User status')}
+            value={draft.status}
+            onChange={(value) =>
+              set('status', value as NativeUsersQuery['status'])
+            }
+            options={[
+              { value: '', label: t('All user statuses') },
+              { value: 'active', label: t('Active user') },
+              { value: 'disabled', label: t('Disabled user') },
+            ]}
+          />
+          <FieldSelect
+            id='native-user-role'
+            label={t('Role')}
+            value={draft.role}
+            onChange={(value) => set('role', value as NativeUsersQuery['role'])}
+            options={[
+              { value: '', label: t('All roles') },
+              { value: 'user', label: t('User') },
+              { value: 'admin', label: t('Administrator') },
+              { value: 'superadmin', label: t('Super administrator') },
+            ]}
+          />
+          <Button type='submit' className='col-span-2 min-h-11 xl:col-span-1'>
+            {t('Apply filters')}
+          </Button>
+        </div>
+        <details
+          open={filtersOpen}
+          onToggle={(event) => setFiltersOpen(event.currentTarget.open)}
+        >
+          <summary className='focus-visible:outline-ring inline-flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-medium focus-visible:outline-2 [&::-webkit-details-marker]:hidden'>
+            <SlidersHorizontal className='size-4' aria-hidden='true' />
+            {t('Advanced filters')}
+          </summary>
+          <div className='bg-muted/25 mt-2 space-y-5 rounded-xl p-5'>
+            <div className='grid gap-5 sm:grid-cols-2 xl:grid-cols-3'>
+              <div className='space-y-2'>
+                <Label htmlFor='native-user-group'>
+                  {t('Exact group membership')}
+                </Label>
+                <Input
+                  id='native-user-group'
+                  className='min-h-11'
+                  value={draft.group}
+                  onChange={(event) => set('group', event.target.value)}
+                />
+              </div>
+              <FieldSelect
+                id='native-user-level'
+                label={t('Service level')}
+                value={draft.service_level}
+                onChange={(value) =>
+                  set(
+                    'service_level',
+                    value as NativeUsersQuery['service_level']
+                  )
+                }
+                options={[
+                  { value: '', label: t('All service levels') },
+                  ...['0', '1', '2', '3', '4'].map((value) => ({
+                    value,
+                    label: value,
+                  })),
+                ]}
+              />
+              <FieldSelect
+                id='native-user-sort'
+                label={t('Sort by')}
+                value={draft.sort_by}
+                onChange={(value) =>
+                  set('sort_by', value as NativeUsersQuery['sort_by'])
+                }
+                options={Object.entries(sorts).map(([value, label]) => ({
+                  value,
+                  label,
+                }))}
+              />
+              <FieldSelect
+                id='native-user-order'
+                label={t('Sort order')}
+                value={draft.sort_order}
+                onChange={(value) =>
+                  set('sort_order', value as NativeUsersQuery['sort_order'])
+                }
+                options={[
+                  { value: 'desc', label: t('Descending') },
+                  { value: 'asc', label: t('Ascending') },
+                ]}
+              />
+              <FieldSelect
+                id='native-user-page-size'
+                label={t('Users per page')}
+                value={String(draft.page_size)}
+                onChange={(value) => set('page_size', Number(value))}
+                options={[...new Set([draft.page_size, 20, 50, 100])]
+                  .sort((a, b) => a - b)
+                  .map((value) => ({
+                    value: String(value),
+                    label: String(value),
+                  }))}
+              />
+            </div>
+            <div className='flex flex-wrap gap-2'>
+              <Button
+                type='button'
+                variant='outline'
+                className='min-h-11'
+                onClick={() => setGroupsOpen((value) => !value)}
+              >
+                {groupsOpen
+                  ? t('Hide group directory')
+                  : t('Browse group directory')}
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                className='min-h-11'
+                onClick={recheck}
+              >
+                {t('Recheck server availability')}
+              </Button>
+            </div>
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Service level is the native account level, independent of legacy trust. Group names match exactly, including spaces.'
+              )}
+            </p>
+          </div>
         </details>
         {invalidQuery && (
           <Alert role='alert'>
@@ -767,44 +603,45 @@ function UsersWorkspace({
             </AlertDescription>
           </Alert>
         )}
-        <div className='flex flex-wrap gap-2'>
-          <Button type='submit' className='min-h-11 sm:min-h-9'>
-            {t('Apply filters')}
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            className='min-h-11 sm:min-h-9'
-            onClick={() => applyQuery({ ...DEFAULT_NATIVE_USERS_QUERY })}
-          >
-            {t('Clear filters')}
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            className='min-h-11 sm:min-h-9'
-            onClick={() => setGroupsOpen((value) => !value)}
-          >
-            {groupsOpen
-              ? t('Hide group directory')
-              : t('Browse group directory')}
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            className='min-h-11 sm:min-h-9'
-            onClick={recheck}
-          >
-            {t('Recheck server availability')}
-          </Button>
-        </div>
+        <Button
+          type='button'
+          variant='ghost'
+          className='min-h-11'
+          onClick={() => {
+            setFiltersOpen(false)
+            applyQuery({ ...DEFAULT_NATIVE_USERS_QUERY })
+          }}
+        >
+          {t('Clear filters')}
+        </Button>
       </form>
       {groupsOpen && (
         <GroupsBrowser
           scope={scope}
-          onSelect={(value) => set('group', value)}
+          onSelect={(value) => {
+            set('group', value)
+            setFiltersOpen(true)
+          }}
           onAccessDenied={onAccessDenied}
         />
+      )}
+      {feedback !== 'none' && (
+        <p
+          className={
+            feedback.endsWith('failed')
+              ? 'text-destructive text-sm'
+              : 'text-muted-foreground text-sm'
+          }
+          role={feedback.endsWith('failed') ? 'alert' : 'status'}
+        >
+          {feedback === 'copied'
+            ? t('Filter link copied.')
+            : feedback === 'copy_failed'
+              ? t('Could not copy the filter link.')
+              : feedback === 'exported'
+                ? t('CSV download started.')
+                : t('Could not export users.')}
+        </p>
       )}
       <section
         aria-label={t('User results')}
@@ -812,9 +649,11 @@ function UsersWorkspace({
         className='space-y-4'
       >
         {state.status === 'loading' ? (
-          <p role='status'>{t('Loading users...')}</p>
+          <p role='status' className='text-muted-foreground py-12 text-center'>
+            {t('Loading users...')}
+          </p>
         ) : state.status === 'error' ? (
-          <>
+          <div className='space-y-4 py-4'>
             <Alert role='alert'>
               <AlertDescription>
                 {state.kind === 'forbidden'
@@ -833,70 +672,166 @@ function UsersWorkspace({
             <Button
               type='button'
               variant='outline'
-              className='min-h-11 sm:min-h-9'
-              onClick={() => {
-                setState({ status: 'loading' })
-                setReload((value) => value + 1)
-              }}
+              className='min-h-11'
+              onClick={refresh}
             >
               {t('Retry users')}
             </Button>
-          </>
+          </div>
         ) : (
           <>
-            <p aria-live='polite'>
-              {t('{{count}} users · Page {{page}}', {
-                count: state.data.total,
-                page: state.data.page,
-              })}
-            </p>
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <p
+                aria-live='polite'
+                className='text-sm font-medium tabular-nums'
+              >
+                {t('Showing {{start}}–{{end}} of {{total}} users', {
+                  start: state.data.items.length
+                    ? (query.page - 1) * query.page_size + 1
+                    : 0,
+                  end: state.data.items.length
+                    ? (query.page - 1) * query.page_size +
+                      state.data.items.length
+                    : 0,
+                  total: state.data.total,
+                })}
+              </p>
+              <div className='flex flex-wrap items-center gap-2'>
+                {selected.size > 0 && (
+                  <>
+                    <span
+                      className='text-muted-foreground text-sm'
+                      aria-live='polite'
+                    >
+                      {t('Selected: {{selected}}', { selected: selected.size })}
+                    </span>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      className='min-h-11'
+                      onClick={() => setSelected(new Set())}
+                    >
+                      {t('Clear selection')}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  disabled={!state.data.items.length}
+                  onClick={exportUsers}
+                >
+                  <Download aria-hidden='true' />
+                  {selected.size
+                    ? t('Export selected')
+                    : t('Export current page')}
+                </Button>
+              </div>
+            </div>
             {state.data.items.length === 0 ? (
-              <p>{t('No users on this page.')}</p>
-            ) : (
-              state.data.items.map((user) => (
-                <UserRecord
-                  key={user.id}
-                  user={user}
-                  scope={scope}
-                  onUpdated={() => setReload((value) => value + 1)}
-                  onAccessDenied={onAccessDenied}
+              <div className='flex flex-col items-center gap-3 py-14 text-center'>
+                <Users
+                  className='text-muted-foreground size-7'
+                  aria-hidden='true'
                 />
-              ))
+                <h3 className='font-medium'>{t('No users on this page.')}</h3>
+                <p className='text-muted-foreground text-sm'>
+                  {t('Try another search or clear the filters.')}
+                </p>
+              </div>
+            ) : (
+              <NativeUserList
+                users={state.data.items}
+                scope={scope}
+                query={query}
+                selected={selected}
+                onSelect={(id, checked) =>
+                  setSelected((previous) => {
+                    const next = new Set(previous)
+                    if (checked) next.add(id)
+                    else next.delete(id)
+                    return next
+                  })
+                }
+                onSelectPage={(checked) =>
+                  setSelected(
+                    new Set(
+                      checked ? state.data.items.map((user) => user.id) : []
+                    )
+                  )
+                }
+                onSort={(sort_by) =>
+                  applyQuery({
+                    ...query,
+                    sort_by,
+                    sort_order:
+                      query.sort_by === sort_by && query.sort_order === 'asc'
+                        ? 'desc'
+                        : 'asc',
+                    page: 1,
+                  })
+                }
+                onUpdated={refresh}
+                onAccessDenied={onAccessDenied}
+              />
             )}
           </>
         )}
-        <div className='flex flex-wrap gap-2'>
-          <Button
-            type='button'
-            variant='outline'
-            className='min-h-11 sm:min-h-9'
-            disabled={query.page <= 1 || state.status === 'loading'}
-            onClick={() => applyQuery({ ...query, page: query.page - 1 })}
-          >
-            {t('Previous user page')}
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            className='min-h-11 sm:min-h-9'
-            disabled={
-              state.status !== 'ready' ||
-              query.page >= 100000 ||
-              query.page * query.page_size >= state.data.total
-            }
-            onClick={() => applyQuery({ ...query, page: query.page + 1 })}
-          >
-            {t('Next user page')}
-          </Button>
+        <div className='flex flex-wrap items-center justify-between gap-3 pt-2'>
+          <p className='text-muted-foreground text-sm tabular-nums'>
+            {state.status === 'ready' &&
+              t('Page {{page}} of {{pages}}', {
+                page: query.page,
+                pages: Math.max(
+                  1,
+                  Math.ceil(state.data.total / query.page_size)
+                ),
+              })}
+          </p>
+          <div className='flex flex-wrap gap-2'>
+            <Button
+              type='button'
+              variant='ghost'
+              className='min-h-11'
+              disabled={query.page <= 1 || state.status === 'loading'}
+              onClick={() => applyQuery({ ...query, page: query.page - 1 })}
+            >
+              {t('Previous user page')}
+            </Button>
+            <Button
+              type='button'
+              variant='ghost'
+              className='min-h-11'
+              disabled={
+                state.status !== 'ready' ||
+                query.page >= 100000 ||
+                query.page * query.page_size >= state.data.total
+              }
+              onClick={() => applyQuery({ ...query, page: query.page + 1 })}
+            >
+              {t('Next user page')}
+            </Button>
+          </div>
         </div>
       </section>
-      <Alert>
-        <AlertDescription>
-          {t(
-            'User management. Available actions are shown beside each user. Risk, usage, top-up, referral history and legacy trust information are unavailable in this view.'
-          )}
-        </AlertDescription>
-      </Alert>
+      <details className='text-muted-foreground text-xs'>
+        <summary className='focus-visible:outline-ring inline-flex min-h-11 cursor-pointer items-center focus-visible:outline-2'>
+          {t('About user data')}
+        </summary>
+        <div className='max-w-3xl space-y-2 pb-4'>
+          <p>
+            {t(
+              'User management. Available actions are shown beside each user. Risk, usage, top-up, referral history and legacy trust information are unavailable in this view.'
+            )}
+          </p>
+          <p>
+            {t(
+              'CSV downloads contain only the current page or your selection. IDs and credit amounts are stored as text to preserve precision.'
+            )}
+          </p>
+        </div>
+      </details>
     </div>
   )
 }

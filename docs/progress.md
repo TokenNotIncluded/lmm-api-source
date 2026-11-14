@@ -4,13 +4,19 @@
 
 ## 当前状态
 
-- **当前生产为旧 Go 0.2.118 与匹配旧 Web**：产线 owner 已在 Arch 回读服务 `active/enabled`，`api` 主站全路径切回旧架构；Terra 原有会话自然恢复，未清理用户数据。`status`、`data/self`、`log/self`、`stat` 均返回 HTTP 200。这是当前承载状态，不代表新原生版本已上线；本轮 Git 收口不执行部署。
+- **当前生产为旧 Go 0.2.118 与匹配旧 Web**：产线 owner 已在 Arch 回读 OldFormal PID 196448、服务 `active/enabled`，`api` 主站全路径切回旧架构；Terra 原有会话自然恢复，未新建登录、未清理 SiteData 或用户数据。dashboard、`api`、`status`、`data/self`、`log/self`、`stat` 与首页 7 项 JS/CSS 均返回 HTTP 200。这是当前承载状态，不代表新原生版本已上线；本轮 Git 收口不执行部署。
 
-- **旧 Key 与余额核对**：产线 owner 回读 495 条普通旧 Key 已软删除，`public_remaining=0`；OAuth 与 runtime 所需凭据保留。两库 1249 位用户逐笔余额一致，总差额 `delta=0`。此结果只覆盖已核对的凭据范围与余额，不抵扣其他历史订单、订阅及持续权益验收。
+- **旧 Key 与余额核对**：产线 owner 回读 495 条普通旧 Key 已软删除，`public_remaining=0`；13 条 OAuth 与 1 条 internal runtime 凭据保留；实际回执为 `fresh69-forward-preparation-26752cdaae25/legacy-formal-recovery-20261115/old-key-retirement.actual.json`。两库 1249 位用户逐笔余额一致，总差额 `delta=0`。此结果只覆盖已核对的凭据范围与余额，不抵扣其他历史订单、订阅及持续权益验收。
 
-- **Native69 仍为独立影子环境**：Core、Extensions 与 `*_prod` 模块使用各自独立数据库，名称不表示主站生产承载。`native.api` 的 DNS/TLS 已就绪，入口仍返回 HTTP 503；reconcile 与 RP 候选尚未安装。新原生版本的生产切换、完整业务及独立验收未完成，不记为“新生产 100%”。
+- **Native69 仍为独立影子环境**：Core、Extensions 与 `*_prod` 模块使用各自独立数据库，名称不表示主站生产承载。`native.api` 的 DNS/TLS 已就绪，入口仍返回 HTTP 503；reconcile 与 RP 候选尚未安装；Core69 最小候选仅在独立容器中 `RUNNING`，尚无通过结论，与当前 74 组件源码分别记录。新原生版本的生产切换、完整业务及独立验收未完成，不记为“新生产 100%”。
+
+- **浏览器会话恢复 v2（源码已提交，未安装）**：[`91a99d4`](https://github.com/TokenNotIncluded/lmm-api-source/commit/91a99d4) 只接入 owner 冻结的 13 个 Web 文件，保留原不确定操作 marker，通过新文档、同锁只读证明确认现有权限；仅显式点击续期可执行一次 refresh，并以匹配的终态只读证明完成恢复。逐文件摘要与 v2 manifest 一致，owner 自测 54 项及真实 Chrome 配合受控 HTTP 的 14 组场景通过，范围 lint、格式与七语言同步通过。真实 Core HTTP、共享 Web 全量构建与生产 Root 验证未运行；旧 Go 主站与原生影子入口未因此变更。
 
 - **原 Passkey 实际恢复（Native69 影子库）**：冻结源 8 条有效凭据、7 位原活跃用户已通过 NOLOGIN owner 守卫事务 COMMIT，独立事务完整读回匹配；原 credential ID、十进制 user handle、公钥 JSON、计数、UV 与 backup flags 保留，2 条 UV=false 和源 Preferred 策略不拔高。原空显示名按既有合同补标签；冲突不覆盖新登记。导入回执与审计各一条，未写 Session、密码、OAuth 或资金，未重启 Core。2315 兼容资格来自既有发布归档绑定；真实硬件登录未运行。私有证据仅存 `fresh69-forward-preparation-26752cdaae25/plans/passkey-recovery-20261115/RESULT.private.json`。
+
+- **登录页留白改版**：已推送 [6ab724b7](https://github.com/TokenNotIncluded/lmm-api-source/commit/6ab724b7f78804cb67230e96f07779b1b156cb06)。登录表单采用居中 400px 布局、52px 控件与更大留白，底部小游戏按需展开；协议确认保留，重复说明移除。`user-auth-form.test.tsx` 47 项、`mobile-auth-presentation.test.ts` 1 项自测通过，均为 0 失败；改动范围 `oxlint` 与 `i18n:sync` 通过，locale 无差异。已在 1363×936 浅色桌面预览实际组件，测得表单 400px 且无横向溢出；已修正观察到的密码框与主按钮高度覆盖。后续浏览器连接超时，最终截图、移动端和深色复验尚未完成。全量 Web 类型检查两次均被环境 `SIGKILL` 终止（退出码 137），没有通过结论；合并 `a7e2730` 后生产构建与首屏检查通过（gzip 594,658 字节，上限 786,432），移动布局 1 项与范围 lint 复跑通过；独立验收与部署未执行。
+
+- **前端对齐与缩放重排（源码已提交，未部署）**：[`70cdd3e`](https://github.com/TokenNotIncluded/lmm-api-source/commit/70cdd3ed253160dac56a05b8f1f5b28760580b77) 统一共享标题、正文和页脚边线，补齐短窗口滚动、表格操作换行及认证表单伸缩；[`a7e2730`](https://github.com/TokenNotIncluded/lmm-api-source/commit/a7e27301e9fe46be6b1f7105e3edd95af896f8b1) 让开发者与钱包工作区按容器宽度重排，并保留并行的新版页面、金额快捷选项和支付确认路径。共享布局、登录及表格 22 项用例修正旧样式位置断言后通过；合并后的开发者与钱包 34 项通过，最新钱包输入又定向复测 14 项通过（不重复计数）。固定 `a7e2730` 的生产构建、首屏包体检查及最终钱包/检查脚本 lint 通过，首屏 gzip 594,656 字节，上限 786,432。两次全量类型检查均被环境强制终止，没有通过结论；本地 Chromium 提权被自动审批拒绝，云端浏览器入口受阻，GitHub 尚未出现本轮检查运行记录。[设计规范](../apps/web/DESIGN.md) 与 [66 场景浏览器检查](../.github/workflows/layout-reflow-review.yml) 已准备；缩放截图和独立视觉验收仍未执行。原失败、复测与构建日志保留在交付包 `LMM-API-frontend-reflow-a7e2730.zip`。
 
 - **共享界面与钱包留白整理（固定 `249ed44`，未部署）**：共享卡片、表单、表格、控制台与公开页面基础样式减少装饰边框和重阴影，扩大页面及区块间距；钱包突出余额、报价与主要操作，保留同期开发者工作区更新。[固定源码](https://github.com/TokenNotIncluded/lmm-api-source/commit/249ed44e9337ad35160f2a3703bf434f19d50c43) 的 Web 生产构建与首屏检查通过，压缩首屏资源 594,623 字节（上限 786,432）；最终登录与数据表布局定向自测 6 项通过，前一合并阶段登录、价格与开发者页 23 项通过。原始导航文案断言失败在变更前基线也能复现；钱包复测 8/8 通过。先前定向 lint 的两项既有 effect 问题、两次类型检查退出 137 及浏览器视觉检查受阻均如实保留；已做开发自测，独立验收未运行。静态构建、版本说明和原始日志已保存于交付包 `lmm-api-visual-refresh-249ed44.zip`，不代表生产或全站视觉验收通过。
 

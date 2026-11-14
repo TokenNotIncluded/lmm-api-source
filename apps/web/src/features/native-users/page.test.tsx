@@ -117,6 +117,18 @@ function button(container: HTMLElement, label: string) {
   if (!element) throw new Error(`Missing test button: ${label}`)
   return element
 }
+
+async function waitForElement(container: HTMLElement, selector: string) {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    const element = container.querySelector(selector)
+    if (element) return element
+    await act(async () => {
+      await pause()
+    })
+  }
+  throw new Error(`Expected rendered element: ${selector}`)
+}
 afterEach(async () => {
   await act(async () => {
     for (const cleanup of cleanups.splice(0)) cleanup()
@@ -706,9 +718,10 @@ test('clear filters restores the default query and collapses user details initia
   }
   const container = await mount('?keyword=alice&status=disabled')
   expect(
-    container.querySelector<HTMLDetailsElement>('[data-native-user-id] details')
-      ?.open
-  ).toBe(false)
+    container
+      .querySelector('[data-native-user-id] button[aria-controls]')
+      ?.getAttribute('aria-expanded')
+  ).toBe('false')
   expect(
     container.querySelector<HTMLDetailsElement>('form details')?.open
   ).toBe(true)
@@ -722,4 +735,147 @@ test('clear filters restores the default query and collapses user details initia
   expect(
     container.querySelector<HTMLInputElement>('#native-user-keyword')?.value
   ).toBe('')
+})
+
+test('page selection exports only selected users and is cleared before replacement data loads', async () => {
+  login()
+  const first = nativeUserFixture()
+  const second = nativeUserFixture({
+    id: '9007199254740994',
+    username: 'synthetic-second-user',
+    wallet: { status: 'unavailable', code: 'WALLET_PROJECTION_UNAVAILABLE' },
+  })
+  const reads: number[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url !== '/api/status') reads.push(config.params.page)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(
+              config.params.page === 1 ? [first, second] : [second],
+              config.params.page,
+              21
+            ),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  let download: Blob | undefined
+  const originalCreate = URL.createObjectURL
+  const originalRevoke = URL.revokeObjectURL
+  URL.createObjectURL = (blob) => {
+    download = blob as Blob
+    return 'blob:synthetic-users-export'
+  }
+  URL.revokeObjectURL = () => {}
+  const blockNavigation = (event: Event) => {
+    if ((event.target as Element)?.closest('a[download]')) {
+      event.preventDefault()
+    }
+  }
+  document.addEventListener('click', blockNavigation)
+  cleanups.push(() => {
+    URL.createObjectURL = originalCreate
+    URL.revokeObjectURL = originalRevoke
+    document.removeEventListener('click', blockNavigation)
+  })
+  const container = await mount()
+  expect(container.textContent).toContain('Showing 1–2 of 21 users')
+  await act(async () => {
+    container
+      .querySelector<HTMLElement>(
+        `[data-native-user-id="${first.id}"] [role="checkbox"]`
+      )
+      ?.click()
+  })
+  expect(container.textContent).toContain('Selected: 1')
+  await act(async () => {
+    button(container, 'Export selected').click()
+  })
+  const csv = await download?.text()
+  expect(csv).toContain("'9007199254740993")
+  expect(csv).toContain('synthetic-native-user')
+  expect(csv).not.toContain('synthetic-second-user')
+  expect(reads).toEqual([1])
+  await act(async () => {
+    button(container, 'Next user page').click()
+    await pause()
+  })
+  expect(container.textContent).not.toContain('Selected:')
+  expect(button(container, 'Export current page').disabled).toBe(false)
+  expect(container.textContent).toContain('Showing 21–21 of 21 users')
+  expect(reads).toEqual([1, 2])
+})
+
+test('copy uses applied filters and sorting a table heading sends an exact server query', async () => {
+  login()
+  const reads: Record<string, unknown>[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url !== '/api/status') reads.push(config.params)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  let copied = ''
+  const originalWrite = navigator.clipboard.writeText
+  navigator.clipboard.writeText = async (value) => {
+    copied = value
+  }
+  cleanups.push(() => {
+    navigator.clipboard.writeText = originalWrite
+  })
+  const container = await mount('?keyword=%229007199254740993%22&group=+exact+')
+  await act(async () => {
+    button(container, 'Copy filter link').click()
+    await pause()
+  })
+  const { nativeQueryFromSearch } = await import('./search')
+  expect(nativeQueryFromSearch(new URL(copied).search)).toMatchObject({
+    keyword: '9007199254740993',
+    group: ' exact ',
+  })
+  expect(container.textContent).toContain('Filter link copied.')
+  await act(async () => {
+    button(container, 'Username').click()
+    await pause()
+  })
+  const ascendingHeader = await waitForElement(
+    container,
+    'th[aria-sort="ascending"]'
+  )
+  expect(reads.at(-1)).toMatchObject({
+    keyword: '9007199254740993',
+    group: ' exact ',
+    sort_by: 'username',
+    sort_order: 'asc',
+    page: 1,
+  })
+  expect(ascendingHeader.textContent).toBe('Username')
+  await act(async () => {
+    button(container, 'Username').click()
+    await pause()
+  })
+  await waitForElement(container, 'th[aria-sort="descending"]')
+  expect(reads.at(-1)?.sort_order).toBe('desc')
+  const details = container.querySelector<HTMLButtonElement>(
+    '[data-native-user-id] button[aria-controls]'
+  )
+  await act(async () => {
+    details?.click()
+  })
+  expect(details?.getAttribute('aria-expanded')).toBe('true')
+  expect(
+    container.querySelector(`#${details?.getAttribute('aria-controls')}`)
+      ?.textContent
+  ).toContain('Security')
 })

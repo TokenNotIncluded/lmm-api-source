@@ -584,7 +584,7 @@ export function UserAuthForm({
           </div>
         </Dialog>
       )}
-      <div className='pt-2'>
+      <div className='auth-account-help pt-2 text-center'>
         <AccountAppealForm refreshKey={appealRefreshKey} />
       </div>
     </Form>
