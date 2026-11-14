@@ -1,6 +1,12 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useNavigate } from '@tanstack/react-router'
-import { useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -13,10 +19,18 @@ import {
   subscribeAuthCookieState,
 } from '@/lib/auth-cookie'
 import {
+  hasAuthCookieReconciliationHandoff,
+  AuthCookieSessionNeedsRenewalError,
+  prepareAuthCookieReconciliation,
+  reconcileAuthCookieSession,
+  renewAuthCookieSession,
+} from '@/lib/auth-cookie-reconciliation'
+import {
   captureLocalAuthRecoveryScope,
   endLocalAuthSessionForRecovery,
   type LocalAuthRecoveryScope,
 } from '@/lib/auth-session'
+import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 export function AuthCookieRecovery({
@@ -30,6 +44,12 @@ export function AuthCookieRecovery({
   const navigate = useNavigate()
   const auth = useAuthStore((store) => store.auth)
   const [result, setResult] = useState<'ended' | 'superseded' | null>(null)
+  const [recovering, setRecovering] = useState(
+    hasAuthCookieReconciliationHandoff
+  )
+  const [recoveryFailed, setRecoveryFailed] = useState(false)
+  const [renewalRequired, setRenewalRequired] = useState(false)
+  const recoveryRequest = useRef<AbortController | null>(null)
   const state = useSyncExternalStore(
     subscribeAuthCookieState,
     getAuthCookieBlockedState,
@@ -42,6 +62,84 @@ export function AuthCookieRecovery({
     !auth.user &&
     !auth.pending2FAFlowToken &&
     auth.bootstrapState === 'complete'
+  const recover = useCallback(
+    async (renew = false) => {
+      if (recoveryRequest.current) return
+      const controller = new AbortController()
+      recoveryRequest.current = controller
+      setRecovering(true)
+      setRecoveryFailed(false)
+      try {
+        if (hasAuthCookieReconciliationHandoff()) {
+          const bundle = await (
+            renew ? renewAuthCookieSession : reconcileAuthCookieSession
+          )(controller.signal)
+          if (!controller.signal.aborted) {
+            void navigate({
+              to: getAuthenticatedLandingRoute(bundle.user),
+              replace: true,
+            })
+          }
+        } else {
+          await prepareAuthCookieReconciliation(controller.signal)
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setRenewalRequired(
+            error instanceof AuthCookieSessionNeedsRenewalError
+          )
+          setRecoveryFailed(
+            !(error instanceof AuthCookieSessionNeedsRenewalError)
+          )
+        }
+      } finally {
+        if (recoveryRequest.current === controller) {
+          recoveryRequest.current = null
+        }
+        if (!controller.signal.aborted) setRecovering(false)
+      }
+    },
+    [navigate]
+  )
+  useEffect(() => {
+    const controller = new AbortController()
+    if (
+      getAuthCookieBlockedState() === 'uncertain' &&
+      hasAuthCookieReconciliationHandoff()
+    ) {
+      recoveryRequest.current = controller
+      void reconcileAuthCookieSession(controller.signal)
+        .then((bundle) => {
+          if (!controller.signal.aborted) {
+            void navigate({
+              to: getAuthenticatedLandingRoute(bundle.user),
+              replace: true,
+            })
+          }
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted) {
+            setRenewalRequired(
+              error instanceof AuthCookieSessionNeedsRenewalError
+            )
+            setRecoveryFailed(
+              !(error instanceof AuthCookieSessionNeedsRenewalError)
+            )
+          }
+        })
+        .finally(() => {
+          if (recoveryRequest.current === controller) {
+            recoveryRequest.current = null
+          }
+          if (!controller.signal.aborted) setRecovering(false)
+        })
+    }
+    return () => {
+      recoveryRequest.current?.abort()
+      recoveryRequest.current = null
+      controller.abort()
+    }
+  }, [navigate])
   if (!state) return null
   const handleLocalEnd = () => {
     const outcome = endLocalAuthSessionForRecovery(scope)
@@ -65,6 +163,37 @@ export function AuthCookieRecovery({
                 : authCookieStorageMessage
           )}
         </p>
+        {state === 'uncertain' ? (
+          <div className='space-y-2'>
+            {renewalRequired ? (
+              <p role='status'>
+                {t(
+                  'Your browser session needs renewal before sign-in can be restored.'
+                )}
+              </p>
+            ) : null}
+            {recoveryFailed ? (
+              <p role='status'>
+                {t(
+                  'The server could not confirm a current browser session. Recovery has not completed.'
+                )}
+              </p>
+            ) : null}
+            <Button
+              type='button'
+              variant='outline'
+              disabled={recovering}
+              className='h-auto min-h-11 whitespace-normal'
+              onClick={() => void recover(renewalRequired)}
+            >
+              {recovering
+                ? t('Checking browser session...')
+                : renewalRequired
+                  ? t('Renew browser session')
+                  : t('Recover browser session')}
+            </Button>
+          </div>
+        ) : null}
         {ended ? (
           <p role='status'>
             {t(

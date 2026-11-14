@@ -143,7 +143,9 @@ test('a recovery control bound to an older displayed account cannot clear a newe
         </I18nextProvider>
       )
     )
-    const button = host.querySelector('button')
+    const button = [...host.querySelectorAll('button')].find(
+      (node) => node.textContent === "End this tab's local session"
+    )
     assert.ok(button)
     await act(async () => button.click())
     assert.equal(useAuthStore.getState().auth.user?.id, 99)

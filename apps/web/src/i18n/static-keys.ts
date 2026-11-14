@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
-  'Sign-in could not be completed safely. Close all tabs for this site, clear this site’s cookies and site data in your browser settings, then open this site and sign in again.',
+  'Sign-in was interrupted. Recover this browser session before continuing.',
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.',
   'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.',
   // Assistant starters use stable server IDs to select these keys.

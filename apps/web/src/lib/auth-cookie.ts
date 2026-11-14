@@ -9,7 +9,7 @@ export const AUTH_COOKIE_TIMEOUT_MS = 10_000
 const BLOCKED_KEY = 'new-api:auth-cookie:uncertain'
 const PROBE_KEY = 'new-api:auth-cookie:storage-probe'
 export const authCookieRecoveryMessage =
-  'Sign-in could not be completed safely. Close all tabs for this site, clear this site’s cookies and site data in your browser settings, then open this site and sign in again.'
+  'Sign-in was interrupted. Recover this browser session before continuing.'
 export const authCookieStorageMessage =
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.'
 
@@ -160,6 +160,57 @@ function markUncertain(intent: string): void {
 
 export interface AuthCookieTransaction {
   request: <T>(dispatch: () => Promise<T>) => Promise<T>
+}
+
+/** Recovery preserves the original marker until a server-confirmed commit. */
+export function withAuthCookieReconciliationLock<T>(
+  marker: string,
+  operation: (confirm: (commit: () => void) => void) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  return withAuthCookieActivity(async () => {
+    if (!coordinated()) {
+      throw new AuthCookieBlockedError('coordination_unavailable')
+    }
+    return navigator.locks.request(
+      AUTH_COOKIE_LOCK,
+      { mode: 'exclusive', signal },
+      async () => {
+        signal?.throwIfAborted()
+        const assertMarker = () => {
+          if (
+            !marker.startsWith('uncertain:') ||
+            window.localStorage.getItem(BLOCKED_KEY) !== marker
+          ) {
+            throw new AuthCookieBlockedError('uncertain')
+          }
+        }
+        assertMarker()
+        return operation((commit) => {
+          assertMarker()
+          window.localStorage.removeItem(BLOCKED_KEY)
+          if (window.localStorage.getItem(BLOCKED_KEY) !== null) {
+            throw new AuthCookieBlockedError('storage_unavailable')
+          }
+          blocked = null
+          try {
+            commit()
+          } catch (error) {
+            window.localStorage.setItem(BLOCKED_KEY, marker)
+            blocked = 'uncertain'
+            throw error
+          } finally {
+            notify()
+          }
+        })
+      }
+    )
+  })
+}
+
+export function getAuthCookieUncertaintyMarker(): string | null {
+  const marker = window.localStorage.getItem(BLOCKED_KEY)
+  return marker?.startsWith('uncertain:') ? marker : null
 }
 
 /** A peer can release its WebLock before this realm observes its storage IPC. */
