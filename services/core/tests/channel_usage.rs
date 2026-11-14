@@ -645,10 +645,9 @@ async fn dirty_receipts_require_owner_rebuild_without_an_internal_page_cap(pool:
     for total in 1..=2048 {
         let mut command = source.clone();
         let tag = format!("reserve:{total}");
-        command.operation_id = format!(
-            "{:x}",
-            Sha256::digest(serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap())
-        );
+        command.operation_id = hex_codec::encode(Sha256::digest(
+            serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap(),
+        ));
         command.change = Change::Reserve { total };
         extra.push(json!({"operation_id":command.operation_id,"command":command}));
     }
@@ -747,3 +746,6 @@ async fn malformed_frozen_binding_is_unknown_but_malformed_money_receipt_is_an_e
     assert!(body.get("data").is_none());
     f.role.cleanup().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

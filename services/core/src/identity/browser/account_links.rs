@@ -114,7 +114,7 @@ impl BrowserAuth {
     pub async fn account_links(&self, access: &str) -> BrowserResult<Value> {
         self.require_account_links()?;
         let mut tx = begin(&self.store.pool).await?;
-        let (actor, _) = self.security_actor(&mut tx, access, false).await?;
+        let (actor, _) = self.read_security_actor(&mut tx, access).await?;
         let rows=sqlx::query("SELECT i.issuer,i.subject,COALESCE(s.revision,0) AS revision,s.revoked_at IS NULL AS active FROM core_identity.oauth_identities i LEFT JOIN core_account_links.oauth_states s USING(issuer,subject) WHERE i.user_id=$1 ORDER BY i.issuer,i.subject LIMIT 101")
             .bind(actor.user_id).fetch_all(&mut *tx).await?;
         if rows.len() > 100 {
@@ -131,9 +131,11 @@ impl BrowserAuth {
         if self.store.federated_auth_enabled() {
             let rows = sqlx::query("SELECT i.provider_id,i.subject,i.revision,i.revoked_at IS NULL AS active,p.slug,p.name,p.kind,p.enabled AND p.deleted_at IS NULL AS available FROM core_federated_auth.identities i JOIN core_federated_auth.providers p ON p.id=i.provider_id WHERE i.user_id=$1 ORDER BY i.provider_id,i.created_at LIMIT 1001")
                 .bind(actor.user_id).fetch_all(&mut *tx).await?;
-            if rows.len() > 1000 { return Err(IdentityError::Conflict.into()); }
+            if rows.len() > 1000 {
+                return Err(IdentityError::Conflict.into());
+            }
             for row in rows {
-                let id = row.try_get::<i64,_>("provider_id")?.to_string();
+                let id = row.try_get::<i64, _>("provider_id")?.to_string();
                 links.push(json!({"issuer":format!("urn:lmm:federated:{id}"),"provider_id":id,"subject":row.try_get::<String,_>("subject")?,"revision":row.try_get::<i64,_>("revision")?.to_string(),"active":row.try_get::<bool,_>("active")?,"available":row.try_get::<bool,_>("available")?,"slug":row.try_get::<String,_>("slug")?,"name":row.try_get::<String,_>("name")?,"kind":row.try_get::<String,_>("kind")?}));
             }
         }
@@ -393,7 +395,9 @@ impl BrowserAuth {
         if self.store.federated_auth_enabled() {
             let available: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_federated_auth.identities i JOIN core_federated_auth.providers p ON p.id=i.provider_id WHERE i.user_id=$1 AND i.revoked_at IS NULL AND p.enabled AND p.deleted_at IS NULL AND NOT(i.provider_id=$2 AND i.subject=$3))")
                 .bind(user).bind(federated).bind(subject).fetch_one(&mut *c).await?;
-            if available { return Ok(true); }
+            if available {
+                return Ok(true);
+            }
         }
         let sql = if self.store.account_links_enabled {
             "SELECT EXISTS(SELECT 1 FROM core_identity.oauth_identities i LEFT JOIN core_account_links.oauth_states s USING(issuer,subject) WHERE i.user_id=$1 AND i.issuer=ANY($2) AND NOT(i.issuer=$3 AND i.subject=$4) AND s.revoked_at IS NULL)"

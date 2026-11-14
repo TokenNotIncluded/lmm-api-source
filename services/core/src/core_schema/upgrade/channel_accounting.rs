@@ -5,6 +5,7 @@ const PRE_MANIFEST: &str = "cbc4b9567d9754250afb1646324e61fc13c9368d69e72c5506fa
 const PRE_CATALOG: &str = "e1c5e00088abac46cdec398830bd275945f9e269d2aef33bbe6fd1982c227076";
 const TARGET: &str = include_str!("channel_accounting_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::CHANNEL_ACCOUNTING,
     procedure: PROCEDURE,
     predecessor_count: 42,
     target_count: 44,
@@ -54,7 +55,7 @@ mod tests {
     #[test]
     fn frozen42_is_exact_and_all_paths_have_the_same_explicit44_target() {
         let frozen = include_str!("accounting_predecessor_manifest.json");
-        assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
+        assert_eq!(hex(Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
         let mut compiled: super::super::historical_fixture::Manifest =
             serde_json::from_str(include_str!("accounting_predecessor_manifest.json")).unwrap();
         assert_eq!(ENGINE.target_count, 44);

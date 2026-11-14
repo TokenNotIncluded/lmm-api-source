@@ -37,7 +37,9 @@ async fn apply(pool: &PgPool, sql: &str) -> Result<(), sqlx::Error> {
     sqlx::raw_sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SET LOCAL synchronous_commit=on;")
         .execute(&mut *tx)
         .await?;
-    sqlx::raw_sql(sql).execute(&mut *tx).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(sql))
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await
 }
 

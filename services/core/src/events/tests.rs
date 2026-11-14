@@ -45,7 +45,10 @@ async fn expire(pool: &PgPool) {
     .unwrap();
 }
 async fn count(pool: &PgPool, query: &str) -> i64 {
-    sqlx::query_scalar(query).fetch_one(pool).await.unwrap()
+    sqlx::query_scalar(sqlx::AssertSqlSafe(query))
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 #[test]
 fn invalid_envelopes_and_versions_are_rejected() {

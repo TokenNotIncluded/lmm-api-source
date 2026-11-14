@@ -235,13 +235,12 @@ pub(super) fn encode(
                 signature: Some((provider, signature)),
                 ..
             } = b
+                && let Record::Block(b) = &mut records[i]
             {
-                if let Record::Block(b) = &mut records[i] {
-                    b.signature = Presence::Value(ProviderSignature {
-                        source: protocol(*provider).into(),
-                        value: text(signature),
-                    });
-                }
+                b.signature = Presence::Value(ProviderSignature {
+                    source: protocol(*provider).into(),
+                    value: text(signature),
+                });
             }
             ordinal += 1;
         }

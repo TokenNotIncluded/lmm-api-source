@@ -6,7 +6,7 @@ use crate::{
     billing::charging,
     model_http::assistant_execution::{AgentAnswer, AgentObservation, PreparedAgent},
 };
-use rand::RngCore;
+use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -219,7 +219,7 @@ impl AgentService {
         sqlx::query("INSERT INTO core_assistant.grants(id,conversation_id,turn_id,session_id,auth_version,price,policy,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
             .bind(&grant_id).bind(&conversation).bind(round_turn_id).bind(principal.credential_id).bind(turn.try_get::<i64,_>("auth_version")?).bind(turn.try_get::<Value,_>("price")?).bind(serde_json::to_value(&self.policy.model).map_err(|_|Error::Unavailable)?).bind(now).bind(turn.try_get::<i64,_>("expires_at")?).execute(&mut *tx).await?;
         let mut worker = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut worker);
+        rand::rand_core::UnwrapErr(rand::rngs::SysRng).fill_bytes(&mut worker);
         let request = charging::Request {
             id: request_id.clone(),
             fingerprint: prepared.fingerprint(),

@@ -152,7 +152,10 @@ async fn fingerprint(pool: &PgPool) -> BTreeMap<String, String> {
                 "SELECT md5(COALESCE(string_agg(v,E'\\n' ORDER BY v),'')) FROM (SELECT row_to_json(t)::text v FROM {name} t) q"
             )
         };
-        let hash: String = sqlx::query_scalar(&sql).fetch_one(pool).await.unwrap();
+        let hash: String = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&sql))
+            .fetch_one(pool)
+            .await
+            .unwrap();
         result.insert(name, hash);
     }
     result

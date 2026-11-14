@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -18,7 +18,7 @@ use subtle::ConstantTimeEq;
 pub const SCHEMA: &str = include_str!("../../schema/assistant_tools.sql");
 fn random() -> String {
     let mut b = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::rng().fill_bytes(&mut b);
     crate::hex_codec::encode(b)
 }
 fn sha(bytes: &[u8]) -> Vec<u8> {

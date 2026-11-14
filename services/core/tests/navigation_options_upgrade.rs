@@ -49,3 +49,6 @@ async fn check_history(c: &mut sqlx::PgConnection) {
         "upgrade cannot invent editor keys or approval"
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

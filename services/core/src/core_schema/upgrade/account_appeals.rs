@@ -5,6 +5,7 @@ const PRE_MANIFEST: &str = "12c971ce84ca71eb5605a7fe284535216a5777858d5aaf766c38
 const PRE_CATALOG: &str = "05d1aa6913236fc12cc099640ead1ac2d88a1bde073923ce8353907cfc46c8bb";
 const TARGET: &str = include_str!("account_appeals_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::ACCOUNT_APPEALS,
     procedure: PROCEDURE,
     predecessor_count: 41,
     target_count: 44,
@@ -55,7 +56,7 @@ mod tests {
     #[test]
     fn frozen_41_manifest_and_catalog_remain_exact() {
         let frozen = include_str!("appeals_predecessor_manifest.json");
-        assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
+        assert_eq!(hex(Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
         let mut compiled: super::super::historical_fixture::Manifest =
             serde_json::from_str(include_str!("appeals_predecessor_manifest.json")).unwrap();
         assert_eq!(ENGINE.target_count, 44);
@@ -75,7 +76,7 @@ mod tests {
         let mut bytes = serde_json::to_vec(&compiled).unwrap();
         bytes.push(b'\n');
         assert_eq!(
-            hex(&Sha256::digest(bytes)),
+            hex(Sha256::digest(bytes)),
             "9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829338331a4cd15"
         );
     }

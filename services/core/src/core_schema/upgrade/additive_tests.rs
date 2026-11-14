@@ -157,11 +157,11 @@ fn compiled_25_predecessor_and_only_26_delta_match_frozen_bytes() {
     // These SQL files are preserved independently of the fresh-install tree.
     for name in ["identity", "console", "ledger", "routing", "wallet"] {
         let original = super::super::historical_fixture::old_ddl(name, "");
-        assert_eq!(expected[name], hex(&Sha256::digest(original)), "{name}");
+        assert_eq!(expected[name], hex(Sha256::digest(original)), "{name}");
     }
     assert_eq!(serde_json::to_value(&producer).unwrap(), frozen["manifest"]);
     let stdout = producer.stdout();
-    assert_eq!(hex(&Sha256::digest(stdout)), PRE_MANIFEST);
+    assert_eq!(hex(Sha256::digest(stdout)), PRE_MANIFEST);
     let successor = super::super::historical_fixture::preserved(26);
     assert_eq!(successor.components.len(), TARGET_COMPONENTS);
     assert_eq!(
@@ -170,11 +170,8 @@ fn compiled_25_predecessor_and_only_26_delta_match_frozen_bytes() {
     );
     assert_eq!(COMPONENTS[25].0, "telegram-auth");
     assert_eq!(COMPONENTS[26].0, "assistant-agent");
-    assert_eq!(hex(&Sha256::digest(COMPONENTS[25].1)), TELEGRAM_DDL);
-    assert_eq!(
-        hex(&Sha256::digest(ADDITIVE_UPGRADE_METADATA)),
-        METADATA_DDL
-    );
+    assert_eq!(hex(Sha256::digest(COMPONENTS[25].1)), TELEGRAM_DDL);
+    assert_eq!(hex(Sha256::digest(ADDITIVE_UPGRADE_METADATA)), METADATA_DDL);
     assert_eq!(
         delta_components(),
         json!([{

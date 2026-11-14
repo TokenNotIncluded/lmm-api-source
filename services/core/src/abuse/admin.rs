@@ -135,11 +135,13 @@ async fn user(c: &mut PgConnection, id: i64, write: bool) -> Result<SnapshotUser
     } else {
         " FOR SHARE OF u"
     };
-    let r = sqlx::query(&format!("{USERS} WHERE u.id=$1{suffix}"))
-        .bind(id)
-        .fetch_optional(c)
-        .await?
-        .ok_or(AbuseError::NotFound)?;
+    let r = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "{USERS} WHERE u.id=$1{suffix}"
+    )))
+    .bind(id)
+    .fetch_optional(c)
+    .await?
+    .ok_or(AbuseError::NotFound)?;
     Ok(SnapshotUser {
         view: user_row(&r)?,
         auth_version: r.try_get("auth_version")?,
@@ -273,7 +275,7 @@ impl AbuseStore {
         );
         let mut tx = self.pool.begin().await?;
         administrator(&mut tx, secret).await?;
-        let rows=sqlx::query(&format!(r#"{USERS} WHERE u.id>$1 AND ($3='%%' OR p.username ILIKE $3 ESCAPE '\' OR p.email ILIKE $3 ESCAPE '\') AND ($4='all' OR ($4='marked' AND COALESCE(m.marked,FALSE)) OR ($4='normal' AND NOT COALESCE(m.marked,FALSE)) OR ($4='disabled' AND NOT u.active)) ORDER BY u.id LIMIT $2"#))
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!(r#"{USERS} WHERE u.id>$1 AND ($3='%%' OR p.username ILIKE $3 ESCAPE '\' OR p.email ILIKE $3 ESCAPE '\') AND ($4='all' OR ($4='marked' AND COALESCE(m.marked,FALSE)) OR ($4='normal' AND NOT COALESCE(m.marked,FALSE)) OR ($4='disabled' AND NOT u.active)) ORDER BY u.id LIMIT $2"#)))
             .bind(after).bind(limit+1).bind(pattern).bind(state).fetch_all(&mut *tx).await?;
         let more = rows.len() > limit as usize;
         let users: Vec<UserView> = rows

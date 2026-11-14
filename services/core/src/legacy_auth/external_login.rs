@@ -2,6 +2,7 @@
 use super::*;
 use crate::identity::ExternalProvider;
 use axum::extract::Path;
+use rand::TryRng;
 #[cfg(test)]
 #[path = "external_login_tests.rs"]
 mod tests;
@@ -15,7 +16,7 @@ pub(super) fn routes() -> Router<AuthState> {
 }
 pub(super) fn random_binding() -> Result<String, IdentityError> {
     let mut random = [0_u8; 32];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut random)
         .map_err(|_| IdentityError::Storage)?;
     Ok(crate::hex_codec::encode(random))

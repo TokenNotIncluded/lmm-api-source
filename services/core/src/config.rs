@@ -2395,12 +2395,12 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
             "LMM_CORE_REMOTE_CONTROL_TOKEN_FILE",
             "LMM_CORE_INGRESS_TOKEN_FILE",
         ] {
-            if let Some(path) = setting_os(name) {
-                if service_token(Path::new(&path))? == token {
-                    return Err(invalid_config(
-                        "reward funding credential must be independent",
-                    ));
-                }
+            if let Some(path) = setting_os(name)
+                && service_token(Path::new(&path))? == token
+            {
+                return Err(invalid_config(
+                    "reward funding credential must be independent",
+                ));
             }
         }
         let config: RewardFundingConfig = parse_document(&document)
@@ -2917,7 +2917,7 @@ impl LegacyKeyAliasesConfig {
         use sha2::{Digest, Sha256};
         let read = |path: &Path, expected: &str| {
             let bytes = private_file(path, 4 * 1024 * 1024)?;
-            if format!("{:x}", Sha256::digest(&bytes)) != expected {
+            if crate::hex_codec::encode(Sha256::digest(&bytes)) != expected {
                 return Err(invalid_config(
                     "legacy key alias installation hash mismatch",
                 ));
@@ -2951,6 +2951,8 @@ struct ModelConfig {
     #[serde(default)]
     responses_websocket: bool,
     #[serde(default)]
+    responses_websocket_origins: Vec<String>,
+    #[serde(default)]
     // Each host contract carries its strict reservation profile; omission is context_max.
     external_models: Vec<crate::model_http::ExternalModelContext>,
     #[serde(default)]
@@ -2968,7 +2970,7 @@ struct ModelConfig {
 }
 
 #[cfg(test)]
-fn model_gateway(
+pub(crate) fn model_gateway(
     pool: sqlx::PgPool,
     document: &[u8],
     local_http: bool,
@@ -3235,7 +3237,18 @@ fn model_gateway_with_origins(
         gateway
     };
     let gateway = if config.responses_websocket {
-        gateway.with_responses_websocket()
+        let mut origins = config.responses_websocket_origins;
+        // Reuse the installation's existing browser origin. Extra historical
+        // trusted sites are explicit model-sidecar origins, never request input.
+        if let Ok(origin) = setting("LMM_CORE_WEB_ORIGIN")
+            && !origins.contains(&origin)
+        {
+            origins.push(origin);
+        }
+        gateway
+            .with_responses_websocket_origins(origins)
+            .map_err(|_| invalid_config("invalid Responses WebSocket origins"))?
+            .with_responses_websocket()
     } else {
         gateway
     };
@@ -3404,8 +3417,7 @@ fn abuse_credentials_for_network(
                     .map_err(|_| invalid_config("invalid isolated moderation CA"))?;
                 reqwest::Client::builder()
                     .no_proxy()
-                    .tls_built_in_root_certs(false)
-                    .add_root_certificate(certificate.clone())
+                    .tls_certs_only([certificate.clone()])
                     .build()
                     .map_err(|_| invalid_config("invalid isolated moderation CA"))?;
                 Ok(certificate)
@@ -3630,6 +3642,11 @@ pub async fn humangrant(
     crate::humangrant::runtime::open_with_mail(pool, &origin, local, smtp.as_ref())
         .await
         .map(Some)
+}
+
+pub fn checkin_rewards_configured() -> bool {
+    setting_os("LMM_CORE_CHECKIN_REWARDS_CONFIG_FILE").is_some()
+        || setting_os("LMM_CORE_CHECKIN_REWARDS_TOKEN_FILE").is_some()
 }
 
 #[cfg(test)]
@@ -5127,12 +5144,11 @@ rules=[{{id=1,model='model',group='allowed',speed='standard',rates={{input=20000
         }
         let mut config = LegacyKeyAliasesConfig {
             manifest_file: manifest.clone(),
-            manifest_sha256: format!("{:x}", Sha256::digest(b"synthetic-manifest-bytes")),
+            manifest_sha256: crate::hex_codec::encode(Sha256::digest(b"synthetic-manifest-bytes")),
             credential_receipt_file: receipt.clone(),
-            credential_receipt_sha256: format!(
-                "{:x}",
-                Sha256::digest(b"synthetic-owner-mapping-bytes")
-            ),
+            credential_receipt_sha256: crate::hex_codec::encode(Sha256::digest(
+                b"synthetic-owner-mapping-bytes",
+            )),
         };
         let actual = config.read().unwrap();
         assert_eq!(actual.0, b"synthetic-manifest-bytes");
@@ -5179,9 +5195,4 @@ rules=[{{id=1,model='model',group='allowed',speed='standard',rates={{input=20000
                 .contains("do-not-log-this-secret")
         );
     }
-}
-
-pub fn checkin_rewards_configured() -> bool {
-    setting_os("LMM_CORE_CHECKIN_REWARDS_CONFIG_FILE").is_some()
-        || setting_os("LMM_CORE_CHECKIN_REWARDS_TOKEN_FILE").is_some()
 }

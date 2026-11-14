@@ -21,7 +21,10 @@ fn target() -> Result<Target, IdentityError> {
         .map_err(|_| IdentityError::Storage)?;
     let mut bytes = serde_json::to_vec(&schema_manifest()).map_err(|_| IdentityError::Storage)?;
     bytes.push(b'\n');
-    target.validate(COMPONENTS.len(), &format!("{:x}", Sha256::digest(bytes)))?;
+    target.validate(
+        COMPONENTS.len(),
+        &crate::hex_codec::encode(Sha256::digest(bytes)),
+    )?;
     Ok(target)
 }
 impl Target {

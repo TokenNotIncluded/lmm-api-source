@@ -26,6 +26,9 @@ pub struct SettlementClock {
 impl SettlementClock {
     /// Time is supplied by a trusted durable checkpoint, never sampled here.
     /// The observed Shanghai calendar uses its post-1991 UTC+8 domain.
+    // Production legacy expression admission rejects calendar expressions;
+    // these trusted clock fixtures exercise the bounded calendar oracle.
+    #[cfg(test)]
     pub fn from_unix_seconds(value: i64) -> Result<Self, Error> {
         if !(946_684_800..4_102_444_800).contains(&value) {
             return Err(Error::ClockRange);
@@ -33,9 +36,6 @@ impl SettlementClock {
         Ok(Self {
             unix_seconds: value,
         })
-    }
-    pub fn unix_seconds(self) -> i64 {
-        self.unix_seconds
     }
     fn part(self, part: ClockPart) -> f64 {
         match part {
@@ -102,12 +102,17 @@ pub fn quota_round_checked(value: f64) -> (i32, Option<QuotaClamp>) {
 }
 #[derive(Clone, Debug)]
 pub struct Evaluation {
+    #[cfg(test)]
     pub raw_expression_bits: u64,
+    #[cfg(test)]
     pub before_group_bits: u64,
     pub after_group_bits: u64,
     pub quota: i32,
+    #[cfg(test)]
     pub clamp: Option<QuotaClamp>,
+    #[cfg(test)]
     pub matched_tier: String,
+    #[cfg(test)]
     pub tier_cost_bits: u64,
 }
 enum Value {
@@ -131,7 +136,9 @@ impl Value {
 struct Eval<'a> {
     params: &'a TokenParams,
     clock: Option<SettlementClock>,
+    #[cfg(test)]
     tier: String,
+    #[cfg(test)]
     tier_cost: f64,
 }
 impl Eval<'_> {
@@ -148,7 +155,10 @@ impl Eval<'_> {
                     self.node(b)?
                 }
             }
-            Node::Tier(label, body) => {
+            #[cfg(not(test))]
+            Node::Tier { body } => Value::Number(self.node(body)?.number()?),
+            #[cfg(test)]
+            Node::Tier { label, body } => {
                 let value = self.node(body)?.number()?;
                 self.tier = label.clone();
                 self.tier_cost = value;
@@ -194,7 +204,9 @@ pub(super) fn evaluate(
     let mut state = Eval {
         params,
         clock,
+        #[cfg(test)]
         tier: String::new(),
+        #[cfg(test)]
         tier_cost: 0.0,
     };
     let raw = state.node(&program.root)?.number()?;
@@ -203,16 +215,23 @@ pub(super) fn evaluate(
     let before = raw / 1_000_000.0 * money.unit;
     let after = before * money.group;
     let (mut quota, clamp) = quota_round_checked(after);
+    #[cfg(not(test))]
+    let _ = clamp;
     if quota == 0 && before > 0.0 && money.group > 0.0 {
         quota = 1;
     }
     Ok(Evaluation {
+        #[cfg(test)]
         raw_expression_bits: raw.to_bits(),
+        #[cfg(test)]
         before_group_bits: before.to_bits(),
         after_group_bits: after.to_bits(),
         quota,
+        #[cfg(test)]
         clamp,
+        #[cfg(test)]
         matched_tier: state.tier,
+        #[cfg(test)]
         tier_cost_bits: state.tier_cost.to_bits(),
     })
 }

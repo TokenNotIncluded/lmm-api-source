@@ -5,7 +5,8 @@ use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
     aead::{Aead, Payload},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use std::{collections::HashMap, io::Read, path::Path};
 use zeroize::Zeroizing;
 
@@ -154,12 +155,12 @@ impl MailKeys {
         let cipher =
             Aes256Gcm::new_from_slice(key.as_slice()).map_err(|_| MailError::Unavailable)?;
         let mut nonce = [0_u8; 12];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut nonce)
             .map_err(|_| MailError::Unavailable)?;
         let encrypted = cipher
             .encrypt(
-                Nonce::from_slice(&nonce),
+                &Nonce::from(nonce),
                 Payload {
                     msg: plaintext,
                     aad: &Self::aad(id, challenge, kind, &self.active),
@@ -187,7 +188,7 @@ impl MailKeys {
         let plain = Aes256Gcm::new_from_slice(key.as_slice())
             .map_err(|_| MailError::Unavailable)?
             .decrypt(
-                Nonce::from_slice(&envelope[1..13]),
+                &Nonce::try_from(&envelope[1..13]).map_err(|_| MailError::Unavailable)?,
                 Payload {
                     msg: &envelope[13..],
                     aad: &Self::aad(id, challenge, kind, key_id),

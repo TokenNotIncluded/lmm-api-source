@@ -6,6 +6,10 @@ pub(crate) fn encode(input: impl AsRef<[u8]>) -> String {
     zhex::encode_lower(input, &mut output).expect("exact hex output capacity");
     String::from_utf8(output).expect("zhex emits ASCII")
 }
+#[allow(
+    dead_code,
+    reason = "Shared lib/bin module: library callers decode; the executable only encodes"
+)]
 pub(crate) fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, zhex::Error> {
     let input = input.as_ref();
     let mut output = vec![0; zhex::decoded_len(input.len())?];

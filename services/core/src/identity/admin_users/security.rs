@@ -89,13 +89,13 @@ pub(super) async fn target(c: &mut PgConnection, id: i64, lock: bool) -> Result<
         return Err(ProfileError::Invalid);
     }
     let suffix = if lock { " FOR UPDATE OF u" } else { "" };
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT u.auth_version,u.active,u.platform_role,a.active AS account_active,
          EXISTS(SELECT 1 FROM core_identity.mfa_factors f WHERE f.user_id=u.id AND f.enabled) AS mfa_enabled,
          EXISTS(SELECT 1 FROM core_identity.privileged_import_facts p WHERE p.user_id=u.id) AS imported_admin
          FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
          WHERE u.id=$1{suffix}"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&mut *c)
     .await?

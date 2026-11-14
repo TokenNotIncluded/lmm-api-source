@@ -32,7 +32,7 @@ fn prepared_legacy(id: &str, max: i64) -> (Request, ReservationBasis, PreparedRe
         source_tariff: None,
     };
     let proof = PreparedReservation::context_max(
-        contract::hex_digest(&spec.fingerprint),
+        contract::hex_digest(spec.fingerprint),
         ReservationBinding {
             route_id: "legacy-route".into(),
             target_id: 1,

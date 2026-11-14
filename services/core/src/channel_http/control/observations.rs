@@ -1,7 +1,7 @@
 //! Batched display reads and fenced catalogue observations; no ledger writes.
 use super::*;
 use num_bigint::BigInt;
-use num_rational::BigRational;
+type BigRational = num_rational::Ratio<num_bigint::BigInt>;
 use sqlx::{PgConnection, Row};
 use std::collections::BTreeMap;
 
@@ -142,8 +142,10 @@ pub(in crate::channel_http) async fn batch(
         .map_err(ManagementError::from)?;
     let mut result = BTreeMap::new();
     for row in rows {
-        let mut stats = Statistics::default();
-        stats.generation = row.try_get("generation").map_err(ManagementError::from)?;
+        let mut stats = Statistics {
+            generation: row.try_get("generation").map_err(ManagementError::from)?,
+            ..Statistics::default()
+        };
         stats.lifetime.historical_observed_at = row
             .try_get("historical_observed_at")
             .map_err(ManagementError::from)?;
@@ -262,7 +264,7 @@ fn digest(
         selection,
     ))
     .map_err(|_| ManagementError::Storage)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(crate::hex_codec::encode(Sha256::digest(bytes)))
 }
 
 pub(in crate::channel_http) async fn list(

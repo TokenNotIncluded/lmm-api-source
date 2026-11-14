@@ -44,6 +44,7 @@ pub(super) fn gateway(
         .filter(|_| reject)
         .map(|model| ExternalModelContext {
             responses_compaction: false,
+            responses_continuity: None,
             upstream_id: 1,
             upstream_model: (*model).into(),
             protocol,
@@ -378,10 +379,10 @@ async fn text_request_pg_receipts_recover_original_price_for_completion_and_reje
         tokio::time::timeout(Duration::from_secs(3), entered.notified())
             .await
             .unwrap();
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) FROM {}",
             role.name
-        ))
+        )))
         .execute(&f.pool)
         .await
         .unwrap();
@@ -400,10 +401,10 @@ async fn text_request_pg_receipts_recover_original_price_for_completion_and_reje
             750
         );
         drop(initial);
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) TO {}",
             role.name
-        ))
+        )))
         .execute(&f.pool)
         .await
         .unwrap();

@@ -436,7 +436,7 @@ mod tests {
             input_digest(&input).unwrap(),
             crate::builtins::input_digest(&input).unwrap()
         );
-        let generic = format!("{:x}", Sha256::digest(serde_json::to_vec(&input).unwrap()));
+        let generic = crate::hex_codec::encode(Sha256::digest(serde_json::to_vec(&input).unwrap()));
         assert_ne!(input_digest(&input).unwrap(), generic);
         assert_eq!(input_digest(&json!([1, 2])), Err(Error::Invalid));
         assert_eq!(

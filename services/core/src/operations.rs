@@ -112,16 +112,13 @@ impl OperationsStore {
             .execute(&mut *tx)
             .await?;
         let user = authorize(&mut tx, secret, 6).await?;
-        let id = format!(
-            "{:x}",
-            Sha256::digest(format!("log-cleanup-v1:{user}:{key}"))
-        );
+        let id = crate::hex_codec::encode(Sha256::digest(format!("log-cleanup-v1:{user}:{key}")));
         sqlx::query("SELECT pg_advisory_xact_lock(741803151)")
             .execute(&mut *tx)
             .await?;
-        if let Some(row) = sqlx::query(&format!(
+        if let Some(row) = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT {TASK_COLUMNS} FROM core_operations.log_cleanup_jobs WHERE task_id=$1"
-        ))
+        )))
         .bind(&id)
         .fetch_optional(&mut *tx)
         .await?
@@ -156,7 +153,7 @@ impl OperationsStore {
         .bind(bound)
         .fetch_one(&mut *tx)
         .await?;
-        let row = sqlx::query(&format!("INSERT INTO core_operations.log_cleanup_jobs(task_id,created_by,target_timestamp,max_source_id,batch_size,total,status) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING {TASK_COLUMNS}"))
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO core_operations.log_cleanup_jobs(task_id,created_by,target_timestamp,max_source_id,batch_size,total,status) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING {TASK_COLUMNS}")))
             .bind(&id).bind(user).bind(target).bind(bound).bind(BATCH_SIZE).bind(total)
             .bind(if total==0 {"succeeded"} else {"pending"}).fetch_one(&mut *tx).await?;
         let result = task(&row)?;
@@ -172,7 +169,7 @@ impl OperationsStore {
         }
         let mut tx = self.pool.begin().await?;
         authorize(&mut tx, secret, 6).await?;
-        let rows=sqlx::query(&format!("SELECT {TASK_COLUMNS} FROM core_operations.log_cleanup_jobs WHERE ($1::text IS NULL OR task_id=$1) ORDER BY id DESC LIMIT $2"))
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {TASK_COLUMNS} FROM core_operations.log_cleanup_jobs WHERE ($1::text IS NULL OR task_id=$1) ORDER BY id DESC LIMIT $2")))
             .bind(id).bind(limit).fetch_all(&mut *tx).await?;
         let result = rows.iter().map(task).collect::<Result<Vec<_>>>()?;
         tx.commit().await?;
@@ -250,7 +247,7 @@ impl Heartbeat {
             if *stopped.borrow() {
                 break;
             }
-            if ticks % 10 == 0 {
+            if ticks.is_multiple_of(10) {
                 let (phase, active) = lifecycle.snapshot();
                 let phase = match phase {
                     crate::lifecycle::Phase::Preparing => "preparing",
@@ -270,11 +267,10 @@ impl Heartbeat {
                     eprintln!("instance heartbeat unavailable");
                 }
             }
-            if ticks % 3600 == 0 {
-                if sqlx::query("DELETE FROM core_operations.instances WHERE heartbeat_at<clock_timestamp()-interval '7 days'").execute(&self.store.pool).await.is_err() {
+            if ticks.is_multiple_of(3600)
+                && sqlx::query("DELETE FROM core_operations.instances WHERE heartbeat_at<clock_timestamp()-interval '7 days'").execute(&self.store.pool).await.is_err() {
                     eprintln!("old instance heartbeat cleanup unavailable");
                 }
-            }
             if self.store.cleanup_batch().await.is_err() {
                 eprintln!("log cleanup batch not confirmed; durable progress will resume");
             }

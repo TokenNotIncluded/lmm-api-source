@@ -71,7 +71,7 @@ async fn setup(pool: PgPool) -> (IdentityStore, Router) {
     let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
     // Explicit installer-owned fixture: management/user projection reads abuse.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();
@@ -806,6 +806,13 @@ async fn historical_bearer_logout_revokes_stable_family_after_refresh(pool: PgPo
     let original_cookie = cookie(&original_headers);
     let old_access = original_bundle["access_token"].as_str().unwrap();
     let sid = original_bundle["session"]["sid"].as_str().unwrap();
+    let old_digest = Sha256::digest(old_access.as_bytes());
+    let old_id: i64 =
+        sqlx::query_scalar("SELECT id FROM core_identity.credentials WHERE digest=$1")
+            .bind(old_digest.to_vec())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let renewed = call(
         &app,
         "POST",
@@ -821,6 +828,71 @@ async fn historical_bearer_logout_revokes_stable_family_after_refresh(pool: PgPo
     assert!(store.refresh_session(old_access).await.is_err());
     assert!(store.authorize(new_access).await.is_ok());
     let old_bearer = format!("Bearer {old_access}");
+    let binding: (String, i64, bool, bool, i64, i64, Vec<u8>) = sqlx::query_as("SELECT m.sid,s.current_credential_id,c.revoked_at IS NOT NULL,c.expires_at>clock_timestamp(),floor(extract(epoch FROM c.expires_at))::bigint,floor(extract(epoch FROM clock_timestamp()))::bigint,nc.digest FROM core_identity.credentials c JOIN core_identity.web_session_credentials m ON m.credential_id=c.id JOIN core_identity.web_sessions s ON s.sid=m.sid JOIN core_identity.credentials nc ON nc.id=s.current_credential_id WHERE c.id=$1 AND c.digest=$2")
+        .bind(old_id).bind(old_digest.to_vec()).fetch_one(&pool).await.unwrap();
+    assert_eq!(binding.0, sid);
+    assert_ne!(old_id, binding.1);
+    assert!(binding.2 && binding.3);
+    let current_digest = Sha256::digest(new_access.as_bytes());
+    assert_eq!(binding.6, current_digest.to_vec());
+    let old_digest_hex = format!("{:x}", axum::body::Bytes::copy_from_slice(&old_digest));
+    let current_digest_hex = format!("{:x}", axum::body::Bytes::copy_from_slice(&current_digest));
+    eprintln!(
+        "historical logout binding: old_id={old_id} old_sha256={old_digest_hex} old_expires_at={} observed_at={} current_id={} current_sha256={current_digest_hex} sid={sid}",
+        binding.4, binding.5, binding.1
+    );
+    let old_self = call(
+        &app,
+        "GET",
+        "/api/user/self",
+        None,
+        &[("authorization", &old_bearer)],
+    )
+    .await;
+    assert_eq!(old_self.0, StatusCode::UNAUTHORIZED);
+    let deletion = call(
+        &app,
+        "DELETE",
+        &format!("/api/user/sessions/{sid}"),
+        None,
+        &[
+            ("origin", ORIGIN),
+            ("authorization", &old_bearer),
+            ("x-auth-session", sid),
+        ],
+    )
+    .await;
+    assert_eq!(deletion.0, StatusCode::UNAUTHORIZED);
+    assert!(deletion.1.get("set-cookie").is_none());
+    let live: bool = sqlx::query_scalar(
+        "SELECT revoked_at IS NULL FROM core_identity.web_sessions WHERE sid=$1",
+    )
+    .bind(sid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(live);
+    assert!(store.authorize(new_access).await.is_ok());
+    register(&app, "history-other").await;
+    let (other_headers, other_bundle) = login(&app, "history-other").await;
+    let other_sid = other_bundle["session"]["sid"].as_str().unwrap();
+    let other_access = other_bundle["access_token"].as_str().unwrap();
+    let wrong = call(
+        &app,
+        "POST",
+        "/api/user/auth/logout",
+        None,
+        &[
+            ("authorization", &old_bearer),
+            ("x-auth-session", other_sid),
+        ],
+    )
+    .await;
+    assert_eq!(wrong.0, StatusCode::CONFLICT);
+    assert_eq!(wrong.2["code"], "AUTH_SESSION_MISMATCH");
+    assert!(wrong.1.get("set-cookie").is_none());
+    assert!(store.authorize(new_access).await.is_ok());
+    assert!(store.authorize(other_access).await.is_ok());
     let logout = call(
         &app,
         "POST",
@@ -830,6 +902,17 @@ async fn historical_bearer_logout_revokes_stable_family_after_refresh(pool: PgPo
     )
     .await;
     assert_eq!(logout.0, StatusCode::OK);
+    assert_eq!(logout.2["data"]["revoked_sid"], sid);
+    assert!(store.authorize(other_access).await.is_ok());
+    let other_refresh = call(
+        &app,
+        "POST",
+        "/api/user/auth/refresh",
+        None,
+        &[("cookie", &cookie(&other_headers))],
+    )
+    .await;
+    assert_eq!(other_refresh.0, StatusCode::OK);
     assert!(store.authorize(new_access).await.is_err());
     assert!(store.authorize(old_access).await.is_err());
     let revoked = call(
@@ -941,6 +1024,7 @@ async fn logout_history_never_accepts_unknown_expired_key_or_other_sid(pool: PgP
         )
         .await;
         assert_eq!(response.0, StatusCode::OK);
+        assert!(response.2["data"]["revoked_sid"].is_null());
         let probe = call(
             &app,
             "POST",
@@ -966,6 +1050,7 @@ async fn logout_history_never_accepts_unknown_expired_key_or_other_sid(pool: PgP
     )
     .await;
     assert_eq!(expired.0, StatusCode::OK);
+    assert!(expired.2["data"]["revoked_sid"].is_null());
     assert_eq!(
         call(
             &app,
@@ -991,4 +1076,44 @@ async fn logout_history_never_accepts_unknown_expired_key_or_other_sid(pool: PgP
         .0,
         StatusCode::OK
     );
+}
+
+#[sqlx::test(migrations = false)]
+async fn logout_receipt_is_absent_without_actual_family_proof(pool: PgPool) {
+    let (store, app) = setup(pool).await;
+    register(&app, "receipt-proof").await;
+    let (headers, bundle) = login(&app, "receipt-proof").await;
+    let access = bundle["access_token"].as_str().unwrap();
+    let sid = bundle["session"]["sid"].as_str().unwrap();
+    let unknown = format!("new_api_refresh={}.lmmr_{}", "0".repeat(64), "d".repeat(64));
+    let invalid = format!("new_api_refresh={sid}.lmmr_{}", "e".repeat(64));
+    for candidate in [None, Some(unknown.as_str()), Some(invalid.as_str())] {
+        let request_headers: Vec<(&str, &str)> = candidate
+            .into_iter()
+            .map(|value| ("cookie", value))
+            .collect();
+        let response = call(
+            &app,
+            "POST",
+            "/api/user/auth/logout",
+            None,
+            &request_headers,
+        )
+        .await;
+        assert_eq!(response.0, StatusCode::OK);
+        assert_eq!(response.2["success"], true);
+        assert!(response.2["data"]["revoked_sid"].is_null());
+        assert!(store.authorize(access).await.is_ok());
+    }
+    let response = call(
+        &app,
+        "POST",
+        "/api/user/auth/logout",
+        None,
+        &[("cookie", &cookie(&headers)), ("x-auth-session", sid)],
+    )
+    .await;
+    assert_eq!(response.0, StatusCode::OK);
+    assert_eq!(response.2["data"]["revoked_sid"], sid);
+    assert!(store.authorize(access).await.is_err());
 }

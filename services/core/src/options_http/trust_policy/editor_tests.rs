@@ -15,7 +15,7 @@ async fn setup(pool: &sqlx::PgPool) -> (Service, TestDevice, crate::identity::Is
     (test_service(pool), device, root)
 }
 async fn grant(pool: &sqlx::PgPool, name: &str) {
-    sqlx::raw_sql(&format!("GRANT EXECUTE ON FUNCTION core_trust_pricing.read_policy_edit_description(bigint), core_trust_pricing.read_policy_editors(bigint), core_trust_pricing.policy_editor_ready(bytea), core_trust_pricing.policy_edit_binding(text,jsonb), core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea), core_trust_pricing.authorized_policy_resolve(bytea,bigint,bigint,bytea), core_trust_pricing.policy_editor_context(text,bigint), core_trust_pricing.authorized_policy_challenge(jsonb,bytea), core_trust_pricing.policy_challenge_context(bytea,bytea,bigint,bigint), core_trust_pricing.authorized_policy_confirm(jsonb,bytea) TO {name}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT EXECUTE ON FUNCTION core_trust_pricing.read_policy_edit_description(bigint), core_trust_pricing.read_policy_editors(bigint), core_trust_pricing.policy_editor_ready(bytea), core_trust_pricing.policy_edit_binding(text,jsonb), core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea), core_trust_pricing.authorized_policy_resolve(bytea,bigint,bigint,bytea), core_trust_pricing.policy_editor_context(text,bigint), core_trust_pricing.authorized_policy_challenge(jsonb,bytea), core_trust_pricing.policy_challenge_context(bytea,bytea,bigint,bigint), core_trust_pricing.authorized_policy_confirm(jsonb,bytea) TO {name}")))
         .execute(pool).await.unwrap();
 }
 async fn snapshot(pool: &sqlx::PgPool) -> Value {

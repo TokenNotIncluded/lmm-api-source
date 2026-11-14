@@ -2,6 +2,7 @@
 //! bootstrap replaces provider transport only. No external provider or real funds.
 #![cfg(unix)]
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use lmm_core::{
     billing::ledger::Ledger,
@@ -35,7 +36,7 @@ pub(crate) struct Process(
 
 fn binary_sha(binary: &Path, variable: &str, required: bool) -> String {
     assert!(binary.is_absolute() && binary.is_file());
-    let actual = format!("{:x}", Sha256::digest(fs::read(binary).unwrap()));
+    let actual = hex_codec::encode(Sha256::digest(fs::read(binary).unwrap()));
     match std::env::var(variable) {
         Ok(expected) => {
             assert!(expected.len() == 64 && expected.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -72,7 +73,7 @@ pub(crate) fn observation(pid: u32, expected: &str) -> Value {
     let metadata = file.metadata().unwrap();
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).unwrap();
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = hex_codec::encode(Sha256::digest(&bytes));
     assert_eq!(
         digest, expected,
         "actual product executable differs from frozen input"
@@ -136,7 +137,7 @@ pub(crate) fn spawn(
     log: &str,
 ) -> Process {
     assert_eq!(
-        format!("{:x}", Sha256::digest(fs::read(binary).unwrap())),
+        hex_codec::encode(Sha256::digest(fs::read(binary).unwrap())),
         expected,
         "product binary changed before spawn"
     );
@@ -251,7 +252,7 @@ fn bootstrap_observation(pid: u32, expected: &str) -> Value {
     );
     let mut bytes = Vec::new();
     executed.read_to_end(&mut bytes).unwrap();
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = hex_codec::encode(Sha256::digest(&bytes));
     assert_eq!(
         digest, expected,
         "actual bootstrap executed image differs from sealed artifact"
@@ -262,7 +263,7 @@ fn bootstrap_observation(pid: u32, expected: &str) -> Value {
 }
 async fn bootstrap(binary: &Path, sha: &str, fixture: &Path, root: &Path, phase: &str) {
     assert_eq!(
-        format!("{:x}", Sha256::digest(fs::read(binary).unwrap())),
+        hex_codec::encode(Sha256::digest(fs::read(binary).unwrap())),
         sha
     );
     let log = fs::OpenOptions::new()
@@ -422,7 +423,7 @@ async fn credit_association(
     } else {
         assert!(job["receipt"].is_null());
     }
-    json!({"receipt_id":receipt.receipt_id,"intent_id":intent_id,"original_operation_key":key,"request_sha256":receipt.request_sha256,"receipt_wire_sha256":format!("{:x}",Sha256::digest(&row.4)),"journal_id":receipt.journal_id,"journal_kind":journal.0,"journal_amount":journal.1,"payer_ledger_account":journal.2,"payee_ledger_account":journal.3,"journal_scope":journal.4,"journal_operation_key":journal.5,"exact_legs":legs})
+    json!({"receipt_id":receipt.receipt_id,"intent_id":intent_id,"original_operation_key":key,"request_sha256":receipt.request_sha256,"receipt_wire_sha256":hex_codec::encode(Sha256::digest(&row.4)),"journal_id":receipt.journal_id,"journal_kind":journal.0,"journal_amount":journal.1,"payer_ledger_account":journal.2,"payee_ledger_account":journal.3,"journal_scope":journal.4,"journal_operation_key":journal.5,"exact_legs":legs})
 }
 async fn snapshot(go: &PgPool, id: &str) -> Value {
     sqlx::query_scalar("SELECT snapshot FROM public.payment_orders WHERE id=$1")
@@ -509,10 +510,12 @@ pub(crate) async fn prepare_payment_fixture(pool: &PgPool) -> PaymentFixture {
         .unwrap();
     let db = pool.connect_options().get_database().unwrap().to_owned();
     assert!(db.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
-    sqlx::query(&format!("REVOKE CONNECT ON DATABASE \"{db}\" FROM PUBLIC"))
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "REVOKE CONNECT ON DATABASE \"{db}\" FROM PUBLIC"
+    )))
+    .execute(pool)
+    .await
+    .unwrap();
     let role = runtime::RuntimeRole::create(pool).await;
     role.optional("core_payments").await;
     role.optional("core_events").await;
@@ -520,14 +523,14 @@ pub(crate) async fn prepare_payment_fixture(pool: &PgPool) -> PaymentFixture {
     let owner = format!("{database}_owner");
     let login = format!("{database}_runtime");
     let password = format!("{:032x}", rand::random::<u128>());
-    sqlx::raw_sql(&format!("CREATE ROLE {owner} NOLOGIN;CREATE ROLE {login} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}';")).execute(pool).await.unwrap();
-    sqlx::query(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN;CREATE ROLE {login} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}';"))).execute(pool).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE DATABASE {database} OWNER {owner} TEMPLATE template0"
-    ))
+    )))
     .execute(pool)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!("REVOKE ALL ON DATABASE {database} FROM PUBLIC;GRANT CONNECT ON DATABASE {database} TO {login};")).execute(pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REVOKE ALL ON DATABASE {database} FROM PUBLIC;GRANT CONNECT ON DATABASE {database} TO {login};"))).execute(pool).await.unwrap();
     let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
     assert!(matches!(url.host_str(), Some("127.0.0.1" | "localhost")));
     url.set_path(&database);
@@ -542,7 +545,7 @@ pub(crate) async fn prepare_payment_fixture(pool: &PgPool) -> PaymentFixture {
     .execute(&go_owner)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!("REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA public TO {login};GRANT SELECT ON payment_storage_guard TO {login};GRANT SELECT,INSERT,UPDATE ON payment_orders,payment_events TO {login};REVOKE CREATE,TEMPORARY ON DATABASE {database} FROM PUBLIC;")).execute(&go_owner).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA public TO {login};GRANT SELECT ON payment_storage_guard TO {login};GRANT SELECT,INSERT,UPDATE ON payment_orders,payment_events TO {login};REVOKE CREATE,TEMPORARY ON DATABASE {database} FROM PUBLIC;"))).execute(&go_owner).await.unwrap();
     url.set_username(&login).unwrap();
     url.set_password(Some(&password)).unwrap();
     // This URL was allocated above in this fresh owned loopback cluster only.
@@ -895,7 +898,7 @@ struct ProofManifestRow {
 async fn proof_manifest(pool: &PgPool) -> Value {
     let rows: Vec<ProofManifestRow> = sqlx::query_as("SELECT id,event_id,payload_hash,signed_payload,signature,receipt_wire FROM core_payments.accepted_proofs ORDER BY id").fetch_all(pool).await.unwrap();
     assert_eq!(rows.len(), 2);
-    json!(rows.iter().map(|r|json!({"id":r.id,"event_id":r.event_id,"payload_hash":r.payload_hash,"signed_payload_sha256":format!("{:x}",Sha256::digest(&r.signed_payload)),"signature_sha256":format!("{:x}",Sha256::digest(&r.signature)),"receipt_wire_sha256":format!("{:x}",Sha256::digest(&r.receipt_wire))})).collect::<Vec<_>>())
+    json!(rows.iter().map(|r|json!({"id":r.id,"event_id":r.event_id,"payload_hash":r.payload_hash,"signed_payload_sha256":hex_codec::encode(Sha256::digest(&r.signed_payload)),"signature_sha256":hex_codec::encode(Sha256::digest(&r.signature)),"receipt_wire_sha256":hex_codec::encode(Sha256::digest(&r.receipt_wire))})).collect::<Vec<_>>())
 }
 
 fn assert_live_product(process: &mut Process) {
@@ -1083,11 +1086,10 @@ async fn real_core_and_go_payment_accepted_proof_survives_expiry_and_os_restart(
     let baseline_proofs = proof_manifest(&pool).await;
     let baseline_order = snapshot(&go_owner, &format!("top_{}", intent.intent_id)).await;
     let original_payload_sha256 =
-        format!("{:x}", Sha256::digest(serde_json::to_vec(events).unwrap()));
-    let secret_sha = format!(
-        "{:x}",
-        Sha256::digest(fs::read(root.join("webhook.secret")).unwrap())
-    );
+        hex_codec::encode(Sha256::digest(serde_json::to_vec(events).unwrap()));
+    let secret_sha = hex_codec::encode(Sha256::digest(
+        fs::read(root.join("webhook.secret")).unwrap(),
+    ));
     let token = fs::read_to_string(root.join("payment.token")).unwrap();
     let channel = tonic::transport::Endpoint::from_shared(format!(
         "unix:{}",
@@ -1132,10 +1134,9 @@ async fn real_core_and_go_payment_accepted_proof_survives_expiry_and_os_restart(
         assert_eq!(snapshot(&go_owner, &order_id).await, baseline_order);
         assert_eq!(fs::read(&fixture).unwrap(), original_bytes);
         assert_eq!(
-            format!(
-                "{:x}",
-                Sha256::digest(fs::read(root.join("webhook.secret")).unwrap())
-            ),
+            hex_codec::encode(Sha256::digest(
+                fs::read(root.join("webhook.secret")).unwrap()
+            )),
             secret_sha
         );
         assert_eq!(
@@ -1148,7 +1149,7 @@ async fn real_core_and_go_payment_accepted_proof_survives_expiry_and_os_restart(
             "expiry observation gap"
         );
         last_observation_ms = elapsed;
-        private(&root,&format!("expiry-observation-{index:03}.json"),&serde_json::to_vec(&json!({"elapsed_ms":elapsed,"original_core_pid":core.0.id(),"original_go_pid":go.0.id(),"owner_lock":witness,"credit_receipts":0,"journals":0,"wallet":0,"proof_manifest":baseline_proofs,"go_snapshot_sha256":format!("{:x}",Sha256::digest(serde_json::to_vec(&baseline_order).unwrap())),"original_payload_sha256":original_payload_sha256})).unwrap());
+        private(&root,&format!("expiry-observation-{index:03}.json"),&serde_json::to_vec(&json!({"elapsed_ms":elapsed,"original_core_pid":core.0.id(),"original_go_pid":go.0.id(),"owner_lock":witness,"credit_receipts":0,"journals":0,"wallet":0,"proof_manifest":baseline_proofs,"go_snapshot_sha256":hex_codec::encode(Sha256::digest(serde_json::to_vec(&baseline_order).unwrap())),"original_payload_sha256":original_payload_sha256})).unwrap());
         if elapsed >= 302000 {
             break elapsed;
         }
@@ -1180,7 +1181,7 @@ async fn real_core_and_go_payment_accepted_proof_survives_expiry_and_os_restart(
     );
     assert_eq!(proof_manifest(&pool).await, baseline_proofs);
     financial(&pool, account, 0).await;
-    let expiry_evidence = json!({"monotonic_wait_ms":monotonic_wait_ms,"signature_age_seconds":signature_age_seconds,"zero_credit_before_restart":true,"fresh_unaccepted_stale_proof_denied":true,"accepted_stale_accept_also_denied":true,"durable_get_original_wire_control":true,"original_payload_sha256":original_payload_sha256,"original_proof_wire_sha256":format!("{:x}",Sha256::digest(&original_receipt_wire)),"proof_manifest":baseline_proofs,"observations":index+1,"secret_unchanged":true});
+    let expiry_evidence = json!({"monotonic_wait_ms":monotonic_wait_ms,"signature_age_seconds":signature_age_seconds,"zero_credit_before_restart":true,"fresh_unaccepted_stale_proof_denied":true,"accepted_stale_accept_also_denied":true,"durable_get_original_wire_control":true,"original_payload_sha256":original_payload_sha256,"original_proof_wire_sha256":hex_codec::encode(Sha256::digest(&original_receipt_wire)),"proof_manifest":baseline_proofs,"observations":index+1,"secret_unchanged":true});
     private(
         &root,
         "expiry-before-restart.json",
@@ -1391,3 +1392,6 @@ async fn real_core_and_go_payment_accepted_proof_survives_expiry_and_os_restart(
     go_owner.close().await;
     role.cleanup().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+pub(crate) mod hex_codec;

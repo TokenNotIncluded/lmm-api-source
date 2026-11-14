@@ -75,10 +75,10 @@ pub(super) fn error_response(client: ClientProtocol, error: RelayError) -> Respo
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    if let RelayError::RateLimited(seconds) = error {
-        if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
-            response.headers_mut().insert(header::RETRY_AFTER, value);
-        }
+    if let RelayError::RateLimited(seconds) = error
+        && let Ok(value) = HeaderValue::from_str(&seconds.to_string())
+    {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
     }
     response
 }

@@ -186,7 +186,10 @@ async fn setup(pool: &PgPool, tool: &str) -> (AgentService, String, i64, Provide
         Sha256::digest(&disk),
         "compiled SQL must equal frozen on-disk asset"
     );
-    eprintln!("agent_schema_sha256={:x}", Sha256::digest(&disk));
+    eprintln!(
+        "agent_schema_sha256={}",
+        crate::hex_codec::encode(Sha256::digest(&disk))
+    );
     crate::core_schema::init(pool).await.unwrap();
     let identity = crate::identity::IdentityStore::from_pool(pool.clone());
     let session = identity.bootstrap_user(7, 1).await.unwrap();
@@ -227,8 +230,11 @@ async fn setup(pool: &PgPool, tool: &str) -> (AgentService, String, i64, Provide
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/assistant-tools-v1.json"
     ));
-    let registry =
-        AgentRegistry::from_reviewed(artifact, &format!("{:x}", Sha256::digest(artifact))).unwrap();
+    let registry = AgentRegistry::from_reviewed(
+        artifact,
+        &crate::hex_codec::encode(Sha256::digest(artifact)),
+    )
+    .unwrap();
     let tools = BTreeSet::from([tool.to_owned()]);
     let agent =
         AgentService::new(
@@ -501,10 +507,10 @@ async fn actual_runtime_role_requires_agent_columns_and_executes_without_immutab
     role.optional("core_assistant").await;
     // Legacy-only authority gains only the read dependency when this schema is
     // installed. It cannot advertise or create any agent operation.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON core_assistant.agent_turns,core_assistant.agent_rounds TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -516,7 +522,7 @@ async fn actual_runtime_role_requires_agent_columns_and_executes_without_immutab
     .unwrap();
     let service = AgentService::new(base, (*owner.policy).clone(), owner.registry.clone()).unwrap();
     assert_eq!(service.check_ready().await.unwrap_err(), Error::Unavailable);
-    sqlx::raw_sql(&format!("GRANT SELECT,INSERT ON core_assistant.agent_turns,core_assistant.agent_rounds,core_assistant.agent_tool_operations,core_assistant.agent_tool_observations TO {0}; GRANT UPDATE(phase,revision,final_text,loaded_tools) ON core_assistant.agent_turns TO {0}; GRANT UPDATE(state,provider_response_json,provider_response_sha256) ON core_assistant.agent_rounds TO {0}; GRANT UPDATE(state,claim_key,result_json,result_sha256,domain_receipt_id) ON core_assistant.agent_tool_operations TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_assistant.agent_tool_observations_position_seq TO {0}",role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT SELECT,INSERT ON core_assistant.agent_turns,core_assistant.agent_rounds,core_assistant.agent_tool_operations,core_assistant.agent_tool_observations TO {0}; GRANT UPDATE(phase,revision,final_text,loaded_tools) ON core_assistant.agent_turns TO {0}; GRANT UPDATE(state,provider_response_json,provider_response_sha256) ON core_assistant.agent_rounds TO {0}; GRANT UPDATE(state,claim_key,result_json,result_sha256,domain_receipt_id) ON core_assistant.agent_tool_operations TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_assistant.agent_tool_observations_position_seq TO {0}",role.name))).execute(&pool).await.unwrap();
     service.check_ready().await.unwrap();
     let cv = service
         .base
@@ -586,7 +592,7 @@ async fn four_rpc_methods_use_real_private_uds_and_original_runtime_session(pool
     let role = runtime_authority::RuntimeRole::create(&pool).await;
     role.optional("core_charging").await;
     role.optional("core_assistant").await;
-    sqlx::raw_sql(&format!("GRANT SELECT,INSERT ON core_assistant.agent_turns,core_assistant.agent_rounds,core_assistant.agent_tool_operations,core_assistant.agent_tool_observations TO {0}; GRANT UPDATE(phase,revision,final_text,loaded_tools) ON core_assistant.agent_turns TO {0}; GRANT UPDATE(state,provider_response_json,provider_response_sha256) ON core_assistant.agent_rounds TO {0}; GRANT UPDATE(state,claim_key,result_json,result_sha256,domain_receipt_id) ON core_assistant.agent_tool_operations TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_assistant.agent_tool_observations_position_seq TO {0}",role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT SELECT,INSERT ON core_assistant.agent_turns,core_assistant.agent_rounds,core_assistant.agent_tool_operations,core_assistant.agent_tool_observations TO {0}; GRANT UPDATE(phase,revision,final_text,loaded_tools) ON core_assistant.agent_turns TO {0}; GRANT UPDATE(state,provider_response_json,provider_response_sha256) ON core_assistant.agent_rounds TO {0}; GRANT UPDATE(state,claim_key,result_json,result_sha256,domain_receipt_id) ON core_assistant.agent_tool_operations TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_assistant.agent_tool_observations_position_seq TO {0}",role.name))).execute(&pool).await.unwrap();
     let base = AssistantModel::new(
         role.pool.clone(),
         gateway_endpoint(&role.pool, &p.endpoint),

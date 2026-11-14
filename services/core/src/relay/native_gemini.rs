@@ -467,12 +467,6 @@ impl NativeEncoder {
             wire_bytes: 0,
         }
     }
-    pub(crate) fn usage(&self) -> Usage {
-        self.usage.clone()
-    }
-    pub(crate) fn finish_reason(&self) -> Option<FinishReason> {
-        self.finish
-    }
     fn account(&mut self, n: usize) -> Result<(), RelayError> {
         self.bytes = self
             .bytes

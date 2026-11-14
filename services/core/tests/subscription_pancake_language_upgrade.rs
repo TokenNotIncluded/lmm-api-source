@@ -17,3 +17,6 @@ async fn check_history(c: &mut sqlx::PgConnection) {
         .fetch_one(c).await.unwrap();
     assert!(not_null);
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

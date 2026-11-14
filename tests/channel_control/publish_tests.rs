@@ -72,11 +72,12 @@ async fn postgres_outer_failure_rolls_back_publication_and_caller_writes(pool: P
         "routing_targets",
         "routing_aliases",
     ] {
-        let count: i64 =
-            sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE version=2"))
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {table} WHERE version=2"
+        )))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(count, 0, "rollback left rows in {table}");
     }
     let audit_count: i64 = sqlx::query_scalar("SELECT count(*) FROM publish_test_audit")

@@ -3,6 +3,7 @@
 //! Cryptographic verification uses the existing MIT OR Apache-2.0 RustCrypto
 //! hmac 0.12.1 / sha2 0.10.9 implementations and their constant-time verifier.
 use crate::identity::IdentityError;
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};

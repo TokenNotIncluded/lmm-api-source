@@ -296,13 +296,12 @@ impl Encoder {
             if matches!(
                 self.client,
                 ClientProtocol::Anthropic | ClientProtocol::Gemini
-            ) {
-                if let Some((_, value)) = &b.signature {
-                    entry.signature = Presence::Value(ir::ProviderSignature {
-                        source: target,
-                        value: Text::Utf8(value),
-                    });
-                }
+            ) && let Some((_, value)) = &b.signature
+            {
+                entry.signature = Presence::Value(ir::ProviderSignature {
+                    source: target,
+                    value: Text::Utf8(value),
+                });
             }
             if self.client == ClientProtocol::Responses {
                 entry.item_id = Presence::Value(Text::Utf8(&ids[index]));

@@ -134,23 +134,23 @@ async fn policy(c: &mut PgConnection, user: i64, mode: AssuranceRead) -> Result<
         AssuranceRead::Snapshot => "",
         AssuranceRead::Locked => " FOR SHARE OF u,a NOWAIT",
     };
-    let version:i64=sqlx::query_scalar(&format!("SELECT u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active{suffix}"))
+    let version:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active{suffix}")))
         .bind(user).fetch_optional(&mut *c).await.map_err(auth::password_change_error)?.ok_or(IdentityError::Unauthorized)?;
     let suffix = match mode {
         AssuranceRead::Snapshot => "",
         AssuranceRead::Locked => " FOR SHARE NOWAIT",
     };
-    let required: bool = sqlx::query_scalar(&format!(
+    let required: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1{suffix}"
-    ))
+    )))
     .bind(user)
     .fetch_optional(&mut *c)
     .await
     .map_err(auth::password_change_error)?
     .ok_or(IdentityError::Unauthorized)?;
-    let factor = sqlx::query(&format!(
+    let factor = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT enabled,revision FROM core_identity.mfa_factors WHERE user_id=$1{suffix}"
-    ))
+    )))
     .bind(user)
     .fetch_optional(c)
     .await
@@ -338,14 +338,14 @@ impl IdentityStore {
         self.mfa_keys.is_some()
     }
     pub(super) async fn new_backup_codes(&self) -> MfaResult<RecoverySet> {
-        use rand::distributions::{Distribution, Uniform};
+        use rand::distr::{Distribution, Uniform};
         let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        let draw = Uniform::from(0..alphabet.len());
+        let draw = Uniform::new(0, alphabet.len()).expect("nonempty recovery-code alphabet");
         let mut codes = Vec::new();
         let mut hashes = Vec::new();
         while codes.len() < 4 {
             let raw: String = (0..8)
-                .map(|_| alphabet[draw.sample(&mut OsRng)] as char)
+                .map(|_| alphabet[draw.sample(&mut rand::rand_core::UnwrapErr(SysRng))] as char)
                 .collect();
             let code = format!("{}-{}", &raw[..4], &raw[4..]);
             if codes.contains(&code) {
@@ -448,9 +448,9 @@ impl IdentityStore {
         let recovery = self.new_backup_codes().await?;
         let secret = Zeroizing::new(crypto::create_secret()?);
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{AUTH} AND c.digest=$1 FOR UPDATE OF c,u NOWAIT FOR SHARE OF pa,own NOWAIT"
-        ))
+        )))
         .bind(digest(access)?)
         .fetch_optional(&mut *tx)
         .await

@@ -748,9 +748,9 @@ impl LmmIssuer {
             "refresh_tokens"
         };
         let mut tx = transaction(&self.identity.pool).await?;
-        let id: Option<String> = sqlx::query_scalar(&format!(
+        let id: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT family_id FROM core_oauth.{table} WHERE digest=$1"
-        ))
+        )))
         .bind(digest(token)?)
         .fetch_optional(&mut *tx)
         .await?;

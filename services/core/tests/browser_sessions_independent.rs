@@ -24,7 +24,7 @@ impl RuntimeRole {
             rand::random::<u128>(),
             rand::random::<u128>()
         );
-        sqlx::raw_sql(&format!("CREATE ROLE {name} LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")).execute(owner).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {name} LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"))).execute(owner).await.unwrap();
         let database = owner.connect_options().get_database().unwrap().to_owned();
         let mut admin = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
         assert_eq!(admin.host_str(), Some("127.0.0.1"));
@@ -102,10 +102,10 @@ impl RuntimeRole {
     }
     async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "DROP OWNED BY {}; DROP ROLE {}",
             self.name, self.name
-        ))
+        )))
         .execute(&self.owner)
         .await
         .unwrap();

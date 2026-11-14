@@ -95,7 +95,7 @@ impl Core {
         let expected = std::env::var("LMM_PUBLIC_CORE_SHA256").unwrap();
         assert!(binary.is_absolute() && binary.canonicalize().unwrap() == binary);
         assert_eq!(
-            format!("{:x}", Sha256::digest(fs::read(&binary).unwrap())),
+            hex_codec::encode(Sha256::digest(fs::read(&binary).unwrap())),
             expected
         );
         let target = fs::File::open(&binary).unwrap();
@@ -190,7 +190,7 @@ impl Core {
         let metadata = executed.metadata().unwrap();
         let mut bytes = Vec::new();
         executed.read_to_end(&mut bytes).unwrap();
-        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected);
+        assert_eq!(hex_codec::encode(Sha256::digest(&bytes)), expected);
         assert_eq!(
             (metadata.dev(), metadata.ino()),
             (target_meta.dev(), target_meta.ino())
@@ -244,9 +244,9 @@ async fn configure(
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
     );
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE CONNECT ON DATABASE \"{database}\" FROM PUBLIC"
-    ))
+    )))
     .execute(pool)
     .await
     .unwrap();
@@ -438,7 +438,7 @@ async fn bounded_preheader_peers_do_not_exhaust_or_orphan_real_core(pool: PgPool
     let identity = json!({"pid":pid,"start_ticks":start_ticks,"boot_id":fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap().trim()});
     let executable = fs::File::open("/proc/self/exe").unwrap();
     let metadata = executable.metadata().unwrap();
-    let actual_sha = format!("{:x}", Sha256::digest(fs::read("/proc/self/exe").unwrap()));
+    let actual_sha = hex_codec::encode(Sha256::digest(fs::read("/proc/self/exe").unwrap()));
     assert_eq!(actual_sha, std::env::var("LMM_PUBLIC_TEST_SHA256").unwrap());
     let path = fs::read_to_string("/proc/self/cgroup").unwrap();
     let relative = path
@@ -897,3 +897,6 @@ async fn bounded_preheader_peers_do_not_exhaust_or_orphan_real_core(pool: PgPool
         "public ingress contract violated; preserve private receipts"
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

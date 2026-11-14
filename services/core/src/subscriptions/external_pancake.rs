@@ -438,10 +438,12 @@ impl SubscriptionStore {
                 &o.binding,
                 &o.provider_reference,
                 o.provider_order_id.as_deref(),
-                quoted,
+                crate::payments::VerificationTimes {
+                    quoted_at: quoted,
+                    now: time,
+                },
                 raw,
                 signature,
-                time,
             )
             .map_err(pay_error)?;
         if o.provider_order_id
@@ -454,10 +456,10 @@ impl SubscriptionStore {
             ("event", v.event_id.as_str()),
             ("order", v.provider_order_id.as_str()),
         ];
-        if v.kind == Change::Paid {
-            if let Some(payment) = v.payment_id.as_ref() {
-                aliases.push(("payment", payment))
-            }
+        if v.kind == Change::Paid
+            && let Some(payment) = v.payment_id.as_ref()
+        {
+            aliases.push(("payment", payment))
         }
         identifiers::claim(&mut tx, &c, Subject::Subscription(&id), aliases)
             .await

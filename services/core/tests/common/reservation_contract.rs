@@ -62,7 +62,7 @@ struct PreparedFieldsV1 {
 }
 
 fn typed_digest(value: &impl Serialize) -> String {
-    format!("{:x}", Sha256::digest(serde_json::to_vec(value).unwrap()))
+    hex_codec::encode(Sha256::digest(serde_json::to_vec(value).unwrap()))
 }
 
 async fn unchanged_liability(connection: &mut PgConnection, id: &str) -> Value {
@@ -197,3 +197,5 @@ pub async fn install_synthetic_recovery_contract(pool: &PgPool, id: &str, input:
     assert_eq!(unchanged_liability(&mut tx, id).await, before);
     tx.commit().await.unwrap();
 }
+
+use crate::hex_codec;

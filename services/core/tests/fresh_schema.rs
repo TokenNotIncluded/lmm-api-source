@@ -86,7 +86,7 @@ async fn funding_uses_native_account_references_and_cannot_fall_back_implicitly(
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
     // Explicit installer-owned fixture for the key-management/user projection dependency.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();

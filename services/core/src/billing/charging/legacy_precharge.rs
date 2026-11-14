@@ -36,12 +36,15 @@ pub(crate) struct Estimate {
     pub hold: i32,
 }
 
+// Arithmetic oracle used only by the source-compatibility tests.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WalletSupplement {
     pub cash: i64,
     pub debt: i64,
 }
 
+#[cfg(test)]
 impl WalletSupplement {
     /// Split only the uncovered part of the authoritative charge. Call inside
     /// the settlement transaction after locking the original wallet and
@@ -140,6 +143,7 @@ pub(crate) fn tiered_text_completion(
 
 /// refreshTieredBillingGroup multiplies the ORIGINAL pre-group estimate by
 /// the newly selected group, then rounds. Never multiply the previous hold.
+#[cfg(test)]
 pub(crate) fn refresh_tiered_group(
     estimated_before_group_bits: u64,
     selected_group_ratio_bits: u64,
@@ -156,6 +160,7 @@ pub(crate) fn refresh_tiered_group(
 
 /// Exact common.GetEnvOrDefaultBool + strconv.ParseBool semantics. Does not
 /// read the local process environment or infer the source process's setting.
+#[cfg(test)]
 pub(crate) fn source_bool(value: Option<&str>, default: bool) -> bool {
     match value {
         None | Some("") => default,

@@ -40,7 +40,7 @@ fn legacy_predecessor_bytes_require_the_matching_preserved_installer() {
     );
     assert_eq!(serde_json::to_value(&producer).unwrap(), frozen["manifest"]);
     let stdout = producer.stdout();
-    assert_eq!(hex(&Sha256::digest(stdout)), PRE_MANIFEST);
+    assert_eq!(hex(Sha256::digest(stdout)), PRE_MANIFEST);
     assert_ne!(manifest_sha256().unwrap(), producer.sha256());
     assert_ne!(
         schema_manifest().catalog.query_sha256,
@@ -53,7 +53,7 @@ fn legacy_predecessor_bytes_require_the_matching_preserved_installer() {
         super::historical_fixture::preserved(25).component_map()["trust-pricing"],
         COMPONENT_25_DDL
     );
-    assert_ne!(hex(&Sha256::digest(COMPONENTS[24].1)), COMPONENT_25_DDL);
+    assert_ne!(hex(Sha256::digest(COMPONENTS[24].1)), COMPONENT_25_DDL);
     assert_eq!(COMPONENTS[25].0, "telegram-auth");
     assert_eq!(COMPONENTS[26].0, "assistant-agent");
     assert_eq!(COMPONENTS[27].0, "site-finance");
@@ -84,7 +84,7 @@ fn legacy_predecessor_bytes_require_the_matching_preserved_installer() {
 #[test]
 fn routing_authorization_binds_exact_historical_bytes() {
     let original = include_str!("../../../tests/core_schema/routing_before_payload_policy.sql");
-    assert_eq!(hex(&Sha256::digest(original)), PRE_ROUTING);
+    assert_eq!(hex(Sha256::digest(original)), PRE_ROUTING);
     authorize_routing_target(original).unwrap();
     assert!(matches!(
         authorize_routing_target(&format!("{original}\n")),

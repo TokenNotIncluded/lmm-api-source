@@ -88,7 +88,7 @@ async fn native_public_relay_actual_http_sse_and_readonly_rpc() {
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
     // Explicit installer-owned fixture for the key-management/user projection dependency.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();

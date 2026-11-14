@@ -212,7 +212,7 @@ pub async fn check_database(
     let mut bytes =
         serde_json::to_vec(&manifest).map_err(|_| DatabaseCheckError::ObservationUnavailable)?;
     bytes.push(b'\n');
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = crate::hex_codec::encode(Sha256::digest(&bytes));
     let report = DatabaseCheckReport {
         version: 1,
         protocol: "core.check-db.v1",

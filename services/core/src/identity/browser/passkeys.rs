@@ -148,9 +148,55 @@ impl BrowserAuth {
         access: &str,
         recent: bool,
     ) -> BrowserResult<(Principal, String)> {
+        // Identify only the lock target from a snapshot. This is not authority:
+        // after acquiring exclusive rows, session() revalidates every credential,
+        // account, generation and MFA predicate under its normal authority locks.
+        let initial = super::super::authenticate_readonly_in_transaction(c, access).await?;
+        if initial.credential_kind != CredentialKind::Session {
+            return Err(IdentityError::Forbidden.into());
+        }
+        sqlx::query("SELECT id FROM core_identity.users WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(initial.user_id)
+            .fetch_one(&mut *c)
+            .await?;
+        sqlx::query("SELECT id FROM core_identity.credentials WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(initial.credential_id)
+            .fetch_one(&mut *c)
+            .await?;
+        let (actor, sid) = self.security_authority(c, access, recent, true).await?;
+        if actor.user_id != initial.user_id
+            || actor.credential_id != initial.credential_id
+            || actor.user_version != initial.user_version
+        {
+            return Err(IdentityError::Unauthorized.into());
+        }
+        Ok((actor, sid))
+    }
+
+    pub(in crate::identity::browser) async fn read_security_actor(
+        &self,
+        c: &mut PgConnection,
+        access: &str,
+    ) -> BrowserResult<(Principal, String)> {
+        self.security_authority(c, access, false, false).await
+    }
+
+    async fn security_authority(
+        &self,
+        c: &mut PgConnection,
+        access: &str,
+        recent: bool,
+        mutation: bool,
+    ) -> BrowserResult<(Principal, String)> {
         let actor = session(c, access).await?;
-        // NOWAIT avoids shared-lock upgrades racing refresh or a security reset.
-        let row=sqlx::query("SELECT s.sid,sa.authenticated_at>clock_timestamp()-interval '10 minutes' AS recent FROM core_identity.web_sessions s JOIN core_identity.session_authentication sa ON sa.credential_id=s.current_credential_id JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE s.current_credential_id=$1 AND s.user_id=$2 AND s.user_version=$3 AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days') FOR UPDATE OF s,u,p NOWAIT")
+        // Shared readers cannot upgrade or exclude each other. Writers already
+        // own user/credential exclusion before session() acquires shared locks.
+        let lock = if mutation {
+            "FOR UPDATE OF s,p NOWAIT"
+        } else {
+            "FOR SHARE OF s,p NOWAIT"
+        };
+        let row=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT s.sid,sa.authenticated_at>clock_timestamp()-interval '10 minutes' AS recent FROM core_identity.web_sessions s JOIN core_identity.session_authentication sa ON sa.credential_id=s.current_credential_id JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE s.current_credential_id=$1 AND s.user_id=$2 AND s.user_version=$3 AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days') {lock}")))
             .bind(actor.credential_id).bind(actor.user_id).bind(actor.user_version).fetch_optional(c).await?
             .ok_or(IdentityError::Unauthorized)?;
         if recent && !row.try_get::<bool, _>("recent")? {
@@ -161,7 +207,7 @@ impl BrowserAuth {
 
     pub async fn passkey_status(&self, access: &str) -> BrowserResult<Value> {
         let mut tx = bounded_begin(&self.store.pool).await?;
-        let (actor, _) = self.security_actor(&mut tx, access, false).await?;
+        let (actor, _) = self.read_security_actor(&mut tx, access).await?;
         let rows=sqlx::query("SELECT id,name,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at,to_char(last_used_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS last_used_at FROM core_passkeys.credentials WHERE user_id=$1 AND revoked_at IS NULL ORDER BY id LIMIT 20")
             .bind(actor.user_id).fetch_all(&mut *tx).await?;
         let mut credentials = Vec::new();
@@ -582,16 +628,15 @@ impl BrowserAuth {
                 mut challenge,
                 revisions,
             } => {
-                if let Some(revisions) = revisions {
-                    if row.try_get::<Option<i64>, _>("user_id")? != Some(user)
+                if let Some(revisions) = revisions
+                    && (row.try_get::<Option<i64>, _>("user_id")? != Some(user)
                         || row.try_get::<Option<i64>, _>("user_version")?
                             != Some(credential.try_get("auth_version")?)
                         || revisions.get(&id.to_string())
-                            != Some(&credential.try_get::<i64, _>("revision")?)
-                    {
-                        tx.commit().await?;
-                        return Err(IdentityError::Unauthorized.into());
-                    }
+                            != Some(&credential.try_get::<i64, _>("revision")?))
+                {
+                    tx.commit().await?;
+                    return Err(IdentityError::Unauthorized.into());
                 }
                 // The immutable imported handle and the locked stored policy
                 // select compatibility. Caller options never select authority.

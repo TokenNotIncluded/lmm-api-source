@@ -331,7 +331,7 @@ use crate::test_runtime as runtime;
 async fn runtime_column_authority_preserves_immutable_economics(pool: PgPool) {
     let f = setup(&pool).await;
     let role = runtime::RuntimeRole::create(&pool).await;
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_wallet TO {0}; GRANT SELECT,INSERT ON core_wallet.transfers TO {0}; GRANT UPDATE(state,hold_journal,final_journal,recipient_user,confirmed_at,finished_at,confirmation_digest,confirmation_sid,confirmation_kind,confirmation_expires) ON core_wallet.transfers TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_wallet.transfers_id_seq TO {0}",role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_wallet TO {0}; GRANT SELECT,INSERT ON core_wallet.transfers TO {0}; GRANT UPDATE(state,hold_journal,final_journal,recipient_user,confirmed_at,finished_at,confirmation_digest,confirmation_sid,confirmation_kind,confirmation_expires) ON core_wallet.transfers TO {0}; GRANT USAGE,SELECT ON SEQUENCE core_wallet.transfers_id_seq TO {0}",role.name))).execute(&pool).await.unwrap();
     let store = Store::new(role.pool.clone());
     store.check_ready().await.unwrap();
     let readiness = http::internal_router(store.clone(), vec![b'x'; 32])
@@ -387,18 +387,18 @@ async fn runtime_column_authority_preserves_immutable_economics(pool: PgPool) {
         "amount",
         "token_digest",
     ] {
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT UPDATE({column}) ON core_wallet.transfers TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
         assert!(matches!(store.check_ready().await, Err(Error::Forbidden)));
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE UPDATE({column}) ON core_wallet.transfers FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -526,9 +526,9 @@ async fn database_guard_rejects_hold_receipt_swaps_and_fabricated_terminal_state
     );
     for column in ["amount", "payer_account", "owner_user"] {
         assert!(
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "UPDATE core_wallet.transfers SET {column}={column}+1 WHERE id=$1"
-            ))
+            )))
             .bind(first.id)
             .execute(&pool)
             .await

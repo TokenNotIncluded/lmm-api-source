@@ -112,16 +112,24 @@ pub(super) struct Request {
 enum Body {
     Embeddings(Embeddings),
     Rerank(Rerank),
-    Responses(super::responses_native::Request),
+    Responses(Box<super::responses_native::Request>),
 }
 
 impl Request {
+    pub(super) fn native(&self) -> Option<&super::responses_native::Request> {
+        if let Body::Responses(request) = &self.body {
+            Some(request)
+        } else {
+            None
+        }
+    }
+
     pub(super) fn parse(kind: Kind, raw: &[u8]) -> Result<Self, RelayError> {
         let invalid = || RelayError::Invalid("invalid input-only model request");
         let body = match kind {
-            Kind::ResponsesCompact | Kind::ResponsesContext => {
-                Body::Responses(super::responses_native::Request::parse(kind, raw)?)
-            }
+            Kind::ResponsesCompact | Kind::ResponsesContext => Body::Responses(Box::new(
+                super::responses_native::Request::parse(kind, raw)?,
+            )),
             Kind::Embeddings => {
                 let body: Embeddings = serde_json::from_slice(raw).map_err(|_| invalid())?;
                 if !body.input.validate()
@@ -234,7 +242,7 @@ impl Request {
                         (Embedding::Base64(value), Encoding::Base64) => {
                             let bytes = STANDARD.decode(value).map_err(|_| invalid())?;
                             if bytes.len() % 4 != 0
-                                || !bytes.chunks_exact(4).all(|chunk| {
+                                || !bytes.as_chunks::<4>().0.iter().all(|chunk| {
                                     f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
                                         .is_finite()
                                 })

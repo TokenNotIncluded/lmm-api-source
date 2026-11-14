@@ -14,7 +14,10 @@ async fn host_open_requires_existing_schema_and_seed(pool: PgPool) {
     );
     core_schema::init(&pool).await.unwrap();
     // Kept until the fresh-install component is integrated into core_schema.
-    sqlx::raw_sql(humangrant::DDL).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(humangrant::DDL))
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(
         humangrant::runtime::open(pool.clone(), "https://auth.example.test", false)
             .await
@@ -44,7 +47,10 @@ async fn host_open_requires_existing_schema_and_seed(pool: PgPool) {
 #[sqlx::test(migrations = false)]
 async fn consent_rejects_retained_terminal_expired_and_old_epoch_requests(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
-    sqlx::raw_sql(humangrant::DDL).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(humangrant::DDL))
+        .execute(&pool)
+        .await
+        .unwrap();
     let engine = HumanGrantEngine::new(
         HumanGrantStore::new(pool),
         "https://auth.example.test".into(),
@@ -122,7 +128,10 @@ async fn consent_rejects_retained_terminal_expired_and_old_epoch_requests(pool: 
 #[sqlx::test(migrations = false)]
 async fn concurrent_limits_cannot_lose_increments(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
-    sqlx::raw_sql(humangrant::DDL).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(humangrant::DDL))
+        .execute(&pool)
+        .await
+        .unwrap();
     let engine = std::sync::Arc::new(HumanGrantEngine::new(
         HumanGrantStore::new(pool),
         "https://auth.example.test".into(),

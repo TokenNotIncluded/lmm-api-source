@@ -247,7 +247,7 @@ impl RemoteProxy {
         let mut service = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
             .map_err(|_| invalid())?;
         service.set_sensitive(true);
-        let client = reqwest::Client::builder()
+        let client = crate::http_client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(2))
@@ -643,8 +643,15 @@ mod tests {
         assert!(credential(&build(None)).is_some());
         // Every Web API request carries this acknowledgement (apps/web http-client).
         assert!(credential(&build(Some(("X-LMM-Credit-Unit", "500000")))).is_some());
-        for forged in ["X-LMM-User-Credential", "X-LMM-Edge-Proof", "X-LMM-Credit-Unit-Override"] {
-            assert!(credential(&build(Some((forged, "x")))).is_none(), "{forged}");
+        for forged in [
+            "X-LMM-User-Credential",
+            "X-LMM-Edge-Proof",
+            "X-LMM-Credit-Unit-Override",
+        ] {
+            assert!(
+                credential(&build(Some((forged, "x")))).is_none(),
+                "{forged}"
+            );
         }
     }
 
@@ -1043,7 +1050,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let response = reqwest::Client::builder()
+        let response = crate::http_client::builder()
             .no_proxy()
             .build()
             .unwrap()

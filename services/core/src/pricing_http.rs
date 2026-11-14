@@ -194,14 +194,13 @@ impl PricingHttp {
         // Rebuild once per publication, and share the immutable result across
         // readers. Never keep a startup-only projection after routes change.
         let mut surface = self.surface.read().map_err(|_| Error::Unavailable)?.clone();
-        if let Some(gateway) = &self.gateway {
-            if surface.as_ref().is_none_or(|s| s.check_version().is_err()) {
-                let next = Arc::new(
-                    PricingSurface::from_gateway(gateway).map_err(|_| Error::Unavailable)?,
-                );
-                *self.surface.write().map_err(|_| Error::Unavailable)? = Some(next.clone());
-                surface = Some(next);
-            }
+        if let Some(gateway) = &self.gateway
+            && surface.as_ref().is_none_or(|s| s.check_version().is_err())
+        {
+            let next =
+                Arc::new(PricingSurface::from_gateway(gateway).map_err(|_| Error::Unavailable)?);
+            *self.surface.write().map_err(|_| Error::Unavailable)? = Some(next.clone());
+            surface = Some(next);
         }
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY")

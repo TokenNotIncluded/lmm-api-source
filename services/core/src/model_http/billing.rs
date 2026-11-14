@@ -354,7 +354,7 @@ impl Bridge {
                 selected.input_token_ceiling as u64
             }
             (crate::relay::input_count::CountPlan::OpenAiResponsesExactV1(_), Some(counted))
-                if contract::hex_digest(&counted.wire_sha256) == wire_sha256
+                if contract::hex_digest(counted.wire_sha256) == wire_sha256
                     && counted.requested_output == request.max_output_tokens
                     && u64::from(counted.input_tokens) <= selected.input_token_ceiling as u64 =>
             {
@@ -365,31 +365,27 @@ impl Bridge {
         let (revision, semantics) = self
             .provider_policy
             .reservation_metadata(&selected.attempt)?;
-        let binding = ReservationBinding {
-            route_id: route.id.clone(),
-            target_id: selected.attempt.target_id(),
-            upstream_id: selected.attempt.upstream_id(),
-            protocol: match route.protocol {
+        let binding = ReservationBinding::for_attempt(
+            &selected.attempt,
+            match route.protocol {
                 crate::relay::UpstreamProtocol::Chat => "chat",
                 crate::relay::UpstreamProtocol::Responses => "responses",
                 crate::relay::UpstreamProtocol::Anthropic => "anthropic",
                 crate::relay::UpstreamProtocol::Gemini => "gemini",
             }
             .into(),
-            model_snapshot: route.model.clone(),
-            generation_url: route.endpoint.as_str().into(),
-            credential_ref: selected.attempt.credential_ref(),
-            payload_policy_sha256: contract::typed_digest(&selected.attempt.payload_policy())
-                .map_err(error)?,
-            provider_contract_revision: revision,
-            projection_revision: if websocket {
+            route.model.clone(),
+            route.endpoint.as_str().into(),
+            revision,
+            if websocket {
                 "responses-ws-context-max-v1"
             } else {
                 observation.map_or("context-max-v1", |o| o.projection_revision)
             }
             .into(),
-            quote_version: route.price_version,
-        };
+            route.price_version,
+        )
+        .map_err(error)?;
         let bounds = ReservationBounds {
             model_input_max: selected.input_token_ceiling as u64,
             input: input_bound,
@@ -398,21 +394,21 @@ impl Bridge {
         };
         let prepared = if let Some(counted) = observation {
             PreparedReservation::exact(
-                contract::hex_digest(&fingerprint),
+                contract::hex_digest(fingerprint),
                 binding,
                 wire_sha256,
                 CounterEvidence {
                     api: counted.api.into(),
                     input_tokens: u64::from(counted.input_tokens),
-                    request_sha256: contract::hex_digest(&counted.request_sha256),
-                    response_sha256: contract::hex_digest(&counted.response_sha256),
+                    request_sha256: contract::hex_digest(counted.request_sha256),
+                    response_sha256: contract::hex_digest(counted.response_sha256),
                 },
                 bounds,
                 semantics,
             )
         } else {
             PreparedReservation::context_max(
-                contract::hex_digest(&fingerprint),
+                contract::hex_digest(fingerprint),
                 binding,
                 wire_sha256,
                 bounds,
@@ -1662,14 +1658,13 @@ fn complete_generic_cache_usage(
     let integer = |value: u64| i64::try_from(value).map_err(|_| RelayError::SettlementPending);
     // Policy and source digest are frozen by dispatch. Projected counters use
     // the existing disjoint basis; recovery never reinterprets live config.
-    if let Some(raw) = &observed.legacy_openrouter_raw {
-        if tariff.tariff.revision != 3
+    if let Some(raw) = &observed.legacy_openrouter_raw
+        && (tariff.tariff.revision != 3
             || tariff.input_semantics != InputSemantics::AnthropicText
             || crate::relay::legacy_openrouter_usage::project(raw)
-                .map_or(true, |projected| projected != observed)
-        {
-            return Err(RelayError::SettlementPending);
-        }
+                .map_or(true, |projected| projected != observed))
+    {
+        return Err(RelayError::SettlementPending);
     }
     let details = observed.cache_creation_details;
     let five = details.and_then(|value| value.ephemeral_5m_input_tokens);

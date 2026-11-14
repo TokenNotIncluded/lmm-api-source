@@ -64,7 +64,7 @@ pub(in crate::core_schema::upgrade) async fn data_projected(
         } else {
             "to_jsonb(t)"
         };
-        sqlx::query(&format!("DECLARE request_operations_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(h,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to({row}::text,'UTF8')) h FROM {table} t) q GROUP BY h ORDER BY h"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DECLARE request_operations_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(h,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to({row}::text,'UTF8')) h FROM {table} t) q GROUP BY h ORDER BY h")))
             .execute(&mut *c).await?;
         let mut hash = Sha256::new();
         loop {
@@ -88,7 +88,7 @@ pub(in crate::core_schema::upgrade) async fn data_projected(
     // Only the original 22 sequences are compared. New component sequences are
     // independently covered by the compiled DDL and successor catalog receipt.
     for sequence in sequences {
-        let state: String = sqlx::query_scalar(&format!("SELECT json_build_array(last_value::text,log_cnt::text,is_called)::text FROM {sequence}"))
+        let state: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT json_build_array(last_value::text,log_cnt::text,is_called)::text FROM {sequence}")))
             .fetch_one(&mut *c).await?;
         result.insert(
             format!("sequence:{sequence}"),

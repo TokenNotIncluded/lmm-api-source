@@ -53,17 +53,23 @@ async fn fixture(owner: &PgPool) -> runtime::RuntimeRole {
 }
 
 async fn grant(owner: &PgPool, role: &runtime::RuntimeRole, privilege: &str) {
-    sqlx::raw_sql(&format!("GRANT {privilege} TO {}", role.name))
-        .execute(owner)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "GRANT {privilege} TO {}",
+        role.name
+    )))
+    .execute(owner)
+    .await
+    .unwrap();
 }
 
 async fn revoke(owner: &PgPool, role: &runtime::RuntimeRole, privilege: &str) {
-    sqlx::raw_sql(&format!("REVOKE {privilege} FROM {}", role.name))
-        .execute(owner)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "REVOKE {privilege} FROM {}",
+        role.name
+    )))
+    .execute(owner)
+    .await
+    .unwrap();
 }
 
 async fn restore_minimum(owner: &PgPool, role: &runtime::RuntimeRole) {
@@ -188,18 +194,18 @@ async fn telegram_runtime_rejects_grant_options_on_otherwise_allowed_authority(p
         "SELECT(digest) ON core_telegram_auth.assertions",
     ]);
     for privilege in privileges {
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT {privilege} TO {} WITH GRANT OPTION",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
         assert_unsafe(&role, privilege).await;
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE GRANT OPTION FOR {privilege} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -212,11 +218,11 @@ async fn telegram_runtime_rejects_grant_options_on_otherwise_allowed_authority(p
 #[sqlx::test(migrations = false)]
 async fn telegram_runtime_optional_inaccessible_schema_still_rejects_hidden_excess(pool: PgPool) {
     let role = fixture(&pool).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_telegram_auth FROM {0};
          REVOKE ALL PRIVILEGES ON SCHEMA core_telegram_auth FROM {0}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

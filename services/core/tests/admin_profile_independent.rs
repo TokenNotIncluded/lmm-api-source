@@ -57,7 +57,7 @@ async fn data_fingerprint(pool: &PgPool) -> BTreeMap<String, String> {
     let names:Vec<String>=sqlx::query_scalar("SELECT quote_ident(n.nspname)||'.'||quote_ident(c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname LIKE 'core_%' AND c.relkind='r' ORDER BY 1").fetch_all(pool).await.unwrap();
     let mut result = BTreeMap::new();
     for name in names {
-        let hash:String=sqlx::query_scalar(&format!("SELECT md5(COALESCE(string_agg(v,E'\\n' ORDER BY v),'')) FROM (SELECT row_to_json(t)::text v FROM {name} t) q")).fetch_one(pool).await.unwrap();
+        let hash:String=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT md5(COALESCE(string_agg(v,E'\\n' ORDER BY v),'')) FROM (SELECT row_to_json(t)::text v FROM {name} t) q"))).fetch_one(pool).await.unwrap();
         result.insert(name, hash);
     }
     result
@@ -66,17 +66,18 @@ async fn sequences(pool: &PgPool) -> BTreeMap<String, (i64, bool)> {
     let names:Vec<String>=sqlx::query_scalar("SELECT quote_ident(n.nspname)||'.'||quote_ident(c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname LIKE 'core_%' AND c.relkind='S' ORDER BY 1").fetch_all(pool).await.unwrap();
     let mut result = BTreeMap::new();
     for name in names {
-        let value: (i64, bool) =
-            sqlx::query_as(&format!("SELECT last_value,is_called FROM {name}"))
-                .fetch_one(pool)
-                .await
-                .unwrap();
+        let value: (i64, bool) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT last_value,is_called FROM {name}"
+        )))
+        .fetch_one(pool)
+        .await
+        .unwrap();
         result.insert(name, value);
     }
     result
 }
 fn digest(name: &str) -> String {
-    format!("{:x}", Sha256::digest(name.as_bytes()))
+    hex_codec::encode(Sha256::digest(name.as_bytes()))
 }
 async fn assert_no_mutation(
     pool: &PgPool,
@@ -757,3 +758,6 @@ async fn real_http_audit_failure_returns_503_with_business_rollback_and_observed
         "independent HTTP fault: 503 and exact profile readback; data rolled back; one normal audit sequence hole"
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

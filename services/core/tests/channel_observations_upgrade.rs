@@ -66,10 +66,11 @@ async fn changing_catalog_and_saved_receipt_cannot_redefine_current_target(pool:
         .await
         .unwrap();
     let manifest = lmm_core::core_schema::schema_manifest();
-    let definitions: Vec<String> = sqlx::query_scalar(manifest.catalog.query_utf8)
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let definitions: Vec<String> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(manifest.catalog.query_utf8))
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     let mut hash = Sha256::new();
     for definition in definitions {
         hash.update((definition.len() as u64).to_be_bytes());
@@ -82,3 +83,6 @@ async fn changing_catalog_and_saved_receipt_cannot_redefine_current_target(pool:
         .unwrap();
     assert!(lmm_core::core_schema::check(&pool).await.is_err());
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

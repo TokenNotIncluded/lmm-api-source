@@ -5,6 +5,7 @@ use crate::{
     internal_rpc::pb,
     payments::{Channel, PaymentsStore},
 };
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use serde_json::json;
 use sha2::Sha256;

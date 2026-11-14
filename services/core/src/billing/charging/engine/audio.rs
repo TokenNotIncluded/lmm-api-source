@@ -136,10 +136,9 @@ pub(super) async fn verify_usage(
         .bind(&charge.id).fetch_optional(&mut *c).await?.ok_or(Error::Invalid)?;
     let proof = contract::load(c, charge).await?.ok_or(Error::Invalid)?;
     if let Some(raw) = verify_packet_tail(c, charge, &proof, terminal.usage.response_sha256).await?
+        && raw != terminal.raw_usage
     {
-        if raw != terminal.raw_usage {
-            return Err(Error::Invalid);
-        }
+        return Err(Error::Invalid);
     }
     if !proof.permits_dispatch(&terminal.route_id, &terminal.wire_sha256)
         || verify_terminal(charge, &terminal, &dispatch)? != usage
@@ -277,7 +276,7 @@ async fn verify_packet_tail(
         if last
             && (!previous.finished
                 || !previous.has_usage
-                || row["stream_sha256"] != contract::hex_digest(&response_sha256))
+                || row["stream_sha256"] != contract::hex_digest(response_sha256))
         {
             return Err(Error::Invalid);
         }
@@ -388,9 +387,7 @@ impl Charging {
                 .await
             {
                 Ok(_) => settled += 1,
-                Err(Error::WrongState | Error::Conflict | Error::Retry | Error::CommitUnknown) => {
-                    ()
-                }
+                Err(Error::WrongState | Error::Conflict | Error::Retry | Error::CommitUnknown) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -462,7 +459,7 @@ async fn append_packet(
     }
     let mut detail = json!({"kind":"audio_output_packet","journal_version":4,"sequence":sequence,
         "packet_sha256":contract::digest(packet),"bytes":packet.len(),"total_bytes":total,
-        "stream_sha256":contract::hex_digest(&stream_sha256),"terminal":terminal,"http_eof":terminal,
+        "stream_sha256":contract::hex_digest(stream_sha256),"terminal":terminal,"http_eof":terminal,
         "state":next,"raw_usage_sha256":usage_packet.as_ref().map(|s|contract::digest(s.as_bytes())),"raw_usage":usage_packet,"previous_chain":prior_chain,
         "price_sha256":contract::typed_digest(&stored.charge.price)?});
     detail["chain_sha256"] = json!(contract::typed_digest(&detail)?);
@@ -510,10 +507,10 @@ async fn save_receipt(
     let proof = contract::load(c, &stored.charge)
         .await?
         .ok_or(Error::Invalid)?;
-    if let Some(raw) = verify_packet_tail(c, &stored.charge, &proof, response_sha256).await? {
-        if raw != raw_usage {
-            return Err(Error::Invalid);
-        }
+    if let Some(raw) = verify_packet_tail(c, &stored.charge, &proof, response_sha256).await?
+        && raw != raw_usage
+    {
+        return Err(Error::Invalid);
     }
     let price = stored.charge.price.audio.as_ref().ok_or(Error::Invalid)?;
     price

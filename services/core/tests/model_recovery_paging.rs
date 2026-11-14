@@ -229,6 +229,7 @@ async fn invalid_first_pages_do_not_starve_later_settlement(pool: PgPool) {
             .gateway
             .reconcile_completed_streams_page(1, after.as_deref())
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap();
         assert_eq!(recovered, expected_count);
         assert_eq!(next.as_deref(), expected_cursor);
@@ -253,6 +254,7 @@ async fn invalid_first_pages_do_not_starve_later_settlement(pool: PgPool) {
         .gateway
         .reconcile_completed_streams_page(1000, None)
         .await
+        .map(|page| (page.settled, page.next))
         .unwrap();
     assert_eq!((recovered, next), (1, None));
     assert_eq!(
@@ -268,6 +270,7 @@ async fn invalid_first_pages_do_not_starve_later_settlement(pool: PgPool) {
         f.gateway
             .reconcile_completed_streams_page(1000, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (0, None)
     );
@@ -284,11 +287,12 @@ async fn concurrent_pages_confirm_the_same_charge_without_double_debit(pool: PgP
         f.gateway.reconcile_completed_streams_page(1, None),
     );
     // Counts are confirmations, not a claim that each worker made a new debit.
-    assert!(one.unwrap().0 + two.unwrap().0 >= 1);
+    assert!(one.unwrap().settled + two.unwrap().settled >= 1);
     assert_eq!(
         f.gateway
             .reconcile_completed_streams_page(1, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (0, None)
     );
@@ -316,7 +320,10 @@ async fn missing_contract_and_invalid_pages_never_fall_back_or_expand_access(poo
         .unwrap();
 
     assert!(matches!(
-        f.gateway.reconcile_completed_streams_page(1, None).await,
+        f.gateway
+            .reconcile_completed_streams_page(1, None)
+            .await
+            .map(|page| (page.settled, page.next)),
         Err(RelayError::Unsupported(_))
     ));
     assert!(matches!(
@@ -332,11 +339,15 @@ async fn missing_contract_and_invalid_pages_never_fall_back_or_expand_access(poo
         assert!(matches!(
             f.gateway
                 .reconcile_completed_streams_page(limit, cursor)
-                .await,
+                .await
+                .map(|page| (page.settled, page.next)),
             Err(RelayError::Invalid(_))
         ));
     }
-    sqlx::raw_sql(&func_def).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&func_def))
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "REVOKE ALL ON FUNCTION core_model.completed_streams_after(integer,text) FROM PUBLIC",
     )
@@ -347,6 +358,7 @@ async fn missing_contract_and_invalid_pages_never_fall_back_or_expand_access(poo
         f.gateway
             .reconcile_completed_streams_page(1, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (0, None)
     );
@@ -389,3 +401,6 @@ async fn missing_contract_and_invalid_pages_never_fall_back_or_expand_access(poo
     assert_eq!(balance.available_units, 1000);
     assert_eq!(balance.reserved_units, 0);
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

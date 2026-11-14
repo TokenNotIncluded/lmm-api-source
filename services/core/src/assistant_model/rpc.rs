@@ -692,7 +692,8 @@ fn wire_confirmation(
         {
             return Err(Status::unavailable("invalid stored confirmation digest"));
         }
-        crate::hex_codec::decode(value).map_err(|_| Status::unavailable("invalid stored confirmation digest"))
+        crate::hex_codec::decode(value)
+            .map_err(|_| Status::unavailable("invalid stored confirmation digest"))
     }
     let preview = serde_json::to_vec(&value.preview)
         .map_err(|_| Status::unavailable("confirmation preview unavailable"))?;

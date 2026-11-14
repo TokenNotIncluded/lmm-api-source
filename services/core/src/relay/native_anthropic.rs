@@ -447,12 +447,6 @@ impl NativeEncoder {
             limits: limits.clone(),
         }
     }
-    pub fn usage(&self) -> Usage {
-        self.usage.clone()
-    }
-    pub fn finish_reason(&self) -> Option<FinishReason> {
-        self.finish
-    }
     fn account(&mut self, n: usize) -> Result<(), RelayError> {
         self.bytes = self
             .bytes
@@ -787,23 +781,6 @@ impl NativeEncoder {
         }
         self.terminal_sent = true;
         Ok(out)
-    }
-    pub fn error_packet(&mut self, error: &RelayError) -> Result<Vec<u8>, RelayError> {
-        let kind = match error.status() {
-            401 => "authentication_error",
-            403 => "permission_error",
-            404 => "not_found_error",
-            413 => "request_too_large",
-            429 => "rate_limit_error",
-            400 => "invalid_request_error",
-            _ => "api_error",
-        };
-        let v = json!({"type":"error","error":{"type":kind,"message":error.to_string()}});
-        if self.stream {
-            self.packet("error", v)
-        } else {
-            serde_json::to_vec(&v).map_err(|_| RelayError::Protocol("encoding"))
-        }
     }
 }
 

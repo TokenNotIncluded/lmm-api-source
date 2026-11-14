@@ -1,7 +1,7 @@
 use crate::channel_http::control::observations::{Balance, Statistics};
 use crate::channel_http::{Params, page_with_statistics};
 use num_bigint::BigInt;
-use num_rational::BigRational;
+type BigRational = num_rational::Ratio<num_bigint::BigInt>;
 use std::collections::BTreeMap;
 
 fn page(

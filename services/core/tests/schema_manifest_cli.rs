@@ -49,10 +49,9 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     use sha2::{Digest, Sha256};
     assert_eq!(
         actual["components"][51]["raw_schema_sha256"],
-        format!(
-            "{:x}",
-            Sha256::digest(include_bytes!("../schema/affiliate_claims.sql"))
-        )
+        hex_codec::encode(Sha256::digest(include_bytes!(
+            "../schema/affiliate_claims.sql"
+        )))
     );
     for (index, raw) in [
         (
@@ -78,7 +77,7 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     ] {
         assert_eq!(
             actual["components"][index]["raw_schema_sha256"],
-            format!("{:x}", Sha256::digest(raw))
+            hex_codec::encode(Sha256::digest(raw))
         );
     }
     assert_eq!(actual["scope"], "compiled-core-schema-contract");
@@ -187,3 +186,6 @@ fn schema_manifest_help_and_existing_version_exit_before_configuration() {
         format!("lmm-core {}\n", env!("CARGO_PKG_VERSION")).as_bytes()
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

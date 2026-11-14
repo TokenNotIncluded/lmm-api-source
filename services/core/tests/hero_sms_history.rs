@@ -230,10 +230,13 @@ async fn restored_visible_orders_and_ledgers_match_for_every_mapped_account(pool
             );
             let reserved = original["reserved_quota"].as_i64().unwrap();
             let refunded = original["refunded_quota"].as_i64().unwrap();
+            let expected_reserved = reserved.to_string();
+            let expected_refunded = refunded.to_string();
+            let expected_net_debit = (reserved - refunded).to_string();
             assert!(
-                item["raw_reserved_units"] == reserved.to_string()
-                    && item["raw_refunded_units"] == refunded.to_string()
-                    && item["raw_net_debit_units"] == (reserved - refunded).to_string(),
+                item["raw_reserved_units"] == expected_reserved
+                    && item["raw_refunded_units"] == expected_refunded
+                    && item["raw_net_debit_units"] == expected_net_debit,
                 "original raw quota differs"
             );
             let mut expected_ledger: Vec<_> = source_ledgers

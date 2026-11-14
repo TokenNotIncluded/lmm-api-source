@@ -116,7 +116,7 @@ impl ProviderConfiguration {
         Ok(())
     }
 
-    pub(crate) fn mapped_user(&self, raw: &str) -> Result<MappedUser> {
+    pub(super) fn mapped_user(&self, raw: &str) -> Result<MappedUser> {
         policy::bounded_json(raw)?;
         for path in [
             &self.user_id_field,
@@ -198,8 +198,10 @@ mod tests {
     use super::*;
     #[test]
     fn mapping_keeps_raw_integer_ids_and_fractional_boolean_truth() {
-        let mut configuration = ProviderConfiguration::default();
-        configuration.client_id = "client".into();
+        let mut configuration = ProviderConfiguration {
+            client_id: "client".into(),
+            ..ProviderConfiguration::default()
+        };
         configuration.normalize(ProviderKind::CustomOauth).unwrap();
         let mapped=configuration.mapped_user(r#"{"sub":9007199254740993,"preferred_username":7,"name":true,"email":"user@example.test","email_verified":0.5}"#).unwrap();
         assert_eq!(mapped.subject, concat!("9007199254", "740993"));

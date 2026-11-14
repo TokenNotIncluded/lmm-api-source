@@ -49,11 +49,11 @@ async fn quote_inner(
             .fetch_one(&mut *c)
             .await?;
     let user_sql = "SELECT u.platform_role,u.personal_account_id,floor(extract(epoch FROM a.created_at))::bigint AS created_at FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active";
-    let user = sqlx::query(&if read_only {
+    let user = sqlx::query(sqlx::AssertSqlSafe::<&str>(&if read_only {
         user_sql.to_owned()
     } else {
         format!("{user_sql} FOR SHARE OF u,a")
-    })
+    }))
     .bind(authenticated_user_id)
     .fetch_optional(&mut *c)
     .await?

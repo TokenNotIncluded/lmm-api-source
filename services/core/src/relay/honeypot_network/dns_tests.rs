@@ -3,7 +3,7 @@
 use super::*;
 use argon2::{
     Algorithm, Argon2, Params, Version,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
 use std::sync::{
     Condvar, Mutex,
@@ -143,9 +143,9 @@ fn real_password_hash_and_verify() {
     // Exact current Core Argon2id engine and strength; no password-policy change.
     let params = Params::new(19_456, 2, 1, Some(32)).unwrap();
     let engine = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    let salt = SaltString::encode_b64(b"owned-test-salt!").unwrap();
+    let salt = b"owned-test-salt!";
     let encoded = engine
-        .hash_password(b"owned synthetic password", &salt)
+        .hash_password_with_salt(b"owned synthetic password", salt)
         .unwrap()
         .to_string();
     assert!(encoded.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));

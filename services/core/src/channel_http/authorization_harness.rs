@@ -175,7 +175,10 @@ async fn state(pool: &PgPool) -> Vec<(String, String)> {
         let sql = format!(
             "SELECT encode(sha256(convert_to(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text,'UTF8')),'hex') FROM \"{schema}\".\"{table}\" t"
         );
-        let hash: String = sqlx::query_scalar(&sql).fetch_one(pool).await.unwrap();
+        let hash: String = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&sql))
+            .fetch_one(pool)
+            .await
+            .unwrap();
         result.push((format!("{schema}.{table}"), hash));
     }
     let sequences: Vec<(String, String)> = sqlx::query_as("SELECT schemaname||'.'||sequencename,COALESCE(last_value::text,'null') FROM pg_sequences WHERE schemaname LIKE 'core_%' OR schemaname='public' ORDER BY schemaname,sequencename")

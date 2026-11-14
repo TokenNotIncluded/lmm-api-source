@@ -83,7 +83,7 @@ fn decode_uploads(
             .ok_or(Error::Invalid)?;
         if bytes.len() != expected
             || STANDARD.encode(&bytes) != upload.data_base64
-            || format!("{:x}", Sha256::digest(&bytes)) != reference.sha256
+            || crate::hex_codec::encode(Sha256::digest(&bytes)) != reference.sha256
         {
             return Err(Error::Invalid);
         }
@@ -110,7 +110,7 @@ mod tests {
         let bytes = STANDARD.decode(data).unwrap();
         DrawingUpload {
             media_type: "image/png".into(),
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            sha256: crate::hex_codec::encode(Sha256::digest(&bytes)),
             byte_length: bytes.len() as u64,
             data_base64: data.into(),
         }

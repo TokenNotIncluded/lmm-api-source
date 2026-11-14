@@ -4,6 +4,8 @@
 //! No configuration, clock acquisition, database, admission or price authority.
 //! The owner must bind the original UTF-8 expression/hash and money bits before
 //! using this leaf. Native decimal pricing does not call this module.
+//! Original expression VM: expr-lang/expr@v1.17.8. The host retains source
+//! provenance in its frozen expression/price contract.
 pub(crate) mod compat;
 #[cfg(test)]
 mod compat_tests;
@@ -15,9 +17,6 @@ mod tests;
 pub use eval::{Evaluation, Financial, SettlementClock, quota_round_checked};
 use parser::Node;
 
-pub const SOURCE_REVISION: &str = "cc52aa195c6f2a01d703a1a407be73c31b89867d";
-pub const VM_VERSION: &str = "expr-lang/expr@v1.17.8";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Syntax,
@@ -25,6 +24,7 @@ pub enum Error {
     Unsupported,
     Measurement,
     MissingClock,
+    #[cfg(test)]
     ClockRange,
     Financial,
 }
@@ -81,7 +81,6 @@ impl UsedVars {
 
 #[derive(Clone, Debug)]
 pub struct Program {
-    source: String,
     root: Node,
     used: UsedVars,
     calendar: bool,
@@ -91,9 +90,6 @@ impl Program {
     /// an arbitrary Expr language interpreter or an admission approval.
     pub fn compile(source: &str) -> Result<Self, Error> {
         parser::compile(source)
-    }
-    pub fn source(&self) -> &str {
-        &self.source
     }
     pub fn used_vars(&self) -> UsedVars {
         self.used

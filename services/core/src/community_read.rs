@@ -311,11 +311,13 @@ impl CommunityRead {
             HISTORY_LOGS
         };
         let usage = format!("({NATIVE}) UNION ALL ({history})");
-        sqlx::query(&format!("SELECT * FROM ({usage}) u WHERE FALSE"))
-            .bind(0_i64)
-            .bind(0_i64)
-            .fetch_all(&mut *tx)
-            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT * FROM ({usage}) u WHERE FALSE"
+        )))
+        .bind(0_i64)
+        .bind(0_i64)
+        .fetch_all(&mut *tx)
+        .await?;
         sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.setting,d.granted,k.group_name,k.auto_groups,k.enabled,c.kind,c.revoked_at,c.expires_at FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id LEFT JOIN core_identity.developer_access d ON d.user_id=u.id JOIN core_identity.credentials c ON c.user_id=u.id JOIN core_identity.api_key_settings k ON k.credential_id=c.id WHERE FALSE")
             .fetch_all(&mut *tx)
             .await?;
@@ -349,12 +351,12 @@ impl CommunityRead {
     pub async fn model_buckets(&self, w: &Window) -> Result<Vec<ModelBucket>> {
         w.validate()?;
         let mut tx = self.snapshot().await?;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT CASE WHEN $3>0 THEN (u.at/$3)*$3 ELSE 0 END AS bucket, u.model, sum(u.tokens)::bigint AS tokens, sum(u.requests)::bigint AS requests
              FROM ({}) u WHERE u.model<>'' GROUP BY 1,2 HAVING sum(u.tokens)>0 ORDER BY 1,2 LIMIT {}",
             self.usage,
             MAX_ROWS + 1
-        ))
+        )))
         .bind(w.start)
         .bind(w.end)
         .bind(w.bucket_seconds)
@@ -388,14 +390,14 @@ impl CommunityRead {
             return Err(Error::Invalid);
         }
         let mut tx = self.snapshot().await?;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "WITH a AS (SELECT u.user_id, sum(u.tokens)::bigint AS tokens, sum(u.requests)::bigint AS requests FROM ({}) u
                WHERE u.user_id>0 GROUP BY 1 HAVING sum(u.requests)>0 OR sum(u.tokens)>0)
              SELECT a.user_id,a.tokens,a.requests,p.username,p.display_name,p.setting FROM a
              JOIN core_identity.users x ON x.id=a.user_id AND x.active
              JOIN core_identity.user_profiles p ON p.user_id=a.user_id",
             self.usage
-        ))
+        )))
         .bind(r.start)
         .bind(r.end)
         .fetch_all(&mut *tx)
@@ -500,7 +502,7 @@ impl CommunityRead {
             return Err(Error::Invalid);
         }
         let mut tx = self.snapshot().await?;
-        let rows=sqlx::query(&format!("SELECT u.id,u.platform_role,u.active,CASE WHEN {REGISTRATION_TIME_PROVEN} THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id>$1 ORDER BY u.id LIMIT $2"))
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT u.id,u.platform_role,u.active,CASE WHEN {REGISTRATION_TIME_PROVEN} THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id>$1 ORDER BY u.id LIMIT $2")))
           .bind(r.after_id).bind(r.limit+1).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         let has_more = rows.len() > r.limit as usize;
@@ -539,7 +541,7 @@ impl CommunityRead {
             "SELECT u.id AS user_id,min(e.paid_at) AS first_paid_at FROM core_identity.users u LEFT JOIN ({}) e ON e.user_id=u.id WHERE u.id=ANY($1) GROUP BY u.id ORDER BY u.id",
             payments::NATIVE_CASH_EVENTS_SQL
         );
-        let rows = sqlx::query(&sql)
+        let rows = sqlx::query(sqlx::AssertSqlSafe::<&str>(&sql))
             .bind(&r.user_ids)
             .fetch_all(&mut *tx)
             .await?;
@@ -569,7 +571,7 @@ impl CommunityRead {
             "(SELECT max(l.created_at) FROM core_history.log_records l WHERE l.user_id=u.id AND l.log_type=2)"
         };
         let mut tx = self.snapshot().await?;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT u.id, u.active, u.platform_role,
               CASE WHEN {REGISTRATION_TIME_PROVEN} THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at,
               coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
@@ -581,7 +583,7 @@ impl CommunityRead {
              FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_identity.user_profiles p ON p.user_id=u.id
              LEFT JOIN core_identity.developer_access d ON d.user_id=u.id
              WHERE u.id=ANY($1) ORDER BY u.id"
-        ))
+        )))
         .bind(&r.user_ids)
         .fetch_all(&mut *tx)
         .await?;

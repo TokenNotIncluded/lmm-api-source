@@ -12,6 +12,9 @@
 //! including constructs the typed Schema cannot hold. Passing `false` is the
 //! v1 sanitizer (cleaned typed Schema plus the warning names of what was
 //! dropped). Nothing in the route config selects that caller.
+//!
+//! Live tool definitions are encoded from IR by zconv_request. The historical
+//! tool placement and v1 sanitizer below remain test oracles for that path.
 
 use serde_json::{Map, Value};
 
@@ -64,11 +67,13 @@ const TYPED_FIELDS: &[&str] = &[
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SchemaRole {
     /// Tool parameters. `#485` keeps `additionalProperties` and `$schema`.
+    #[cfg(test)]
     Tool,
     /// Structured output. Those two annotations alone stay on typed Schema.
     Response,
 }
 
+#[cfg(test)]
 pub(crate) struct PlacedSchema {
     pub field: &'static str,
     pub value: Option<Value>,
@@ -83,8 +88,9 @@ pub(crate) struct ResponseSchemaWire {
     pub warnings: Vec<String>,
 }
 
-/// Place a function schema. `json_schema` is [`ACCEPTS_JSON_SCHEMA`] for the
-/// live relay and `false` for the Gemini API v1 sanitizer.
+/// Frozen function-schema oracle. `json_schema` follows [`ACCEPTS_JSON_SCHEMA`]
+/// for live-path comparisons and is `false` for the Gemini API v1 sanitizer.
+#[cfg(test)]
 pub(crate) fn function_parameters(schema: &Value, json_schema: bool) -> PlacedSchema {
     if json_schema {
         // Fitting schemas already travel as normalized JSON Schema
@@ -284,6 +290,7 @@ fn collect_misfits(
 }
 
 /// `#485` omits a typed object that has no properties and no other constraint.
+#[cfg(test)]
 fn omit_empty_tool_object(schema: &Value) -> bool {
     let Some(map) = schema.as_object() else {
         return false;
@@ -303,6 +310,7 @@ fn omit_empty_tool_object(schema: &Value) -> bool {
     })
 }
 
+#[cfg(test)]
 fn clean_function_parameters(params: &Value, depth: usize) -> Value {
     if params.is_null() {
         return Value::Null;
@@ -322,6 +330,7 @@ fn clean_function_parameters(params: &Value, depth: usize) -> Value {
     }
 }
 
+#[cfg(test)]
 fn clean_object(map: &Map<String, Value>, depth: usize) -> Value {
     let mut cleaned = Map::new();
     for (key, value) in map {
@@ -364,6 +373,7 @@ fn clean_object(map: &Map<String, Value>, depth: usize) -> Value {
     Value::Object(cleaned)
 }
 
+#[cfg(test)]
 fn clean_shallow(params: &Value) -> Value {
     match params {
         Value::Object(map) => {
@@ -385,6 +395,7 @@ fn clean_shallow(params: &Value) -> Value {
     }
 }
 
+#[cfg(test)]
 fn sanitize_enum(schema: &mut Map<String, Value>) {
     let Some(raw) = schema.get("enum") else {
         return;
@@ -394,6 +405,7 @@ fn sanitize_enum(schema: &mut Map<String, Value>) {
     }
 }
 
+#[cfg(test)]
 fn normalize_type_and_nullable(schema: &mut Map<String, Value>) {
     let Some(raw) = schema.get("type").cloned() else {
         return;
@@ -440,6 +452,7 @@ fn normalize_type_and_nullable(schema: &mut Map<String, Value>) {
     }
 }
 
+#[cfg(test)]
 fn normalize_typed_name(text: &str) -> (String, bool) {
     match text.trim().to_ascii_lowercase().as_str() {
         "object" => ("OBJECT".into(), false),

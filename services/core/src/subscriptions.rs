@@ -39,7 +39,8 @@ use crate::{
     },
     identity::{self, CredentialKind, Principal},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, types::Json};
@@ -134,7 +135,7 @@ async fn now(c: &mut PgConnection) -> Result<i64> {
 }
 fn random_id() -> String {
     let mut bytes = [0; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut bytes);
     crate::hex_codec::encode(bytes)
 }
 fn decode<T: DeserializeOwned>(value: Value) -> Result<T> {
@@ -175,7 +176,7 @@ fn plan_row(r: &sqlx::postgres::PgRow) -> Result<Plan> {
 }
 async fn plan(c: &mut PgConnection, id: i64, write: bool) -> Result<Plan> {
     let suffix = if write { " FOR UPDATE OF p" } else { "" };
-    let row=sqlx::query(&format!("SELECT p.id AS plan_id,p.revision,p.archived,r.terms FROM core_subscriptions.plans p JOIN core_subscriptions.plan_revisions r ON r.plan_id=p.id AND r.revision=p.revision WHERE p.id=$1{suffix}"))
+    let row=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT p.id AS plan_id,p.revision,p.archived,r.terms FROM core_subscriptions.plans p JOIN core_subscriptions.plan_revisions r ON r.plan_id=p.id AND r.revision=p.revision WHERE p.id=$1{suffix}")))
         .bind(id).fetch_optional(c).await?.ok_or(Error::NotFound)?;
     plan_row(&row)
 }
@@ -215,9 +216,9 @@ const PURCHASE_SELECT:&str="SELECT p.id,p.subscription_id,p.canceled_at,p.refund
     JOIN core_charging.subscriptions s ON s.id=p.subscription_id";
 async fn purchase(c: &mut PgConnection, id: i64, user: i64, write: bool) -> Result<Purchase> {
     let suffix = if write { " FOR UPDATE OF p,s" } else { "" };
-    let r = sqlx::query(&format!(
+    let r = sqlx::query(sqlx::AssertSqlSafe(format!(
         "{PURCHASE_SELECT} WHERE p.id=$1 AND p.actor_user_id=$2{suffix}"
-    ))
+    )))
     .bind(id)
     .bind(user)
     .fetch_optional(c)
@@ -521,9 +522,9 @@ impl SubscriptionStore {
     pub async fn purchases(&self, secret: &str) -> Result<Vec<Purchase>> {
         let mut tx = self.begin().await?;
         let a = actor(&mut tx, secret, false).await?;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{PURCHASE_SELECT} WHERE p.actor_user_id=$1 ORDER BY p.id DESC LIMIT 1000"
-        ))
+        )))
         .bind(a.user_id)
         .fetch_all(&mut *tx)
         .await?;

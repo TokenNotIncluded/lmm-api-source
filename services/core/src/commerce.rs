@@ -153,7 +153,7 @@ impl From<IdentityError> for Error {
 }
 use crate::hex_codec::encode as hex;
 fn id(value: &serde_json::Value) -> String {
-    hex(&Sha256::digest(
+    hex(Sha256::digest(
         serde_json::to_vec(value).expect("JSON value serialization"),
     ))
 }

@@ -45,7 +45,7 @@ async fn init(pool: &PgPool) {
             .await
             .unwrap();
     if !present {
-        sqlx::raw_sql(market_oauth::SCHEMA)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(market_oauth::SCHEMA))
             .execute(pool)
             .await
             .unwrap();
@@ -532,19 +532,25 @@ async fn exact_runtime_role_can_issue_without_model_or_group_grant(pool: PgPool)
         "UPDATE(consumed_at) ON core_market_oauth.codes",
         "EXECUTE ON FUNCTION core_market_oauth.scope_set(text[])",
     ] {
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             lmm_core::runtime_database::check(&role.pool, required).await,
             Err(lmm_core::runtime_database::RuntimeDatabaseError::MissingPrivileges),
             "{grant}"
         );
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     for grant in [
         "UPDATE ON core_market_oauth.families",
@@ -552,19 +558,25 @@ async fn exact_runtime_role_can_issue_without_model_or_group_grant(pool: PgPool)
         "UPDATE(redirect_uri) ON core_market_oauth.codes",
         "DELETE ON core_market_oauth.requests",
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             lmm_core::runtime_database::check(&role.pool, Default::default()).await,
             Err(lmm_core::runtime_database::RuntimeDatabaseError::UnsafePrivileges),
             "{grant}"
         );
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         // PostgreSQL's table-wide REVOKE also removes the prior column grant.
         // Restore the exact baseline before the next independent mutation.
         role.optional("core_market_oauth").await;

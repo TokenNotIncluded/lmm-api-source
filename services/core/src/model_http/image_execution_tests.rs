@@ -691,7 +691,7 @@ async fn image_api_native_usage_frozen_expression_settlement_replay_and_receipt_
         if let ImageCountBasis::NativeTokens(tariff) = &mut rule.count_basis {
             tariff.source_expression = tariff.source_expression.replace("p * 5", "p * 6");
             tariff.source_sha256 =
-                format!("{:x}", Sha256::digest(tariff.source_expression.as_bytes()));
+                crate::hex_codec::encode(Sha256::digest(tariff.source_expression.as_bytes()));
         }
     }
     service.prices = Arc::new(prices);

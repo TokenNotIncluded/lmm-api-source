@@ -56,7 +56,7 @@ fn require(ok: bool, code: &'static str) -> Result<()> {
     }
 }
 fn sha(bytes: impl AsRef<[u8]>) -> String {
-    format!("{:x}", Sha256::digest(bytes.as_ref()))
+    crate::hex_codec::encode(Sha256::digest(bytes.as_ref()))
 }
 pub(super) fn framed(rows: &[String]) -> String {
     let mut hash = Sha256::new();
@@ -64,7 +64,7 @@ pub(super) fn framed(rows: &[String]) -> String {
         hash.update((row.len() as u64).to_be_bytes());
         hash.update(row.as_bytes());
     }
-    format!("{:x}", hash.finalize())
+    crate::hex_codec::encode(hash.finalize())
 }
 fn json(text: &str) -> Result<Value> {
     serde_json::from_str(text)
@@ -383,7 +383,7 @@ impl OldRows {
             ) {
                 continue;
             }
-            sqlx::query(&format!("DECLARE console_bridge_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(d,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) d FROM (SELECT {columns} FROM {table}) t) s GROUP BY d ORDER BY d"))
+            sqlx::query(sqlx::AssertSqlSafe(format!("DECLARE console_bridge_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(d,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) d FROM (SELECT {columns} FROM {table}) t) s GROUP BY d ORDER BY d")))
                 .execute(&mut *c).await?;
             let mut hash = Sha256::new();
             loop {
@@ -402,12 +402,15 @@ impl OldRows {
             sqlx::query("CLOSE console_bridge_rows")
                 .execute(&mut *c)
                 .await?;
-            facts.push(format!("{table}:{hash:x}", hash = hash.finalize()));
+            facts.push(format!(
+                "{table}:{}",
+                crate::hex_codec::encode(hash.finalize())
+            ));
         }
         for seq in &self.sequences {
-            let state: String = sqlx::query_scalar(&format!(
+            let state: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT json_build_array(last_value,log_cnt,is_called)::text FROM {seq}"
-            ))
+            )))
             .fetch_one(&mut *c)
             .await?;
             facts.push(format!("{seq}:{state}"));
@@ -436,7 +439,7 @@ pub(super) async fn stage(
     plan: &BridgePlan,
     rows: &OldRows,
 ) -> Result<BridgePreview> {
-    let before: Vec<String> = sqlx::query_scalar(&plan.catalog_query)
+    let before: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&plan.catalog_query))
         .fetch_all(&mut *c)
         .await?;
     require(
@@ -507,7 +510,7 @@ pub(super) async fn stage(
         sqlx::raw_sql(V1_RECEIPT).execute(&mut *c).await?;
     }
     sqlx::raw_sql(RECEIPT).execute(&mut *c).await?;
-    let after: Vec<String> = sqlx::query_scalar(&plan.catalog_query)
+    let after: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&plan.catalog_query))
         .fetch_all(&mut *c)
         .await?;
     let after_acl = permissions(c).await?;

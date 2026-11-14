@@ -33,19 +33,25 @@ async fn gift_and_history_reject_excess_privileges_even_when_feature_disabled(po
         "DELETE ON core_history.scope_receipts",
         "UPDATE(request_id) ON core_assistant.operations",
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::UnsafePrivileges),
             "{grant}"
         );
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         runtime_database::check(&role.pool, RequiredCapabilities::default())
             .await
             .unwrap();
@@ -83,19 +89,25 @@ async fn gift_identity_and_execution_require_exact_minimum_grants(pool: PgPool) 
         "INSERT ON core_gift.qualifications",
         "EXECUTE ON FUNCTION core_gift.lock_eligibility(bigint)",
     ] {
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::MissingPrivileges),
             "{grant}"
         );
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     role.optional("core_charging").await;
     role.optional("core_assistant").await;
@@ -117,19 +129,25 @@ async fn gift_identity_and_execution_require_exact_minimum_grants(pool: PgPool) 
         "UPDATE(gift_tool_id) ON core_assistant.operations",
         "UPDATE(gift_response_sha256) ON core_assistant.operations",
     ] {
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, required).await,
             Err(Error::MissingPrivileges),
             "{grant}"
         );
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         runtime_database::check(&role.pool, required).await.unwrap();
     }
     role.cleanup().await;

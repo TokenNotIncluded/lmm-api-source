@@ -52,7 +52,7 @@ pub(crate) async fn builtin_with_session(
             .await
             .unwrap();
     if !exists {
-        sqlx::raw_sql(credits::SCHEMA_V2)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(credits::SCHEMA_V2))
             .execute(pool)
             .await
             .unwrap();

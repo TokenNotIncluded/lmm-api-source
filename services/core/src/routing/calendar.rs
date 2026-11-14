@@ -69,7 +69,7 @@ impl CalendarSchedule {
         if self.revision != 1
             || self.source_expression.is_empty()
             || self.source_expression.len() > 16384
-            || format!("{:x}", Sha256::digest(self.source_expression.as_bytes()))
+            || crate::hex_codec::encode(Sha256::digest(self.source_expression.as_bytes()))
                 != base.source_digest
             || self.weekday_timezone != "UTC"
             || self.hour_timezone != "UTC"
@@ -191,7 +191,7 @@ mod tests {
     fn fixture() -> TieredTariff {
         let source = "synthetic-calendar-fixture";
         serde_json::from_value(serde_json::json!({
-            "revision":1,"source_digest":format!("{:x}",Sha256::digest(source.as_bytes())),
+            "revision":1,"source_digest":crate::hex_codec::encode(Sha256::digest(source.as_bytes())),
             "uses_cache_read":false,"uses_cache_write":false,
             "tiers":[{"rates":{"input":{"numerator":1,"denominator":1},"output":{"numerator":0,"denominator":1},
                 "cache_read":{"numerator":0,"denominator":1},"cache_write":{"numerator":0,"denominator":1}}}],

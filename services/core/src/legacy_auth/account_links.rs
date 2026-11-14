@@ -7,7 +7,10 @@ use axum::extract::Path;
 pub(super) fn routes() -> Router<AuthState> {
     Router::new()
         .route("/api/user/account-links", get(list))
-        .route("/api/user/account-links/unlink", post(unlink).layer(DefaultBodyLimit::max(128 * 1024)))
+        .route(
+            "/api/user/account-links/unlink",
+            post(unlink).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
         .route("/api/user/account-links/{provider}/begin", post(begin))
         .route("/api/user/account-links/{provider}/finish", post(finish))
 }
@@ -157,11 +160,18 @@ async fn unlink(
         let Json(input) = input.map_err(|_| IdentityError::Invalid)?;
         if let Some(id) = input.issuer.strip_prefix("urn:lmm:federated:") {
             let provider = id.parse::<i64>().map_err(|_| IdentityError::Invalid)?;
-            if provider <= 0 || provider.to_string() != id { return Err(IdentityError::Invalid.into()); }
-            return state.browser.unlink_federated(
-                bearer(&headers)?.ok_or(IdentityError::Unauthorized)?, provider,
-                &input, state.config.passkeys.is_some(),
-            ).await;
+            if provider <= 0 || provider.to_string() != id {
+                return Err(IdentityError::Invalid.into());
+            }
+            return state
+                .browser
+                .unlink_federated(
+                    bearer(&headers)?.ok_or(IdentityError::Unauthorized)?,
+                    provider,
+                    &input,
+                    state.config.passkeys.is_some(),
+                )
+                .await;
         }
         state
             .browser

@@ -1781,3 +1781,4 @@ impl PaymentsStore {
 }
 
 pub(crate) mod subscription_pancake;
+pub(crate) use subscription_pancake::VerificationTimes;

@@ -13,11 +13,12 @@ pub async fn install(pool: &sqlx::PgPool) {
         "../../src/core_schema/upgrade/projection_predecessor_manifest.json"
     ))
     .unwrap();
-    let definitions: Vec<String> =
-        sqlx::query_scalar(manifest["catalog"]["query_utf8"].as_str().unwrap())
-            .fetch_all(&mut *tx)
-            .await
-            .unwrap();
+    let definitions: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(
+        manifest["catalog"]["query_utf8"].as_str().unwrap(),
+    ))
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
     let mut hash = Sha256::new();
     for definition in definitions {
         hash.update((definition.len() as u64).to_be_bytes());
@@ -25,13 +26,10 @@ pub async fn install(pool: &sqlx::PgPool) {
     }
     let catalog = hash.finalize().to_vec();
     assert_eq!(
-        format!(
-            "{:x}",
-            Sha256::digest(
-                include_str!("../../src/core_schema/upgrade/projection_predecessor_manifest.json")
-                    .as_bytes()
-            )
-        ),
+        hex_codec::encode(Sha256::digest(
+            include_str!("../../src/core_schema/upgrade/projection_predecessor_manifest.json")
+                .as_bytes()
+        )),
         "f12d5e81ca219acdc59ac07be931d52e46f0b64974f1e2b3154ad102b5cc0c1c"
     );
     assert_eq!(
@@ -48,3 +46,5 @@ pub async fn install(pool: &sqlx::PgPool) {
         .unwrap();
     tx.commit().await.unwrap();
 }
+
+use crate::hex_codec;

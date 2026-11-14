@@ -17,8 +17,8 @@ pub use config::{
     Protocol, RetryCause, RouteTarget, RoutingConfig, Speed, UpstreamConfig,
 };
 pub use engine::{
-    Attempt, DeliveryState, Failure, FailureKind, HealthStatus, PublicModel, ReleaseVersion,
-    ReplayPermission, RoutePlan, RouteRequest, Router,
+    Attempt, AttemptKey, DeliveryState, Failure, FailureKind, HealthStatus, PublicModel,
+    ReleaseVersion, ReplayPermission, RoutePlan, RouteRequest, Router, route_key,
 };
 pub use group_name::valid_group_name;
 pub use pricing::{

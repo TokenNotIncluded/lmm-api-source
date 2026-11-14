@@ -132,10 +132,9 @@ pub struct BountyStore {
     pool: PgPool,
 }
 fn hash<T: Serialize>(x: &T) -> Result<String> {
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(x).map_err(|_| Error::Invalid)?)
-    ))
+    Ok(crate::hex_codec::encode(Sha256::digest(
+        serde_json::to_vec(x).map_err(|_| Error::Invalid)?,
+    )))
 }
 fn clean(c: &Command) -> Command {
     let mut c = c.clone();

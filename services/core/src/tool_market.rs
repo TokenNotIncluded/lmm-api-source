@@ -115,9 +115,9 @@ pub struct ToolMarketStore {
     pool: PgPool,
 }
 fn hash<T: Serialize>(v: &T) -> Result<String> {
-    Ok(
-        crate::hex_codec::encode(Sha256::digest(serde_json::to_vec(v).map_err(|_| Error::Invalid)?)),
-    )
+    Ok(crate::hex_codec::encode(Sha256::digest(
+        serde_json::to_vec(v).map_err(|_| Error::Invalid)?,
+    )))
 }
 fn name(v: &str) -> bool {
     !v.is_empty()

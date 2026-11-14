@@ -148,7 +148,7 @@ impl ManagedChannels {
         let bindings = serde_json::to_value(&bindings).map_err(|_| ManagementError::Invalid)?;
         let digest = |document: &Value| -> Result<String, ManagementError> {
             let bytes = serde_json::to_vec(document).map_err(|_| ManagementError::Invalid)?;
-            Ok(format!("{:x}", Sha256::digest(bytes)))
+            Ok(crate::hex_codec::encode(Sha256::digest(bytes)))
         };
         Ok(json!({
             "format_version": 1,
@@ -787,7 +787,7 @@ pub(super) struct PriceInput {
 fn price_confirmation(expected: Version, prices: &PriceConfig) -> Result<String, ManagementError> {
     let bytes = serde_json::to_vec(&("lmm-price-publication-v1", expected, prices))
         .map_err(|_| ManagementError::Invalid)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(crate::hex_codec::encode(Sha256::digest(bytes)))
 }
 pub(super) async fn publish_prices(
     State(state): State<ChannelState>,

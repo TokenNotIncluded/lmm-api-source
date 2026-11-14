@@ -66,7 +66,7 @@ impl Amounts {
 fn operation_id(request_id: &str, tag: &str) -> Result<String, InvalidReceipt> {
     let encoded =
         serde_json::to_vec(&("core-charging-v1", request_id, tag)).map_err(|_| InvalidReceipt)?;
-    Ok(format!("{:x}", Sha256::digest(encoded)))
+    Ok(crate::hex_codec::encode(Sha256::digest(encoded)))
 }
 #[derive(Deserialize)]
 pub(crate) struct StoredCommand {

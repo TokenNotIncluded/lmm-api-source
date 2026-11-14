@@ -10,6 +10,7 @@ use crate::{
     routing::{CreditRate, PayloadPolicy, Protocol, ReplayPermission, RouteRequest},
 };
 use axum::{body::to_bytes, extract::Request};
+use rand::Rng as _;
 use serde_json::Value;
 
 pub(super) fn router(gateway: ModelGateway) -> Router {
@@ -322,29 +323,20 @@ async fn execute(
     digest.update(&body);
     let fingerprint: [u8; 32] = digest.finalize().into();
     let mut worker = [0; 32];
-    OsRng.fill_bytes(&mut worker);
-    let route_id = format!(
-        "r{}-t{}-u{}",
-        attempt.route_id(),
-        attempt.target_id(),
-        attempt.upstream_id()
-    );
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
+    let route_id = attempt.route_key();
     let prepared = charging::contract::PreparedReservation::native_tool(
-        charging::contract::hex_digest(&fingerprint),
-        charging::contract::ReservationBinding {
-            route_id: route_id.clone(),
-            target_id: attempt.target_id(),
-            upstream_id: attempt.upstream_id(),
-            protocol: kind.protocol_name().into(),
-            model_snapshot: attempt.upstream_model().into(),
-            generation_url: endpoint.as_str().into(),
-            credential_ref: reference,
-            payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
-                .map_err(billing::error)?,
-            provider_contract_revision: provider_revision,
-            projection_revision: "successful-request-v1".into(),
-            quote_version: quote.price().version(),
-        },
+        charging::contract::hex_digest(fingerprint),
+        charging::contract::ReservationBinding::for_attempt(
+            &attempt,
+            kind.protocol_name().into(),
+            attempt.upstream_model().into(),
+            endpoint.as_str().into(),
+            provider_revision,
+            "successful-request-v1".into(),
+            quote.price().version(),
+        )
+        .map_err(billing::error)?,
         charging::contract::digest(&body),
         semantics,
     )

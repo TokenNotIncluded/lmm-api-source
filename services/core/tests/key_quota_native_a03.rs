@@ -213,25 +213,27 @@ async fn setup_a03_roles() -> PgPool {
     let database = format!("kq_{suffix}");
     let runtime = format!("kq_runtime_{suffix}");
     // Role names, database and password material are generated hexadecimal.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE ROLE {owner} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; \
          CREATE ROLE {operator} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'; \
          GRANT {owner} TO {operator}; \
          CREATE ROLE {runtime} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}';"
-    )).execute(&pool).await.expect("provision isolated installer roles");
+    ))).execute(&pool).await.expect("provision isolated installer roles");
     // CREATE DATABASE cannot be part of a multi-statement transaction.
-    sqlx::raw_sql(&format!("CREATE DATABASE {database} OWNER {owner}"))
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::raw_sql(&format!("REVOKE CONNECT ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {operator}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE DATABASE {database} OWNER {owner}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REVOKE CONNECT ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {operator}")))
         .execute(&pool).await.unwrap();
     let admin_options = (*pool.connect_options()).clone().database(&database);
     pool.close().await;
     let mut connection = PgConnection::connect_with(&admin_options).await.unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT EXECUTE ON FUNCTION pg_control_system() TO {owner}"
-    ))
+    )))
     .execute(&mut connection)
     .await
     .unwrap();
@@ -438,7 +440,10 @@ async fn import_state(pool: &PgPool) -> serde_json::Value {
                 "SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {relation} t"
             )
         };
-        let value = sqlx::query_scalar(&query).fetch_one(pool).await.unwrap();
+        let value = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&query))
+            .fetch_one(pool)
+            .await
+            .unwrap();
         snapshot.insert(format!("{schema}.{name}"), value);
     }
     serde_json::Value::Object(snapshot)
@@ -503,7 +508,10 @@ print(KQ.IDENTITY.catalog_hash_sql(KQ.IDENTITY.current_contract()))
         String::from_utf8_lossy(&hash_output.stderr)
     );
     let hash_sql = String::from_utf8(hash_output.stdout).unwrap();
-    let catalog_hash: String = sqlx::query_scalar(&hash_sql).fetch_one(pool).await.unwrap();
+    let catalog_hash: String = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&hash_sql))
+        .fetch_one(pool)
+        .await
+        .unwrap();
 
     contract["catalog_fingerprint_sha256"] = serde_json::Value::String(catalog_hash);
 
@@ -796,7 +804,7 @@ async fn offline_writer_plan_and_charging_engine_admission() {
         .unwrap();
     drop(ledger);
 
-    let secret_hash = format!("{:x}", Sha256::digest(key.secret.as_bytes()));
+    let secret_hash = hex_codec::encode(Sha256::digest(key.secret.as_bytes()));
     let target_receipt = get_target_receipt(&pool).await;
 
     let token = serde_json::json!({
@@ -965,8 +973,8 @@ async fn refuse_cross_key_and_cross_account_borrowing() {
     drop(ledger);
 
     let target_receipt = get_target_receipt(&pool).await;
-    let sec1_hash = format!("{:x}", Sha256::digest(key1.secret.as_bytes()));
-    let sec2_hash = format!("{:x}", Sha256::digest(key2.secret.as_bytes()));
+    let sec1_hash = hex_codec::encode(Sha256::digest(key1.secret.as_bytes()));
+    let sec2_hash = hex_codec::encode(Sha256::digest(key2.secret.as_bytes()));
 
     let tokens = [
         serde_json::json!({
@@ -1068,7 +1076,7 @@ async fn finite_unlimited_switching_does_not_clear_consumed_credits() {
     let payer = store.authorize(&key.secret).await.unwrap().owner_account_id;
     drop(store);
     let target_receipt = get_target_receipt(&pool).await;
-    let sec_hash = format!("{:x}", Sha256::digest(key.secret.as_bytes()));
+    let sec_hash = hex_codec::encode(Sha256::digest(key.secret.as_bytes()));
 
     let tokens = [serde_json::json!({
         "id": 1,
@@ -1180,7 +1188,7 @@ async fn competing_client_rejected_and_strict_replay() {
     let payer = store.authorize(&key.secret).await.unwrap().owner_account_id;
     drop(store);
     let target_receipt = get_target_receipt(&pool).await;
-    let sec_hash = format!("{:x}", Sha256::digest(key.secret.as_bytes()));
+    let sec_hash = hex_codec::encode(Sha256::digest(key.secret.as_bytes()));
 
     let tokens = [serde_json::json!({
         "id": 1,
@@ -1320,7 +1328,7 @@ async fn injected_failure_marker_rolls_back_every_table_and_sequence() {
         .unwrap();
 
     let target_receipt = get_target_receipt(&pool).await;
-    let sec_hash = format!("{:x}", Sha256::digest(key.secret.as_bytes()));
+    let sec_hash = hex_codec::encode(Sha256::digest(key.secret.as_bytes()));
 
     let tokens = [serde_json::json!({
         "id": 1,
@@ -1415,7 +1423,7 @@ async fn unknown_import_queries_by_original_migration_id() {
     let payer = store.authorize(&key.secret).await.unwrap().owner_account_id;
     drop(store);
     let target_receipt = get_target_receipt(&pool).await;
-    let sec_hash = format!("{:x}", Sha256::digest(key.secret.as_bytes()));
+    let sec_hash = hex_codec::encode(Sha256::digest(key.secret.as_bytes()));
 
     let tokens = [serde_json::json!({
         "id": 1,
@@ -1465,3 +1473,6 @@ async fn unknown_import_queries_by_original_migration_id() {
     assert_eq!(map_sha.len(), 64);
     finish_fixture(pool).await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

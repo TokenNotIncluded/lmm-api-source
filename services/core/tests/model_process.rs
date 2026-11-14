@@ -86,7 +86,7 @@ fn core_binary() -> PathBuf {
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     );
-    let actual = format!("{:x}", Sha256::digest(fs::read(&path).unwrap()));
+    let actual = hex_codec::encode(Sha256::digest(fs::read(&path).unwrap()));
     assert_eq!(actual, expected, "frozen Core binary changed before spawn");
     path
 }
@@ -137,7 +137,7 @@ fn executable_observation(pid: u32, expected: &str) -> Value {
         let metadata = file.metadata()?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
-        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        let sha256 = hex_codec::encode(Sha256::digest(&bytes));
         let current_proc_path = fs::read_link(&path);
         Ok(json!({
             "pid": pid,
@@ -278,7 +278,7 @@ impl Host {
         let executed_metadata = executed_file.metadata().unwrap();
         let mut executed_bytes = Vec::new();
         executed_file.read_to_end(&mut executed_bytes).unwrap();
-        let actual_sha256 = format!("{:x}", Sha256::digest(&executed_bytes));
+        let actual_sha256 = hex_codec::encode(Sha256::digest(&executed_bytes));
         assert_eq!(actual_sha256, expected);
         let target_identity = (target_metadata.dev(), target_metadata.ino());
         assert_eq!(
@@ -335,9 +335,9 @@ async fn prepare_core(pool: &PgPool, provider: &Provider, keys: &[i64], label: &
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
     );
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE CONNECT ON DATABASE \"{database}\" FROM PUBLIC"
-    ))
+    )))
     .execute(pool)
     .await
     .unwrap();
@@ -455,10 +455,12 @@ async fn paid(pool: &PgPool, account: i64, id: &str) {
 async fn denied_empty(pool: &PgPool, provider: &Provider) {
     assert_eq!(provider.hits.load(Ordering::SeqCst), 0);
     for table in ["requests", "ledger_holds", "ledger_commands"] {
-        let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core_charging.{table}"))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM core_charging.{table}"
+        )))
+        .fetch_one(pool)
+        .await
+        .unwrap();
         assert_eq!(n, 0);
     }
     balanced(pool).await;
@@ -929,3 +931,6 @@ async fn independent_process_distinct_requests_compete_for_real_budget(pool: PgP
     );
     host.finish().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

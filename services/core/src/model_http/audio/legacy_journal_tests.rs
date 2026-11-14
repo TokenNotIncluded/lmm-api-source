@@ -40,7 +40,7 @@ async fn legacy_fixture(pool: PgPool, corrupt: bool) {
     let fingerprint = [8; 32];
     let wire_hash = "07".repeat(32);
     let prepared = charging::contract::PreparedReservation::audio_chat(
-        charging::contract::hex_digest(&fingerprint),
+        charging::contract::hex_digest(fingerprint),
         charging::contract::ReservationBinding {
             route_id: "r1-t1-u1".into(),
             target_id: 1,

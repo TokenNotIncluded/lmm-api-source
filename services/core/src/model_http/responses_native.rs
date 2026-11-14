@@ -7,7 +7,16 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) struct Request {
     model: String,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     input: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_response_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_options: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,13 +57,11 @@ impl Request {
         let mut r: Self = serde_json::from_slice(raw)
             .map_err(|_| RelayError::Invalid("invalid native Responses request"))?;
         r.compact = kind == Kind::ResponsesCompact;
-        if r.store == Some(true) {
-            return Err(RelayError::Unsupported(
-                "native compact context requires store:false",
-            ));
-        }
         if r.compact
-            && (r.max_output_tokens.is_some()
+            && (r.temperature.is_some()
+                || r.top_p.is_some()
+                || r.prompt_cache_options.is_some()
+                || r.max_output_tokens.is_some()
                 || r.store.is_some()
                 || r.stream.is_some()
                 || r.tools.is_some()
@@ -67,7 +74,9 @@ impl Request {
             return Err(RelayError::Invalid("unsupported compaction controls"));
         }
         if r.max_output_tokens == Some(0)
-            || !(r.input.as_str().is_some_and(|s| !s.is_empty())
+            || !(r.previous_response_id.is_some()
+                && (r.input.is_null() || r.input.as_array().is_some_and(|a| a.is_empty()))
+                || r.input.as_str().is_some_and(|s| !s.is_empty())
                 || r.input.as_array().is_some_and(|a| !a.is_empty()))
         {
             return Err(RelayError::Invalid("native Responses input required"));
@@ -113,6 +122,10 @@ impl Request {
         let mut validation =
             serde_json::to_value(&r).map_err(|_| RelayError::Invalid("native controls"))?;
         validation.as_object_mut().unwrap().remove("include");
+        validation
+            .as_object_mut()
+            .unwrap()
+            .remove("previous_response_id");
         validation["input"] = "validate native controls".into();
         validation["store"] = false.into();
         validation["stream"] = false.into();
@@ -123,6 +136,33 @@ impl Request {
             &Limits::default(),
         )?;
         Ok(r)
+    }
+    pub(super) fn opaque(&self) -> bool {
+        self.input.as_array().is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item["type"] == "compaction" || item.get("encrypted_content").is_some())
+        })
+    }
+    pub(super) fn previous(&self) -> Option<&str> {
+        self.previous_response_id.as_deref()
+    }
+    pub(super) fn store(&self) -> Option<bool> {
+        self.store
+    }
+    pub(super) fn cache_lifetime_requested(&self) -> bool {
+        self.prompt_cache_options
+            .as_ref()
+            .is_some_and(|value| !value.is_null())
+    }
+    pub(super) fn continuity_wire(&self, model: &str) -> Result<Vec<u8>, RelayError> {
+        let mut value =
+            serde_json::to_value(self).map_err(|_| RelayError::Invalid("native controls"))?;
+        value["model"] = model.into();
+        if !self.compact {
+            value["stream"] = self.streaming().into();
+        }
+        serde_json::to_vec(&value).map_err(|_| RelayError::Invalid("native controls"))
     }
     pub(super) fn streaming(&self) -> bool {
         self.stream == Some(true)
@@ -180,10 +220,7 @@ impl Request {
                 Some("compaction" | "reasoning")
                     if item["encrypted_content"]
                         .as_str()
-                        .is_some_and(|s| !s.is_empty()) =>
-                {
-                    ()
-                }
+                        .is_some_and(|s| !s.is_empty()) => {}
                 Some("reasoning") if item["summary"].is_array() => (),
                 Some("function_call")
                     if item["call_id"].is_string()
@@ -191,10 +228,7 @@ impl Request {
                         && item["arguments"].as_str().is_some_and(|s| {
                             serde_json::from_str::<serde_json::Value>(s)
                                 .is_ok_and(|v| v.is_object())
-                        }) =>
-                {
-                    ()
-                }
+                        }) => {}
                 _ => validate_message(item).map_err(|_| invalid())?,
             }
         }
@@ -271,6 +305,7 @@ pub(super) async fn read_stream(
     mut response: reqwest::Response,
     sender: &Sender,
     credential: &str,
+    client_handle: Option<&str>,
 ) -> Result<(Vec<u8>, Bytes, u64), RelayError> {
     if !connection.matches_peer(response.remote_addr())
         || response.headers().contains_key(header::CONTENT_ENCODING)
@@ -314,7 +349,7 @@ pub(super) async fn read_stream(
                 if frame.data.contains(credential) {
                     return Err(RelayError::SettlementPending);
                 }
-                let event: serde_json::Value = serde_json::from_str(&frame.data)
+                let mut event: serde_json::Value = serde_json::from_str(&frame.data)
                     .map_err(|_| RelayError::Protocol("invalid native SSE JSON"))?;
                 let name = event["type"]
                     .as_str()
@@ -349,6 +384,9 @@ pub(super) async fn read_stream(
                     }
                     let raw = serde_json::to_vec(&event["response"])
                         .map_err(|_| RelayError::SettlementPending)?;
+                    if let Some(handle) = client_handle {
+                        super::responses_continuity::rewrite_event(&mut event, handle);
+                    }
                     terminal = Some((raw, encode_event(&event)?, sequence));
                     continue;
                 }
@@ -371,18 +409,21 @@ pub(super) async fn read_stream(
                 ) {
                     return Err(RelayError::Unsupported("unsupported native SSE output"));
                 }
-                if let Some(item) = event.get("item") {
-                    if !matches!(
+                if let Some(item) = event.get("item")
+                    && !matches!(
                         item["type"].as_str(),
                         Some("message" | "function_call" | "reasoning")
-                    ) {
-                        return Err(RelayError::Protocol("unpriced native SSE item"));
-                    }
+                    )
+                {
+                    return Err(RelayError::Protocol("unpriced native SSE item"));
                 }
-                if let Some(part) = event.get("part") {
-                    if !matches!(part["type"].as_str(), Some("output_text" | "summary_text")) {
-                        return Err(RelayError::Protocol("unpriced native SSE part"));
-                    }
+                if let Some(part) = event.get("part")
+                    && !matches!(part["type"].as_str(), Some("output_text" | "summary_text"))
+                {
+                    return Err(RelayError::Protocol("unpriced native SSE part"));
+                }
+                if let Some(handle) = client_handle {
+                    super::responses_continuity::rewrite_event(&mut event, handle);
                 }
                 let packet = encode_event(&event)?;
                 gateway

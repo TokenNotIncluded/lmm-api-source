@@ -214,9 +214,7 @@ impl PermissionReadStore {
             user_id: principal.user_id.to_string(),
             admin_permissions: capability_matrix(role, overrides),
             policy_revision: loaded.as_ref().map(|p| p.revision.to_string()),
-            policy_sha256: loaded
-                .as_ref()
-                .map(|p| crate::hex_codec::encode(p.sha256)),
+            policy_sha256: loaded.as_ref().map(|p| crate::hex_codec::encode(p.sha256)),
         };
         tx.commit().await?;
         Ok(result)

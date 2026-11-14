@@ -68,7 +68,7 @@ impl CommunityRead {
             None => (false, String::new(), String::new(), String::new()),
         };
         let scoped = scoped_usage(self.history_source);
-        let totals = sqlx::query(&format!(
+        let totals = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT coalesce(sum(tokens),0)::bigint AS tokens,
              coalesce(sum(requests),0)::bigint AS requests,
              coalesce(bool_and(credits IS NOT NULL),true) AS pricing_available,
@@ -76,7 +76,7 @@ impl CommunityRead {
               THEN coalesce(sum(credits),0)::bigint ELSE NULL END AS credits,
              count(DISTINCT coalesce(nullif(model,''),'unknown'))::bigint AS models
              FROM ({scoped}) s"
-        ))
+        )))
         .bind(r.start)
         .bind(r.end)
         .bind(r.user_id)
@@ -85,10 +85,10 @@ impl CommunityRead {
         let pricing_available: bool = totals.try_get("pricing_available")?;
         let mut buckets = Vec::new();
         if r.bucket_seconds > 0 {
-            for row in sqlx::query(&format!(
+            for row in sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT (at/$4)*$4 AS bucket,sum(tokens)::bigint AS tokens,sum(requests)::bigint AS requests
                  FROM ({scoped}) s GROUP BY 1 ORDER BY 1 LIMIT 1000"
-            ))
+            )))
             .bind(r.start)
             .bind(r.end)
             .bind(r.user_id)
@@ -105,7 +105,7 @@ impl CommunityRead {
         }
         let mut models = Vec::new();
         if r.model_limit > 0 {
-            for row in sqlx::query(&format!(
+            for row in sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT * FROM (
                   SELECT coalesce(nullif(model,''),'unknown') AS model,sum(tokens)::bigint AS tokens,
                    sum(requests)::bigint AS requests,
@@ -113,7 +113,7 @@ impl CommunityRead {
                   FROM ({scoped}) s GROUP BY 1
                  ) m ORDER BY CASE WHEN $5 THEN m.credits END DESC NULLS LAST,
                  tokens DESC,requests DESC,model LIMIT $4"
-            ))
+            )))
             .bind(r.start)
             .bind(r.end)
             .bind(r.user_id)

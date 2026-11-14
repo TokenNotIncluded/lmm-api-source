@@ -57,7 +57,10 @@ pub(super) async fn seed_native_history_prices(
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::raw_sql(&sql).execute(&mut *tx).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
 }
 const HISTORICAL_IMAGE_PRICE: &str = r#"{"version":"synthetic-image-v1","model":"synthetic-image","group":"default",

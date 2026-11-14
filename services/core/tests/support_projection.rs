@@ -225,10 +225,10 @@ async fn support_only_runtime_requires_reads_and_never_commerce_writer_grants(po
         projection.customers(&seller, &request).await.unwrap().len(),
         1
     );
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON core_commerce.orders FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

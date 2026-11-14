@@ -176,6 +176,75 @@ async fn ok(f: &Fixture, path: &str) -> Value {
 }
 
 #[sqlx::test(migrations = false)]
+async fn read_only_identity_runtime_projects_settled_and_refunded_usage(pool: PgPool) {
+    let f = fixture(&pool).await;
+    settled(&f, &f.key.secret, "readonly-completed", Outcome::Completed).await;
+    f.charging
+        .refund(
+            "readonly-completed",
+            "readonly-refund",
+            20,
+            "private usage reader fixture",
+        )
+        .await
+        .unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    // Do not enable charging: an identity-only runtime must read complete
+    // nonempty receipts without acquiring model reservation/settlement writes.
+    lmm_core::runtime_database::check(&role.pool, Default::default())
+        .await
+        .unwrap();
+    let app = http::configured_router(
+        role.pool.clone(),
+        Capabilities {
+            identity: true,
+            ..Default::default()
+        },
+    );
+    let before = f.ledger.balance(f.account).await.unwrap();
+    let (status, logs) = get(&app, "/api/log/self", Some(&f.session.secret)).await;
+    assert_eq!(status, StatusCode::OK, "{logs}");
+    assert_eq!(logs["success"], true);
+    assert_eq!(logs["data"]["total"], 1);
+    let row = &logs["data"]["items"][0];
+    assert_eq!(row["request_id"], "readonly-completed");
+    assert_eq!(row["quota"], 29);
+    assert_eq!(row["quota_usd"], "0.000058");
+    assert_eq!(row["prompt_tokens"], 10);
+    assert_eq!(row["completion_tokens"], 20);
+    let (status, stats) = get(&app, "/api/log/self/stat", Some(&f.session.secret)).await;
+    assert_eq!(status, StatusCode::OK, "{stats}");
+    assert_eq!(stats["data"]["quota"], 29);
+    assert_eq!(stats["data"]["reserved_credits"], 0);
+    let (status, daily) = get(
+        &app,
+        "/api/data/self?default_time=day",
+        Some(&f.session.secret),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{daily}");
+    assert_eq!(
+        daily["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["quota"].as_i64().unwrap())
+            .sum::<i64>(),
+        29
+    );
+    assert_eq!(f.ledger.balance(f.account).await.unwrap(), before);
+    for table in ["requests", "usage_events", "ledger_commands", "refunds"] {
+        let writable: bool = sqlx::query_scalar("SELECT has_table_privilege('core_charging.' || $1, 'INSERT,UPDATE,DELETE') OR has_any_column_privilege('core_charging.' || $1, 'INSERT,UPDATE')")
+            .bind(table).fetch_one(&role.pool).await.unwrap();
+        assert!(
+            !writable,
+            "usage projection gained write authority on {table}"
+        );
+    }
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn settled_refunded_failed_cancelled_reserved_streaming_reconcile_and_released(pool: PgPool) {
     let f = fixture(&pool).await;
     settled(&f, &f.key.secret, "completed", Outcome::Completed).await;
@@ -529,10 +598,10 @@ async fn auth_denial_key_rejection_revocation_and_storage_failure(pool: PgPool) 
         StatusCode::OK
     );
     // Loss of a required receipt table's SELECT must not become empty success.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON core_charging.usage_events FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

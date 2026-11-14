@@ -65,7 +65,7 @@ async fn product_features_require_exact_grants_and_reject_excess_even_when_disab
         ),
     ];
     for (grant, revoke) in alterations {
-        sqlx::raw_sql(&format!("{grant} {}", role.name))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{grant} {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -76,15 +76,15 @@ async fn product_features_require_exact_grants_and_reject_excess_even_when_disab
                 "{grant} should remain unsafe with required={required}",
             );
         }
-        sqlx::raw_sql(&format!("{revoke} {}", role.name))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{revoke} {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
     }
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON core_notifications.inbox TO {} WITH GRANT OPTION",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -92,17 +92,17 @@ async fn product_features_require_exact_grants_and_reject_excess_even_when_disab
         product_features::check(&mut connection, false).await,
         Err(RuntimeDatabaseError::UnsafePrivileges)
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE GRANT OPTION FOR SELECT ON core_notifications.inbox FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE UPDATE(enabled) ON core_notifications.preferences FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

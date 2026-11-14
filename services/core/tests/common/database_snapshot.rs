@@ -32,7 +32,10 @@ pub async fn snapshot(pool: &PgPool) -> BTreeMap<String, Vec<String>> {
                 "SELECT to_jsonb(t)::text FROM {quoted} t ORDER BY to_jsonb(t)::text COLLATE \"C\""
             )
         };
-        let rows: Vec<String> = sqlx::query_scalar(&sql).fetch_all(&mut *tx).await.unwrap();
+        let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&sql))
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
         result.insert(format!("{kind}:{schema}.{name}"), rows);
     }
     let sequences: Vec<String> = sqlx::query_scalar(

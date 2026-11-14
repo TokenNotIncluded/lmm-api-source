@@ -16,6 +16,7 @@ use crate::{
 };
 use axum::{body::to_bytes, extract::Request};
 use contract::{DangerZone, Request as NativeRequest};
+use rand::Rng as _;
 use tokio::sync::OwnedSemaphorePermit;
 
 pub(super) fn router(gateway: ModelGateway) -> Router {
@@ -401,33 +402,24 @@ async fn execute(
     }
     let fingerprint: [u8; 32] = fingerprint.finalize().into();
     let mut worker = [0; 32];
-    OsRng.fill_bytes(&mut worker);
-    let route_id = format!(
-        "r{}-t{}-u{}",
-        attempt.route_id(),
-        attempt.target_id(),
-        attempt.upstream_id()
-    );
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
+    let route_id = attempt.route_key();
     let (provider_revision, semantics) = gateway
         .bridge
         .provider_policy
         .reservation_metadata(&attempt)?;
     let prepared = charging::contract::PreparedReservation::systemone_input_only(
-        charging::contract::hex_digest(&fingerprint),
-        charging::contract::ReservationBinding {
-            route_id: route_id.clone(),
-            target_id: attempt.target_id(),
-            upstream_id: attempt.upstream_id(),
-            protocol: "systemone".into(),
-            model_snapshot: attempt.upstream_model().to_owned(),
-            generation_url: upstream_request.url().as_str().into(),
-            credential_ref: reference,
-            payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
-                .map_err(billing::error)?,
-            provider_contract_revision: provider_revision,
-            projection_revision: "systemone-native-wire-v1".into(),
-            quote_version: attempt.quote().version(),
-        },
+        charging::contract::hex_digest(fingerprint),
+        charging::contract::ReservationBinding::for_attempt(
+            &attempt,
+            "systemone".into(),
+            attempt.upstream_model().to_owned(),
+            upstream_request.url().as_str().into(),
+            provider_revision,
+            "systemone-native-wire-v1".into(),
+            attempt.quote().version(),
+        )
+        .map_err(billing::error)?,
         charging::contract::digest(&outbound_body),
         input_token_ceiling as u64,
         semantics,

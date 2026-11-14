@@ -15,3 +15,6 @@ use canonical::seed_history;
 use history::check_history;
 #[path = "common/suffix_upgrade.rs"]
 mod harness;
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

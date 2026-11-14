@@ -330,15 +330,15 @@ impl AbuseStore {
             .execute(&mut *tx)
             .await?;
         super::admin::administrator(&mut tx, secret).await?;
-        let row = sqlx::query(&format!("{SELECT} WHERE u.id=$1"))
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!("{SELECT} WHERE u.id=$1")))
             .bind(id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(AbuseError::NotFound)?;
         let subject = evidence(&row)?;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{SELECT} WHERE u.id<$1 ORDER BY u.id DESC LIMIT $2"
-        ))
+        )))
         .bind(before)
         .bind(scan + 1)
         .fetch_all(&mut *tx)

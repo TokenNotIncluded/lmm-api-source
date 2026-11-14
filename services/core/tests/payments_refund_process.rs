@@ -11,6 +11,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::Response,
 };
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use lmm_core::{
     billing::{
@@ -213,7 +214,7 @@ fn worker(
     phase: &str,
 ) -> shared::Process {
     assert_eq!(
-        format!("{:x}", Sha256::digest(fs::read(binary).unwrap())),
+        hex_codec::encode(Sha256::digest(fs::read(binary).unwrap())),
         expected
     );
     let log = fs::OpenOptions::new()
@@ -667,3 +668,5 @@ async fn real_refund_capacity_reconciliation_core_and_go_worker(pool: PgPool) {
     role.pool.close().await;
     println!("REFUND_PROCESS_EVIDENCE {}", root.display());
 }
+
+use shared::hex_codec;

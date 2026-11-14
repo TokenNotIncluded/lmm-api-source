@@ -1,10 +1,11 @@
 # Third-Party Licenses
 
 This file summarizes direct third-party dependencies used by distributed builds of this project.
-It is an engineering compliance artifact and should be kept with Docker images, standalone binaries, frontend bundles, and Electron installers.
+Keep this inventory with current component archives, Docker images and frontend bundles. Historical notices remain attributed to their original distributions.
 
-Scope: direct dependencies from `services/extensions/go.mod` and `apps/web/package.json`.
-Selected Rust dependencies from `services/core/Cargo.toml` are also recorded below.
+Scope: current Web direct dependencies, selected Go extension and Rust Core dependencies.
+Rows marked historical preserve earlier distribution attribution; they do not describe the current Rust/Go build.
+Rust versions follow `services/core/Cargo.lock`; the complete direct Rust review is in [Rust dependencies](docs/rust-dependencies.md).
 Transitive dependencies should be audited before a final external release.
 
 ## Dependency Inventory
@@ -12,8 +13,9 @@ Transitive dependencies should be audited before a final external release.
 | Area | Scope | Ecosystem | Dependency | Version | License |
 | ------------- | ------------- | ----------- | ------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
 | extensions | production | Go | `github.com/BurntSushi/toml` | `v1.6.0` | MIT |
-| core | production | Rust | `toml` | `1.1.6+spec-1.1.0` (manifest `=1.1.6`) | MIT OR Apache-2.0 |
-| core | production | Rust | `tiktoken-rs` | `0.12.0` | MIT |
+| core | production | Rust | `toml` | `1.2.1+spec-1.1.0` (manifest `=1.2.1`) | MIT OR Apache-2.0 |
+| core | production | Rust | `webpki-root-certs` | `1.0.12` | CDLA-Permissive-2.0 |
+| core | production | Rust | `tiktoken-rs` | `0.12.1` | MIT |
 | core | production | Rust | `csv` | `1.4.0` | Unlicense OR MIT |
 | core | production | Rust | `zhex` | `0.1.3` | MIT |
 | core | production | Rust | `sysinfo` | `0.40.3` | MIT |
@@ -21,129 +23,129 @@ Transitive dependencies should be audited before a final external release.
 | core | production | Rust | `tokio-util` | `0.7.20` | MIT |
 | core | production | Rust | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 |
 | core | production | Rust | `html-escape` | `0.3.1` | MIT |
-| core | production | Rust | `fancy-regex` | `0.19.2` | MIT |
+| core | production | Rust | `fancy-regex` | `0.20.2` | MIT |
 | core | adapted split patterns | Go | `github.com/tiktoken-go/tokenizer` | `v0.6.2` | MIT |
-| backend | production | Go | `github.com/Calcium-Ion/go-epay` | `v0.0.4` | Proprietary/Internal - owned by project maintainer |
-| backend | production | Go | `github.com/abema/go-mp4` | `v1.4.1` | MIT |
-| backend | test | Go | `github.com/alicebob/miniredis/v2` | `v2.38.0` | MIT |
-| backend | production | Go | `github.com/andybalholm/brotli` | `v1.1.1` | MIT |
-| backend | production | Go | `github.com/anknown/ahocorasick` | `v0.0.0-20190904063843-d75dbd5169c0` | MIT |
-| backend | production | Go | `github.com/aws/aws-sdk-go-v2` | `v1.41.5` | Apache-2.0 |
-| backend | production | Go | `github.com/aws/aws-sdk-go-v2/credentials` | `v1.19.10` | Apache-2.0 |
-| backend | production | Go | `github.com/aws/aws-sdk-go-v2/service/bedrockruntime` | `v1.50.4` | Apache-2.0 |
-| backend | production | Go | `github.com/aws/smithy-go` | `v1.24.2` | Apache-2.0 |
-| backend | production | Go | `github.com/bytedance/gopkg` | `v0.1.3` | Apache-2.0 |
-| backend | production | Go | `github.com/gin-contrib/cors` | `v1.7.2` | MIT |
-| backend | production | Go | `github.com/gin-contrib/gzip` | `v0.0.6` | MIT |
-| backend | production | Go | `github.com/gin-contrib/static` | `v0.0.1` | MIT |
-| backend | production | Go | `github.com/gin-gonic/gin` | `v1.9.1` | MIT |
-| backend | production | Go | `github.com/glebarez/sqlite` | `v1.9.0` | MIT |
-| backend | production | Go | `github.com/go-audio/aiff` | `v1.1.0` | Apache-2.0 |
-| backend | production | Go | `github.com/go-audio/wav` | `v1.1.0` | Apache-2.0 |
-| backend | production | Go | `github.com/go-playground/validator/v10` | `v10.20.0` | MIT |
-| backend | production | Go | `github.com/go-redis/redis/v8` | `v8.11.5` | BSD-2-Clause |
-| backend | production | Go | `github.com/go-webauthn/webauthn` | `v0.14.0` | BSD-3-Clause |
-| backend | production | Go | `github.com/golang-jwt/jwt/v5` | `v5.3.0` | MIT |
-| backend | production | Go | `github.com/google/uuid` | `v1.6.0` | BSD-3-Clause |
-| backend | production | Go | `github.com/gorilla/websocket` | `v1.5.0` | BSD-2-Clause |
-| backend | production | Go | `github.com/grafana/pyroscope-go` | `v1.2.7` | Apache-2.0 |
-| backend | production | Go | `github.com/jfreymuth/oggvorbis` | `v1.0.5` | MIT |
-| backend | production | Go | `github.com/jinzhu/copier` | `v0.4.0` | MIT |
-| backend | production | Go | `github.com/joho/godotenv` | `v1.5.1` | MIT |
-| backend | production | Go | `github.com/mewkiz/flac` | `v1.0.13` | Unlicense |
-| backend | production | Go | `github.com/nicksnyder/go-i18n/v2` | `v2.6.1` | MIT |
-| backend | production | Go | `github.com/pkg/errors` | `v0.9.1` | BSD-2-Clause |
-| backend | production | Go | `github.com/pquerna/otp` | `v1.5.0` | Apache-2.0 |
-| backend | production | Go | `github.com/samber/hot` | `v0.11.0` | MIT |
-| backend | production | Go | `github.com/samber/lo` | `v1.52.0` | MIT |
-| backend | production | Go | `github.com/shirou/gopsutil` | `v3.21.11+incompatible` | BSD-3-Clause |
-| backend | production | Go | `github.com/shopspring/decimal` | `v1.4.0` | MIT |
-| backend | production | Go | `github.com/stretchr/testify` | `v1.11.1` | MIT |
-| backend | production | Go | `github.com/stripe/stripe-go/v81` | `v81.4.0` | MIT |
-| backend | production | Go | `github.com/tcolgate/mp3` | `v0.0.0-20170426193717-e79c5a46d300` | MIT |
-| backend | production | Go | `github.com/thanhpk/randstr` | `v1.0.6` | MIT |
-| backend | production | Go | `github.com/tidwall/gjson` | `v1.18.0` | MIT |
-| backend | production | Go | `github.com/tidwall/sjson` | `v1.2.5` | MIT |
-| backend | production | Go | `github.com/tiktoken-go/tokenizer` | `v0.6.2` | MIT |
-| backend | production | Go | `github.com/waffo-com/waffo-go` | `v1.3.1` | MIT |
-| extensions | production | Go | `github.com/waffo-com/waffo-go/v2` | `v2.1.0` | MIT |
-| extensions | production | Go | `github.com/waffo-com/waffo-pancake-sdk-go` | `v0.17.0` | MIT |
-| backend | production | Go | `github.com/yapingcat/gomedia` | `v0.0.0-20240906162731-17feea57090c` | MIT |
-| backend | production | Go | `golang.org/x/crypto` | `v0.45.0` | BSD-3-Clause |
-| backend | production | Go | `golang.org/x/image` | `v0.38.0` | BSD-3-Clause |
-| backend | production | Go | `golang.org/x/net` | `v0.47.0` | BSD-3-Clause |
-| backend | production | Go | `golang.org/x/sync` | `v0.20.0` | BSD-3-Clause |
-| backend | production | Go | `golang.org/x/sys` | `v0.38.0` | BSD-3-Clause |
-| backend | production | Go | `golang.org/x/text` | `v0.35.0` | BSD-3-Clause |
-| backend | production | Go | `gopkg.in/yaml.v3` | `v3.0.1` | Apache-2.0 OR MIT |
-| backend | production | Go | `gorm.io/driver/mysql` | `v1.4.3` | MIT |
-| backend | production | Go | `gorm.io/driver/postgres` | `v1.5.2` | MIT |
-| backend | production | Go | `gorm.io/gorm` | `v1.25.2` | MIT |
-| backend | production | Go | `github.com/expr-lang/expr` | `v1.17.8` | MIT |
-| web | production | npm | `@base-ui/react` | `1.6.0` | MIT |
-| web | production | npm | `@codemirror/lang-markdown` | `6.5.1` | MIT |
-| web | production | npm | `@codemirror/language` | `6.12.4` | MIT |
-| web | production | npm | `@codemirror/state` | `6.7.1` | MIT |
-| web | production | npm | `@codemirror/view` | `6.43.6` | MIT |
+| backend | historical | Go | `github.com/Calcium-Ion/go-epay` | `v0.0.4` | Proprietary/Internal - owned by project maintainer |
+| backend | historical | Go | `github.com/abema/go-mp4` | `v1.4.1` | MIT |
+| backend | historical | Go | `github.com/alicebob/miniredis/v2` | `v2.38.0` | MIT |
+| backend | historical | Go | `github.com/andybalholm/brotli` | `v1.1.1` | MIT |
+| backend | historical | Go | `github.com/anknown/ahocorasick` | `v0.0.0-20190904063843-d75dbd5169c0` | MIT |
+| backend | historical | Go | `github.com/aws/aws-sdk-go-v2` | `v1.41.5` | Apache-2.0 |
+| backend | historical | Go | `github.com/aws/aws-sdk-go-v2/credentials` | `v1.19.10` | Apache-2.0 |
+| backend | historical | Go | `github.com/aws/aws-sdk-go-v2/service/bedrockruntime` | `v1.50.4` | Apache-2.0 |
+| backend | historical | Go | `github.com/aws/smithy-go` | `v1.24.2` | Apache-2.0 |
+| backend | historical | Go | `github.com/bytedance/gopkg` | `v0.1.3` | Apache-2.0 |
+| backend | historical | Go | `github.com/gin-contrib/cors` | `v1.7.2` | MIT |
+| backend | historical | Go | `github.com/gin-contrib/gzip` | `v0.0.6` | MIT |
+| backend | historical | Go | `github.com/gin-contrib/static` | `v0.0.1` | MIT |
+| backend | historical | Go | `github.com/gin-gonic/gin` | `v1.9.1` | MIT |
+| backend | historical | Go | `github.com/glebarez/sqlite` | `v1.9.0` | MIT |
+| backend | historical | Go | `github.com/go-audio/aiff` | `v1.1.0` | Apache-2.0 |
+| backend | historical | Go | `github.com/go-audio/wav` | `v1.1.0` | Apache-2.0 |
+| backend | historical | Go | `github.com/go-playground/validator/v10` | `v10.20.0` | MIT |
+| backend | historical | Go | `github.com/go-redis/redis/v8` | `v8.11.5` | BSD-2-Clause |
+| backend | historical | Go | `github.com/go-webauthn/webauthn` | `v0.14.0` | BSD-3-Clause |
+| backend | historical | Go | `github.com/golang-jwt/jwt/v5` | `v5.3.0` | MIT |
+| backend | historical | Go | `github.com/google/uuid` | `v1.6.0` | BSD-3-Clause |
+| backend | historical | Go | `github.com/gorilla/websocket` | `v1.5.0` | BSD-2-Clause |
+| backend | historical | Go | `github.com/grafana/pyroscope-go` | `v1.2.7` | Apache-2.0 |
+| backend | historical | Go | `github.com/jfreymuth/oggvorbis` | `v1.0.5` | MIT |
+| backend | historical | Go | `github.com/jinzhu/copier` | `v0.4.0` | MIT |
+| backend | historical | Go | `github.com/joho/godotenv` | `v1.5.1` | MIT |
+| backend | historical | Go | `github.com/mewkiz/flac` | `v1.0.13` | Unlicense |
+| backend | historical | Go | `github.com/nicksnyder/go-i18n/v2` | `v2.6.1` | MIT |
+| backend | historical | Go | `github.com/pkg/errors` | `v0.9.1` | BSD-2-Clause |
+| backend | historical | Go | `github.com/pquerna/otp` | `v1.5.0` | Apache-2.0 |
+| backend | historical | Go | `github.com/samber/hot` | `v0.11.0` | MIT |
+| backend | historical | Go | `github.com/samber/lo` | `v1.52.0` | MIT |
+| backend | historical | Go | `github.com/shirou/gopsutil` | `v3.21.11+incompatible` | BSD-3-Clause |
+| backend | historical | Go | `github.com/shopspring/decimal` | `v1.4.0` | MIT |
+| backend | historical | Go | `github.com/stretchr/testify` | `v1.11.1` | MIT |
+| backend | historical | Go | `github.com/stripe/stripe-go/v81` | `v81.4.0` | MIT |
+| backend | historical | Go | `github.com/tcolgate/mp3` | `v0.0.0-20170426193717-e79c5a46d300` | MIT |
+| backend | historical | Go | `github.com/thanhpk/randstr` | `v1.0.6` | MIT |
+| backend | historical | Go | `github.com/tidwall/gjson` | `v1.18.0` | MIT |
+| backend | historical | Go | `github.com/tidwall/sjson` | `v1.2.5` | MIT |
+| backend | historical | Go | `github.com/tiktoken-go/tokenizer` | `v0.6.2` | MIT |
+| backend | historical | Go | `github.com/waffo-com/waffo-go` | `v1.3.1` | MIT |
+| extensions | production | Go | `github.com/waffo-com/waffo-go/v2` | `v2.3.0` | MIT |
+| extensions | production | Go | `github.com/waffo-com/waffo-pancake-sdk-go` | `v0.19.0` | MIT |
+| backend | historical | Go | `github.com/yapingcat/gomedia` | `v0.0.0-20240906162731-17feea57090c` | MIT |
+| backend | historical | Go | `golang.org/x/crypto` | `v0.45.0` | BSD-3-Clause |
+| backend | historical | Go | `golang.org/x/image` | `v0.38.0` | BSD-3-Clause |
+| backend | historical | Go | `golang.org/x/net` | `v0.47.0` | BSD-3-Clause |
+| backend | historical | Go | `golang.org/x/sync` | `v0.20.0` | BSD-3-Clause |
+| backend | historical | Go | `golang.org/x/sys` | `v0.38.0` | BSD-3-Clause |
+| backend | historical | Go | `golang.org/x/text` | `v0.35.0` | BSD-3-Clause |
+| backend | historical | Go | `gopkg.in/yaml.v3` | `v3.0.1` | Apache-2.0 OR MIT |
+| backend | historical | Go | `gorm.io/driver/mysql` | `v1.4.3` | MIT |
+| backend | historical | Go | `gorm.io/driver/postgres` | `v1.5.2` | MIT |
+| backend | historical | Go | `gorm.io/gorm` | `v1.25.2` | MIT |
+| backend | historical | Go | `github.com/expr-lang/expr` | `v1.17.8` | MIT |
+| web | production | npm | `@base-ui/react` | `1.9.0` | MIT |
+| web | production | npm | `@codemirror/lang-markdown` | `6.5.2` | MIT |
+| web | production | npm | `@codemirror/language` | `6.13.1` | MIT |
+| web | production | npm | `@codemirror/state` | `6.7.6` | MIT |
+| web | production | npm | `@codemirror/view` | `6.43.15` | MIT |
 | web | production | npm | `@fontsource-variable/lora` | `5.3.0` | OFL-1.1 |
 | web | production | npm | `@fontsource-variable/public-sans` | `5.3.0` | OFL-1.1 |
-| web | production | npm | `@hookform/resolvers` | `5.4.0` | MIT |
-| web | production | npm | `@hugeicons/core-free-icons` | `4.2.2` | MIT |
-| web | production | npm | `@hugeicons/react` | `1.1.9` | MIT |
-| web | production | npm | `@lezer/highlight` | `1.2.3` | MIT |
-| web | production | npm | `@lobehub/icons` | `5.14.0` | MIT |
-| web | production | npm | `@tanstack/react-query` | `5.101.2` | MIT |
-| web | production | npm | `@tanstack/react-router` | `1.170.18` | MIT |
-| web | production | npm | `@tanstack/react-table` | `8.21.3` | MIT |
-| web | production | npm | `@visactor/react-vchart` | `2.1.4` | MIT |
-| web | production | npm | `@visactor/vchart` | `2.1.4` | MIT |
-| web | production | npm | `ai` | `7.0.31` | Apache-2.0 |
-| web | production | npm | `axios` | `1.18.1` | MIT |
+| web | production | npm | `@hookform/resolvers` | `7.0.6` | MIT |
+| web | production | npm | `@hugeicons/core-free-icons` | `4.4.0` | MIT |
+| web | production | npm | `@hugeicons/react` | `1.1.10` | MIT |
+| web | production | npm | `@lezer/highlight` | `1.2.5` | MIT |
+| web | production | npm | `@lobehub/icons` | `6.15.1` | MIT |
+| web | production | npm | `@tanstack/react-query` | `5.107.1` | MIT |
+| web | production | npm | `@tanstack/react-router` | `1.170.46` | MIT |
+| web | production | npm | `@tanstack/react-table` | `9.3.1` | MIT |
+| web | production | npm | `@visactor/react-vchart` | `2.2.2` | MIT |
+| web | production | npm | `@visactor/vchart` | `2.2.2` | MIT |
+| web | production | npm | `ai` | `7.0.172` | Apache-2.0 |
+| web | production | npm | `axios` | `1.21.1` | MIT |
 | web | production | npm | `class-variance-authority` | `0.7.1` | Apache-2.0 |
 | web | production | npm | `clsx` | `2.1.1` | MIT |
 | web | production | npm | `cmdk` | `1.1.1` | MIT |
-| web | production | npm | `dayjs` | `1.11.21` | MIT |
-| web | production | npm | `dompurify` | `3.4.11` | Apache-2.0 OR MPL-2.0 |
-| web | production | npm | `i18next` | `26.3.6` | MIT |
-| web | production | npm | `i18next-browser-languagedetector` | `8.2.1` | MIT |
-| web | production | npm | `input-otp` | `1.4.2` | MIT |
-| web | production | npm | `katex` | `0.17.0` | MIT |
-| web | production | npm | `lucide-react` | `1.25.0` | ISC |
-| web | production | npm | `marked` | `18.0.6` | MIT |
-| web | production | npm | `motion` | `12.42.2` | MIT |
-| web | production | npm | `nanoid` | `5.1.16` | MIT |
+| web | production | npm | `dayjs` | `1.11.23` | MIT |
+| web | production | npm | `dompurify` | `3.4.17` | (MPL-2.0 OR Apache-2.0) |
+| web | production | npm | `i18next` | `27.1.1` | MIT |
+| web | production | npm | `i18next-browser-languagedetector` | `8.3.0` | MIT |
+| web | historical | npm | `input-otp` | `1.4.2` | MIT |
+| web | production | npm | `katex` | `0.19.1` | MIT |
+| web | production | npm | `lucide-react` | `1.72.0` | ISC |
+| web | production | npm | `marked` | `18.2.0` | MIT |
+| web | production | npm | `motion` | `14.13.0` | MIT |
+| web | production | npm | `nanoid` | `6.0.2` | MIT |
 | web | production | npm | `qrcode.react` | `4.2.0` | ISC |
-| web | production | npm | `react` | `19.2.7` | MIT |
-| web | production | npm | `react-day-picker` | `10.0.1` | MIT |
-| web | production | npm | `react-dom` | `19.2.7` | MIT |
-| web | production | npm | `react-hook-form` | `7.82.0` | MIT |
-| web | production | npm | `react-i18next` | `17.0.10` | MIT |
+| web | production | npm | `react` | `19.3.1` | MIT |
+| web | production | npm | `react-day-picker` | `10.0.2` | MIT |
+| web | production | npm | `react-dom` | `19.3.1` | MIT |
+| web | production | npm | `react-hook-form` | `7.92.0` | MIT |
+| web | production | npm | `react-i18next` | `18.0.1` | MIT |
 | web | production | npm | `react-icons` | `5.7.0` | MIT |
 | web | production | npm | `react-top-loading-bar` | `3.0.2` | MIT |
-| web | production | npm | `shiki` | `4.3.1` | MIT |
-| web | production | npm | `sonner` | `2.0.7` | MIT |
-| web | production | npm | `stream-markdown-parser` | `1.1.3` | MIT |
-| web | production | npm | `tailwind-merge` | `3.6.0` | MIT |
-| web | production | npm | `tailwindcss` | `4.3.3` | MIT |
+| web | production | npm | `shiki` | `4.6.0` | MIT |
+| web | production | npm | `sonner` | `2.0.8` | MIT |
+| web | production | npm | `stream-markdown-parser` | `1.2.25` | MIT |
+| web | production | npm | `tailwind-merge` | `3.7.0` | MIT |
+| web | production | npm | `tailwindcss` | `4.3.5` | MIT |
 | web | production | npm | `tw-animate-css` | `1.4.0` | MIT |
 | web | production | npm | `use-stick-to-bottom` | `1.1.6` | MIT |
-| web | production | npm | `vaul` | `1.1.2` | MIT |
-| web | production | npm | `zod` | `4.4.3` | MIT |
-| web | production | npm | `zustand` | `5.0.14` | MIT |
-| web | development | npm | `@rsbuild/core` | `2.1.6` | MIT |
-| web | development | npm | `@rsbuild/plugin-react` | `2.1.0` | MIT |
+| web | historical | npm | `vaul` | `1.1.2` | MIT |
+| web | production | npm | `zod` | `4.6.7` | MIT |
+| web | production | npm | `zustand` | `5.1.0` | MIT |
+| web | development | npm | `@rsbuild/core` | `2.3.2` | MIT |
+| web | development | npm | `@rsbuild/plugin-react` | `2.1.1` | MIT |
 | web | development | npm | `@rsbuild/plugin-tailwindcss` | `2.0.3` | MIT |
-| web | development | npm | `@tanstack/react-query-devtools` | `5.101.2` | MIT |
-| web | development | npm | `@tanstack/react-router-devtools` | `1.167.0` | MIT |
-| web | development | npm | `@tanstack/router-plugin` | `1.168.23` | MIT |
-| web | development | npm | `@types/node` | `26.1.1` | MIT |
-| web | development | npm | `@types/react` | `19.2.17` | MIT |
-| web | development | npm | `@types/react-dom` | `19.2.3` | MIT |
+| web | development | npm | `@tanstack/react-query-devtools` | `5.107.1` | MIT |
+| web | development | npm | `@tanstack/react-router-devtools` | `1.167.3` | MIT |
+| web | development | npm | `@tanstack/router-plugin` | `1.169.0` | MIT |
+| web | development | npm | `@types/node` | `26.6.6` | MIT |
+| web | development | npm | `@types/react` | `19.3.0` | MIT |
+| web | development | npm | `@types/react-dom` | `19.3.0` | MIT |
 | web | development | npm | `@typescript/native-preview` | `7.0.0-dev.20260707.2` | Apache-2.0 |
-| web | development | npm | `knip` | `6.27.0` | ISC |
-| web | development | npm | `oxfmt` | `0.57.0` | MIT |
-| web | development | npm | `oxlint` | `1.74.0` | MIT |
-| web | development | npm | `shadcn` | `4.13.1` | MIT |
+| web | development | npm | `knip` | `6.45.1` | ISC |
+| web | development | npm | `oxfmt` | `0.78.0` | MIT |
+| web | development | npm | `oxlint` | `1.93.0` | MIT |
+| web | development | npm | `shadcn` | `4.23.0` | MIT |
 | electron | development | npm | `cross-env` | `7.0.3` | MIT |
 | electron | development | npm | `electron` | `39.8.5` | MIT |
 | electron | development | npm | `electron-builder` | `26.7.0` | MIT |
@@ -151,15 +153,15 @@ Transitive dependencies should be audited before a final external release.
 ## TOML configuration parser attribution
 
 - `github.com/BurntSushi/toml` v1.6.0: Copyright (c) 2013 TOML authors. MIT; verified against the module's `COPYING` file. Source: <https://github.com/BurntSushi/toml/tree/v1.6.0>.
-- Rust `toml` 1.1.6+spec-1.1.0: Copyright (c) Individual contributors. MIT OR Apache-2.0; verified against the crate's `Cargo.toml`, `LICENSE-MIT` and `LICENSE-APACHE`. Source: <https://github.com/toml-rs/toml>. The core enables `std`, `serde` and `parse`; lockfile presence alone does not mean every optional dependency is compiled.
+- Rust `toml` 1.2.1+spec-1.1.0: Copyright (c) Individual contributors. MIT OR Apache-2.0; verified against the crate's `Cargo.toml`, `LICENSE-MIT` and `LICENSE-APACHE`. Source: <https://github.com/toml-rs/toml>. The core enables `std`, `serde` and `parse`; lockfile presence alone does not mean every optional dependency is compiled.
 
 Existing dependency notices and license texts below are retained. A final release
 must separately audit the selected dependency graph and preserve its notices.
 
 ## Payment SDK attribution
 
-- `github.com/waffo-com/waffo-go/v2` v2.1.0: Copyright (c) 2026 Waffo. MIT; verified against the pinned SDK's `LICENSE`. Source: <https://github.com/waffo-com/waffo-go/tree/v2.1.0>. The earlier v1.3.1 notice is retained for historical distributions.
-- `github.com/waffo-com/waffo-pancake-sdk-go` v0.17.0: Copyright (c) 2026 Waffo, Inc. MIT; verified against the pinned SDK's `LICENSE`. Source: <https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.17.0>.
+- `github.com/waffo-com/waffo-go/v2` v2.3.0: Copyright (c) 2026 Waffo. MIT; verified against the pinned SDK's `LICENSE`. Source: <https://github.com/waffo-com/waffo-go/tree/v2.3.0>. The earlier v1.3.1 notice is retained for historical distributions.
+- `github.com/waffo-com/waffo-pancake-sdk-go` v0.19.0: Copyright (c) 2026 Waffo, Inc. MIT; verified against the pinned SDK's `LICENSE`. Source: <https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.19.0>.
 
 Both use the MIT permission and warranty terms reproduced below.
 
@@ -369,6 +371,14 @@ checksums before reading the original license and copyright files below.
 | `dunce` | `1.0.5` | build only | `CC0-1.0 OR MIT-0 OR Apache-2.0` | not declared |
 | `fs_extra` | `1.3.0` | build only | `MIT` | not declared |
 | `jobserver` | `0.1.35` | build only | `MIT OR Apache-2.0` | 1.85 |
+| web | development | npm | `@babel/parser` | `8.1.2` | MIT |
+| web | production | npm | `@openuidev/react-lang` | `1.1.1` | MIT |
+| web | development | npm | `@types/three` | `0.187.0` | MIT |
+| web | development | npm | `fake-indexeddb` | `6.2.8` | Apache-2.0 |
+| web | development | npm | `happy-dom` | `21.0.4` | MIT |
+| web | production | npm | `shaders` | `4.0.7` | MIT |
+| web | production | npm | `three` | `0.187.0` | MIT |
+| web | production | npm | `yace` | `1.1.1` | MIT |
 
 The backend is the official non-FIPS `aws_lc_rs` implementation. No RustCrypto
 backend, custom cryptography, or additional project license exception is added.
@@ -1856,3 +1866,69 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Mozilla root certificate data
+
+`webpki-root-certs` 1.0.12 distributes Mozilla root certificate data under CDLA-Permissive-2.0. The agreement below is copied unchanged from the pinned crate; repository code licensing is a separate scope. Source: <https://github.com/rustls/webpki-roots>.
+
+# Community Data License Agreement - Permissive - Version 2.0
+
+This is the Community Data License Agreement - Permissive, Version
+2.0 (the "agreement"). Data Provider(s) and Data Recipient(s) agree
+as follows:
+
+## 1. Provision of the Data
+
+1.1. A Data Recipient may use, modify, and share the Data made
+available by Data Provider(s) under this agreement if that Data
+Recipient follows the terms of this agreement.
+
+1.2. This agreement does not impose any restriction on a Data
+Recipient's use, modification, or sharing of any portions of the
+Data that are in the public domain or that may be used, modified,
+or shared under any other legal exception or limitation.
+
+## 2. Conditions for Sharing Data
+
+2.1. A Data Recipient may share Data, with or without modifications, so
+long as the Data Recipient makes available the text of this agreement
+with the shared Data.
+
+## 3. No Restrictions on Results
+
+3.1. This agreement does not impose any restriction or obligations
+with respect to the use, modification, or sharing of Results.
+
+## 4. No Warranty; Limitation of Liability
+
+4.1. All Data Recipients receive the Data subject to the following
+terms:
+
+THE DATA IS PROVIDED ON AN "AS IS" BASIS, WITHOUT REPRESENTATIONS,
+WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED
+INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OR CONDITIONS OF TITLE,
+NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+
+NO DATA PROVIDER SHALL HAVE ANY LIABILITY FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING
+WITHOUT LIMITATION LOST PROFITS), HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE DATA OR RESULTS,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+## 5. Definitions
+
+5.1. "Data" means the material received by a Data Recipient under
+this agreement.
+
+5.2. "Data Provider" means any person who is the source of Data
+provided under this agreement and in reliance on a Data Recipient's
+agreement to its terms.
+
+5.3. "Data Recipient" means any person who receives Data directly
+or indirectly from a Data Provider and agrees to the terms of this
+agreement.
+
+5.4. "Results" means any outcome obtained by computational analysis
+of Data, including for example machine learning models and models'
+insights.

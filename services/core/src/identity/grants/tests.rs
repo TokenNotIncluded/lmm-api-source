@@ -293,7 +293,7 @@ async fn grants_live_authority_expiry_consent_and_revoke(pool: PgPool) {
         let bundle = tokens(&store, &native.secret).await;
         let mutation = mutation.replace("id=1", &format!("id={user_id}"));
         let mut tx = pool.begin().await.unwrap();
-        sqlx::raw_sql(&mutation).execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&mutation)).execute(&mut *tx).await.unwrap();
         tx.commit().await.unwrap();
         assert!(
             store.authorize_remote(&bundle.access_token).await.is_err(),
@@ -481,7 +481,7 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
     // has no inherited authority; SET ROLE selects the original NOLOGIN runtime.
     // Using owner credentials here would allow SET ROLE back to a superuser.
     let mut setup = pool.begin().await.unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         r#"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE {login} LOGIN PASSWORD '{password}' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         GRANT CONNECT ON DATABASE "{database}" TO {login};
@@ -495,7 +495,7 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
         -- existing production runtime grant; PUBLIC execute remains revoked.
         GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]) TO {role};
         GRANT EXECUTE ON FUNCTION core_oauth.client_scope_set(text,text[],boolean) TO {role};"#
-    )).execute(&mut *setup).await.unwrap();
+    ))).execute(&mut *setup).await.unwrap();
     setup.commit().await.unwrap();
     let selected_role = role.clone();
     let restricted = sqlx::postgres::PgPoolOptions::new()
@@ -503,7 +503,9 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
         .after_connect(move |c, _| {
             let sql = format!("SET ROLE {selected_role}");
             Box::pin(async move {
-                sqlx::query(&sql).execute(c).await?;
+                sqlx::query(sqlx::AssertSqlSafe::<&str>(&sql))
+                    .execute(c)
+                    .await?;
                 Ok(())
             })
         })
@@ -576,7 +578,7 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
                 .fetch_one(&restricted)
                 .await
                 .unwrap();
-        let error = sqlx::query(&format!("SET ROLE {foreign}"))
+        let error = sqlx::query(sqlx::AssertSqlSafe(format!("SET ROLE {foreign}")))
             .execute(&restricted)
             .await
             .unwrap_err();
@@ -587,9 +589,9 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
     })
     .await;
     restricted.close().await;
-    let cleanup = sqlx::raw_sql(&format!(
+    let cleanup = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "DROP OWNED BY {role},{login}; DROP ROLE {login}; DROP ROLE {role}"
-    ))
+    )))
     .execute(&pool)
     .await;
     if let Err(error) = checks {
@@ -683,18 +685,18 @@ async fn release_after_expiry(
     })
     .await
     .expect("operation must reach the held authority lock before expiry");
-    let still_live: bool = sqlx::query_scalar(&format!(
+    let still_live: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT expires_at>clock_timestamp() FROM core_oauth.{table}"
-    ))
+    )))
     .fetch_one(&mut *observer)
     .await
     .unwrap();
     assert!(still_live, "wait must begin before exact expiry");
-    sqlx::query(&format!("SELECT pg_sleep(GREATEST(0,extract(epoch FROM expires_at-clock_timestamp()))::double precision+0.03) FROM core_oauth.{table}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("SELECT pg_sleep(GREATEST(0,extract(epoch FROM expires_at-clock_timestamp()))::double precision+0.03) FROM core_oauth.{table}")))
         .execute(&mut *observer).await.unwrap();
-    let expired: bool = sqlx::query_scalar(&format!(
+    let expired: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT expires_at<=clock_timestamp() FROM core_oauth.{table}"
-    ))
+    )))
     .fetch_one(&mut *observer)
     .await
     .unwrap();
@@ -731,9 +733,9 @@ async fn expiry_lock_regression(pool: PgPool, mode: &str) {
     sqlx::query(lock).execute(&mut *blocker).await.unwrap();
     // Start the expiry window only after the blocker and observer are ready.
     // Reuse the observer so pool acquisition cannot consume that window.
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "UPDATE core_oauth.{table} SET expires_at=clock_timestamp()+interval '500 milliseconds'"
-    ))
+    )))
     .execute(&mut *observer)
     .await
     .unwrap();
@@ -770,9 +772,9 @@ async fn expiry_lock_regression(pool: PgPool, mode: &str) {
         "expired authority must deny after a lock wait, not succeed or time out: {result:?}"
     );
     if is_code || is_refresh {
-        let consumed: i64 = sqlx::query_scalar(&format!(
+        let consumed: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM core_oauth.{table} WHERE consumed_at IS NOT NULL"
-        ))
+        )))
         .fetch_one(&pool)
         .await
         .unwrap();

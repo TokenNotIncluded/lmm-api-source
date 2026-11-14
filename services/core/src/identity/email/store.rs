@@ -1,6 +1,8 @@
 use super::{EmailAddress, EmailError, Result};
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use std::sync::Arc;
@@ -89,7 +91,7 @@ fn mac(key: &[u8], parts: &[&[u8]]) -> Vec<u8> {
 
 fn random_hex(bytes: usize) -> Result<Zeroizing<String>> {
     let mut random = Zeroizing::new(vec![0_u8; bytes]);
-    OsRng
+    SysRng
         .try_fill_bytes(&mut random)
         .map_err(|_| EmailError::Unavailable)?;
     Ok(Zeroizing::new(crate::hex_codec::encode(&*random)))

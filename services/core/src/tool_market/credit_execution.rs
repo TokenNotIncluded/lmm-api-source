@@ -722,7 +722,7 @@ impl CreditStore {
                         .get("structuredContent")
                         .unwrap_or(&serde_json::Value::Null),
                 )?;
-                sqlx::query("INSERT INTO core_tool_market.credit_fixed_witness_receipts(call_id,witness_role,raw_result,raw_digest,result_digest,outcome) VALUES($1,$2,$3,$4,$5,'success')").bind(&out.call_id).bind(role).bind(&raw).bind(format!("{:x}",Sha256::digest(&raw))).bind(&r.result_digest).execute(&mut *tx).await?;
+                sqlx::query("INSERT INTO core_tool_market.credit_fixed_witness_receipts(call_id,witness_role,raw_result,raw_digest,result_digest,outcome) VALUES($1,$2,$3,$4,$5,'success')").bind(&out.call_id).bind(role).bind(&raw).bind(crate::hex_codec::encode(Sha256::digest(&raw))).bind(&r.result_digest).execute(&mut *tx).await?;
                 None
             }
             _ if out.held_quota > 0 => return Err(Error::Forbidden),
@@ -874,7 +874,7 @@ impl CreditStore {
                     {
                         return Err(Error::Forbidden);
                     }
-                    sqlx::query("INSERT INTO core_tool_market.credit_fixed_witness_receipts(call_id,witness_role,raw_result,raw_digest,result_digest,outcome) VALUES($1,$2,$3,$4,$5,'failure')").bind(&out.call_id).bind(role).bind(&raw).bind(format!("{:x}",Sha256::digest(&raw))).bind(&r.evidence_digest).execute(&mut *tx).await?;
+                    sqlx::query("INSERT INTO core_tool_market.credit_fixed_witness_receipts(call_id,witness_role,raw_result,raw_digest,result_digest,outcome) VALUES($1,$2,$3,$4,$5,'failure')").bind(&out.call_id).bind(role).bind(&raw).bind(crate::hex_codec::encode(Sha256::digest(&raw))).bind(&r.evidence_digest).execute(&mut *tx).await?;
                 }
                 Price::Metered { rules } if mode == "supplier_signed" && witness_role.is_none() => {
                     let limits = rules

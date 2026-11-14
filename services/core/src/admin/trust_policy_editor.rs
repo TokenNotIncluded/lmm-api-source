@@ -140,7 +140,7 @@ async fn key(pool: &PgPool, provision: bool, expected: Option<String>) -> io::Re
         ));
     }
     let secret = config::trust_policy_signing_key()?;
-    let desired = format!("{:x}", Sha256::digest(secret.as_slice()));
+    let desired = crate::hex_codec::encode(Sha256::digest(secret.as_slice()));
     let mut tx = pool.begin().await.map_err(|_| failed())?;
     let owner: bool = sqlx::query_scalar("SELECT relowner=current_user::regrole FROM pg_catalog.pg_class WHERE oid='core_trust_pricing.policy_edit_signing_key'::regclass")
         .fetch_one(&mut *tx).await.map_err(|_| failed())?;

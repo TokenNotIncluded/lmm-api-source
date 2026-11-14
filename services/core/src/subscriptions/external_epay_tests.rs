@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_runtime as runtime;
 use crate::{
     identity::IdentityStore,
     internal_rpc::pb,
@@ -6,8 +7,6 @@ use crate::{
 };
 use md5::{Digest, Md5};
 use std::collections::BTreeMap;
-#[path = "../../tests/common/runtime.rs"]
-mod runtime;
 const SECRET: &str = "synthetic-subscription-epay-key";
 struct Fixture {
     store: SubscriptionStore,
@@ -110,7 +109,7 @@ fn signed(order: &str, transaction: &str, amount: &str) -> (Vec<u8>, Vec<u8>) {
         .collect::<Vec<_>>()
         .join("&")
         + SECRET;
-    let sign = format!("{:x}", Md5::digest(body.as_bytes()));
+    let sign = crate::hex_codec::encode(Md5::digest(body.as_bytes()));
     p.insert("sign", &sign);
     p.insert("sign_type", "MD5");
     (
@@ -597,7 +596,7 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
     let (reassigned_stop, reassigned_rx) = tokio::sync::watch::channel(false);
     let reassigned_serving = tokio::spawn(reassigned_server.serve(reassigned_rx));
     let go_db = format!("sub01_joint_{:016x}_test", rand::random::<u64>());
-    sqlx::query(&format!("CREATE DATABASE {go_db}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {go_db}")))
         .execute(&pool)
         .await
         .unwrap();
@@ -645,7 +644,7 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
     restricted_serving.await.unwrap().unwrap();
     reassigned_stop.send(true).unwrap();
     reassigned_serving.await.unwrap().unwrap();
-    sqlx::query(&format!("DROP DATABASE {go_db}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP DATABASE {go_db}")))
         .execute(&pool)
         .await
         .unwrap();

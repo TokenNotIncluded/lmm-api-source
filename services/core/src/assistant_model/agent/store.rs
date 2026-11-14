@@ -679,8 +679,8 @@ impl AgentService {
         }
         let bytes = serde_json::to_vec(&tuples).map_err(|_| Error::Unavailable)?;
         features.push(format!(
-            "assistant.agent_extensions.sha256:{:x}",
-            Sha256::digest(bytes)
+            "assistant.agent_extensions.sha256:{}",
+            crate::hex_codec::encode(Sha256::digest(bytes))
         ));
         Ok(features)
     }

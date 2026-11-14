@@ -42,11 +42,11 @@ async fn reply(State(p): State<Provider>, headers: HeaderMap, Json(body): Json<V
     assert_eq!(body["model"], "native-model");
     p.hits.fetch_add(1, Ordering::SeqCst);
     p.seen.lock().unwrap().push(body.clone());
-    if body["stream"] != true {
-        if let Some((entered, resume)) = &p.pause {
-            entered.notify_one();
-            resume.notified().await;
-        }
+    if body["stream"] != true
+        && let Some((entered, resume)) = &p.pause
+    {
+        entered.notify_one();
+        resume.notified().await;
     }
     let compact = body.get("max_output_tokens").is_none();
     let mut output = if compact {
@@ -200,6 +200,7 @@ fn gateway_with_reservation(
         ProviderPolicy::new(
             vec![ExternalModelContext {
                 responses_compaction: enabled,
+                responses_continuity: None,
                 upstream_id: 1,
                 upstream_model: model.into(),
                 protocol,

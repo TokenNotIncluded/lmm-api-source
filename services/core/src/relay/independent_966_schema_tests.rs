@@ -451,7 +451,7 @@ fn independent_966_global_canonical_json_and_digest_stay_sorted() {
     let expected = br#"{"a":2,"z":1}"#;
     assert_eq!(actual, expected);
     assert_eq!(
-        format!("{:x}", Sha256::digest(&actual)),
+        crate::hex_codec::encode(Sha256::digest(&actual)),
         "c2985c5ba6f7d2a55e768f92490ca09388e95bc4cccb9fdf11b15f4d42f93e73"
     );
 }

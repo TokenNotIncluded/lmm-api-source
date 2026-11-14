@@ -84,7 +84,7 @@ pub fn input_digest(arguments: &Value) -> Result<String> {
         return Err(Error::Invalid);
     }
     let encoded = crate::go_json::escape(&encoded);
-    Ok(format!("{:x}", Sha256::digest(encoded.as_bytes())))
+    Ok(crate::hex_codec::encode(Sha256::digest(encoded.as_bytes())))
 }
 fn kind(service: &str, tool: &str) -> Result<BuiltinKind> {
     let &(service, short) = ACTIONS
@@ -156,7 +156,7 @@ mod tests {
         let encoded = "{\"a\":\"\\u003c\\u0026\\u003e\\u2028\\u2029\",\"n\":9007199254740991}";
         assert_eq!(
             input_digest(&json!({"n":9007199254740991_i64,"a":"<&>\u{2028}\u{2029}"})).unwrap(),
-            format!("{:x}", Sha256::digest(encoded.as_bytes()))
+            crate::hex_codec::encode(Sha256::digest(encoded.as_bytes()))
         );
         assert!(input_digest(&json!([])).is_err());
     }

@@ -149,7 +149,7 @@ fn execution() -> Result<Execution, Rejection> {
         pid,
         boot_id: boot,
         start_ticks: ticks,
-        executable_sha256: format!("{:x}", hash.finalize()),
+        executable_sha256: crate::hex_codec::encode(hash.finalize()),
     })
 }
 fn required() -> Result<RequiredCapabilities, Rejection> {

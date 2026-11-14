@@ -224,10 +224,10 @@ async fn get_balance_preserves_observation_on_provider_auth_and_cas_failure(pool
     let role = runtime::RuntimeRole::create(&pool).await;
     role.optional("core_charging").await;
     role.optional("core_model").await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -886,10 +886,10 @@ async fn legacy_balance_api_publishes_reloads_overrides_copies_and_disables(pool
     let role = runtime::RuntimeRole::create(&pool).await;
     role.optional("core_charging").await;
     role.optional("core_model").await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

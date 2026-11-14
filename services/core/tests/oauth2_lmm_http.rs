@@ -106,7 +106,7 @@ async fn runtime_issuer(pool: &PgPool) -> (runtime::RuntimeRole, LmmIssuer) {
         );
         role.optional("web_identity").await;
         // These are issuer-state privileges; policy tables remain SELECT-only.
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             r#"
         GRANT USAGE ON SCHEMA core_oauth TO {0};
         GRANT SELECT ON core_oauth.contract TO {0};
@@ -119,7 +119,7 @@ async fn runtime_issuer(pool: &PgPool) -> (runtime::RuntimeRole, LmmIssuer) {
         GRANT EXECUTE ON FUNCTION core_oauth.client_scope_set(text,text[],boolean) TO {0};
     "#,
             role.name
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();

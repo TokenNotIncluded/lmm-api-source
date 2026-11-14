@@ -584,10 +584,10 @@ async fn list(
             Err(error) => error.into_response(),
         };
     }
-    if let Some(management) = &state.management {
-        if let Err(error) = management.synchronize().await {
-            return control::Failure::from(error).into_response();
-        }
+    if let Some(management) = &state.management
+        && let Err(error) = management.synchronize().await
+    {
+        return control::Failure::from(error).into_response();
     }
     let document = match state.routing.catalog_document() {
         Ok(document) => document,
@@ -631,10 +631,10 @@ async fn detail(
     if let Err(error) = admit(&state, &headers).await {
         return auth_error(error);
     }
-    if let Some(management) = &state.management {
-        if let Err(error) = management.synchronize().await {
-            return control::Failure::from(error).into_response();
-        }
+    if let Some(management) = &state.management
+        && let Err(error) = management.synchronize().await
+    {
+        return control::Failure::from(error).into_response();
     }
     match state.routing.catalog_document() {
         Ok(document) => match channels(&document.routing)

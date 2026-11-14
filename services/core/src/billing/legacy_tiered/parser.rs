@@ -25,7 +25,11 @@ pub(super) enum Node {
     Binary(Op, Box<Node>, Box<Node>),
     Not(Box<Node>),
     Conditional(Box<Node>, Box<Node>, Box<Node>),
-    Tier(String, Box<Node>),
+    Tier {
+        #[cfg(test)]
+        label: String,
+        body: Box<Node>,
+    },
     Clock(ClockPart),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -193,7 +197,11 @@ impl Parser {
                         self.want(Token::Comma)?;
                         let value = self.expr(0, depth + 1)?;
                         self.want(Token::Rp)?;
-                        Node::Tier(text, Box::new(value))
+                        Node::Tier {
+                            #[cfg(test)]
+                            label: text,
+                            body: Box::new(value),
+                        }
                     } else {
                         self.want(Token::Rp)?;
                         self.calendar = true;
@@ -264,7 +272,7 @@ fn predicate(node: &Node) -> bool {
 }
 fn root_shape(node: &Node) -> bool {
     match node {
-        Node::Tier(_, body) => linear(body),
+        Node::Tier { body, .. } => linear(body),
         Node::Conditional(p, a, b) => predicate(p) && root_shape(a) && root_shape(b),
         Node::Binary(Op::Mul, a, b) => (scalar(a) && root_shape(b)) || (root_shape(a) && scalar(b)),
         _ => false,
@@ -284,7 +292,6 @@ pub(super) fn compile(source: &str) -> Result<Program, Error> {
         return Err(Error::Unsupported);
     }
     Ok(Program {
-        source: source.to_owned(),
         root,
         used: p.used,
         calendar: p.calendar,

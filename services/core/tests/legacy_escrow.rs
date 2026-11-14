@@ -96,7 +96,9 @@ async fn owner_pool() -> PgPool {
         .after_connect(move |connection, _| {
             let set_role = format!("SET ROLE {role}");
             Box::pin(async move {
-                sqlx::query(&set_role).execute(connection).await?;
+                sqlx::query(sqlx::AssertSqlSafe::<&str>(&set_role))
+                    .execute(connection)
+                    .await?;
                 Ok(())
             })
         })
@@ -114,11 +116,12 @@ async fn owner_import(pool: &PgPool, function: &str, body: &Value) -> Result<Val
     sqlx::raw_sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SET LOCAL synchronous_commit=on")
         .execute(&mut *transaction)
         .await?;
-    let result =
-        sqlx::query_scalar::<_, Json<Value>>(&format!("SELECT core_billing.{function}($1)"))
-            .bind(Json(body))
-            .fetch_one(&mut *transaction)
-            .await;
+    let result = sqlx::query_scalar::<_, Json<Value>>(sqlx::AssertSqlSafe(format!(
+        "SELECT core_billing.{function}($1)"
+    )))
+    .bind(Json(body))
+    .fetch_one(&mut *transaction)
+    .await;
     match result {
         Ok(Json(value)) => {
             transaction.commit().await?;
@@ -181,10 +184,10 @@ async fn financial_snapshot(pool: &PgPool) -> Value {
         "legacy_escrow_state",
         "legacy_escrow_operations",
     ] {
-        let Json(value): Json<Value> = sqlx::query_scalar(&format!(
+        let Json(value): Json<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) \
              FROM core_billing.{table} t"
-        ))
+        )))
         .fetch_one(pool)
         .await
         .unwrap();

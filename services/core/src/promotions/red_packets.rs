@@ -16,7 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
-use rand::{Rng, rngs::OsRng};
+use rand::{RngExt, rngs::SysRng};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Postgres, Row, Transaction};
@@ -87,7 +87,9 @@ impl Mutation {
             return Err(RedPacketError::Invalid("红包说明不能超过 500 个字符"));
         }
         if self.cover_prompt.chars().count() > 1000 {
-            return Err(RedPacketError::Invalid("红包封面提示词不能超过 1000 个字符"));
+            return Err(RedPacketError::Invalid(
+                "红包封面提示词不能超过 1000 个字符",
+            ));
         }
         if self.per_user_limit <= 0 {
             self.per_user_limit = 1;
@@ -151,7 +153,8 @@ fn packet_row(r: &sqlx::postgres::PgRow) -> RpResult<Packet> {
 const PACKET_COLUMNS: &str = "id,slug,title,description,cover_image,cover_prompt,draw_mode,per_user_limit,start_at,end_at,enabled,created_by,created_at,updated_at,deleted_at";
 
 /// Items still claimable: bound, unclaimed, and backed by a live code.
-const AVAILABLE: &str = "SELECT i.id,i.weight,i.code_digest,d.campaign_id FROM core_promotions.red_packet_items i
+const AVAILABLE: &str =
+    "SELECT i.id,i.weight,i.code_digest,d.campaign_id FROM core_promotions.red_packet_items i
  JOIN core_promotions.codes d ON d.digest=i.code_digest
  JOIN core_promotions.campaigns c ON c.id=d.campaign_id
  WHERE i.packet_id=$1 AND i.released_at IS NULL AND NOT d.revoked
@@ -178,7 +181,7 @@ fn pick(mode: &str, weights: &[i64]) -> usize {
         "sequence" => 0,
         "weighted" => {
             let total: i64 = weights.iter().sum();
-            let mut cursor = OsRng.gen_range(0..total);
+            let mut cursor = rand::rand_core::UnwrapErr(SysRng).random_range(0..total);
             for (i, w) in weights.iter().enumerate() {
                 if cursor < *w {
                     return i;
@@ -187,7 +190,7 @@ fn pick(mode: &str, weights: &[i64]) -> usize {
             }
             weights.len() - 1
         }
-        _ => OsRng.gen_range(0..weights.len()),
+        _ => rand::rand_core::UnwrapErr(SysRng).random_range(0..weights.len()),
     }
 }
 
@@ -204,11 +207,13 @@ async fn counts(c: &mut PgConnection, packet: i64, time: i64) -> RpResult<(i64, 
     .bind(packet)
     .fetch_one(&mut *c)
     .await?;
-    let remaining: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM ({AVAILABLE}) a"))
-        .bind(packet)
-        .bind(time)
-        .fetch_one(&mut *c)
-        .await?;
+    let remaining: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM ({AVAILABLE}) a"
+    )))
+    .bind(packet)
+    .bind(time)
+    .fetch_one(&mut *c)
+    .await?;
     Ok((total, remaining, claims))
 }
 
@@ -216,7 +221,10 @@ fn reward(r: &sqlx::postgres::PgRow) -> RpResult<Value> {
     let mut value: Value = r.try_get::<sqlx::types::Json<Value>, _>("reward")?.0;
     let object = value.as_object_mut().ok_or(Error::Unavailable)?;
     object.insert("claim_id".into(), json!(r.try_get::<i64, _>("id")?));
-    object.insert("claimed_at".into(), json!(r.try_get::<i64, _>("created_at")?));
+    object.insert(
+        "claimed_at".into(),
+        json!(r.try_get::<i64, _>("created_at")?),
+    );
     Ok(value)
 }
 
@@ -228,7 +236,7 @@ async fn insert_items(
 ) -> RpResult<()> {
     let mut seen = std::collections::HashSet::new();
     for item in items {
-        if item.item_type.trim().to_ascii_lowercase() != "redemption" {
+        if !item.item_type.trim().eq_ignore_ascii_case("redemption") {
             // Core has no discount-code authority; reject rather than drop.
             return Err(RedPacketError::InvalidItem);
         }
@@ -262,7 +270,11 @@ async fn insert_items(
         if taken {
             return Err(RedPacketError::DuplicatedItem);
         }
-        let weight = if item.weight <= 0 { 1 } else { item.weight.min(1_000_000) };
+        let weight = if item.weight <= 0 {
+            1
+        } else {
+            item.weight.min(1_000_000)
+        };
         sqlx::query("INSERT INTO core_promotions.red_packet_items(packet_id,code_digest,weight,created_at) VALUES($1,$2,$3,$4)")
             .bind(packet)
             .bind(&digest)
@@ -292,9 +304,9 @@ impl PromotionStore {
 
     pub async fn red_packet_public(&self, slug: &str) -> RpResult<Value> {
         let mut tx = self.begin_red_packet().await?;
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT {PACKET_COLUMNS} FROM core_promotions.red_packets WHERE slug=$1"
-        ))
+        )))
         .bind(slug.trim())
         .fetch_optional(&mut *tx)
         .await?
@@ -325,11 +337,12 @@ impl PromotionStore {
     pub async fn red_packet_my_claims(&self, secret: &str, slug: &str) -> RpResult<Vec<Value>> {
         let mut tx = self.begin_red_packet().await?;
         let a = actor(&mut tx, secret, false).await?;
-        let id: i64 = sqlx::query_scalar("SELECT id FROM core_promotions.red_packets WHERE slug=$1")
-            .bind(slug.trim())
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(RedPacketError::NotFound)?;
+        let id: i64 =
+            sqlx::query_scalar("SELECT id FROM core_promotions.red_packets WHERE slug=$1")
+                .bind(slug.trim())
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(RedPacketError::NotFound)?;
         let rows = sqlx::query("SELECT id,reward,created_at FROM core_promotions.red_packet_claims WHERE packet_id=$1 AND user_id=$2 ORDER BY claim_index")
             .bind(id)
             .bind(a.user_id)
@@ -343,9 +356,9 @@ impl PromotionStore {
         let mut tx = self.begin_red_packet().await?;
         let a = actor(&mut tx, secret, false).await?;
         lock(&mut tx, a.user_id).await?;
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT {PACKET_COLUMNS} FROM core_promotions.red_packets WHERE slug=$1 FOR UPDATE"
-        ))
+        )))
         .bind(slug.trim())
         .fetch_optional(&mut *tx)
         .await?
@@ -378,7 +391,8 @@ impl PromotionStore {
         let chosen = &items[pick(&p.draw_mode, &weights)];
         let item_id: i64 = chosen.try_get("id")?;
         let digest: Vec<u8> = chosen.try_get("code_digest")?;
-        let camp: Campaign = campaign(&mut tx, &chosen.try_get::<String, _>("campaign_id")?).await?;
+        let camp: Campaign =
+            campaign(&mut tx, &chosen.try_get::<String, _>("campaign_id")?).await?;
         let receipt = super::post_grant(
             &mut tx,
             &a,
@@ -424,9 +438,9 @@ impl PromotionStore {
         let mut tx = self.begin_red_packet().await?;
         actor(&mut tx, secret, true).await?;
         let time = now(&mut tx).await?;
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT {PACKET_COLUMNS} FROM core_promotions.red_packets WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1000"
-        ))
+        )))
         .fetch_all(&mut *tx)
         .await?;
         let mut result = Vec::with_capacity(rows.len());
@@ -463,8 +477,8 @@ impl PromotionStore {
         let a = actor(&mut tx, secret, true).await?;
         let time = now(&mut tx).await?;
         let mut slug = [0u8; 16];
-        rand::RngCore::fill_bytes(&mut OsRng, &mut slug);
-        let slug = hex(&slug);
+        rand::Rng::fill_bytes(&mut rand::rand_core::UnwrapErr(SysRng), &mut slug);
+        let slug = hex(slug);
         let id: i64 = sqlx::query_scalar("INSERT INTO core_promotions.red_packets(slug,title,description,cover_image,cover_prompt,draw_mode,per_user_limit,start_at,end_at,enabled,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12) RETURNING id")
             .bind(&slug).bind(&input.title).bind(&input.description).bind(&input.cover_image).bind(&input.cover_prompt)
             .bind(&input.draw_mode).bind(input.per_user_limit as i32).bind(input.start_at).bind(input.end_at)
@@ -484,7 +498,12 @@ impl PromotionStore {
         }))
     }
 
-    pub async fn red_packet_update(&self, secret: &str, id: i64, mut input: Mutation) -> RpResult<()> {
+    pub async fn red_packet_update(
+        &self,
+        secret: &str,
+        id: i64,
+        mut input: Mutation,
+    ) -> RpResult<()> {
         input.validate(false)?;
         let mut tx = self.begin_red_packet().await?;
         let a = actor(&mut tx, secret, true).await?;
@@ -524,7 +543,13 @@ impl PromotionStore {
                 .await?;
             insert_items(&mut tx, id, items, time).await?;
         }
-        audit(&mut tx, &a, "promotion.red_packet.update", json!({"id":id,"items":input.items.as_ref().map_or(0, Vec::len)})).await?;
+        audit(
+            &mut tx,
+            &a,
+            "promotion.red_packet.update",
+            json!({"id":id,"items":input.items.as_ref().map_or(0, Vec::len)}),
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -553,7 +578,13 @@ impl PromotionStore {
                 .bind(time)
                 .execute(&mut *tx)
                 .await?;
-            audit(&mut tx, &a, "promotion.red_packet.delete", json!({"id":id,"released_items":released})).await?;
+            audit(
+                &mut tx,
+                &a,
+                "promotion.red_packet.delete",
+                json!({"id":id,"released_items":released}),
+            )
+            .await?;
         }
         tx.commit().await?;
         Ok(())
@@ -634,7 +665,7 @@ pub fn router(pool: sqlx::PgPool) -> Router {
         )
         .route(
             "/api/red-packet/admin",
-            get(admin_list).post(admin_create).layer(mutation_limit.clone()),
+            get(admin_list).post(admin_create).layer(mutation_limit),
         )
         .route(
             "/api/red-packet/admin/{id}",
@@ -654,10 +685,18 @@ pub fn router(pool: sqlx::PgPool) -> Router {
 async fn public(State(s): State<PromotionStore>, Path(slug): Path<String>) -> Response {
     respond(s.red_packet_public(&slug).await)
 }
-async fn my_claims(State(s): State<PromotionStore>, Path(slug): Path<String>, h: HeaderMap) -> Response {
+async fn my_claims(
+    State(s): State<PromotionStore>,
+    Path(slug): Path<String>,
+    h: HeaderMap,
+) -> Response {
     respond(async { Ok(json!(s.red_packet_my_claims(bearer(&h)?, &slug).await?)) }.await)
 }
-async fn claim(State(s): State<PromotionStore>, Path(slug): Path<String>, h: HeaderMap) -> Response {
+async fn claim(
+    State(s): State<PromotionStore>,
+    Path(slug): Path<String>,
+    h: HeaderMap,
+) -> Response {
     respond(async { s.red_packet_claim(bearer(&h)?, &slug).await }.await)
 }
 async fn admin_list(State(s): State<PromotionStore>, h: HeaderMap) -> Response {
@@ -694,7 +733,11 @@ async fn admin_update(
         .await,
     )
 }
-async fn admin_delete(State(s): State<PromotionStore>, Path(id): Path<String>, h: HeaderMap) -> Response {
+async fn admin_delete(
+    State(s): State<PromotionStore>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+) -> Response {
     respond(
         async {
             let secret = bearer(&h)?;

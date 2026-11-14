@@ -1346,10 +1346,10 @@ impl Request {
             object.remove("stream_options");
             object.remove("reasoning_effort");
             object.insert("usage".into(), json!({"include":true}));
-            if let Some(effort) = &self.reasoning_effort {
-                if effort != "none" {
-                    object.insert("reasoning".into(), json!({"enabled":true,"effort":effort}));
-                }
+            if let Some(effort) = &self.reasoning_effort
+                && effort != "none"
+            {
+                object.insert("reasoning".into(), json!({"enabled":true,"effort":effort}));
             }
             object.extend(self.openrouter.clone());
             return Ok(payload);

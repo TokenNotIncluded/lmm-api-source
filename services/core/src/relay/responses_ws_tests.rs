@@ -289,3 +289,170 @@ fn failed_cancelled_and_warmup_terminal_keep_zero_distinct_from_missing() {
     );
     assert!(terminal(&json!({"type":"response.failed","response":{"usage":0}})).is_err());
 }
+
+#[test]
+fn anonymous_controls_never_occupy_unresolvable_slots_and_cancel_stays_owned() {
+    let mut state = Correlation::default();
+    let mut c = create("active");
+    c.stream_id = Some("lane".into());
+    let sequence = state.begin(&c).unwrap();
+    state
+        .attribute(&json!({"type":"response.created","response":{"id":"response"}}))
+        .unwrap();
+    for _ in 0..32 {
+        for kind in ["input_audio_buffer.clear", "response.cancel"] {
+            let raw = serde_json::to_vec(
+                &json!({"type":kind,"stream_id":"lane","response_id":"response"}),
+            )
+            .unwrap();
+            state.authorize_control(&raw, 4096).unwrap();
+        }
+    }
+    assert!(state.control_records.is_empty());
+    assert!(
+        state
+            .authorize_control(
+                br#"{"type":"response.cancel","response_id":"foreign"}"#,
+                4096
+            )
+            .is_err()
+    );
+    assert!(state.control_records.is_empty());
+    state
+        .authorize_control(
+            br#"{"type":"input_audio_buffer.clear","event_id":"named"}"#,
+            4096,
+        )
+        .unwrap();
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        1
+    );
+    state.finish(sequence).unwrap();
+    assert!(
+        state
+            .authorize_control(br#"{"type":"response.cancel"}"#, 4096)
+            .is_err()
+    );
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        0
+    );
+}
+
+#[test]
+fn named_pending_limit_duplicate_error_and_finalized_turn_release_are_exact() {
+    let mut state = Correlation::default();
+    let sequence = state.begin(&create("active")).unwrap();
+    for n in 0..31 {
+        state
+            .authorize_control(
+                &serde_json::to_vec(
+                    &json!({"type":"input_audio_buffer.clear","event_id":format!("p{n}")}),
+                )
+                .unwrap(),
+                4096,
+            )
+            .unwrap();
+    }
+    assert!(
+        state
+            .authorize_control(
+                br#"{"type":"input_audio_buffer.clear","event_id":"p0"}"#,
+                4096
+            )
+            .is_err()
+    );
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        31
+    );
+    state
+        .authorize_control(
+            br#"{"type":"input_audio_buffer.clear","event_id":"p31"}"#,
+            4096,
+        )
+        .unwrap();
+    assert!(
+        state
+            .authorize_control(br#"{"type":"response.cancel","event_id":"overflow"}"#, 4096)
+            .is_err()
+    );
+    state
+        .authorize_control(br#"{"type":"response.cancel"}"#, 4096)
+        .unwrap();
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        32
+    );
+    let mut error = json!({"type":"error","error":{"event_id":"p0"}});
+    assert!(state.control_error(&mut error).unwrap());
+    assert!(state.control_error(&mut error).unwrap());
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        31
+    );
+    state
+        .authorize_control(
+            br#"{"type":"response.cancel","event_id":"replacement"}"#,
+            4096,
+        )
+        .unwrap();
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        32
+    );
+    assert!(state.finish(sequence + 1).is_err());
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        32
+    );
+    state.finish(sequence).unwrap();
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        0
+    );
+    assert!(
+        state
+            .authorize_control(
+                br#"{"type":"input_audio_buffer.clear","event_id":"p1"}"#,
+                4096
+            )
+            .is_err()
+    );
+    let next = state.begin(&create("next")).unwrap();
+    for n in 0..32 {
+        state
+            .authorize_control(
+                &serde_json::to_vec(
+                    &json!({"type":"input_audio_buffer.clear","event_id":format!("n{n}")}),
+                )
+                .unwrap(),
+                4096,
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        32
+    );
+    state.finish(next).unwrap();
+    assert_eq!(
+        state.control_records.values().filter(|r| r.pending).count(),
+        0
+    );
+    state
+        .authorize_control(
+            br#"{"type":"input_audio_buffer.clear","event_id":"idle-pending"}"#,
+            4096,
+        )
+        .unwrap();
+    let rejected = state.begin(&create("rejected")).unwrap();
+    state.reject_unreserved(rejected);
+    assert!(state.control_records["idle-pending"].pending);
+    assert_eq!(state.control_records["idle-pending"].turn, None);
+    let admitted = state.begin(&create("admitted")).unwrap();
+    assert_eq!(state.control_records["idle-pending"].turn, Some(admitted));
+    state.finish(admitted).unwrap();
+    assert!(!state.control_records["idle-pending"].pending);
+}

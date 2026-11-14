@@ -836,7 +836,10 @@ fn sanitize_native_usage(usage: &Value) -> Result<Value, RelayError> {
         );
     }
     if let Some(details) = usage.get("output_tokens_details") {
-        let details = object(details, &["text_tokens", "image_tokens", "reasoning_tokens"])?;
+        let details = object(
+            details,
+            &["text_tokens", "image_tokens", "reasoning_tokens"],
+        )?;
         if details
             .get("reasoning_tokens")
             .is_some_and(|n| n.as_u64() != Some(0))
@@ -934,9 +937,7 @@ fn observe_with_contract(
     for image in data {
         // Vendors may attach non-settlement metadata (dimensions, MIME, C2PA).
         // Keep a strict sanitized projection; never require a closed key set.
-        let image = image
-            .as_object()
-            .ok_or(RelayError::SettlementPending)?;
+        let image = image.as_object().ok_or(RelayError::SettlementPending)?;
         if image.get("b64_json").is_some() == image.get("url").is_some() {
             return Err(RelayError::SettlementPending);
         }

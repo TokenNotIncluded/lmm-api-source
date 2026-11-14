@@ -23,7 +23,8 @@ use crate::{
 };
 pub use drawing_input::DrawingUpload;
 pub(crate) use drawing_input::MAX_PREVIEW_BODY;
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -284,7 +285,7 @@ fn digest<T: Serialize>(v: &T) -> Result<[u8; 32]> {
 use crate::hex_codec::encode as hex;
 fn random() -> Result<[u8; 32]> {
     let mut b = [0; 32];
-    OsRng.try_fill_bytes(&mut b).map_err(|_| Error::Storage)?;
+    SysRng.try_fill_bytes(&mut b).map_err(|_| Error::Storage)?;
     Ok(b)
 }
 fn valid_id(id: &str) -> bool {
@@ -729,7 +730,7 @@ impl ImageService {
             (
                 format!(
                     "image:{}",
-                    hex(&digest(&json!([
+                    hex(digest(&json!([
                         actor.credential_id,
                         context.call_id,
                         context.dispatch_id
@@ -784,7 +785,7 @@ impl ImageService {
         Ok(Preview {
             confirmation_path: super::image_http::confirmation_path(&id),
             operation_id: id,
-            preview_digest: hex(&fingerprint),
+            preview_digest: hex(fingerprint),
             input: DrawingPreviewInput {
                 settings: DrawingInput {
                     size: binding.size.clone(),
@@ -832,7 +833,7 @@ impl ImageService {
             return Err(Error::Conflict);
         }
         let p = preview_row(&r)?;
-        let csrf = hex(&random()?);
+        let csrf = hex(random()?);
         sqlx::query("UPDATE core_image.operations SET confirmation_digest=$2,confirmation_sid=$3 WHERE id=$1").bind(id).bind(Sha256::digest(csrf.as_bytes()).as_slice()).bind(a.sid).execute(&mut *tx).await?;
         tx.commit().await.map_err(|_| Error::Pending)?;
         Ok((p, csrf))
@@ -1227,7 +1228,7 @@ impl ImageService {
                         Outcome::Completed,
                         &format!(
                             "image-provider-sha256:{}",
-                            hex(&image.provider_receipt_sha256)
+                            hex(image.provider_receipt_sha256)
                         ),
                     )
                     .await?;

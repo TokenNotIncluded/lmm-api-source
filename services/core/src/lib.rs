@@ -32,6 +32,7 @@ pub mod history_http;
 pub mod history_read;
 mod html;
 pub mod http;
+mod http_client;
 pub mod identity;
 pub mod identity_http;
 pub mod image;
@@ -89,3 +90,7 @@ pub mod checkin_ledger;
 
 #[cfg(test)]
 extern crate self as lmm_core;
+
+#[cfg(test)]
+#[path = "../tests/common/pg_commit_fault.rs"]
+pub(crate) mod test_pg_commit_fault;

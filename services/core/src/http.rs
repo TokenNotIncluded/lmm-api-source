@@ -11,7 +11,7 @@ use axum::{
     routing::get,
 };
 use http_body::{Body as HttpBody, Frame, SizeHint};
-use rand::RngCore;
+use rand::Rng;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -221,7 +221,7 @@ fn request_id(headers: &HeaderMap) -> String {
     if let Some(value) = incoming {
         return value.to_owned();
     }
-    let mut random = rand::thread_rng();
+    let mut random = rand::rng();
     format!("{:016x}{:016x}", random.next_u64(), random.next_u64())
 }
 

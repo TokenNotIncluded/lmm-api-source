@@ -756,7 +756,7 @@ async fn runtime_role_can_only_read_and_call_controlled_functions(pool: PgPool) 
         .await
         .unwrap();
     let role = format!("ledger_acceptance_{pid}");
-    sqlx::query(&format!("CREATE ROLE {role} NOLOGIN"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE ROLE {role} NOLOGIN")))
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -771,13 +771,13 @@ async fn runtime_role_can_only_read_and_call_controlled_functions(pool: PgPool) 
         !public_execute,
         "PUBLIC must not inherit posting privileges"
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA core_billing TO {role}; \
          GRANT SELECT ON core_billing.ledger_accounts, core_billing.balance_state, core_billing.ledger_operations, \
          core_billing.ledger_journals, core_billing.ledger_entries TO {role}; \
          GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint), core_billing.post_ledger(jsonb) TO {role}; \
          SET LOCAL ROLE {role};",
-    )).execute(&mut *tx).await.unwrap();
+    ))).execute(&mut *tx).await.unwrap();
     for statement in [
         "UPDATE core_billing.balance_state SET balance_units = 999",
         "INSERT INTO core_billing.ledger_accounts(bucket) VALUES ('revenue')",

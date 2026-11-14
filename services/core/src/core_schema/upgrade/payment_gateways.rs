@@ -22,7 +22,7 @@ struct Target {
 fn target() -> Result<Target, UpgradeError> {
     let target: Target = serde_json::from_str(TARGET).map_err(|_| UpgradeError::Storage)?;
     if target.manifest_sha256 != manifest_sha256()?
-        || target.catalog_sha256 != hex(&fingerprint(&target.definitions))
+        || target.catalog_sha256 != hex(fingerprint(&target.definitions))
         || target.definitions.is_empty()
     {
         return Err(reject("PAYMENT_GATEWAYS_COMPILED_TARGET_CHANGED"));
@@ -81,7 +81,7 @@ pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     predecessor.components.truncate(28);
     let mut bytes = serde_json::to_vec(&predecessor).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
-    if hex(&Sha256::digest(bytes)) != PRE_MANIFEST {
+    if hex(Sha256::digest(bytes)) != PRE_MANIFEST {
         return Err(reject("PAYMENT_GATEWAYS_COMPILED_PREDECESSOR_CHANGED"));
     }
     target()?;
@@ -140,8 +140,7 @@ pub(super) async fn connected(
         tx.rollback().await?;
         return report(r, &target.catalog_sha256, "already_committed");
     }
-    if hex(&fingerprint(&definitions(&mut tx).await?)) != PRE_CATALOG || tables.len() != PRE_TABLES
-    {
+    if hex(fingerprint(&definitions(&mut tx).await?)) != PRE_CATALOG || tables.len() != PRE_TABLES {
         return Err(reject("PAYMENT_GATEWAYS_PREDECESSOR_CATALOG_MISMATCH"));
     }
     let recorded: Vec<u8> = sqlx::query_scalar(

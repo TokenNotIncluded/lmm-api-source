@@ -6,10 +6,9 @@ use lmm_core::billing::charging::{Change, LedgerCommand, Source};
 use sha2::{Digest, Sha256};
 
 fn operation(id: &str, tag: &str) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap())
-    )
+    hex_codec::encode(Sha256::digest(
+        serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap(),
+    ))
 }
 async fn unavailable(f: &Fixture, id: Option<&str>) {
     for path in PATHS {
@@ -24,7 +23,7 @@ async fn unavailable(f: &Fixture, id: Option<&str>) {
         assert!(body.get("data").is_none());
     }
 }
-async fn mutate(pool: &PgPool, sql: &str, id: &str) {
+async fn mutate(pool: &PgPool, sql: &'static str, id: &str) {
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
@@ -512,3 +511,6 @@ async fn safe_reservations_with_unsafe_aggregate_fail_closed(pool: PgPool) {
         assert!(body.get("data").is_none());
     }
 }
+
+#[path = "../../src/hex_codec.rs"]
+mod hex_codec;

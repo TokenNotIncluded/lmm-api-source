@@ -216,7 +216,7 @@ impl Fixture {
         for scope in ["core_charging", "core_model", "web_identity"] {
             role.optional(scope).await;
         }
-        sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_oauth TO {0}; GRANT SELECT ON core_oauth.contract TO {0}; GRANT SELECT,INSERT ON core_oauth.families,core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {0}; GRANT UPDATE(scopes,revoked_at) ON core_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.refresh_tokens TO {0}; GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]),core_oauth.client_scope_set(text,text[],boolean) TO {0};",role.name)).execute(owner).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_oauth TO {0}; GRANT SELECT ON core_oauth.contract TO {0}; GRANT SELECT,INSERT ON core_oauth.families,core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {0}; GRANT UPDATE(scopes,revoked_at) ON core_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.refresh_tokens TO {0}; GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]),core_oauth.client_scope_set(text,text[],boolean) TO {0};",role.name))).execute(owner).await.unwrap();
         runtime_database::check(
             &role.pool,
             RequiredCapabilities {

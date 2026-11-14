@@ -121,7 +121,7 @@ async fn signed(f: &Fixture, subject: &str, label: &str) -> TelegramAuthorizatio
 
 async fn count(pool: &PgPool, table: &str) -> i64 {
     // table is selected only by literal test callers, never a protocol value.
-    sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
         .fetch_one(pool)
         .await
         .unwrap()
@@ -478,11 +478,14 @@ async fn telegram_bind_rejects_logout_generation_and_disabled_authority(pool: Pg
             .await
             .unwrap();
         match mode {
-            "logout" => f
-                .browser
-                .logout(Some(&owner.refresh_token), None, Some(sid(&owner)))
-                .await
-                .unwrap(),
+            "logout" => {
+                let revoked_sid = f
+                    .browser
+                    .logout(Some(&owner.refresh_token), None, Some(sid(&owner)))
+                    .await
+                    .unwrap();
+                assert_eq!(revoked_sid.as_deref(), Some(sid(&owner)));
+            }
             "generation" => {
                 sqlx::query(
                     "UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=$1",

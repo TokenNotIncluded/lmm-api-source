@@ -23,10 +23,10 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
         .unwrap();
     role.optional("web_identity").await;
     runtime_database::check(&role.pool, web).await.unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE INSERT(binding_digest) ON core_account_links.bind_flows FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -34,10 +34,10 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
         runtime_database::check(&role.pool, web).await,
         Err(RuntimeDatabaseError::MissingPrivileges)
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT INSERT(binding_digest) ON core_account_links.bind_flows TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -46,19 +46,25 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
         "UPDATE(request_id) ON core_account_appeals.flows",
         "USAGE ON SEQUENCE core_account_appeals.requests_id_seq",
     ] {
-        sqlx::raw_sql(&format!("REVOKE {privilege} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {privilege} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, web).await,
             Err(RuntimeDatabaseError::MissingPrivileges),
             "{privilege}"
         );
-        sqlx::raw_sql(&format!("GRANT {privilege} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {privilege} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     for privilege in [
         "UPDATE(user_id) ON core_passkeys.credentials",
@@ -72,10 +78,13 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
         "UPDATE(operation_digest) ON core_account_lifecycle.closures",
         "UPDATE(balance_units) ON core_billing.balance_state",
     ] {
-        sqlx::raw_sql(&format!("GRANT {privilege} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {privilege} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, web).await,
             Err(RuntimeDatabaseError::UnsafePrivileges),
@@ -86,15 +95,18 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
             Err(RuntimeDatabaseError::UnsafePrivileges),
             "{privilege}"
         );
-        sqlx::raw_sql(&format!("REVOKE {privilege} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {privilege} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE EXECUTE ON FUNCTION core_account_lifecycle.wallet_is_empty(bigint) FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -102,10 +114,10 @@ async fn account_security_requires_its_minimum_and_rejects_mutable_identity_or_b
         runtime_database::check(&role.pool, web).await,
         Err(RuntimeDatabaseError::MissingPrivileges)
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT EXECUTE ON FUNCTION core_account_lifecycle.wallet_is_empty(bigint) TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

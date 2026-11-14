@@ -196,6 +196,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "payment-discount-management",
         crate::payments::discounts::MANAGEMENT_SCHEMA,
     ),
+    (
+        "responses-continuity",
+        include_str!("../schema/responses_continuity.sql"),
+    ),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -223,7 +227,7 @@ fn installer_contract_sha256() -> String {
     hash.update(LEDGER_REVISION_METADATA.as_bytes());
     hash.update(CONSOLE_REVISION_METADATA.as_bytes());
     hash.update(OFFLINE_REVISION_METADATA.as_bytes());
-    format!("{:x}", hash.finalize())
+    crate::hex_codec::encode(hash.finalize())
 }
 
 // Include application relations, columns/defaults, constraints, indexes,
@@ -322,7 +326,7 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
         return Err(IdentityError::Conflict);
     }
     for (_, schema) in COMPONENTS {
-        sqlx::raw_sql(schema).execute(&mut *tx).await?;
+        sqlx::raw_sql(*schema).execute(&mut *tx).await?;
     }
     sqlx::raw_sql(CONTRACT).execute(&mut *tx).await?;
     sqlx::raw_sql(UPGRADE_METADATA).execute(&mut *tx).await?;

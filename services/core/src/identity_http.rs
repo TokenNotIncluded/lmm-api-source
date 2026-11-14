@@ -219,6 +219,12 @@ async fn remove_member(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Adds configured email flows to the canonical identity API.
+pub fn router_with_email(store: IdentityStore, mail: crate::email_http::EmailHttp) -> Router {
+    let mail = mail.with_identity_store(store.clone());
+    router(store.clone()).merge(email::router(store, mail))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,10 +248,4 @@ mod tests {
         );
         assert_eq!(bearer(&headers), Err(IdentityError::Unauthorized));
     }
-}
-
-/// Adds configured email flows to the canonical identity API.
-pub fn router_with_email(store: IdentityStore, mail: crate::email_http::EmailHttp) -> Router {
-    let mail = mail.with_identity_store(store.clone());
-    router(store.clone()).merge(email::router(store, mail))
 }

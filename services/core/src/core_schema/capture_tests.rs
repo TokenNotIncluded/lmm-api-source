@@ -28,7 +28,7 @@ async fn capture_fresh_install_catalog(pool: PgPool) {
     let mut manifest = serde_json::to_vec(&schema_manifest()).unwrap();
     manifest.push(b'\n');
     let record = serde_json::json!({
-        "manifest_sha256":format!("{:x}",Sha256::digest(manifest)),
+        "manifest_sha256":crate::hex_codec::encode(Sha256::digest(manifest)),
         "catalog_sha256":catalog,
     });
     writeln!(file, "{}", serde_json::to_string_pretty(&record).unwrap()).unwrap();

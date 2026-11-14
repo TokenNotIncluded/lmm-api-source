@@ -123,7 +123,7 @@ async fn fund(ledger: &Ledger, account: i64, amount: i64, key: &str) {
     ));
 }
 async fn count(pool: &PgPool, table: &str) -> i64 {
-    sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
         .fetch_one(pool)
         .await
         .unwrap()
@@ -133,6 +133,10 @@ async fn balanced(pool: &PgPool) {
     assert_eq!(n, 0);
 }
 
+struct RefundJournalKeys<'a> {
+    payment: &'a str,
+    settlement: &'a str,
+}
 fn partial_refund(
     cmd: &MoneyCommand,
     key: &str,
@@ -140,9 +144,12 @@ fn partial_refund(
     quantity: i64,
     retired: i64,
     amount: i64,
-    payment: &str,
-    settlement: &str,
+    journals: RefundJournalKeys<'_>,
 ) -> MoneyCommand {
+    let RefundJournalKeys {
+        payment,
+        settlement,
+    } = journals;
     use lmm_core::commerce::partial_refunds::RefundSpec;
     let mut c = action(cmd, "refund", payment, settlement);
     let id = hash(&serde_json::json!([
@@ -190,8 +197,10 @@ async fn partial_refund_preserves_original_grant_captures_remainder_and_replays_
         1,
         1,
         50,
-        &pay.reference,
-        "",
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: "",
+        },
     );
     assert_eq!(
         f.store.execute(&f.buyer, &bytes(&first)).await,
@@ -238,8 +247,10 @@ async fn partial_refund_preserves_original_grant_captures_remainder_and_replays_
         0,
         1,
         50,
-        &pay.reference,
-        &capture.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &capture.reference,
+        },
     );
     assert_eq!(
         f.store
@@ -290,8 +301,10 @@ async fn partial_refund_concurrent_independent_keys_cannot_exceed_original_princ
         0,
         0,
         70,
-        &pay.reference,
-        &capture.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &capture.reference,
+        },
     );
     let b = partial_refund(
         &cmd,
@@ -300,8 +313,10 @@ async fn partial_refund_concurrent_independent_keys_cannot_exceed_original_princ
         0,
         0,
         70,
-        &pay.reference,
-        &capture.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &capture.reference,
+        },
     );
     let aw = bytes(&a);
     let bw = bytes(&b);
@@ -369,8 +384,10 @@ async fn partial_refund_restores_only_original_seller_debt_and_never_recredits_i
         0,
         0,
         75,
-        &pay.reference,
-        &capture.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &capture.reference,
+        },
     );
     let receipt = f.store.execute(&f.seller, &bytes(&first)).await.unwrap();
     assert_eq!(receipt.outcome, "succeeded");
@@ -383,8 +400,10 @@ async fn partial_refund_restores_only_original_seller_debt_and_never_recredits_i
         1,
         1,
         75,
-        &pay.reference,
-        &capture.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &capture.reference,
+        },
     );
     assert_eq!(
         f.store
@@ -433,8 +452,10 @@ async fn partial_refund_same_wallet_records_receipt_without_weakening_zero_entry
         0,
         0,
         20,
-        &pay.reference,
-        &captured.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &captured.reference,
+        },
     );
     let receipt = f.store.execute(&f.buyer, &bytes(&refund)).await.unwrap();
     assert_eq!(receipt.outcome, "succeeded");
@@ -486,8 +507,10 @@ async fn partial_refund_liquidity_unknown_has_no_receipt_then_recovers_original_
         0,
         0,
         40,
-        &pay.reference,
-        &capture.reference,
+        RefundJournalKeys {
+            payment: &pay.reference,
+            settlement: &capture.reference,
+        },
     );
     let wire = bytes(&refund);
     assert_eq!(f.store.execute(&f.seller, &wire).await, Err(Error::Pending));

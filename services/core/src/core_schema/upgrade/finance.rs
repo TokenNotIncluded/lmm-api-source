@@ -18,7 +18,7 @@ struct Target {
 fn target() -> Result<Target, UpgradeError> {
     let target: Target = serde_json::from_str(TARGET).map_err(|_| UpgradeError::Storage)?;
     if target.manifest_sha256 != manifest_sha256()?
-        || target.catalog_sha256 != hex(&fingerprint(&target.definitions))
+        || target.catalog_sha256 != hex(fingerprint(&target.definitions))
         || target.definitions.is_empty()
     {
         return Err(reject("SITE_FINANCE_COMPILED_TARGET_CHANGED"));
@@ -76,10 +76,10 @@ pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     let mut predecessor = schema_manifest();
     predecessor.components.truncate(27);
     predecessor.catalog.query_utf8 = PREDECESSOR_CATALOG_QUERY;
-    predecessor.catalog.query_sha256 = hex(&Sha256::digest(PREDECESSOR_CATALOG_QUERY.as_bytes()));
+    predecessor.catalog.query_sha256 = hex(Sha256::digest(PREDECESSOR_CATALOG_QUERY.as_bytes()));
     let mut bytes = serde_json::to_vec(&predecessor).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
-    if hex(&Sha256::digest(bytes)) != PRE_MANIFEST {
+    if hex(Sha256::digest(bytes)) != PRE_MANIFEST {
         return Err(reject("SITE_FINANCE_COMPILED_PREDECESSOR_CHANGED"));
     }
     target()?;
@@ -140,7 +140,7 @@ pub(super) async fn data(
         ) {
             continue;
         }
-        sqlx::query(&format!("DECLARE site_finance_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(h,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) h FROM {table} t) q GROUP BY h ORDER BY h"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DECLARE site_finance_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(h,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) h FROM {table} t) q GROUP BY h ORDER BY h")))
             .execute(&mut *c).await?;
         let mut hash = Sha256::new();
         loop {
@@ -166,7 +166,7 @@ pub(super) async fn data(
         return Err(reject("SITE_FINANCE_SEQUENCE_SET_CHANGED"));
     }
     for sequence in sequences {
-        let state: String = sqlx::query_scalar(&format!("SELECT json_build_array(last_value::text,log_cnt::text,is_called)::text FROM {sequence}"))
+        let state: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT json_build_array(last_value::text,log_cnt::text,is_called)::text FROM {sequence}")))
             .fetch_one(&mut *c).await?;
         result.insert(
             format!("sequence:{sequence}"),
@@ -229,7 +229,7 @@ pub(super) async fn connected(
         tx.rollback().await?;
         return report(r, &target.catalog_sha256, "already_committed");
     }
-    if hex(&fingerprint(&definitions(&mut tx).await?)) != PRE_CATALOG || tables.len() != 171 {
+    if hex(fingerprint(&definitions(&mut tx).await?)) != PRE_CATALOG || tables.len() != 171 {
         return Err(reject("SITE_FINANCE_PREDECESSOR_CATALOG_MISMATCH"));
     }
     let recorded: Vec<u8> = sqlx::query_scalar(
@@ -259,7 +259,7 @@ pub(super) async fn connected(
     let old_permissions = permissions(&mut tx, &relations, &types).await?;
     let old_data = data(&mut tx, &tables).await?;
     sqlx::raw_sql(COMPONENTS[27].1).execute(&mut *tx).await?;
-    sqlx::query(&format!("GRANT SELECT ON core_history.finance_sources,core_history.finance_users,core_history.finance_topups,core_history.finance_native_payments TO {}",quote(&r.roles.runtime))).execute(&mut *tx).await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("GRANT SELECT ON core_history.finance_sources,core_history.finance_users,core_history.finance_topups,core_history.finance_native_payments TO {}",quote(&r.roles.runtime)))).execute(&mut *tx).await?;
     privileges(&mut tx, r).await?;
     if definitions(&mut tx).await? != target.definitions
         || permissions(&mut tx, &relations, &types).await? != old_permissions

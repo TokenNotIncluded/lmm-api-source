@@ -42,8 +42,14 @@ pub(super) struct ProviderNetwork {
     pub(super) profile_slots: Arc<Semaphore>,
     #[cfg(test)]
     local: bool,
+    #[cfg(test)]
+    test_ca: Option<reqwest::Certificate>,
 }
 
+struct ResponseBudget {
+    deadline: Instant,
+    max: usize,
+}
 impl ProviderNetwork {
     pub(super) fn new() -> Self {
         Self {
@@ -51,6 +57,27 @@ impl ProviderNetwork {
             profile_slots: Arc::new(Semaphore::new(1)),
             #[cfg(test)]
             local: false,
+            #[cfg(test)]
+            test_ca: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn trusted_ca_for_test(ca: reqwest::Certificate) -> Self {
+        let mut network = Self::new();
+        assert!(!network.local);
+        network.test_ca = Some(ca);
+        network
+    }
+
+    fn additional_root(&self) -> Option<reqwest::Certificate> {
+        #[cfg(test)]
+        {
+            self.test_ca.clone()
+        }
+        #[cfg(not(test))]
+        {
+            None
         }
     }
 
@@ -98,8 +125,15 @@ impl ProviderNetwork {
         deadline: Instant,
         max: usize,
     ) -> Result<Zeroizing<String>> {
-        self.request(Method::GET, url, authorization, None, deadline, max, false)
-            .await
+        self.request(
+            Method::GET,
+            url,
+            authorization,
+            None,
+            ResponseBudget { deadline, max },
+            false,
+        )
+        .await
     }
 
     pub(super) async fn bridge_get(
@@ -113,8 +147,10 @@ impl ProviderNetwork {
             url,
             Some(authorization),
             None,
-            deadline.min(Instant::now() + Duration::from_secs(5)),
-            65536,
+            ResponseBudget {
+                deadline: deadline.min(Instant::now() + Duration::from_secs(5)),
+                max: 65536,
+            },
             true,
         )
         .await
@@ -137,8 +173,10 @@ impl ProviderNetwork {
             url,
             authorization,
             Some(&encoded),
-            deadline,
-            1_048_576,
+            ResponseBudget {
+                deadline,
+                max: 1_048_576,
+            },
             false,
         )
         .await
@@ -150,14 +188,14 @@ impl ProviderNetwork {
         url: &Url,
         authorization: Option<&str>,
         body: Option<&str>,
-        deadline: Instant,
-        max: usize,
+        budget: ResponseBudget,
         public_http: bool,
     ) -> Result<Zeroizing<String>> {
+        let ResponseBudget { deadline, max } = budget;
         self.checked_endpoint(url.as_str(), public_http)?;
         timeout_at(deadline, async {
             let target = NetworkTarget {
-                additional_root: None,
+                additional_root: self.additional_root(),
                 local_http: self.local(),
                 allowed_origins: [honeypot_network::canonical_origin(url)].into(),
             };
@@ -221,14 +259,5 @@ impl ProviderNetwork {
         })
         .await
         .map_err(|_| IdentityError::Unauthorized)?
-    }
-
-    #[cfg(test)]
-    pub(super) fn local_for_test() -> Self {
-        Self {
-            slots: Arc::new(Semaphore::new(2)),
-            profile_slots: Arc::new(Semaphore::new(1)),
-            local: true,
-        }
     }
 }

@@ -52,7 +52,7 @@ pub fn schema_manifest() -> SchemaManifest {
             .iter()
             .map(|(name, sql)| ComponentManifest {
                 name,
-                raw_schema_sha256: format!("{:x}", Sha256::digest(sql.as_bytes())),
+                raw_schema_sha256: crate::hex_codec::encode(Sha256::digest(sql.as_bytes())),
             })
             .collect(),
         identity: IdentityManifest {
@@ -62,7 +62,7 @@ pub fn schema_manifest() -> SchemaManifest {
         installer_contract_sql_sha256: installer_contract_sha256(),
         catalog: CatalogManifest {
             query_utf8: CATALOG,
-            query_sha256: format!("{:x}", Sha256::digest(CATALOG.as_bytes())),
+            query_sha256: crate::hex_codec::encode(Sha256::digest(CATALOG.as_bytes())),
             query_hash_domain: "sha256-raw-utf8-v1",
             fingerprint_hash_domain: "sha256-u64be-byte-length-prefixed-utf8-v1",
             definition_order: "postgresql-c-collation",
@@ -87,7 +87,7 @@ mod tests {
             assert!(names.insert(item.name));
             assert_eq!(
                 item.raw_schema_sha256,
-                format!("{:x}", Sha256::digest(sql.as_bytes()))
+                crate::hex_codec::encode(Sha256::digest(sql.as_bytes()))
             );
         }
         let (version, fingerprint) = IdentityStore::compiled_schema_contract();
@@ -119,7 +119,7 @@ mod tests {
         assert!(manifest.catalog.query_utf8.ends_with('\n'));
         assert_eq!(
             manifest.catalog.query_sha256,
-            format!("{:x}", Sha256::digest(CATALOG.as_bytes()))
+            crate::hex_codec::encode(Sha256::digest(CATALOG.as_bytes()))
         );
         assert_eq!(manifest.catalog.query_hash_domain, "sha256-raw-utf8-v1");
         assert_eq!(

@@ -1,10 +1,12 @@
 //! Real personal session, PostgreSQL ledger, and counting synthetic TCP provider.
+use hmac::KeyInit as _;
 use lmm_core::{
     assistant_model::{AssistantModel, Binding, Error, PersonalTextPolicy, State},
     model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
     relay::Limits,
     routing::*,
 };
+use rand::TryRng;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::{
@@ -633,14 +635,15 @@ async fn zero_balance_user_uses_bounded_treasury_and_real_gift_ledger(pool: PgPo
     // Seed only a synthetic password credential, then use the real login path to
     // obtain current Session authority; never rewrite a credential's auth version.
     assert!(identity.authorize(&session).await.is_err());
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+    use argon2::{Argon2, PasswordHasher};
     let login = lmm_core::identity::LoginRequest {
         login_name: "native_7".into(),
         password: "synthetic onboarding login password 7".into(),
     };
-    let salt = SaltString::generate(&mut rand::rngs::OsRng);
+    let mut salt = [0u8; 16];
+    rand::rngs::SysRng.try_fill_bytes(&mut salt).unwrap();
     let hash = Argon2::default()
-        .hash_password(login.password.as_bytes(), &salt)
+        .hash_password_with_salt(login.password.as_bytes(), &salt)
         .unwrap()
         .to_string();
     sqlx::query("INSERT INTO core_identity.password_logins(login_name,user_id,password_hash) VALUES($1,7,$2)")

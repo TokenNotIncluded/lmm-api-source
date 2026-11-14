@@ -145,7 +145,7 @@ async fn restricted(pool: &PgPool) -> runtime::RuntimeRole {
     let role = runtime::RuntimeRole::create(pool).await;
     role.optional("core_charging").await;
     role.optional("core_model").await;
-    sqlx::raw_sql(&format!("GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO {0}; GRANT SELECT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), INSERT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), UPDATE(credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms) ON core_channels.catalog_observations TO {0};", role.name)).execute(pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO {0}; GRANT SELECT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), INSERT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), UPDATE(credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms) ON core_channels.catalog_observations TO {0};", role.name))).execute(pool).await.unwrap();
     let forbidden: bool = sqlx::query_scalar("SELECT has_table_privilege('core_channels.catalog_observations','UPDATE,DELETE,TRUNCATE') OR has_column_privilege('core_channels.catalog_observations','channel_id','UPDATE')").fetch_one(&role.pool).await.unwrap();
     assert!(!forbidden);
     role

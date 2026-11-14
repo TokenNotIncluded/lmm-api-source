@@ -1252,9 +1252,9 @@ async fn postgres_legacy_openai_invalid_policy_publication_is_atomic(pool: PgPoo
     ];
     let mut before = Vec::<serde_json::Value>::new();
     for table in tables {
-        before.push(sqlx::query_scalar(&format!(
+        before.push(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb) FROM {table} t"
-        )).fetch_one(&pool).await.unwrap());
+        ))).fetch_one(&pool).await.unwrap());
     }
     let mut invalid = vec![
         serde_json::json!(null),
@@ -1312,9 +1312,9 @@ async fn postgres_legacy_openai_invalid_policy_publication_is_atomic(pool: PgPoo
         );
         assert_eq!(store.load_active().await.unwrap(), active);
         for (index, table) in tables.into_iter().enumerate() {
-            let after: serde_json::Value = sqlx::query_scalar(&format!(
+            let after: serde_json::Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb) FROM {table} t"
-            )).fetch_one(&pool).await.unwrap();
+            ))).fetch_one(&pool).await.unwrap();
             assert_eq!(
                 after, before[index],
                 "partial publication in {table}: {policy:?}"
@@ -1703,9 +1703,22 @@ fn client_protocols_none_preserves_old_release_bytes_and_snapshot_retry() {
 #[test]
 fn legacy_haiku_payload_requires_anthropic_upstream_and_strict_config() {
     let policy = PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1;
-    assert_eq!(serde_json::to_value(policy).unwrap(), serde_json::json!("legacy_anthropic_haiku_system_cache_v1"));
-    assert!(serde_json::from_str::<PayloadPolicy>(r#"{"legacy_anthropic_haiku_system_cache_v1":{"extra":true}}"#).is_err());
-    for protocol in [Protocol::OpenAiChat, Protocol::OpenAiResponses, Protocol::Gemini, Protocol::AnthropicMessages] {
+    assert_eq!(
+        serde_json::to_value(policy).unwrap(),
+        serde_json::json!("legacy_anthropic_haiku_system_cache_v1")
+    );
+    assert!(
+        serde_json::from_str::<PayloadPolicy>(
+            r#"{"legacy_anthropic_haiku_system_cache_v1":{"extra":true}}"#
+        )
+        .is_err()
+    );
+    for protocol in [
+        Protocol::OpenAiChat,
+        Protocol::OpenAiResponses,
+        Protocol::Gemini,
+        Protocol::AnthropicMessages,
+    ] {
         let (mut config, prices) = fixture(1);
         config.routes[0].targets[0].payload = policy;
         config.upstreams[0].protocol = protocol;

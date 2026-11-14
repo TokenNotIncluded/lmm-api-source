@@ -5,6 +5,7 @@ const PRE_MANIFEST: &str = "7e69eafaa516a67dfc1b719ae2f5a950a90596f912f47d187422
 const PRE_CATALOG: &str = "c1b305360f39946be511368c8aba21635158dc767ca65eaab380784673a5d9a6";
 const TARGET: &str = include_str!("navigation_options_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::NAVIGATION_OPTIONS,
     procedure: PROCEDURE,
     predecessor_count: 46,
     target_count: 47,

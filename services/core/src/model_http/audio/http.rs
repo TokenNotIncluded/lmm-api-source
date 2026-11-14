@@ -8,6 +8,7 @@ use crate::{
     },
     routing::{PayloadPolicy, Protocol, ReplayPermission, RouteRequest},
 };
+use rand::Rng as _;
 use serde::Deserialize;
 use serde_json::{Value, value::RawValue};
 use tokio::sync::OwnedSemaphorePermit;
@@ -449,28 +450,18 @@ async fn execute(
     fingerprint.update(request.wire(&request.model)?);
     let fingerprint: [u8; 32] = fingerprint.finalize().into();
     let mut worker = [0; 32];
-    OsRng.fill_bytes(&mut worker);
-    let route_id = format!(
-        "r{}-t{}-u{}",
-        attempt.route_id(),
-        attempt.target_id(),
-        attempt.upstream_id()
-    );
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
+    let route_id = attempt.route_key();
     let wire_sha = charging::contract::digest(&wire);
     let prepared = charging::contract::PreparedReservation::audio_chat(
-        charging::contract::hex_digest(&fingerprint),
-        charging::contract::ReservationBinding {
-            route_id: route_id.clone(),
-            target_id: attempt.target_id(),
-            upstream_id: attempt.upstream_id(),
-            protocol: "audio_chat".into(),
-            model_snapshot: attempt.upstream_model().into(),
-            generation_url: upstream_request.url().as_str().into(),
-            credential_ref: attempt.credential_ref(),
-            payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
-                .map_err(billing::error)?,
-            provider_contract_revision: audio_price.provider_contract_revision.clone(),
-            projection_revision: if request.stream == Some(true) {
+        charging::contract::hex_digest(fingerprint),
+        charging::contract::ReservationBinding::for_attempt(
+            &attempt,
+            "audio_chat".into(),
+            attempt.upstream_model().into(),
+            upstream_request.url().as_str().into(),
+            audio_price.provider_contract_revision.clone(),
+            if request.stream == Some(true) {
                 if audio_price.usage_format == AudioUsageFormat::OpenAiChatV2 {
                     "audio-chat-stream-raw-v2-no-other-modalities"
                 } else {
@@ -484,8 +475,9 @@ async fn execute(
                 }
             }
             .into(),
-            quote_version: attempt.quote().version(),
-        },
+            attempt.quote().version(),
+        )
+        .map_err(billing::error)?,
         wire_sha.clone(),
         audio_price.bounds,
     )
@@ -580,17 +572,17 @@ async fn execute(
             return Err(RelayError::SettlementPending);
         }
         if request.stream == Some(true) {
-            return stream::launch(
-                gateway.clone(),
-                id.clone(),
+            return stream::launch(stream::StreamStart {
+                gateway: gateway.clone(),
+                id: id.clone(),
                 worker,
-                charge.price.clone(),
-                attempt.upstream_model().into(),
-                credential.to_string(),
+                price: charge.price.clone(),
+                model: attempt.upstream_model().into(),
+                secret: credential.to_string(),
                 connection,
                 upstream,
-                _permit,
-            );
+                permit: _permit,
+            });
         }
         let raw = tokio::time::timeout(
             gateway.limits.total_timeout,

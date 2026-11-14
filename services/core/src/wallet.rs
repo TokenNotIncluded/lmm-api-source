@@ -8,7 +8,8 @@ use crate::{
     },
     identity::{self, BrowserAuth, CredentialKind},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
@@ -137,9 +138,9 @@ impl Store {
         {
             return Err(Error::Conflict);
         }
-        let out = sqlx::query_as::<_, Transfer>(&format!(
+        let out = sqlx::query_as::<_, Transfer>(sqlx::AssertSqlSafe(format!(
             "SELECT {VIEW} FROM core_wallet.transfers WHERE owner_user=$1 AND request_key=$2"
-        ))
+        )))
         .bind(a.user_id)
         .bind(key)
         .fetch_one(&mut *tx)
@@ -155,9 +156,9 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, session).await?;
-        let out = sqlx::query_as::<_, Transfer>(&format!(
+        let out = sqlx::query_as::<_, Transfer>(sqlx::AssertSqlSafe(format!(
             "SELECT {VIEW} FROM core_wallet.transfers WHERE owner_user=$1 AND request_key=$2"
-        ))
+        )))
         .bind(a.user_id)
         .bind(key)
         .fetch_optional(&mut *tx)
@@ -172,7 +173,7 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, session).await?;
-        let rows=sqlx::query_as::<_,Transfer>(&format!("SELECT * FROM (SELECT {VIEW} FROM core_wallet.transfers WHERE owner_user=$1 UNION ALL SELECT id,'legacy-history-'||id::text AS request_key,amount AS amount_credits,state,created_at,created_at AS confirmed_at,finished_at FROM core_wallet.legacy_transfer_history WHERE owner_user=$1) history WHERE ($2=0 OR id<$2) ORDER BY id DESC LIMIT 50")).bind(a.user_id).bind(before).fetch_all(&mut *tx).await?;
+        let rows=sqlx::query_as::<_,Transfer>(sqlx::AssertSqlSafe(format!("SELECT * FROM (SELECT {VIEW} FROM core_wallet.transfers WHERE owner_user=$1 UNION ALL SELECT id,'legacy-history-'||id::text AS request_key,amount AS amount_credits,state,created_at,created_at AS confirmed_at,finished_at FROM core_wallet.legacy_transfer_history WHERE owner_user=$1) history WHERE ($2=0 OR id<$2) ORDER BY id DESC LIMIT 50"))).bind(a.user_id).bind(before).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(rows)
     }
@@ -246,7 +247,7 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, session).await?;
-        let out=sqlx::query_as::<_,Transfer>(&format!("SELECT {VIEW} FROM core_wallet.transfers WHERE id=$1 AND owner_user=$2 AND state IN ('pending','cancelled')")).bind(id).bind(a.user_id).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
+        let out=sqlx::query_as::<_,Transfer>(sqlx::AssertSqlSafe(format!("SELECT {VIEW} FROM core_wallet.transfers WHERE id=$1 AND owner_user=$2 AND state IN ('pending','cancelled')"))).bind(id).bind(a.user_id).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
         tx.commit().await?;
         Ok(out)
     }
@@ -262,7 +263,7 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         let a = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await?;
-        let out=sqlx::query_as::<_,Transfer>(&format!("SELECT {VIEW} FROM core_wallet.transfers WHERE id=$1 AND owner_user=$2 AND state=$3 FOR UPDATE")).bind(id).bind(a.user).bind(if kind=="create"{"awaiting_confirmation"}else{"pending"}).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let out=sqlx::query_as::<_,Transfer>(sqlx::AssertSqlSafe(format!("SELECT {VIEW} FROM core_wallet.transfers WHERE id=$1 AND owner_user=$2 AND state=$3 FOR UPDATE"))).bind(id).bind(a.user).bind(if kind=="create"{"awaiting_confirmation"}else{"pending"}).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         let csrf = random()?;
         sqlx::query("UPDATE core_wallet.transfers SET confirmation_digest=$2,confirmation_sid=$3,confirmation_kind=$4,confirmation_expires=extract(epoch FROM clock_timestamp())::bigint+600 WHERE id=$1").bind(id).bind(hash(&csrf)).bind(a.sid).bind(kind).execute(&mut *tx).await?;
         tx.commit().await?;
@@ -328,9 +329,9 @@ impl Store {
         } else if state != "pending" {
             return Err(Error::Conflict);
         }
-        let out = sqlx::query_as::<_, Transfer>(&format!(
+        let out = sqlx::query_as::<_, Transfer>(sqlx::AssertSqlSafe(format!(
             "SELECT {VIEW} FROM core_wallet.transfers WHERE id=$1"
-        ))
+        )))
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
@@ -371,7 +372,7 @@ fn valid_token(s: &str) -> bool {
 }
 fn random() -> Result<String, Error> {
     let mut b = [0u8; 32];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut b)
         .map_err(|_| Error::Unavailable)?;
     Ok(crate::hex_codec::encode(b))

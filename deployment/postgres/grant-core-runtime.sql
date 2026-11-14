@@ -196,6 +196,11 @@ GRANT SELECT ON core_billing.ledger_accounts, core_billing.balance_state,
     core_billing.legacy_escrow_state, core_billing.legacy_escrow_operations,
     core_billing.legacy_pending_liabilities,
     core_billing.legacy_pending_liability_receipts TO :"runtime_role";
+-- Identity mounts read-only usage projections even when model execution is off.
+-- Receipt validation needs all four evidence tables; this grants no charging writes.
+GRANT USAGE ON SCHEMA core_charging TO :"runtime_role";
+GRANT SELECT ON core_charging.requests, core_charging.usage_events,
+    core_charging.ledger_commands, core_charging.refunds TO :"runtime_role";
 -- Imported administrator approval remains owner-only. Runtime reads frozen
 -- facts for guarded identity changes and the complete permission snapshot.
 -- Approval receipts and the migration registry are not runtime inputs.
@@ -506,6 +511,11 @@ GRANT USAGE ON SCHEMA core_model TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION
     core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean),
     core_model.completed_streams_after(integer,text) TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION
+ core_model.resolve_continuation(text,text),
+ core_model.record_continuation(text,bytea,text,text,text,bytea,bigint),
+ core_model.activate_continuation(text),
+ core_model.activate_continuations_after(integer,text) TO :"runtime_role";
 \endif
 
 \if :enable_images

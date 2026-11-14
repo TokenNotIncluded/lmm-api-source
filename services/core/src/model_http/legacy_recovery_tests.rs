@@ -15,7 +15,8 @@ fn legacy_gateway(f: &Fixture) -> ModelGateway {
         "operator_max_billable": 100000
     }))
     .unwrap();
-    let g = ModelGateway::new_with_provider_policy(
+
+    ModelGateway::new_with_provider_policy(
         f.pool.clone(),
         Arc::new(
             routing::Router::new(
@@ -35,8 +36,7 @@ fn legacy_gateway(f: &Fixture) -> ModelGateway {
     )
     .unwrap()
     .with_legacy_precharge(vec![source])
-    .unwrap();
-    g
+    .unwrap()
 }
 
 #[sqlx::test(migrations = false)]
@@ -126,6 +126,7 @@ async fn legacy_sse_recovery_prioritizes_terminal_and_promotes_crash_window(pool
         restarted
             .reconcile_completed_streams_page(20, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         2
@@ -149,6 +150,7 @@ async fn legacy_sse_recovery_prioritizes_terminal_and_promotes_crash_window(pool
         restarted
             .reconcile_completed_streams_page(20, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         0
@@ -286,6 +288,7 @@ async fn legacy_expression_gateway_and_sse_recovery_confirm_source_float_amount(
         restarted
             .reconcile_completed_streams_page(20, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         1
@@ -310,6 +313,7 @@ async fn legacy_expression_gateway_and_sse_recovery_confirm_source_float_amount(
         restarted
             .reconcile_completed_streams_page(20, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         0
@@ -371,8 +375,7 @@ async fn legacy_expression_http_charges_source_float_counterexample(pool: PgPool
     server.abort();
 }
 
-#[path = "../../tests/common/runtime.rs"]
-mod restricted_runtime;
+use crate::test_runtime as restricted_runtime;
 
 #[sqlx::test(migrations = false)]
 async fn legacy_gateway_recovery_runs_with_execute_only_checkpoint_access(pool: PgPool) {
@@ -413,6 +416,7 @@ async fn legacy_gateway_recovery_runs_with_execute_only_checkpoint_access(pool: 
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         0
@@ -493,6 +497,7 @@ async fn legacy_gateway_recovery_runs_with_execute_only_checkpoint_access(pool: 
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         2
@@ -502,6 +507,7 @@ async fn legacy_gateway_recovery_runs_with_execute_only_checkpoint_access(pool: 
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap()
             .0,
         0

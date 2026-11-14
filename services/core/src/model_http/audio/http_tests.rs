@@ -120,10 +120,10 @@ impl Supplier {
                     tokio::sync::mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(1);
                 tokio::spawn(async move {
                     for (i, frame) in frames.into_iter().enumerate() {
-                        if i == 1 {
-                            if let Some(pause) = &state.pause {
-                                pause.notified().await;
-                            }
+                        if i == 1
+                            && let Some(pause) = &state.pause
+                        {
+                            pause.notified().await;
                         }
                         if tx.send(Ok(Bytes::from(frame))).await.is_err() {
                             break;
@@ -452,7 +452,7 @@ async fn recovery_with_format(pool: PgPool, format: AudioUsageFormat) {
     let fingerprint = [8; 32];
     let wire_hash = "07".repeat(32);
     let prepared = charging::contract::PreparedReservation::audio_chat(
-        charging::contract::hex_digest(&fingerprint),
+        charging::contract::hex_digest(fingerprint),
         charging::contract::ReservationBinding {
             route_id: "r1-t1-u1".into(),
             target_id: 1,

@@ -16,7 +16,10 @@ async fn fixture(pool: &PgPool) -> (BountyStore, String, String, String, i64, i6
         .await
         .unwrap();
     if !exists {
-        sqlx::raw_sql(bounties::SCHEMA).execute(pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(bounties::SCHEMA))
+            .execute(pool)
+            .await
+            .unwrap();
     }
     let ids = IdentityStore::from_pool(pool.clone());
     let owner = ids.bootstrap_user(7, 1).await.unwrap().secret;
@@ -639,7 +642,7 @@ async fn public_fee_config_reports_exact_policy_or_disabled_without_invented_def
         .await
         .unwrap();
     if !exists {
-        sqlx::raw_sql(bounties::SCHEMA)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(bounties::SCHEMA))
             .execute(&pool)
             .await
             .unwrap();
@@ -686,8 +689,8 @@ async fn initial_project_insert_cannot_freeze_another_payers_reservation(pool: P
     body["payer"] = payer.into();
     body["publication_operation"] = c.operation_id.clone().into();
     body["consumption"] = format!(
-        "bounty:{:x}",
-        Sha256::digest(serde_json::to_vec(&c.operation_id).unwrap())
+        "bounty:{}",
+        hex_codec::encode(Sha256::digest(serde_json::to_vec(&c.operation_id).unwrap()))
     )
     .into();
     let before = financial_snapshot(&pool).await;
@@ -740,3 +743,6 @@ async fn confirmation_http_override_accepts_only_explicit_canonical_numeric_loop
     }
     assert!(confirm_router(s, "https://bounty.invalid".into()).is_ok());
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

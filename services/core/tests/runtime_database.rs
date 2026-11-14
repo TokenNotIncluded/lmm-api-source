@@ -17,6 +17,44 @@ use tower::ServiceExt;
 mod runtime;
 
 #[sqlx::test(migrations = false)]
+async fn identity_usage_reads_require_complete_evidence_without_charging_writes(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    let required = RequiredCapabilities::default();
+    runtime_database::check(&role.pool, required).await.unwrap();
+    for table in ["requests", "usage_events", "ledger_commands", "refunds"] {
+        let writable: bool = sqlx::query_scalar(
+            "SELECT has_table_privilege('core_charging.' || $1, 'INSERT,UPDATE,DELETE') OR has_any_column_privilege('core_charging.' || $1, 'INSERT,UPDATE')",
+        ).bind(table).fetch_one(&role.pool).await.unwrap();
+        assert!(
+            !writable,
+            "usage reader gained charging write authority on {table}"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE SELECT ON core_charging.{table} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges),
+            "startup accepted missing usage evidence {table}"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT SELECT ON core_charging.{table} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        runtime_database::check(&role.pool, required).await.unwrap();
+    }
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
@@ -24,24 +62,24 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
         community: true,
         ..RequiredCapabilities::default()
     };
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA core_charging,core_payments,core_migration TO {0}; GRANT SELECT ON core_charging.requests, core_payments.intents, core_payments.receipts, core_payments.accepted_proofs, core_payments.provider_events, core_payments.provider_refunds TO {0}; GRANT SELECT(source_archive_sha256,manifest) ON core_migration.import_runs TO {0}; GRANT USAGE ON SCHEMA core_oauth,core_market_oauth TO {0}; GRANT SELECT(user_id,created_at,issuance_kind) ON core_oauth.families TO {0}; GRANT SELECT(user_id,created_at) ON core_market_oauth.families TO {0}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT(document,mapping,native_credential_floor,snapshot_observed_at,target_database,target_database_oid,target_nonce) ON core_history.connection_snapshot TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT(key,value) ON core_console.options TO {0}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -54,24 +92,10 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
         "core_payments.provider_events",
         "core_payments.provider_refunds",
     ] {
-        sqlx::query(&format!("REVOKE SELECT ON {table} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
-        assert_eq!(
-            runtime_database::check(&role.pool, required).await,
-            Err(Error::MissingPrivileges)
-        );
-        sqlx::query(&format!("GRANT SELECT ON {table} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
-    for column in ["source_archive_sha256", "manifest"] {
-        sqlx::query(&format!(
-            "REVOKE SELECT({column}) ON core_migration.import_runs FROM {}",
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE SELECT ON {table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -79,10 +103,30 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
             runtime_database::check(&role.pool, required).await,
             Err(Error::MissingPrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT SELECT ON {table} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for column in ["source_archive_sha256", "manifest"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE SELECT({column}) ON core_migration.import_runs FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT({column}) ON core_migration.import_runs TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -105,18 +149,18 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
         ("core_market_oauth.families", "created_at"),
     ] {
         assert!(
-            !sqlx::query_scalar::<_, bool>(&format!(
+            !sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(format!(
                 "SELECT has_table_privilege('{}','INSERT,UPDATE,DELETE')",
                 relation
-            ))
+            )))
             .fetch_one(&role.pool)
             .await
             .unwrap()
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT({column}) ON {relation} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -124,10 +168,10 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
             runtime_database::check(&role.pool, required).await,
             Err(Error::MissingPrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT({column}) ON {relation} TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -148,15 +192,17 @@ async fn historical_reads_need_exact_readonly_runtime_authority(pool: PgPool) {
         "quota_aggregates",
         "legacy_passkey_handles",
     ] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core_history.{table}"))
-            .fetch_one(&role.pool)
-            .await
-            .unwrap();
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM core_history.{table}"
+        )))
+        .fetch_one(&role.pool)
+        .await
+        .unwrap();
         assert_eq!(count, 0);
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON core_history.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -164,10 +210,10 @@ async fn historical_reads_need_exact_readonly_runtime_authority(pool: PgPool) {
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::MissingPrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON core_history.{table} TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -190,7 +236,7 @@ async fn historical_reads_need_exact_readonly_runtime_authority(pool: PgPool) {
             "REVOKE USAGE ON SEQUENCE core_history.sources_source_id_seq",
         ),
     ] {
-        sqlx::query(&format!("{grant} TO {}", role.name))
+        sqlx::query(sqlx::AssertSqlSafe(format!("{grant} TO {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -199,7 +245,7 @@ async fn historical_reads_need_exact_readonly_runtime_authority(pool: PgPool) {
             Err(Error::UnsafePrivileges),
             "{grant}"
         );
-        sqlx::query(&format!("{revoke} FROM {}", role.name))
+        sqlx::query(sqlx::AssertSqlSafe(format!("{revoke} FROM {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -238,15 +284,15 @@ async fn imported_admin_authority_reads_are_required_and_writes_are_forbidden(po
         // Exercise actual SQL authority as well as the startup check. The role
         // needs these reads even when this fixture has no imported admins.
         let read = format!("SELECT count(*) FROM core_identity.{table}");
-        let count: i64 = sqlx::query_scalar(&read)
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&read))
             .fetch_one(&role.pool)
             .await
             .unwrap();
         assert_eq!(count, 0);
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON core_identity.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -255,7 +301,7 @@ async fn imported_admin_authority_reads_are_required_and_writes_are_forbidden(po
             Err(Error::MissingPrivileges),
             "missing imported-admin read accepted: {table}"
         );
-        let denied = sqlx::query_scalar::<_, i64>(&read)
+        let denied = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe::<&str>(&read))
             .fetch_one(&role.pool)
             .await
             .unwrap_err();
@@ -266,10 +312,10 @@ async fn imported_admin_authority_reads_are_required_and_writes_are_forbidden(po
                 .as_deref(),
             Some("42501")
         );
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON core_identity.{table} TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -302,7 +348,7 @@ async fn imported_admin_authority_reads_are_required_and_writes_are_forbidden(po
             format!("UPDATE core_identity.{table} SET user_id=DEFAULT WHERE FALSE"),
             format!("DELETE FROM core_identity.{table} WHERE FALSE"),
         ] {
-            let denied = sqlx::query(&statement)
+            let denied = sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
                 .execute(&role.pool)
                 .await
                 .unwrap_err();
@@ -317,10 +363,10 @@ async fn imported_admin_authority_reads_are_required_and_writes_are_forbidden(po
         }
         // A column grant can bypass a table-grant-only audit, so verify the
         // real checker rejects this extra authority even with empty tables.
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT UPDATE(user_id) ON core_identity.{table} TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -329,10 +375,10 @@ async fn imported_admin_authority_reads_are_required_and_writes_are_forbidden(po
             Err(Error::UnsafePrivileges),
             "offline authority column write accepted: {table}"
         );
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE UPDATE(user_id) ON core_identity.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -539,10 +585,10 @@ async fn web_catalogue_fallback_requires_only_three_readonly_projections(pool: P
         .await
         .unwrap();
     for table in ["routing_active_release", "routing_groups", "routing_routes"] {
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON public.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -586,26 +632,35 @@ async fn web_catalogue_fallback_requires_only_three_readonly_projections(pool: P
                     .unwrap();
             assert_eq!(keys, 0, "failed validation must not create a key");
         }
-        sqlx::raw_sql(&format!("GRANT SELECT ON public.{table} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT SELECT ON public.{table} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         runtime_database::check(&role.pool, requirements)
             .await
             .unwrap();
     }
-    sqlx::raw_sql(&format!("REVOKE USAGE ON SCHEMA public FROM {}", role.name))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "REVOKE USAGE ON SCHEMA public FROM {}",
+        role.name
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         runtime_database::check(&role.pool, requirements).await,
         Err(Error::MissingPrivileges)
     );
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA public TO {}", role.name))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "GRANT USAGE ON SCHEMA public TO {}",
+        role.name
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     runtime_database::check(&role.pool, requirements)
         .await
         .unwrap();
@@ -629,18 +684,24 @@ async fn web_catalogue_fallback_requires_only_three_readonly_projections(pool: P
         "UPDATE ON public.routing_routes",
         "UPDATE(enabled) ON public.routing_routes",
     ] {
-        sqlx::raw_sql(&format!("GRANT {privilege} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {privilege} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, requirements).await,
             Err(Error::UnsafePrivileges)
         );
-        sqlx::raw_sql(&format!("REVOKE {privilege} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {privilege} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         runtime_database::check(&role.pool, requirements)
             .await
             .unwrap();
@@ -736,7 +797,7 @@ async fn runtime_rejects_superuser_owner_and_direct_or_column_ledger_writes(pool
             "REVOKE CREATE ON SCHEMA public FROM",
         ),
     ] {
-        sqlx::raw_sql(&format!("{grant} {}", role.name))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{grant} {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -744,7 +805,7 @@ async fn runtime_rejects_superuser_owner_and_direct_or_column_ledger_writes(pool
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::UnsafePrivileges)
         );
-        sqlx::raw_sql(&format!("{revoke} {}", role.name))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{revoke} {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -761,9 +822,9 @@ async fn runtime_rejects_set_role_inherited_owner_and_admin_paths(pool: PgPool) 
     let role = runtime::RuntimeRole::create(&pool).await;
     let owner = format!("lmm_test_owner_{:016x}", rand::random::<u64>());
     let schema = format!("lmm_test_owned_{:016x}", rand::random::<u64>());
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE ROLE {owner} NOLOGIN; CREATE SCHEMA {schema} AUTHORIZATION {owner}"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -775,23 +836,31 @@ async fn runtime_rejects_set_role_inherited_owner_and_admin_paths(pool: PgPool) 
         "WITH INHERIT TRUE, SET FALSE",
         "WITH INHERIT FALSE, SET FALSE, ADMIN TRUE",
     ] {
-        sqlx::raw_sql(&format!("GRANT {owner} TO {} {options}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {owner} TO {} {options}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::UnsafePrivileges)
         );
-        sqlx::raw_sql(&format!("REVOKE {owner} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
-    sqlx::raw_sql(&format!("DROP SCHEMA {schema}; DROP ROLE {owner}"))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {owner} FROM {}",
+            role.name
+        )))
         .execute(&pool)
         .await
         .unwrap();
+    }
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP SCHEMA {schema}; DROP ROLE {owner}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     role.cleanup().await;
 }
 
@@ -813,19 +882,25 @@ async fn partial_refund_runtime_requires_receipts_counters_and_closed_money_port
         "UPDATE(revision) ON core_commerce.refund_totals",
         "EXECUTE ON FUNCTION core_commerce.post_refund_delta(bigint,text,jsonb,bigint,bigint,boolean)",
     ] {
-        sqlx::raw_sql(&format!("REVOKE {permission} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {permission} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, required).await,
             Err(Error::MissingPrivileges),
             "missing partial refund permission: {permission}"
         );
-        sqlx::raw_sql(&format!("GRANT {permission} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {permission} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     runtime_database::check(&role.pool, required).await.unwrap();
     role.cleanup().await;
@@ -835,10 +910,10 @@ async fn partial_refund_runtime_requires_receipts_counters_and_closed_money_port
 async fn missing_ledger_execute_is_rejected_and_check_never_changes_grants(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -861,7 +936,7 @@ async fn noinherit_set_role_cannot_hide_a_nonowner_groups_ledger_authority(pool:
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
     let group = format!("lmm_test_writer_{:016x}", rand::random::<u64>());
-    sqlx::raw_sql(&format!("CREATE ROLE {group} NOLOGIN; GRANT UPDATE ON core_billing.balance_state TO {group}; GRANT {group} TO {} WITH INHERIT FALSE, SET TRUE",role.name))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {group} NOLOGIN; GRANT UPDATE ON core_billing.balance_state TO {group}; GRANT {group} TO {} WITH INHERIT FALSE, SET TRUE",role.name)))
         .execute(&pool).await.unwrap();
     let directly_allowed: bool =
         sqlx::query_scalar("SELECT has_table_privilege('core_billing.balance_state','UPDATE')")
@@ -876,10 +951,10 @@ async fn noinherit_set_role_cannot_hide_a_nonowner_groups_ledger_authority(pool:
         runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
         Err(Error::UnsafePrivileges)
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE {group} FROM {}; DROP OWNED BY {group}; DROP ROLE {group}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -992,19 +1067,25 @@ async fn new_evidence_and_import_tables_reject_table_and_column_write_grants(poo
             "EXECUTE ON FUNCTION core_billing.import_account_opening_counters(jsonb)",
         ),
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::UnsafePrivileges),
             "unexpected grant accepted: {grant}"
         );
-        sqlx::raw_sql(&format!("REVOKE {revoke} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {revoke} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         runtime_database::check(&role.pool, RequiredCapabilities::default())
             .await
             .unwrap();
@@ -1101,7 +1182,7 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
             "REVOKE DELETE ON core_image.operations",
         ),
     ] {
-        sqlx::query(&format!("{grant} TO {}", role.name))
+        sqlx::query(sqlx::AssertSqlSafe(format!("{grant} TO {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -1110,7 +1191,7 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
             Err(Error::UnsafePrivileges),
             "{grant}"
         );
-        sqlx::query(&format!("{revoke} FROM {}", role.name))
+        sqlx::query(sqlx::AssertSqlSafe(format!("{revoke} FROM {}", role.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -1129,17 +1210,17 @@ async fn image_authority_requires_explicit_grants_and_preserves_immutable_facts(
     ] {
         // The suffix's pure validators inherit PUBLIC EXECUTE. Remove that
         // fallback only in this disposable database to test the direct grant.
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE EXECUTE ON FUNCTION core_image.{function} FROM PUBLIC"
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
         runtime_database::check(&role.pool, images).await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE EXECUTE ON FUNCTION core_image.{function} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -1166,15 +1247,17 @@ async fn ledger_revision_metadata_is_readonly_runtime_evidence(pool: PgPool) {
             .await
             .unwrap();
         assert_eq!(
-            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM core_meta.{table}"))
-                .fetch_one(&role.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM core_meta.{table}"
+            )))
+            .fetch_one(&role.pool)
+            .await
+            .unwrap(),
             0
         );
-        let denied = sqlx::query(&format!(
+        let denied = sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_meta.{table} SET {column}={column} WHERE false"
-        ))
+        )))
         .execute(&role.pool)
         .await
         .unwrap_err();
@@ -1182,10 +1265,10 @@ async fn ledger_revision_metadata_is_readonly_runtime_evidence(pool: PgPool) {
             denied.as_database_error().unwrap().code().as_deref(),
             Some("42501")
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON core_meta.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -1193,10 +1276,10 @@ async fn ledger_revision_metadata_is_readonly_runtime_evidence(pool: PgPool) {
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::MissingPrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT,UPDATE({column}) ON core_meta.{table} TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -1204,10 +1287,10 @@ async fn ledger_revision_metadata_is_readonly_runtime_evidence(pool: PgPool) {
             runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
             Err(Error::UnsafePrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE UPDATE({column}) ON core_meta.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();

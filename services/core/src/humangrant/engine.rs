@@ -5,7 +5,7 @@ use super::store::{HumanGrantStore, HumanGrantTx};
 use super::types::*;
 use axum::http::HeaderMap;
 use base64::prelude::*;
-use rand::RngCore;
+use rand::Rng;
 use subtle::ConstantTimeEq;
 
 pub struct HumanGrantEngine {
@@ -27,7 +27,7 @@ impl HumanGrantEngine {
 
     pub fn random_bytes(len: usize) -> Vec<u8> {
         let mut buf = vec![0u8; len];
-        rand::thread_rng().fill_bytes(&mut buf);
+        rand::rng().fill_bytes(&mut buf);
         buf
     }
 

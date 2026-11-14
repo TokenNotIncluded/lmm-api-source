@@ -415,6 +415,15 @@ pub(super) async fn normalize(
         return next.run(request).await;
     };
     let (mut parts, body) = request.into_parts();
+    let protocols = if parts
+        .extensions
+        .get::<super::responses_websocket::BrowserProtocols>()
+        .is_some()
+    {
+        parts.headers.remove("sec-websocket-protocol")
+    } else {
+        None
+    };
     if let Err(error) = aliases.normalize(parts.uri.path(), parts.uri.query(), &mut parts.headers) {
         return if parts.uri.path() == "/v1/messages" {
             native::error_response(ClientProtocol::Anthropic, error)
@@ -423,6 +432,9 @@ pub(super) async fn normalize(
         } else {
             public_error(error)
         };
+    }
+    if let Some(protocols) = protocols {
+        parts.headers.insert("sec-websocket-protocol", protocols);
     }
     next.run(Request::from_parts(parts, body)).await
 }
@@ -434,7 +446,7 @@ mod tests {
 
     const KEY: &str = "LegacySyntheticPrivateKey0123456789012345";
     fn encoded(value: &[u8]) -> String {
-        format!("{:x}", Sha256::digest(value))
+        crate::hex_codec::encode(Sha256::digest(value))
     }
     fn fixture_with_key(key: &str) -> (serde_json::Value, Vec<u8>) {
         let receipt = serde_json::to_vec(&json!({"scope":"a02-credential-mapping-receipt",

@@ -234,13 +234,13 @@ async fn fixture(pool: &PgPool, budget: i64) -> Fixture {
         .id;
     let role = runtime::RuntimeRole::create(pool).await;
     role.optional("core_tool_market").await;
-    sqlx::raw_sql(&format!(r#"
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(r#"
  GRANT USAGE ON SCHEMA core_market_oauth TO {0};
  GRANT SELECT,INSERT ON core_market_oauth.clients,core_market_oauth.requests,core_market_oauth.families,core_market_oauth.codes,core_market_oauth.tokens TO {0};
  GRANT UPDATE(revoked_at) ON core_market_oauth.clients,core_market_oauth.families TO {0};
  GRANT UPDATE(consumed_at) ON core_market_oauth.requests,core_market_oauth.codes,core_market_oauth.tokens TO {0};
  GRANT EXECUTE ON FUNCTION core_market_oauth.scope_set(text[]) TO {0};
- "#,role.name)).execute(pool).await.unwrap();
+ "#,role.name))).execute(pool).await.unwrap();
     lmm_core::runtime_database::check(
         &role.pool,
         lmm_core::runtime_database::RequiredCapabilities {

@@ -8,7 +8,7 @@ use lmm_core::{
     payments::{self, Channel, CreditQuotePolicy, PaymentsStore, discounts},
 };
 use rand::{SeedableRng, rngs::StdRng};
-use rsa::{Pkcs1v15Sign, RsaPrivateKey, pkcs8::EncodePublicKey};
+use rsa::{Pkcs1v15Sign, PrivateKey, pkcs8::EncodePublicKey};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -59,7 +59,7 @@ async fn payment_discount_admin_browser(pool: PgPool) {
     let actor = identity.authorize(&issued.secret).await.unwrap();
     assert!(matches!(actor.credential_kind, CredentialKind::Session));
     assert_eq!((actor.user_id, actor.platform_level), (1099, 6));
-    let key = RsaPrivateKey::new(&mut StdRng::seed_from_u64(43), 2048).unwrap();
+    let key = PrivateKey::new(&mut StdRng::seed_from_u64(43), 2048).unwrap();
     let mut channel = Channel::pancake_isolated_test(
         1,
         MERCHANT.into(),

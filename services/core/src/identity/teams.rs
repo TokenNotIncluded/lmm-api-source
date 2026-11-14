@@ -149,11 +149,13 @@ impl IdentityStore {
         {
             return Err(IdentityError::Forbidden);
         }
-        let inviter_row = sqlx::query(&format!("{AUTH} AND c.id=$1 FOR SHARE OF c,u,pa,own"))
-            .bind(invite.try_get::<i64, _>("inviter_credential_id")?)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(IdentityError::Forbidden)?;
+        let inviter_row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "{AUTH} AND c.id=$1 FOR SHARE OF c,u,pa,own"
+        )))
+        .bind(invite.try_get::<i64, _>("inviter_credential_id")?)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(IdentityError::Forbidden)?;
         let inviter = principal(&mut tx, inviter_row).await?;
         if inviter.credential_kind != CredentialKind::Session {
             return Err(IdentityError::Forbidden);

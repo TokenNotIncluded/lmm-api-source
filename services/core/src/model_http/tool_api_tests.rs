@@ -348,11 +348,12 @@ async fn tool_api_pg_success_empty_errors_and_native_usage_projection(pool: PgPo
             StatusCode::CONFLICT
         );
         assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
-        let seen = supplier.state.seen.lock().unwrap();
-        assert_eq!(seen[0].0, format!("/v1/{}", kind.endpoint()));
-        assert!(seen[0].1.get("price").is_none());
-        assert!(seen[0].1.get("model").is_none());
-        drop(seen);
+        {
+            let seen = supplier.state.seen.lock().unwrap();
+            assert_eq!(seen[0].0, format!("/v1/{}", kind.endpoint()));
+            assert!(seen[0].1.get("price").is_none());
+            assert!(seen[0].1.get("model").is_none());
+        }
 
         let logs = usage(
             &role.pool,
@@ -575,10 +576,10 @@ async fn tool_api_pg_durable_receipt_recovers_once_at_original_price(pool: PgPoo
         tokio::time::timeout(Duration::from_secs(3), entered.notified())
             .await
             .unwrap();
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) FROM {}",
             role.name
-        ))
+        )))
         .execute(&f.pool)
         .await
         .unwrap();
@@ -601,10 +602,10 @@ async fn tool_api_pg_durable_receipt_recovers_once_at_original_price(pool: PgPoo
             (successful, http_status)
         );
         drop(initial);
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) TO {}",
             role.name
-        ))
+        )))
         .execute(&f.pool)
         .await
         .unwrap();

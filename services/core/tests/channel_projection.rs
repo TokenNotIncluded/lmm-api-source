@@ -250,7 +250,7 @@ fn amounts(data: &Value, n: u64) {
     assert_eq!(data["credits_per_usd"], "500000");
     assert_eq!(data["historical_coverage"], false);
 }
-async fn mutate(pool: &PgPool, sql: &str, id: &str) {
+async fn mutate(pool: &PgPool, sql: &'static str, id: &str) {
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
@@ -702,3 +702,6 @@ async fn channel_projection_acceptance() {
     f.server.abort();
     f.role.cleanup().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

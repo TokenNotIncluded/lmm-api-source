@@ -2,6 +2,7 @@
 //! Neither an extension's usage-source label nor its hash grants spending rights.
 use crate::go_json::escape as go_escape;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -449,10 +450,7 @@ fn credential_forms(raw: &[u8]) -> Zeroizing<Vec<Vec<u8>>> {
             out.push(decoded);
         }
     }
-    out.push(
-        crate::hex_codec::encode(trimmed)
-            .into_bytes(),
-    );
+    out.push(crate::hex_codec::encode(trimmed).into_bytes());
     out.push(
         trimmed
             .iter()
@@ -466,7 +464,7 @@ fn valid_text(s: &str) -> bool {
     !s.is_empty() && s.len() <= 256 && s.trim() == s && !s.chars().any(char::is_control)
 }
 fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::hex_codec::encode(Sha256::digest(bytes))
 }
 fn go_value(value: &Value) -> Result<Vec<u8>> {
     fn write(v: &Value, out: &mut String) -> Result<()> {
@@ -884,8 +882,7 @@ mod tests {
             role.to_vec(),
             [role.as_slice(), b"\n"].concat(),
             STANDARD.encode(role).into_bytes(),
-            crate::hex_codec::encode(&role)
-                .into_bytes(),
+            crate::hex_codec::encode(role).into_bytes(),
         ] {
             let path = fixture.key(&raw);
             let verifier = ReceiptVerifier::from_adapters(vec![adapter(&path)]).unwrap();

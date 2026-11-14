@@ -46,7 +46,7 @@ async fn fresh_binary_refuses_historical_owner_commands_without_mutating_policy(
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
     );
-    sqlx::raw_sql(&format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; GRANT {owner} TO {installer}; ALTER DATABASE \"{database}\" OWNER TO {owner};"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; GRANT {owner} TO {installer}; ALTER DATABASE \"{database}\" OWNER TO {owner};")))
         .execute(&pool).await.unwrap();
     let role = format!("SET ROLE {owner}");
     let owner_pool = PgPoolOptions::new()
@@ -54,7 +54,9 @@ async fn fresh_binary_refuses_historical_owner_commands_without_mutating_policy(
         .after_connect(move |c, _| {
             let role = role.clone();
             Box::pin(async move {
-                sqlx::query(&role).execute(c).await?;
+                sqlx::query(sqlx::AssertSqlSafe::<&str>(&role))
+                    .execute(c)
+                    .await?;
                 Ok(())
             })
         })

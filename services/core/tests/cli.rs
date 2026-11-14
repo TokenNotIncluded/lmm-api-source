@@ -991,7 +991,7 @@ WITH catalog_path AS MATERIALIZED (
             hash.update(definition.as_bytes());
         }
     }
-    let fresh_prior = format!("{:x}", hash.finalize());
+    let fresh_prior = hex_codec::encode(hash.finalize());
     let fresh_prior = fresh_prior.as_str();
     assert_ne!(fresh_prior, RETIRED_PRE_PAYLOAD_POLICY_PRIOR);
     sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode($1,'hex')")
@@ -1186,3 +1186,6 @@ WITH catalog_path AS MATERIALIZED (
     role.cleanup().await;
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

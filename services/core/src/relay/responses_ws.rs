@@ -69,13 +69,17 @@ fn identity(raw: Option<&RawValue>) -> Result<Option<String>> {
     let Some(raw) = raw else { return Ok(None) };
     let value: Value =
         serde_json::from_str(raw.get()).map_err(|_| ProtocolError("invalid identity"))?;
+    if value.is_null() {
+        return Ok(None);
+    }
     let value = value
         .as_str()
         .ok_or(ProtocolError("identity must be a string"))?;
-    if value.is_empty()
-        || value.len() > MAX_ID_BYTES
-        || !value.bytes().all(|b| b.is_ascii_graphic())
-    {
+    // Fixed Go metadata treats null/empty optional event and stream IDs as absent.
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() > MAX_ID_BYTES || !value.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(ProtocolError("invalid identity"));
     }
     Ok(Some(value.to_owned()))
@@ -117,7 +121,11 @@ impl Create {
         let event_id = identity(outer.remove("event_id").as_deref())?;
         let stream_id = identity(outer.remove("stream_id").as_deref())?;
         let outer_generate = take_bool(&mut outer, "generate")?;
-        let mut fields = if let Some(request) = outer.remove("request") {
+        if outer.contains_key("response") && outer.contains_key("request") {
+            return Err(ProtocolError("mixed create envelopes"));
+        }
+        let wrapped = outer.remove("response").or_else(|| outer.remove("request"));
+        let mut fields = if let Some(request) = wrapped {
             if !outer.is_empty() {
                 return Err(ProtocolError("mixed wrapped and flat create fields"));
             }
@@ -325,6 +333,13 @@ pub(crate) struct Correlation {
     creates: BTreeSet<String>,
     responses: BTreeSet<String>,
     controls: BTreeSet<String>,
+    control_records: BTreeMap<String, ControlRecord>,
+}
+struct ControlRecord {
+    turn: Option<u64>,
+    stream_id: Option<String>,
+    response_id: Option<String>,
+    pending: bool,
 }
 impl Correlation {
     pub(crate) fn begin(&mut self, create: &Create) -> Result<u64> {
@@ -334,10 +349,10 @@ impl Correlation {
         if self.sequence >= MAX_SESSION_TURNS as u64 {
             return Err(ProtocolError("session turn limit"));
         }
-        if let Some(id) = &create.event_id {
-            if self.controls.contains(id) || !self.creates.insert(id.clone()) {
-                return Err(ProtocolError("duplicate event identity"));
-            }
+        if let Some(id) = &create.event_id
+            && (self.controls.contains(id) || !self.creates.insert(id.clone()))
+        {
+            return Err(ProtocolError("duplicate event identity"));
         }
         self.sequence += 1;
         self.active = Some(Active {
@@ -346,13 +361,17 @@ impl Correlation {
             stream_id: create.stream_id.clone(),
             response_id: None,
         });
+        for record in self.control_records.values_mut() {
+            if record.pending && record.turn.is_none() {
+                record.turn = Some(self.sequence);
+            }
+        }
         Ok(self.sequence)
     }
 
+    // Identity registration also serves legacy idle controls. Ownership of a
+    // cancel is checked separately by authorize_cancel before registration.
     pub(crate) fn register_control(&mut self, event_id: &str) -> Result<()> {
-        if self.active.is_none() {
-            return Err(ProtocolError("no active response"));
-        }
         if event_id.is_empty()
             || event_id.len() > MAX_ID_BYTES
             || !event_id.bytes().all(|b| b.is_ascii_graphic())
@@ -366,6 +385,114 @@ impl Correlation {
             return Err(ProtocolError("duplicate control identity"));
         }
         Ok(())
+    }
+
+    /// A rejected admission has no reservation or provider write. Retain used
+    /// event IDs, but let the same socket accept the next independent create.
+    pub(crate) fn reject_unreserved(&mut self, sequence: u64) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.sequence == sequence)
+        {
+            self.active = None;
+            // These controls predate a rejected admission. Preserve the pending
+            // records and rebind them when a real provider turn is admitted.
+            for record in self.control_records.values_mut() {
+                if record.pending && record.turn == Some(sequence) {
+                    record.turn = None;
+                }
+            }
+        }
+    }
+
+    /// Keep legacy non-create controls on the existing socket. Registration
+    /// precedes the write so an immediate error cannot race its identity.
+    pub(crate) fn authorize_control(&mut self, bytes: &[u8], limit: usize) -> Result<()> {
+        let Object(mut fields) = object(bytes, limit)?;
+        let kind = identity(fields.remove("type").as_deref())?
+            .ok_or(ProtocolError("missing control type"))?;
+        if kind == "response.create" {
+            return Err(ProtocolError("expected control"));
+        }
+        if kind == "response.cancel" {
+            return self.authorize_cancel(bytes, limit);
+        }
+        let event_id = identity(fields.remove("event_id").as_deref())?;
+        let stream_id = identity(fields.remove("stream_id").as_deref())?;
+        let response_id = identity(fields.remove("response_id").as_deref())?;
+        self.record_control(event_id, stream_id, response_id)
+    }
+
+    fn record_control(
+        &mut self,
+        event_id: Option<String>,
+        stream_id: Option<String>,
+        response_id: Option<String>,
+    ) -> Result<()> {
+        // Without an event ID, a later asynchronous error cannot identify this
+        // control. Forward it without consuming an unreleasable registry slot.
+        let Some(id) = event_id else {
+            return Ok(());
+        };
+        let bytes = id.len()
+            + stream_id.as_ref().map_or(0, String::len)
+            + response_id.as_ref().map_or(0, String::len);
+        let retained: usize = self
+            .control_records
+            .iter()
+            .map(|(id, r)| {
+                id.len()
+                    + r.stream_id.as_ref().map_or(0, String::len)
+                    + r.response_id.as_ref().map_or(0, String::len)
+            })
+            .sum();
+        if self.control_records.values().filter(|r| r.pending).count() >= 32
+            || retained + bytes > 64 * 1024
+        {
+            return Err(ProtocolError("pending control limit"));
+        }
+        self.register_control(&id)?;
+        self.control_records.insert(
+            id,
+            ControlRecord {
+                turn: self.active.as_ref().map(|active| active.sequence),
+                stream_id,
+                response_id,
+                pending: true,
+            },
+        );
+        Ok(())
+    }
+
+    /// Control errors stay separate from model terminal evidence, even after
+    /// their originating turn has completed or another response has started.
+    pub(crate) fn control_error(&mut self, event: &mut Value) -> Result<bool> {
+        if event["type"] != "error" {
+            return Ok(false);
+        }
+        let reference = event["error"]["event_id"]
+            .as_str()
+            .or_else(|| event["event_id"].as_str())
+            .map(str::to_owned);
+        let Some(reference) = reference else {
+            return Ok(false);
+        };
+        let Some(record) = self.control_records.get_mut(&reference) else {
+            return Ok(false);
+        };
+        if event
+            .get("stream_id")
+            .is_some_and(|id| !id.is_null() && id.as_str() != record.stream_id.as_deref())
+        {
+            return Err(ProtocolError("conflicting control identity"));
+        }
+        event["event_id"] = Value::String(reference);
+        if let Some(id) = &record.stream_id {
+            event["stream_id"] = Value::String(id.clone());
+        }
+        record.pending = false;
+        Ok(true)
     }
 
     pub(crate) fn authorize_cancel(&mut self, bytes: &[u8], limit: usize) -> Result<()> {
@@ -386,10 +513,7 @@ impl Correlation {
         {
             return Err(ProtocolError("cancel does not match active response"));
         }
-        if let Some(id) = event_id {
-            self.register_control(&id)?;
-        }
-        Ok(())
+        self.record_control(event_id, stream_id, response_id)
     }
 
     pub(crate) fn attribute(&mut self, value: &Value) -> Result<Attribution> {
@@ -464,6 +588,22 @@ impl Correlation {
         Ok(Attribution::Active)
     }
 
+    /// Preserve the old local stream identity when the provider omits it. This
+    /// runs only after active-response attribution, never for a foreign frame.
+    pub(crate) fn decorate_active(&self, event: &mut Value) {
+        if event["type"]
+            .as_str()
+            .is_some_and(|kind| kind == "error" || kind.starts_with("response."))
+            && event.get("stream_id").is_none()
+            && let Some(stream_id) = self
+                .active
+                .as_ref()
+                .and_then(|active| active.stream_id.as_ref())
+        {
+            event["stream_id"] = Value::String(stream_id.clone());
+        }
+    }
+
     pub(crate) fn finish(&mut self, sequence: u64) -> Result<()> {
         if self
             .active
@@ -474,6 +614,11 @@ impl Correlation {
         }
         if let Some(id) = self.active.take().and_then(|active| active.response_id) {
             self.responses.insert(id);
+        }
+        for record in self.control_records.values_mut() {
+            if record.turn == Some(sequence) {
+                record.pending = false;
+            }
         }
         Ok(())
     }

@@ -31,7 +31,7 @@ fn wallet_and_bounty_install_contract_uses_frozen_guarded_definitions() {
     assert_eq!(manifest.components.len(), core_schema::component_count());
 }
 async fn grant(pool: &PgPool, role: &str, sql: &str) {
-    sqlx::raw_sql(&sql.replace("ROLE", role))
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql.replace("ROLE", role)))
         .execute(pool)
         .await
         .unwrap();
@@ -50,7 +50,12 @@ async fn wallet_runtime_requires_exact_mutable_columns_and_rejects_source_author
         Err(Error::MissingPrivileges)
     );
     grant(&pool,&role.name,"GRANT USAGE ON SCHEMA core_wallet TO ROLE; GRANT SELECT,INSERT ON core_wallet.transfers TO ROLE; GRANT UPDATE(state,hold_journal,final_journal,recipient_user,confirmed_at,finished_at,confirmation_digest,confirmation_sid,confirmation_kind,confirmation_expires) ON core_wallet.transfers TO ROLE; GRANT USAGE,SELECT ON SEQUENCE core_wallet.transfers_id_seq TO ROLE;").await;
-    grant(&pool,&role.name,"GRANT SELECT ON core_wallet.legacy_transfer_history TO ROLE").await;
+    grant(
+        &pool,
+        &role.name,
+        "GRANT SELECT ON core_wallet.legacy_transfer_history TO ROLE",
+    )
+    .await;
     runtime_database::check(&role.pool, required).await.unwrap();
     lmm_core::wallet::Store::new(role.pool.clone())
         .check_ready()

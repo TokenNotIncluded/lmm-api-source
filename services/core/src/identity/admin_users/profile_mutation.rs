@@ -217,7 +217,7 @@ async fn target_profile(
         TargetAccess::Snapshot => "",
         TargetAccess::Locked => " FOR SHARE",
     };
-    let user = sqlx::query(&format!("SELECT personal_account_id,platform_role,auth_version,active FROM core_identity.users WHERE id=$1{suffix}"))
+    let user = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT personal_account_id,platform_role,auth_version,active FROM core_identity.users WHERE id=$1{suffix}")))
         .bind(id).fetch_optional(&mut *c).await?.ok_or(ProfileError::NotFound)?;
     // Establish and hold the ordinary target's role before taking its profile
     // UPDATE lock. Cross-root requests never upgrade actor factor/profile locks.
@@ -229,9 +229,9 @@ async fn target_profile(
     if account_id <= 0 || version <= 0 {
         return Err(ProfileError::Unavailable);
     }
-    let account = sqlx::query(&format!(
+    let account = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT kind,active FROM core_identity.accounts WHERE id=$1{suffix}"
-    ))
+    )))
     .bind(account_id)
     .fetch_optional(&mut *c)
     .await?
@@ -243,9 +243,9 @@ async fn target_profile(
         TargetAccess::Snapshot => "",
         TargetAccess::Locked => " FOR UPDATE",
     };
-    let name: String = sqlx::query_scalar(&format!(
+    let name: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT display_name FROM core_identity.user_profiles WHERE user_id=$1{suffix}"
-    ))
+    )))
     .bind(id)
     .fetch_optional(&mut *c)
     .await?

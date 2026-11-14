@@ -7,7 +7,8 @@ use crate::{
         CredentialRef, Endpoint, PayloadPolicy, Protocol, RouteTarget, RoutingConfig, Speed,
     },
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -175,7 +176,7 @@ impl ConfigurationInput {
             &self.bindings,
         ))
         .map_err(|_| ManagementError::Invalid)?;
-        Ok(format!("{:x}", Sha256::digest(value)))
+        Ok(crate::hex_codec::encode(Sha256::digest(value)))
     }
 }
 pub(in crate::channel_http) async fn read(
@@ -477,7 +478,7 @@ pub(super) async fn store_secret(
     let gateway = management.gateway.as_ref().ok_or(Failure::Disabled)?;
     let key = gateway.channel_secret_key().ok_or(Failure::Disabled)?;
     let mut random = [0_u8; 8];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut random)
         .map_err(|_| ManagementError::Storage)?;
     let id = (u64::from_be_bytes(random) & ((1_u64 << 53) - 1)).max(1);

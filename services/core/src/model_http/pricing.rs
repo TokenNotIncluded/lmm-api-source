@@ -819,6 +819,7 @@ pub(crate) mod tests {
                 .into_iter()
                 .map(|name| super::super::ExternalModelContext {
                     responses_compaction: false,
+                    responses_continuity: None,
                     pre_acceptance_rejection_statuses: Vec::new(),
                     grounding: None,
 
@@ -1246,6 +1247,7 @@ pub(crate) mod tests {
                     .unwrap();
                 super::super::ExternalModelContext {
                     responses_compaction: false,
+                    responses_continuity: None,
                     pre_acceptance_rejection_statuses: Vec::new(),
                     grounding: None,
 

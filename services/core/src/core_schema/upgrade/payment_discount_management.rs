@@ -4,6 +4,7 @@ use super::*;
 pub(super) const PROCEDURE: &str = "core-payment-discount-management-v1";
 const TARGET: &str = include_str!("payment_discount_management_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::PAYMENT_DISCOUNT_MANAGEMENT,
     procedure: PROCEDURE,
     predecessor_count: 67,
     target_count: 68,
@@ -41,10 +42,10 @@ pub(super) async fn connected(
     ENGINE.connected(c, r).await
 }
 pub(super) async fn grant_runtime(c: &mut PgConnection, runtime: &str) -> Result<(), UpgradeError> {
-    sqlx::raw_sql(
-        &include_str!("../../../schema/payment_discount_management_grants.sql")
+    sqlx::raw_sql(sqlx::AssertSqlSafe(
+        include_str!("../../../schema/payment_discount_management_grants.sql")
             .replace(":\"runtime_role\"", &quote(runtime)),
-    )
+    ))
     .execute(c)
     .await?;
     Ok(())

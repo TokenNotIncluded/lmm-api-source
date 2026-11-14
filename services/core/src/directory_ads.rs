@@ -8,6 +8,7 @@ use crate::{
     identity::{self, CredentialKind, Principal},
     internal_rpc::pb,
 };
+use rand::Rng as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, types::Json};
@@ -56,12 +57,11 @@ pub struct Store {
     pub(crate) pool: PgPool,
 }
 fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::hex_codec::encode(Sha256::digest(bytes))
 }
 fn random_id() -> String {
-    use rand::RngCore;
     let mut b = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut b);
+    rand::rand_core::UnwrapErr(rand::rngs::SysRng).fill_bytes(&mut b);
     hash(&b)
 }
 fn key(v: &str) -> bool {
@@ -307,7 +307,8 @@ impl Store {
         let a = actor(&mut t, secret).await?;
         lock(&mut t, p, &v.request_id).await?;
         let cmd = payment_command(v);
-        if let Some(r)=sqlx::query("SELECT user_id,command,receipt FROM core_directory_ads.payments WHERE principal=$1 AND request_id=$2").bind(p).bind(&v.request_id).fetch_optional(&mut *t).await? {if r.try_get::<i64,_>("user_id")?!=a.user_id{return Err(Error::Forbidden)}if r.try_get::<Value,_>("command")?!=cmd{return Err(Error::Conflict)}return decode_receipt(r.try_get("receipt")?)}
+        if let Some(r)=sqlx::query("SELECT user_id,command,receipt FROM core_directory_ads.payments WHERE principal=$1 AND request_id=$2").bind(p).bind(&v.request_id).fetch_optional(&mut *t).await? {if r.try_get::<i64,_>("user_id")?!=a.user_id{return Err(Error::Forbidden)}
+            if r.try_get::<Value,_>("command")?!=cmd{return Err(Error::Conflict)}return decode_receipt(r.try_get("receipt")?)}
         let q=sqlx::query("SELECT * FROM core_directory_ads.quotes WHERE id=$1 AND principal=$2 AND request_id=$3 FOR UPDATE").bind(&v.quote_id).bind(p).bind(&v.request_id).fetch_optional(&mut *t).await?.ok_or(Error::Invalid)?;
         if q.try_get::<i64, _>("user_id")? != a.user_id
             || q.try_get::<i64, _>("account_id")? != a.owner_account_id

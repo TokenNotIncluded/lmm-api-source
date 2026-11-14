@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -209,7 +209,9 @@ impl Snapshot {
                 if target.payload == PayloadPolicy::LegacyAnthropicHaikuSystemCacheV1
                     && upstream.config.protocol != Protocol::AnthropicMessages
                 {
-                    return Err(RoutingError::InvalidConfig("legacy Anthropic cache payload protocol"));
+                    return Err(RoutingError::InvalidConfig(
+                        "legacy Anthropic cache payload protocol",
+                    ));
                 }
                 if target.payload.openrouter_chat()
                     && upstream.config.protocol != Protocol::OpenAiChat
@@ -266,6 +268,7 @@ pub struct Router {
 enum RouteTransport {
     Http { allow_passthrough: bool },
     ResponsesWebSocket { pinned_target: Option<u64> },
+    ResponsesHttp { pinned_target: u64 },
 }
 
 impl Router {
@@ -371,7 +374,7 @@ impl Router {
 
     /// Call with an authenticated group from task 01/03, not a raw client group header.
     pub fn route(&self, request: RouteRequest<'_>) -> Result<RoutePlan, RoutingError> {
-        self.route_with_rng(request, &mut rand::thread_rng())
+        self.route_with_rng(request, &mut rand::rng())
     }
 
     /// Restrict candidates to payloads supported by the model gateway's encoder.
@@ -379,7 +382,7 @@ impl Router {
         &self,
         request: RouteRequest<'_>,
     ) -> Result<RoutePlan, RoutingError> {
-        self.route_with_payload_support(request, &mut rand::thread_rng(), false)
+        self.route_with_payload_support(request, &mut rand::rng(), false)
     }
 
     /// Pin every already-authorized group to one immutable release. The caller
@@ -399,6 +402,19 @@ impl Router {
             RouteTransport::Http {
                 allow_passthrough: false,
             },
+        )
+    }
+
+    pub(crate) fn route_responses_http_bound(
+        &self,
+        request: RouteRequest<'_>,
+        pinned_target: u64,
+    ) -> Result<RoutePlan, RoutingError> {
+        Self::route_in_snapshot(
+            self.snapshot()?,
+            request,
+            &mut rand::rng(),
+            RouteTransport::ResponsesHttp { pinned_target },
         )
     }
 
@@ -446,12 +462,7 @@ impl Router {
                 let mut rng = rand::rngs::StdRng::from_seed(digest.finalize().into());
                 Self::route_in_snapshot(snapshot.clone(), request, &mut rng, transport)
             } else {
-                Self::route_in_snapshot(
-                    snapshot.clone(),
-                    request,
-                    &mut rand::thread_rng(),
-                    transport,
-                )
+                Self::route_in_snapshot(snapshot.clone(), request, &mut rand::rng(), transport)
             };
             match plan {
                 Ok(plan) => plans.push(plan),
@@ -464,7 +475,7 @@ impl Router {
         Ok(plans)
     }
 
-    pub(super) fn route_with_rng<R: Rng + ?Sized>(
+    pub(super) fn route_with_rng<R: RngExt + ?Sized>(
         &self,
         request: RouteRequest<'_>,
         rng: &mut R,
@@ -472,7 +483,7 @@ impl Router {
         self.route_with_payload_support(request, rng, true)
     }
 
-    fn route_with_payload_support<R: Rng + ?Sized>(
+    fn route_with_payload_support<R: RngExt + ?Sized>(
         &self,
         request: RouteRequest<'_>,
         rng: &mut R,
@@ -486,7 +497,7 @@ impl Router {
         )
     }
 
-    fn route_in_snapshot<R: Rng + ?Sized>(
+    fn route_in_snapshot<R: RngExt + ?Sized>(
         snapshot: Arc<Snapshot>,
         request: RouteRequest<'_>,
         rng: &mut R,
@@ -533,6 +544,10 @@ impl Router {
                 target.available()
                     && match transport {
                         RouteTransport::Http { .. } => true,
+                        RouteTransport::ResponsesHttp { pinned_target } => {
+                            target.upstream.config.protocol == Protocol::OpenAiResponses
+                                && target.config.id == pinned_target
+                        }
                         RouteTransport::ResponsesWebSocket { pinned_target } => {
                             target.upstream.config.protocol == Protocol::OpenAiResponses
                                 && pinned_target.is_none_or(|id| target.config.id == id)
@@ -558,7 +573,7 @@ impl Router {
             return Err(RoutingError::NoEligibleUpstream);
         }
         // @context-fold end route-payload-candidates
-        let capacity = usize::from(route.config.failover.max_attempts).min(pool.len());
+        let capacity = pool.len();
         let mut candidates = Vec::with_capacity(capacity);
         for _ in 0..capacity {
             let priority = pool[0].config.priority;
@@ -567,7 +582,7 @@ impl Router {
                 .take_while(|target| target.config.priority == priority)
                 .map(|target| u64::from(target.config.weight))
                 .sum();
-            let mut ticket = rng.gen_range(0..total);
+            let mut ticket = rng.random_range(0..total);
             let mut selected = 0;
             for (index, target) in pool.iter().enumerate() {
                 let weight = u64::from(target.config.weight);
@@ -756,7 +771,36 @@ pub struct RoutePlan {
     stopped: bool,
 }
 
+/// Exact candidate identity within one pinned routing release.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AttemptKey {
+    pub route_id: u64,
+    pub target_id: u64,
+    pub upstream_id: u64,
+    pub native_model: String,
+}
+/// Persisted route-key format. Never change historical byte representation.
+pub fn route_key(route: u64, target: u64, upstream: u64) -> String {
+    format!("r{route}-t{target}-u{upstream}")
+}
 impl RoutePlan {
+    /// Consume the original plan; preserve its frozen order and random choices.
+    pub(crate) fn responses_capability(
+        mut self,
+        eligible: &HashSet<AttemptKey>,
+    ) -> Result<Self, RoutingError> {
+        let targets = self
+            .candidate_attempts()
+            .into_iter()
+            .filter(|a| eligible.contains(&a.key()))
+            .map(|a| a.target_id())
+            .collect();
+        self.retain_targets(&targets)?;
+        if self.candidates.is_empty() {
+            return Err(RoutingError::NoEligibleUpstream);
+        }
+        Ok(self)
+    }
     pub(crate) fn retain_targets(&mut self, targets: &HashSet<u64>) -> Result<(), RoutingError> {
         if self.current.is_some() || self.attempts != 0 {
             return Err(RoutingError::InvalidTransition);
@@ -768,6 +812,13 @@ impl RoutePlan {
     /// These are the bounded original candidates, before any dispatch. Live
     /// health may remove them but a retry cannot introduce an unpinned target.
     pub(crate) fn planned_attempts(&self) -> Vec<Attempt> {
+        self.candidate_attempts()
+            .into_iter()
+            .take(usize::from(self.route.config.failover.max_attempts))
+            .collect()
+    }
+    /// Full immutable ordered pool, used only for pre-dispatch capability filtering.
+    pub(crate) fn candidate_attempts(&self) -> Vec<Attempt> {
         self.candidates
             .iter()
             .enumerate()
@@ -850,7 +901,9 @@ impl RoutePlan {
     }
 
     fn dispatch_next(&mut self) -> Result<Attempt, RoutingError> {
-        while self.next_index < self.candidates.len() {
+        while self.next_index < self.candidates.len()
+            && self.attempts < self.route.config.failover.max_attempts
+        {
             let index = self.next_index;
             self.next_index += 1;
             let target = &self.candidates[index];
@@ -899,6 +952,18 @@ pub struct Attempt {
 }
 
 impl Attempt {
+    pub fn key(&self) -> AttemptKey {
+        AttemptKey {
+            route_id: self.route_id(),
+            target_id: self.target_id(),
+            upstream_id: self.upstream_id(),
+            native_model: self.upstream_model().into(),
+        }
+    }
+    pub fn route_key(&self) -> String {
+        route_key(self.route_id(), self.target_id(), self.upstream_id())
+    }
+
     pub(crate) fn calendar(&self) -> Option<&super::FrozenCalendar> {
         self.calendar.as_deref()
     }

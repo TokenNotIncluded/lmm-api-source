@@ -30,7 +30,10 @@ fn cookie_name(config: &LegacyAuthConfig, csrf: &str) -> String {
     let mut hash = Sha256::new();
     hash.update(b"lmm-oauth2-browser-stage-v1\0");
     hash.update(csrf.as_bytes());
-    format!("{prefix}lmm_oauth2_{:x}", hash.finalize())
+    format!(
+        "{prefix}lmm_oauth2_{}",
+        crate::hex_codec::encode(hash.finalize())
+    )
 }
 fn cookie<'a>(
     headers: &'a HeaderMap,

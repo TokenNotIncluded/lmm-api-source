@@ -3,11 +3,11 @@ use lmm_core::payments::discounts::{self, Definition};
 
 async fn fixture(pool: &PgPool) -> Fixture {
     let mut f = fresh_with_level(pool, 6).await;
-    sqlx::raw_sql(discounts::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(discounts::SCHEMA))
         .execute(pool)
         .await
         .unwrap();
-    sqlx::raw_sql(discounts::MANAGEMENT_SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(discounts::MANAGEMENT_SCHEMA))
         .execute(pool)
         .await
         .unwrap();

@@ -9,7 +9,8 @@ use aes_gcm::{
     aead::{Aead, Payload},
 };
 use hkdf::Hkdf;
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use sha2::Sha256;
 use std::collections::HashMap;
 use totp_rs::{Algorithm, Builder, Secret};
@@ -112,12 +113,12 @@ impl MfaKeyring {
         let cipher =
             Aes256Gcm::new_from_slice(key.as_slice()).map_err(|_| IdentityError::Storage)?;
         let mut nonce = [0_u8; NONCE_BYTES];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut nonce)
             .map_err(|_| IdentityError::Storage)?;
         let encrypted = cipher
             .encrypt(
-                Nonce::from_slice(&nonce),
+                &Nonce::from(nonce),
                 Payload {
                     msg: secret,
                     aad: &aad,
@@ -152,7 +153,8 @@ impl MfaKeyring {
         Aes256Gcm::new_from_slice(key.as_slice())
             .map_err(|_| IdentityError::Storage)?
             .decrypt(
-                Nonce::from_slice(&ciphertext[1..1 + NONCE_BYTES]),
+                &Nonce::try_from(&ciphertext[1..1 + NONCE_BYTES])
+                    .map_err(|_| IdentityError::Storage)?,
                 Payload {
                     msg: &ciphertext[1 + NONCE_BYTES..],
                     aad: &aad,
@@ -165,7 +167,7 @@ impl MfaKeyring {
 /// Returned once to the enrollment flow; the caller should promptly encrypt it.
 pub(super) fn create_secret() -> Result<Vec<u8>> {
     let mut secret = Zeroizing::new(vec![0_u8; SECRET_BYTES]);
-    OsRng
+    SysRng
         .try_fill_bytes(secret.as_mut_slice())
         .map_err(|_| IdentityError::Storage)?;
     Ok(std::mem::take(&mut *secret))

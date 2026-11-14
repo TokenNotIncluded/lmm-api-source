@@ -6,7 +6,8 @@ use aes_gcm::{
 };
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use sha2::Sha256;
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
@@ -72,7 +73,7 @@ impl FederatedKeys {
 
     pub(crate) fn context() -> Result<[u8; 32]> {
         let mut context = [0_u8; 32];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut context)
             .map_err(|_| IdentityError::Storage)?;
         Ok(context)
@@ -84,7 +85,7 @@ impl FederatedKeys {
         target: i64,
         request: &[u8],
     ) -> Result<Vec<u8>> {
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(self.claim_key.as_ref())
+        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(self.claim_key.as_ref())
             .map_err(|_| IdentityError::Storage)?;
         mac.update(b"lmm/federated/provider-operation/v1");
         mac.update(action.as_bytes());
@@ -120,12 +121,12 @@ impl FederatedKeys {
         let key = self.keys.get(&self.active).ok_or(IdentityError::Storage)?;
         let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| IdentityError::Storage)?;
         let mut nonce = [0_u8; 12];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut nonce)
             .map_err(|_| IdentityError::Storage)?;
         let ciphertext = cipher
             .encrypt(
-                Nonce::from_slice(&nonce),
+                &Nonce::from(nonce),
                 Payload {
                     msg: secret.as_bytes(),
                     aad: &aad,
@@ -155,7 +156,7 @@ impl FederatedKeys {
         let bytes = Zeroizing::new(
             cipher
                 .decrypt(
-                    Nonce::from_slice(&envelope[1..13]),
+                    &Nonce::try_from(&envelope[1..13]).map_err(|_| IdentityError::Storage)?,
                     Payload {
                         msg: &envelope[13..],
                         aad: &aad,
@@ -177,7 +178,7 @@ impl FederatedKeys {
         {
             return Err(IdentityError::Invalid);
         }
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(self.claim_key.as_ref())
+        let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(self.claim_key.as_ref())
             .map_err(|_| IdentityError::Storage)?;
         mac.update(b"lmm/federated/wechat-code/v1");
         mac.update(&provider.to_be_bytes());

@@ -63,12 +63,9 @@ impl ResponsesConnection {
         self.send_text(route, text).await
     }
 
-    pub(crate) async fn send_cancel(
-        &mut self,
-        route: &Route,
-        text: &str,
-    ) -> Result<(), RelayError> {
-        self.send_text(route, text).await
+    pub(crate) async fn send_control(&mut self, text: &str) -> Result<(), RelayError> {
+        let route = self.opened_for.clone();
+        self.send_text(&route, text).await
     }
 
     async fn send_text(&mut self, route: &Route, text: &str) -> Result<(), RelayError> {
@@ -142,25 +139,54 @@ impl ProviderTransport {
         {
             return Err(RelayError::RouteUnavailable);
         }
-        let connection = tokio::time::timeout(
-            limits.connect_timeout,
-            self.prepare(&route.endpoint, limits),
-        )
-        .await
-        .map_err(|_| RelayError::Timeout(super::Phase::Connect))??;
+        // Owned unit-test workers can bind an official HTTPS contract to a
+        // numeric-loopback transport. The production binary has no override.
+        #[cfg(test)]
+        let test_endpoint = if route.endpoint.host_str() == Some("api.openai.com") {
+            std::env::var("LMM_WS_OFFICIAL_LOOPBACK_BASE")
+                .ok()
+                .map(|base| {
+                    let mut endpoint = super::honeypot_network::validate_base_url(&base, true)?;
+                    if !super::honeypot_network::literal_ip(&endpoint)
+                        .is_some_and(|ip| ip.is_loopback())
+                    {
+                        return Err(RelayError::Invalid(
+                            "WS test transport must be numeric loopback",
+                        ));
+                    }
+                    endpoint.set_path(&format!(
+                        "{}/responses",
+                        endpoint.path().trim_end_matches('/')
+                    ));
+                    Ok(endpoint)
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        let endpoint = &route.endpoint;
+        #[cfg(test)]
+        let endpoint = test_endpoint.as_ref().unwrap_or(endpoint);
+        let connection =
+            tokio::time::timeout(limits.connect_timeout, self.prepare(endpoint, limits))
+                .await
+                .map_err(|_| RelayError::Timeout(super::Phase::Connect))??;
         if !route.is_available() {
             return Err(RelayError::RouteUnavailable);
         }
         let key = generate_key();
         let request = connection
             .client()
-            .get(route.endpoint.clone())
+            .get(endpoint.clone())
             .version(reqwest::Version::HTTP_11)
             .header(header::CONNECTION, "Upgrade")
             .header(header::UPGRADE, "websocket")
             .header(header::SEC_WEBSOCKET_VERSION, "13")
             .header(header::SEC_WEBSOCKET_KEY, &key)
             .header(header::AUTHORIZATION, route.credential.clone())
+            // Fixed go-v0.2.118 Responses WS handshake contract. Do not forward
+            // arbitrary client beta flags into a reviewed provider profile.
+            .header("openai-beta", "responses_websockets=2026-02-06")
             .header(header::ACCEPT_ENCODING, "identity");
         let response = tokio::time::timeout(limits.header_timeout, request.send())
             .await

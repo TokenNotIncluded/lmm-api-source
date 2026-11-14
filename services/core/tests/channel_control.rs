@@ -580,12 +580,9 @@ async fn unrepresentable_ledger_prices_are_rejected_before_preview_or_publicatio
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-        let digest = format!(
-            "{:x}",
-            Sha256::digest(
-                serde_json::to_vec(&("lmm-price-publication-v1", expected, &prices)).unwrap()
-            )
-        );
+        let digest = hex_codec::encode(Sha256::digest(
+            serde_json::to_vec(&("lmm-price-publication-v1", expected, &prices)).unwrap(),
+        ));
         let (status, body) = request(
             app.clone(),
             "PUT",
@@ -720,10 +717,10 @@ async fn restricted_runtime_publishes_without_routing_dml_and_rolls_back_with_au
     role.optional("core_model").await;
     // These are the production model controls and Web routing read grants.
     // Runtime receives no DML on any routing artifact or credential reference.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA public TO {0}; GRANT SELECT ON public.routing_active_release,public.routing_groups,public.routing_routes TO {0}; GRANT EXECUTE ON FUNCTION public.routing_control_read(),public.routing_control_publish(jsonb,jsonb,bigint,bigint),public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),public.routing_control_bindings(bigint),public.routing_control_secret_read(bigint,bigint),public.routing_control_secret_create(bigint,bigint,bigint,text,bytea),public.routing_control_secret_list(bigint),public.routing_control_secret_remove(bigint,bigint,bigint) TO {0}",
         role.name
-    )).execute(&pool).await.unwrap();
+    ))).execute(&pool).await.unwrap();
     lmm_core::runtime_database::check(
         &role.pool,
         lmm_core::runtime_database::RequiredCapabilities {
@@ -785,12 +782,9 @@ async fn restricted_runtime_publishes_without_routing_dml_and_rolls_back_with_au
     let mut prices = fixture().pricing;
     prices.version += 1;
     prices.rules[0].group_multiplier_ppm *= 2;
-    let digest = format!(
-        "{:x}",
-        Sha256::digest(
-            serde_json::to_vec(&("lmm-price-publication-v1", version, &prices)).unwrap()
-        )
-    );
+    let digest = hex_codec::encode(Sha256::digest(
+        serde_json::to_vec(&("lmm-price-publication-v1", version, &prices)).unwrap(),
+    ));
     let (status, body) = request(
         app,
         "PUT",
@@ -852,7 +846,7 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
     let role = runtime::RuntimeRole::create(&pool).await;
     role.optional("core_charging").await;
     role.optional("core_model").await;
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA public TO {0}; GRANT SELECT ON public.routing_active_release,public.routing_groups,public.routing_routes TO {0}", role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA public TO {0}; GRANT SELECT ON public.routing_active_release,public.routing_groups,public.routing_routes TO {0}", role.name))).execute(&pool).await.unwrap();
     lmm_core::runtime_database::check(
         &role.pool,
         lmm_core::runtime_database::RequiredCapabilities {
@@ -1341,10 +1335,12 @@ async fn vault_rejects_private_destinations_and_rolls_back_key_with_audit_failur
         "routing_config_versions",
         "routing_credential_refs",
     ] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM public.{table}"))
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM public.{table}"
+        )))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(count, 0, "{table}");
     }
     assert_eq!(
@@ -2063,3 +2059,6 @@ async fn channel_copy_legacy_names_and_failures_are_atomic(pool: PgPool) {
         "failed copy must roll back encrypted key"
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

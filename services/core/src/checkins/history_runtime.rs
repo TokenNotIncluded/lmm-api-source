@@ -3,7 +3,8 @@ use crate::{
     accounts::AccountKind,
     identity::{self, CredentialKind, Principal},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 impl CheckinStore {
     pub async fn enabled(&self) -> Result<bool> {
         let value: Option<Json<Policy>> = sqlx::query_scalar("SELECT r.policy FROM core_checkins.active_policy a JOIN core_checkins.policy_revisions r ON r.revision=a.revision WHERE a.singleton")
@@ -169,7 +170,7 @@ fn draw(min: i64, max: i64) -> Result<i64> {
     let threshold = width.wrapping_neg() % width;
     loop {
         let mut bytes = [0; 8];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut bytes)
             .map_err(|_| Error::Unavailable)?;
         let value = u64::from_le_bytes(bytes);

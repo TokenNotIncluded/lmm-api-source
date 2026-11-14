@@ -72,7 +72,7 @@ fn require(ok: bool, code: &'static str) -> Result<()> {
     }
 }
 fn digest(bytes: impl AsRef<[u8]>) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::hex_codec::encode(Sha256::digest(bytes))
 }
 fn secret(path: &Path) -> Result<String> {
     let bytes = crate::config::private_file(path, 16384).map_err(|_| Error::Invalid)?;
@@ -174,7 +174,7 @@ impl Request {
 async fn grant_delta(c: &mut PgConnection, r: &Request) -> Result<()> {
     let role = engine::quote(&r.bridge.runtime);
     if r.runtime.console {
-        sqlx::raw_sql(&format!("GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text),core_console.write_navigation_option(text,text) TO {role}"))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text),core_console.write_navigation_option(text,text) TO {role}")))
             .execute(&mut *c).await?;
     }
     let canonical = include_str!("../../../deployment/postgres/grant-core-runtime.sql");
@@ -189,7 +189,9 @@ async fn grant_delta(c: &mut PgConnection, r: &Request) -> Result<()> {
             .ok_or(Error::Invalid)?
             .0
             .replace(":\"runtime_role\"", &role);
-        sqlx::raw_sql(&sql).execute(&mut *c).await?;
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+            .execute(&mut *c)
+            .await?;
     }
     if r.runtime.assistant_agent {
         let sql = canonical
@@ -200,7 +202,9 @@ async fn grant_delta(c: &mut PgConnection, r: &Request) -> Result<()> {
             .ok_or(Error::Invalid)?
             .0
             .replace(":\"runtime_role\"", &role);
-        sqlx::raw_sql(&sql).execute(&mut *c).await?;
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+            .execute(&mut *c)
+            .await?;
     }
     Ok(())
 }
@@ -326,9 +330,11 @@ pub async fn execute(target_url: &str, r: Request) -> Result<Value> {
     let mut tx = c.begin().await?;
     sqlx::raw_sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SET LOCAL synchronous_commit=on; SET LOCAL work_mem='4MB'; SET LOCAL max_parallel_workers_per_gather=0").execute(&mut *tx).await?;
     for table in rows.columns.keys() {
-        sqlx::query(&format!("LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"
+        )))
+        .execute(&mut *tx)
+        .await?;
     }
     engine::offline(&mut tx, &plan).await?;
     let mut report = engine::stage(&mut tx, &plan, &rows).await?;

@@ -801,7 +801,10 @@ async fn charging_tables_reject_nonserializable_writers(pool: PgPool) {
         // A statement trigger checks isolation even when the statement matches
         // no rows, before constraints or money writes can run.
         let statement = format!("DELETE FROM core_charging.{table} WHERE false");
-        let error = sqlx::query(&statement).execute(&pool).await.unwrap_err();
+        let error = sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
+            .execute(&pool)
+            .await
+            .unwrap_err();
         assert_eq!(
             error.as_database_error().unwrap().code().as_deref(),
             Some("25001"),
@@ -812,7 +815,10 @@ async fn charging_tables_reject_nonserializable_writers(pool: PgPool) {
             .execute(&mut *tx)
             .await
             .unwrap();
-        sqlx::query(&statement).execute(&mut *tx).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
     }
     charging.start("guarded", &WORKER).await.unwrap();
@@ -860,10 +866,10 @@ async fn migration_receipts_preserve_the_catalog_and_runtime_cannot_write_them(p
             .await
             .unwrap();
     let role = format!("migration_reader_{oid}");
-    sqlx::raw_sql(&format!("CREATE ROLE {role} NOLOGIN; GRANT USAGE ON SCHEMA core_migration TO {role}; GRANT SELECT ON core_migration.import_runs TO {role}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {role} NOLOGIN; GRANT USAGE ON SCHEMA core_migration TO {role}; GRANT SELECT ON core_migration.import_runs TO {role}")))
         .execute(&pool).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("SET LOCAL ROLE {role}")))
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -880,7 +886,7 @@ async fn migration_receipts_preserve_the_catalog_and_runtime_cannot_write_them(p
         "TRUNCATE core_migration.import_runs",
     ] {
         let mut tx = pool.begin().await.unwrap();
-        sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("SET LOCAL ROLE {role}")))
             .execute(&mut *tx)
             .await
             .unwrap();
@@ -891,10 +897,12 @@ async fn migration_receipts_preserve_the_catalog_and_runtime_cannot_write_them(p
         );
         tx.rollback().await.unwrap();
     }
-    sqlx::raw_sql(&format!("DROP OWNED BY {role}; DROP ROLE {role}"))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP OWNED BY {role}; DROP ROLE {role}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     core_schema::check(&pool).await.unwrap();
 }
 
@@ -907,10 +915,12 @@ async fn disabled_financial_triggers_are_catalog_drift_and_never_repaired(pool: 
         // Includes internal foreign-key triggers as well as application triggers.
         ("core_charging.requests", "ALL"),
     ] {
-        sqlx::query(&format!("ALTER TABLE {table} DISABLE TRIGGER {trigger}"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "ALTER TABLE {table} DISABLE TRIGGER {trigger}"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert!(matches!(
             core_schema::check(&pool).await,
             Err(IdentityError::Storage)
@@ -926,10 +936,12 @@ async fn disabled_financial_triggers_are_catalog_drift_and_never_repaired(pool: 
             disabled,
             "startup check must not silently enable altered triggers"
         );
-        sqlx::query(&format!("ALTER TABLE {table} ENABLE TRIGGER {trigger}"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "ALTER TABLE {table} ENABLE TRIGGER {trigger}"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         core_schema::check(&pool).await.unwrap();
     }
 }

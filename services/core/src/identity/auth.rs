@@ -3,8 +3,9 @@
 use super::*;
 use argon2::{
     Algorithm, Argon2, Params, Version,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
+use rand::TryRng;
 use serde::Deserialize;
 use std::env;
 
@@ -320,9 +321,12 @@ impl IdentityStore {
             .map_err(|_| IdentityError::Storage)?;
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            let salt = SaltString::generate(&mut OsRng);
+            let mut salt = [0u8; 16];
+            SysRng
+                .try_fill_bytes(&mut salt)
+                .map_err(|_| IdentityError::Storage)?;
             password_engine()?
-                .hash_password(password.as_bytes(), &salt)
+                .hash_password_with_salt(password.as_bytes(), &salt)
                 .map(|h| h.to_string())
                 .map_err(|_| IdentityError::Storage)
         })
@@ -552,9 +556,9 @@ impl IdentityStore {
         // Do not upgrade shared user/credential locks after waiting on a family
         // or password lock. A busy authority row is a retryable conflict, not a
         // second password change. All mutable rows are acquired with NOWAIT.
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{AUTH} AND c.digest=$1 FOR UPDATE OF c,u NOWAIT FOR SHARE OF pa,own NOWAIT"
-        ))
+        )))
         .bind(digest(secret)?)
         .fetch_optional(&mut *c)
         .await

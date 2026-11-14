@@ -34,9 +34,9 @@ async fn money_snapshot(pool: &PgPool) -> Vec<(String, Value)> {
                 .all(|c| c.is_ascii_alphanumeric() || c == '_')
         );
         assert!(table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
-        let value: Value = sqlx::query_scalar(&format!(
+        let value: Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text),'[]'::jsonb) FROM {schema}.{table} r"
-        )).fetch_one(pool).await.unwrap();
+        ))).fetch_one(pool).await.unwrap();
         rows.push((format!("{schema}.{table}"), value));
     }
     let sequences: Value = sqlx::query_scalar(
@@ -111,16 +111,21 @@ async fn real_web_status_preserves_money_and_rechecks_live_authority(pool: PgPoo
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
     );
-    sqlx::raw_sql(&format!("REVOKE ALL ON DATABASE \"{core_db}\" FROM PUBLIC"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "REVOKE ALL ON DATABASE \"{core_db}\" FROM PUBLIC"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(ledger::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::raw_sql(ledger::SCHEMA).execute(&pool).await.unwrap();
-    sqlx::raw_sql(lmm_core::payments::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::payments::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();

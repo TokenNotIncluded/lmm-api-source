@@ -102,10 +102,10 @@ impl BrowserAuth {
         {
             return Err(IdentityError::Invalid.into());
         }
-        if let (Some(id), Some(target)) = (&input.id, target) {
-            if id != &target.to_string() {
-                return Err(IdentityError::Invalid.into());
-            }
+        if let (Some(id), Some(target)) = (&input.id, target)
+            && id != &target.to_string()
+        {
+            return Err(IdentityError::Invalid.into());
         }
         let request_digest =
             self.store

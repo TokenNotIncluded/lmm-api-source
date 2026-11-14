@@ -7,6 +7,7 @@ const PRE_MANIFEST: &str = "f2340fb850e81f168ababe0301d80bd85769b235a8c5b5abb91f
 const PRE_CATALOG: &str = "46cbd8e0a9e9bb6c55cb899558b40fa8c8df1affa2e366cbbde733a8527bda43";
 const TARGET: &str = include_str!("commerce_display_rate_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::COMMERCE_DISPLAY_RATE,
     procedure: PROCEDURE,
     predecessor_count: 56,
     target_count: 58,
@@ -43,7 +44,7 @@ mod tests {
         manifest.components.truncate(56);
         let mut bytes = serde_json::to_vec(&manifest).unwrap();
         bytes.push(b'\n');
-        assert_ne!(hex(&Sha256::digest(bytes)), PRE_MANIFEST);
+        assert_ne!(hex(Sha256::digest(bytes)), PRE_MANIFEST);
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
         assert_ne!(target["manifest_sha256"], ENGINE.target_manifest().unwrap());
         assert!(matches!(

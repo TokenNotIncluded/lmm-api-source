@@ -16,7 +16,8 @@ use crate::{
     identity::{self, CredentialKind},
     model_http::ModelGateway,
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -193,11 +194,8 @@ fn label(s: &str, max: usize) -> bool {
 }
 fn random(prefix: &str) -> String {
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    format!(
-        "{prefix}{}",
-        crate::hex_codec::encode(bytes)
-    )
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut bytes);
+    format!("{prefix}{}", crate::hex_codec::encode(bytes))
 }
 async fn actor(c: &mut PgConnection, session: &str) -> Result<identity::Principal, Error> {
     let a = identity::authorize_in_transaction(c, session).await?;
@@ -630,7 +628,7 @@ impl AssistantModel {
             .map_err(|_| Error::Unavailable)?;
         let request_id = random("");
         let mut worker = [0u8; 32];
-        OsRng.fill_bytes(&mut worker);
+        rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
         let spec = charging::Request {
             id: request_id.clone(),
             fingerprint: prepared.fingerprint,

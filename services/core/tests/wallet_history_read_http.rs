@@ -27,8 +27,7 @@ mod database_snapshot;
 mod runtime;
 #[path = "../src/wallet_history_read_http.rs"]
 mod wallet_history_read_http;
-#[path = "../src/wallet_topup_snapshot.rs"]
-mod wallet_topup_snapshot;
+use lmm_core::wallet_topup_snapshot;
 
 fn app(identity: &IdentityStore) -> Router {
     wallet_history_read_http::router(wallet_history_read_http::WalletHistoryReadHttp::new(
@@ -290,7 +289,10 @@ async fn imported_legacy_history_is_exact_scoped_and_read_only(pool: PgPool) {
     );
     let apply_sql = String::from_utf8(generated.stdout).unwrap();
     let before_import = database_snapshot::snapshot(&pool).await;
-    sqlx::raw_sql(&apply_sql).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&apply_sql))
+        .execute(&pool)
+        .await
+        .unwrap();
     let after_import = database_snapshot::snapshot(&pool).await;
     for (table, rows) in &before_import {
         if table != "r:core_migration.import_runs" {
@@ -304,11 +306,11 @@ async fn imported_legacy_history_is_exact_scoped_and_read_only(pool: PgPool) {
     core_schema::check(&pool).await.unwrap();
 
     let role = crate::runtime::RuntimeRole::create(&pool).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA core_migration TO {0}; \
          GRANT SELECT (migration_id,manifest) ON core_migration.import_runs TO {0}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -385,7 +387,10 @@ async fn imported_legacy_history_is_exact_scoped_and_read_only(pool: PgPool) {
 
     // A concurrent-safe retry of the exact receipt changes neither rows nor ledger.
     let before_retry = database_snapshot::snapshot(&pool).await;
-    sqlx::raw_sql(&apply_sql).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&apply_sql))
+        .execute(&pool)
+        .await
+        .unwrap();
     let retry = sqlx::query(
         "SELECT count(*) FROM core_migration.import_runs WHERE migration_id=$1 AND manifest=$2",
     )

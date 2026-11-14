@@ -1,4 +1,5 @@
 //! Synthetic signed provider events exercise the real Core payment authority.
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use lmm_core::{
     community_read::{CashPeriodRequest, CommunityRead, UsersInfoRequest},

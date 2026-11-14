@@ -23,7 +23,9 @@ mod navigation_options;
 mod payment_discount_management;
 mod payment_discounts;
 mod payment_gateways;
+mod registry;
 mod request_operations;
+mod responses_continuity;
 mod subscription_epay;
 mod subscription_pancake_language;
 mod suffix;
@@ -199,7 +201,7 @@ fn quote(value: &str) -> String {
 fn manifest_sha256() -> Result<String, UpgradeError> {
     let mut bytes = serde_json::to_vec(&schema_manifest()).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
-    Ok(hex(&Sha256::digest(bytes)))
+    Ok(hex(Sha256::digest(bytes)))
 }
 // The reviewed Core24/25/26 producers all used these exact routing bytes.
 // Reconstruction preserves historical identity; it never authorizes applying
@@ -207,7 +209,7 @@ fn manifest_sha256() -> Result<String, UpgradeError> {
 const PRE_ROUTING: &str = "d8a0906d52ca8ca0a7c136f035d579e04ecd5cbc790de31018998190f892cd3e";
 
 fn authorize_routing_target(ddl: &str) -> Result<(), UpgradeError> {
-    if hex(&Sha256::digest(ddl)) != PRE_ROUTING {
+    if hex(Sha256::digest(ddl)) != PRE_ROUTING {
         return Err(reject("UPGRADE_DB_USE_PRESERVED_ROUTING_INSTALLER"));
     }
     Ok(())
@@ -236,63 +238,9 @@ impl UpgradeRequest {
         Ok(request)
     }
     fn validate(&self) -> Result<(), UpgradeError> {
-        if self.procedure == payment_discount_management::PROCEDURE {
-            return payment_discount_management::validate(self);
-        }
-        if self.procedure == payment_discounts::PROCEDURE {
-            return payment_discounts::validate(self);
-        }
-        if self.procedure == subscription_pancake_language::PROCEDURE {
-            return subscription_pancake_language::validate(self);
-        }
-        if self.procedure == core59_to62::PROCEDURE {
-            return core59_to62::validate(self);
-        }
-        if self.procedure == subscription_epay::PROCEDURE {
-            return subscription_epay::validate(self);
-        }
-        if self.procedure == commerce_display_rate::PROCEDURE {
-            return commerce_display_rate::validate(self);
-        }
-        if self.procedure == channel_projection::PROCEDURE {
-            return channel_projection::validate(self);
-        }
-        if self.procedure == navigation_options::PROCEDURE {
-            return navigation_options::validate(self);
-        }
-        if self.procedure == channel_observations::PROCEDURE {
-            return channel_observations::validate(self);
-        }
-        if self.procedure == trust_policy::PROCEDURE {
-            return trust_policy::validate(self);
-        }
-        if self.procedure == channel_accounting::PROCEDURE {
-            return channel_accounting::validate(self);
-        }
-        if self.procedure == account_appeals::PROCEDURE {
-            return account_appeals::validate(self);
-        }
-        if self.procedure == completion::PROCEDURE {
-            return completion::validate(self);
-        }
-        if self.procedure == coinbase_payments::PROCEDURE {
-            return coinbase_payments::validate(self);
-        }
-        if self.procedure == request_operations::PROCEDURE {
-            return request_operations::validate(self);
-        }
-        if self.procedure == ledger::PROCEDURE {
-            return ledger::validate(self);
-        }
-        if self.procedure == additive::PROCEDURE {
-            return additive::validate(self);
-        }
-        if self.procedure == finance::PROCEDURE {
-            return finance::validate(self);
-        }
-        if self.procedure == payment_gateways::PROCEDURE {
-            return payment_gateways::validate(self);
-        }
+        registry::Spec::new(self).validate()
+    }
+    fn validate_trust(&self) -> Result<(), UpgradeError> {
         if self.version != 1
             || self.procedure != PROCEDURE
             || !(16..=96).contains(&self.upgrade_id.len())
@@ -341,71 +289,7 @@ impl UpgradeRequest {
         Ok(())
     }
     fn authorize_target(&self) -> Result<(), UpgradeError> {
-        self.validate()?;
-        if self.procedure == payment_discount_management::PROCEDURE {
-            return payment_discount_management::authorize_target();
-        }
-        if self.procedure == payment_discounts::PROCEDURE {
-            return payment_discounts::authorize_target();
-        }
-        if self.procedure == subscription_pancake_language::PROCEDURE {
-            return subscription_pancake_language::authorize_target();
-        }
-        if self.procedure == core59_to62::PROCEDURE {
-            return core59_to62::authorize_target();
-        }
-        if self.procedure == subscription_epay::PROCEDURE {
-            return subscription_epay::authorize_target();
-        }
-        if self.procedure == commerce_display_rate::PROCEDURE {
-            return commerce_display_rate::authorize_target();
-        }
-        if self.procedure == channel_projection::PROCEDURE {
-            return channel_projection::authorize_target();
-        }
-        if self.procedure == navigation_options::PROCEDURE {
-            return navigation_options::authorize_target();
-        }
-        if self.procedure == channel_observations::PROCEDURE {
-            return channel_observations::authorize_target();
-        }
-        if self.procedure == trust_policy::PROCEDURE {
-            return trust_policy::authorize_target();
-        }
-        if self.procedure == channel_accounting::PROCEDURE {
-            return channel_accounting::authorize_target();
-        }
-        if self.procedure == account_appeals::PROCEDURE {
-            return account_appeals::authorize_target();
-        }
-        if self.procedure == completion::PROCEDURE {
-            return completion::authorize_target();
-        }
-        if self.procedure == coinbase_payments::PROCEDURE {
-            return coinbase_payments::authorize_target();
-        }
-        if self.procedure == request_operations::PROCEDURE {
-            return request_operations::authorize_target();
-        }
-        if self.procedure == finance::PROCEDURE {
-            return finance::authorize_target();
-        }
-        if self.procedure == payment_gateways::PROCEDURE {
-            return payment_gateways::authorize_target();
-        }
-        let routing = COMPONENTS
-            .iter()
-            .find(|(name, _)| *name == "routing")
-            .ok_or(UpgradeError::Storage)?
-            .1;
-        authorize_routing_target(routing)?;
-        if self.procedure == ledger::PROCEDURE {
-            ledger::authorize_target()
-        } else if self.procedure == additive::PROCEDURE {
-            additive::authorize_target()
-        } else {
-            compiled_predecessor().map(|_| ())
-        }
+        registry::Spec::new(self).authorize_target()
     }
     fn digest(&self) -> Result<Vec<u8>, UpgradeError> {
         // serde field order is fixed by the typed request; whitespace/key order is not authority.
@@ -418,11 +302,11 @@ fn compiled_predecessor() -> Result<BTreeMap<String, String>, UpgradeError> {
     // reserialization: its exact stdout (including LF) was observed on e8b77.
     let mut predecessor_manifest = schema_manifest();
     predecessor_manifest.components.truncate(24);
-    predecessor_manifest.installer_contract_sql_sha256 = hex(&Sha256::digest(super::CONTRACT));
+    predecessor_manifest.installer_contract_sql_sha256 = hex(Sha256::digest(super::CONTRACT));
     let mut producer_bytes =
         serde_json::to_vec(&predecessor_manifest).map_err(|_| UpgradeError::Storage)?;
     producer_bytes.push(b'\n');
-    if hex(&Sha256::digest(producer_bytes)) != PRE_MANIFEST {
+    if hex(Sha256::digest(producer_bytes)) != PRE_MANIFEST {
         return Err(reject("UPGRADE_DB_COMPILED_PREDECESSOR_DRIFT"));
     }
     let frozen: serde_json::Value =
@@ -434,22 +318,22 @@ fn compiled_predecessor() -> Result<BTreeMap<String, String>, UpgradeError> {
         || COMPONENTS.len() != 25
         || frozen["schema_manifest_stdout_sha256"] != PRE_MANIFEST
         || frozen["catalog_sha256"] != PRE_CATALOG
-        || frozen["manifest"]["catalog"]["query_sha256"] != hex(&Sha256::digest(super::CATALOG))
+        || frozen["manifest"]["catalog"]["query_sha256"] != hex(Sha256::digest(super::CATALOG))
         || frozen["manifest"]["installer_contract_sql_sha256"]
-            != hex(&Sha256::digest(super::CONTRACT))
+            != hex(Sha256::digest(super::CONTRACT))
     {
         return Err(reject("UPGRADE_DB_COMPILED_PREDECESSOR_DRIFT"));
     }
     let mut expected = BTreeMap::new();
     for (item, (name, ddl)) in items.iter().zip(COMPONENTS) {
-        let digest = hex(&Sha256::digest(ddl));
+        let digest = hex(Sha256::digest(ddl));
         if item["name"] != *name || item["raw_schema_sha256"] != digest {
             return Err(reject("UPGRADE_DB_COMPILED_PREDECESSOR_DRIFT"));
         }
         expected.insert((*name).to_owned(), digest);
     }
     if COMPONENTS[24].0 != "trust-pricing"
-        || hex(&Sha256::digest(COMPONENTS[24].1)) != COMPONENT_25_DDL
+        || hex(Sha256::digest(COMPONENTS[24].1)) != COMPONENT_25_DDL
     {
         return Err(reject("UPGRADE_DB_COMPONENT_ORDER_INVALID"));
     }
@@ -462,49 +346,10 @@ pub async fn upgrade_database(
     url: &str,
     request: UpgradeRequest,
 ) -> Result<UpgradeReport, UpgradeError> {
-    request.authorize_target()?;
+    let spec = registry::Spec::new(&request);
+    spec.authorize_target()?;
     let mut connection = PgConnection::connect(url).await?;
-    let result = if request.procedure == payment_discount_management::PROCEDURE {
-        payment_discount_management::connected(&mut connection, &request).await
-    } else if request.procedure == payment_discounts::PROCEDURE {
-        payment_discounts::connected(&mut connection, &request).await
-    } else if request.procedure == subscription_pancake_language::PROCEDURE {
-        subscription_pancake_language::connected(&mut connection, &request).await
-    } else if request.procedure == core59_to62::PROCEDURE {
-        core59_to62::connected(&mut connection, &request).await
-    } else if request.procedure == subscription_epay::PROCEDURE {
-        subscription_epay::connected(&mut connection, &request).await
-    } else if request.procedure == commerce_display_rate::PROCEDURE {
-        commerce_display_rate::connected(&mut connection, &request).await
-    } else if request.procedure == navigation_options::PROCEDURE {
-        navigation_options::connected(&mut connection, &request).await
-    } else if request.procedure == channel_observations::PROCEDURE {
-        channel_observations::connected(&mut connection, &request).await
-    } else if request.procedure == trust_policy::PROCEDURE {
-        trust_policy::connected(&mut connection, &request).await
-    } else if request.procedure == channel_projection::PROCEDURE {
-        channel_projection::connected(&mut connection, &request).await
-    } else if request.procedure == channel_accounting::PROCEDURE {
-        channel_accounting::connected(&mut connection, &request).await
-    } else if request.procedure == account_appeals::PROCEDURE {
-        account_appeals::connected(&mut connection, &request).await
-    } else if request.procedure == completion::PROCEDURE {
-        completion::connected(&mut connection, &request).await
-    } else if request.procedure == coinbase_payments::PROCEDURE {
-        coinbase_payments::connected(&mut connection, &request).await
-    } else if request.procedure == request_operations::PROCEDURE {
-        request_operations::connected(&mut connection, &request).await
-    } else if request.procedure == ledger::PROCEDURE {
-        ledger::connected(&mut connection, &request).await
-    } else if request.procedure == additive::PROCEDURE {
-        additive::connected(&mut connection, &request).await
-    } else if request.procedure == finance::PROCEDURE {
-        finance::connected(&mut connection, &request).await
-    } else if request.procedure == payment_gateways::PROCEDURE {
-        payment_gateways::connected(&mut connection, &request).await
-    } else {
-        upgrade_connected(&mut connection, &request).await
-    };
+    let result = spec.connected(&mut connection).await;
     // No pool, reconnect, background retry, ALTER ROLE, or automatic privilege repair.
     let _ = connection.close().await;
     result
@@ -531,9 +376,12 @@ async fn begin_offline_upgrade<'a>(
     if session != r.roles.installer {
         return Err(reject("UPGRADE_DB_INSTALLER_MISMATCH"));
     }
-    sqlx::query(&format!("SET ROLE {}", quote(&r.roles.owner)))
-        .execute(&mut *c)
-        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET ROLE {}",
+        quote(&r.roles.owner)
+    )))
+    .execute(&mut *c)
+    .await?;
     preflight(c, r).await?; // NOLOGIN is already committed before BEGIN.
     let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&mut *c)
@@ -557,18 +405,22 @@ async fn begin_offline_upgrade<'a>(
     // migration locks and return the original catalog-sorted preservation list.
     for &source in super::channel_projection::SOURCE_LOCK_ORDER {
         if tables.iter().any(|table| table == source) {
-            sqlx::query(&format!("LOCK TABLE {source} IN ACCESS EXCLUSIVE MODE"))
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "LOCK TABLE {source} IN ACCESS EXCLUSIVE MODE"
+            )))
+            .execute(&mut *tx)
+            .await?;
         }
     }
     for table in &tables {
         if super::channel_projection::SOURCE_LOCK_ORDER.contains(&table.as_str()) {
             continue;
         }
-        sqlx::query(&format!("LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"
+        )))
+        .execute(&mut *tx)
+        .await?;
     }
     preflight(&mut tx, r).await?;
     Ok((tx, backend_pid, tables))
@@ -591,7 +443,7 @@ async fn upgrade_connected(
         return Ok(result);
     }
     let before = definitions(&mut tx).await?;
-    if hex(&fingerprint(&before)) != PRE_CATALOG || tables.len() != 149 {
+    if hex(fingerprint(&before)) != PRE_CATALOG || tables.len() != 149 {
         return Err(reject("UPGRADE_DB_PREDECESSOR_CATALOG_MISMATCH"));
     }
     let sequences: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -614,13 +466,13 @@ async fn upgrade_connected(
     let data = old_data(&mut tx, &tables).await?;
     sqlx::raw_sql(COMPONENTS[24].1).execute(&mut *tx).await?;
     sqlx::raw_sql(UPGRADE_METADATA).execute(&mut *tx).await?;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA core_trust_pricing TO {}",
         quote(&r.roles.runtime)
-    ))
+    )))
     .execute(&mut *tx)
     .await?;
-    sqlx::query(&format!("GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,core_trust_pricing.legacy_paid_orders,core_meta.schema_upgrades TO {}",quote(&r.roles.runtime)))
+    sqlx::query(sqlx::AssertSqlSafe(format!("GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,core_trust_pricing.legacy_paid_orders,core_meta.schema_upgrades TO {}",quote(&r.roles.runtime))))
         .execute(&mut *tx).await?;
     check_new_privileges(&mut tx, r).await?;
     let after = definitions(&mut tx).await?;
@@ -970,7 +822,7 @@ async fn old_data(
         ) {
             continue;
         }
-        sqlx::query(&format!("DECLARE core_upgrade_preserved_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(digest,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) AS digest FROM {table} t) d GROUP BY digest ORDER BY digest"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("DECLARE core_upgrade_preserved_rows NO SCROLL CURSOR FOR SELECT json_build_array(encode(digest,'hex'),count(*)::text)::text FROM (SELECT sha256(convert_to(to_jsonb(t)::text,'UTF8')) AS digest FROM {table} t) d GROUP BY digest ORDER BY digest")))
             .execute(&mut *c).await?;
         let mut hash = Sha256::new();
         loop {
@@ -999,9 +851,9 @@ async fn old_data(
         return Err(reject("UPGRADE_DB_SEQUENCE_SET_CHANGED"));
     }
     for sequence in sequences {
-        let state: String = sqlx::query_scalar(&format!(
+        let state: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT json_build_array(last_value,log_cnt,is_called)::text FROM {sequence}"
-        ))
+        )))
         .fetch_one(&mut *c)
         .await?;
         result.insert(
@@ -1090,7 +942,7 @@ async fn resolve(c: &mut PgConnection, r: &UpgradeRequest) -> Result<UpgradeRepo
     }
     let changes: sqlx::types::Json<Vec<ImageDefinitionChange>> =
         row.try_get("image_definition_changes")?;
-    if hex(&fingerprint(&without_additions(&live, &changes.0)?)) != PRE_CATALOG {
+    if hex(fingerprint(&without_additions(&live, &changes.0)?)) != PRE_CATALOG {
         return Err(reject(
             "UPGRADE_DB_SUCCESSOR_PREDECESSOR_PROJECTION_MISMATCH",
         ));

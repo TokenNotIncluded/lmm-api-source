@@ -1,6 +1,7 @@
 //! Real PostgreSQL payment acceptance with synthetic endpoint signatures only.
 //! SQLx creates a new owned database per test; never point DATABASE_URL at live data.
 #![cfg(unix)]
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use lmm_core::{
     billing::{
@@ -237,10 +238,12 @@ async fn referral(pool: &PgPool) -> (Fixture, i64) {
         "synthetic importer failed: {}",
         String::from_utf8_lossy(&plan.stderr)
     );
-    sqlx::raw_sql(std::str::from_utf8(&plan.stdout).unwrap())
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(
+        std::str::from_utf8(&plan.stdout).unwrap(),
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
     // Raw registration grant is retained for history, never posted a second time.
     assert_eq!(
         f.ledger
@@ -663,13 +666,13 @@ async fn frozen_source_import_then_trusted_payment_and_refund(pool: PgPool) {
     let raw = std::fs::read(source_path).unwrap();
     use sha2::Digest;
     assert_eq!(
-        format!("{:x}", Sha256::digest(&raw)),
+        hex_codec::encode(Sha256::digest(&raw)),
         "fc7112f6f25121cb0894b556b9d6bc5ee0f1a502f2d799f93c01d5c32dd9e09a"
     );
     let doc: Value = serde_json::from_slice(&raw).unwrap();
     let plan = std::fs::read_to_string(plan_path).unwrap();
     assert_eq!(
-        format!("{:x}", Sha256::digest(plan.as_bytes())),
+        hex_codec::encode(Sha256::digest(plan.as_bytes())),
         "9d6ae3672b76be944960babbc3b458dcc12db7b152af8189be4a62ed7ce79e19"
     );
     lmm_core::core_schema::init(&pool).await.unwrap();
@@ -699,7 +702,7 @@ async fn frozen_source_import_then_trusted_payment_and_refund(pool: PgPool) {
         affiliate_sum += i128::from(affiliate);
         sqlx::query("SELECT core_billing.import_opening_balance($1)")
             .bind(json!({"migration_id":"referral-native-20261104","source_archive_sha256":doc["source_archive_sha256"],
-                "mapping_sha256":"b".repeat(64),"source_row_sha256":format!("{:x}",Sha256::digest(serde_json::to_vec(user).unwrap())),
+                "mapping_sha256":"b".repeat(64),"source_row_sha256":hex_codec::encode(Sha256::digest(serde_json::to_vec(user).unwrap())),
                 "source_entity_key":format!("user:{id}"),"account_id":accounts[&id],"observed_at":doc["observed_at"],
                 "available_units":0,"reserved_units":0,"affiliate_units":affiliate}))
             .execute(&mut *tx).await.unwrap_or_else(|_|panic!("private source opening refused; inspect private PG log"));
@@ -720,7 +723,7 @@ async fn frozen_source_import_then_trusted_payment_and_refund(pool: PgPool) {
             .bind(id).bind(format!("synthetic_source_{id}")).bind(user["email"].as_str().unwrap()).execute(&mut *tx).await.unwrap();
     }
     tx.commit().await.unwrap();
-    sqlx::raw_sql(&plan)
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&plan))
         .execute(&pool)
         .await
         .unwrap_or_else(|_| panic!("private source import refused; inspect private PG log"));
@@ -775,3 +778,6 @@ async fn frozen_source_import_then_trusted_payment_and_refund(pool: PgPool) {
         "private source verified: bindings=1239 rewards=269 historical_entries=472 executable_pending=133; registration import effects=0; trusted Store tail/refund exact"
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::{Client, header::HeaderValue, redirect::Policy};
-use rsa::{Pkcs1v15Sign, RsaPrivateKey, pkcs8::DecodePrivateKey, traits::PublicKeyParts};
+use rsa::{Pkcs1v15Sign, PrivateKey, pkcs8::DecodePrivateKey, traits::PublicKeyParts};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
@@ -23,12 +23,12 @@ const LIVE_REFUND_ENDPOINT: &str = "https://api.waffo.com/api/v1/refund/inquiry"
 pub(crate) struct Inquiry {
     client: Client,
     api_key: HeaderValue,
-    private_key: RsaPrivateKey,
+    private_key: PrivateKey,
     test_endpoint: Option<String>,
 }
 
 fn client() -> reqwest::ClientBuilder {
-    Client::builder()
+    crate::http_client::builder()
         .no_proxy()
         .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(2))
@@ -49,12 +49,12 @@ impl Inquiry {
         api_key.set_sensitive(true);
         let private_key = private_key.trim();
         let key = if private_key.starts_with("-----BEGIN PRIVATE KEY-----") {
-            RsaPrivateKey::from_pkcs8_pem(private_key).map_err(|_| Error::Invalid)?
+            PrivateKey::from_pkcs8_pem(private_key).map_err(|_| Error::Invalid)?
         } else {
             let der = Zeroizing::new(STANDARD.decode(private_key).map_err(|_| Error::Invalid)?);
-            RsaPrivateKey::from_pkcs8_der(&der).map_err(|_| Error::Invalid)?
+            PrivateKey::from_pkcs8_der(&der).map_err(|_| Error::Invalid)?
         };
-        if !(2048..=8192).contains(&key.n().bits()) || key.validate().is_err() {
+        if !(2048..=8192).contains(&key.n().bit_width()) || key.validate().is_err() {
             return Err(Error::Invalid);
         }
         Ok(Self {
@@ -118,7 +118,7 @@ impl Inquiry {
         let signature = self
             .private_key
             .sign_with_rng(
-                &mut rand::rngs::OsRng,
+                &mut rand::rngs::SysRng,
                 Pkcs1v15Sign::new::<Sha256>(),
                 &Sha256::digest(&body),
             )
@@ -273,13 +273,13 @@ pub(super) mod tests {
         signature: Option<String>,
     }
     struct ServerState {
-        key: rsa::RsaPublicKey,
+        key: rsa::PublicKey,
         reply: Mutex<Reply>,
         calls: AtomicUsize,
     }
     pub(crate) struct Fixture {
         endpoint: String,
-        key: RsaPrivateKey,
+        key: PrivateKey,
         state: Arc<ServerState>,
         task: tokio::task::JoinHandle<()>,
     }
@@ -289,7 +289,7 @@ pub(super) mod tests {
         }
     }
     impl Fixture {
-        pub(crate) async fn start(key: RsaPrivateKey) -> Self {
+        pub(crate) async fn start(key: PrivateKey) -> Self {
             let state = Arc::new(ServerState {
                 key: key.to_public_key(),
                 reply: Mutex::new(Reply {
@@ -405,7 +405,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn inquiry_checks_account_payment_and_bounded_provider_response() {
         use rand::{SeedableRng, rngs::StdRng};
-        let key = RsaPrivateKey::new(&mut StdRng::seed_from_u64(924), 2048).unwrap();
+        let key = PrivateKey::new(&mut StdRng::seed_from_u64(924), 2048).unwrap();
         let fixture = Fixture::start(key.clone()).await;
         let inquiry = fixture.inquiry();
         let mut channel = Channel::stripe_test(1, "merchant_fixture".into(), "unused".into(), 100);

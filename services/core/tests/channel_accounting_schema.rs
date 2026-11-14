@@ -98,10 +98,10 @@ async fn accounting_constraints_and_runtime_authority(pool: PgPool) {
     let mut c = role.pool.acquire().await.unwrap();
     accounting::check(&mut c, true).await.unwrap();
     drop(c);
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE EXECUTE ON FUNCTION public.routing_control_balance_lock() FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -111,10 +111,10 @@ async fn accounting_constraints_and_runtime_authority(pool: PgPool) {
         RuntimeDatabaseError::MissingPrivileges
     );
     drop(c);
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT EXECUTE ON FUNCTION public.routing_control_balance_lock() TO {} WITH GRANT OPTION",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -124,10 +124,10 @@ async fn accounting_constraints_and_runtime_authority(pool: PgPool) {
         RuntimeDatabaseError::UnsafePrivileges
     );
     drop(c);
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.routing_control_balance_lock() FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -153,20 +153,26 @@ async fn accounting_constraints_and_runtime_authority(pool: PgPool) {
         "SELECT ON core_meta.channel_accounting_upgrades",
         "UPDATE(channel_id) ON core_channels.balance_observations",
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         let mut c = role.pool.acquire().await.unwrap();
         assert_eq!(
             accounting::check(&mut c, false).await.unwrap_err(),
             RuntimeDatabaseError::UnsafePrivileges
         );
         drop(c);
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     sqlx::raw_sql("GRANT SELECT ON core_meta.channel_accounting_upgrades TO PUBLIC")
         .execute(&pool)
@@ -183,21 +189,23 @@ async fn accounting_constraints_and_runtime_authority(pool: PgPool) {
         .await
         .unwrap();
     let inherited = format!("{}_extra", role.name);
-    sqlx::raw_sql(&format!("CREATE ROLE {inherited} NOLOGIN; GRANT UPDATE(gross_credits) ON core_channels.counter_baselines TO {inherited}; GRANT {inherited} TO {}",role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {inherited} NOLOGIN; GRANT UPDATE(gross_credits) ON core_channels.counter_baselines TO {inherited}; GRANT {inherited} TO {}",role.name))).execute(&pool).await.unwrap();
     let mut c = role.pool.acquire().await.unwrap();
     assert_eq!(
         accounting::check(&mut c, false).await.unwrap_err(),
         RuntimeDatabaseError::UnsafePrivileges
     );
     drop(c);
-    sqlx::raw_sql(&format!("DROP OWNED BY {inherited}; DROP ROLE {inherited}"))
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP OWNED BY {inherited}; DROP ROLE {inherited}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE INSERT ON core_channels.counter_baselines FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

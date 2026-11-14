@@ -23,13 +23,14 @@ pub async fn install(pool: &sqlx::PgPool) {
     let mut bytes = serde_json::to_vec(&manifest).unwrap();
     bytes.push(b'\n');
     assert_eq!(
-        format!("{:x}", Sha256::digest(bytes)),
+        hex_codec::encode(Sha256::digest(bytes)),
         "7e69eafaa516a67dfc1b719ae2f5a950a90596f912f47d187422c470f9c170ee"
     );
-    let definitions: Vec<String> = sqlx::query_scalar(manifest.catalog.query_utf8)
-        .fetch_all(&mut *tx)
-        .await
-        .unwrap();
+    let definitions: Vec<String> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(manifest.catalog.query_utf8))
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
     let mut hash = Sha256::new();
     for definition in definitions {
         hash.update((definition.len() as u64).to_be_bytes());
@@ -37,7 +38,7 @@ pub async fn install(pool: &sqlx::PgPool) {
     }
     let catalog = hash.finalize();
     assert_eq!(
-        format!("{catalog:x}"),
+        hex_codec::encode(catalog),
         "c1b305360f39946be511368c8aba21635158dc767ca65eaab380784673a5d9a6"
     );
     sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1 WHERE singleton")
@@ -47,3 +48,5 @@ pub async fn install(pool: &sqlx::PgPool) {
         .unwrap();
     tx.commit().await.unwrap();
 }
+
+use crate::hex_codec;

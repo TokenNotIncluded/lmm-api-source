@@ -224,7 +224,7 @@ impl HoneypotGateway {
         digest.update(b"lmm-model-admission-v1\0");
         digest.update(secret.as_bytes());
         digest.update(nonce.as_bytes());
-        let id = format!("{:x}", digest.finalize());
+        let id = crate::hex_codec::encode(digest.finalize());
         let Some(admission) = timeout(
             self.ceiling.hook_timeout,
             self.store.admit_model(

@@ -172,7 +172,7 @@ async fn financial(pool: &PgPool) -> Value {
         "core_events.deliveries",
         "core_events.inbox",
     ] {
-        let v:Value=sqlx::query_scalar(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {table} t")).fetch_one(pool).await.unwrap();
+        let v:Value=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {table} t"))).fetch_one(pool).await.unwrap();
         out.insert(table.into(), v);
     }
     Value::Object(out)

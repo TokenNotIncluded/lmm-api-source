@@ -55,7 +55,7 @@ impl GoogleOAuth {
         {
             return Err(IdentityError::Invalid);
         }
-        let client = Client::builder()
+        let client = crate::http_client::builder()
             .https_only(true)
             .redirect(Policy::none())
             .connect_timeout(Duration::from_secs(3))

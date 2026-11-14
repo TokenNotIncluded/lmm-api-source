@@ -36,7 +36,7 @@ async fn projection_and_opening_runtime_authority(pool: PgPool) {
         "(1,-1,0,0,1)",
         "(1,-1,0,'NaN',0)",
     ] {
-        let error=sqlx::raw_sql(&format!("INSERT INTO core_channels.usage_rollups(channel_id,day,bucket,gross_credits,refunded_credits) VALUES{values}"))
+        let error=sqlx::raw_sql(sqlx::AssertSqlSafe(format!("INSERT INTO core_channels.usage_rollups(channel_id,day,bucket,gross_credits,refunded_credits) VALUES{values}")))
             .execute(&role.pool).await.unwrap_err();
         assert_eq!(
             error.as_database_error().unwrap().code().as_deref(),
@@ -80,10 +80,13 @@ async fn projection_and_opening_runtime_authority(pool: PgPool) {
         "EXECUTE ON FUNCTION core_channels.mark_projection_dirty()",
         "EXECUTE ON FUNCTION core_channels.check_opening_copy()",
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         let mut c = role.pool.acquire().await.unwrap();
         assert_eq!(
             projection::check(&mut c, false).await.unwrap_err(),
@@ -91,10 +94,13 @@ async fn projection_and_opening_runtime_authority(pool: PgPool) {
             "{grant}"
         );
         drop(c);
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     let mut c = role.pool.acquire().await.unwrap();
     projection::check(&mut c, true).await.unwrap();

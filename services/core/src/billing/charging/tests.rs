@@ -122,7 +122,9 @@ async fn owner_seed_sql(
     sql: &str,
 ) -> std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
     let mut tx = owner_seed(pool).await;
-    let result = sqlx::raw_sql(sql).execute(&mut *tx).await?;
+    let result = sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(result)
 }
@@ -230,10 +232,12 @@ async fn session_without_assurance_cannot_write_budget(pool: PgPool) {
         "core_charging.policy_events",
         "test_ledger_commands",
     ] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {relation}"))
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {relation}"
+        )))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(count, 0, "unproved session changed {relation}");
     }
     engine.set_budget(MEMBER_SESSION, &budget).await.unwrap();

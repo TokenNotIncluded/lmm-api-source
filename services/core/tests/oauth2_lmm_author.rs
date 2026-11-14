@@ -238,7 +238,7 @@ async fn runtime_issuer(pool: &PgPool) -> (runtime::RuntimeRole, LmmIssuer) {
         );
         role.optional("web_identity").await;
         // These are issuer-state privileges; policy tables remain SELECT-only.
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             r#"
         GRANT USAGE ON SCHEMA core_oauth TO {0};
         GRANT SELECT ON core_oauth.contract TO {0};
@@ -251,7 +251,7 @@ async fn runtime_issuer(pool: &PgPool) -> (runtime::RuntimeRole, LmmIssuer) {
         GRANT EXECUTE ON FUNCTION core_oauth.client_scope_set(text,text[],boolean) TO {0};
     "#,
             role.name
-        ))
+        )))
         .execute(&owner)
         .await
         .unwrap();
@@ -595,7 +595,7 @@ async fn normal_runtime_role_uses_select_only_policy_acl_for_full_grant_lifecycl
                 "SELECT has_table_privilege($1,'SELECT'),has_table_privilege($1,'INSERT,UPDATE,DELETE'),has_any_column_privilege($1,'UPDATE')",
             ).bind(table).fetch_one(&runtime_pool).await.unwrap();
             assert_eq!(acl, (true, false, false), "policy ACL expanded for {table}");
-            let result = sqlx::query(&format!("UPDATE {table} SET {column}={column} WHERE FALSE"))
+            let result = sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {table} SET {column}={column} WHERE FALSE")))
                 .execute(&runtime_pool).await;
             assert!(matches!(result, Err(sqlx::Error::Database(ref error))
                 if error.code().as_deref() == Some("42501")), "policy UPDATE unexpectedly allowed");

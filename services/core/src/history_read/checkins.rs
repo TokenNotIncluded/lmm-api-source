@@ -74,9 +74,9 @@ impl HistoryStore {
         if !mapped {
             return Err(HistoryError::Unavailable);
         }
-        let totals = sqlx::query(&(OWN_ROWS.to_owned()+"SELECT count(*)::bigint AS count,coalesce(sum((data->>'quota_awarded')::numeric),0)::text AS total FROM own"))
+        let totals = sqlx::query(sqlx::AssertSqlSafe(OWN_ROWS.to_owned()+"SELECT count(*)::bigint AS count,coalesce(sum((data->>'quota_awarded')::numeric),0)::text AS total FROM own"))
             .bind(&migration).bind(user).fetch_one(&mut *tx).await?;
-        let records = sqlx::query(&(OWN_ROWS.to_owned()+"SELECT data->>'checkin_date' AS day,(data->>'quota_awarded')::bigint AS award,(data->>'created_at')::bigint AS created FROM own WHERE left(data->>'checkin_date',7)=$3 ORDER BY day DESC"))
+        let records = sqlx::query(sqlx::AssertSqlSafe(OWN_ROWS.to_owned()+"SELECT data->>'checkin_date' AS day,(data->>'quota_awarded')::bigint AS award,(data->>'created_at')::bigint AS created FROM own WHERE left(data->>'checkin_date',7)=$3 ORDER BY day DESC"))
             .bind(&migration).bind(user).bind(month).fetch_all(&mut *tx).await?
             .into_iter().map(|r| Ok(CheckinRecord {checkin_date:r.try_get("day")?,raw_quota_awarded:r.try_get("award")?,source_created_at:r.try_get("created")?}))
             .collect::<std::result::Result<Vec<_>, sqlx::Error>>()?;

@@ -48,7 +48,7 @@ fn preparation(
         maximum_seconds: 30,
     };
     let proof = PreparedReservation::context_max(
-        hex_digest(&request.fingerprint),
+        hex_digest(request.fingerprint),
         ReservationBinding {
             route_id: "synthetic-prepared-route".into(),
             target_id: 1,
@@ -303,6 +303,7 @@ async fn gemini_grounding_frozen_request_fee_reaches_ledger_and_native_bill(pool
     }
     let context = ExternalModelContext {
         responses_compaction: false,
+        responses_continuity: None,
         pre_acceptance_rejection_statuses: Vec::new(),
         upstream_id: 1,
         upstream_model: "small-provider".into(),
@@ -473,6 +474,7 @@ fn exact_gateway(f: &Fixture) -> ModelGateway {
     document.routing.routes[0].targets[0].upstream_model = "synthetic-model-2026-10-01".into();
     let context = ExternalModelContext {
         responses_compaction: false,
+        responses_continuity: None,
         pre_acceptance_rejection_statuses: Vec::new(),
         grounding: None,
 
@@ -1063,6 +1065,7 @@ async fn prepared_contract_restart_keeps_missing_corrupt_and_audit_only_holds(po
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (1, None)
     );
@@ -1119,6 +1122,7 @@ async fn prepared_contract_restart_keeps_missing_corrupt_and_audit_only_holds(po
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (0, None)
     );

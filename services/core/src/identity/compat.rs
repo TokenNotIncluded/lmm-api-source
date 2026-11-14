@@ -6,6 +6,7 @@ use aes_gcm::{
     aead::{Aead, Payload},
 };
 use hkdf::Hkdf;
+use rand::TryRng;
 use serde::Deserialize;
 use std::{collections::HashSet, net::IpAddr};
 
@@ -160,12 +161,12 @@ fn aad(id: i64, user: i64) -> [u8; 24] {
 }
 fn encrypt(key: &[u8], id: i64, user: i64, secret: &str) -> Result<Vec<u8>> {
     let mut nonce = [0_u8; 12];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut nonce)
         .map_err(|_| IdentityError::Storage)?;
     let encrypted = cipher(key)?
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: secret.as_bytes(),
                 aad: &aad(id, user),
@@ -182,7 +183,7 @@ fn decrypt(key: &[u8], id: i64, user: i64, encrypted: &[u8]) -> Result<String> {
     }
     let bytes = cipher(key)?
         .decrypt(
-            Nonce::from_slice(&encrypted[..12]),
+            &Nonce::try_from(&encrypted[..12]).map_err(|_| IdentityError::Storage)?,
             Payload {
                 msg: &encrypted[12..],
                 aad: &aad(id, user),
@@ -318,9 +319,9 @@ async fn owned_key(c: &mut PgConnection, user: i64, id: i64, lock: bool) -> Resu
         return Err(IdentityError::Invalid);
     }
     let suffix = if lock { " FOR UPDATE OF c,s" } else { "" };
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "{KEY_SELECT} AND c.user_id=$1 AND c.id=$2{suffix}"
-    ))
+    )))
     .bind(user)
     .bind(id)
     .fetch_optional(c)
@@ -397,6 +398,14 @@ impl IdentityStore {
         let result = if let Some(row) = row {
             require_developer(&mut tx, actor.user_id).await?;
             let selected: String = row.try_get("group_name")?;
+            if selected != "auto" {
+                let granted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_identity.user_routing_groups WHERE user_id=$1 AND group_name=$2 AND enabled)")
+                    .bind(actor.user_id).bind(&selected).fetch_one(&mut *tx).await?;
+                if !granted {
+                    return Err(IdentityError::Forbidden);
+                }
+            }
+
             let allowed = groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
             let candidates: Vec<String> = if selected == "auto" {
                 let custom: Vec<String> = row.try_get("auto_groups")?;
@@ -547,9 +556,9 @@ impl IdentityStore {
         let actor = session(&mut tx, secret).await?;
         key_management(&mut tx, &actor).await?;
         let where_clause = " AND c.user_id=$1 AND c.revoked_at IS NULL AND ($2='' OR position(lower($2) in lower(s.name))>0) AND ($3::bytea IS NULL OR c.digest=$3) AND $4<>'automatic'";
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{KEY_SELECT}{where_clause} ORDER BY c.id DESC LIMIT $5 OFFSET $6"
-        ))
+        )))
         .bind(actor.user_id)
         .bind(keyword)
         .bind(&token)
@@ -558,9 +567,9 @@ impl IdentityStore {
         .bind((page - 1) * size)
         .fetch_all(&mut *tx)
         .await?;
-        let total: i64 = sqlx::query_scalar(&format!(
+        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM ({KEY_SELECT}{where_clause}) q"
-        ))
+        )))
         .bind(actor.user_id)
         .bind(keyword)
         .bind(&token)

@@ -1,4 +1,5 @@
-//! Input-only APIs retain the same Core authorization, reservation and ledger authority.
+//! Native model operations: input APIs, Responses generation and compaction.
+//! Shared Core authorization, immutable admission and original ledger settlement.
 #[path = "input_contract.rs"]
 pub(super) mod contract;
 #[cfg(test)]
@@ -8,11 +9,22 @@ mod tests;
 use super::*;
 use crate::{
     billing::charging::{self, Outcome},
-    routing::{CreditRate, PayloadPolicy, Protocol, ReplayPermission, RouteRequest},
+    routing::{PayloadPolicy, Protocol, ReplayPermission, RouteRequest},
 };
 use axum::{body::to_bytes, extract::Request};
 use contract::{Kind, Request as InputRequest};
+use rand::Rng as _;
 use tokio::sync::OwnedSemaphorePermit;
+
+type Ready = Arc<Mutex<Option<tokio::sync::oneshot::Sender<Result<(), RelayError>>>>>;
+fn notify_ready(ready: &Ready, result: Result<(), RelayError>) -> bool {
+    if let Some(sender) = ready.lock().ok().and_then(|mut value| value.take()) {
+        let _ = sender.send(result);
+        true
+    } else {
+        false
+    }
+}
 
 pub(super) fn router(gateway: ModelGateway) -> Router {
     Router::new()
@@ -125,6 +137,9 @@ async fn handle(
     if request.streaming() {
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
         let stream_id = id.clone();
+        let timeout = gateway.limits.total_timeout;
+        let (start, started) = tokio::sync::oneshot::channel();
+        let ready = Arc::new(Mutex::new(Some(start)));
         tokio::spawn(async move {
             if let Err(error) = execute(
                 gateway,
@@ -133,12 +148,19 @@ async fn handle(
                 stream_id,
                 permit,
                 Some(sender.clone()),
+                Some(ready.clone()),
             )
             .await
+                && !notify_ready(&ready, Err(error.clone()))
             {
                 let _ = sender.try_send(Err(error));
             }
         });
+        match tokio::time::timeout(timeout, started).await {
+            Ok(Ok(Ok(()))) => (),
+            Ok(Ok(Err(error))) => return with_request_id(public_error(error), &id),
+            _ => return with_request_id(public_error(RelayError::SettlementPending), &id),
+        }
         let response = (
             [
                 (header::CONTENT_TYPE, "text/event-stream"),
@@ -151,7 +173,10 @@ async fn handle(
     }
     // The worker owns its admission slot and settles even if the HTTP client disconnects.
     let worker_id = id.clone();
-    let result = tokio::spawn(execute(gateway, caller, request, worker_id, permit, None)).await;
+    let result = tokio::spawn(execute(
+        gateway, caller, request, worker_id, permit, None, None,
+    ))
+    .await;
     let response = match result {
         Ok(Ok(packet)) => (
             [(header::CONTENT_TYPE, "application/json")],
@@ -185,59 +210,150 @@ pub(super) fn endpoint(base: &str, protocol: Protocol) -> Result<reqwest::Url, R
     Ok(url)
 }
 
-async fn execute(
-    gateway: ModelGateway,
-    caller: native_http::Caller,
-    request: InputRequest,
-    id: String,
-    _permit: OwnedSemaphorePermit,
-    stream: Option<super::responses_native::Sender>,
-) -> Result<Bytes, RelayError> {
+/// Authorized route, exact upstream wire and immutable reservation evidence.
+/// This stage performs no reserve or provider dispatch.
+struct PreparedRequest {
+    parent: Option<super::responses_continuity::Parent>,
+    continuity: Option<super::responses_continuity::Policy>,
+    client_handle: Option<String>,
+    group: String,
+    attempt: Arc<crate::routing::Attempt>,
+    quote: crate::routing::CreditQuote,
+    price: charging::Price,
+    input_max: i64,
+    output_max: u32,
+    credential: String,
+    connection: crate::relay::provider_network::ProviderConnection,
+    upstream_request: reqwest::Request,
+    worker: [u8; 32],
+    fingerprint: [u8; 32],
+    route_id: String,
+    prepared: charging::contract::PreparedReservation,
+    reserve: i64,
+}
+async fn prepare_request(
+    gateway: &ModelGateway,
+    caller: &native_http::Caller,
+    request: &InputRequest,
+    id: &str,
+    streaming: bool,
+) -> Result<PreparedRequest, RelayError> {
     if gateway
         .bridge
         .charging
-        .resolve(&id)
+        .resolve(id)
         .await
         .map_err(billing::error)?
         .is_some()
     {
         return Err(RelayError::Conflict);
     }
+    let parent = if let Some(handle) = request.native().and_then(|r| r.previous()) {
+        Some(super::responses_continuity::resolve(gateway, caller, handle, request.model()).await?)
+    } else {
+        None
+    };
+    let groups = parent
+        .as_ref()
+        .map_or_else(|| caller.groups.clone(), |p| vec![p.group_name.clone()]);
     let protocol = request.kind().protocol();
     let mut selected = None;
-    for group in &caller.groups {
-        if let Ok(plan) = gateway.bridge.routing.route(RouteRequest {
-            model: request.model(),
-            group,
-            speed: None,
-            protocol,
-            replay: ReplayPermission::Denied,
-        }) {
-            gateway
-                .authorize_request(
-                    &caller.principal,
-                    &caller.secret,
-                    plan.canonical_model(),
-                    group,
-                    caller.peer,
-                )
-                .await
-                .map_err(identity_error)?;
-            selected = Some((group.clone(), plan));
-            break;
+    #[cfg(test)]
+    let mut selected_trace = None;
+    if parent.is_none() && request.kind().responses() {
+        let plans = gateway
+            .bridge
+            .routing
+            .route_adapted_groups(request.model(), &groups, protocol, None)
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        // Respect the original authorization/cross_group_retry cut before seeking capability.
+        let authorized = gateway
+            .authorize_model_plans(&caller.principal, &caller.secret, caller.peer, plans)
+            .await?;
+        let require_continuity = request.kind() != Kind::ResponsesCompact
+            && !request
+                .native()
+                .is_some_and(|r| r.opaque() && r.store() != Some(true));
+        for plan in authorized {
+            #[cfg(test)]
+            let trace = gateway.bridge.observe_plan_before(&plan);
+            let eligible = gateway
+                .bridge
+                .provider_policy
+                .responses_capability_targets(
+                    &plan,
+                    if require_continuity {
+                        super::provider_policy::ResponsesCapability::Continuity
+                    } else {
+                        super::provider_policy::ResponsesCapability::Compaction
+                    },
+                )?;
+            if let Ok(plan) = plan.responses_capability(&eligible) {
+                #[cfg(test)]
+                {
+                    gateway.bridge.observe_plan_after(trace, &plan);
+                    selected_trace = trace;
+                }
+                selected = Some((plan.group().to_owned(), plan));
+                break;
+            }
+        }
+        if selected.is_none() {
+            return Err(RelayError::Unsupported(
+                "required native Responses capability unavailable",
+            ));
+        }
+    } else {
+        for group in &groups {
+            let routing_request = RouteRequest {
+                model: request.model(),
+                group,
+                speed: None,
+                protocol,
+                replay: ReplayPermission::Denied,
+            };
+            let routed = if let Some(parent) = &parent {
+                gateway
+                    .bridge
+                    .routing
+                    .route_responses_http_bound(routing_request, parent.binding.target_id)
+            } else {
+                gateway.bridge.routing.route(routing_request)
+            };
+            if let Ok(plan) = routed {
+                gateway
+                    .authorize_request(
+                        &caller.principal,
+                        &caller.secret,
+                        plan.canonical_model(),
+                        group,
+                        caller.peer,
+                    )
+                    .await
+                    .map_err(identity_error)?;
+                selected = Some((group.clone(), plan));
+                break;
+            }
         }
     }
-    let (group, mut plan) = selected.ok_or(RelayError::RouteUnavailable)?;
-    let quote = plan
-        .quote()
-        .with_credit_rate(CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?);
+    let (group, mut plan) = selected.ok_or(if parent.is_some() {
+        RelayError::Invalid("continuation binding unavailable")
+    } else {
+        RelayError::RouteUnavailable
+    })?;
+    let attempt = Arc::new(plan.start().map_err(|_| {
+        if parent.is_some() {
+            RelayError::Invalid("continuation binding unavailable")
+        } else {
+            RelayError::RouteUnavailable
+        }
+    })?);
+    let routing::FrozenTokenPricing { quote, price } = routing::freeze_token_pricing(&attempt)?;
     if !request.kind().responses() && !quote.price().is_input_only_scalar() {
         return Err(RelayError::Unsupported(
             "input-only API requires an input-only token tariff",
         ));
     }
-    let price = routing::credit_price(quote.price(), plan.canonical_model(), &group)?;
-    let attempt = Arc::new(plan.start().map_err(|_| RelayError::RouteUnavailable)?);
     if request.kind().responses() && attempt.protocol() != Protocol::OpenAiResponses {
         return Err(RelayError::Unsupported(
             "compaction requires a native Responses provider",
@@ -250,23 +366,53 @@ async fn execute(
     {
         return Err(RelayError::RouteUnavailable);
     }
-    if request.kind().responses() {
+    routing::require_cache_tariff(
+        request
+            .native()
+            .is_some_and(|r| r.cache_lifetime_requested()),
+        attempt.protocol(),
+        &price,
+    )?;
+    let continuity = if request.kind().responses() {
         gateway
             .bridge
             .provider_policy
-            .require_compaction(&attempt)?;
-        if price.upstream_cost_group_ppm.is_some()
-            || price.text_request.is_some()
-            || price.grounding.is_some()
-            || price.image.is_some()
-            || price.audio.is_some()
-            || price.tool.is_some()
-            || price.tiered.is_some()
+            .continuity_contract(&attempt)?
+    } else {
+        None
+    };
+    if request
+        .native()
+        .is_some_and(|r| r.previous().is_some() || r.store() == Some(true))
+        && continuity.is_none()
+    {
+        return Err(RelayError::Unsupported(
+            "provider does not support stored Responses continuity",
+        ));
+    }
+    if let Some(parent) = &parent {
+        parent.matches(
+            &attempt,
+            plan.canonical_model(),
+            continuity
+                .as_ref()
+                .ok_or(RelayError::Invalid("continuation unavailable"))?,
+        )?;
+    }
+    let client_handle = continuity
+        .as_ref()
+        .map(|_| super::responses_continuity::handle(id));
+    if request.kind().responses() {
+        if request.kind() == Kind::ResponsesCompact
+            || continuity.is_none()
+            || request.native().is_some_and(|r| r.opaque())
         {
-            return Err(RelayError::Unsupported(
-                "native compaction requires scalar token pricing",
-            ));
+            gateway
+                .bridge
+                .provider_policy
+                .require_compaction(&attempt)?;
         }
+        routing::require_native_responses_price(&price)?;
     }
     let output_max = request.output_limit(
         gateway
@@ -302,7 +448,21 @@ async fn execute(
     )
     .await
     .map_err(|_| RelayError::RouteUnavailable)??;
-    let mut wire = request.wire(attempt.upstream_model())?;
+    let mut wire = if continuity.is_some() {
+        request
+            .native()
+            .ok_or(RelayError::Invalid("native continuation request"))?
+            .continuity_wire(attempt.upstream_model())?
+    } else {
+        request.wire(attempt.upstream_model())?
+    };
+    if let Some(parent) = &parent {
+        let mut value: serde_json::Value = serde_json::from_slice(&wire)
+            .map_err(|_| RelayError::Invalid("native parent encoding"))?;
+        value["previous_response_id"] = parent.provider_response_id.clone().into();
+        wire = serde_json::to_vec(&value)
+            .map_err(|_| RelayError::Invalid("native parent encoding"))?;
+    }
     if request.kind() == Kind::ResponsesContext {
         let mut v: serde_json::Value = serde_json::from_slice(&wire)
             .map_err(|_| RelayError::Invalid("native Responses wire"))?;
@@ -318,7 +478,7 @@ async fn execute(
         .bearer_auth(&credential)
         .header(
             header::ACCEPT,
-            if stream.is_some() {
+            if streaming {
                 "text/event-stream"
             } else {
                 "application/json"
@@ -341,45 +501,47 @@ async fn execute(
     fingerprint.update([0]);
     fingerprint.update(group.as_bytes());
     fingerprint.update([0]);
-    fingerprint.update(request.wire(request.model())?);
+    fingerprint.update(if continuity.is_some() {
+        request
+            .native()
+            .ok_or(RelayError::Invalid("native continuation request"))?
+            .continuity_wire(request.model())?
+    } else {
+        request.wire(request.model())?
+    });
     let fingerprint: [u8; 32] = fingerprint.finalize().into();
     let mut worker = [0; 32];
-    OsRng.fill_bytes(&mut worker);
-    let route_id = format!(
-        "r{}-t{}-u{}",
-        attempt.route_id(),
-        attempt.target_id(),
-        attempt.upstream_id()
-    );
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
+    let route_id = attempt.route_key();
     let (provider_revision, semantics) = gateway
         .bridge
         .provider_policy
         .reservation_metadata(&attempt)?;
-    let binding = charging::contract::ReservationBinding {
-        route_id: route_id.clone(),
-        target_id: attempt.target_id(),
-        upstream_id: attempt.upstream_id(),
-        protocol: if request.kind().responses() {
+    let binding = charging::contract::ReservationBinding::for_attempt(
+        &attempt,
+        if request.kind().responses() {
             "responses".into()
         } else {
             request.kind().name().into()
         },
-        model_snapshot: attempt.upstream_model().into(),
-        generation_url: upstream_request.url().as_str().into(),
-        credential_ref: reference,
-        payload_policy_sha256: charging::contract::typed_digest(&attempt.payload_policy())
-            .map_err(billing::error)?,
-        provider_contract_revision: provider_revision,
-        projection_revision: if request.kind().responses() {
+        attempt.upstream_model().into(),
+        upstream_request.url().as_str().into(),
+        provider_revision,
+        if request.kind().responses() {
             "native-json-wire-v1".into()
         } else {
             "input-only-wire-v1".into()
         },
-        quote_version: attempt.quote().version(),
-    };
+        attempt.quote().version(),
+    )
+    .map_err(billing::error)?;
+    #[cfg(test)]
+    gateway
+        .bridge
+        .observe_prepared_binding(selected_trace, &attempt, &binding);
     let prepared = if request.kind().responses() {
         charging::contract::PreparedReservation::context_max(
-            charging::contract::hex_digest(&fingerprint),
+            charging::contract::hex_digest(fingerprint),
             binding,
             charging::contract::digest(&wire),
             charging::contract::ReservationBounds {
@@ -392,7 +554,7 @@ async fn execute(
         )
     } else {
         charging::contract::PreparedReservation::input_only(
-            charging::contract::hex_digest(&fingerprint),
+            charging::contract::hex_digest(fingerprint),
             binding,
             charging::contract::digest(&wire),
             input_max as u64,
@@ -400,14 +562,209 @@ async fn execute(
         )
     }
     .map_err(billing::error)?;
-    crate::request_limits::admit(
-        &gateway.bridge.pool,
-        caller.principal.user_id(),
-        &group,
-        &id,
-    )
-    .await
-    .map_err(routing::admission_error)?;
+    crate::request_limits::admit(&gateway.bridge.pool, caller.principal.user_id(), &group, id)
+        .await
+        .map_err(routing::admission_error)?;
+    Ok(PreparedRequest {
+        parent,
+        continuity,
+        client_handle,
+        group,
+        attempt,
+        quote,
+        price,
+        input_max,
+        output_max,
+        credential,
+        connection,
+        upstream_request,
+        worker,
+        fingerprint,
+        route_id,
+        prepared,
+        reserve,
+    })
+}
+
+/// Trusted terminal handling: exact client bytes, durable receipt, original
+/// settlement, then activation and publication. UNKNOWN retains its hold.
+struct TerminalFinalization<'a> {
+    gateway: &'a ModelGateway,
+    request: &'a InputRequest,
+    id: &'a str,
+    worker: &'a [u8; 32],
+    attempt: &'a crate::routing::Attempt,
+    parent: Option<&'a super::responses_continuity::Parent>,
+    continuity: Option<&'a super::responses_continuity::Policy>,
+    client_handle: Option<&'a str>,
+    credential: &'a str,
+    stream: &'a Option<super::responses_native::Sender>,
+    terminal_event: Option<Bytes>,
+    sequence: u64,
+}
+impl TerminalFinalization<'_> {
+    async fn finish(self, raw: Vec<u8>) -> Result<Bytes, RelayError> {
+        let Self {
+            gateway,
+            request,
+            id,
+            worker,
+            attempt,
+            parent,
+            continuity,
+            client_handle,
+            credential,
+            stream,
+            terminal_event,
+            sequence,
+        } = self;
+        let (mut output, observed) = request.response(&raw)?;
+        let candidate = if request.kind() == Kind::ResponsesContext {
+            if let Some(policy) = &continuity {
+                let stored = request
+                    .native()
+                    .and_then(|r| r.store())
+                    .unwrap_or(policy.default_store);
+                if output
+                    .get("store")
+                    .is_some_and(|v| v.as_bool() != Some(stored))
+                {
+                    return Err(RelayError::Protocol(
+                        "provider storage receipt contradicts contract",
+                    ));
+                }
+                if stored {
+                    Some(super::responses_continuity::Candidate {
+                        provider_response_id: output["id"]
+                            .as_str()
+                            .ok_or(RelayError::SettlementPending)?
+                            .into(),
+                        parent_request_id: parent.as_ref().map(|p| p.request_id.clone()),
+                        public_model: request.model().into(),
+                        policy_sha256: crate::hex_codec::decode(&policy.sha256)
+                            .map_err(|_| RelayError::SettlementPending)?,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(handle) = &client_handle {
+            output["id"] = (*handle).into();
+        }
+        let normalized = serde_json::to_vec(&output).map_err(|_| RelayError::SettlementPending)?;
+        if std::str::from_utf8(&raw).is_ok_and(|value| value.contains(credential))
+            || std::str::from_utf8(&normalized).is_ok_and(|value| value.contains(credential))
+        {
+            return Err(RelayError::SettlementPending);
+        }
+        gateway
+            .bridge
+            .provider_policy
+            .validate_usage(attempt, &observed, false)?;
+        let (frozen, contract) = gateway
+            .bridge
+            .charging
+            .reservation_contract(id)
+            .await
+            .map_err(billing::error)?;
+        let usage = billing::frozen_priced_usage(&contract, &frozen, observed.clone())?;
+        // Encode the JSON client body once, then checkpoint and return these same bytes.
+        let client_json = Bytes::from(normalized);
+        let client_packet = terminal_event.as_ref().unwrap_or(&client_json);
+        gateway
+            .bridge
+            .persist_output_evidence(
+                &relay::Reservation { id: id.to_owned() },
+                &relay::OutputCheckpoint {
+                    sequence,
+                    packet_sha256: Sha256::digest(client_packet).into(),
+                    packet_bytes: client_packet.len(),
+                    usage: observed,
+                    terminal_observed: true,
+                },
+                match candidate.as_ref() {
+                    Some(candidate) => {
+                        super::checkpoints::TerminalEvidence::Continuity { candidate }
+                    }
+                    None => super::checkpoints::TerminalEvidence::Ordinary,
+                },
+            )
+            .await?;
+        let settled = billing::retry(|| {
+            gateway
+                .bridge
+                .charging
+                .settle(id, worker, usage, Outcome::Completed)
+        })
+        .await;
+        let settled = if candidate.is_some()
+            && settled.is_ok()
+            && super::responses_continuity::lose_ack_once("settlement")
+        {
+            Err(charging::Error::CommitUnknown)
+        } else {
+            settled
+        };
+        let settled = match settled {
+            Ok(settled) => Some(settled),
+            Err(charging::Error::CommitUnknown) => gateway
+                .bridge
+                .charging
+                .resolve(id)
+                .await
+                .map_err(billing::error)?,
+            _ => return Err(RelayError::SettlementPending),
+        };
+        if !settled.as_ref().is_some_and(|settled| {
+            billing::confirmed_settlement(settled, id, &frozen.price, usage, Outcome::Completed)
+        }) {
+            return Err(RelayError::SettlementPending);
+        }
+        if candidate.is_some() {
+            super::responses_continuity::crash_at("after_settlement");
+            super::responses_continuity::activate(&gateway.bridge, id).await?;
+            super::responses_continuity::crash_at("after_activation");
+        }
+        if let (Some(sender), Some(event)) = (&stream, terminal_event) {
+            super::responses_native::send_packet(sender, event, &gateway.limits).await?;
+        }
+        Ok(client_json)
+    }
+}
+
+async fn execute(
+    gateway: ModelGateway,
+    caller: native_http::Caller,
+    request: InputRequest,
+    id: String,
+    _permit: OwnedSemaphorePermit,
+    stream: Option<super::responses_native::Sender>,
+    ready: Option<Ready>,
+) -> Result<Bytes, RelayError> {
+    let PreparedRequest {
+        parent,
+        continuity,
+        client_handle,
+        group,
+        attempt,
+        quote,
+        price,
+        input_max,
+        output_max,
+        credential,
+        connection,
+        upstream_request,
+        worker,
+        fingerprint,
+        route_id,
+        prepared,
+        reserve,
+    } = prepare_request(&gateway, &caller, &request, &id, stream.is_some()).await?;
     {
         let mut active = gateway
             .bridge
@@ -507,6 +864,9 @@ async fn execute(
     if !dispatch {
         return Err(RelayError::Conflict);
     }
+    if let Some(ready) = &ready {
+        notify_ready(ready, Ok(()));
+    }
     let mut terminal_event = None;
     let mut sequence = 1;
     let completed = async {
@@ -533,6 +893,7 @@ async fn execute(
                     response,
                     sender,
                     &credential,
+                    client_handle.as_deref(),
                 )
                 .await?;
                 terminal_event = Some(terminal);
@@ -544,67 +905,22 @@ async fn execute(
         })
         .await
         .map_err(|_| RelayError::SettlementPending)??;
-        let (output, observed) = request.response(&raw)?;
-        let normalized = serde_json::to_vec(&output).map_err(|_| RelayError::SettlementPending)?;
-        if std::str::from_utf8(&raw).is_ok_and(|value| value.contains(credential.as_str()))
-            || std::str::from_utf8(&normalized)
-                .is_ok_and(|value| value.contains(credential.as_str()))
-        {
-            return Err(RelayError::SettlementPending);
+        TerminalFinalization {
+            gateway: &gateway,
+            request: &request,
+            id: &id,
+            worker: &worker,
+            attempt: &attempt,
+            parent: parent.as_ref(),
+            continuity: continuity.as_ref(),
+            client_handle: client_handle.as_deref(),
+            credential: &credential,
+            stream: &stream,
+            terminal_event,
+            sequence,
         }
-        gateway
-            .bridge
-            .provider_policy
-            .validate_usage(&attempt, &observed, false)?;
-        let (frozen, contract) = gateway
-            .bridge
-            .charging
-            .reservation_contract(&id)
-            .await
-            .map_err(billing::error)?;
-        let usage = billing::frozen_priced_usage(&contract, &frozen, observed.clone())?;
-        // Encode the JSON client body once, then checkpoint and return these same bytes.
-        let client_json = Bytes::from(normalized);
-        let client_packet = terminal_event.as_ref().unwrap_or(&client_json);
-        gateway
-            .bridge
-            .persist_output(
-                &relay::Reservation { id: id.clone() },
-                &relay::OutputCheckpoint {
-                    sequence,
-                    packet_sha256: Sha256::digest(client_packet).into(),
-                    packet_bytes: client_packet.len(),
-                    usage: observed,
-                    terminal_observed: true,
-                },
-            )
-            .await?;
-        let settled = billing::retry(|| {
-            gateway
-                .bridge
-                .charging
-                .settle(&id, &worker, usage, Outcome::Completed)
-        })
-        .await;
-        let settled = match settled {
-            Ok(settled) => Some(settled),
-            Err(charging::Error::CommitUnknown) => gateway
-                .bridge
-                .charging
-                .resolve(&id)
-                .await
-                .map_err(billing::error)?,
-            _ => return Err(RelayError::SettlementPending),
-        };
-        if !settled.as_ref().is_some_and(|settled| {
-            billing::confirmed_settlement(settled, &id, &frozen.price, usage, Outcome::Completed)
-        }) {
-            return Err(RelayError::SettlementPending);
-        }
-        if let (Some(sender), Some(event)) = (&stream, terminal_event) {
-            super::responses_native::send_packet(sender, event, &gateway.limits).await?;
-        }
-        Ok(client_json)
+        .finish(raw)
+        .await
     }
     .await;
     if completed.is_err() {

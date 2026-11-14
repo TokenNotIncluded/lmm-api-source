@@ -52,8 +52,8 @@ pub struct LegacyPaymentReceipt {
 
 fn digest_id(prefix: &str, value: serde_json::Value) -> String {
     format!(
-        "{prefix}_{:x}",
-        Sha256::digest(value.to_string().as_bytes())
+        "{prefix}_{}",
+        crate::hex_codec::encode(Sha256::digest(value.to_string().as_bytes()))
     )
 }
 
@@ -265,7 +265,11 @@ impl PaymentsStore {
         let transaction = payment_id.as_deref().unwrap_or(&order_id);
         let reference_hash =
             super::hash(json!([b.provider, b.merchant, b.environment, transaction]));
-        let payment_reference = format!("{}:{}", b.provider, crate::hex_codec::encode(reference_hash));
+        let payment_reference = format!(
+            "{}:{}",
+            b.provider,
+            crate::hex_codec::encode(reference_hash)
+        );
         let request = Request {
             scope: "legacy_payments".into(),
             operation_key: operation_id.clone(),

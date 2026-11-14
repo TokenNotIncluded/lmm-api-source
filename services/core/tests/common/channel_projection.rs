@@ -181,10 +181,9 @@ impl Template {
     }
 }
 fn operation_id(id: &str, tag: &str) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap())
-    )
+    hex_codec::encode(Sha256::digest(
+        serde_json::to_vec(&("core-charging-v1", id, tag)).unwrap(),
+    ))
 }
 
 /// 1m requests on channel 1 plus ten sparse channel-2 requests. Both queries
@@ -234,7 +233,7 @@ pub async fn bulk(pool: &PgPool, seeds: [&str; 2]) {
             .await
             .unwrap();
         assert_eq!(
-            sqlx::query(&insert)
+            sqlx::query(sqlx::AssertSqlSafe::<&str>(&insert))
                 .bind(&batch)
                 .execute(&mut *tx)
                 .await
@@ -295,3 +294,5 @@ pub async fn assert_rollups(pool: &PgPool, scale: bool) {
     assert_eq!(delta, 0, "contribution/rollup relational difference");
     tx.commit().await.unwrap();
 }
+
+use crate::hex_codec;

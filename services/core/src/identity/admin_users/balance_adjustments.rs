@@ -108,12 +108,12 @@ async fn subject(c: &mut PgConnection, user_id: i64, write: bool) -> Result<i64>
         return Err(ProfileError::Invalid);
     }
     let lock = if write { " FOR SHARE OF u,a" } else { "" };
-    let row = sqlx::query(&format!(
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT u.personal_account_id,u.platform_role,u.active,a.active AS account_active,
          EXISTS(SELECT 1 FROM core_identity.privileged_import_facts p WHERE p.user_id=u.id) AS imported_admin
          FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
          WHERE u.id=$1 AND a.kind='personal'{lock}"
-    )).bind(user_id).fetch_optional(c).await?.ok_or(ProfileError::NotFound)?;
+    ))).bind(user_id).fetch_optional(c).await?.ok_or(ProfileError::NotFound)?;
     if row.try_get::<String, _>("platform_role")? != "user"
         || row.try_get::<bool, _>("imported_admin")?
         || (write

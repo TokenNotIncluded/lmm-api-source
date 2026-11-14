@@ -148,7 +148,7 @@ pub async fn install(pool: &PgPool) {
 pub async fn install_suffix(pool: &PgPool, include_appeals: bool) {
     let mut tx = pool.begin().await.unwrap();
     for (_, ddl) in COMPONENTS {
-        sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
     }
     if include_appeals {
         sqlx::raw_sql(include_str!("../../schema/account_appeals.sql"))
@@ -196,7 +196,7 @@ pub async fn install_suffix(pool: &PgPool, include_appeals: bool) {
             .execute(&mut *tx).await.unwrap();
     }
     let catalog = digest(
-        sqlx::query_scalar(manifest.catalog.query_utf8)
+        sqlx::query_scalar(sqlx::AssertSqlSafe(manifest.catalog.query_utf8))
             .fetch_all(&mut *tx)
             .await
             .unwrap(),

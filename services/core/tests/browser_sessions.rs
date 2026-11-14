@@ -23,7 +23,7 @@ async fn setup(pool: PgPool) -> (BrowserAuth, Router) {
         .with_mfa_keys("test".into(), vec![("test".into(), vec![47; 32])])
         .unwrap();
     store.init_database().await.unwrap();
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();

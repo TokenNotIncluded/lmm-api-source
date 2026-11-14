@@ -590,7 +590,7 @@ async fn management_imported_policy_is_complete_and_static_auth_does_not_invent_
         code.code, "STATIC20",
         "old static AdminAuth is independent from unrelated catalog denies"
     );
-    let loaded = permissions::load_complete_policy(&mut *pool.acquire().await.unwrap(), 204)
+    let loaded = permissions::load_complete_policy(&mut pool.acquire().await.unwrap(), 204)
         .await
         .unwrap();
     assert_eq!(loaded.sha256, sha);

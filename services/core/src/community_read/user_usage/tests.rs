@@ -72,6 +72,11 @@ async fn aggregate(
         .bind(source).bind(row).bind(user).bind(owner(pool,user).await).bind(at).bind(tokens).bind(credits).execute(pool).await.unwrap();
 }
 
+struct LogAmounts {
+    tokens: i64,
+    quota: Option<i64>,
+    price: Option<i64>,
+}
 async fn log(
     pool: &PgPool,
     source: i64,
@@ -79,10 +84,13 @@ async fn log(
     user: i64,
     at: i64,
     model: &str,
-    tokens: i64,
-    quota: Option<i64>,
-    price: Option<i64>,
+    amounts: LogAmounts,
 ) {
+    let LogAmounts {
+        tokens,
+        quota,
+        price,
+    } = amounts;
     sqlx::query("INSERT INTO core_history.log_records(source_id,source_log_id,canonical_event_key,source_row_sha256,user_id,owner_account_id,created_at,log_type,prompt_tokens,completion_tokens,model_name,quota,pricing_credits_per_usd) VALUES($1,$2,$3,repeat('d',64),$4,$5,$6,2,$7,0,$8,$9,$10)")
         .bind(source).bind(row).bind(format!("app02:{source}:{row}")).bind(user).bind(owner(pool,user).await).bind(at).bind(tokens).bind(model).bind(quota).bind(price).execute(pool).await.unwrap();
 }
@@ -208,9 +216,11 @@ async fn alltime_keeps_actor_scope_refunds_and_aggregate_precedence(pool: PgPool
         71,
         1,
         "duplicate-log",
-        5000,
-        Some(5000),
-        Some(500000),
+        LogAmounts {
+            tokens: 5000,
+            quota: Some(5000),
+            price: Some(500000),
+        },
     )
     .await;
     let read = CommunityRead::new(pool.clone()).await.unwrap();
@@ -289,9 +299,11 @@ async fn mixed_history_keeps_tokens_known_model_and_nullable_total_in_real_route
         71,
         1,
         "known",
-        10,
-        Some(100),
-        Some(500000),
+        LogAmounts {
+            tokens: 10,
+            quota: Some(100),
+            price: Some(500000),
+        },
     )
     .await;
     log(
@@ -301,16 +313,83 @@ async fn mixed_history_keeps_tokens_known_model_and_nullable_total_in_real_route
         71,
         2,
         "unknown-price",
-        2000,
-        Some(999),
-        None,
+        LogAmounts {
+            tokens: 2000,
+            quota: Some(999),
+            price: None,
+        },
     )
     .await;
-    log(&pool, complete, 3, 71, 3, "mixed", 3, Some(3), Some(500000)).await;
-    log(&pool, complete, 4, 71, 4, "mixed", 4, None, Some(500000)).await;
-    log(&pool, complete, 5, 71, 5, "free", 0, Some(0), Some(500000)).await;
-    log(&pool, complete, 6, 72, 1, "other-owner", 20000, None, None).await;
-    log(&pool, incomplete, 1, 71, 1, "incomplete", 20000, None, None).await;
+    log(
+        &pool,
+        complete,
+        3,
+        71,
+        3,
+        "mixed",
+        LogAmounts {
+            tokens: 3,
+            quota: Some(3),
+            price: Some(500000),
+        },
+    )
+    .await;
+    log(
+        &pool,
+        complete,
+        4,
+        71,
+        4,
+        "mixed",
+        LogAmounts {
+            tokens: 4,
+            quota: None,
+            price: Some(500000),
+        },
+    )
+    .await;
+    log(
+        &pool,
+        complete,
+        5,
+        71,
+        5,
+        "free",
+        LogAmounts {
+            tokens: 0,
+            quota: Some(0),
+            price: Some(500000),
+        },
+    )
+    .await;
+    log(
+        &pool,
+        complete,
+        6,
+        72,
+        1,
+        "other-owner",
+        LogAmounts {
+            tokens: 20000,
+            quota: None,
+            price: None,
+        },
+    )
+    .await;
+    log(
+        &pool,
+        incomplete,
+        1,
+        71,
+        1,
+        "incomplete",
+        LogAmounts {
+            tokens: 20000,
+            quota: None,
+            price: None,
+        },
+    )
+    .await;
     log(
         &pool,
         complete,
@@ -318,9 +397,11 @@ async fn mixed_history_keeps_tokens_known_model_and_nullable_total_in_real_route
         71,
         end + 1,
         "after-window",
-        20000,
-        None,
-        None,
+        LogAmounts {
+            tokens: 20000,
+            quota: None,
+            price: None,
+        },
     )
     .await;
     // Incomplete aggregate data must not hide the complete imported logs.

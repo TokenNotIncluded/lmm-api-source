@@ -3,6 +3,7 @@ use super::*;
 pub(super) const PROCEDURE: &str = "core-subscription-pancake-language-optional-v1";
 const TARGET: &str = include_str!("subscription_pancake_language_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::PANCAKE_LANGUAGE,
     procedure: PROCEDURE,
     predecessor_count: 66,
     target_count: 67,
@@ -36,16 +37,13 @@ mod tests {
         manifest.components.truncate(66);
         let mut bytes = serde_json::to_vec(&manifest).unwrap();
         bytes.push(b'\n');
-        assert_ne!(hex(&Sha256::digest(bytes)), ENGINE.predecessor_manifest);
+        assert_ne!(hex(Sha256::digest(bytes)), ENGINE.predecessor_manifest);
         let mut prefix = schema_manifest();
         prefix.components.truncate(67);
         let mut prefix_bytes = serde_json::to_vec(&prefix).unwrap();
         prefix_bytes.push(b'\n');
         let target: serde_json::Value = serde_json::from_str(TARGET).unwrap();
-        assert_ne!(
-            target["manifest_sha256"],
-            hex(&Sha256::digest(prefix_bytes))
-        );
+        assert_ne!(target["manifest_sha256"], hex(Sha256::digest(prefix_bytes)));
         assert!(matches!(
             authorize_target(),
             Err(UpgradeError::Rejected("PANCAKE_LANGUAGE_COMPONENT_CHANGED"))

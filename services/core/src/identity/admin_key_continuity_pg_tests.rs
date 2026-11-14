@@ -94,7 +94,10 @@ async fn fixture(pool: &sqlx::PgPool) -> Fixture {
         .execute(&mut *conn).await.unwrap();
 
     let mut directory_tag = [0_u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut directory_tag);
+    rand::Rng::fill_bytes(
+        &mut rand::rand_core::UnwrapErr(rand::rngs::SysRng),
+        &mut directory_tag,
+    );
     let root = std::env::temp_dir().join(format!(
         "lmm-admin-key-continuity-{}",
         encode_hex_32(&directory_tag)
@@ -379,4 +382,39 @@ async fn ordinary_activation_cannot_be_retroactively_bridged(pool: sqlx::PgPool)
     .await
     .unwrap();
     assert_eq!(count, 0);
+}
+
+#[sqlx::test(migrations = false)]
+async fn unreadable_migration_registry_cannot_bridge_a_stale_key(pool: sqlx::PgPool) {
+    crate::core_schema::init(&pool).await.unwrap();
+    let runtime = crate::test_runtime::RuntimeRole::create(&pool).await;
+    let mut connection = runtime.pool.acquire().await.unwrap();
+    let schema_access: bool =
+        sqlx::query_scalar("SELECT has_schema_privilege('core_migration','USAGE')")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+    assert!(!schema_access);
+    assert!(
+        generation_matches(&mut connection, 1, "api_key", 1, 1)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !generation_matches(&mut connection, 1, "api_key", 1, 2)
+            .await
+            .unwrap()
+    );
+    // Legitimately readable registries still use the exact receipt predicate.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "GRANT USAGE ON SCHEMA core_migration TO {}; GRANT SELECT ON core_migration.import_runs TO {}",
+        runtime.name, runtime.name,
+    ))).execute(&pool).await.unwrap();
+    assert!(
+        !generation_matches(&mut connection, 1, "api_key", 1, 2)
+            .await
+            .unwrap()
+    );
+    drop(connection);
+    runtime.cleanup().await;
 }

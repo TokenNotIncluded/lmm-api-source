@@ -105,13 +105,13 @@ fn revision_matches_go_html_unicode_and_pinned_generation_bytes() {
         "[7,\"\\u003c公告\\u003e\\u0026\\u2028\\u2029\",\"extra\",\"2026-01-01T00:00:00Z\"]";
     assert_eq!(
         announcement_revision(&item).unwrap(),
-        format!("{:x}", Sha256::digest(expected.as_bytes()))
+        hex_codec::encode(Sha256::digest(expected.as_bytes()))
     );
     item.ack_revision = " \u{2003}generation1\n".into();
     let pinned = announcement_revision(&item).unwrap();
     assert_eq!(
         pinned,
-        format!("{:x}", Sha256::digest(br#"[7,"generation1"]"#))
+        hex_codec::encode(Sha256::digest(br#"[7,"generation1"]"#))
     );
     item.content.push('!');
     assert_eq!(announcement_revision(&item).unwrap(), pinned);
@@ -785,3 +785,6 @@ async fn restricted_runtime_reads_setup_and_notice_and_writes_only_receipts(pool
     );
     role.cleanup().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

@@ -17,7 +17,7 @@ const PROVIDER_URL: &str = "https://api.frankfurter.dev/v1/latest";
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
 fn http_client() -> ClientBuilder {
-    Client::builder()
+    crate::http_client::builder()
         .https_only(true)
         .no_proxy()
         .redirect(Policy::none())

@@ -463,7 +463,7 @@ async fn select_stored(c: &mut PgConnection, id: &str, for_update: bool) -> Resu
     if for_update {
         statement.push_str(" FOR UPDATE");
     }
-    sqlx::query(&statement)
+    sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
         .bind(id)
         .fetch_optional(c)
         .await?
@@ -812,10 +812,10 @@ impl Charging {
         for payer in payers {
             for source in limits::sources(&mut tx, &payer, &request.price, at).await? {
                 let mut candidate_request = request.clone();
-                if source == Source::Wallet {
-                    if let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge) {
-                        candidate_request.reserve = legacy.estimated_hold();
-                    }
+                if source == Source::Wallet
+                    && let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge)
+                {
+                    candidate_request.reserve = legacy.estimated_hold();
                 }
                 let request = &candidate_request;
                 sqlx::query("SAVEPOINT funding_candidate")
@@ -1058,13 +1058,12 @@ impl Charging {
         peer: Option<IpAddr>,
         issuer: Option<&crate::identity::grants::LmmIssuer>,
     ) -> Result<Charge> {
-        if let Some(proof) = contract::load(c, &old).await? {
-            if old.source == Source::Wallet
-                && proof.legacy_precharge().is_some()
-                && total > old.reserved
-            {
-                return Err(Error::NeedReservation);
-            }
+        if let Some(proof) = contract::load(c, &old).await?
+            && old.source == Source::Wallet
+            && proof.legacy_precharge().is_some()
+            && total > old.reserved
+        {
+            return Err(Error::NeedReservation);
         }
         let id = &old.id;
         let at = now(c).await?;
@@ -1274,14 +1273,14 @@ impl Charging {
         }
         if let Some(proof) = contract::load(c, &charge).await? {
             proof.check_usage(&charge, usage)?;
-            if charge.source == Source::Wallet {
-                if let Some(legacy) = proof.legacy_precharge() {
-                    model_unknown::legacy_terminal(c, &charge, usage).await?;
-                    if Self::terminal_amount_in_transaction(c, &charge, usage).await?
-                        > legacy.max_billable()
-                    {
-                        return Err(Error::Invalid);
-                    }
+            if charge.source == Source::Wallet
+                && let Some(legacy) = proof.legacy_precharge()
+            {
+                model_unknown::legacy_terminal(c, &charge, usage).await?;
+                if Self::terminal_amount_in_transaction(c, &charge, usage).await?
+                    > legacy.max_billable()
+                {
+                    return Err(Error::Invalid);
                 }
             }
         }

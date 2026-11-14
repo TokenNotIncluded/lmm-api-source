@@ -1,5 +1,6 @@
 use super::*;
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use sqlx::Row;
 
 // Accept exact JSON integers and decimal strings, never floating point quantities.
@@ -136,7 +137,7 @@ impl PaymentsStore {
             .to_ascii_uppercase();
         let mut tx = self.begin().await?;
         session(&mut tx, credential, true).await?;
-        let rows=sqlx::query(&format!("{SELECT} WHERE ($1=0 OR c.id<$1) AND ($2='' OR c.code LIKE $2||'%' OR c.name ILIKE '%'||$2||'%') AND ($3::boolean IS NULL OR c.enabled=$3) AND NOT EXISTS(SELECT FROM core_payments.discount_code_tombstones t WHERE t.code_id=c.id) ORDER BY c.id DESC LIMIT $4"))
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECT} WHERE ($1=0 OR c.id<$1) AND ($2='' OR c.code LIKE $2||'%' OR c.name ILIKE '%'||$2||'%') AND ($3::boolean IS NULL OR c.enabled=$3) AND NOT EXISTS(SELECT FROM core_payments.discount_code_tombstones t WHERE t.code_id=c.id) ORDER BY c.id DESC LIMIT $4")))
             .bind(query.after_id).bind(keyword).bind(query.enabled).bind(query.limit+1).fetch_all(&mut *tx).await?;
         let more = rows.len() > query.limit as usize;
         let items = rows
@@ -155,7 +156,7 @@ impl PaymentsStore {
     pub async fn discount_code_view(&self, credential: &str, id: i64) -> Result<CodeView> {
         let mut tx = self.begin().await?;
         session(&mut tx, credential, true).await?;
-        let row=sqlx::query(&format!("{SELECT} WHERE c.id=$1 AND NOT EXISTS(SELECT FROM core_payments.discount_code_tombstones t WHERE t.code_id=c.id)"))
+        let row=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECT} WHERE c.id=$1 AND NOT EXISTS(SELECT FROM core_payments.discount_code_tombstones t WHERE t.code_id=c.id)")))
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         let result = view(row)?;
         tx.commit().await?;
@@ -196,7 +197,7 @@ impl PaymentsStore {
         let mut items = Vec::with_capacity(input.count as usize);
         for _ in 0..input.count {
             let mut bytes = [0u8; 16];
-            OsRng
+            SysRng
                 .try_fill_bytes(&mut bytes)
                 .map_err(|_| Error::Unavailable)?;
             let code = format!(
@@ -251,7 +252,7 @@ impl PaymentsStore {
             json!({"code_id":id,"enabled":enabled}),
         )
         .await?;
-        let row = sqlx::query(&format!("{SELECT} WHERE c.id=$1"))
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!("{SELECT} WHERE c.id=$1")))
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;

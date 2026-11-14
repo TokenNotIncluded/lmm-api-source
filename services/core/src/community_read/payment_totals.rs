@@ -80,7 +80,7 @@ SELECT u.id AS user_id,{CASH_HISTORY_COVERED_SQL} AS covered,
  coalesce((SELECT jsonb_agg(to_jsonb(t)-'user_id' ORDER BY currency) FROM totals t WHERE t.user_id=u.id),'[]'::jsonb) AS currencies
 FROM core_identity.users u WHERE u.id=ANY($1) ORDER BY u.id"#
         );
-        let rows = sqlx::query(&sql)
+        let rows = sqlx::query(sqlx::AssertSqlSafe::<&str>(&sql))
             .bind(&r.user_ids)
             .bind(r.start)
             .bind(r.end)

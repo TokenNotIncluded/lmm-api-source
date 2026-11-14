@@ -220,15 +220,17 @@ pub(in crate::channel_http) async fn configure(
             .ok_or(Failure::Disabled)?
             .prepare_balance_probe(
                 upstream,
-                &probe.path,
-                &probe.json_pointer,
-                probe.subtract_json_pointer.as_deref(),
-                &probe.requirements(),
-                probe.cny_per_usd.as_deref(),
-                probe.deepseek_currency_array == Some(true),
-                probe.openai_subscription == Some(true),
-                probe.unit_label.as_deref(),
-                matches!(probe.auth, Some(BalanceAuth::ApiKey)),
+                crate::model_http::BalanceProbeInput {
+                    path: &probe.path,
+                    pointer: &probe.json_pointer,
+                    subtract_pointer: probe.subtract_json_pointer.as_deref(),
+                    requirements: &probe.requirements(),
+                    cny_per_usd: probe.cny_per_usd.as_deref(),
+                    deepseek_currency_array: probe.deepseek_currency_array == Some(true),
+                    openai_subscription: probe.openai_subscription == Some(true),
+                    unit_label: probe.unit_label.as_deref(),
+                    api_key_auth: matches!(probe.auth, Some(BalanceAuth::ApiKey)),
+                },
             )
             .map_err(|_| ManagementError::Invalid)?;
     }
@@ -367,15 +369,17 @@ async fn observe(
     let request = gateway
         .prepare_balance_probe(
             &upstream,
-            &probe.path,
-            &probe.json_pointer,
-            probe.subtract_json_pointer.as_deref(),
-            &probe.requirements(),
-            probe.cny_per_usd.as_deref(),
-            probe.deepseek_currency_array == Some(true),
-            probe.openai_subscription == Some(true),
-            probe.unit_label.as_deref(),
-            matches!(probe.auth, Some(BalanceAuth::ApiKey)),
+            crate::model_http::BalanceProbeInput {
+                path: &probe.path,
+                pointer: &probe.json_pointer,
+                subtract_pointer: probe.subtract_json_pointer.as_deref(),
+                requirements: &probe.requirements(),
+                cny_per_usd: probe.cny_per_usd.as_deref(),
+                deepseek_currency_array: probe.deepseek_currency_array == Some(true),
+                openai_subscription: probe.openai_subscription == Some(true),
+                unit_label: probe.unit_label.as_deref(),
+                api_key_auth: matches!(probe.auth, Some(BalanceAuth::ApiKey)),
+            },
         )
         .map_err(|_| ObserveError::Provider)?;
     tx.commit()

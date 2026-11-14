@@ -6,7 +6,7 @@ async fn prefix67(pool: &PgPool) {
     use crate::core_schema as root;
     let mut tx = pool.begin().await.unwrap();
     for (_, ddl) in &COMPONENTS[..67] {
-        sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
     }
     for ddl in [
         root::CONTRACT,
@@ -49,7 +49,7 @@ fn manifest(count: usize) -> String {
     m.components.truncate(count);
     let mut bytes = serde_json::to_vec(&m).unwrap();
     bytes.push(b'\n');
-    hex(&Sha256::digest(bytes))
+    hex(Sha256::digest(bytes))
 }
 
 async fn measure(pool: &PgPool) -> serde_json::Value {
@@ -61,14 +61,14 @@ async fn measure(pool: &PgPool) -> serde_json::Value {
         .await
         .unwrap();
     assert_eq!(version, 180006);
-    let before = hex(&fingerprint(&definitions(&mut c).await.unwrap()));
+    let before = hex(fingerprint(&definitions(&mut c).await.unwrap()));
     let baseline = EngineBaseline::capture(&mut c).await;
     let mut tx = c.begin().await.unwrap();
-    sqlx::raw_sql(COMPONENTS[67].1)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(COMPONENTS[67].1))
         .execute(&mut *tx)
         .await
         .unwrap();
-    let after = hex(&fingerprint(&definitions(&mut tx).await.unwrap()));
+    let after = hex(fingerprint(&definitions(&mut tx).await.unwrap()));
     tx.commit().await.unwrap();
     baseline.assert_preserved(&mut c).await;
     serde_json::json!({"predecessor":{"manifest_sha256":manifest(67),"catalog_sha256":before},"successor":{"manifest_sha256":manifest(68),"catalog_sha256":after}})
@@ -140,8 +140,8 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
     let original: String = facts.get("original");
     let admin_options = (*pool.connect_options()).clone();
     let password = format!("synthetic-{:032x}", rand::random::<u128>());
-    sqlx::raw_sql(&format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT PASSWORD '{password}'; CREATE ROLE {runtime} NOLOGIN; CREATE ROLE {extensions} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; ALTER DATABASE {database} OWNER TO {owner}; REVOKE CONNECT,CREATE,TEMP ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {installer}; REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC; GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {owner};",
-        owner=quote(&r.roles.owner), installer=quote(&r.roles.installer), runtime=quote(&r.roles.runtime), extensions=quote(&r.roles.extensions), database=quote(&r.database.name)))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT PASSWORD '{password}'; CREATE ROLE {runtime} NOLOGIN; CREATE ROLE {extensions} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; ALTER DATABASE {database} OWNER TO {owner}; REVOKE CONNECT,CREATE,TEMP ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {installer}; REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC; GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {owner};",
+        owner=quote(&r.roles.owner), installer=quote(&r.roles.installer), runtime=quote(&r.roles.runtime), extensions=quote(&r.roles.extensions), database=quote(&r.database.name))))
         .execute(&pool).await.unwrap();
     let installer = PgPoolOptions::new()
         .max_connections(1)
@@ -208,11 +208,11 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
     sqlx::query("INSERT INTO core_payments.discount_reservations(intent_id,code_id) SELECT $1,id FROM core_payments.discount_codes WHERE code='PRIOR67'").bind(intent.intent_id).execute(&installer).await.unwrap();
     drop(payments);
     // Exercise non-default pre-existing schema/table/column/sequence/function ACLs.
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_identity,core_payments,core_meta TO {runtime}; GRANT SELECT ON core_identity.users TO {runtime}; GRANT UPDATE(revoked_at) ON core_identity.credentials TO {runtime}; GRANT USAGE ON SEQUENCE core_identity.credentials_id_seq TO {runtime}; GRANT EXECUTE ON FUNCTION public.routing_stage_prices(jsonb) TO {runtime};",
-        runtime=quote(&r.roles.runtime))).execute(&installer).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_identity,core_payments,core_meta TO {runtime}; GRANT SELECT ON core_identity.users TO {runtime}; GRANT UPDATE(revoked_at) ON core_identity.credentials TO {runtime}; GRANT USAGE ON SEQUENCE core_identity.credentials_id_seq TO {runtime}; GRANT EXECUTE ON FUNCTION public.routing_stage_prices(jsonb) TO {runtime};",
+        runtime=quote(&r.roles.runtime)))).execute(&installer).await.unwrap();
     let mut connection = installer.acquire().await.unwrap();
     assert_eq!(
-        hex(&fingerprint(&definitions(&mut connection).await.unwrap())),
+        hex(fingerprint(&definitions(&mut connection).await.unwrap())),
         r.predecessor_catalog_sha256
     );
     let journals: i64 = sqlx::query_scalar("SELECT count(*) FROM core_billing.ledger_journals")
@@ -264,7 +264,7 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
     let committed = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(committed.status, "committed");
     assert_eq!(committed.components, 68);
-    assert_eq!(committed.request_sha256, hex(&r.digest().unwrap()));
+    assert_eq!(committed.request_sha256, hex(r.digest().unwrap()));
     let pin: serde_json::Value = serde_json::from_str(TARGET).unwrap();
     assert_eq!(committed.successor_catalog_sha256, pin["catalog_sha256"]);
     engine_offline_boundary(&r).await;
@@ -320,7 +320,7 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
         .await
         .unwrap();
     assert_eq!(contracts, 68);
-    let current_catalog = hex(&fingerprint(&definitions(&mut inspect).await.unwrap()));
+    let current_catalog = hex(fingerprint(&definitions(&mut inspect).await.unwrap()));
     assert_eq!(current_catalog, committed.successor_catalog_sha256);
     let recorded: String = sqlx::query_scalar(
         "SELECT encode(catalog_fingerprint,'hex') FROM core_meta.runtime_contract WHERE singleton",
@@ -336,10 +336,10 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
     // installer connection or an altered production role contract.
     engine_offline_boundary(&r).await;
     let mut runtime = PgConnection::connect_with(&admin_options).await.unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SET SESSION AUTHORIZATION {}",
         quote(&r.roles.runtime)
-    ))
+    )))
     .execute(&mut runtime)
     .await
     .unwrap();
@@ -356,10 +356,11 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
         "core_payments.discount_code_tombstones",
         "core_payments.discount_management_batches",
     ] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-            .fetch_one(&mut runtime)
-            .await
-            .unwrap();
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&mut runtime)
+                .await
+                .unwrap();
         assert_eq!(count, 0, "new runtime SELECT permission is usable");
         for statement in [
             format!("DELETE FROM {table}"),
@@ -373,7 +374,7 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
             ),
             format!("TRUNCATE {table}"),
         ] {
-            let error = sqlx::query(&statement)
+            let error = sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
                 .execute(&mut runtime)
                 .await
                 .unwrap_err();
@@ -411,8 +412,8 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
 
     // Only this SQLx-owned database and its random synthetic principals.
     let mut admin = PgConnection::connect_with(&admin_options).await.unwrap();
-    sqlx::raw_sql(&format!("DROP OWNED BY {installer},{runtime},{extensions},{owner} CASCADE; ALTER DATABASE {database} OWNER TO {original}; DROP ROLE {installer},{runtime},{extensions},{owner};",
-        installer=quote(&r.roles.installer),runtime=quote(&r.roles.runtime),extensions=quote(&r.roles.extensions),owner=quote(&r.roles.owner),database=quote(&r.database.name),original=quote(&original)))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP OWNED BY {installer},{runtime},{extensions},{owner} CASCADE; ALTER DATABASE {database} OWNER TO {original}; DROP ROLE {installer},{runtime},{extensions},{owner};",
+        installer=quote(&r.roles.installer),runtime=quote(&r.roles.runtime),extensions=quote(&r.roles.extensions),owner=quote(&r.roles.owner),database=quote(&r.database.name),original=quote(&original))))
         .execute(&mut admin).await.unwrap();
     admin.close().await.unwrap();
 }

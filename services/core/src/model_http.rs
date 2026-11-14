@@ -9,6 +9,7 @@ pub mod audio;
 mod billing;
 mod catalog;
 pub(crate) mod channel_operations;
+pub(crate) use channel_operations::BalanceProbeInput;
 mod checkpoints;
 mod credential_registry;
 mod honeypot;
@@ -27,8 +28,22 @@ mod native_http;
 mod native_models;
 pub mod pricing;
 mod provider_policy;
+mod responses_continuity;
+pub use responses_continuity::{ContinuityRecoveryCursor, RecoveryPage};
+#[cfg(test)]
+mod responses_continuity_independent;
+#[cfg(test)]
+mod responses_continuity_review_independent;
+#[cfg(test)]
+mod responses_continuity_review_support;
+#[cfg(test)]
+mod responses_fault_support;
 mod responses_native;
+#[cfg(test)]
+mod responses_plan_observer;
 mod responses_websocket;
+#[cfg(test)]
+mod responses_websocket_tests;
 mod routing;
 #[cfg(test)]
 mod selected_bound_tests;
@@ -51,7 +66,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -64,7 +80,7 @@ use std::{
 
 pub use catalog::{CatalogError, CatalogSurface, CatalogV1};
 pub use honeypot::{HoneypotCredential, HoneypotGateway};
-pub use provider_policy::{ExternalModelContext, ProviderPolicy};
+pub use provider_policy::{ExternalModelContext, ProviderPolicy, ResponsesContinuityContract};
 pub use routing::UpstreamCredential;
 pub const SCHEMA: &str = include_str!("../schema/model_gateway.sql");
 
@@ -95,6 +111,9 @@ struct Bridge {
     credentials: credential_registry::CredentialRegistry,
     active: Mutex<BTreeMap<String, Operation>>,
     recovery_cursor: tokio::sync::Mutex<Option<String>>,
+    activation_recovery_cursor: tokio::sync::Mutex<Option<String>>,
+    #[cfg(test)]
+    review_plan_traces: Mutex<Option<Arc<Mutex<Vec<responses_plan_observer::PlanTrace>>>>>,
     policy: ChargePolicy,
     provider_policy: ProviderPolicy,
     legacy_precharge: std::sync::OnceLock<Vec<legacy_precharge::SourceContract>>,
@@ -110,6 +129,7 @@ pub struct ModelGateway {
     limits: Limits,
     local_streaming: bool,
     responses_websocket: bool,
+    responses_websocket_origins: Arc<Vec<reqwest::Url>>,
     honeypot: Option<HoneypotGateway>,
     legacy_keys: Option<Arc<legacy_keys::Aliases>>,
     catalog_surface: Arc<CatalogSurface>,
@@ -227,6 +247,9 @@ impl ModelGateway {
             credentials: credential_registry::CredentialRegistry::new(credentials),
             active: Mutex::new(BTreeMap::new()),
             recovery_cursor: tokio::sync::Mutex::new(None),
+            activation_recovery_cursor: tokio::sync::Mutex::new(None),
+            #[cfg(test)]
+            review_plan_traces: Mutex::new(None),
             policy,
             provider_policy,
             legacy_precharge: std::sync::OnceLock::new(),
@@ -243,6 +266,7 @@ impl ModelGateway {
             limits,
             local_streaming: false,
             responses_websocket: false,
+            responses_websocket_origins: Arc::new(Vec::new()),
             honeypot: None,
             legacy_keys: None,
             catalog_surface,
@@ -291,6 +315,21 @@ impl ModelGateway {
     pub fn with_local_streaming(mut self) -> Self {
         self.local_streaming = true;
         self
+    }
+
+    pub(crate) fn with_responses_websocket_origins(
+        mut self,
+        origins: Vec<String>,
+    ) -> Result<Self, RelayError> {
+        if origins.len() > 16 {
+            return Err(RelayError::Invalid("too many WebSocket origins"));
+        }
+        let origins = origins
+            .iter()
+            .map(|raw| responses_websocket::parse_origin(raw))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.responses_websocket_origins = Arc::new(origins);
+        Ok(self)
     }
 
     pub(crate) fn with_responses_websocket(mut self) -> Self {
@@ -505,11 +544,17 @@ impl ModelGateway {
         } else {
             router
         };
-        if self.legacy_keys.is_some() {
+        let router = if self.legacy_keys.is_some() {
             router.layer(axum::middleware::from_fn_with_state(
                 self.clone(),
                 legacy_keys::normalize,
             ))
+        } else {
+            router
+        };
+        if self.responses_websocket {
+            // Outer layer: normalize browser credentials before legacy aliases.
+            router.layer(axum::middleware::from_fn(responses_websocket::credentials))
         } else {
             router
         }
@@ -763,10 +808,10 @@ fn public_error(error: RelayError) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    if let RelayError::RateLimited(seconds) = error {
-        if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
-            response.headers_mut().insert(header::RETRY_AFTER, value);
-        }
+    if let RelayError::RateLimited(seconds) = error
+        && let Ok(value) = HeaderValue::from_str(&seconds.to_string())
+    {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
     }
     if status == StatusCode::UNAUTHORIZED {
         response
@@ -899,7 +944,7 @@ async fn responses(
             "audio Responses contract is not configured",
         ));
     }
-    if responses_native::handles(&body) {
+    if responses_continuity::uses_native(&gateway, &headers, &body).await {
         return input_api::responses_context(gateway, headers, body, peer.ok().map(|p| p.0.ip()))
             .await;
     }
@@ -925,10 +970,10 @@ fn request_id(key_id: i64, headers: &HeaderMap) -> Result<String, RelayError> {
         digest.update(key.as_bytes());
     } else {
         let mut random = [0; 32];
-        OsRng.fill_bytes(&mut random);
+        rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut random);
         digest.update(random);
     }
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(crate::hex_codec::encode(digest.finalize()))
 }
 
 fn oauth_request_id(
@@ -947,10 +992,10 @@ fn oauth_request_id(
         hash.update(key.as_bytes());
     } else {
         let mut random = [0; 32];
-        OsRng.fill_bytes(&mut random);
+        rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut random);
         hash.update(random);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(crate::hex_codec::encode(hash.finalize()))
 }
 
 async fn dispatch(
@@ -1087,7 +1132,7 @@ async fn dispatch(
     }
     hash.update(&body);
     let mut worker = [0; 32];
-    OsRng.fill_bytes(&mut worker);
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
     {
         let Ok(mut active) = gateway.bridge.active.lock() else {
             return fail(RelayError::BillingUnavailable);
@@ -1176,3 +1221,19 @@ async fn dispatch(
 
 #[cfg(test)]
 mod compact_independent;
+
+#[cfg(test)]
+pub(crate) async fn seed_continuity_upgrade_charges(installer: &PgPool, control: &PgPool) {
+    responses_continuity::tests::seed_predecessor_charges(installer, control).await;
+}
+#[cfg(test)]
+pub(crate) async fn verify_continuity_upgrade_fixture(
+    pool: PgPool,
+    url: &str,
+    request: crate::core_schema::UpgradeRequest,
+) {
+    responses_continuity_independent::responses_continuity_independent_upgrade_68_to69(
+        pool, url, request,
+    )
+    .await;
+}

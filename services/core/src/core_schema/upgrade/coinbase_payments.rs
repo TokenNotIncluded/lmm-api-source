@@ -66,7 +66,7 @@ pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     prior.components.truncate(31);
     let mut bytes = serde_json::to_vec(&prior).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
-    if hex(&Sha256::digest(bytes)) != PRE_MANIFEST {
+    if hex(Sha256::digest(bytes)) != PRE_MANIFEST {
         return Err(reject("COINBASE_COMPILED_PREDECESSOR_CHANGED"));
     }
     Ok(())
@@ -107,7 +107,7 @@ pub(super) async fn connected(
         if row.try_get::<Vec<u8>, _>("request_sha256")? != r.digest()?
             || request.0 != serde_json::to_value(r).map_err(|_| UpgradeError::Storage)?
             || hex(&row.try_get::<Vec<u8>, _>("successor_catalog_sha256")?) != TARGET_CATALOG
-            || hex(&fingerprint(&definitions(&mut tx).await?)) != TARGET_CATALOG
+            || hex(fingerprint(&definitions(&mut tx).await?)) != TARGET_CATALOG
         {
             return Err(reject("COINBASE_RECEIPT_OR_CATALOG_CONFLICT"));
         }
@@ -116,7 +116,7 @@ pub(super) async fn connected(
         tx.rollback().await?;
         return report(r, "already_committed");
     }
-    if hex(&fingerprint(&definitions(&mut tx).await?)) != PRE_CATALOG {
+    if hex(fingerprint(&definitions(&mut tx).await?)) != PRE_CATALOG {
         return Err(reject("COINBASE_PREDECESSOR_CATALOG_MISMATCH"));
     }
     let recorded: Vec<u8> = sqlx::query_scalar(

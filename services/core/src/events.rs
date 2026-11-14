@@ -3,7 +3,8 @@
 mod inbox;
 pub use inbox::{CommandKey, InboxOutcome, begin_command, complete_command};
 
-use rand::{Rng, RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::{RngExt, rngs::SysRng};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use std::{fmt, time::Duration};
@@ -290,7 +291,7 @@ impl EventStore {
             }
             used += size;
             let mut token = [0u8; 32];
-            OsRng
+            SysRng
                 .try_fill_bytes(&mut token)
                 .map_err(|_| EventError::Storage)?;
             let digest: [u8; 32] = Sha256::digest(token).into();
@@ -353,7 +354,7 @@ impl EventStore {
             return Ok(acked);
         }
         let attempt: i32 = row.try_get("attempts")?;
-        let delay = 250_i64 * (1_i64 << attempt.min(8)) + rand::thread_rng().gen_range(0..=250_i64);
+        let delay = 250_i64 * (1_i64 << attempt.min(8)) + rand::rng().random_range(0..=250_i64);
         sqlx::query("UPDATE core_events.deliveries SET lease_until=NULL,available_at=clock_timestamp()+($3::bigint*interval '1 millisecond'),retry_reason=$4 WHERE consumer_id=$1 AND event_id=$2")
             .bind(consumer).bind(id).bind(delay).bind(reason as i16).execute(&mut *tx).await?;
         tx.commit().await?;

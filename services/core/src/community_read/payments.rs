@@ -103,7 +103,7 @@ SELECT n.user_id,ARRAY(SELECT at FROM unnest(n.paid_times || coalesce(h.paid_tim
 FROM native n JOIN core_identity.users u ON u.id=n.user_id
 LEFT JOIN historical h ON h.user_id=n.user_id ORDER BY n.user_id"#
         );
-        let rows = sqlx::query(&sql)
+        let rows = sqlx::query(sqlx::AssertSqlSafe::<&str>(&sql))
             .bind(&request.user_ids)
             .fetch_all(&mut *tx)
             .await?;

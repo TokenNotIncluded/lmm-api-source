@@ -84,12 +84,14 @@ impl HistoryStore {
             return Err(HistoryError::Unavailable);
         }
         let migration: String = receipt.try_get("migration_id")?;
-        let total: i64 = sqlx::query_scalar(&(OWN_ORDERS.to_owned() + "SELECT count(*) FROM own"))
-            .bind(&migration)
-            .bind(user)
-            .fetch_one(&mut *tx)
-            .await?;
-        let rows = sqlx::query(&(OWN_ORDERS.to_owned()+"SELECT o->>'id' AS id,o->>'service' AS service,(o->>'country_id')::bigint AS country_id,o->>'operator' AS operator,o->>'status' AS status,o->>'customer_price_usd' AS price,(o->>'reserved_quota') AS reserved,(o->>'refunded_quota') AS refunded,((o->>'reserved_quota')::bigint-(o->>'refunded_quota')::bigint)::text AS net,(o->>'created_at')::bigint AS created,(o->>'completed_at')::bigint AS completed FROM own ORDER BY created DESC,id DESC LIMIT $3 OFFSET $4"))
+        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(
+            OWN_ORDERS.to_owned() + "SELECT count(*) FROM own",
+        ))
+        .bind(&migration)
+        .bind(user)
+        .fetch_one(&mut *tx)
+        .await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(OWN_ORDERS.to_owned()+"SELECT o->>'id' AS id,o->>'service' AS service,(o->>'country_id')::bigint AS country_id,o->>'operator' AS operator,o->>'status' AS status,o->>'customer_price_usd' AS price,(o->>'reserved_quota') AS reserved,(o->>'refunded_quota') AS refunded,((o->>'reserved_quota')::bigint-(o->>'refunded_quota')::bigint)::text AS net,(o->>'created_at')::bigint AS created,(o->>'completed_at')::bigint AS completed FROM own ORDER BY created DESC,id DESC LIMIT $3 OFFSET $4"))
             .bind(&migration).bind(user).bind(i64::from(size)).bind(i64::from(page-1)*i64::from(size)).fetch_all(&mut *tx).await?;
         let ids: Vec<String> = rows
             .iter()

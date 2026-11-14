@@ -268,7 +268,7 @@ impl ModelInput {
             &self.contexts,
         ))
         .map_err(|_| ManagementError::Invalid)?;
-        Ok(format!("{:x}", Sha256::digest(bytes)))
+        Ok(crate::hex_codec::encode(Sha256::digest(bytes)))
     }
     fn compile(
         &self,

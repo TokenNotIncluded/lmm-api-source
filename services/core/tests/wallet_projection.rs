@@ -319,10 +319,10 @@ async fn financial_read_capability_denied_is_503_not_success(pool: PgPool) {
     let (_, secret, _) = person(&store, "wallet-read-denied").await;
     let role = runtime::RuntimeRole::create(&pool).await;
     role.optional("web_identity").await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON core_billing.balance_state FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

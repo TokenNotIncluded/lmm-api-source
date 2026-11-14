@@ -40,10 +40,18 @@ impl Default for ReservationProfile {
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct ResponsesContinuityContract {
+    pub default_store: bool,
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ExternalModelContext {
     /// Explicit supplier guarantee: native compaction and opaque replay share these token bounds.
     #[serde(default, skip_serializing_if = "compaction_disabled")]
     pub responses_compaction: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses_continuity: Option<ResponsesContinuityContract>,
     pub upstream_id: u64,
     pub upstream_model: String,
     pub protocol: Protocol,
@@ -72,10 +80,17 @@ pub struct ExternalModelContext {
     pub pre_acceptance_rejection_statuses: Vec<u16>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ResponsesCapability {
+    Continuity,
+    Compaction,
+}
+type ContextEntries = BTreeMap<(u64, String), ExternalModelContext>;
+type ContextReleases = Arc<RwLock<BTreeMap<u64, Arc<ContextEntries>>>>;
 #[derive(Clone, Default)]
 pub struct ProviderPolicy {
-    contexts: BTreeMap<(u64, String), ExternalModelContext>,
-    releases: Arc<RwLock<BTreeMap<u64, Arc<BTreeMap<(u64, String), ExternalModelContext>>>>>,
+    contexts: ContextEntries,
+    releases: ContextReleases,
 }
 impl ProviderPolicy {
     pub(super) fn context_document(&self) -> Vec<ExternalModelContext> {
@@ -142,22 +157,82 @@ impl ProviderPolicy {
         )
     }
 
-    pub(super) fn require_compaction(&self, attempt: &Attempt) -> Result<(), RelayError> {
+    /// Single authority for reviewed native Responses features.
+    fn responses_context(
+        &self,
+        attempt: &Attempt,
+        capability: ResponsesCapability,
+    ) -> Result<Option<ExternalModelContext>, RelayError> {
+        let Some(context) = self.context_for_attempt(attempt)? else {
+            return Ok(None);
+        };
+        let configured = match capability {
+            ResponsesCapability::Continuity => context.responses_continuity.is_some(),
+            ResponsesCapability::Compaction => context.responses_compaction,
+        };
+        if !configured {
+            return Ok(None);
+        }
         let endpoint = validate_base_url(attempt.endpoint(), true)?;
         let local = literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback());
-        let context = self.context_for_attempt(attempt)?;
         if attempt.protocol() != Protocol::OpenAiResponses
-            || context.as_ref().is_none_or(|c| {
-                !c.responses_compaction
-                    || !matches!(c.reservation, ReservationProfile::ContextMax {})
-                    || c.protocol != attempt.protocol()
-                    || (!local && c.endpoint != endpoint.as_str())
-            })
+            || context.protocol != attempt.protocol()
+            || context.upstream_model != attempt.upstream_model()
+            || (!local && context.endpoint != endpoint.as_str())
+            || !matches!(context.reservation, ReservationProfile::ContextMax {})
         {
             return Err(RelayError::Unsupported(
-                "native Responses compaction contract is not configured",
+                "native Responses capability requires matching ContextMax contract",
             ));
         }
+        Ok(Some(context))
+    }
+    pub(super) fn responses_capability_targets(
+        &self,
+        plan: &crate::routing::RoutePlan,
+        capability: ResponsesCapability,
+    ) -> Result<std::collections::HashSet<crate::routing::AttemptKey>, RelayError> {
+        let mut keys = std::collections::HashSet::new();
+        for attempt in plan.candidate_attempts() {
+            match self.responses_context(&attempt, capability) {
+                Ok(Some(_)) => {
+                    keys.insert(attempt.key());
+                }
+                Ok(None) | Err(RelayError::Unsupported(_)) => (),
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(keys)
+    }
+    pub(super) fn has_continuity(&self, attempt: &Attempt) -> bool {
+        !matches!(
+            self.responses_context(attempt, ResponsesCapability::Continuity),
+            Ok(None)
+        )
+    }
+    pub(super) fn continuity_contract(
+        &self,
+        attempt: &Attempt,
+    ) -> Result<Option<super::responses_continuity::Policy>, RelayError> {
+        let Some(context) = self.responses_context(attempt, ResponsesCapability::Continuity)?
+        else {
+            return Ok(None);
+        };
+        let contract = context
+            .responses_continuity
+            .as_ref()
+            .expect("matched continuity feature");
+        Ok(Some(super::responses_continuity::Policy {
+            default_store: contract.default_store,
+            sha256: crate::billing::charging::contract::typed_digest(&context)
+                .map_err(|_| RelayError::BillingUnavailable)?,
+        }))
+    }
+    pub(super) fn require_compaction(&self, attempt: &Attempt) -> Result<(), RelayError> {
+        self.responses_context(attempt, ResponsesCapability::Compaction)?
+            .ok_or(RelayError::Unsupported(
+                "native Responses compaction contract is not configured",
+            ))?;
         Ok(())
     }
 
@@ -765,6 +840,7 @@ mod tests {
     fn context() -> ExternalModelContext {
         ExternalModelContext {
             responses_compaction: false,
+            responses_continuity: None,
             pre_acceptance_rejection_statuses: Vec::new(),
             grounding: None,
 

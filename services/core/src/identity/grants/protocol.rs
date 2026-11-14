@@ -2,7 +2,8 @@
 //! OAuth secrets are independent of the existing native credential generator.
 use super::*;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use zeroize::Zeroizing;
@@ -316,7 +317,7 @@ pub(super) fn canonical(value: &str, prefix: &str) -> Result<Vec<u8>> {
 }
 pub(super) fn secret(prefix: &str) -> Result<String> {
     let mut bytes = Zeroizing::new([0u8; 32]);
-    OsRng
+    SysRng
         .try_fill_bytes(&mut *bytes)
         .map_err(|_| IdentityError::Storage)?;
     Ok(format!("{prefix}{}", URL_SAFE_NO_PAD.encode(*bytes)))

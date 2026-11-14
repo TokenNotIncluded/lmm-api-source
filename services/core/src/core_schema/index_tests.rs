@@ -97,10 +97,7 @@ fn assert_historical_receipt_sources(frozen: &serde_json::Value) {
     );
     assert_eq!(
         frozen["oauth_catalog_query_sha256"],
-        format!(
-            "{:x}",
-            Sha256::digest(historical_oauth_catalog().as_bytes())
-        )
+        crate::hex_codec::encode(Sha256::digest(historical_oauth_catalog().as_bytes()))
     );
     for (field, bytes) in [
         (
@@ -119,7 +116,7 @@ fn assert_historical_receipt_sources(frozen: &serde_json::Value) {
     ] {
         assert_eq!(
             frozen[field],
-            format!("{:x}", Sha256::digest(bytes)),
+            crate::hex_codec::encode(Sha256::digest(bytes)),
             "{field}"
         );
     }
@@ -151,7 +148,7 @@ fn legacy_components() -> Vec<(&'static str, &'static str)> {
                 .unwrap();
             assert_eq!(
                 expected["sha256"],
-                format!("{:x}", Sha256::digest(source.as_bytes())),
+                crate::hex_codec::encode(Sha256::digest(source.as_bytes())),
                 "{name}"
             );
             (name, source)
@@ -182,7 +179,7 @@ fn pre_model_paging_components() -> Vec<(&'static str, &'static str)> {
         assert_eq!(expected["name"], *name);
         assert_eq!(
             expected["sha256"],
-            format!("{:x}", Sha256::digest(source.as_bytes()))
+            crate::hex_codec::encode(Sha256::digest(source.as_bytes()))
         );
     }
     components
@@ -235,7 +232,10 @@ async fn prior_components(pool: &PgPool, components: &[(&str, &str)]) -> [u8; 32
         } else {
             source.to_string()
         };
-        sqlx::raw_sql(&source).execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&source))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
         // Receipt tables are created below, after all component sources.
     }
     sqlx::raw_sql(HISTORICAL_CONTRACT)
@@ -249,10 +249,11 @@ async fn prior_components(pool: &PgPool, components: &[(&str, &str)]) -> [u8; 32
         .execute(&mut *tx)
         .await
         .unwrap();
-    let oauth_definitions: Vec<String> = sqlx::query_scalar(historical_oauth_catalog())
-        .fetch_all(&mut *tx)
-        .await
-        .unwrap();
+    let oauth_definitions: Vec<String> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(historical_oauth_catalog()))
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
     sqlx::query("INSERT INTO core_oauth.contract(version,ddl_fingerprint,catalog_fingerprint) VALUES ($1,$2,$3)")
         .bind(HISTORICAL_OAUTH_VERSION)
         .bind(Sha256::digest(source("oauth-grants").as_bytes()).to_vec())
@@ -322,7 +323,7 @@ fn reviewed_routing_predecessor() -> &'static str {
     // Exact b45bfc532 Git input, independent of the fresh-install SQL.
     let original = include_str!("../../tests/core_schema/routing_before_payload_policy.sql");
     assert_eq!(
-        format!("{:x}", Sha256::digest(original)),
+        crate::hex_codec::encode(Sha256::digest(original)),
         "d8a0906d52ca8ca0a7c136f035d579e04ecd5cbc790de31018998190f892cd3e"
     );
     const OLD_COLUMN: &str =
@@ -388,7 +389,7 @@ async fn assert_historical_installation_extends_reviewed_catalog(
     assert_eq!(ledger.matches(marker).count(), 1);
     let (baseline, addition) = ledger.split_once(marker).unwrap();
     assert_eq!(
-        format!("{:x}", Sha256::digest(baseline)),
+        crate::hex_codec::encode(Sha256::digest(baseline)),
         "1edf84beaebc03ddc45b52da7f266980b5873905f116e031ef21efbf5fbebe7f",
         "0b4f40996 ledger blob 75f2da806477b9bfd70c608825a50cdc6e848fb3"
     );
@@ -396,12 +397,12 @@ async fn assert_historical_installation_extends_reviewed_catalog(
     hash.update(marker);
     hash.update(addition);
     assert_eq!(
-        format!("{:x}", hash.finalize()),
+        crate::hex_codec::encode(hash.finalize()),
         "a9edae2dd0b0b279459bdc0d5c121bc7c9c1657acdd5851e56ccbc6c33b3a007",
         "the exact 142-line a7e1105d3 append"
     );
     assert_eq!(
-        format!("{:x}", Sha256::digest(ledger)),
+        crate::hex_codec::encode(Sha256::digest(ledger)),
         "ce973f6fee25904d4fcdc87895ec49e6c53e10c9fb3508df4d7d72ace16df77f",
         "a7e1105d3 ledger blob 759a2ca17fe682a5e4bba3a1c62e4d006bcc0ff7"
     );
@@ -423,7 +424,7 @@ async fn assert_historical_installation_extends_reviewed_catalog(
     .unwrap();
     // Routing is already the exact historical text-policy source. No current
     // schema or current catalog-query bytes participate in this historical pin.
-    let baseline_definitions: Vec<String> = sqlx::query_scalar(catalog_query)
+    let baseline_definitions: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(catalog_query))
         .fetch_all(&mut *tx)
         .await
         .unwrap();
@@ -457,7 +458,7 @@ async fn assert_historical_installation_extends_reviewed_catalog(
 fn reviewed_index26_fixture() -> serde_json::Value {
     let bytes = include_str!("../../tests/core_schema/index26_a7e1105d3.json");
     assert_eq!(
-        format!("{:x}", Sha256::digest(bytes)),
+        crate::hex_codec::encode(Sha256::digest(bytes)),
         "f34169d7265b0187fbd49d061267a30b302c4494b6b225d4df961ba7da904399"
     );
     let fixture: serde_json::Value = serde_json::from_str(bytes).unwrap();
@@ -468,7 +469,7 @@ fn reviewed_index26_fixture() -> serde_json::Value {
     let predecessor: serde_json::Value =
         serde_json::from_str(include_str!("predecessor26.json")).unwrap();
     for (i, component) in components.iter().enumerate() {
-        let hash = format!("{:x}", Sha256::digest(component["sql"].as_str().unwrap()));
+        let hash = crate::hex_codec::encode(Sha256::digest(component["sql"].as_str().unwrap()));
         assert_eq!(component["raw_schema_sha256"], hash);
         assert_eq!(manifest["components"][i]["raw_schema_sha256"], hash);
         assert_eq!(manifest["components"][i]["name"], component["name"]);
@@ -491,26 +492,27 @@ fn reviewed_index26_fixture() -> serde_json::Value {
     let mut metadata_hash = Sha256::new();
     for metadata in fixture["installer_metadata"].as_array().unwrap() {
         let sql = metadata["sql"].as_str().unwrap();
-        assert_eq!(metadata["sha256"], format!("{:x}", Sha256::digest(sql)));
+        assert_eq!(
+            metadata["sha256"],
+            crate::hex_codec::encode(Sha256::digest(sql))
+        );
         metadata_hash.update(sql);
     }
     assert_eq!(
         manifest["installer_contract_sql_sha256"],
-        format!("{:x}", metadata_hash.finalize())
+        crate::hex_codec::encode(metadata_hash.finalize())
     );
     assert_eq!(
         manifest["catalog"]["query_sha256"],
-        format!(
-            "{:x}",
-            Sha256::digest(manifest["catalog"]["query_utf8"].as_str().unwrap())
-        )
+        crate::hex_codec::encode(Sha256::digest(
+            manifest["catalog"]["query_utf8"].as_str().unwrap()
+        ))
     );
     assert_eq!(
         fixture["oauth_catalog_sha256"],
-        format!(
-            "{:x}",
-            Sha256::digest(fixture["oauth_catalog_sql"].as_str().unwrap())
-        )
+        crate::hex_codec::encode(Sha256::digest(
+            fixture["oauth_catalog_sql"].as_str().unwrap()
+        ))
     );
     // This is also the independent source used by the current routing delta test.
     assert_eq!(
@@ -539,13 +541,13 @@ async fn historical_twenty_six_component_append_preserves_reviewed_catalog(pool:
         .unwrap();
     let mut tx = pool.begin().await.unwrap();
     for component in components {
-        sqlx::raw_sql(component["sql"].as_str().unwrap())
+        sqlx::raw_sql(sqlx::AssertSqlSafe(component["sql"].as_str().unwrap()))
             .execute(&mut *tx)
             .await
             .unwrap();
     }
     for metadata in fixture["installer_metadata"].as_array().unwrap() {
-        sqlx::raw_sql(metadata["sql"].as_str().unwrap())
+        sqlx::raw_sql(sqlx::AssertSqlSafe(metadata["sql"].as_str().unwrap()))
             .execute(&mut *tx)
             .await
             .unwrap();
@@ -556,11 +558,12 @@ async fn historical_twenty_six_component_append_preserves_reviewed_catalog(pool:
         .execute(&mut *tx)
         .await
         .unwrap();
-    let oauth_definitions: Vec<String> =
-        sqlx::query_scalar(fixture["oauth_catalog_sql"].as_str().unwrap())
-            .fetch_all(&mut *tx)
-            .await
-            .unwrap();
+    let oauth_definitions: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(
+        fixture["oauth_catalog_sql"].as_str().unwrap(),
+    ))
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO core_oauth.contract(version,ddl_fingerprint,catalog_fingerprint) VALUES (1,$1,$2)")
         .bind(Sha256::digest(source("oauth-grants")).to_vec())
         .bind(fingerprint(&oauth_definitions))
@@ -573,10 +576,11 @@ async fn historical_twenty_six_component_append_preserves_reviewed_catalog(pool:
             .await
             .unwrap();
     }
-    let historical_definitions: Vec<String> = sqlx::query_scalar(catalog_query)
-        .fetch_all(&mut *tx)
-        .await
-        .unwrap();
+    let historical_definitions: Vec<String> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(catalog_query))
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
     sqlx::query("INSERT INTO core_meta.runtime_contract(catalog_fingerprint) VALUES ($1)")
         .bind(fingerprint(&historical_definitions))
         .execute(&mut *tx)
@@ -698,7 +702,7 @@ async fn pre_model_paging_fourteen_component_contract_is_refused_without_changes
 async fn post_model_paging_fourteen_component_contract_is_refused_without_changes(pool: PgPool) {
     let mut components = pre_model_paging_components();
     assert_eq!(
-        format!("{:x}", Sha256::digest(POST_MODEL_PAGING_MODEL)),
+        crate::hex_codec::encode(Sha256::digest(POST_MODEL_PAGING_MODEL)),
         "3550655d1318c7b33e1877d6eb5b98eb47f045a9c4cfb801d23331fcccb00be4",
         "f296ce49b model-gateway blob 08537c7fc33afed4e1882f7e93f6be5284d20c17"
     );
@@ -1055,10 +1059,10 @@ async fn startup_required_shape_cannot_be_bypassed_by_re_receipting(pool: PgPool
     // Disposable superuser fixture only: exercise readiness/validity omitted by
     // pg_get_indexdef. Restore catalog flags before fixture teardown.
     for flag in ["indisvalid", "indisready"] {
-        sqlx::query(&format!("UPDATE pg_index SET {flag}=false WHERE indexrelid='core_charging.ledger_commands_request_operation'::regclass"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE pg_index SET {flag}=false WHERE indexrelid='core_charging.ledger_commands_request_operation'::regclass")))
             .execute(&pool).await.unwrap();
         assert!(check(&pool).await.is_err());
-        sqlx::query(&format!("UPDATE pg_index SET {flag}=true WHERE indexrelid='core_charging.ledger_commands_request_operation'::regclass"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE pg_index SET {flag}=true WHERE indexrelid='core_charging.ledger_commands_request_operation'::regclass")))
             .execute(&pool).await.unwrap();
     }
     check(&pool).await.unwrap();
@@ -1138,9 +1142,9 @@ async fn upgrade_rejects_runtime_role_and_unrelated_superuser(pool: PgPool) {
         rand::random::<u128>(),
         rand::random::<u128>()
     );
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE ROLE {name} LOGIN SUPERUSER PASSWORD '{password}'"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -1161,7 +1165,7 @@ async fn upgrade_rejects_runtime_role_and_unrelated_superuser(pool: PgPool) {
             .is_err()
     );
     unrelated.close().await;
-    sqlx::query(&format!("DROP ROLE {name}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP ROLE {name}")))
         .execute(&pool)
         .await
         .unwrap();

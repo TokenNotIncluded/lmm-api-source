@@ -24,18 +24,24 @@ async fn column_grants_are_sufficient_and_wider_authority_is_rejected(pool: sqlx
             "SELECT(upgrade_id) ON core_meta.channel_observations_upgrades",
         ),
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             check(&mut c, false).await,
             Err(RuntimeDatabaseError::UnsafePrivileges)
         );
-        sqlx::raw_sql(&format!("REVOKE {revoke} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {revoke} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         // REVOKE of a table privilege also removes that privilege's column ACLs.
         let grants = include_str!("../../../../../deployment/postgres/grant-core-runtime.sql")
             .split_once("-- BEGIN channel-observations runtime grants\n")
@@ -45,7 +51,10 @@ async fn column_grants_are_sufficient_and_wider_authority_is_rejected(pool: sqlx
             .unwrap()
             .0
             .replace(":\"runtime_role\"", &role.name);
-        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+            .execute(&pool)
+            .await
+            .unwrap();
         check(&mut c, true).await.unwrap();
     }
     sqlx::raw_sql("GRANT SELECT(duration_ms) ON core_channels.catalog_observations TO PUBLIC")
@@ -60,10 +69,10 @@ async fn column_grants_are_sufficient_and_wider_authority_is_rejected(pool: sqlx
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE INSERT(duration_ms) ON core_channels.catalog_observations FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -80,13 +89,13 @@ async fn inherited_and_grant_option_authority_is_rejected(pool: sqlx::PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = RuntimeRole::create(&pool).await;
     let group = format!("{}_obs", role.name);
-    sqlx::raw_sql(&format!("CREATE ROLE {group} NOLOGIN; GRANT DELETE ON core_channels.catalog_observations TO {group}; GRANT {group} TO {}",role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {group} NOLOGIN; GRANT DELETE ON core_channels.catalog_observations TO {group}; GRANT {group} TO {}",role.name))).execute(&pool).await.unwrap();
     let mut c = role.pool.acquire().await.unwrap();
     assert_eq!(
         check(&mut c, false).await,
         Err(RuntimeDatabaseError::UnsafePrivileges)
     );
-    sqlx::raw_sql(&format!("REVOKE {group} FROM {}; DROP OWNED BY {group}; DROP ROLE {group}; GRANT SELECT(duration_ms) ON core_channels.catalog_observations TO {} WITH GRANT OPTION",role.name,role.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REVOKE {group} FROM {}; DROP OWNED BY {group}; DROP ROLE {group}; GRANT SELECT(duration_ms) ON core_channels.catalog_observations TO {} WITH GRANT OPTION",role.name,role.name))).execute(&pool).await.unwrap();
     assert_eq!(
         check(&mut c, false).await,
         Err(RuntimeDatabaseError::UnsafePrivileges)

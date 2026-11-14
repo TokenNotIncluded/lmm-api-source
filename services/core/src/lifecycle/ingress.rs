@@ -69,7 +69,7 @@ impl IngressAcks {
         let mut token = HeaderValue::from_bytes(token)?;
         token.set_sensitive(true);
         Ok(Self {
-            client: Client::builder()
+            client: crate::http_client::builder()
                 .no_proxy()
                 .redirect(Policy::none())
                 .connect_timeout(Duration::from_millis(500))

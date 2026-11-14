@@ -35,7 +35,7 @@ mod tests {
         // Exported by the Go ChangeOrder funds-port fixture. These are
         // synthetic credits, not a claim that a ledger journal has been posted.
         assert_eq!(
-            hex(&Sha256::digest(GO_COMMAND)),
+            hex(Sha256::digest(GO_COMMAND)),
             "76cf86cce8b0ba3ba7d850c13d7b84f83e21ddfe108328f953db959bbf37f54a"
         );
         assert_eq!(command().validate(), Ok(1_000_000));

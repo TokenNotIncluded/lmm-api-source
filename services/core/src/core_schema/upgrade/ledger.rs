@@ -79,10 +79,10 @@ fn predecessor_components() -> Result<BTreeMap<String, String>, UpgradeError> {
     installer.update(crate::core_schema::CONTRACT);
     installer.update(crate::core_schema::UPGRADE_METADATA);
     installer.update(crate::core_schema::ADDITIVE_UPGRADE_METADATA);
-    producer.installer_contract_sql_sha256 = hex(&installer.finalize());
+    producer.installer_contract_sql_sha256 = hex(installer.finalize());
     let mut bytes = serde_json::to_vec(&producer).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
-    if hex(&Sha256::digest(bytes)) != PRE_MANIFEST
+    if hex(Sha256::digest(bytes)) != PRE_MANIFEST
         || frozen["manifest"]
             != serde_json::to_value(&producer).map_err(|_| UpgradeError::Storage)?
         || frozen["catalog_sha256"] != PRE_CATALOG
@@ -208,9 +208,7 @@ pub(super) async fn connected(
     )
     .fetch_one(&mut *tx)
     .await?;
-    if tables.len() != 157
-        || hex(&fingerprint(&before)) != PRE_CATALOG
-        || hex(&saved) != PRE_CATALOG
+    if tables.len() != 157 || hex(fingerprint(&before)) != PRE_CATALOG || hex(&saved) != PRE_CATALOG
     {
         return Err(reject("UPGRADE_DB_PREDECESSOR_CATALOG_MISMATCH"));
     }
@@ -228,11 +226,13 @@ pub(super) async fn connected(
     IdentityStore::check_schema_connection(&mut tx).await?;
     let data = old_data(&mut tx, &tables).await?;
     let old_acl = permissions(&mut tx).await?;
-    sqlx::raw_sql(&delta_ddl()?).execute(&mut *tx).await?;
-    sqlx::query(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&delta_ddl()?))
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON core_meta.ledger_revisions TO {}",
         quote(&r.roles.runtime)
-    ))
+    )))
     .execute(&mut *tx)
     .await?;
     check_receipt_acl(&mut tx, r).await?;
@@ -333,7 +333,7 @@ async fn resolve(
     projected.retain(|line| !added.0.contains(line));
     projected.extend(removed.0);
     projected.sort();
-    if hex(&fingerprint(&projected)) != PRE_CATALOG {
+    if hex(fingerprint(&projected)) != PRE_CATALOG {
         return Err(reject(
             "UPGRADE_DB_SUCCESSOR_PREDECESSOR_PROJECTION_MISMATCH",
         ));
@@ -395,12 +395,12 @@ mod tests {
         assert_eq!(predecessor.len(), 26);
         assert_eq!(
             predecessor["ledger"],
-            hex(&Sha256::digest(include_str!(
+            hex(Sha256::digest(include_str!(
                 "../../../tests/core_schema/ledger_before_escrow_submit.sql"
             )))
         );
         assert_eq!(predecessor["ledger"], PRE_LEDGER);
-        assert_ne!(predecessor["ledger"], hex(&Sha256::digest(COMPONENTS[2].1)));
+        assert_ne!(predecessor["ledger"], hex(Sha256::digest(COMPONENTS[2].1)));
         assert_ne!(PRE_CATALOG, POST_CATALOG);
     }
     #[test]

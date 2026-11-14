@@ -1,11 +1,12 @@
 //! Provider bytes are verified inside Core before durable proof admission.
 //! Wire contracts follow the former monolith and the pinned official Waffo SDKs.
+use hmac::KeyInit as _;
 use std::collections::BTreeMap;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use hmac::{Hmac, Mac};
 use md5::Md5;
-use rsa::{Pkcs1v15Sign, RsaPublicKey, pkcs8::DecodePublicKey, traits::PublicKeyParts};
+use rsa::{Pkcs1v15Sign, PublicKey, pkcs8::DecodePublicKey, traits::PublicKeyParts};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -16,14 +17,14 @@ use super::{
     valid_id,
 };
 
-fn public_key(value: &str) -> Result<RsaPublicKey> {
+fn public_key(value: &str) -> Result<PublicKey> {
     let key = if value.starts_with("-----BEGIN PUBLIC KEY-----") {
-        RsaPublicKey::from_public_key_pem(value).map_err(|_| Error::Invalid)?
+        PublicKey::from_public_key_pem(value).map_err(|_| Error::Invalid)?
     } else {
         let der = STANDARD.decode(value).map_err(|_| Error::Invalid)?;
-        RsaPublicKey::from_public_key_der(&der).map_err(|_| Error::Invalid)?
+        PublicKey::from_public_key_der(&der).map_err(|_| Error::Invalid)?
     };
-    if !(2048..=8192).contains(&key.n().bits()) {
+    if !(2048..=8192).contains(&key.n().bit_width()) {
         return Err(Error::Invalid);
     }
     Ok(key)
@@ -138,7 +139,7 @@ fn stable_key(parts: &[&str]) -> String {
         hash.update(format!("{}:", part.len()));
         hash.update(part.as_bytes());
     }
-    format!("pay_{}", hex(&hash.finalize()))
+    format!("pay_{}", hex(hash.finalize()))
 }
 
 fn text<'a>(object: &'a Value, field: &str) -> Result<&'a str> {
@@ -171,7 +172,7 @@ pub(super) fn decimal_minor(value: &str) -> Result<i64> {
     if value.is_empty() || value.len() > 20 {
         return Err(Error::Invalid);
     }
-    let (whole, fraction) = value.split_once('.').map_or((value, ""), |parts| parts);
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
     if whole.is_empty()
         || !whole.bytes().all(|b| b.is_ascii_digit())
         || fraction.len() > 2
@@ -275,7 +276,7 @@ fn epay_signature(values: &BTreeMap<String, String>, secret: &str) -> String {
         .collect::<Vec<_>>()
         .join("&")
         + secret;
-    hex(&Md5::digest(input.as_bytes()))
+    hex(Md5::digest(input.as_bytes()))
 }
 
 pub(super) fn epay_checkout(channel: &Channel, order: &str, amount: i64) -> Result<String> {
@@ -712,7 +713,7 @@ mod tests {
     use crate::payments::{PaymentsStore, ProviderVerification};
     use rand::{SeedableRng, rngs::StdRng};
     use rsa::{
-        RsaPrivateKey,
+        PrivateKey,
         pkcs8::{EncodePrivateKey, EncodePublicKey},
     };
     use serde_json::json;
@@ -721,9 +722,9 @@ mod tests {
     const NOW: i64 = 1_900_000_000;
     const SECRET: &str = "core_only_epay_secret_for_fixture";
 
-    fn rsa_key() -> &'static RsaPrivateKey {
-        static KEY: OnceLock<RsaPrivateKey> = OnceLock::new();
-        KEY.get_or_init(|| RsaPrivateKey::new(&mut StdRng::seed_from_u64(42), 2048).unwrap())
+    fn rsa_key() -> &'static PrivateKey {
+        static KEY: OnceLock<PrivateKey> = OnceLock::new();
+        KEY.get_or_init(|| PrivateKey::new(&mut StdRng::seed_from_u64(42), 2048).unwrap())
     }
 
     fn channel(provider: &str) -> Channel {
@@ -797,7 +798,7 @@ mod tests {
         let bytes = serde_json::to_vec(value).unwrap();
         let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
         mac.update(&bytes);
-        let signature = hex(&mac.finalize().into_bytes());
+        let signature = hex(mac.finalize().into_bytes());
         (bytes, signature)
     }
 
@@ -812,7 +813,7 @@ mod tests {
         let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
         mac.update(format!("{timestamp}.").as_bytes());
         mac.update(raw);
-        format!("t={timestamp},v0={}", hex(&mac.finalize().into_bytes()))
+        format!("t={timestamp},v0={}", hex(mac.finalize().into_bytes()))
     }
 
     #[test]
@@ -1474,7 +1475,7 @@ mod tests {
         // the old signature key or a fresh timestamp. Ingress still verifies.
         let mut rotated = c.clone();
         rotated.webhook_secrets = vec![
-            RsaPrivateKey::new(&mut StdRng::seed_from_u64(43), 2048)
+            PrivateKey::new(&mut StdRng::seed_from_u64(43), 2048)
                 .unwrap()
                 .to_public_key()
                 .to_public_key_pem(Default::default())
@@ -2016,10 +2017,12 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&plan.stderr)
         );
-        sqlx::raw_sql(std::str::from_utf8(&plan.stdout).unwrap())
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(
+            std::str::from_utf8(&plan.stdout).unwrap(),
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::raw_sql("INSERT INTO core_console.options(key,value) VALUES('payment_setting.compliance_confirmed','true'),('payment_setting.compliance_terms_version','v1') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;")
             .execute(&pool).await.unwrap();
         let role = referral_runtime::RuntimeRole::create(&pool).await;

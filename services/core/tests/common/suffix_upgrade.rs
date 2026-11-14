@@ -34,10 +34,10 @@ fn manifest_sha256() -> String {
     manifest.components.truncate(target_count());
     let mut bytes = serde_json::to_vec(&manifest).unwrap();
     bytes.push(b'\n');
-    format!("{:x}", Sha256::digest(bytes))
+    hex_codec::encode(Sha256::digest(bytes))
 }
 async fn definitions(connection: &mut PgConnection) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(schema_manifest().catalog.query_utf8)
+    sqlx::query_scalar(sqlx::AssertSqlSafe(schema_manifest().catalog.query_utf8))
         .fetch_all(connection)
         .await
 }
@@ -49,9 +49,9 @@ async fn sequence_states(
     let mut states = Vec::new();
     for name in names {
         // Identifiers originate from pg_catalog's format('%I.%I', ...).
-        let value = sqlx::query_scalar(&format!(
+        let value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT jsonb_build_array(last_value,log_cnt,is_called) FROM {name}"
-        ))
+        )))
         .fetch_one(&mut *c)
         .await
         .unwrap();
@@ -147,8 +147,8 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     r.database.system_identifier = facts.get("system");
     let original: String = facts.get("original");
     let password = format!("synthetic-{:032x}", rand::random::<u128>());
-    sqlx::raw_sql(&format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT PASSWORD '{password}'; CREATE ROLE {runtime} NOLOGIN; CREATE ROLE {extensions} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; ALTER DATABASE {database} OWNER TO {owner}; REVOKE CONNECT,CREATE,TEMP ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {installer}; REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC; GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {owner};",
-        owner=quote(&r.roles.owner),installer=quote(&r.roles.installer),runtime=quote(&r.roles.runtime),extensions=quote(&r.roles.extensions),database=quote(&r.database.name)))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT PASSWORD '{password}'; CREATE ROLE {runtime} NOLOGIN; CREATE ROLE {extensions} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; ALTER DATABASE {database} OWNER TO {owner}; REVOKE CONNECT,CREATE,TEMP ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {installer}; REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC; GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {owner};",
+        owner=quote(&r.roles.owner),installer=quote(&r.roles.installer),runtime=quote(&r.roles.runtime),extensions=quote(&r.roles.extensions),database=quote(&r.database.name))))
         .execute(&pool).await.unwrap();
     let options = (*pool.connect_options())
         .clone()
@@ -165,14 +165,14 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         .execute(&installer).await.unwrap();
     // Exercise real pre-existing schema/table/column/sequence/function grants.
     // The function is replaced by channel-control, so its ACL must survive too.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT USAGE ON SCHEMA core_identity TO {runtime}; \
          GRANT SELECT ON core_identity.users TO {runtime}; \
          GRANT UPDATE(revoked_at) ON core_identity.credentials TO {runtime}; \
          GRANT USAGE ON SEQUENCE core_identity.credentials_id_seq TO {runtime}; \
          GRANT EXECUTE ON FUNCTION public.routing_stage_prices(jsonb) TO {runtime};",
         runtime = quote(&r.roles.runtime)
-    ))
+    )))
     .execute(&installer)
     .await
     .unwrap();
@@ -183,7 +183,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         hash.update((definition.len() as u64).to_be_bytes());
         hash.update(definition.as_bytes());
     }
-    assert_eq!(format!("{:x}", hash.finalize()), PRE_CATALOG);
+    assert_eq!(hex_codec::encode(hash.finalize()), PRE_CATALOG);
     drop(conn);
     let identity = lmm_core::identity::IdentityStore::from_pool(installer.clone());
     let root = identity.bootstrap_user(7001, 6).await.unwrap();
@@ -292,10 +292,13 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         changed_result.as_ref().err()
     );
     let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
-    sqlx::query(&format!("SET ROLE {}", quote(&r.roles.owner)))
-        .execute(&mut inspect)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET ROLE {}",
+        quote(&r.roles.owner)
+    )))
+    .execute(&mut inspect)
+    .await
+    .unwrap();
     let function_ids: Vec<i64> = before_functions.iter().map(|(id, _)| *id).collect();
     let after_functions: Vec<(i64,String)> = sqlx::query_as("SELECT oid::bigint,pg_get_functiondef(oid) FROM pg_proc WHERE oid::bigint=ANY($1) ORDER BY oid")
         .bind(function_ids).fetch_all(&mut inspect).await.unwrap();
@@ -363,11 +366,11 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_meta.completion_upgrades WHERE upgrade_id='frozen-previous-completion'")
         .fetch_one(&mut inspect).await.unwrap(), 1);
     // The successful public replay above already verified the receipt privileges.
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON {} TO {}",
         RECEIPT,
         quote(&r.roles.installer)
-    ))
+    )))
     .execute(&mut inspect)
     .await
     .unwrap();
@@ -379,15 +382,18 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_RECEIPT_PRIVILEGES_INVALID")
     ));
     let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
-    sqlx::query(&format!("SET ROLE {}", quote(&r.roles.owner)))
-        .execute(&mut inspect)
-        .await
-        .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET ROLE {}",
+        quote(&r.roles.owner)
+    )))
+    .execute(&mut inspect)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON {} FROM {}",
         RECEIPT,
         quote(&r.roles.installer)
-    ))
+    )))
     .execute(&mut inspect)
     .await
     .unwrap();
@@ -402,8 +408,10 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     let mut admin_url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
     admin_url.set_path(&format!("/{}", r.database.name));
     let mut admin = PgConnection::connect(admin_url.as_str()).await.unwrap();
-    sqlx::raw_sql(&format!("DROP OWNED BY {installer},{runtime},{extensions},{owner} CASCADE; ALTER DATABASE {database} OWNER TO {original}; DROP ROLE {installer},{runtime},{extensions},{owner};",
-        installer=quote(&r.roles.installer),runtime=quote(&r.roles.runtime),extensions=quote(&r.roles.extensions),owner=quote(&r.roles.owner),database=quote(&r.database.name),original=quote(&original)))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP OWNED BY {installer},{runtime},{extensions},{owner} CASCADE; ALTER DATABASE {database} OWNER TO {original}; DROP ROLE {installer},{runtime},{extensions},{owner};",
+        installer=quote(&r.roles.installer),runtime=quote(&r.roles.runtime),extensions=quote(&r.roles.extensions),owner=quote(&r.roles.owner),database=quote(&r.database.name),original=quote(&original))))
         .execute(&mut admin).await.unwrap();
     admin.close().await.unwrap();
 }
+
+use crate::hex_codec;

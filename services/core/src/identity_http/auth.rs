@@ -4,7 +4,7 @@ use axum::{
     extract::{ConnectInfo, rejection::JsonRejection},
     response::Redirect,
 };
-use rand::RngCore;
+use rand::TryRng as _;
 use std::net::SocketAddr;
 
 const FLOW_COOKIE: &str = "__Host-lmm_google_flow";
@@ -137,7 +137,7 @@ async fn google_start(State(store): State<IdentityStore>) -> Result<Response> {
         return Err(IdentityError::Forbidden);
     }
     let mut random = [0u8; 32];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut random)
         .map_err(|_| IdentityError::Storage)?;
     let binding: String = crate::hex_codec::encode(random);

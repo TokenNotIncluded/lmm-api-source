@@ -485,3 +485,6 @@ async fn test_a07_concurrent_reconcile_serialized_by_recovery_cursor_mutex(pool:
         assert_eq!(charge.state, "settled");
     }
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

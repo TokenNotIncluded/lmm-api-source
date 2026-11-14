@@ -77,14 +77,14 @@ impl TerminalState {
             || self
                 .id
                 .as_ref()
-                .is_some_and(|old| old != &format!("{:x}", Sha256::digest(id.as_bytes())))
+                .is_some_and(|old| old != &crate::hex_codec::encode(Sha256::digest(id.as_bytes())))
         {
             return Err(AudioError::InvalidUsage);
         }
         if value.get("error").is_some_and(|v| !v.is_null()) {
             return Err(AudioError::InvalidUsage);
         }
-        self.id = Some(format!("{:x}", Sha256::digest(id.as_bytes())));
+        self.id = Some(crate::hex_codec::encode(Sha256::digest(id.as_bytes())));
         let choices = value["choices"]
             .as_array()
             .ok_or(AudioError::InvalidUsage)?;

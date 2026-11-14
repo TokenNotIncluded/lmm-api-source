@@ -2,7 +2,8 @@
 //! credentials are not enrollment authority, even when their role says root.
 use super::store::{authorize, decode_hex, hex};
 use super::{Error, Service};
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -55,7 +56,7 @@ impl EditorConfig {
 }
 fn random_id() -> Result<[u8; 32], Error> {
     let mut id = [0; 32];
-    OsRng.try_fill_bytes(&mut id).map_err(|_| Error::Storage)?;
+    SysRng.try_fill_bytes(&mut id).map_err(|_| Error::Storage)?;
     Ok(id)
 }
 fn encode<T: Serialize>(v: &T) -> Result<Value, Error> {
@@ -112,8 +113,8 @@ impl Service {
             .webauthn
             .start_passkey_authentication(&[editor.passkey])
             .map_err(|_| Error::Invalid)?;
-        let challenge = hex(&random_id()?);
-        let payload = json!({"token":hex(&token_digest),"actor":actor.user_id,"session":actor.credential_id,
+        let challenge = hex(random_id()?);
+        let payload = json!({"token":hex(token_digest),"actor":actor.user_id,"session":actor.credential_id,
             "editor":editor.editor_id,"version":editor.version,"digest":digest,"challenge":challenge,
             "authentication":encode(&state)?});
         let proof = self.proof(&mut tx, "challenge", payload.clone()).await?;
@@ -160,11 +161,11 @@ impl Service {
         // latest persisted counter, not merely the counter captured at start.
         let assertion_digest =
             Sha256::digest(serde_json::to_vec(&input.assertion).map_err(|_| Error::Invalid)?);
-        let payload = json!({"token":hex(&token_digest),"actor":actor.user_id,"session":actor.credential_id,
+        let payload = json!({"token":hex(token_digest),"actor":actor.user_id,"session":actor.credential_id,
             "digest":input.digest,"challenge":input.challenge,"editor":editor.editor_id,"version":editor.version,
             "credential":hex(result.cred_id().as_ref()),"user_verified":result.user_verified(),
             "counter":result.counter(),"backup_state":result.backup_state(),"backup_eligible":result.backup_eligible(),
-            "assertion_digest":hex(&assertion_digest)});
+            "assertion_digest":hex(assertion_digest)});
         let proof = self
             .proof(&mut tx, "confirm-passkey-v1", payload.clone())
             .await?;
@@ -305,7 +306,7 @@ impl Owner {
         let mut tx = self.begin().await?;
         check_version(&mut tx, editor, actor, expected_version).await?;
         let mut handle = [0u8; 16];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut handle)
             .map_err(|_| Error::Storage)?;
         let (options, state) = self
@@ -323,7 +324,7 @@ impl Owner {
             .bind(&self.config.origin).bind(Json(encode(&state)?)).execute(&mut *tx).await?;
         tx.commit().await.map_err(|_| Error::CommitUnknown)?;
         Ok(Registration {
-            enrollment: hex(&id),
+            enrollment: hex(id),
             options: encode(&options)?,
         })
     }
@@ -373,7 +374,7 @@ impl Owner {
             rp_id,
             origin,
             credential_id: hex(passkey.cred_id().as_ref()),
-            fingerprint: hex(&fingerprint),
+            fingerprint: hex(fingerprint),
         })
     }
     /// Explicit offline approval, including first registration and replacement.

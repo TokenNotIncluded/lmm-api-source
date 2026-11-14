@@ -43,7 +43,7 @@ impl Manifest {
         bytes
     }
     pub fn sha256(&self) -> String {
-        super::hex(&Sha256::digest(self.stdout()))
+        super::hex(Sha256::digest(self.stdout()))
     }
     pub fn component_map(&self) -> BTreeMap<String, String> {
         self.components
@@ -104,7 +104,7 @@ pub(super) fn preserved(count: usize) -> Manifest {
         "captured installer bytes must never be regenerated"
     );
     assert_eq!(
-        super::hex(&Sha256::digest(expected.catalog.query_utf8.as_bytes())),
+        super::hex(Sha256::digest(expected.catalog.query_utf8.as_bytes())),
         expected.catalog.query_sha256
     );
 

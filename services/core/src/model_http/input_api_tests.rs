@@ -430,10 +430,10 @@ async fn input_api_pg_durable_receipt_recovers_with_original_price_after_settlem
         .unwrap();
     // Only this disposable runtime loses the final ledger capability. Reservation and
     // actual dispatch already happened; provider checkpoint writes remain permitted.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) FROM {}",
         runtime.name
-    ))
+    )))
     .execute(&f.pool)
     .await
     .unwrap();
@@ -446,10 +446,10 @@ async fn input_api_pg_durable_receipt_recovers_with_original_price_after_settlem
     assert_eq!(pending.price.input_per_million, 1_000_000);
     assert_eq!(supplier.state.hits.load(Ordering::SeqCst), 1);
     drop(initial);
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) TO {}",
         runtime.name
-    ))
+    )))
     .execute(&f.pool)
     .await
     .unwrap();

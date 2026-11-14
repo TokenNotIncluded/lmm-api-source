@@ -253,10 +253,10 @@ impl Fence {
         self.allow(r, false).await
     }
     async fn allow(&mut self, r: &Request, allow: bool) -> Result<()> {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "ALTER DATABASE {} ALLOW_CONNECTIONS {allow}",
             engine::quote(&r.bridge.database_name)
-        ))
+        )))
         .execute(&mut self.management)
         .await?;
         let actual: bool =
@@ -287,10 +287,10 @@ impl Fence {
                 id == r.bridge.system_identifier,
                 "OFFLINE_RECLOSE_IDENTITY_MISMATCH",
             )?;
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "ALTER DATABASE {} ALLOW_CONNECTIONS false",
                 engine::quote(&r.bridge.database_name)
-            ))
+            )))
             .execute(&mut fresh)
             .await?;
             let closed: bool = sqlx::query_scalar(
@@ -304,9 +304,12 @@ impl Fence {
         .await;
         reclosed?;
         let mut target = opened?;
-        sqlx::query(&format!("SET ROLE {}", engine::quote(&r.bridge.owner)))
-            .execute(&mut target)
-            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SET ROLE {}",
+            engine::quote(&r.bridge.owner)
+        )))
+        .execute(&mut target)
+        .await?;
         let valid:bool=sqlx::query_scalar("SELECT current_database()=$1 AND (SELECT oid::bigint FROM pg_database WHERE datname=current_database())=$2 AND session_user=$3 AND (SELECT system_identifier::text FROM pg_control_system())=$4")
             .bind(&r.bridge.database_name).bind(i64::from(r.bridge.database_oid)).bind(&r.bridge.installer).bind(&r.bridge.system_identifier).fetch_one(&mut target).await?;
         require(valid, "OFFLINE_TARGET_IDENTITY_MISMATCH")?;
@@ -321,18 +324,18 @@ impl Fence {
         require(scram, "OFFLINE_INSTALLER_SCRAM_REQUIRED")?;
         // Revoke admission before taking conservation snapshots; no runtime
         // role is reenabled by an apply or recovery result.
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "ALTER ROLE {} NOLOGIN",
             engine::quote(&r.bridge.runtime)
-        ))
+        )))
         .execute(&mut self.management)
         .await?;
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE CONNECT ON DATABASE {} FROM PUBLIC,{},{}",
             engine::quote(&r.bridge.database_name),
             engine::quote(&r.bridge.runtime),
             engine::quote(&r.bridge.extensions)
-        ))
+        )))
         .execute(&mut self.management)
         .await?;
         self.target(r).await

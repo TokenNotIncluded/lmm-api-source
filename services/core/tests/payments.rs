@@ -2,6 +2,7 @@
 //! SQLx creates a new owned database per test; never point DATABASE_URL at live data.
 #![cfg(unix)]
 use base64::{Engine, engine::general_purpose::STANDARD};
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use lmm_core::{
     billing::{
@@ -13,7 +14,7 @@ use lmm_core::{
     payments::{Channel, CreditQuotePolicy, CreditQuoteRatio, Error, PaymentsStore},
 };
 use rand::{SeedableRng, rngs::StdRng};
-use rsa::{Pkcs1v15Sign, RsaPrivateKey, pkcs8::EncodePublicKey};
+use rsa::{Pkcs1v15Sign, PrivateKey, pkcs8::EncodePublicKey};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -95,16 +96,16 @@ async fn fresh_with_level(pool: &PgPool, level: i16) -> Fixture {
     identity.init_database().await.unwrap();
     // Payment-intent admission reads the required Core abuse policy. Install it
     // explicitly with this test's synthetic owner before exercising that path.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(pool)
         .await
         .unwrap();
     let mut tx = pool.begin().await.unwrap();
-    sqlx::raw_sql(ledger::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(ledger::SCHEMA))
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::raw_sql(lmm_core::payments::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::payments::SCHEMA))
         .execute(&mut *tx)
         .await
         .unwrap();
@@ -1005,13 +1006,13 @@ async fn partial_external_refund_id_reuse_preserves_financial_state(pool: PgPool
         );
         // A new event may have its own accepted proof. It must not add an
         // applied payment receipt, provider refund or blocked financial fact.
-        let state: (i64, i64, i64, i64) = sqlx::query_as(concat!(
+        let state: (i64, i64, i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(concat!(
             "SELECT i.refunded_minor,",
             "(SELECT count(*) FROM core_payments.receipts),",
             "(SELECT count(*) FROM core_payments.provider_refunds),",
             "(SELECT count(*) FROM core_payments.blocked_refunds) ",
             "FROM core_payments.intents i WHERE i.id=$1"
-        ))
+        )))
         .bind(intent.intent_id)
         .fetch_one(&pool)
         .await
@@ -1469,7 +1470,10 @@ async fn real_go_http_uds_proof_survives_expiry_and_service_restart(pool: PgPool
     assert!(grants_metadata.is_file() && grants_metadata.permissions().mode() & 0o077 == 0);
     let grants = fs::read_to_string(grants_file).unwrap();
     assert!(grants.len() < 16384);
-    sqlx::raw_sql(&grants).execute(&go_pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(&go_pool)
+        .await
+        .unwrap();
     go_pool.close().await;
     let f = fresh(&pool).await;
     let key = "prepare_real_go_durable";
@@ -1882,8 +1886,8 @@ async fn a05_external_refund_without_metadata_must_reach_durable_core_proof(pool
             "business_expected":"valid signed refund for durably bound original payment can reach accepted proof without caller-specific local metadata",
             "business_verdict":if rejected.is_ok(){"PASS"}else{"FAIL"},
             "original_payment":{"intent_id":intent.intent_id,"account_id":binding.0,"provider_transaction":binding.1,"credit_journal_id":binding.2,"amount_minor":100,"wallet_available_units":500000},
-            "positive_control":{"accepted":true,"durable_get_exact":true,"original_signed_bytes_persisted":true,"proof_id":accepted.proof_id,"payload_sha256":format!("{:x}",Sha256::digest(&baseline.signed_payload))},
-            "empty_metadata":{"accepted":rejected.is_ok(),"error":denial,"accepted_proof_rows":empty_rows,"payload_sha256":format!("{:x}",Sha256::digest(&empty.signed_payload))},
+            "positive_control":{"accepted":true,"durable_get_exact":true,"original_signed_bytes_persisted":true,"proof_id":accepted.proof_id,"payload_sha256":hex_codec::encode(Sha256::digest(&baseline.signed_payload))},
+            "empty_metadata":{"accepted":rejected.is_ok(),"error":denial,"accepted_proof_rows":empty_rows,"payload_sha256":hex_codec::encode(Sha256::digest(&empty.signed_payload))},
             "isolation":{"separate_event_ids":true,"same_provider_refund_id":true,"same_original_payment":true,"same_amount_and_currency":true,"both_original_payloads_freshly_signed":true},
             "totals":{"proof_rows":proof_rows,"journals_before":before_journals,"journals_after":after_journals,"applied_refund_rows":refund_rows}
         });
@@ -2588,14 +2592,16 @@ async fn failed_refund_retry_capacity(pool: PgPool, external_first: bool, retry_
             f.store.external_refund(external.clone())
         );
         assert_ne!(a.is_ok(), b.is_ok());
-        let (settled, duplicate) = if a.is_ok() {
-            let receipt = a.unwrap();
-            assert_eq!(f.store.resolve(commit, true).await.unwrap(), receipt);
-            (receipt, b.unwrap_err())
-        } else {
-            let receipt = b.unwrap();
-            assert_eq!(f.store.external_refund(external).await.unwrap(), receipt);
-            (receipt, a.unwrap_err())
+        let (settled, duplicate) = match a {
+            Ok(receipt) => {
+                assert_eq!(f.store.resolve(commit, true).await.unwrap(), receipt);
+                (receipt, b.unwrap_err())
+            }
+            Err(error) => {
+                let receipt = b.unwrap();
+                assert_eq!(f.store.external_refund(external).await.unwrap(), receipt);
+                (receipt, error)
+            }
         };
         assert!(matches!(duplicate, Error::Conflict | Error::Unavailable));
         assert!(settled.journal_id > 0);
@@ -2669,9 +2675,9 @@ async fn capacity_quarantine_recovers_after_bound_retry_failure_external_first(p
 }
 
 // Reuse the providers module's deterministic synthetic RSA fixture identity.
-fn quantity_fixture_rsa() -> &'static RsaPrivateKey {
-    static KEY: OnceLock<RsaPrivateKey> = OnceLock::new();
-    KEY.get_or_init(|| RsaPrivateKey::new(&mut StdRng::seed_from_u64(42), 2048).unwrap())
+fn quantity_fixture_rsa() -> &'static PrivateKey {
+    static KEY: OnceLock<PrivateKey> = OnceLock::new();
+    KEY.get_or_init(|| PrivateKey::new(&mut StdRng::seed_from_u64(42), 2048).unwrap())
 }
 fn quantity_policy(numerator: i64, denominator: i64) -> CreditQuotePolicy {
     CreditQuotePolicy {
@@ -3074,3 +3080,6 @@ mod app05;
 
 #[path = "common/payment_discount_management.rs"]
 mod discount_management;
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

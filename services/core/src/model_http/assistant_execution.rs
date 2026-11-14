@@ -169,12 +169,7 @@ impl ModelGateway {
             .ok_or(RelayError::RouteUnavailable)?;
         let availability = attempt.clone();
         let route = relay::Route::new(
-            format!(
-                "r{}-t{}-u{}",
-                attempt.route_id(),
-                attempt.target_id(),
-                attempt.upstream_id()
-            ),
+            attempt.route_key(),
             relay::UpstreamProtocol::Chat,
             endpoint.as_str(),
             attempt.upstream_model().to_owned(),
@@ -536,6 +531,7 @@ mod usage_tests {
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
                 responses_compaction: false,
+                responses_continuity: None,
                 pre_acceptance_rejection_statuses: Vec::new(),
                 grounding: None,
 

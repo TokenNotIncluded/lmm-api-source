@@ -28,7 +28,7 @@ impl RuntimeRole {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_')
         );
-        sqlx::raw_sql(&format!(r#"
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(r#"
             CREATE ROLE {name} LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
             REVOKE CREATE,TEMPORARY ON DATABASE "{database}" FROM PUBLIC;
             REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -44,7 +44,7 @@ impl RuntimeRole {
             GRANT USAGE ON ALL SEQUENCES IN SCHEMA core_identity TO {name};
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
-        "#)).execute(owner).await.unwrap();
+        "#))).execute(owner).await.unwrap();
         // Historical upgrade fixtures create the role before the Core62 suffix.
         let core62_installed: bool =
             sqlx::query_scalar("SELECT to_regclass('core_meta.core59_to62_upgrades') IS NOT NULL")
@@ -52,9 +52,9 @@ impl RuntimeRole {
                 .await
                 .unwrap();
         if core62_installed {
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "GRANT SELECT ON core_meta.core59_to62_upgrades TO {name}"
-            ))
+            )))
             .execute(owner)
             .await
             .unwrap();
@@ -73,7 +73,10 @@ impl RuntimeRole {
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &name);
-            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(owner)
+                .await
+                .unwrap();
         }
         let projection_installed: bool =
             sqlx::query_scalar("SELECT to_regclass('core_channels.projection_state') IS NOT NULL")
@@ -89,7 +92,10 @@ impl RuntimeRole {
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &name);
-            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(owner)
+                .await
+                .unwrap();
         }
         let observations_installed: bool = sqlx::query_scalar(
             "SELECT to_regclass('core_channels.catalog_observations') IS NOT NULL",
@@ -106,7 +112,10 @@ impl RuntimeRole {
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &name);
-            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(owner)
+                .await
+                .unwrap();
         }
         let links_installed: bool =
             sqlx::query_scalar("SELECT to_regnamespace('core_account_links') IS NOT NULL")
@@ -114,7 +123,7 @@ impl RuntimeRole {
                 .await
                 .unwrap();
         if links_installed {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_account_links TO {name}; GRANT SELECT ON core_account_links.oauth_states TO {name}"))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_account_links TO {name}; GRANT SELECT ON core_account_links.oauth_states TO {name}")))
                 .execute(owner).await.unwrap();
         }
         let email_installed: bool =
@@ -133,7 +142,10 @@ impl RuntimeRole {
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &name);
-            sqlx::raw_sql(&grants).execute(owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(owner)
+                .await
+                .unwrap();
         }
         // Identity/ledger-only fixtures intentionally omit optional components.
         // Complete runtime provisioning/checking remains strict in production.
@@ -143,7 +155,7 @@ impl RuntimeRole {
                 .await
                 .unwrap();
         if operations_installed {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_operations TO {name}; GRANT SELECT,INSERT ON core_operations.log_cleanup_jobs TO {name}; GRANT USAGE ON SEQUENCE core_operations.log_cleanup_jobs_id_seq TO {name}; GRANT SELECT,INSERT,UPDATE,DELETE ON core_operations.instances TO {name}; GRANT EXECUTE ON FUNCTION core_operations.run_log_cleanup_batch() TO {name}"))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_operations TO {name}; GRANT SELECT,INSERT ON core_operations.log_cleanup_jobs TO {name}; GRANT USAGE ON SEQUENCE core_operations.log_cleanup_jobs_id_seq TO {name}; GRANT SELECT,INSERT,UPDATE,DELETE ON core_operations.instances TO {name}; GRANT EXECUTE ON FUNCTION core_operations.run_log_cleanup_batch() TO {name}")))
                 .execute(owner).await.unwrap();
         }
         let limits_installed: bool =
@@ -152,7 +164,7 @@ impl RuntimeRole {
                 .await
                 .unwrap();
         if limits_installed {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_request_limits TO {name}; GRANT SELECT ON core_request_limits.policy,core_request_limits.auto_policy TO {name}; GRANT EXECUTE ON FUNCTION core_request_limits.admit(bigint,text,text),core_request_limits.write_policy(bigint,boolean,integer,integer,jsonb,bigint),core_request_limits.write_auto_groups(bigint,text[],bigint) TO {name}"))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_request_limits TO {name}; GRANT SELECT ON core_request_limits.policy,core_request_limits.auto_policy TO {name}; GRANT EXECUTE ON FUNCTION core_request_limits.admit(bigint,text,text),core_request_limits.write_policy(bigint,boolean,integer,integer,jsonb,bigint),core_request_limits.write_auto_groups(bigint,text[],bigint) TO {name}")))
                 .execute(owner).await.unwrap();
         }
         let abuse_installed: bool =
@@ -161,7 +173,7 @@ impl RuntimeRole {
                 .await
                 .unwrap();
         if abuse_installed {
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 r#"
 -- Abuse administration is checked against canonical superadmin Sessions in Rust.
 -- Secrets are host-private references; audit/operations/previews are append-only.
@@ -174,7 +186,7 @@ GRANT INSERT,UPDATE (attempts),DELETE ON core_abuse.model_counters TO {name};
 GRANT INSERT,UPDATE (finished_at),DELETE ON core_abuse.model_leases TO {name};
 GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             "#
-            ))
+            )))
             .execute(owner)
             .await
             .unwrap();
@@ -189,14 +201,14 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 "SELECT to_regclass('core_history.quota_aggregates') IS NOT NULL AND to_regclass('core_history.legacy_passkey_handles') IS NOT NULL",
             ).fetch_one(owner).await.unwrap();
             if compatibility_installed {
-                sqlx::raw_sql(&format!(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "GRANT SELECT ON core_history.quota_aggregates,core_history.legacy_passkey_handles TO {name}"
-                )).execute(owner).await.unwrap();
+                ))).execute(owner).await.unwrap();
             }
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "GRANT USAGE ON SCHEMA core_history TO {0}; GRANT SELECT ON core_history.sources,core_history.log_records,core_history.scope_receipts TO {0}",
                 name
-            ))
+            )))
             .execute(owner)
             .await
             .unwrap();
@@ -204,9 +216,9 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 "SELECT count(*)=4 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_history' AND c.relkind IN ('r','v') AND c.relname IN ('finance_sources','finance_users','finance_topups','finance_native_payments')",
             ).fetch_one(owner).await.unwrap();
             if finance_installed {
-                sqlx::raw_sql(&format!(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "GRANT SELECT ON core_history.finance_sources,core_history.finance_users,core_history.finance_topups,core_history.finance_native_payments TO {name}"
-                )).execute(owner).await.unwrap();
+                ))).execute(owner).await.unwrap();
             }
         }
         let gift_installed: bool =
@@ -215,16 +227,16 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 .await
                 .unwrap();
         if gift_installed {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_gift TO {0}; GRANT SELECT ON core_gift.risk_key,core_gift.policy,core_gift.qualifications TO {0}; GRANT INSERT ON core_gift.qualifications TO {0}; GRANT EXECUTE ON FUNCTION core_gift.lock_eligibility(bigint) TO {0}",name))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_gift TO {0}; GRANT SELECT ON core_gift.risk_key,core_gift.policy,core_gift.qualifications TO {0}; GRANT INSERT ON core_gift.qualifications TO {0}; GRANT EXECUTE ON FUNCTION core_gift.lock_eligibility(bigint) TO {0}",name)))
                 .execute(owner).await.unwrap();
         }
         let telegram_installed: bool = sqlx::query_scalar(
             "SELECT count(*)=3 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_telegram_auth' AND c.relkind='r' AND c.relname IN ('bindings','flows','assertions')",
         ).fetch_one(owner).await.unwrap();
         if telegram_installed {
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "GRANT USAGE ON SCHEMA core_telegram_auth TO {name}; GRANT SELECT ON core_telegram_auth.bindings,core_telegram_auth.flows,core_telegram_auth.assertions TO {name}; GRANT INSERT(subject,user_id),UPDATE(revoked_at) ON core_telegram_auth.bindings TO {name}; GRANT INSERT(token_digest,purpose,binding_digest,user_id,user_version,sid),UPDATE(consumed_at),DELETE ON core_telegram_auth.flows TO {name}; GRANT INSERT(digest),DELETE ON core_telegram_auth.assertions TO {name}",
-            )).execute(owner).await.unwrap();
+            ))).execute(owner).await.unwrap();
         }
         // Match the production enable_trust_pricing read grants, without adding
         // optional components or authority to older partial-schema fixtures.
@@ -235,9 +247,9 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
         .await
         .unwrap();
         if trust_installed {
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "GRANT USAGE ON SCHEMA core_trust_pricing TO {name}; GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,core_trust_pricing.legacy_paid_orders TO {name}",
-            ))
+            )))
             .execute(owner)
             .await
             .unwrap();
@@ -247,9 +259,9 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                     .await
                     .unwrap();
             if payments_installed {
-                sqlx::raw_sql(&format!(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "GRANT USAGE ON SCHEMA core_payments TO {name}; GRANT SELECT ON core_payments.intents TO {name}",
-                ))
+                )))
                 .execute(owner)
                 .await
                 .unwrap();
@@ -261,9 +273,9 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             .await
             .unwrap();
             if charging_installed {
-                sqlx::raw_sql(&format!(
-                    "GRANT USAGE ON SCHEMA core_charging TO {name}; GRANT SELECT ON core_charging.requests,core_charging.usage_events TO {name}",
-                ))
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "GRANT USAGE ON SCHEMA core_charging TO {name}; GRANT SELECT ON core_charging.requests,core_charging.usage_events,core_charging.ledger_commands,core_charging.refunds TO {name}",
+                )))
                 .execute(owner)
                 .await
                 .unwrap();
@@ -332,7 +344,10 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                     .unwrap()
                     .0
                     .replace(":\"runtime_role\"", &self.name);
-                sqlx::raw_sql(&sql).execute(&self.owner).await.unwrap();
+                sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+                    .execute(&self.owner)
+                    .await
+                    .unwrap();
             }
         }
         if matches!(schema, "core_subscriptions" | "core_promotions") {
@@ -348,7 +363,10 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &self.name);
-            sqlx::raw_sql(&grants).execute(&self.owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(&self.owner)
+                .await
+                .unwrap();
             return;
         }
         if schema == "core_assistant_agent" {
@@ -361,15 +379,18 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 .unwrap()
                 .0
                 .replace(":\"runtime_role\"", &self.name);
-            sqlx::raw_sql(&sql).execute(&self.owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+                .execute(&self.owner)
+                .await
+                .unwrap();
             return;
         }
         if schema == "core_market_oauth" {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_market_oauth TO {0}; GRANT SELECT,INSERT ON core_market_oauth.clients,core_market_oauth.requests,core_market_oauth.families,core_market_oauth.codes,core_market_oauth.tokens TO {0}; GRANT UPDATE(revoked_at) ON core_market_oauth.clients,core_market_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_market_oauth.requests,core_market_oauth.codes,core_market_oauth.tokens TO {0}; GRANT EXECUTE ON FUNCTION core_market_oauth.scope_set(text[]) TO {0}",self.name)).execute(&self.owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_market_oauth TO {0}; GRANT SELECT,INSERT ON core_market_oauth.clients,core_market_oauth.requests,core_market_oauth.families,core_market_oauth.codes,core_market_oauth.tokens TO {0}; GRANT UPDATE(revoked_at) ON core_market_oauth.clients,core_market_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_market_oauth.requests,core_market_oauth.codes,core_market_oauth.tokens TO {0}; GRANT EXECUTE ON FUNCTION core_market_oauth.scope_set(text[]) TO {0}",self.name))).execute(&self.owner).await.unwrap();
             return;
         }
         if schema == "core_console" {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT ON core_console.options,core_console.initialization,core_console.announcement_reads TO {0}; GRANT INSERT ON core_console.announcement_reads TO {0}; GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text) TO {0}",self.name))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_console TO {0}; GRANT SELECT ON core_console.options,core_console.initialization,core_console.announcement_reads TO {0}; GRANT INSERT ON core_console.announcement_reads TO {0}; GRANT EXECUTE ON FUNCTION core_console.lock_public_options(),core_console.write_public_option(text,text) TO {0}",self.name)))
                 .execute(&self.owner).await.unwrap();
             let has_display_exchange_rate: bool = sqlx::query_scalar(
                 "SELECT to_regprocedure('core_console.write_display_exchange_rate(text)') IS NOT NULL",
@@ -378,10 +399,10 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             .await
             .unwrap();
             if has_display_exchange_rate {
-                sqlx::raw_sql(&format!(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                     "GRANT EXECUTE ON FUNCTION core_console.write_display_exchange_rate(text) TO {}",
                     self.name
-                ))
+                )))
                 .execute(&self.owner)
                 .await
                 .unwrap();
@@ -389,8 +410,22 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             return;
         }
         if schema == "core_model" {
-            sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_model TO {0}; GRANT EXECUTE ON FUNCTION core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean),core_model.completed_streams_after(integer,text) TO {0}; GRANT EXECUTE ON FUNCTION public.routing_control_read(),public.routing_control_publish(jsonb,jsonb,bigint,bigint),public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),public.routing_control_bindings(bigint),public.routing_control_secret_read(bigint,bigint),public.routing_control_secret_create(bigint,bigint,bigint,text,bytea),public.routing_control_secret_list(bigint),public.routing_control_secret_remove(bigint,bigint,bigint) TO {0}",self.name))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_model TO {0}; GRANT EXECUTE ON FUNCTION core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean),core_model.completed_streams_after(integer,text) TO {0}; GRANT EXECUTE ON FUNCTION public.routing_control_read(),public.routing_control_publish(jsonb,jsonb,bigint,bigint),public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),public.routing_control_bindings(bigint),public.routing_control_secret_read(bigint,bigint),public.routing_control_secret_create(bigint,bigint,bigint,text,bytea),public.routing_control_secret_list(bigint),public.routing_control_secret_remove(bigint,bigint,bigint) TO {0}",self.name)))
                 .execute(&self.owner).await.unwrap();
+            let continuity_installed: bool = sqlx::query_scalar(
+                "SELECT to_regclass('core_model.responses_continuations') IS NOT NULL",
+            )
+            .fetch_one(&self.owner)
+            .await
+            .unwrap();
+            if continuity_installed {
+                let grants = include_str!("../../schema/responses_continuity_grants.sql")
+                    .replace(":\"runtime_role\"", &self.name);
+                sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                    .execute(&self.owner)
+                    .await
+                    .unwrap();
+            }
             return;
         }
         if schema == "core_payments" {
@@ -419,7 +454,10 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                     .unwrap();
                 grants = format!("{before}{after}");
             }
-            sqlx::raw_sql(&grants).execute(&self.owner).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(&self.owner)
+                .await
+                .unwrap();
             return;
         }
         let sql = match schema {
@@ -534,14 +572,17 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             }
             _ => panic!("unknown synthetic optional schema"),
         };
-        sqlx::raw_sql(&sql).execute(&self.owner).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+            .execute(&self.owner)
+            .await
+            .unwrap();
     }
     pub async fn cleanup(self) {
         self.pool.close().await;
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "DROP OWNED BY {}; DROP ROLE {}",
             self.name, self.name
-        ))
+        )))
         .execute(&self.owner)
         .await
         .unwrap();

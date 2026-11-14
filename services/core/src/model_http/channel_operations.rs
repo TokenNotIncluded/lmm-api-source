@@ -259,21 +259,6 @@ impl ModelGateway {
         Ok(())
     }
 
-    pub(crate) async fn probe_channel(&self, id: u64) -> Result<ChannelProbe, RelayError> {
-        let document = self
-            .bridge
-            .routing
-            .catalog_document()
-            .map_err(|_| RelayError::RouteUnavailable)?;
-        let upstream = document
-            .routing
-            .upstreams
-            .iter()
-            .find(|u| u.id == id)
-            .ok_or(RelayError::RouteUnavailable)?;
-        self.probe_channel_snapshot(upstream).await
-    }
-
     pub(crate) async fn probe_channel_snapshot(
         &self,
         upstream: &crate::routing::UpstreamConfig,
@@ -667,20 +652,34 @@ fn parse_balance(
     Ok(balance)
 }
 
+pub(crate) struct BalanceProbeInput<'a> {
+    pub(crate) path: &'a str,
+    pub(crate) pointer: &'a str,
+    pub(crate) subtract_pointer: Option<&'a str>,
+    pub(crate) requirements: &'a [(&'a str, &'a Value)],
+    pub(crate) cny_per_usd: Option<&'a str>,
+    pub(crate) deepseek_currency_array: bool,
+    pub(crate) openai_subscription: bool,
+    pub(crate) unit_label: Option<&'a str>,
+    pub(crate) api_key_auth: bool,
+}
 impl ModelGateway {
     pub(crate) fn prepare_balance_probe(
         &self,
         upstream: &crate::routing::UpstreamConfig,
-        path: &str,
-        pointer: &str,
-        subtract_pointer: Option<&str>,
-        requirements: &[(&str, &Value)],
-        cny_per_usd: Option<&str>,
-        deepseek_currency_array: bool,
-        openai_subscription: bool,
-        unit_label: Option<&str>,
-        api_key_auth: bool,
+        input: BalanceProbeInput<'_>,
     ) -> Result<BalanceRequest, RelayError> {
+        let BalanceProbeInput {
+            path,
+            pointer,
+            subtract_pointer,
+            requirements,
+            cny_per_usd,
+            deepseek_currency_array,
+            openai_subscription,
+            unit_label,
+            api_key_auth,
+        } = input;
         if !valid_balance_path(path) {
             return Err(RelayError::Invalid("invalid balance path"));
         }

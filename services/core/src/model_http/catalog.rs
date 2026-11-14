@@ -683,7 +683,7 @@ fn route_is_constructible(
     // Use the real no-I/O route constructor, including sensitive HeaderValue
     // validation. A credential ref being loaded does not prove a usable header.
     crate::relay::Route::new(
-        format!("r{}-t{}-u{}", route.id, target.id, upstream.id),
+        crate::routing::route_key(route.id, target.id, upstream.id),
         protocol,
         endpoint.as_str(),
         target.upstream_model.clone(),

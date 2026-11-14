@@ -298,16 +298,26 @@ pub(super) async fn discover(
     Ok(value)
 }
 
+pub(super) struct CodeExchangeInput<'a> {
+    pub(super) code: &'a str,
+    pub(super) redirect: &'a str,
+    pub(super) verifier: Option<&'a str>,
+    pub(super) nonce: Option<&'a [u8]>,
+    pub(super) response_issuer: Option<&'a str>,
+}
 pub(super) async fn exchange(
     network: &ProviderNetwork,
     provider: &FederatedProvider,
     secret: &str,
-    code: &str,
-    redirect: &str,
-    verifier: Option<&str>,
-    nonce: Option<&[u8]>,
-    response_issuer: Option<&str>,
+    input: CodeExchangeInput<'_>,
 ) -> Result<ExchangeOutcome> {
+    let CodeExchangeInput {
+        code,
+        redirect,
+        verifier,
+        nonce,
+        response_issuer,
+    } = input;
     if code.is_empty() || code.len() > 4096 || code.chars().any(char::is_control) {
         return Err(IdentityError::Unauthorized);
     }
@@ -456,14 +466,14 @@ pub(super) async fn exchange(
             mapped.email = info.email;
             mapped.email_verified = info.email_verified == Some(true);
         }
-        if let Some(policy) = policy::parse(&config.access_policy)? {
-            if let Some(failure) = policy.evaluate(&raw)? {
-                return Ok(ExchangeOutcome::Denied(failure.message(
-                    &config.access_denied_message,
-                    &name,
-                    &raw,
-                )?));
-            }
+        if let Some(policy) = policy::parse(&config.access_policy)?
+            && let Some(failure) = policy.evaluate(&raw)?
+        {
+            return Ok(ExchangeOutcome::Denied(failure.message(
+                &config.access_denied_message,
+                &name,
+                &raw,
+            )?));
         }
         Ok(ExchangeOutcome::Identity(VerifiedFederatedIdentity {
             provider_id: id,

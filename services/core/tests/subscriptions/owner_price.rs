@@ -1,7 +1,7 @@
 use super::*;
 use lmm_core::payments::{Channel, PaymentsStore};
 use lmm_core::subscriptions::PublishPancakePrice;
-use rsa::{RsaPrivateKey, pkcs8::EncodePublicKey};
+use rsa::{PrivateKey, pkcs8::EncodePublicKey};
 use sqlx::postgres::PgPoolOptions;
 use std::{
     fs,
@@ -21,7 +21,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'_')
     );
-    sqlx::raw_sql(&format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; CREATE ROLE {runtime} LOGIN NOINHERIT; GRANT {owner} TO {installer}; ALTER DATABASE \"{database}\" OWNER TO {owner};"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; CREATE ROLE {runtime} LOGIN NOINHERIT; GRANT {owner} TO {installer}; ALTER DATABASE \"{database}\" OWNER TO {owner};")))
         .execute(&pool).await.unwrap();
     let set_role = format!("SET ROLE {owner}");
     let owner_pool = PgPoolOptions::new()
@@ -29,7 +29,9 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
         .after_connect(move |c, _| {
             let sql = set_role.clone();
             Box::pin(async move {
-                sqlx::query(&sql).execute(c).await?;
+                sqlx::query(sqlx::AssertSqlSafe::<&str>(&sql))
+                    .execute(c)
+                    .await?;
                 Ok(())
             })
         })
@@ -46,7 +48,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
         .unwrap();
     input.operation_key = "http_existing_plan_02".into();
     let http_plan = f.store.save_plan(&f.admin, None, input).await.unwrap();
-    let public = RsaPrivateKey::new(&mut rand::thread_rng(), 2048)
+    let public = PrivateKey::new(&mut rand::rng(), 2048)
         .unwrap()
         .to_public_key()
         .to_public_key_pem(Default::default())
@@ -142,7 +144,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
             .await,
         Err(Error::Invalid)
     );
-    sqlx::raw_sql(&format!("GRANT CONNECT ON DATABASE \"{database}\" TO {runtime}; GRANT USAGE ON SCHEMA core_identity,core_subscriptions TO {runtime}; GRANT EXECUTE ON FUNCTION core_identity.is_identity_relation_owner() TO {runtime};"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT CONNECT ON DATABASE \"{database}\" TO {runtime}; GRANT USAGE ON SCHEMA core_identity,core_subscriptions TO {runtime}; GRANT EXECUTE ON FUNCTION core_identity.is_identity_relation_owner() TO {runtime};")))
         .execute(&pool).await.unwrap();
     let runtime_pool = PgPoolOptions::new()
         .max_connections(1)

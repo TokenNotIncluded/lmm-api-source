@@ -166,20 +166,22 @@ impl WalletTopupHistory {
         let expected = metadata["per_source_user_counts"][source_user.to_string()]
             .as_i64()
             .ok_or(HistoryReadError::Unavailable)?;
-        let own_count: i64 = sqlx::query_scalar(&format!("{OWN_ROWS} SELECT count(*) FROM orders"))
-            .bind(&self.migration_id)
-            .bind(user)
-            .bind(personal_account)
-            .fetch_one(&mut *tx)
-            .await?;
+        let own_count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "{OWN_ROWS} SELECT count(*) FROM orders"
+        )))
+        .bind(&self.migration_id)
+        .bind(user)
+        .bind(personal_account)
+        .fetch_one(&mut *tx)
+        .await?;
         if own_count != expected {
             return Err(HistoryReadError::Unavailable);
         }
         // @context-fold end wallet-history-receipt-and-owner-scope
         // @context-fold begin wallet-history-exact-decimal-page
-        let total: i64 = sqlx::query_scalar(&format!(
+        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "{OWN_ROWS} SELECT count(*) FROM orders WHERE strpos(data->>'trade_no',$4)>0"
-        ))
+        )))
         .bind(&self.migration_id)
         .bind(user)
         .bind(personal_account)
@@ -187,14 +189,14 @@ impl WalletTopupHistory {
         .fetch_one(&mut *tx)
         .await?;
         // Only enum-derived SQL is interpolated. Keywords remain literal parameters.
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{OWN_ROWS} SELECT data,money_text FROM orders \
              WHERE strpos(data->>'trade_no',$4)>0 \
              ORDER BY {} {},(data->>'id')::bigint {} LIMIT $5 OFFSET $6",
             query.sort_by.sql(),
             query.sort_order.sql(),
             query.sort_order.sql(),
-        ))
+        )))
         .bind(&self.migration_id)
         .bind(user)
         .bind(personal_account)

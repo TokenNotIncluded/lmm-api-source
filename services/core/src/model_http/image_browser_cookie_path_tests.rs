@@ -2,7 +2,7 @@
 //! Set-Cookie and automatic path matching, not browser SameSite enforcement or
 //! browser acceptance. No refresh cookie is copied into a request by this test.
 use super::*;
-use rand::{RngCore, rngs::OsRng};
+use rand::rngs::SysRng;
 use std::{
     fs::{self, DirBuilder, OpenOptions},
     io::Write,
@@ -19,8 +19,8 @@ struct PrivateJar {
 impl PrivateJar {
     fn new() -> Self {
         let mut random = [0; 16];
-        OsRng.try_fill_bytes(&mut random).unwrap();
-        let root = std::env::temp_dir().join(format!("lmm-image-http-cookie-{}", hex(&random)));
+        SysRng.try_fill_bytes(&mut random).unwrap();
+        let root = std::env::temp_dir().join(format!("lmm-image-http-cookie-{}", hex(random)));
         DirBuilder::new().mode(0o700).create(&root).unwrap();
         let path = root.join("cookies.lwp");
         let jar = Self { root, path };

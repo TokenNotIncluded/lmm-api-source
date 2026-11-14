@@ -22,7 +22,7 @@ pub async fn marker(pool: &PgPool, identity: &IdentityStore) -> Marker {
             .await
             .unwrap();
     if !exists {
-        sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
             .execute(pool)
             .await
             .unwrap();
@@ -113,7 +113,7 @@ pub async fn financial_snapshot(pool: &PgPool) -> Value {
             .await
             .unwrap();
         if exists {
-            let rows:Value=sqlx::query_scalar(&format!("SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {table} t")).fetch_one(pool).await.unwrap();
+            let rows:Value=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {table} t"))).fetch_one(pool).await.unwrap();
             output.insert(table.into(), rows);
         }
     }

@@ -115,7 +115,7 @@ fn digest(definitions: Vec<String>) -> Vec<u8> {
 pub async fn install(pool: &PgPool) {
     let mut tx = pool.begin().await.unwrap();
     for (_, ddl) in COMPONENTS {
-        sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
     }
     sqlx::raw_sql("CREATE TABLE core_meta.component_contract (name TEXT PRIMARY KEY, fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint)=32)); CREATE TABLE core_meta.runtime_contract (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_fingerprint BYTEA NOT NULL CHECK (octet_length(catalog_fingerprint)=32));").execute(&mut *tx).await.unwrap();
     for ddl in [
@@ -152,7 +152,7 @@ pub async fn install(pool: &PgPool) {
             .unwrap();
     }
     let catalog = digest(
-        sqlx::query_scalar(manifest.catalog.query_utf8)
+        sqlx::query_scalar(sqlx::AssertSqlSafe(manifest.catalog.query_utf8))
             .fetch_all(&mut *tx)
             .await
             .unwrap(),

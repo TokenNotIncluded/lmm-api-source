@@ -43,8 +43,11 @@ pub enum Operation {
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
     PlanAdminKeyContinuity(admin_approval::key_continuity::PlanRequest),
     ApplyAdminKeyContinuity(Box<admin_approval::key_continuity::ApplyRequest>),
-    PublishSubscriptionPancakePrice(lmm_core::subscriptions::PublishPancakePrice),
+    PublishSubscriptionPancakePrice(Box<lmm_core::subscriptions::PublishPancakePrice>),
+    // Fresh-only CLI rejects these commands; retain historical input tests.
+    #[cfg(test)]
     SeedCheckinHistory(lmm_core::checkins::SeedHistory),
+    #[cfg(test)]
     PublishCheckinPolicy(lmm_core::checkins::PublishPolicy),
     TrustPolicyEditor(trust_policy_editor::Request),
 }
@@ -128,6 +131,7 @@ impl Operation {
         Ok(Self::PlanAdminActivation(request))
     }
 
+    #[cfg(test)]
     pub fn seed_checkin_history(input: impl Read) -> io::Result<Self> {
         // The authenticated complete identity JSONL is included verbatim. This
         // larger owner-only input budget does not change browser request limits.
@@ -146,6 +150,7 @@ impl Operation {
         Ok(Self::SeedCheckinHistory(request))
     }
 
+    #[cfg(test)]
     pub fn publish_checkin_policy(input: impl Read) -> io::Result<Self> {
         let request = admin_approval::read_bounded_json(input).map_err(approval_io)?;
         Ok(Self::PublishCheckinPolicy(request))
@@ -153,7 +158,7 @@ impl Operation {
 
     pub fn publish_subscription_pancake_price(input: impl Read) -> io::Result<Self> {
         let request = admin_approval::read_bounded_json(input).map_err(approval_io)?;
-        Ok(Self::PublishSubscriptionPancakePrice(request))
+        Ok(Self::PublishSubscriptionPancakePrice(Box::new(request)))
     }
 
     pub fn apply_admin_activation(input: impl Read) -> io::Result<Self> {
@@ -293,6 +298,7 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
                 "Core setup completion recorded. Existing initialization facts were preserved."
             );
         }
+        #[cfg(test)]
         Operation::SeedCheckinHistory(request) => {
             lmm_core::core_schema::check(&pool).await?;
             let result = lmm_core::checkins::CheckinStore::new(pool.clone())
@@ -307,6 +313,7 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
             )?;
             println!();
         }
+        #[cfg(test)]
         Operation::PublishCheckinPolicy(request) => {
             lmm_core::core_schema::check(&pool).await?;
             let result = lmm_core::checkins::CheckinStore::new(pool.clone())

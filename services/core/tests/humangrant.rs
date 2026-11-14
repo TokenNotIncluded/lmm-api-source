@@ -37,7 +37,7 @@ struct AiKey {
 
 fn generate_ai_key() -> AiKey {
     let mut seed = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut seed);
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut seed);
     let key_pair = Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
     let pub_bytes = key_pair.public_key().as_ref();
     let pub_b64 = BASE64_URL_SAFE_NO_PAD.encode(pub_bytes);

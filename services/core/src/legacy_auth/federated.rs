@@ -131,12 +131,14 @@ async fn finish_login(
         let outcome = state
             .browser
             .finish_federated_login(
-                reference(&provider)?,
-                &input.state,
-                binding,
-                &state.config.origin,
-                &input.code,
-                input.iss.as_deref(),
+                crate::identity::FederatedCallbackInput {
+                    reference: reference(&provider)?,
+                    state: &input.state,
+                    binding,
+                    origin: &state.config.origin,
+                    code: &input.code,
+                    issuer: input.iss.as_deref(),
+                },
                 &metadata,
                 &mfa_binding,
             )
@@ -217,12 +219,14 @@ pub(super) async fn finish_bind(
             .browser
             .finish_federated_bind(
                 bearer(&headers)?.ok_or(IdentityError::Unauthorized)?,
-                reference(provider)?,
-                &input.state,
-                binding,
-                &state.config.origin,
-                &input.code,
-                input.iss.as_deref(),
+                crate::identity::FederatedCallbackInput {
+                    reference: reference(provider)?,
+                    state: &input.state,
+                    binding,
+                    origin: &state.config.origin,
+                    code: &input.code,
+                    issuer: input.iss.as_deref(),
+                },
             )
             .await
     }

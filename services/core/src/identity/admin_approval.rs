@@ -459,7 +459,7 @@ async fn load_frozen_source(
     require_dormant: bool,
 ) -> Result<(FrozenSource, TargetInstance, bool, i64, bool), ApprovalError> {
     let lock_clause = if lock { " FOR UPDATE OF u,a,p" } else { "" };
-    let user = sqlx::query(&format!(
+    let user = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT u.personal_account_id,u.platform_role,u.active,u.auth_version,a.active AS account_active,
          a.kind,p.second_factor_required,p.password_login_allowed,p.legacy_bcrypt_allowed,p.email_login_allowed,
          l.login_name,l.password_hash,
@@ -471,7 +471,7 @@ async fn load_frozen_source(
          JOIN core_identity.user_profiles p ON p.user_id=u.id
          LEFT JOIN core_identity.password_logins l ON l.user_id=u.id
          WHERE u.id=$1{lock_clause}",
-    ))
+    )))
     .bind(user_id)
     .fetch_optional(&mut **tx)
     .await
@@ -534,13 +534,13 @@ async fn load_frozen_source(
             .map_err(db)?;
     }
     let facts_lock = if lock { " FOR SHARE" } else { "" };
-    let facts = sqlx::query(&format!(
+    let facts = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT archive_sha256,a2_semantic_sha256,a2_file_sha256,a2_sql_sha256,migration_id,system_id,
          database_oid,instance_nonce,import_run,source_enabled,source_deleted,
          password_verifier_recognized,password_login_enabled,password_hash_sha256,login_name_sha256,
          source_role,source_second_factor_required,source_auth_version
          FROM core_identity.privileged_import_facts WHERE user_id=$1{facts_lock}",
-    ))
+    )))
     .bind(user_id)
     .fetch_optional(&mut **tx)
     .await

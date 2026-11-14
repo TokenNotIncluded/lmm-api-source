@@ -24,7 +24,8 @@ use crate::{
     },
 };
 use axum::http::{HeaderMap, HeaderValue, header};
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -432,6 +433,7 @@ fn contexts(small_input: i64) -> Vec<ExternalModelContext> {
     .into_iter()
     .map(|(model, input, output)| ExternalModelContext {
         responses_compaction: false,
+        responses_continuity: None,
         pre_acceptance_rejection_statuses: Vec::new(),
         grounding: None,
 
@@ -562,7 +564,7 @@ async fn admit(
         oauth_source: principal.oauth_source().cloned(),
     };
     let mut worker = [0; 32];
-    OsRng.fill_bytes(&mut worker);
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut worker);
     assert!(
         g.bridge
             .active
@@ -899,16 +901,39 @@ async fn websocket_turn_authorization_rechecks_credentials_and_previous_response
     let session = [9; 32];
     let mut headers = HeaderMap::new();
     assert!(matches!(
-        Turn::prepare(&g, &headers, None, &session, 1, &create, None, None).await,
+        Turn::prepare(
+            &g,
+            &headers,
+            None,
+            super::responses_websocket::SessionTurn {
+                session: &session,
+                sequence: 1
+            },
+            &create,
+            None,
+            None
+        )
+        .await,
         Err(RelayError::Unauthorized)
     ));
     headers.insert(
         header::AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {}", f.key)).unwrap(),
     );
-    let turn = Turn::prepare(&g, &headers, None, &session, 1, &create, None, None)
-        .await
-        .unwrap();
+    let turn = Turn::prepare(
+        &g,
+        &headers,
+        None,
+        super::responses_websocket::SessionTurn {
+            session: &session,
+            sequence: 1,
+        },
+        &create,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let target = turn.target_id;
     let reservation = turn.reserve(&create, &g.limits).await.unwrap();
     turn.record_dispatch().await.unwrap();
@@ -921,7 +946,19 @@ async fn websocket_turn_authorization_rechecks_credentials_and_previous_response
     drop(turn);
     assert!(g.bridge.active.lock().unwrap().is_empty());
     assert!(matches!(
-        Turn::prepare(&g, &headers, None, &session, 2, &create, Some(target), None).await,
+        Turn::prepare(
+            &g,
+            &headers,
+            None,
+            super::responses_websocket::SessionTurn {
+                session: &session,
+                sequence: 2
+            },
+            &create,
+            Some(target),
+            None
+        )
+        .await,
         Err(RelayError::Conflict)
     ));
 
@@ -934,8 +971,10 @@ async fn websocket_turn_authorization_rechecks_credentials_and_previous_response
             &g,
             &headers,
             None,
-            &session,
-            2,
+            super::responses_websocket::SessionTurn {
+                session: &session,
+                sequence: 2
+            },
             &continuation,
             Some(target),
             Some("other")
@@ -947,8 +986,10 @@ async fn websocket_turn_authorization_rechecks_credentials_and_previous_response
         &g,
         &headers,
         None,
-        &session,
-        2,
+        super::responses_websocket::SessionTurn {
+            session: &session,
+            sequence: 2,
+        },
         &continuation,
         Some(target),
         Some("resp_first"),
@@ -1018,7 +1059,7 @@ async fn websocket_turn_reservation_binds_the_actual_frame(pool: PgPool) {
     .unwrap();
     assert_eq!(
         proof["wire_sha256"],
-        charging::contract::hex_digest(&frame.wire_sha256)
+        charging::contract::hex_digest(frame.wire_sha256)
     );
     assert_eq!(
         proof["binding"]["projection_revision"],
@@ -1350,7 +1391,10 @@ async fn selected_bound_bad_terminal_and_unknown_usage_keep_original_hold(pool: 
         .await;
     }
     assert_eq!(
-        g.reconcile_completed_streams_page(10, None).await.unwrap(),
+        g.reconcile_completed_streams_page(10, None)
+            .await
+            .map(|page| (page.settled, page.next))
+            .unwrap(),
         (0, None)
     );
     let accepted_events: i64 = sqlx::query_scalar(
@@ -1415,6 +1459,7 @@ async fn selected_bound_recovery_uses_old_terminal_price_after_contract_change(p
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (1, None)
     );
@@ -1723,6 +1768,7 @@ async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (2, None)
     );
@@ -1741,6 +1787,7 @@ async fn selected_bound_http_recovery_requires_matching_terminal_and_checkpoint(
         restarted
             .reconcile_completed_streams_page(10, None)
             .await
+            .map(|page| (page.settled, page.next))
             .unwrap(),
         (0, None)
     );

@@ -102,10 +102,12 @@ async fn assert_paid(
 async fn assert_no_admission(owner: &PgPool, provider: &Provider) {
     assert_eq!(provider.hits.load(Ordering::SeqCst), 0);
     for table in ["requests", "ledger_holds", "ledger_commands"] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core_charging.{table}"))
-            .fetch_one(owner)
-            .await
-            .unwrap();
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM core_charging.{table}"
+        )))
+        .fetch_one(owner)
+        .await
+        .unwrap();
         assert_eq!(count, 0, "denial retained {table}");
     }
     balanced(owner).await;
@@ -375,10 +377,10 @@ async fn restricted_stale_revoked_and_nonspending_team_authority_denies_before_d
         ("can_spend=false", "can_spend=true"),
     ] {
         let (team, fallback) = team_keys(&seed.identity, &seed.member_session, seed.team).await;
-        sqlx::query(&format!("UPDATE core_identity.memberships SET {change},version=version+1 WHERE team_id=$1 AND user_id=8"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE core_identity.memberships SET {change},version=version+1 WHERE team_id=$1 AND user_id=8")))
             .bind(seed.team).execute(&pool).await.unwrap();
         deny_team_keys(&pool, &role.pool, &provider, &[&team, &fallback]).await;
-        sqlx::query(&format!("UPDATE core_identity.memberships SET {restore},version=version+1 WHERE team_id=$1 AND user_id=8"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE core_identity.memberships SET {restore},version=version+1 WHERE team_id=$1 AND user_id=8")))
             .bind(seed.team).execute(&pool).await.unwrap();
     }
     let (member_team, member_fallback) =
@@ -497,22 +499,111 @@ async fn restricted_model_startup_rejects_evidence_table_and_column_update_grant
         "UPDATE ON core_identity.credential_grants",
         "UPDATE(team_version) ON core_identity.credential_grants",
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, requirements()).await,
             Err(RuntimeDatabaseError::UnsafePrivileges),
             "accepted {grant}"
         );
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         runtime_database::check(&role.pool, requirements())
             .await
             .unwrap();
     }
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn continuity69_runtime_exec_is_conditional_and_table_denied(pool: PgPool) {
+    lmm_core::core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_model").await;
+    for signature in [
+        "core_model.resolve_continuation(text,text)",
+        "core_model.record_continuation(text,bytea,text,text,text,bytea,bigint)",
+        "core_model.activate_continuation(text)",
+        "core_model.activate_continuations_after(integer,text)",
+    ] {
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT has_function_privilege(current_user,$1,'EXECUTE')"
+            )
+            .bind(signature)
+            .fetch_one(&role.pool)
+            .await
+            .unwrap()
+        );
+    }
+    assert!(!sqlx::query_scalar::<_,bool>("SELECT has_table_privilege(current_user,'core_model.responses_continuations','SELECT,INSERT,UPDATE,DELETE')")
+        .fetch_one(&role.pool).await.unwrap());
+    let rows: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT request_id,activated FROM core_model.activate_continuations_after(1,NULL)",
+    )
+    .fetch_all(&role.pool)
+    .await
+    .unwrap();
+    assert!(rows.is_empty());
+    // A separate role receives ONLY schema usage and the reviewed four capabilities.
+    let name = format!("continuity_min_{:016x}", rand::random::<u64>());
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {name} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT USAGE ON SCHEMA core_model TO {name};"))).execute(&pool).await.unwrap();
+    let grants = include_str!("../../schema/responses_continuity_grants.sql")
+        .replace(":\"runtime_role\"", &name);
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET LOCAL ROLE {name}")))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let unknown: Option<Value> =
+        sqlx::query_scalar("SELECT core_model.resolve_continuation('resp_lmm_unknown','unknown')")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(unknown.is_none());
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT core_model.activate_continuation('unknown')")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap()
+    );
+    let rows: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT request_id,activated FROM core_model.activate_continuations_after(1,NULL)",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    assert!(rows.is_empty());
+    assert!(!sqlx::query_scalar::<_,bool>("SELECT has_table_privilege(current_user,'core_model.responses_continuations','SELECT,INSERT,UPDATE,DELETE')").fetch_one(&mut *tx).await.unwrap());
+    let denied = sqlx::query("SELECT core_model.record_continuation('',NULL,'',NULL,'',NULL,0)")
+        .execute(&mut *tx)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("25001"),
+        "function execution is granted; its serializable financial boundary remains enforced"
+    );
+    tx.rollback().await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP OWNED BY {name}; DROP ROLE {name};"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     role.cleanup().await;
 }

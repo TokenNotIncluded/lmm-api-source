@@ -146,30 +146,32 @@ async fn whole_state(pool: &PgPool) -> Value {
     for r in tables {
         let schema: String = r.get("nspname");
         let name: String = r.get("relname");
-        let rows:Value=sqlx::query_scalar(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text COLLATE \"C\"),'[]'::jsonb) FROM {}.{} t",q(&schema),q(&name))).fetch_one(pool).await.unwrap();
+        let rows:Value=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text COLLATE \"C\"),'[]'::jsonb) FROM {}.{} t",q(&schema),q(&name)))).fetch_one(pool).await.unwrap();
         result.insert(format!("rows:{schema}.{name}"), rows);
     }
     let sequences=sqlx::query("SELECT n.nspname,c.relname,pg_get_userbyid(c.relowner) AS owner,c.relacl::text AS acl,s.seqtypid::bigint,s.seqstart,s.seqincrement,s.seqmin,s.seqmax,s.seqcache,s.seqcycle FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_sequence s ON s.seqrelid=c.oid WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_' ORDER BY n.nspname COLLATE \"C\",c.relname COLLATE \"C\"").fetch_all(pool).await.unwrap();
     for r in sequences {
         let schema: String = r.get("nspname");
         let name: String = r.get("relname");
-        let (last, called): (i64, bool) = sqlx::query_as(&format!(
+        let (last, called): (i64, bool) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT last_value,is_called FROM {}.{}",
             q(&schema),
             q(&name)
-        ))
+        )))
         .fetch_one(pool)
         .await
         .unwrap();
         result.insert(format!("sequence:{schema}.{name}"),json!({"last_value":last,"is_called":called,"type":r.get::<i64,_>("seqtypid"),"start":r.get::<i64,_>("seqstart"),"increment":r.get::<i64,_>("seqincrement"),"min":r.get::<i64,_>("seqmin"),"max":r.get::<i64,_>("seqmax"),"cache":r.get::<i64,_>("seqcache"),"cycle":r.get::<bool,_>("seqcycle"),"owner":r.get::<String,_>("owner"),"acl":r.get::<Option<String>,_>("acl")}));
     }
-    let catalog = sqlx::query(core_schema::schema_manifest().catalog.query_utf8)
-        .fetch_all(pool)
-        .await
-        .unwrap()
-        .iter()
-        .map(|r| r.get::<String, _>("definition"))
-        .collect::<Vec<_>>();
+    let catalog = sqlx::query(sqlx::AssertSqlSafe(
+        core_schema::schema_manifest().catalog.query_utf8,
+    ))
+    .fetch_all(pool)
+    .await
+    .unwrap()
+    .iter()
+    .map(|r| r.get::<String, _>("definition"))
+    .collect::<Vec<_>>();
     result.insert("catalog".into(), json!(catalog));
     let acl:Value=sqlx::query_scalar("SELECT jsonb_build_object('schemas',(SELECT jsonb_agg(jsonb_build_array(nspname,nspowner,nspacl::text) ORDER BY nspname COLLATE \"C\") FROM pg_namespace WHERE nspname NOT IN ('pg_catalog','information_schema') AND left(nspname,3)<>'pg_'),'relations',(SELECT jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relowner,c.relacl::text) ORDER BY n.nspname COLLATE \"C\",c.relname COLLATE \"C\") FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'),'functions',(SELECT jsonb_agg(jsonb_build_array(n.nspname,p.proname,p.proowner,p.proacl::text,p.prosecdef,p.proconfig) ORDER BY n.nspname COLLATE \"C\",p.proname COLLATE \"C\",p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'))").fetch_one(pool).await.unwrap();
     result.insert("owners_acl_secdef".into(), acl);
@@ -254,7 +256,7 @@ fn executable_hash() -> String {
         }
         h.update(&buf[..n]);
     }
-    format!("{:x}", h.finalize())
+    hex_codec::encode(h.finalize())
 }
 #[test]
 fn explicit_config_legacy_and_unknown_arguments_fail_closed_without_echo() {
@@ -453,7 +455,7 @@ async fn full_fresh_runtime_check_is_readonly_and_never_serves_or_loads_models(p
     assert!(manifest.status.success());
     assert_eq!(
         v["compiled_schema_manifest_sha256"],
-        format!("{:x}", Sha256::digest(&manifest.stdout))
+        hex_codec::encode(Sha256::digest(&manifest.stdout))
     );
     assert_eq!(
         v["components"],
@@ -514,10 +516,10 @@ async fn owner_or_installer_and_insufficient_runtime_permissions_are_rejected_wi
         "owner check performed a write"
     );
     cfg.cleanup();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE INSERT ON core_identity.accounts FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -560,3 +562,6 @@ async fn missing_schema_and_ambient_legacy_credentials_never_initialize_or_fallb
     cfg.cleanup();
     role.cleanup().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

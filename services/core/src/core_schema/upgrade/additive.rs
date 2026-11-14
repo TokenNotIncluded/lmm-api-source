@@ -160,7 +160,7 @@ pub(super) fn authorize_target() -> Result<(), UpgradeError> {
 // Keep this boundary independently testable when newer component sets already
 // fail the earlier preserved-installer gate. No authorization order changes.
 fn authorize_ledger_target(ddl: &str) -> Result<(), UpgradeError> {
-    if hex(&Sha256::digest(ddl)) != super::ledger::PRE_LEDGER {
+    if hex(Sha256::digest(ddl)) != super::ledger::PRE_LEDGER {
         return Err(reject("UPGRADE_DB_USE_PRESERVED_26_INSTALLER"));
     }
     Ok(())
@@ -173,9 +173,9 @@ fn compiled_predecessor() -> Result<BTreeMap<String, String>, UpgradeError> {
             .iter()
             .zip(&COMPONENTS[PRE_COMPONENTS..])
             .any(|((name, digest), (actual, ddl))| {
-                name != actual || *digest != hex(&Sha256::digest(ddl))
+                name != actual || *digest != hex(Sha256::digest(ddl))
             })
-        || hex(&Sha256::digest(ADDITIVE_UPGRADE_METADATA)) != METADATA_DDL
+        || hex(Sha256::digest(ADDITIVE_UPGRADE_METADATA)) != METADATA_DDL
     {
         return Err(reject("UPGRADE_DB_ADDITIVE_DELTA_DRIFT"));
     }
@@ -191,11 +191,11 @@ fn compiled_predecessor() -> Result<BTreeMap<String, String>, UpgradeError> {
     let mut installer = Sha256::new();
     installer.update(crate::core_schema::CONTRACT);
     installer.update(crate::core_schema::UPGRADE_METADATA);
-    producer.installer_contract_sql_sha256 = hex(&installer.finalize());
+    producer.installer_contract_sql_sha256 = hex(installer.finalize());
     let mut bytes = serde_json::to_vec(&producer).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
     let frozen: Value = serde_json::from_str(PREDECESSOR).map_err(|_| UpgradeError::Storage)?;
-    if hex(&Sha256::digest(bytes)) != PRE_MANIFEST
+    if hex(Sha256::digest(bytes)) != PRE_MANIFEST
         || frozen["schema_manifest_stdout_sha256"] != PRE_MANIFEST
         || frozen["catalog_sha256"] != PRE_CATALOG
         || frozen["table_count"] != PRE_TABLES
@@ -469,7 +469,7 @@ fn projection(live: &[String]) -> Result<(Vec<String>, Vec<String>), UpgradeErro
 
 async fn grant_delta(c: &mut PgConnection, r: &UpgradeRequest) -> Result<(), UpgradeError> {
     let runtime = quote(&r.roles.runtime);
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_telegram_auth TO {runtime}; GRANT SELECT ON core_telegram_auth.bindings,core_telegram_auth.flows,core_telegram_auth.assertions,core_meta.component_upgrades TO {runtime}; GRANT INSERT(subject,user_id),UPDATE(revoked_at) ON core_telegram_auth.bindings TO {runtime}; GRANT INSERT(token_digest,purpose,binding_digest,user_id,user_version,sid),UPDATE(consumed_at),DELETE ON core_telegram_auth.flows TO {runtime}; GRANT INSERT(digest),DELETE ON core_telegram_auth.assertions TO {runtime}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_telegram_auth TO {runtime}; GRANT SELECT ON core_telegram_auth.bindings,core_telegram_auth.flows,core_telegram_auth.assertions,core_meta.component_upgrades TO {runtime}; GRANT INSERT(subject,user_id),UPDATE(revoked_at) ON core_telegram_auth.bindings TO {runtime}; GRANT INSERT(token_digest,purpose,binding_digest,user_id,user_version,sid),UPDATE(consumed_at),DELETE ON core_telegram_auth.flows TO {runtime}; GRANT INSERT(digest),DELETE ON core_telegram_auth.assertions TO {runtime}")))
         .execute(c).await?;
     Ok(())
 }
@@ -530,7 +530,7 @@ pub(super) async fn connected(
     .fetch_one(&mut *tx)
     .await?;
     if all.len() != PRE_TABLES
-        || hex(&fingerprint(&before)) != PRE_CATALOG
+        || hex(fingerprint(&before)) != PRE_CATALOG
         || hex(&saved) != PRE_CATALOG
     {
         return Err(reject("UPGRADE_DB_PREDECESSOR_CATALOG_MISMATCH"));
@@ -550,7 +550,7 @@ pub(super) async fn connected(
     let old_acl = permissions(&mut tx).await?;
     let data = preserved_data(&mut tx, &all, &r.upgrade_id).await?;
     for (_, ddl) in &COMPONENTS[PRE_COMPONENTS..TARGET_COMPONENTS] {
-        sqlx::raw_sql(ddl).execute(&mut *tx).await?;
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await?;
     }
     if !receipt_exists {
         sqlx::raw_sql(ADDITIVE_UPGRADE_METADATA)
@@ -600,7 +600,7 @@ async fn resolve(c: &mut PgConnection, r: &UpgradeRequest) -> Result<UpgradeRepo
     let live = definitions(c).await?;
     let actual = fingerprint(&live);
     let (projected, added) = projection(&live)?;
-    if hex(&fingerprint(&projected)) != PRE_CATALOG {
+    if hex(fingerprint(&projected)) != PRE_CATALOG {
         return Err(reject(
             "UPGRADE_DB_SUCCESSOR_PREDECESSOR_PROJECTION_MISMATCH",
         ));

@@ -84,23 +84,22 @@ impl AudioUsageFormat {
         // Extra modalities cannot be silently priced as text/audio. Cached
         // subsets do not alter this v1 tariff, which prices all modality tokens.
         for details in [input, output] {
-            if let Some(n) = value.pointer(&format!("/{details}/image_tokens")) {
-                if n.as_u64() != Some(0) {
-                    return Err(AudioError::InvalidUsage);
-                }
+            if let Some(n) = value.pointer(&format!("/{details}/image_tokens"))
+                && n.as_u64() != Some(0)
+            {
+                return Err(AudioError::InvalidUsage);
             }
         }
-        if let Some(total) = value.get("total_tokens") {
-            if total.as_u64()
+        if let Some(total) = value.get("total_tokens")
+            && total.as_u64()
                 != Some(
                     usage
                         .input()?
                         .checked_add(usage.output()?)
                         .ok_or(AudioError::Overflow)?,
                 )
-            {
-                return Err(AudioError::InvalidUsage);
-            }
+        {
+            return Err(AudioError::InvalidUsage);
         }
         Ok(usage)
     }

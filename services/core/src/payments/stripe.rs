@@ -2,6 +2,7 @@
 //! the core. This does not trust the extension's interpretation of the event.
 //! Event replay, transaction ownership and refund holds remain ledger concerns.
 
+use hmac::KeyInit as _;
 use std::{collections::BTreeMap, fmt};
 
 use hmac::{Hmac, Mac};
@@ -481,9 +482,7 @@ mod tests {
         mac.update(time.to_string().as_bytes());
         mac.update(b".");
         mac.update(raw);
-        let hash: String = crate::hex_codec::encode(mac
-            .finalize()
-            .into_bytes());
+        let hash: String = crate::hex_codec::encode(mac.finalize().into_bytes());
         format!("t={time},v1={hash}").into_bytes()
     }
 

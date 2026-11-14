@@ -426,7 +426,7 @@ async fn independent_process_settlement_retry_without_redispatch(pool: PgPool) {
     // Install only after the real runtime has validated its accepted schema.
     // nextval deliberately survives rollback: this is deterministic injected
     // SQLSTATE 40001, not proof of an actual PostgreSQL SSI conflict.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE SCHEMA independent_settlement_retry; \
          REVOKE ALL ON SCHEMA independent_settlement_retry FROM PUBLIC; \
          CREATE SEQUENCE independent_settlement_retry.attempts; \
@@ -442,7 +442,7 @@ async fn independent_process_settlement_retry_without_redispatch(pool: PgPool) {
          FOR EACH ROW WHEN (OLD.state='streaming' AND NEW.state='settled' AND NEW.key_id={}) \
          EXECUTE FUNCTION independent_settlement_retry.reject_first_three()",
         seed.key_id
-    ))
+    )))
     .execute(&pool).await.unwrap();
     let runtime = &host.role.as_ref().unwrap().name;
     let privileges: (bool, bool, bool) = sqlx::query_as(

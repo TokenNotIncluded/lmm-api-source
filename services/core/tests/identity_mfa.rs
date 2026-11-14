@@ -21,7 +21,7 @@ async fn fixture(pool: &PgPool) -> (IdentityStore, BrowserAuth, BrowserBundle) {
         .unwrap();
     store.init_database().await.unwrap();
     // Explicit installer-owned fixture: management/user projection reads abuse.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(pool)
         .await
         .unwrap();

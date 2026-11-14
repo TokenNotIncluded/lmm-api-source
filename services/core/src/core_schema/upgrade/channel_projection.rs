@@ -5,6 +5,7 @@ const PRE_MANIFEST: &str = "f12d5e81ca219acdc59ac07be931d52e46f0b64974f1e2b3154a
 const PRE_CATALOG: &str = "1f9ef4951b101320e4016f2e8347985c7a321b4c3405fe756864abba1bf7c680";
 const TARGET: &str = include_str!("channel_projection_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::CHANNEL_PROJECTION,
     procedure: PROCEDURE,
     predecessor_count: 43,
     target_count: 44,
@@ -49,7 +50,7 @@ mod tests {
     #[test]
     fn frozen43_is_exact_and_current_successor_is_explicit44() {
         let frozen = include_str!("projection_predecessor_manifest.json");
-        assert_eq!(hex(&Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
+        assert_eq!(hex(Sha256::digest(frozen.as_bytes())), PRE_MANIFEST);
         let mut compiled: super::super::historical_fixture::Manifest =
             serde_json::from_str(include_str!("projection_predecessor_manifest.json")).unwrap();
         assert_eq!(ENGINE.target_count, 44);

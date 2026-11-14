@@ -38,6 +38,23 @@ pub struct FederatedStart {
     pub expires_at: i64,
 }
 
+pub(crate) struct FlowStartInput<'a> {
+    pub(crate) provider: &'a FederatedProvider,
+    pub(crate) binding: &'a str,
+    pub(crate) origin: &'a str,
+    pub(crate) purpose: FlowPurpose,
+    pub(crate) owner: Option<&'a FlowOwner>,
+    pub(crate) accepted_legal: bool,
+    pub(crate) affiliate: &'a str,
+}
+pub(crate) struct FlowConsumeInput<'a> {
+    pub(crate) slug: &'a str,
+    pub(crate) state: &'a str,
+    pub(crate) binding: &'a str,
+    pub(crate) purpose: FlowPurpose,
+    pub(crate) owner: Option<&'a FlowOwner>,
+    pub(crate) code: &'a str,
+}
 pub(crate) struct ConsumedFlow {
     provider: FederatedProvider,
     nonce: Option<Vec<u8>>,
@@ -66,7 +83,7 @@ impl FederatedExchange {
     }
 }
 pub(crate) enum ExchangeResult {
-    Verified(FederatedExchange),
+    Verified(Box<FederatedExchange>),
     Denied(String),
 }
 
@@ -74,14 +91,17 @@ impl IdentityStore {
     pub(crate) async fn create_federated_flow(
         &self,
         connection: &mut PgConnection,
-        provider: &FederatedProvider,
-        binding: &str,
-        origin: &str,
-        purpose: FlowPurpose,
-        owner: Option<&FlowOwner>,
-        accepted_legal: bool,
-        affiliate: &str,
+        input: FlowStartInput<'_>,
     ) -> Result<FederatedStart> {
+        let FlowStartInput {
+            provider,
+            binding,
+            origin,
+            purpose,
+            owner,
+            accepted_legal,
+            affiliate,
+        } = input;
         self.federated_auth()?;
         if (purpose == FlowPurpose::Bind) != owner.is_some() || affiliate.len() > 256 {
             return Err(IdentityError::Invalid);
@@ -167,13 +187,16 @@ impl IdentityStore {
     pub(crate) async fn consume_federated_flow(
         &self,
         connection: &mut PgConnection,
-        slug: &str,
-        state: &str,
-        binding: &str,
-        purpose: FlowPurpose,
-        owner: Option<&FlowOwner>,
-        code: &str,
+        input: FlowConsumeInput<'_>,
     ) -> Result<ConsumedFlow> {
+        let FlowConsumeInput {
+            slug,
+            state,
+            binding,
+            purpose,
+            owner,
+            code,
+        } = input;
         if !state.starts_with("lmmfe_")
             || state.len() != 70
             || code.is_empty()
@@ -243,16 +266,21 @@ impl IdentityStore {
             &auth.network,
             &flow.provider,
             &secret,
-            code,
-            &callback,
-            flow.verifier.as_deref(),
-            flow.nonce.as_deref(),
-            issuer,
+            protocol::CodeExchangeInput {
+                code,
+                redirect: &callback,
+                verifier: flow.verifier.as_deref(),
+                nonce: flow.nonce.as_deref(),
+                response_issuer: issuer,
+            },
         )
         .await?
         {
             ExchangeOutcome::Identity(proof) => {
-                Ok(ExchangeResult::Verified(FederatedExchange { flow, proof }))
+                Ok(ExchangeResult::Verified(Box::new(FederatedExchange {
+                    flow,
+                    proof,
+                })))
             }
             ExchangeOutcome::Denied(message) => Ok(ExchangeResult::Denied(message)),
         }
@@ -310,8 +338,12 @@ impl IdentityStore {
         // go-v0.2.118: prefer the mapped username only when it fits the
         // byte-based 20-byte limit and has never been occupied (including
         // disabled/imported users). The generated name remains provider-scoped.
-        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_identity.user_profiles WHERE username=$1)")
-            .bind(&mapped.username).fetch_one(&mut *connection).await?;
+        let occupied: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT FROM core_identity.user_profiles WHERE username=$1)",
+        )
+        .bind(&mapped.username)
+        .fetch_one(&mut *connection)
+        .await?;
         let (username, display) = registration_names(
             &exchange.flow.provider.slug,
             &exchange.flow.provider.name,
@@ -376,13 +408,21 @@ mod registration_tests {
         for (name, display, occupied, expected_name, expected_display) in [
             ("alice", "Alice", false, "alice", "Alice"),
             ("alice", "", true, "example_42", "alice"),
-            ("123456789012345678901", "", false, "example_42", "123456789012345678901"),
+            (
+                "123456789012345678901",
+                "",
+                false,
+                "example_42",
+                "123456789012345678901",
+            ),
             ("你好你好你好你", "", false, "example_42", "你好你好你好你"),
             ("你好你好你好", "", false, "你好你好你好", "你好你好你好"),
             ("", "", false, "example_42", "Example User"),
         ] {
-            assert_eq!(registration_names("example", "Example", 42, name, display, occupied),
-                (expected_name.to_owned(), expected_display.to_owned()));
+            assert_eq!(
+                registration_names("example", "Example", 42, name, display, occupied),
+                (expected_name.to_owned(), expected_display.to_owned())
+            );
         }
     }
 }

@@ -156,7 +156,7 @@ async fn exact_projection_uses_request_index_at_20k_and_40k_unrelated_history(po
             .await
             .unwrap();
         let sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {SELECT_REQUESTS}");
-        let plan: Value = sqlx::query_scalar(&sql)
+        let plan: Value = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&sql))
             .bind(7i64)
             .bind(f.owner)
             .bind(f.now - 60)

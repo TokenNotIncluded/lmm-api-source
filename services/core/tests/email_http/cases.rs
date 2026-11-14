@@ -89,7 +89,7 @@ async fn issue_window(f: &Fixture) {
     .unwrap();
 }
 
-async fn count(f: &Fixture, sql: &str) -> i64 {
+async fn count(f: &Fixture, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(&f.owner).await.unwrap()
 }
 
@@ -122,7 +122,7 @@ async fn current_code(f: &Fixture, email: &str, purpose: &str) -> Zeroizing<Stri
         Aes256Gcm::new_from_slice(&[79; 32])
             .unwrap()
             .decrypt(
-                Nonce::from_slice(&encrypted[1..13]),
+                &Nonce::try_from(&encrypted[1..13]).unwrap(),
                 Payload {
                     msg: &encrypted[13..],
                     aad: &aad,

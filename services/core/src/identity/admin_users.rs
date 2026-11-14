@@ -409,16 +409,18 @@ impl AdminUsersStore {
         let q = input.validate()?;
         let mut tx = self.begin().await?;
         Self::authorize(&mut tx, secret).await?;
-        let total: i64 = sqlx::query_scalar(&format!("{SELECTED} SELECT count(*) FROM selected"))
-            .bind(&q.keyword)
-            .bind(q.keyword_id)
-            .bind(&q.group)
-            .bind(&q.role)
-            .bind(q.active)
-            .bind(q.level)
-            .fetch_one(&mut *tx)
-            .await?;
-        let rows=sqlx::query(&format!("{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected ORDER BY {} LIMIT $7 OFFSET $8",q.order))
+        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "{SELECTED} SELECT count(*) FROM selected"
+        )))
+        .bind(&q.keyword)
+        .bind(q.keyword_id)
+        .bind(&q.group)
+        .bind(&q.role)
+        .bind(q.active)
+        .bind(q.level)
+        .fetch_one(&mut *tx)
+        .await?;
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected ORDER BY {} LIMIT $7 OFFSET $8",q.order)))
             .bind(&q.keyword).bind(q.keyword_id).bind(&q.group).bind(&q.role).bind(q.active).bind(q.level).bind(i64::from(q.size)).bind(q.offset).fetch_all(&mut *tx).await?;
         let mut items = Vec::with_capacity(rows.len());
         for r in rows {

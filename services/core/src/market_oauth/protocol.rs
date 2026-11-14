@@ -1,7 +1,8 @@
 use super::*;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oxide_auth::code_grant::extensions::Pkce;
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 pub const SCOPES: [&str; 3] = ["market:discover", "market:invoke", "market:manage"];
 pub(crate) fn loopback_ip(u: &reqwest::Url) -> Option<std::net::IpAddr> {
@@ -96,11 +97,8 @@ impl MarketProfile {
 }
 pub(crate) fn secret(prefix: &str) -> String {
     let mut b = [0u8; 32];
-    OsRng.fill_bytes(&mut b);
-    format!(
-        "{prefix}{}",
-        crate::hex_codec::encode(b)
-    )
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut b);
+    format!("{prefix}{}", crate::hex_codec::encode(b))
 }
 pub(crate) fn hash(s: &str) -> Vec<u8> {
     Sha256::digest(s.as_bytes()).to_vec()

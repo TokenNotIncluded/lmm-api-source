@@ -42,6 +42,68 @@ pub(super) struct Selected {
     pub input_token_ceiling: i64,
 }
 
+/// One selected route's token quote and the matching persisted ledger price.
+pub(super) struct FrozenTokenPricing {
+    pub quote: CreditQuote,
+    pub price: Price,
+}
+
+pub(super) fn freeze_token_pricing(attempt: &Attempt) -> Result<FrozenTokenPricing, RelayError> {
+    let quote = attempt
+        .quote()
+        .with_credit_rate(CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?);
+    let price = credit_price_with_calendar(
+        quote.price(),
+        attempt.canonical_model(),
+        attempt.group(),
+        attempt.calendar(),
+    )?;
+    Ok(FrozenTokenPricing { quote, price })
+}
+
+/// Native Responses has inclusive OpenAI token/cache receipts. Other tariff
+/// dialects and billable modalities cannot be silently priced as those tokens.
+pub(super) fn require_native_responses_price(price: &Price) -> Result<(), RelayError> {
+    let token_tariff = price.tiered.as_ref().is_none_or(|stored| {
+        matches!(stored.tariff.revision, 1 | 4)
+            && stored.input_semantics == crate::routing::InputSemantics::Inclusive
+            && stored.cache_creation_mode.is_none()
+    });
+    if price.upstream_cost_group_ppm.is_some()
+        || price.text_request.is_some()
+        || price.grounding.is_some()
+        || price.image.is_some()
+        || price.audio.is_some()
+        || price.tool.is_some()
+        || !token_tariff
+    {
+        return Err(RelayError::Unsupported(
+            "native Responses require scalar or reviewed OpenAI tiered token pricing",
+        ));
+    }
+    Ok(())
+}
+
+/// Cache lifetime controls require the same reviewed price on every Responses path.
+pub(super) fn require_cache_tariff(
+    requested: bool,
+    protocol: Protocol,
+    price: &Price,
+) -> Result<(), RelayError> {
+    if requested
+        && (protocol != Protocol::OpenAiResponses
+            || !price
+                .tiered
+                .as_ref()
+                .is_some_and(|t| t.tariff.revision == 4))
+    {
+        return Err(RelayError::Unsupported(
+            "cache lifetime controls require a reviewed twelve-hour tariff",
+        ));
+    }
+    Ok(())
+}
+
 impl Bridge {
     /// Complete admission before dispatch with the ledger's actual frozen price.
     pub(super) fn freeze_selected_price(
@@ -273,20 +335,11 @@ impl Bridge {
         attempt: Arc<Attempt>,
         request: &Request,
     ) -> Result<(Selected, Route), RelayError> {
-        let group = attempt.group().to_owned();
         let protocol = client_protocol(request.client);
         // Capture the server's current, fixed ledger conversion once. The
         // persisted legacy Price is still required until A03 accepts the
         // complete quote; unsupported dimensions must keep failing closed.
-        let quote = attempt.quote().with_credit_rate(
-            CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?,
-        );
-        let mut price = credit_price_with_calendar(
-            quote.price(),
-            attempt.canonical_model(),
-            &group,
-            attempt.calendar(),
-        )?;
+        let FrozenTokenPricing { quote, mut price } = freeze_token_pricing(&attempt)?;
         if request.google_search {
             if request.client != ClientProtocol::Gemini || attempt.protocol() != Protocol::Gemini {
                 return Err(RelayError::Unsupported(
@@ -296,20 +349,20 @@ impl Bridge {
             price.grounding = Some(self.provider_policy.grounding_price(&attempt)?);
             price.validate().map_err(super::billing::error)?;
         }
-        if request.prompt_cache_options.is_some()
-            && (attempt.protocol() != Protocol::OpenAiResponses
-                || !price
-                    .tiered
-                    .as_ref()
-                    .is_some_and(|t| t.tariff.revision == 4))
+        require_cache_tariff(
+            request.prompt_cache_options.is_some(),
+            attempt.protocol(),
+            &price,
+        )?;
+        if attempt.payload_policy() == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
+            && !price
+                .tiered
+                .as_ref()
+                .is_some_and(|t| t.tariff.revision == 3)
         {
             return Err(RelayError::Unsupported(
-                "cache lifetime controls require a reviewed twelve-hour tariff",
+                "legacy OpenRouter usage requires decimal revision3",
             ));
-        }
-        if attempt.payload_policy() == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
-            && !price.tiered.as_ref().is_some_and(|t| t.tariff.revision == 3) {
-            return Err(RelayError::Unsupported("legacy OpenRouter usage requires decimal revision3"));
         }
         if let Some(tariff) = &mut price.tiered {
             if tariff.tariff.revision == 4
@@ -323,9 +376,12 @@ impl Bridge {
                 ));
             }
             tariff.input_semantics = if attempt.payload_policy()
-                == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1 {
+                == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
+            {
                 if attempt.protocol() != Protocol::OpenAiChat || tariff.tariff.revision != 3 {
-                    return Err(RelayError::Unsupported("legacy OpenRouter usage requires decimal revision3"));
+                    return Err(RelayError::Unsupported(
+                        "legacy OpenRouter usage requires decimal revision3",
+                    ));
                 }
                 crate::routing::InputSemantics::AnthropicText
             } else if attempt.protocol() == Protocol::AnthropicMessages {
@@ -395,12 +451,7 @@ impl Bridge {
             attempt.upstream_model(),
             request.stream,
         )?;
-        let route_id = format!(
-            "r{}-t{}-u{}",
-            attempt.route_id(),
-            attempt.target_id(),
-            attempt.upstream_id()
-        );
+        let route_id = attempt.route_key();
         let availability = attempt.clone();
         let route = Route::new(
             route_id.clone(),
@@ -548,6 +599,16 @@ mod tests {
         .unwrap()
         .quote("test", "default", Speed::Standard)
         .unwrap()
+    }
+
+    #[test]
+    fn cache_lifetime_requires_reviewed_tariff_without_rejecting_plain_controls() {
+        let price =
+            credit_price(quote(2_000_000, 0, 0, MULTIPLIER_ONE), "test", "default").unwrap();
+        assert!(require_cache_tariff(false, Protocol::OpenAiResponses, &price).is_ok());
+        let error = require_cache_tariff(true, Protocol::OpenAiResponses, &price).unwrap_err();
+        assert!(matches!(error, RelayError::Unsupported(_)));
+        assert_eq!(error.status(), 400);
     }
 
     #[test]

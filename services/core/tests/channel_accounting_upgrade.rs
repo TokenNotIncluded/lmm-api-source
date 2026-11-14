@@ -49,3 +49,6 @@ async fn unpublished_bootstrap_receipts_reserve_ids_without_inventing_retirement
         "reserved IDs are not proof of current active configuration or complete lineage"
     );
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

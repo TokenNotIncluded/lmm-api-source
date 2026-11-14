@@ -29,10 +29,13 @@ async fn credit_runtime_rejects_missing_and_excess_authority(pool: PgPool) {
         "UPDATE(active_version_id) ON core_tool_market.credit_services",
         "EXECUTE ON FUNCTION core_tool_market.lock_builtin_context(text)",
     ] {
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, required).await,
             Err(RuntimeDatabaseError::MissingPrivileges),
@@ -56,19 +59,25 @@ async fn credit_runtime_rejects_missing_and_excess_authority(pool: PgPool) {
         "CREATE ON SCHEMA core_tool_market",
         "EXECUTE ON FUNCTION core_billing.import_opening_balance(jsonb)",
     ] {
-        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT {grant} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             runtime_database::check(&role.pool, Default::default()).await,
             Err(RuntimeDatabaseError::UnsafePrivileges),
             "{grant}"
         );
-        sqlx::raw_sql(&format!("REVOKE {grant} FROM {}", role.name))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE {grant} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
         role.optional("core_tool_market").await;
         runtime_database::check(&role.pool, required).await.unwrap();
     }

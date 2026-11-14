@@ -130,18 +130,18 @@ async fn held_or_rewarded_registration_rejected(pool: PgPool) {
         ("registration_hold", "registration_hold"),
         ("reward_used", "reward_used"),
     ] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_gift.qualifications SET {column}=TRUE WHERE user_id=101"
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
         let mut tx = pool.begin().await.unwrap();
         assert_eq!(eligibility(&mut tx, 101, 100, false).await.unwrap().1, code);
         tx.rollback().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_gift.qualifications SET {column}=FALSE WHERE user_id=101"
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();

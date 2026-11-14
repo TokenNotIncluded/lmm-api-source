@@ -668,7 +668,7 @@ async fn systemone_prepared_json_and_zstd_multipart_tcp_capture_once(pool: PgPoo
             .to_owned();
         let (parts, body) = request.into_parts();
         let body = to_bytes(body, 2 * 1024 * 1024).await.unwrap();
-        let wire_sha256 = format!("{:x}", Sha256::digest(&body));
+        let wire_sha256 = hex_codec::encode(Sha256::digest(&body));
         // A separate connection must observe the committed hold and BOTH
         // matching proof records before the synthetic supplier can reply.
         let ids: Vec<String> = sqlx::query_scalar(
@@ -833,16 +833,13 @@ async fn systemone_prepared_json_and_zstd_multipart_tcp_capture_once(pool: PgPoo
         assert_eq!(proof["mode"], "systemone_native_v1");
         assert_eq!(
             proof["wire_sha256"],
-            format!("{:x}", Sha256::digest(&actual_wire))
+            hex_codec::encode(Sha256::digest(&actual_wire))
         );
         assert_eq!(proof["request_fingerprint"], fingerprint);
         assert_eq!(proof["admission_spec_sha256"], spec);
         assert_eq!(
             proof["frozen_price_sha256"],
-            format!(
-                "{:x}",
-                Sha256::digest(serde_json::to_vec(&typed_price).unwrap())
-            )
+            hex_codec::encode(Sha256::digest(serde_json::to_vec(&typed_price).unwrap()))
         );
         assert_eq!(
             proof["bounds"],
@@ -900,3 +897,6 @@ async fn systemone_prepared_json_and_zstd_multipart_tcp_capture_once(pool: PgPoo
     }
     assert_eq!(*supplier_state.images.lock().unwrap(), vec![png]);
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

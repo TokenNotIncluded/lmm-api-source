@@ -544,7 +544,7 @@ async fn settled_oauth_refund_succeeds_but_terminal_and_original_source_mutation
             let statement = format!(
                 "UPDATE core_charging.requests SET {fragment},revision=revision+1 WHERE id=$1"
             );
-            let error = sqlx::query(&statement)
+            let error = sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
                 .bind(&held.id)
                 .execute(&mut *tx)
                 .await

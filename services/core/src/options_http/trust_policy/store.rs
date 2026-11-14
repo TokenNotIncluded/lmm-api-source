@@ -1,8 +1,10 @@
 //! Explicitly configured preview/resolve service and transaction-bound signer.
 use super::{ConsolePolicy, PolicyPreview, TrustPolicy};
 use crate::identity::{self, CredentialKind, IdentityError};
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
@@ -154,7 +156,7 @@ impl Service {
         )
         .map_err(|_| Error::Invalid)?;
         let mut token = [0_u8; 32];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut token)
             .map_err(|_| Error::Storage)?;
         let token_digest = Sha256::digest(token);
@@ -173,7 +175,7 @@ impl Service {
                 &mut tx,
                 "preview",
                 serde_json::json!([
-                    hex(&token_digest),
+                    hex(token_digest),
                     actor.user_id,
                     actor.credential_id,
                     revision,
@@ -181,7 +183,7 @@ impl Service {
                     &after,
                     &before_console,
                     &after_console,
-                    hex(&transition_digest)
+                    hex(transition_digest)
                 ]),
             )
             .await?;
@@ -202,7 +204,7 @@ impl Service {
         .await?;
         tx.commit().await.map_err(|_| Error::CommitUnknown)?;
         Ok(CreatedPreview {
-            token: hex(&token),
+            token: hex(token),
             preview,
         })
     }
@@ -223,7 +225,7 @@ impl Service {
             .proof(
                 &mut tx,
                 "resolve",
-                serde_json::json!([hex(&token_digest), actor.user_id, actor.credential_id]),
+                serde_json::json!([hex(token_digest), actor.user_id, actor.credential_id]),
             )
             .await?;
         let row = sqlx::query(

@@ -28,7 +28,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
-use rand::RngCore;
+use rand::TryRng as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -452,7 +452,7 @@ async fn login(
             .collect(),
     };
     let mut random = [0u8; 32];
-    if rand::rngs::OsRng.try_fill_bytes(&mut random).is_err() {
+    if rand::rngs::SysRng.try_fill_bytes(&mut random).is_err() {
         return auth_failure(IdentityError::Storage.into());
     }
     let binding: String = crate::hex_codec::encode(random);
@@ -687,11 +687,11 @@ async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Response 
             Err(BrowserAuthError::Identity(IdentityError::Unauthorized)) => {
                 if access.is_some() {
                     match state.browser.logout(None, access, expected).await {
-                        Err(BrowserAuthError::Identity(IdentityError::Unauthorized)) => Ok(()),
+                        Err(BrowserAuthError::Identity(IdentityError::Unauthorized)) => Ok(None),
                         result => result,
                     }
                 } else {
-                    Ok(())
+                    Ok(None)
                 }
             }
             result => result,
@@ -699,8 +699,12 @@ async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Response 
     }
     .await;
     match result {
-        Ok(()) => account_appeals::clear_proof_cookie(
-            set_cookie(success(None), None, &state.config),
+        Ok(revoked_sid) => account_appeals::clear_proof_cookie(
+            set_cookie(
+                success(revoked_sid.map(|sid| json!({"revoked_sid":sid}))),
+                None,
+                &state.config,
+            ),
             &state.config,
         ),
         Err(error) => auth_failure(error),
@@ -742,7 +746,7 @@ async fn google_start(
         );
     }
     let mut random = [0u8; 32];
-    if rand::rngs::OsRng.try_fill_bytes(&mut random).is_err() {
+    if rand::rngs::SysRng.try_fill_bytes(&mut random).is_err() {
         return auth_failure(IdentityError::Storage.into());
     }
     let binding: String = crate::hex_codec::encode(random);

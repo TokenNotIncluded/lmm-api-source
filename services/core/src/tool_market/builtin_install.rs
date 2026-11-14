@@ -42,7 +42,7 @@ fn expected_catalog() -> Result<Vec<(credits::Quote, String, String)>> {
             if tool.price_quota != 0
                 || tool.version_id != service.version_id
                 || !tool.name.starts_with(&format!("{}.", service.key))
-                || format!("{:x}", Sha256::digest(tool.input_schema.as_bytes()))
+                || crate::hex_codec::encode(Sha256::digest(tool.input_schema.as_bytes()))
                     != tool.input_schema_digest
             {
                 return Err(Error::Invalid);
@@ -113,7 +113,7 @@ pub async fn check_builtin_registry_in_transaction(
     }
     Ok(InstallReceipt {
         tools: 29,
-        catalog_digest: format!("{:x}", Sha256::digest(CATALOG.as_bytes())),
+        catalog_digest: crate::hex_codec::encode(Sha256::digest(CATALOG.as_bytes())),
     })
 }
 pub async fn install_compiled_builtins(pool: &PgPool) -> Result<InstallReceipt> {
@@ -166,7 +166,7 @@ mod tests {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_')
         );
-        sqlx::raw_sql(&format!("CREATE ROLE {role} NOLOGIN;GRANT {role} TO {admin};GRANT USAGE ON SCHEMA core_tool_market,core_meta TO {role};GRANT SELECT ON ALL TABLES IN SCHEMA core_tool_market TO {role};ALTER TABLE core_tool_market.credit_quotes OWNER TO {role};ALTER TABLE core_tool_market.credit_builtin_bindings OWNER TO {role};ALTER TABLE core_meta.component_contract OWNER TO {role};")).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {role} NOLOGIN;GRANT {role} TO {admin};GRANT USAGE ON SCHEMA core_tool_market,core_meta TO {role};GRANT SELECT ON ALL TABLES IN SCHEMA core_tool_market TO {role};ALTER TABLE core_tool_market.credit_quotes OWNER TO {role};ALTER TABLE core_tool_market.credit_builtin_bindings OWNER TO {role};ALTER TABLE core_meta.component_contract OWNER TO {role};"))).execute(&pool).await.unwrap();
         let options = pool
             .connect_options()
             .as_ref()
@@ -191,6 +191,6 @@ mod tests {
         let facts:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_tool_market.credit_builtin_bindings),(SELECT count(*) FROM core_tool_market.credit_quotes WHERE seller_user_id IS NOT NULL OR seller_account_id IS NOT NULL)").fetch_one(&pool).await.unwrap();
         assert_eq!(facts, (29, 0));
         installer.close().await;
-        sqlx::raw_sql(&format!("ALTER TABLE core_tool_market.credit_quotes OWNER TO {admin};ALTER TABLE core_tool_market.credit_builtin_bindings OWNER TO {admin};ALTER TABLE core_meta.component_contract OWNER TO {admin};DROP OWNED BY {role};DROP ROLE {role};")).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("ALTER TABLE core_tool_market.credit_quotes OWNER TO {admin};ALTER TABLE core_tool_market.credit_builtin_bindings OWNER TO {admin};ALTER TABLE core_meta.component_contract OWNER TO {admin};DROP OWNED BY {role};DROP ROLE {role};"))).execute(&pool).await.unwrap();
     }
 }

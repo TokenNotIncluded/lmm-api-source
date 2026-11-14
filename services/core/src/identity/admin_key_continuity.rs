@@ -467,7 +467,7 @@ async fn capture(
         FROM core_identity.credentials c LEFT JOIN core_identity.api_key_settings s ON s.credential_id=c.id
         WHERE c.user_id=$1 AND c.kind='api_key' ORDER BY c.id{suffix}"#
     );
-    let rows = sqlx::query(&query)
+    let rows = sqlx::query(sqlx::AssertSqlSafe::<&str>(&query))
         .bind(a.source.user_id)
         .fetch_all(&mut **tx)
         .await
@@ -687,14 +687,16 @@ pub(crate) async fn generation_matches(
     if kind != "api_key" || from.checked_add(1) != Some(current) {
         return Ok(false);
     }
-    // Identity-only stores have no migration registry and cannot possess a
-    // source migration bridge. Native version invalidation stays a denial.
-    if !sqlx::query_scalar::<_, bool>(
-        "SELECT to_regclass('core_migration.import_runs') IS NOT NULL",
+    // An absent or unreadable migration registry cannot prove an exception
+    // to native version invalidation. Inspect catalog privileges without
+    // resolving a qualified name through a schema the runtime cannot use.
+    // Actual failures reading an authorized registry still propagate.
+    let readable: Option<bool> = sqlx::query_scalar(
+        "SELECT has_schema_privilege(n.oid,'USAGE') AND has_table_privilege(t.oid,'SELECT') FROM pg_catalog.pg_class t JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='core_migration' AND t.relname='import_runs'",
     )
-    .fetch_one(&mut *connection)
-    .await?
-    {
+    .fetch_optional(&mut *connection)
+    .await?;
+    if readable != Some(true) {
         return Ok(false);
     }
     sqlx::query_scalar(r#"SELECT EXISTS(SELECT 1 FROM core_identity.credentials c

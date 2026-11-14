@@ -224,9 +224,9 @@ async fn transaction(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
 }
 async fn family(c: &mut PgConnection, id: &str, write: bool) -> Result<PgRow> {
     let lock = if write { "FOR UPDATE" } else { "FOR SHARE" };
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT * FROM core_oauth.families WHERE id=$1 {lock}"
-    ))
+    )))
     .bind(id)
     .fetch_optional(c)
     .await?
@@ -473,7 +473,7 @@ impl IdentityStore {
             .await?;
         // Native authority and expiry come from one read-only snapshot. The RPC
         // startup pool prohibits FOR SHARE; no spending authority is acquired.
-        let row = sqlx::query(&format!("SELECT native.*,ceil(extract(epoch FROM c.expires_at))::bigint AS expiry FROM ({AUTH} AND c.digest=$1) native JOIN core_identity.credentials c ON c.id=native.id"))
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT native.*,ceil(extract(epoch FROM c.expires_at))::bigint AS expiry FROM ({AUTH} AND c.digest=$1) native JOIN core_identity.credentials c ON c.id=native.id")))
             .bind(digest(secret)?).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
         if row.try_get::<String, _>("kind")? != "session" {
             return Err(IdentityError::Forbidden);

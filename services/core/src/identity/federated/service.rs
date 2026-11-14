@@ -49,6 +49,18 @@ impl IdentityStore {
         Ok(self)
     }
 
+    // No production config/env/CLI entry point. Call before cloning the store.
+    #[cfg(test)]
+    pub(crate) fn with_federated_test_ca(mut self, ca: reqwest::Certificate) -> Result<Self> {
+        let auth = self
+            .federated
+            .as_mut()
+            .and_then(Arc::get_mut)
+            .ok_or(IdentityError::Invalid)?;
+        auth.network = ProviderNetwork::trusted_ca_for_test(ca);
+        Ok(self)
+    }
+
     pub fn federated_auth_enabled(&self) -> bool {
         self.federated.is_some()
     }

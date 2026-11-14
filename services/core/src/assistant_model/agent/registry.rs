@@ -230,10 +230,10 @@ mod tests {
         let mut changed: Value = serde_json::from_slice(INSTALLED).unwrap();
         changed["tools"][0]["schema_json"] = Value::String("{}".into());
         let bytes = serde_json::to_vec(&changed).unwrap();
-        let sha = format!("{:x}", Sha256::digest(&bytes));
+        let sha = crate::hex_codec::encode(Sha256::digest(&bytes));
         assert!(AgentRegistry::from_reviewed(&bytes, &sha).is_err());
         changed["tools"][0]["schema_sha256"] =
-            Value::String(format!("{:x}", Sha256::digest(b"{}")));
+            Value::String(crate::hex_codec::encode(Sha256::digest(b"{}")));
         changed["tools"][0]["schema_json"] =
             Value::String(r#"{"$ref":"https://untrusted.invalid/schema"}"#.into());
         let schema = changed["tools"][0]["schema_json"]
@@ -241,9 +241,9 @@ mod tests {
             .unwrap()
             .as_bytes();
         changed["tools"][0]["schema_sha256"] =
-            Value::String(format!("{:x}", Sha256::digest(schema)));
+            Value::String(crate::hex_codec::encode(Sha256::digest(schema)));
         let bytes = serde_json::to_vec(&changed).unwrap();
-        let sha = format!("{:x}", Sha256::digest(&bytes));
+        let sha = crate::hex_codec::encode(Sha256::digest(&bytes));
         assert!(AgentRegistry::from_reviewed(&bytes, &sha).is_err());
     }
 }

@@ -81,9 +81,9 @@ async fn category_routes_authenticate_without_history_or_write_permissions(pool:
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT CONNECT ON DATABASE \"{database}\" TO {role}; GRANT USAGE ON SCHEMA core_identity TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA core_identity TO {role};"
-    )).execute(&pool).await.unwrap();
+    ))).execute(&pool).await.unwrap();
     let options = pool
         .connect_options()
         .as_ref()
@@ -174,8 +174,10 @@ async fn category_routes_authenticate_without_history_or_write_permissions(pool:
     .await;
     assert_eq!(expired, database_snapshot::snapshot(&pool).await);
     readonly.close().await;
-    sqlx::raw_sql(&format!("DROP OWNED BY {role}; DROP ROLE {role};"))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP OWNED BY {role}; DROP ROLE {role};"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
 }

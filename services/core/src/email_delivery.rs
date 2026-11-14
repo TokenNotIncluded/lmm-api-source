@@ -9,6 +9,7 @@ pub use reset_link::ResetSite;
 pub use smtp::{SmtpConfig, SmtpMailer, SmtpTls};
 pub use store::{Dispatch, Lease, NoticeRecipient, Outbox};
 
+use rand::TryRng as _;
 use std::fmt;
 
 /// Contains no SQL, provider response, recipient, token or credential text.
@@ -70,10 +71,10 @@ fn valid_id(id: &str) -> bool {
 }
 
 fn random_id() -> Result<String> {
-    use rand::{RngCore, rngs::OsRng};
+    use rand::rngs::SysRng;
     use std::fmt::Write;
     let mut bytes = [0_u8; 16];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| MailError::Unavailable)?;
     let mut id = String::with_capacity(32);

@@ -29,13 +29,13 @@ fn cookie(h: &HeaderMap) -> Result<&str> {
     let mut found = None;
     for value in h.get_all(header::COOKIE) {
         for part in value.to_str().map_err(|_| Error::Unauthorized)?.split(';') {
-            if let Some((name, value)) = part.trim().split_once('=') {
-                if name == "new_api_refresh" {
-                    if found.is_some() || value.is_empty() {
-                        return Err(Error::Unauthorized);
-                    }
-                    found = Some(value);
+            if let Some((name, value)) = part.trim().split_once('=')
+                && name == "new_api_refresh"
+            {
+                if found.is_some() || value.is_empty() {
+                    return Err(Error::Unauthorized);
                 }
+                found = Some(value);
             }
         }
     }

@@ -24,15 +24,6 @@ pub(crate) struct Session {
     number: u8,
 }
 
-fn route_id(attempt: &Attempt) -> String {
-    format!(
-        "r{}-t{}-u{}",
-        attempt.route_id(),
-        attempt.target_id(),
-        attempt.upstream_id()
-    )
-}
-
 fn binding(
     bridge: &Bridge,
     selected: &Selected,
@@ -43,26 +34,22 @@ fn binding(
         .provider_policy
         .reservation_metadata(&selected.attempt)?;
     Ok(ReservationFallback {
-        binding: ReservationBinding {
-            route_id: route.id.clone(),
-            target_id: selected.attempt.target_id(),
-            upstream_id: selected.attempt.upstream_id(),
-            protocol: match route.protocol {
+        binding: ReservationBinding::for_attempt(
+            &selected.attempt,
+            match route.protocol {
                 UpstreamProtocol::Chat => "chat",
                 UpstreamProtocol::Responses => "responses",
                 UpstreamProtocol::Anthropic => "anthropic",
                 UpstreamProtocol::Gemini => "gemini",
             }
             .into(),
-            model_snapshot: route.model.clone(),
-            generation_url: route.endpoint.as_str().into(),
-            credential_ref: selected.attempt.credential_ref(),
-            payload_policy_sha256: contract::typed_digest(&selected.attempt.payload_policy())
-                .map_err(super::super::billing::error)?,
-            provider_contract_revision: revision,
-            projection_revision: "context-max-v1".into(),
-            quote_version: route.price_version,
-        },
+            route.model.clone(),
+            route.endpoint.as_str().into(),
+            revision,
+            "context-max-v1".into(),
+            route.price_version,
+        )
+        .map_err(super::super::billing::error)?,
         wire_sha256: contract::digest(&request.upstream_body(route)?),
         bounds: ReservationBounds {
             model_input_max: selected.input_token_ceiling as u64,
@@ -108,7 +95,7 @@ impl Session {
         };
         if let Some(attempt) = attempt {
             self.number += 1;
-            let id = route_id(&attempt);
+            let id = attempt.route_key();
             if !self.candidates.contains_key(&id) {
                 return Err(RelayError::Conflict);
             }
@@ -183,7 +170,7 @@ impl Bridge {
                     if candidates.len() >= 8 {
                         break;
                     }
-                    let id = route_id(&attempt);
+                    let id = attempt.route_key();
                     if candidates.contains_key(&id) {
                         continue;
                     }
@@ -233,7 +220,7 @@ impl Bridge {
             .ok_or(RelayError::RouteUnavailable)?
             .start()
             .map_err(|_| RelayError::RouteUnavailable)?;
-        if route_id(&first) != selected.route_id {
+        if first.route_key() != selected.route_id {
             return Err(RelayError::RouteUnavailable);
         }
         let mut active = self

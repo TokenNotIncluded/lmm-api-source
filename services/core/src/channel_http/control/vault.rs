@@ -7,7 +7,8 @@ use aes_gcm::{
     aead::{Aead, Payload},
 };
 use hkdf::Hkdf;
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
@@ -37,12 +38,12 @@ pub(super) fn encrypt(
         return Err(ManagementError::Invalid);
     }
     let mut nonce = [0_u8; 12];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut nonce)
         .map_err(|_| ManagementError::Storage)?;
     let encrypted = cipher(key)?
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: secret.as_bytes(),
                 aad: &aad(reference),
@@ -63,7 +64,7 @@ pub(super) fn decrypt(
     }
     let plaintext = cipher(key)?
         .decrypt(
-            Nonce::from_slice(&bytes[..12]),
+            &Nonce::try_from(&bytes[..12]).map_err(|_| ManagementError::Storage)?,
             Payload {
                 msg: &bytes[12..],
                 aad: &aad(reference),

@@ -14,7 +14,8 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, types::Json as SqlJson};
@@ -58,7 +59,7 @@ impl Store {
             return Err(Error::Invalid);
         }
         let mut random = [0u8; 32];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut random)
             .map_err(|_| Error::Unavailable)?;
         let csrf: String = crate::hex_codec::encode(random);

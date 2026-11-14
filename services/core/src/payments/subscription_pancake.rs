@@ -93,6 +93,10 @@ fn date(raw: &str) -> Result<i64> {
 pub(crate) fn raw_event(raw: &[u8]) -> Result<Value> {
     super::stripe::unique_json(raw)
 }
+pub(crate) struct VerificationTimes {
+    pub(crate) quoted_at: i64,
+    pub(crate) now: i64,
+}
 impl PaymentsStore {
     pub(crate) fn pancake_subscription_binding(
         &self,
@@ -126,11 +130,11 @@ impl PaymentsStore {
         b: &PancakeBinding,
         reference: &str,
         bound_provider_order: Option<&str>,
-        quoted_at: i64,
+        times: VerificationTimes,
         raw: &[u8],
         signature: &[u8],
-        now: i64,
     ) -> Result<(Channel, Verified)> {
+        let VerificationTimes { quoted_at, now } = times;
         let original = self
             .channels
             .get(&b.price.channel_id)

@@ -720,7 +720,7 @@ mod tests {
             Some("22023")
         );
         let stale_creation = sqlx::query(insert)
-            .bind(&vec![8_u8; 32])
+            .bind(vec![8_u8; 32])
             .bind(credential)
             .bind(before.get::<i64, _>("revision"))
             .bind(sqlx::types::Json(&original))
@@ -997,7 +997,10 @@ mod tests {
         let grants = format!(
             "GRANT EXECUTE ON FUNCTION core_trust_pricing.read_policy_edit_description(bigint), core_trust_pricing.policy_edit_binding(text,jsonb), core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea), core_trust_pricing.authorized_policy_confirm(jsonb,bytea), core_trust_pricing.authorized_policy_challenge(jsonb,bytea), core_trust_pricing.policy_editor_context(text,bigint), core_trust_pricing.policy_challenge_context(bytea,bytea,bigint,bigint), core_trust_pricing.authorized_policy_resolve(bytea,bigint,bigint,bytea) TO {name}"
         );
-        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+            .execute(&pool)
+            .await
+            .unwrap();
         for sql in [
             "UPDATE core_trust_pricing.policies SET revision=revision",
             "DELETE FROM core_trust_pricing.user_bases WHERE false",
@@ -1047,6 +1050,7 @@ mod tests {
 
     #[sqlx::test(migrations = false)]
     async fn staged_proof_uses_hmac_and_binds_the_top_level_transaction(pool: sqlx::PgPool) {
+        use hmac::KeyInit as _;
         use hmac::{Hmac, Mac};
         crate::core_schema::init(&pool).await.unwrap();
         install_proof_schema(&pool).await;
@@ -1146,7 +1150,7 @@ mod tests {
         let identity = crate::identity::IdentityStore::from_pool(pool.clone());
         let root = identity.bootstrap_user(1, 6).await.unwrap();
         let runtime = runtime_fixture::RuntimeRole::create(&pool).await;
-        sqlx::raw_sql(&format!("GRANT EXECUTE ON FUNCTION core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea) TO {}",runtime.name)).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT EXECUTE ON FUNCTION core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea) TO {}",runtime.name))).execute(&pool).await.unwrap();
         let spec: serde_json::Value =
             sqlx::query_scalar("SELECT spec FROM core_trust_pricing.policies WHERE singleton")
                 .fetch_one(&pool)

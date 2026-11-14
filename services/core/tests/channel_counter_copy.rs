@@ -453,7 +453,7 @@ async fn snapshot(pool: &PgPool, lifecycle: bool) -> Value {
             schema.replace('"', "\"\""),
             table.replace('"', "\"\"")
         );
-        let rows:Value=sqlx::query_scalar(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {quoted} t"))
+        let rows:Value=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM {quoted} t")))
             .fetch_one(pool).await.unwrap();
         result[format!("{schema}.{table}")] = rows;
     }
@@ -733,10 +733,11 @@ async fn separate_managers_same_cas_publish_one_copy_and_no_orphans(pool: PgPool
         "core_channels.counter_baselines",
         "core_channels.balance_observations",
     ] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-            .fetch_one(&f.owner)
-            .await
-            .unwrap();
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&f.owner)
+                .await
+                .unwrap();
         assert_eq!(count, 2, "orphan or missing row in {table}");
     }
     let keys: i64 = sqlx::query_scalar("SELECT count(*) FROM public.channel_secret_revisions")
@@ -916,3 +917,6 @@ async fn nonretired_migrated_bootstrap_remains_usable_with_unknown_history(pool:
     assert_eq!(f.counters(reset).await["complete"], true);
     f.finish().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

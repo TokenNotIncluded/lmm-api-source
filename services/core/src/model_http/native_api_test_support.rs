@@ -20,6 +20,11 @@ pub(crate) struct Fixture {
 }
 pub(crate) async fn fixture(pool: PgPool, funds: i64, models: &[&str]) -> Fixture {
     crate::core_schema::init(&pool).await.unwrap();
+    installed_fixture(pool, funds, models).await
+}
+
+/// Explicit preserved-prefix driver only; never initializes or mutates schema.
+pub(crate) async fn installed_fixture(pool: PgPool, funds: i64, models: &[&str]) -> Fixture {
     let identity = IdentityStore::from_pool(pool.clone());
     let session = identity.bootstrap_user(7, 1).await.unwrap();
     let actor = identity.authorize(&session.secret).await.unwrap();

@@ -1145,7 +1145,7 @@ mod marked_key_cases {
                 .unwrap();
         if !installed {
             // Explicit installation-owner fixture setup, never runtime startup.
-            sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+            sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
                 .execute(pool)
                 .await
                 .unwrap();
@@ -1222,7 +1222,7 @@ mod marked_key_cases {
         role.optional("web_identity").await;
         // Full-runtime fixtures also cover the admin host. This metadata-only
         // connection must remove both table and column grants from that setup.
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             r#"
             REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_abuse FROM {0};
             REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA core_abuse FROM {0};
@@ -1234,7 +1234,7 @@ mod marked_key_cases {
             GRANT SELECT ON core_abuse.user_marks,core_abuse.settings TO {0};
         "#,
             role.name
-        ))
+        )))
         .execute(pool)
         .await
         .unwrap();

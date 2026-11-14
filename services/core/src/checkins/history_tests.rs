@@ -1,4 +1,5 @@
 //! Synthetic local PostgreSQL only. Historical seed never posts another reward.
+use crate::test_runtime as runtime;
 use lmm_core::{
     billing::ledger::Ledger,
     checkins::{
@@ -11,8 +12,6 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, types::Json};
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Barrier;
-#[path = "../../tests/common/runtime.rs"]
-mod runtime;
 
 fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -63,7 +62,10 @@ async fn fixture_with_opening(
         .await
         .unwrap();
     if !installed {
-        sqlx::raw_sql(checkins::SCHEMA).execute(pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(checkins::SCHEMA))
+            .execute(pool)
+            .await
+            .unwrap();
     }
     let identity = IdentityStore::from_pool(pool.clone());
     let admin = identity.bootstrap_user(61000, 6).await.unwrap().secret;
@@ -367,7 +369,7 @@ async fn concurrent_distinct_keys_create_one_gift_and_runtime_cannot_publish(poo
     assert_eq!(first, 1);
     assert_eq!(journals(&pool).await, 1);
     let runtime = runtime::RuntimeRole::create(&pool).await;
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_checkins TO {}; GRANT SELECT ON ALL TABLES IN SCHEMA core_checkins TO {};",runtime.name,runtime.name)).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_checkins TO {}; GRANT SELECT ON ALL TABLES IN SCHEMA core_checkins TO {};",runtime.name,runtime.name))).execute(&pool).await.unwrap();
     let unprivileged = CheckinStore::new(runtime.pool.clone());
     assert_eq!(
         unprivileged
@@ -492,7 +494,10 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
         .unwrap()
         .0
         .replace(":\"runtime_role\"", &runtime.name);
-    sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(&pool)
+        .await
+        .unwrap();
     let required = lmm_core::runtime_database::RequiredCapabilities {
         checkins: true,
         ..Default::default()
@@ -517,10 +522,10 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
             .available_units,
         amount
     );
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON core_checkins.active_policy FROM {}",
         runtime.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -528,7 +533,10 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
         lmm_core::runtime_database::check(&runtime.pool, required).await,
         Err(lmm_core::runtime_database::RuntimeDatabaseError::MissingPrivileges)
     );
-    sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(&pool)
+        .await
+        .unwrap();
     for (grant, revoke) in [
         (
             "GRANT INSERT ON core_checkins.policy_revisions TO",
@@ -547,7 +555,7 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
             "REVOKE SELECT(operation_key) ON core_checkins.owner_commands FROM",
         ),
     ] {
-        sqlx::raw_sql(&format!("{grant} {}", runtime.name))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{grant} {}", runtime.name)))
             .execute(&pool)
             .await
             .unwrap();
@@ -555,7 +563,7 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
             lmm_core::runtime_database::check(&runtime.pool, required).await,
             Err(lmm_core::runtime_database::RuntimeDatabaseError::UnsafePrivileges)
         );
-        sqlx::raw_sql(&format!("{revoke} {}", runtime.name))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{revoke} {}", runtime.name)))
             .execute(&pool)
             .await
             .unwrap();

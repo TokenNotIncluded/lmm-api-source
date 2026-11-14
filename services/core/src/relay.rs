@@ -10,7 +10,6 @@ pub(crate) mod honeypot_network;
 pub(crate) mod input_count;
 mod keepalive;
 pub(crate) mod legacy_openrouter_usage;
-mod native;
 pub(crate) mod native_anthropic;
 pub(crate) mod native_gemini;
 #[cfg(test)]

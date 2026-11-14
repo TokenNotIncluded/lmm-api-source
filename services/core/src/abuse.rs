@@ -6,7 +6,8 @@ use crate::identity::{CredentialKind, IdentityError, Principal};
 pub use policy::{
     ClientProtocol, Limits, Mode, Policy, PolicyConfig, UpstreamProtocol, UpstreamTarget,
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -103,17 +104,17 @@ pub fn config_hash(config: &PolicyConfig) -> Result<String> {
         }
     }
     let value = sorted(serde_json::to_value(config).map_err(|_| AbuseError::Invalid)?);
-    Ok(hex(&Sha256::digest(
+    Ok(hex(Sha256::digest(
         serde_json::to_vec(&value).map_err(|_| AbuseError::Invalid)?,
     )))
 }
 pub(super) use crate::hex_codec::encode as hex;
 fn random_id() -> Result<String> {
     let mut b = [0; 32];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut b)
         .map_err(|_| AbuseError::Unavailable)?;
-    Ok(hex(&b))
+    Ok(hex(b))
 }
 /// A missing component, missing singleton, denied read or invalid policy is a
 /// runtime failure, never evidence that a user is unmarked.

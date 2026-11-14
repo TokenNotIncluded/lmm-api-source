@@ -69,7 +69,7 @@ fn predecessor_definitions() -> Result<Vec<String>, UpgradeError> {
         serde_json::from_value(value["definitions"].clone()).map_err(|_| UpgradeError::Storage)?;
     if value["manifest_sha256"] != PRE_MANIFEST
         || value["catalog_sha256"] != PRE_CATALOG
-        || hex(&fingerprint(&defs)) != PRE_CATALOG
+        || hex(fingerprint(&defs)) != PRE_CATALOG
     {
         return Err(reject("REQUEST_OPERATIONS_PREDECESSOR_CHANGED"));
     }
@@ -86,7 +86,7 @@ pub(super) fn authorize_target() -> Result<(), UpgradeError> {
     prior.components.truncate(29);
     let mut bytes = serde_json::to_vec(&prior).map_err(|_| UpgradeError::Storage)?;
     bytes.push(b'\n');
-    if hex(&Sha256::digest(bytes)) != PRE_MANIFEST {
+    if hex(Sha256::digest(bytes)) != PRE_MANIFEST {
         return Err(reject("REQUEST_OPERATIONS_PREDECESSOR_CHANGED"));
     }
     predecessor_definitions()?;
@@ -120,7 +120,7 @@ fn preserves_catalog(defs: &[String]) -> Result<(), UpgradeError> {
 
 async fn grant(c: &mut PgConnection, r: &UpgradeRequest) -> Result<(), UpgradeError> {
     let role = quote(&r.roles.runtime);
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         r#"
         GRANT USAGE ON SCHEMA core_operations,core_request_limits TO {role};
         GRANT SELECT ON core_request_limits.policy,core_request_limits.auto_policy TO {role};
@@ -132,7 +132,7 @@ async fn grant(c: &mut PgConnection, r: &UpgradeRequest) -> Result<(), UpgradeEr
         GRANT SELECT,INSERT,UPDATE,DELETE ON core_operations.instances TO {role};
         GRANT EXECUTE ON FUNCTION core_operations.run_log_cleanup_batch() TO {role};
     "#
-    ))
+    )))
     .execute(c)
     .await?;
     Ok(())
@@ -218,7 +218,7 @@ pub(super) async fn connected(
     let old_sequences = sequences(&mut tx).await?;
     let old_data = data(&mut tx, &tables, &old_sequences).await?;
     for (_, ddl) in &COMPONENTS[29..] {
-        sqlx::raw_sql(ddl).execute(&mut *tx).await?;
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await?;
     }
     grant(&mut tx, r).await?;
     privileges(&mut tx, r).await?;

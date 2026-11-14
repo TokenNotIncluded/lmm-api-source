@@ -342,8 +342,7 @@ impl CompiledTariff {
         TieredTariff {
             calendar: None,
             revision: self.revision,
-            source_digest: crate::hex_codec::encode(self
-                .source_digest),
+            source_digest: crate::hex_codec::encode(self.source_digest),
             uses_cache_read: self.uses_cache_read,
             uses_cache_write: self.uses_cache_write,
             tiers: self.tiers[..usize::from(self.count)].to_vec(),

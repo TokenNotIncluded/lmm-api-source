@@ -41,7 +41,9 @@ async fn apply(pool: &PgPool, sql: &str) -> Result<(), sqlx::Error> {
     sqlx::raw_sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SET LOCAL synchronous_commit=on;")
         .execute(&mut *tx)
         .await?;
-    sqlx::raw_sql(sql).execute(&mut *tx).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(sql))
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await
 }
 async fn balance(pool: &PgPool, account: i64, bucket: &str) -> i64 {
@@ -154,7 +156,10 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
         .unwrap()
         .0
         .replace(":\"runtime_role\"", &runtime.name);
-    sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(&pool)
+        .await
+        .unwrap();
     let rights: (bool,bool) = sqlx::query_as("SELECT has_table_privilege('core_wallet.legacy_transfer_history','SELECT'),has_table_privilege('core_wallet.legacy_transfer_history','INSERT,UPDATE,DELETE,TRUNCATE')")
         .fetch_one(&runtime.pool).await.unwrap();
     assert_eq!(rights, (true, false));

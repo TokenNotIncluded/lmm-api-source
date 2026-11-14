@@ -33,17 +33,20 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         "GRANT USAGE ON SCHEMA core_assistant TO {0}; GRANT SELECT ON core_assistant.agent_turns,core_assistant.agent_rounds,core_assistant.agent_tool_operations TO {0}",
         role.name
     );
-    sqlx::raw_sql(&agent_reads).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&agent_reads))
+        .execute(&pool)
+        .await
+        .unwrap();
     runtime_database::check(&role.pool, required).await.unwrap();
     sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
         .execute(&role.pool)
         .await
         .unwrap();
     for table in ["agent_turns", "agent_rounds", "agent_tool_operations"] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON core_assistant.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -52,7 +55,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
             Err(Error::MissingPrivileges),
             "{table}"
         );
-        sqlx::raw_sql(&agent_reads).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&agent_reads))
+            .execute(&pool)
+            .await
+            .unwrap();
     }
     runtime_database::check(&role.pool, required).await.unwrap();
     sqlx::query("SELECT * FROM core_assistant_tools.confirmations")
@@ -60,16 +66,16 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         .await
         .unwrap();
     for column in ["nonce_sha256", "state", "confirmed_at"] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_assistant_tools.confirmations SET {column}={column} WHERE FALSE"
-        ))
+        )))
         .execute(&role.pool)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE UPDATE({column}) ON core_assistant_tools.confirmations FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -77,18 +83,18 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
             runtime_database::check(&role.pool, required).await,
             Err(Error::MissingPrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT UPDATE({column}) ON core_assistant_tools.confirmations TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
     }
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE UPDATE(revision) ON core_humangrant.human_grant_gate FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -103,10 +109,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         "refund_holds",
         "blocked_refunds",
     ] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON core_payments.{table} FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -114,19 +120,19 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
             runtime_database::check(&role.pool, required).await,
             Err(Error::MissingPrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT SELECT ON core_payments.{table} TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
     }
     let columns:Vec<String>=sqlx::query_scalar("SELECT column_name::text FROM information_schema.columns WHERE table_schema='core_assistant_tools' AND table_name='confirmations' AND column_name NOT IN ('nonce_sha256','state','confirmed_at') ORDER BY ordinal_position").fetch_all(&pool).await.unwrap();
     for column in columns {
-        let e = sqlx::query(&format!(
+        let e = sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_assistant_tools.confirmations SET {column}={column} WHERE FALSE"
-        ))
+        )))
         .execute(&role.pool)
         .await
         .unwrap_err();
@@ -134,10 +140,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
             e.as_database_error().and_then(|e| e.code()).as_deref(),
             Some("42501")
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT UPDATE({column}) ON core_assistant_tools.confirmations TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -146,10 +152,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
             Err(Error::UnsafePrivileges),
             "{column}"
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE UPDATE({column}) ON core_assistant_tools.confirmations FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -162,10 +168,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         "REFERENCES",
         "MAINTAIN",
     ] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT {privilege} ON core_assistant_tools.confirmations TO {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -174,10 +180,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
             Err(Error::UnsafePrivileges),
             "{privilege}"
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE {privilege} ON core_assistant_tools.confirmations FROM {}",
             role.name
-        ))
+        )))
         .execute(&pool)
         .await
         .unwrap();
@@ -185,10 +191,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         role.optional("core_assistant_tools").await;
         runtime_database::check(&role.pool, required).await.unwrap();
     }
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "GRANT REFERENCES(state) ON core_assistant_tools.confirmations TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -196,10 +202,10 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         runtime_database::check(&role.pool, required).await,
         Err(Error::UnsafePrivileges)
     );
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE REFERENCES(state) ON core_assistant_tools.confirmations FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

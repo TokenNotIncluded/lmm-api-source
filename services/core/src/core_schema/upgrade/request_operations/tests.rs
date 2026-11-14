@@ -48,12 +48,9 @@ fn operations_upgrade_binds_old_contract_and_compiled_successor() {
     defs.extend(PARENT_ADDITIONS.iter().map(|s| s.to_string()));
     defs.sort();
     preserves_catalog(&defs).unwrap();
-    for index in 0..PARENT_ADDITIONS.len() {
+    for addition in PARENT_ADDITIONS {
         let mut wrong = defs.clone();
-        let at = wrong
-            .iter()
-            .position(|d| d == PARENT_ADDITIONS[index])
-            .unwrap();
+        let at = wrong.iter().position(|d| d == addition).unwrap();
         wrong.remove(at);
         assert!(preserves_catalog(&wrong).is_err());
     }

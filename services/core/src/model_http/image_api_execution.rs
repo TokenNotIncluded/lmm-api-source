@@ -14,7 +14,7 @@ pub(crate) enum SourceKey {
     ApiKey { credential_id: i64 },
 }
 fn upload_digest(edits: &ImageMultipartInput) -> Value {
-    let item = |i: &crate::model_http::image_provider::ImageUpload| json!({"sha256":hex(&Sha256::digest(&i.bytes)),"media_type":match i.media_type{ImageMediaType::Png=>"image/png",ImageMediaType::Jpeg=>"image/jpeg",ImageMediaType::Webp=>"image/webp"}});
+    let item = |i: &crate::model_http::image_provider::ImageUpload| json!({"sha256":hex(Sha256::digest(&i.bytes)),"media_type":match i.media_type{ImageMediaType::Png=>"image/png",ImageMediaType::Jpeg=>"image/jpeg",ImageMediaType::Webp=>"image/webp"}});
     json!({"images":edits.images.iter().map(item).collect::<Vec<_>>(),"mask":edits.mask.as_ref().map(item)})
 }
 impl ImageService {

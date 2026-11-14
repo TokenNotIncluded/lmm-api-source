@@ -304,7 +304,7 @@ impl IdentityStore {
         } else {
             ("rejected_at", "team.invite.reject")
         };
-        let changed = sqlx::query(&format!("UPDATE core_identity.invites SET {column}=clock_timestamp() WHERE id=$1 AND accepted_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL AND expires_at>clock_timestamp()"))
+        let changed = sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE core_identity.invites SET {column}=clock_timestamp() WHERE id=$1 AND accepted_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL AND expires_at>clock_timestamp()")))
             .bind(id).execute(&mut *tx).await?.rows_affected();
         if changed != 1 {
             return Err(IdentityError::Conflict);

@@ -115,7 +115,7 @@ async fn financial_snapshot(pool: &PgPool) -> Value {
         "core_charging.usage_events",
         "core_charging.refunds",
     ] {
-        let rows:Value=sqlx::query_scalar(&format!("SELECT COALESCE(jsonb_agg(row_to_json(t) ORDER BY row_to_json(t)::text),'[]'::jsonb) FROM {table} t")).fetch_one(pool).await.unwrap();
+        let rows:Value=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COALESCE(jsonb_agg(row_to_json(t) ORDER BY row_to_json(t)::text),'[]'::jsonb) FROM {table} t"))).fetch_one(pool).await.unwrap();
         out.insert(table.into(), rows);
     }
     Value::Object(out)
@@ -981,10 +981,10 @@ async fn duplicate_concurrency_and_rpm_denials_persist_attempts_without_new_leas
         .unwrap();
     assert_eq!(leases_after, leases);
     assert_eq!(before, financial_snapshot(&pool).await);
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE INSERT ON core_abuse.model_counters FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -1135,33 +1135,33 @@ async fn missing_policy_read_permission_and_invalid_policy_fail_closed_for_unmar
     let role = runtime::RuntimeRole::create(&pool).await;
     let store = AbuseStore::new(role.pool.clone(), BTreeSet::new());
     let before = financial_snapshot(&pool).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON core_abuse.settings FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
     assert_component_failure(&store, &role.pool, &f.key.secret).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON core_abuse.settings TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE SELECT ON core_abuse.user_marks FROM {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
     assert_component_failure(&store, &role.pool, &f.key.secret).await;
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON core_abuse.user_marks TO {}",
         role.name
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();

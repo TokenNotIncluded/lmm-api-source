@@ -69,9 +69,9 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
         ("refunds", &["receipt", "journal_id"][..]),
     ] {
         for column in columns {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "REVOKE UPDATE({column}) ON core_directory_ads.{table} FROM {role}"
-            ))
+            )))
             .execute(owner)
             .await
             .unwrap();
@@ -79,18 +79,18 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
                 runtime_database::check(&runtime, required()).await,
                 Err(RuntimeDatabaseError::MissingPrivileges)
             );
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "GRANT UPDATE({column}) ON core_directory_ads.{table} TO {role}"
-            ))
+            )))
             .execute(owner)
             .await
             .unwrap();
         }
     }
     for privilege in ["DELETE", "UPDATE"] {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "GRANT {privilege} ON core_directory_ads.payments TO {role}"
-        ))
+        )))
         .execute(owner)
         .await
         .unwrap();
@@ -98,9 +98,9 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
             runtime_database::check(&runtime, required()).await,
             Err(RuntimeDatabaseError::UnsafePrivileges)
         );
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "REVOKE {privilege} ON core_directory_ads.payments FROM {role}"
-        ))
+        )))
         .execute(owner)
         .await
         .unwrap();
@@ -121,28 +121,32 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
 #[sqlx::test(migrations = false)]
 async fn browser_confirmed_charge_refund_and_replays(pool: PgPool) {
     let runtime_role = format!("ad_runtime_{}", std::process::id());
-    sqlx::query(&format!("CREATE ROLE {runtime_role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE ROLE {runtime_role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")))
         .execute(&pool).await.unwrap();
     let owner_role = "lmm_core_owner";
     let database = pool.connect_options().get_database().unwrap().to_owned();
     sqlx::query("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='lmm_core_owner') THEN CREATE ROLE lmm_core_owner NOLOGIN; END IF; END $$")
         .execute(&pool).await.unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "ALTER DATABASE \"{database}\" OWNER TO {owner_role}"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(&format!("ALTER SCHEMA public OWNER TO {owner_role}"))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "ALTER SCHEMA public OWNER TO {owner_role}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(3)
         .after_connect(move |connection, _| {
             let statement = format!("SET ROLE {owner_role}");
             Box::pin(async move {
-                sqlx::query(&statement).execute(connection).await?;
+                sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
+                    .execute(connection)
+                    .await?;
                 Ok(())
             })
         })

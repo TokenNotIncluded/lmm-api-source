@@ -281,7 +281,7 @@ impl ExternalOAuth {
 }
 
 fn provider_client(https_only: bool) -> Result<Client> {
-    Client::builder()
+    crate::http_client::builder()
         .https_only(https_only)
         .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(3))

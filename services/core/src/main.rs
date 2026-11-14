@@ -17,6 +17,7 @@ use std::{
 };
 
 mod admin;
+mod hex_codec;
 
 const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | seed-checkin-history | publish-checkin-policy | schema-manifest | check-db | trust-policy-editor]\n\n\
 Commands:\n\

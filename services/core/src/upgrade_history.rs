@@ -62,7 +62,7 @@ fn identifier(text: &str) -> bool {
         && text.as_bytes()[0].is_ascii_lowercase()
 }
 fn contract() -> String {
-    format!("{:x}", Sha256::digest(SCHEMA))
+    crate::hex_codec::encode(Sha256::digest(SCHEMA))
 }
 
 /// Complete immutable binding of one original operation to one physical target.
@@ -329,13 +329,13 @@ async fn install(url: &str, authority_id: &str, owner: &str, writer: &str) -> Re
     if !separated {
         return Err(HistoryError::Identity);
     }
-    sqlx::query(&format!("SET LOCAL ROLE \"{owner}\" "))
+    sqlx::query(sqlx::AssertSqlSafe(format!("SET LOCAL ROLE \"{owner}\" ")))
         .execute(&mut *tx)
         .await?;
     sqlx::raw_sql(SCHEMA).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO lmm_upgrade_history.installation(authority_id,contract_sha256,writer) VALUES($1,$2,$3::name)")
         .bind(authority_id).bind(contract()).bind(writer).execute(&mut *tx).await?;
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA lmm_upgrade_history TO \"{writer}\"; GRANT EXECUTE ON FUNCTION lmm_upgrade_history.identity(),lmm_upgrade_history.snapshot(text),lmm_upgrade_history.reserve(jsonb),lmm_upgrade_history.advance(jsonb,bigint,text) TO \"{writer}\""))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA lmm_upgrade_history TO \"{writer}\"; GRANT EXECUTE ON FUNCTION lmm_upgrade_history.identity(),lmm_upgrade_history.snapshot(text),lmm_upgrade_history.reserve(jsonb),lmm_upgrade_history.advance(jsonb,bigint,text) TO \"{writer}\"")))
         .execute(&mut *tx).await?;
     tx.commit().await.map_err(|_| HistoryError::CommitUnknown)?;
     Ok(json!({"status":"installed","authority_id":authority_id}))

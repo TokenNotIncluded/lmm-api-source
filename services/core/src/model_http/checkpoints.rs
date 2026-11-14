@@ -8,12 +8,34 @@ use crate::{
 
 /// A discovery row carries evidence, not permission to change the payer or price.
 type CompletedStream = (String, i64, serde_json::Value, i64);
+// Every scanned row advances the page, including receipts deliberately skipped.
+type ScannedCompletedStream = (String, i64, serde_json::Value, i64, bool);
+
+/// Evidence mode is explicit: ordinary observations retain their legacy writer;
+/// continuation receipts commit checkpoint and candidate atomically.
+#[derive(Clone, Copy)]
+pub(super) enum TerminalEvidence<'a> {
+    Ordinary,
+    Continuity {
+        candidate: &'a super::responses_continuity::Candidate,
+    },
+}
+struct ValidatedCheckpoint {
+    worker: [u8; 32],
+    output_ceiling: u32,
+    selected: super::routing::Selected,
+    frozen: crate::billing::charging::Charge,
+    contract: crate::billing::charging::contract::ReservationContract,
+    normalized: Option<crate::billing::charging::Usage>,
+    usage: serde_json::Value,
+    sequence: i64,
+    bytes: i64,
+}
 
 impl super::ModelGateway {
     /// Scan one bounded recovery page. Only the trusted Rust host may call this.
-    /// The returned pair is (confirmed settlements, next request ID). Continue
-    /// with the returned ID even when the count is zero. None ends this sweep;
-    /// start the next sweep with None so earlier/newly eligible IDs are revisited.
+    /// Continue with page.next even when page.settled is zero. Activation is
+    /// always zero for this financial-only API. None ends this sweep.
     ///
     /// Requires S11's EXECUTE-only completed_streams_after(integer,text) contract.
     /// An older database returns Unsupported; never silently fall back to a
@@ -22,10 +44,16 @@ impl super::ModelGateway {
         &self,
         limit: i32,
         after_request_id: Option<&str>,
-    ) -> Result<(usize, Option<String>), RelayError> {
-        self.bridge
+    ) -> Result<super::RecoveryPage<String>, RelayError> {
+        let (settled, next) = self
+            .bridge
             .reconcile_completed_streams_page_internal(limit, after_request_id)
-            .await
+            .await?;
+        Ok(super::RecoveryPage {
+            settled,
+            activated: 0,
+            next,
+        })
     }
 }
 
@@ -44,6 +72,7 @@ fn validate_recovery_page(limit: i32, after: Option<&str>) -> Result<(), RelayEr
     Ok(())
 }
 
+#[cfg(test)]
 fn next_recovery_page(rows: &[CompletedStream], limit: usize) -> Option<String> {
     rows.last()
         .filter(|_| rows.len() == limit)
@@ -134,6 +163,18 @@ impl Bridge {
             .reconcile_completed_streams_page_internal(limit, after)
             .await?;
         *cursor_guard = next;
+        if self
+            .provider_policy
+            .context_document()
+            .iter()
+            .any(|c| c.responses_continuity.is_some())
+        {
+            let mut activation_cursor = self.activation_recovery_cursor.lock().await;
+            let page = self
+                .activate_continuations_page(limit, activation_cursor.as_deref())
+                .await?;
+            *activation_cursor = page.next;
+        }
         Ok(recovered)
     }
 
@@ -143,21 +184,21 @@ impl Bridge {
         after_request_id: Option<&str>,
     ) -> Result<(usize, Option<String>), RelayError> {
         validate_recovery_page(limit, after_request_id)?;
-        let rows: Vec<CompletedStream> = sqlx::query_as(
+        let rows: Vec<ScannedCompletedStream> = sqlx::query_as(
             "WITH completed_streams AS MATERIALIZED ( \
                SELECT request_id,revision,provider_usage,sequence \
                FROM core_model.completed_streams_after($1,$2) \
-             ) SELECT DISTINCT ON (request_id) request_id,revision,provider_usage,sequence FROM ( \
-               SELECT s.request_id,s.revision,s.provider_usage,s.sequence \
-               FROM completed_streams s \
-               WHERE NOT EXISTS (SELECT 1 FROM core_charging.requests lr \
+             ) SELECT DISTINCT ON (request_id) request_id,revision,provider_usage,sequence,eligible FROM ( \
+               SELECT s.request_id,s.revision,s.provider_usage,s.sequence, \
+                 NOT EXISTS (SELECT 1 FROM core_charging.requests lr \
                    JOIN core_charging.usage_events lp ON lp.request_id=lr.id \
                      AND lp.event_id='reservation-contract:v1' \
                    WHERE lr.id=s.request_id AND lr.source_subscription_id IS NULL \
                      AND lp.detail->'legacy_precharge' IS NOT NULL \
-                     AND lp.detail->'legacy_precharge'<>'null'::jsonb) \
+                     AND lp.detail->'legacy_precharge'<>'null'::jsonb) AS eligible \
+               FROM completed_streams s \
                UNION ALL \
-               SELECT r.id AS request_id,r.revision,e.detail->'usage' AS provider_usage,0::bigint AS sequence \
+               SELECT r.id AS request_id,r.revision,e.detail->'usage' AS provider_usage,0::bigint AS sequence,true AS eligible \
                FROM core_charging.requests r JOIN core_charging.usage_events e ON e.request_id=r.id \
                WHERE r.state='reconcile' AND e.event_id='usage:provider-final' \
                  AND e.detail->>'kind'='usage' \
@@ -165,7 +206,7 @@ impl Bridge {
                  AND r.price->'text_request' IS NOT NULL \
                  AND e.detail->'usage'->'text_request'->>'outcome' IN ('not_sent','rejected') \
                UNION ALL \
-               SELECT r.id,r.revision,jsonb_build_object('usage',e.detail->'usage','evidence',a.detail),-1::bigint \
+               SELECT r.id,r.revision,jsonb_build_object('usage',e.detail->'usage','evidence',a.detail),-1::bigint,true \
                FROM core_charging.requests r \
                JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' \
                JOIN core_charging.usage_events a ON a.request_id=r.id AND a.event_id='model-no-acceptance:v1' \
@@ -176,7 +217,7 @@ impl Bridge {
                SELECT r.id,r.revision,jsonb_build_object('usage',coalesce(t.detail->'normalized_usage',e.detail->'usage'), \
                  'evidence',a.detail,'dispatch',d.detail,'dispatch_event',d.event_id,'terminal',t.detail, \
                  'observed_at',floor(extract(epoch FROM a.created_at))::bigint, \
-                 'stream_checkpoint',sc.provider_usage),-2::bigint \
+                 'stream_checkpoint',sc.provider_usage),-2::bigint,true \
                FROM core_charging.requests r \
                LEFT JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='usage:provider-final' AND e.detail->>'kind'='usage' \
                LEFT JOIN core_charging.usage_events t ON t.request_id=r.id AND t.event_id='model-provider-terminal:v1' \
@@ -191,7 +232,7 @@ impl Bridge {
                  AND a.detail->'provider_complete'='true'::jsonb \
                  AND NOT EXISTS (SELECT 1 FROM core_charging.usage_events failed \
                    WHERE failed.request_id=r.id AND failed.event_id=replace(d.event_id,'route-dispatch:','route-failure:')) \
-             ) evidence ORDER BY request_id,sequence DESC LIMIT $1",
+             ) evidence ORDER BY request_id,eligible DESC,sequence DESC LIMIT $1",
         )
         .bind(limit)
         .bind(after_request_id)
@@ -206,8 +247,17 @@ impl Bridge {
         })?;
         // Advance by scanned rows, not successful settlements. A full page of
         // malformed or concurrently resolved receipts must still yield a cursor.
-        let next = next_recovery_page(&rows, limit as usize);
-        let recovered = self.reconcile_stream_rows(rows).await?;
+        let next = rows
+            .last()
+            .filter(|_| rows.len() == limit as usize)
+            .map(|r| r.0.clone());
+        let eligible = rows
+            .into_iter()
+            .filter_map(|(id, revision, usage, sequence, eligible)| {
+                eligible.then_some((id, revision, usage, sequence))
+            })
+            .collect();
+        let recovered = self.reconcile_stream_rows(eligible).await?;
         Ok((recovered, next))
     }
 
@@ -476,6 +526,15 @@ impl Bridge {
         reservation: &Reservation,
         checkpoint: &OutputCheckpoint,
     ) -> Result<(), RelayError> {
+        self.persist_output_evidence(reservation, checkpoint, TerminalEvidence::Ordinary)
+            .await
+    }
+
+    async fn validate_output_checkpoint(
+        &self,
+        reservation: &Reservation,
+        checkpoint: &OutputCheckpoint,
+    ) -> Result<ValidatedCheckpoint, RelayError> {
         let (worker, output_ceiling, selected) = {
             let active = self
                 .active
@@ -492,22 +551,6 @@ impl Bridge {
             )
         };
         let frozen = self.charging.reservation_contract(&reservation.id).await;
-        if checkpoint.terminal_observed {
-            let input_ceiling = frozen
-                .as_ref()
-                .map_or(selected.input_token_ceiling, |(_, contract)| {
-                    contract.bounds().0 as i64
-                });
-            self.persist_provider_observation(
-                &reservation.id,
-                &worker,
-                &selected.route_id,
-                checkpoint.usage.clone(),
-                input_ceiling,
-                output_ceiling,
-            )
-            .await?;
-        }
         let (frozen, contract) = frozen.map_err(|_| RelayError::SettlementPending)?;
         if frozen.price != selected.price {
             return Err(RelayError::SettlementPending);
@@ -546,6 +589,48 @@ impl Bridge {
             i64::try_from(checkpoint.sequence).map_err(|_| RelayError::SettlementPending)?;
         let bytes =
             i64::try_from(checkpoint.packet_bytes).map_err(|_| RelayError::SettlementPending)?;
+        Ok(ValidatedCheckpoint {
+            worker,
+            output_ceiling,
+            selected,
+            frozen,
+            contract,
+            normalized,
+            usage,
+            sequence,
+            bytes,
+        })
+    }
+    pub(super) async fn persist_output_evidence(
+        &self,
+        reservation: &Reservation,
+        checkpoint: &OutputCheckpoint,
+        evidence: TerminalEvidence<'_>,
+    ) -> Result<(), RelayError> {
+        let ValidatedCheckpoint {
+            worker,
+            output_ceiling,
+            selected,
+            frozen,
+            contract,
+            normalized,
+            usage,
+            sequence,
+            bytes,
+        } = self
+            .validate_output_checkpoint(reservation, checkpoint)
+            .await?;
+        if checkpoint.terminal_observed && matches!(evidence, TerminalEvidence::Ordinary) {
+            self.persist_provider_observation(
+                &reservation.id,
+                &worker,
+                &selected.route_id,
+                checkpoint.usage.clone(),
+                contract.bounds().0 as i64,
+                output_ceiling,
+            )
+            .await?;
+        }
         for attempt in 0..3 {
             let mut tx = self
                 .pool
@@ -572,26 +657,54 @@ impl Bridge {
                 .await;
             match result {
                 Ok(_) => {
+                    if let TerminalEvidence::Continuity { candidate } = evidence {
+                        // The fault exits the real HTTP process while this same
+                        // transaction owns checkpoint + candidate. PG rolls both back.
+                        super::responses_continuity::crash_at("after_terminal");
+                        let saved = sqlx::query(
+                            "SELECT core_model.record_continuation($1,$2,$3,$4,$5,$6,$7)",
+                        )
+                        .bind(&reservation.id)
+                        .bind(worker.as_slice())
+                        .bind(&candidate.provider_response_id)
+                        .bind(&candidate.parent_request_id)
+                        .bind(&candidate.public_model)
+                        .bind(&candidate.policy_sha256)
+                        .bind(sequence)
+                        .execute(&mut *tx)
+                        .await;
+                        if let Err(error) = saved {
+                            let retryable = matches!(
+                                error.as_database_error().and_then(|e| e.code()).as_deref(),
+                                Some("40001" | "40P01")
+                            );
+                            let _ = tx.rollback().await;
+                            if retryable {
+                                continue;
+                            }
+                            return Err(RelayError::SettlementPending);
+                        }
+                    }
                     // If COMMIT succeeded but its reply was lost, the next
                     // exact function call confirms the already committed row.
-                    if tx.commit().await.is_ok() {
+                    if tx.commit().await.is_ok()
+                        && !(matches!(evidence, TerminalEvidence::Continuity { .. })
+                            && super::responses_continuity::lose_ack_once("candidate"))
+                    {
+                        if matches!(evidence, TerminalEvidence::Continuity { .. }) {
+                            super::responses_continuity::crash_at("after_candidate");
+                        }
                         // Stream usage is durable before it can be published.
                         // This evidence does not change the original wallet hold.
-                        if contract.legacy_precharge().is_some()
-                            && matches!(frozen.source, charging::Source::Wallet)
-                            && let Some(normalized) = normalized
-                        {
-                            super::billing::retry(|| {
-                                self.charging.record_model_terminal(
-                                    &reservation.id,
-                                    &worker,
-                                    &selected.route_id,
-                                    normalized,
-                                )
-                            })
-                            .await
-                            .map_err(super::billing::error)?;
-                        }
+                        self.after_checkpoint_commit(
+                            reservation,
+                            &worker,
+                            &selected,
+                            &frozen,
+                            &contract,
+                            normalized,
+                        )
+                        .await?;
                         return Ok(());
                     }
                 }
@@ -611,6 +724,32 @@ impl Bridge {
             }
         }
         Err(RelayError::SettlementPending)
+    }
+    async fn after_checkpoint_commit(
+        &self,
+        reservation: &Reservation,
+        worker: &[u8; 32],
+        selected: &super::routing::Selected,
+        frozen: &crate::billing::charging::Charge,
+        contract: &crate::billing::charging::contract::ReservationContract,
+        normalized: Option<crate::billing::charging::Usage>,
+    ) -> Result<(), RelayError> {
+        if contract.legacy_precharge().is_some()
+            && matches!(frozen.source, charging::Source::Wallet)
+            && let Some(normalized) = normalized
+        {
+            super::billing::retry(|| {
+                self.charging.record_model_terminal(
+                    &reservation.id,
+                    worker,
+                    &selected.route_id,
+                    normalized,
+                )
+            })
+            .await
+            .map_err(super::billing::error)?;
+        }
+        Ok(())
     }
 }
 
@@ -864,6 +1003,7 @@ mod a07_recovery_tests {
         let policy = ProviderPolicy::new(
             vec![ExternalModelContext {
                 responses_compaction: false,
+                responses_continuity: None,
                 pre_acceptance_rejection_statuses: Vec::new(),
                 grounding: None,
 

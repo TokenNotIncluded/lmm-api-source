@@ -136,7 +136,7 @@ async fn setup(pool: &PgPool) -> IdentityStore {
         )
         .unwrap();
     store.init_database().await.unwrap();
-    sqlx::raw_sql(crate::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(crate::abuse::SCHEMA))
         .execute(pool)
         .await
         .unwrap();

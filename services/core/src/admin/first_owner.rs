@@ -145,10 +145,10 @@ async fn lock_fresh_database(connection: &mut PgConnection) -> io::Result<()> {
         .map(|row| row.try_get::<String, _>("qualified"))
         .collect::<Result<Vec<_>, _>>()
         .map_err(storage)?;
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE",
         names.join(",")
-    ))
+    )))
     .execute(&mut *connection)
     .await
     .map_err(storage)?;
@@ -159,10 +159,12 @@ async fn lock_fresh_database(connection: &mut PgConnection) -> io::Result<()> {
             continue;
         }
         let qualified: String = row.try_get("qualified").map_err(storage)?;
-        let occupied: bool = sqlx::query_scalar(&format!("SELECT EXISTS(SELECT FROM {qualified})"))
-            .fetch_one(&mut *connection)
-            .await
-            .map_err(storage)?;
+        let occupied: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT EXISTS(SELECT FROM {qualified})"
+        )))
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(storage)?;
         if occupied {
             return Err(refused("first-owner requires an untouched fresh database"));
         }
@@ -454,22 +456,25 @@ mod tests {
             ),
             ("core_channels.projection_state", vec!["ready=false"]),
         ] {
-            let original: serde_json::Value =
-                sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {table} t"))
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
+            let original: serde_json::Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT to_jsonb(t) FROM {table} t"
+            )))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
             for change in changes.into_iter().map(Some).chain(std::iter::once(None)) {
                 let mutation = match change {
                     Some(change) => format!("UPDATE {table} SET {change}"),
                     None => format!("DELETE FROM {table}"),
                 };
-                sqlx::query(&mutation).execute(&pool).await.unwrap();
+                sqlx::query(sqlx::AssertSqlSafe::<&str>(&mutation))
+                    .execute(&pool)
+                    .await
+                    .unwrap();
                 let mut tx = pool.begin().await.unwrap();
                 let error = lock_fresh_database(&mut tx)
                     .await
-                    .err()
-                    .expect("polluted seed accepted");
+                    .expect_err("polluted seed accepted");
                 assert_eq!(
                     error.to_string(),
                     "first-owner requires an untouched fresh database",
@@ -478,13 +483,13 @@ mod tests {
                 tx.rollback().await.unwrap();
                 assert_no_owner_or_money(&pool).await;
                 let mut restore = pool.begin().await.unwrap();
-                sqlx::query(&format!("DELETE FROM {table}"))
+                sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}")))
                     .execute(&mut *restore)
                     .await
                     .unwrap();
-                sqlx::query(&format!(
+                sqlx::query(sqlx::AssertSqlSafe(format!(
                     "INSERT INTO {table} SELECT * FROM jsonb_populate_record(NULL::{table},$1)"
-                ))
+                )))
                 .bind(sqlx::types::Json(&original))
                 .execute(&mut *restore)
                 .await
@@ -521,12 +526,13 @@ mod tests {
                 "first-owner requires an untouched fresh database"
             );
             assert_no_owner_or_money(&pool).await;
-            let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+            let count: i64 =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
             assert_eq!(count, 1, "refusal must preserve preprovisioned authority");
-            sqlx::query(&format!("DELETE FROM {table}"))
+            sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}")))
                 .execute(&pool)
                 .await
                 .unwrap();
@@ -544,8 +550,7 @@ mod component46_tests {
         let mut tx = pool.begin().await.unwrap();
         let error = lock_fresh_database(&mut tx)
             .await
-            .err()
-            .expect("component46 receipt is not a first-owner seed");
+            .expect_err("component46 receipt is not a first-owner seed");
         assert_eq!(
             error.to_string(),
             "first-owner requires an untouched fresh database"

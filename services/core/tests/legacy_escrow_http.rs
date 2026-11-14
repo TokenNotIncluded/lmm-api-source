@@ -35,11 +35,13 @@ async fn owner_import(pool: &PgPool, function: &str, payload: Value) {
         .execute(&mut *tx)
         .await
         .unwrap();
-    let _: Json<Value> = sqlx::query_scalar(&format!("SELECT core_billing.{function}($1)"))
-        .bind(Json(payload))
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap();
+    let _: Json<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT core_billing.{function}($1)"
+    )))
+    .bind(Json(payload))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
 }
 

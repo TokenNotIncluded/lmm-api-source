@@ -5,6 +5,7 @@ const PRE_MANIFEST: &str = "5f6b75aaae3110c460c58270aac77028d8d4c32360481a528318
 const PRE_CATALOG: &str = "d4cb2dbfd24de133c92dbd8128ea691d50dc93f72c4753ec995135d081b8f584";
 const TARGET: &str = include_str!("trust_policy_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::TRUST_POLICY,
     procedure: PROCEDURE,
     predecessor_count: 44,
     target_count: 45,

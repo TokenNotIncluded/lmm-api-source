@@ -30,3 +30,6 @@ async fn check_history(c: &mut sqlx::PgConnection) {
         .fetch_one(&mut *c).await.unwrap();
     assert!(!forbidden, "same-wallet order constraint was not upgraded");
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

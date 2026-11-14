@@ -7,8 +7,10 @@ use crate::{
     },
     identity::{self, CredentialKind},
 };
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
@@ -459,7 +461,7 @@ pub(crate) async fn execute_in_transaction(
         return Err(Error::Forbidden);
     }
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut bytes);
     let id = crate::hex_codec::encode(bytes);
     let reason = if decision.reason.trim().is_empty() {
         "Welcome gift"

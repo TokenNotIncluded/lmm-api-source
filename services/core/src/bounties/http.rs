@@ -8,7 +8,8 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use subtle::ConstantTimeEq;
 #[derive(Clone)]
 struct Internal {
@@ -187,10 +188,10 @@ async fn page(State(s): State<Browser>, Path(id): Path<String>, h: HeaderMap) ->
         format!("Additional transfer: {} CREDIT.", cmd.credit)
     };
     let mut bytes = [0u8; 32];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| Error::Storage)?;
-    let csrf = format!("{:x}", Sha256::digest(bytes));
+    let csrf = crate::hex_codec::encode(Sha256::digest(bytes));
     sqlx::query("UPDATE core_bounties.confirmations SET csrf=$2,browser_sid=$3 WHERE id=$1")
         .bind(&id)
         .bind(Sha256::digest(csrf.as_bytes()).to_vec())

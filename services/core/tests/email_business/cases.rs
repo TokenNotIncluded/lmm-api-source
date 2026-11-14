@@ -47,7 +47,7 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     let database = format!("email_business_{:016x}", rand::random::<u64>());
-    sqlx::query(&format!("CREATE DATABASE {database}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {database}")))
         .execute(&admin)
         .await
         .unwrap();

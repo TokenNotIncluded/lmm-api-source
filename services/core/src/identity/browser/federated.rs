@@ -5,6 +5,15 @@ use crate::identity::federated::{
     ExchangeResult, FederatedStart, FlowOwner, FlowPurpose, ProviderKind,
 };
 
+pub(crate) struct FederatedCallbackInput<'a> {
+    pub(crate) reference: &'a str,
+    pub(crate) state: &'a str,
+    pub(crate) binding: &'a str,
+    pub(crate) origin: &'a str,
+    pub(crate) code: &'a str,
+    pub(crate) issuer: Option<&'a str>,
+}
+
 pub(crate) enum FederatedLoginOutcome {
     Login(BrowserLoginOutcome),
     Denied(String),
@@ -53,13 +62,15 @@ impl BrowserAuth {
             .store
             .create_federated_flow(
                 &mut tx,
-                &provider,
-                &binding,
-                origin,
-                FlowPurpose::Login,
-                None,
-                accepted_legal,
-                affiliate,
+                crate::identity::federated::FlowStartInput {
+                    provider: &provider,
+                    binding: &binding,
+                    origin,
+                    purpose: FlowPurpose::Login,
+                    owner: None,
+                    accepted_legal,
+                    affiliate,
+                },
             )
             .await?;
         tx.commit().await?;
@@ -68,15 +79,18 @@ impl BrowserAuth {
 
     pub(crate) async fn finish_federated_login(
         &self,
-        reference: &str,
-        state: &str,
-        binding: &str,
-        origin: &str,
-        code: &str,
-        issuer: Option<&str>,
+        input: FederatedCallbackInput<'_>,
         metadata: &BrowserSessionMetadata,
         mfa_binding: &str,
     ) -> super::super::mfa::MfaResult<FederatedLoginOutcome> {
+        let FederatedCallbackInput {
+            reference,
+            state,
+            binding,
+            origin,
+            code,
+            issuer,
+        } = input;
         let provider = self.store.federated_provider_reference(reference).await?;
         let binding = self.federated_binding(provider.id, binding)?;
         let mut tx = bounded(&self.store.pool).await?;
@@ -84,12 +98,14 @@ impl BrowserAuth {
             .store
             .consume_federated_flow(
                 &mut tx,
-                &provider.slug,
-                state,
-                &binding,
-                FlowPurpose::Login,
-                None,
-                code,
+                crate::identity::federated::FlowConsumeInput {
+                    slug: &provider.slug,
+                    state,
+                    binding: &binding,
+                    purpose: FlowPurpose::Login,
+                    owner: None,
+                    code,
+                },
             )
             .await?;
         tx.commit().await?;
@@ -152,13 +168,15 @@ impl BrowserAuth {
             .store
             .create_federated_flow(
                 &mut tx,
-                &provider,
-                &binding,
-                origin,
-                FlowPurpose::Bind,
-                Some(&owner),
-                false,
-                "",
+                crate::identity::federated::FlowStartInput {
+                    provider: &provider,
+                    binding: &binding,
+                    origin,
+                    purpose: FlowPurpose::Bind,
+                    owner: Some(&owner),
+                    accepted_legal: false,
+                    affiliate: "",
+                },
             )
             .await?;
         tx.commit().await?;
@@ -168,13 +186,16 @@ impl BrowserAuth {
     pub(crate) async fn finish_federated_bind(
         &self,
         access: &str,
-        reference: &str,
-        state: &str,
-        binding: &str,
-        origin: &str,
-        code: &str,
-        issuer: Option<&str>,
+        input: FederatedCallbackInput<'_>,
     ) -> BrowserResult<FederatedBindOutcome> {
+        let FederatedCallbackInput {
+            reference,
+            state,
+            binding,
+            origin,
+            code,
+            issuer,
+        } = input;
         if !self.store.account_links_enabled {
             return Err(IdentityError::Forbidden.into());
         }
@@ -191,12 +212,14 @@ impl BrowserAuth {
             .store
             .consume_federated_flow(
                 &mut tx,
-                &provider.slug,
-                state,
-                &binding,
-                FlowPurpose::Bind,
-                Some(&owner),
-                code,
+                crate::identity::federated::FlowConsumeInput {
+                    slug: &provider.slug,
+                    state,
+                    binding: &binding,
+                    purpose: FlowPurpose::Bind,
+                    owner: Some(&owner),
+                    code,
+                },
             )
             .await?;
         tx.commit().await?;
@@ -226,12 +249,11 @@ impl BrowserAuth {
         let digest = Sha256::digest(exchange.subject().as_bytes()).to_vec();
         let existing = sqlx::query("SELECT subject,user_id,revoked_at IS NULL AS active FROM core_federated_auth.identities WHERE provider_id=$1 AND subject_digest=$2 FOR UPDATE")
             .bind(exchange.provider_id()).bind(&digest).fetch_optional(&mut *tx).await?;
-        if let Some(row) = &existing {
-            if row.try_get::<String, _>("subject")? != exchange.subject()
-                || row.try_get::<i64, _>("user_id")? != actor.user_id
-            {
-                return Err(IdentityError::Conflict.into());
-            }
+        if let Some(row) = &existing
+            && (row.try_get::<String, _>("subject")? != exchange.subject()
+                || row.try_get::<i64, _>("user_id")? != actor.user_id)
+        {
+            return Err(IdentityError::Conflict.into());
         }
         sqlx::query("UPDATE core_federated_auth.identities SET revoked_at=clock_timestamp(),revision=revision+1 WHERE user_id=$1 AND provider_id=$2 AND subject_digest<>$3 AND revoked_at IS NULL")
             .bind(actor.user_id).bind(exchange.provider_id()).bind(&digest).execute(&mut *tx).await?;

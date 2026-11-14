@@ -109,11 +109,13 @@ fn positive(value: &str) -> Result<i64> {
     Ok(number)
 }
 async fn read(c: &mut PgConnection, id: i64) -> Result<AccountAppealAdmin> {
-    let row = sqlx::query(&format!("SELECT {COLUMNS} {FROM} WHERE r.id=$1"))
-        .bind(id)
-        .fetch_optional(c)
-        .await?
-        .ok_or(ProfileError::NotFound)?;
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {COLUMNS} {FROM} WHERE r.id=$1"
+    )))
+    .bind(id)
+    .fetch_optional(c)
+    .await?
+    .ok_or(ProfileError::NotFound)?;
     AccountAppealAdmin::read(row)
 }
 impl AdminUsersStore {
@@ -139,13 +141,13 @@ impl AdminUsersStore {
         let query = format!(
             "WITH requests AS (SELECT {COLUMNS} {FROM}) SELECT * FROM requests WHERE $1='all' OR status=$1 ORDER BY created_at,id LIMIT $2 OFFSET $3"
         );
-        let rows = sqlx::query(&query)
+        let rows = sqlx::query(sqlx::AssertSqlSafe::<&str>(&query))
             .bind(status)
             .bind(i64::from(size))
             .bind(i64::from(page - 1) * i64::from(size))
             .fetch_all(&mut *tx)
             .await?;
-        let total: i64=sqlx::query_scalar(&format!("WITH requests AS (SELECT {COLUMNS} {FROM}) SELECT count(*) FROM requests WHERE $1='all' OR status=$1"))
+        let total: i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("WITH requests AS (SELECT {COLUMNS} {FROM}) SELECT count(*) FROM requests WHERE $1='all' OR status=$1")))
             .bind(status).fetch_one(&mut *tx).await?;
         let data = rows
             .into_iter()

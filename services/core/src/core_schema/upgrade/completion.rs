@@ -5,6 +5,7 @@ const PRE_MANIFEST: &str = "9c9726a7fa204a150d9fe18139d4580d23feb4cec40145fcb829
 const PRE_CATALOG: &str = "abe3979b376da869d4a05b32dda8c3ad33197497db7af16970d8c9b1153bc6ce";
 const TARGET: &str = include_str!("completion_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::COMPLETION,
     procedure: PROCEDURE,
     predecessor_count: 32,
     target_count: 44,

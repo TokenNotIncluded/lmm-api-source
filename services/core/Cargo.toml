@@ -2,7 +2,7 @@
 name = "lmm-core"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 default-run = "lmm-core"
 autobins = false
 license = "AGPL-3.0-or-later"
@@ -26,28 +26,28 @@ zhex = "=0.1.3"
 percent-encoding = "=2.3.2"
 html-escape = "=0.3.1"
 lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
-aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
-argon2 = "=0.5.3"
-base64 = "=0.22.1"
-bcrypt = "=0.17.1"
+aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc"] }
+argon2 = "=0.6.0"
+base64 = "=0.23.1"
+bcrypt = "=0.19.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock"] }
-hkdf = "=0.12.4"
-hmac = "=0.12.1"
+hkdf = "=0.13.0"
+hmac = "=0.13.0"
 # Legacy EPay signing and provider RSA verification reuse locked primitives.
-md-5 = "=0.10.6"
+md-5 = "=0.11.0"
 form_urlencoded = "=1.2.2"
-rsa = "=0.9.10"
-jsonwebtoken = { version = "=10.3.0", default-features = false, features = ["aws_lc_rs"] }
-jsonschema = { version = "=0.59.0", default-features = false, features = ["arbitrary-precision"] }
+rsa = { version = "=0.10.0", features = ["pkcs1v15"] }
+jsonwebtoken = { version = "=11.1.0", default-features = false, features = ["aws_lc_rs"] }
+jsonschema = { version = "=0.61.2", default-features = false, features = ["arbitrary-precision"] }
 # Existing locked MIT/Apache-2.0 arithmetic; bounded tariff fractions must not
 # overflow merely while finding a common denominator before final rounding.
-num-bigint = "=0.4.8"
+num-bigint = "=0.5.1"
 num-rational = "=0.4.2"
 # Required S256 primitive, upstream MIT OR Apache-2.0; durable grants are Core-owned.
 oxide-auth = { git = "https://github.com/197g/oxide-auth", rev = "0e3ef86d924aa5546dc3275d1d7269ea63edfaf1" }
 axum = { version = "=0.8.9", features = ["multipart", "ws"] }
 # WS framing only: TLS and DNS stay in the existing pinned reqwest transport.
-tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 http-body = "=1.1.0"
 http-body-util = "=0.1.5"
@@ -55,41 +55,43 @@ http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "=0.1.21", features = ["server-auto", "server-graceful", "tokio", "service"] }
 ipnet = "=2.12.2"
-rand = "=0.8.6"
+rand = "=0.10.3"
 regex = "=1.13.1"
 # Fixed legacy OpenAI precharge estimates use the original split pattern and BPE ranks.
-tiktoken-rs = "=0.12.0"
-fancy-regex = "=0.19.2"
-reqwest = { version = "=0.12.28", default-features = false, features = ["json", "stream", "rustls-tls", "http2", "multipart"] }
+tiktoken-rs = "=0.12.1"
+fancy-regex = "=0.20.2"
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "stream", "rustls", "http2", "multipart", "form", "query"] }
 ring = "=0.17.14"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
-sha2 = { version = "=0.10.9", features = ["oid"] }
-sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "macros", "chrono"] }
-tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "signal", "time", "sync", "io-util"] }
-flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
-zstd = { version = "=0.13.3", default-features = false }
-prost = "=0.14.4"
+# Mozilla root certificates preserve the pre-0.13 reqwest WebPKI trust boundary.
+webpki-root-certs = "=1.0.12"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["arbitrary_precision", "raw_value"] }
+sha2 = { version = "=0.11.1", features = ["oid"] }
+sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "json", "macros", "chrono"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "signal", "time", "sync", "io-util"] }
+flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }
+zstd = { version = "=0.14.4", default-features = false }
+prost = "=0.14.6"
 subtle = "=2.6.1"
 totp-rs = { version = "=6.0.0", default-features = false, features = ["std", "otpauth", "zeroize"] }
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 webauthn-rs = { version = "=0.5.5", default-features = false, features = ["danger-allow-state-serialisation", "conditional-ui"] }
 webauthn-rs-core = "=0.5.5"
-tokio-stream = { version = "=0.1.17", features = ["net"] }
-toml = { version = "=1.1.6", default-features = false, features = ["std", "serde", "parse"] }
-tonic = "=0.14.6"
-tonic-prost = "=0.14.6"
+tokio-stream = { version = "=0.1.19", features = ["net"] }
+toml = { version = "=1.2.1", default-features = false, features = ["std", "serde", "parse"] }
+tonic = "=0.14.9"
+tonic-prost = "=0.14.9"
 tower = { version = "=0.5.3", features = ["util"] }
 gjson = "=0.8.1"
 
 [build-dependencies]
-tonic-prost-build = "=0.14.6"
-protoc-bin-vendored = "=3.2.0"
+tonic-prost-build = "=0.14.9"
+protoc-bin-vendored = "=3.3.0"
 
 [dev-dependencies]
 webauthn-authenticator-rs = { version = "=0.5.5", default-features = false, features = ["softpasskey"] }
 # SQLx uses this feature to create isolated test databases, not to upgrade them.
-sqlx = { version = "=0.8.6", default-features = false, features = ["migrate"] }
+sqlx = { version = "=0.9.0", default-features = false, features = ["migrate"] }
 
 [lints.rust]
 unsafe_code = "forbid"

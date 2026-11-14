@@ -321,6 +321,9 @@ pub(crate) async fn check_connection(
     // operations must work; unsupported optional modules need no extra grants.
     let identity_complete: bool = sqlx::query_scalar(r#"
         SELECT has_schema_privilege('core_identity','USAGE')
+          AND has_schema_privilege('core_charging','USAGE')
+          AND NOT EXISTS(SELECT FROM (VALUES ('requests'),('usage_events'),('ledger_commands'),('refunds')) t(name)
+            WHERE NOT has_table_privilege('core_charging.'||t.name,'SELECT'))
           AND has_schema_privilege('core_account_links','USAGE')
           AND has_table_privilege('core_account_links.oauth_states','SELECT')
           AND has_schema_privilege('core_abuse','USAGE')

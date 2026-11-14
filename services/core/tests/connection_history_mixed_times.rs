@@ -25,7 +25,10 @@ async fn valid_observations_survive_pre_registration_events(pool: PgPool) {
       FROM (VALUES(false,90::bigint),(false,110),(true,90),(true,115)) t(managed,at)
     ), historical AS MATERIALIZED ({historical}) SELECT * FROM historical"#
     );
-    let row = sqlx::query(&query).fetch_one(&pool).await.unwrap();
+    let row = sqlx::query(sqlx::AssertSqlSafe::<&str>(&query))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     for (column, expected) in [
         ("key_at", 110_i64),
         ("oauth_at", 110),

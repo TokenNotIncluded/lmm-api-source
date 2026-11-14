@@ -497,3 +497,137 @@ async fn stale_sessions_disabled_component_and_missing_tables_never_grant_a_writ
     );
     f.role.cleanup().await;
 }
+
+/// Hold the same authority rows that an in-flight profile GET owns. Both real
+/// BrowserAuth readers must coexist, while security writes must fail closed.
+#[sqlx::test(migrations = false)]
+async fn shared_security_reads_do_not_upgrade_authority(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let mut reader = pool.begin().await.unwrap();
+    sqlx::query("SELECT s.sid FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE s.sid=$1 FOR SHARE OF s,c,u,p")
+        .bind(sid(&f.original)).fetch_one(&mut *reader).await.unwrap();
+    let token = access(&f.original);
+    let app = legacy_auth::router(
+        f.store.clone(),
+        LegacyAuthConfig::new(ORIGIN, &[43; 32])
+            .unwrap()
+            .with_passkeys(
+                lmm_core::identity::PasskeyConfig::new("bindings.example.test", ORIGIN).unwrap(),
+            )
+            .unwrap(),
+    );
+    let (links, passkeys) = tokio::join!(
+        request(
+            &app,
+            "GET",
+            "/api/user/account-links",
+            Some(token),
+            None,
+            None,
+            Value::Null
+        ),
+        request(
+            &app,
+            "GET",
+            "/api/user/passkey",
+            Some(token),
+            None,
+            None,
+            Value::Null
+        )
+    );
+    assert_eq!(links.0, StatusCode::OK);
+    assert_eq!(passkeys.0, StatusCode::OK);
+    let links = &links.2["data"];
+    assert_eq!(links["contract"], "core.account-links.v1");
+    assert_eq!(passkeys.2["data"]["enabled"], false);
+    assert!(
+        f.browser
+            .begin_account_bind(
+                token,
+                AccountLinkProvider::Google,
+                BINDING,
+                links["expected_auth_version"].as_str().unwrap()
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_account_links.bind_flows")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    reader.rollback().await.unwrap();
+    f.browser
+        .begin_account_bind(
+            token,
+            AccountLinkProvider::Google,
+            BINDING,
+            links["expected_auth_version"].as_str().unwrap(),
+        )
+        .await
+        .unwrap();
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn security_readers_reject_busy_and_committed_revoked_authority(pool: PgPool) {
+    let f = fixture(&pool).await;
+    let mut mutation = pool.begin().await.unwrap();
+    sqlx::query("UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=$1")
+        .bind(user(&f.original))
+        .execute(&mut *mutation)
+        .await
+        .unwrap();
+    let token = access(&f.original);
+    let (links, passkeys) = tokio::join!(
+        f.browser.account_links(token),
+        f.browser.passkey_status(token)
+    );
+    assert!(links.is_err());
+    assert!(passkeys.is_err());
+    mutation.commit().await.unwrap();
+    assert!(matches!(
+        f.browser.account_links(token).await,
+        Err(lmm_core::identity::BrowserAuthError::Identity(
+            IdentityError::Unauthorized
+        ))
+    ));
+    assert!(matches!(
+        f.browser.passkey_status(token).await,
+        Err(lmm_core::identity::BrowserAuthError::Identity(
+            IdentityError::Unauthorized
+        ))
+    ));
+    assert!(
+        f.browser
+            .begin_account_bind(token, AccountLinkProvider::Google, BINDING, "1")
+            .await
+            .is_err()
+    );
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn committed_session_revocation_rejects_both_security_readers(pool: PgPool) {
+    let f = fixture(&pool).await;
+    sqlx::query("UPDATE core_identity.web_sessions SET revoked_at=clock_timestamp() WHERE sid=$1")
+        .bind(sid(&f.original))
+        .execute(&pool)
+        .await
+        .unwrap();
+    for result in [
+        f.browser.account_links(access(&f.original)).await,
+        f.browser.passkey_status(access(&f.original)).await,
+    ] {
+        assert!(matches!(
+            result,
+            Err(lmm_core::identity::BrowserAuthError::Identity(
+                IdentityError::Unauthorized
+            ))
+        ));
+    }
+    f.role.cleanup().await;
+}

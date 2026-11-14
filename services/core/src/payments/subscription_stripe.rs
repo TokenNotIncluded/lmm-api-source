@@ -90,7 +90,7 @@ fn id(s: &str, prefix: &str) -> bool {
         && s.len() <= 128
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
-fn metadata<'a>(o: &'a Value) -> Option<&'a Value> {
+fn metadata(o: &Value) -> Option<&Value> {
     o.get("subscription_details")
         .and_then(|s| s.get("metadata"))
         .or_else(|| o.pointer("/parent/subscription_details/metadata"))

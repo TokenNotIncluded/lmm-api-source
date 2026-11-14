@@ -16,7 +16,7 @@ use lmm_core::{
 };
 use rand::{SeedableRng, rngs::StdRng};
 use rsa::{
-    Pkcs1v15Sign, RsaPrivateKey,
+    Pkcs1v15Sign, PrivateKey,
     pkcs8::{EncodePrivateKey, EncodePublicKey},
 };
 use serde_json::{Value, json};
@@ -45,7 +45,7 @@ fn mutation(key: &str) -> Option<pb::MutationContext> {
     })
 }
 struct Provider {
-    key: RsaPrivateKey,
+    key: PrivateKey,
     payment: Mutex<Value>,
     refund: Mutex<Value>,
     calls: AtomicUsize,
@@ -63,7 +63,7 @@ impl Drop for Fixture {
 impl Fixture {
     async fn start() -> Self {
         let state = Arc::new(Provider {
-            key: RsaPrivateKey::new(&mut StdRng::seed_from_u64(8716), 2048).unwrap(),
+            key: PrivateKey::new(&mut StdRng::seed_from_u64(8716), 2048).unwrap(),
             payment: Mutex::new(json!({"code":"unavailable"})),
             refund: Mutex::new(json!({"code":"unavailable"})),
             calls: AtomicUsize::new(0),
@@ -262,12 +262,15 @@ async fn isolated_waffo_constructor_rejects_external_origin_and_live_relabel() {
 async fn waffo_refunds_bind_original_dispatch_and_post_only_verified_facts(pool: sqlx::PgPool) {
     let identity = IdentityStore::from_pool(pool.clone());
     identity.init_database().await.unwrap();
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::raw_sql(ledger::SCHEMA).execute(&pool).await.unwrap();
-    sqlx::raw_sql(lmm_core::payments::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(ledger::SCHEMA))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::payments::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();

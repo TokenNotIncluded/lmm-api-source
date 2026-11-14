@@ -5,7 +5,8 @@ use super::{
     *,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use sqlx::postgres::PgRow;
 macro_rules! request {
     ($name:ident {$($field:ident:$ty:ty),* $(,)?})=>{
@@ -479,7 +480,7 @@ impl CreditStore {
         let sql = format!(
             "UPDATE core_tool_market.{table} SET revoked_at=CASE WHEN revoked_at=0 THEN $3 ELSE revoked_at END WHERE id=$1 AND actor_user_id=$2 RETURNING revoked_at"
         );
-        let revoked_at = sqlx::query_scalar(&sql)
+        let revoked_at = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&sql))
             .bind(&r.id)
             .bind(actor.user_id)
             .bind(now)
@@ -584,7 +585,7 @@ impl CreditStore {
         .await?;
         let id = hash(&["credit-token-v2", &r.owner.user, &r.operation_id])?;
         let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
+        rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut bytes);
         let raw = format!("lmm_market_{}", URL_SAFE_NO_PAD.encode(bytes));
         sqlx::query("INSERT INTO core_tool_market.credit_tokens(id,actor_user_id,payer_account_id,request,token_hash,auth_version,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(&id).bind(actor.user_id).bind(actor.owner_account_id).bind(Json(r)).bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(version).bind(now).execute(&mut *tx).await?;
         Self::record(

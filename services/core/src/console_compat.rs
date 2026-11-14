@@ -321,7 +321,7 @@ pub fn announcement_revision(item: &MandatoryAnnouncement) -> Result<String, Con
     };
     let encoded = serde_json::to_string(&fields).map_err(|_| ConsoleError::Storage)?;
     let encoded = crate::go_json::escape(&encoded);
-    Ok(format!("{:x}", Sha256::digest(encoded.as_bytes())))
+    Ok(crate::hex_codec::encode(Sha256::digest(encoded.as_bytes())))
 }
 // Go time.Parse(RFC3339) also accepts comma fractions, one-digit hours,
 // fractions beyond nine digits (truncated), and offset hour24/minute60.

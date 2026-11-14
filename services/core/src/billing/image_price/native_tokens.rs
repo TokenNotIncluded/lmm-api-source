@@ -109,6 +109,7 @@ impl ImageTokenUsage {
             _ => Err(pending()),
         }
     }
+    #[cfg(test)]
     pub(crate) fn from_native(value: &Value) -> Result<Self, ImagePriceError> {
         Self::from_native_with_contract(value, ImageTokenUsageContract::NativeStrict)
     }
@@ -218,7 +219,7 @@ impl ImageTokenTariff {
             || self.billing_price_key.len() > 512
             || self.billing_price_key.chars().any(char::is_control)
             || self.source_sha256
-                != format!("{:x}", Sha256::digest(self.source_expression.as_bytes()))
+                != crate::hex_codec::encode(Sha256::digest(self.source_expression.as_bytes()))
             || self.credits_per_usd != CREDITS_PER_USD as u64
             || self.usd_multiplier.denominator == 0
             || self.max_input_tokens == 0
@@ -487,7 +488,7 @@ pub(crate) mod tests {
         ImageTokenTariff {
             billing_price_key: "gpt-image-2".into(),
             source_expression: EXPRESSION.into(),
-            source_sha256: format!("{:x}", Sha256::digest(EXPRESSION.as_bytes())),
+            source_sha256: crate::hex_codec::encode(Sha256::digest(EXPRESSION.as_bytes())),
             usage_contract: ImageTokenUsageContract::NativeStrict,
             currency_basis: ImageTokenCurrencyBasis::LegacyPricingUnit,
             credits_per_usd: 500000,
@@ -737,7 +738,8 @@ pub(crate) mod tests {
         );
         price = tariff();
         price.source_expression = EXPRESSION.replace("img_o", "c");
-        price.source_sha256 = format!("{:x}", Sha256::digest(price.source_expression.as_bytes()));
+        price.source_sha256 =
+            crate::hex_codec::encode(Sha256::digest(price.source_expression.as_bytes()));
         assert!(price.validate().is_err());
         price = tariff();
         price.credits_per_usd = 1000000;

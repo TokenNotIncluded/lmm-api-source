@@ -1165,15 +1165,6 @@ pub enum FinishReason {
     ContentFilter,
 }
 impl FinishReason {
-    pub(crate) fn chat(self) -> &'static str {
-        match self {
-            Self::Stop => "stop",
-            Self::Length | Self::Continuation => "length",
-            Self::ToolCalls => "tool_calls",
-            Self::ContentFilter => "content_filter",
-        }
-    }
-
     pub(crate) fn truncates_output(self) -> bool {
         matches!(
             self,

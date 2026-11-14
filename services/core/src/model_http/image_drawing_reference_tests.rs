@@ -6,7 +6,7 @@ fn upload() -> DrawingUpload {
     let bytes = STANDARD.decode(data).unwrap();
     DrawingUpload {
         media_type: "image/png".into(),
-        sha256: hex(&Sha256::digest(&bytes)),
+        sha256: hex(Sha256::digest(&bytes)),
         byte_length: bytes.len() as u64,
         data_base64: data.into(),
     }

@@ -41,7 +41,7 @@ async fn capture_connection55(pool: PgPool) {
     let mut raw = serde_json::to_vec(&core_schema::schema_manifest()).unwrap();
     raw.push(b'\n');
     let record =
-        json!({"manifest_sha256":format!("{:x}",Sha256::digest(raw)),"catalog_sha256":catalog});
+        json!({"manifest_sha256":hex_codec::encode(Sha256::digest(raw)),"catalog_sha256":catalog});
     let mut file = std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -55,7 +55,7 @@ async fn protected_state(pool: &PgPool) -> Vec<(String, String)> {
     let tables:Vec<(String,String)>=sqlx::query_as("SELECT n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname LIKE 'core_%' AND NOT(n.nspname='core_history' AND c.relname='connection_snapshot') ORDER BY 1,2").fetch_all(pool).await.unwrap();
     let mut state = vec![];
     for (schema, table) in tables {
-        let digest:String=sqlx::query_scalar(&format!("SELECT md5(coalesce(string_agg(row_to_json(t)::text,E'\\n' ORDER BY row_to_json(t)::text),'')) FROM {schema}.{table} t")).fetch_one(pool).await.unwrap();
+        let digest:String=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT md5(coalesce(string_agg(row_to_json(t)::text,E'\\n' ORDER BY row_to_json(t)::text),'')) FROM {schema}.{table} t"))).fetch_one(pool).await.unwrap();
         state.push((format!("{schema}.{table}"), digest));
     }
     state
@@ -66,7 +66,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     let out = evidence();
     let db = pool.connect_options().get_database().unwrap().to_owned();
     assert!(db.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
-    sqlx::raw_sql(&format!("ALTER DATABASE \"{db}\" OWNER TO lmm_core_owner; ALTER SCHEMA public OWNER TO lmm_core_owner; ALTER DATABASE \"{db}\" SET lmm.migration_instance_nonce='{}'","d".repeat(64))).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("ALTER DATABASE \"{db}\" OWNER TO lmm_core_owner; ALTER SCHEMA public OWNER TO lmm_core_owner; ALTER DATABASE \"{db}\" SET lmm.migration_instance_nonce='{}'","d".repeat(64)))).execute(&pool).await.unwrap();
     let owner = PgPoolOptions::new()
         .max_connections(3)
         .after_connect(|c, _| {
@@ -241,7 +241,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         "target_database_oid",
         "target_nonce",
     ] {
-        sqlx::query(&format!("REVOKE SELECT({column}) ON core_history.connection_snapshot FROM connection_history_runtime")).execute(&owner).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("REVOKE SELECT({column}) ON core_history.connection_snapshot FROM connection_history_runtime"))).execute(&owner).await.unwrap();
         assert_eq!(
             runtime_database::check(
                 &runtime,
@@ -261,7 +261,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
                 .await
                 .is_err()
         );
-        sqlx::query(&format!("GRANT SELECT({column}) ON core_history.connection_snapshot TO connection_history_runtime")).execute(&owner).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("GRANT SELECT({column}) ON core_history.connection_snapshot TO connection_history_runtime"))).execute(&owner).await.unwrap();
     }
     // Reset optional grants with the shipped script, preserving baseline history.
     let revoke = Command::new("psql")
@@ -471,3 +471,6 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     runtime.close().await;
     owner.close().await;
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

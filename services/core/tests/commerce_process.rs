@@ -34,7 +34,7 @@ struct Process(Child, Value, PathBuf, String);
 
 fn binary_sha(binary: &Path, variable: &str, required: bool) -> String {
     assert!(binary.is_absolute() && binary.is_file());
-    let actual = format!("{:x}", Sha256::digest(fs::read(binary).unwrap()));
+    let actual = hex_codec::encode(Sha256::digest(fs::read(binary).unwrap()));
     match std::env::var(variable) {
         Ok(expected) => {
             assert!(expected.len() == 64 && expected.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -71,7 +71,7 @@ fn observation(pid: u32, expected: &str) -> Value {
     let metadata = file.metadata().unwrap();
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).unwrap();
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = hex_codec::encode(Sha256::digest(&bytes));
     assert_eq!(
         digest, expected,
         "actual product executable differs from frozen input"
@@ -130,7 +130,7 @@ fn private(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 
 fn spawn(binary: &Path, expected: &str, config: &Path, root: &Path, log: &str) -> Process {
     assert_eq!(
-        format!("{:x}", Sha256::digest(fs::read(binary).unwrap())),
+        hex_codec::encode(Sha256::digest(fs::read(binary).unwrap())),
         expected,
         "product binary changed before spawn"
     );
@@ -310,9 +310,9 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
     );
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "REVOKE CONNECT ON DATABASE \"{core_database}\" FROM PUBLIC"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -330,23 +330,23 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     let owner = format!("{database}_owner");
     let store_role = format!("{database}_runtime");
     let password = format!("{:032x}", rand::random::<u128>());
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE ROLE {owner} NOLOGIN; CREATE ROLE {store_role} LOGIN \
          NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}';"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE DATABASE {database} OWNER {owner} TEMPLATE template0"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE ALL ON DATABASE {database} FROM PUBLIC; \
          GRANT CONNECT ON DATABASE {database} TO {store_role};"
-    ))
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -358,10 +358,10 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         .connect(url.as_str())
         .await
         .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "ALTER SCHEMA public OWNER TO {owner}; REVOKE ALL ON SCHEMA public FROM PUBLIC; \
          SET ROLE {owner};"
-    ))
+    )))
     .execute(&store_owner)
     .await
     .unwrap();
@@ -371,11 +371,11 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     .execute(&store_owner)
     .await
     .unwrap();
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "RESET ROLE; GRANT USAGE ON SCHEMA lmm_store TO {store_role}; \
          GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA lmm_store TO {store_role}; \
          GRANT DELETE ON lmm_store.traffic_days,lmm_store.traffic_receipts,lmm_store.cart_items,lmm_store.favorites TO {store_role};"
-    ))
+    )))
     .execute(&store_owner)
     .await
     .unwrap();
@@ -796,14 +796,19 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     drop(go);
     drop(core);
     store_owner.close().await;
-    sqlx::query(&format!("DROP DATABASE {database}"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP DATABASE {database}")))
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::raw_sql(&format!("DROP ROLE {store_role}; DROP ROLE {owner};"))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP ROLE {store_role}; DROP ROLE {owner};"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
     role.cleanup().await;
     // Keep private process logs with the runner's receipt on success or failure.
 }
+
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;

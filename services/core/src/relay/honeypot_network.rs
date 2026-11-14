@@ -122,7 +122,7 @@ pub(crate) fn validate_origin(raw: &str, local_http: bool) -> Result<String, Rel
 /// The same hardening is used for the existing explicit local transport and all
 /// per-origin clients. Default TLS chain/hostname verification remains enabled.
 pub(crate) fn client_builder(limits: &Limits) -> ClientBuilder {
-    Client::builder()
+    crate::http_client::builder()
         .connect_timeout(limits.connect_timeout)
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())

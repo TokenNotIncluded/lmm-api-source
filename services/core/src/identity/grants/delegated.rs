@@ -143,6 +143,16 @@ impl LmmIssuer {
         // that same family lock. Check wall-clock expiry again after authority.
         let t=sqlx::query("SELECT *,expires_at>clock_timestamp() AS live,floor(extract(epoch FROM expires_at))::bigint AS expiry FROM core_oauth.access_tokens WHERE id=$1 AND family_id=$2")
             .bind(access).bind(grant).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+        // A live read-only client is authenticated but has no model authority.
+        // Verify its ordinary family/user binding and token expiry before
+        // returning a permission denial; never construct a spending proof.
+        if f.try_get::<String, _>("client_id")? == "lmm" {
+            self.live(c, &f, t.try_get("consent_version")?).await?;
+            if !t.try_get::<bool, _>("live")? {
+                return Err(IdentityError::Unauthorized);
+            }
+            return Err(IdentityError::Forbidden);
+        }
         let cap: Option<i64> = f.try_get("budget_credits")?;
         if f.try_get::<String, _>("client_id")? != "lmm-pi"
             || f.try_get::<String, _>("issuance_kind")? != "browser"

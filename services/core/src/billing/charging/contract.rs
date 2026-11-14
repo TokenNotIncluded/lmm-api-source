@@ -44,6 +44,33 @@ pub(crate) struct ReservationBinding {
     pub quote_version: u64,
 }
 
+impl ReservationBinding {
+    /// Freeze native identity from the selected attempt; keep caller-specific wire semantics explicit.
+    pub(crate) fn for_attempt(
+        attempt: &crate::routing::Attempt,
+        protocol: String,
+        model_snapshot: String,
+        generation_url: String,
+        provider_contract_revision: String,
+        projection_revision: String,
+        quote_version: u64,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            route_id: attempt.route_key(),
+            target_id: attempt.target_id(),
+            upstream_id: attempt.upstream_id(),
+            protocol,
+            model_snapshot,
+            generation_url,
+            credential_ref: attempt.credential_ref(),
+            payload_policy_sha256: typed_digest(&attempt.payload_policy())?,
+            provider_contract_revision,
+            projection_revision,
+            quote_version,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReservationBounds {
@@ -426,7 +453,7 @@ impl ReservationContract {
 pub(crate) use crate::hex_codec::encode as hex_digest;
 
 pub(crate) fn digest(value: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(value))
+    crate::hex_codec::encode(Sha256::digest(value))
 }
 
 pub(crate) fn typed_digest(value: &impl Serialize) -> Result<String, Error> {
@@ -828,9 +855,7 @@ impl PreparedReservation {
         } else {
             request.price.reservation_ceiling(basis)?
         };
-        if self.fields.request_fingerprint
-            != crate::hex_codec::encode(request
-                .fingerprint)
+        if self.fields.request_fingerprint != crate::hex_codec::encode(request.fingerprint)
             || request.reserve != reserve
         {
             return Err(Error::Conflict);

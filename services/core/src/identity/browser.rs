@@ -12,7 +12,7 @@ pub use account_links::{
 mod external_login;
 mod federated;
 mod federated_admin;
-pub(crate) use federated::{FederatedLoginOutcome, FederatedBindOutcome};
+pub(crate) use federated::{FederatedBindOutcome, FederatedCallbackInput, FederatedLoginOutcome};
 mod google;
 pub(super) mod grants;
 mod mfa;
@@ -26,6 +26,7 @@ mod password;
 mod sessions;
 mod telegram;
 use super::*;
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use subtle::ConstantTimeEq;
 
@@ -442,7 +443,7 @@ impl BrowserAuth {
         cookie: Option<&str>,
         access: Option<&str>,
         expected_sid: Option<&str>,
-    ) -> BrowserResult<()> {
+    ) -> BrowserResult<Option<String>> {
         if let Some(cookie) = cookie {
             let (sid, secret) = parse_refresh(cookie)?;
             if expected_sid.is_some_and(|expected| expected != sid) {
@@ -451,7 +452,7 @@ impl BrowserAuth {
             let mut tx = self.store.pool.begin().await?;
             let row = match lock_family(&mut tx, sid).await {
                 Ok(row) => row,
-                Err(BrowserAuthError::Identity(IdentityError::Unauthorized)) => return Ok(()),
+                Err(BrowserAuthError::Identity(IdentityError::Unauthorized)) => return Ok(None),
                 Err(error) => return Err(error),
             };
             let hash = digest(secret)?;
@@ -465,7 +466,7 @@ impl BrowserAuth {
             }
             revoke_family(&mut tx, sid).await?;
             tx.commit().await?;
-            return Ok(());
+            return Ok(Some(sid.to_owned()));
         }
         if let Some(access) = access {
             let mut tx = self.store.pool.begin().await?;
@@ -491,8 +492,9 @@ impl BrowserAuth {
             }
             revoke_family(&mut tx, &sid).await?;
             tx.commit().await?;
+            return Ok(Some(sid));
         }
-        Ok(())
+        Ok(None)
     }
     pub async fn current_user(&self, access: &str) -> BrowserResult<Value> {
         let mut tx = self.store.pool.begin().await?;
@@ -627,7 +629,7 @@ async fn make_bundle(
     refresh: String,
     financial: bool,
 ) -> BrowserResult<BrowserBundle> {
-    let r=sqlx::query(&format!("SELECT s.*,{LOGIN_METHOD_SQL},extract(epoch FROM s.created_at)::bigint AS created,extract(epoch FROM s.last_active_at)::bigint AS active,extract(epoch FROM s.expires_at)::bigint AS expires,extract(epoch FROM c.expires_at)::bigint AS access_expires FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1")).bind(sid).fetch_one(&mut *c).await?;
+    let r=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT s.*,{LOGIN_METHOD_SQL},extract(epoch FROM s.created_at)::bigint AS created,extract(epoch FROM s.last_active_at)::bigint AS active,extract(epoch FROM s.expires_at)::bigint AS expires,extract(epoch FROM c.expires_at)::bigint AS access_expires FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1"))).bind(sid).fetch_one(&mut *c).await?;
     let expires: i64 = r.try_get("expires")?;
     let user = user_projection(c, r.try_get("user_id")?, financial).await?;
     Ok(BrowserBundle {

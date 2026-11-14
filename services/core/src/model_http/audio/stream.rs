@@ -9,17 +9,29 @@ use tokio_stream::wrappers::ReceiverStream;
 
 type Result<T> = std::result::Result<T, RelayError>;
 
-pub(super) fn launch(
-    gateway: ModelGateway,
-    id: String,
-    worker: [u8; 32],
-    price: charging::Price,
-    model: String,
-    secret: String,
-    connection: ProviderConnection,
-    upstream: reqwest::Response,
-    permit: OwnedSemaphorePermit,
-) -> Result<Response> {
+pub(super) struct StreamStart {
+    pub(super) gateway: ModelGateway,
+    pub(super) id: String,
+    pub(super) worker: [u8; 32],
+    pub(super) price: charging::Price,
+    pub(super) model: String,
+    pub(super) secret: String,
+    pub(super) connection: ProviderConnection,
+    pub(super) upstream: reqwest::Response,
+    pub(super) permit: OwnedSemaphorePermit,
+}
+pub(super) fn launch(start: StreamStart) -> Result<Response> {
+    let StreamStart {
+        gateway,
+        id,
+        worker,
+        price,
+        model,
+        secret,
+        connection,
+        upstream,
+        permit,
+    } = start;
     if !connection.matches_peer(upstream.remote_addr())
         || upstream.headers().contains_key(header::CONTENT_ENCODING)
         || !upstream
@@ -43,7 +55,16 @@ pub(super) fn launch(
         let result = tokio::time::timeout(
             gateway.limits.total_timeout,
             pump(
-                &gateway, &id, &worker, &price, &model, &secret, upstream, &tx,
+                StreamContext {
+                    gateway: &gateway,
+                    id: &id,
+                    worker: &worker,
+                    price: &price,
+                    model: &model,
+                    secret: &secret,
+                },
+                upstream,
+                &tx,
             ),
         )
         .await;
@@ -77,16 +98,27 @@ async fn send(
         .map_err(|_| RelayError::SettlementPending)?
         .map_err(|_| RelayError::SettlementPending)
 }
+struct StreamContext<'a> {
+    gateway: &'a ModelGateway,
+    id: &'a str,
+    worker: &'a [u8; 32],
+    price: &'a charging::Price,
+    model: &'a str,
+    secret: &'a str,
+}
 async fn pump(
-    gateway: &ModelGateway,
-    id: &str,
-    worker: &[u8; 32],
-    price: &charging::Price,
-    model: &str,
-    secret: &str,
+    context: StreamContext<'_>,
     mut upstream: reqwest::Response,
     tx: &mpsc::Sender<std::result::Result<Bytes, std::io::Error>>,
 ) -> Result<()> {
+    let StreamContext {
+        gateway,
+        id,
+        worker,
+        price,
+        model,
+        secret,
+    } = context;
     let format = price
         .audio
         .as_ref()

@@ -13,6 +13,7 @@ pub use permissions::{
 };
 mod auth;
 mod browser;
+pub(crate) use browser::FederatedCallbackInput;
 pub use browser::{
     ACCOUNT_APPEALS_SCHEMA, ACCOUNT_LIFECYCLE_SCHEMA, AccountAppealContext, AccountAppealGrant,
     AccountAppealReceipt, AccountClosureOutcome, AccountClosurePreview, AccountClosureReceipt,
@@ -41,7 +42,6 @@ pub use mfa::{
 };
 mod external_login;
 pub(crate) mod federated;
-pub(crate) use federated::SCHEMA as FEDERATED_AUTH_SCHEMA;
 mod telegram;
 pub(crate) use telegram::SCHEMA as TELEGRAM_AUTH_SCHEMA;
 pub use telegram::{TelegramAuthorization, TelegramFlow, TelegramLogin};
@@ -61,7 +61,8 @@ use crate::{
     accounts::{Account, AccountKind, TeamRole},
     funding::{BillingPreference, FundingPolicy},
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::TryRng as _;
+use rand::rngs::SysRng;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -168,7 +169,7 @@ fn digest(secret: &str) -> Result<Vec<u8>> {
 }
 fn new_secret(prefix: &str) -> Result<String> {
     let mut bytes = [0_u8; 32];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| IdentityError::Storage)?;
     let secret = format!("{prefix}{}", crate::hex_codec::encode(bytes));
@@ -344,11 +345,13 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
     } else {
         ""
     };
-    let row = sqlx::query(&format!("{AUTH} AND c.digest=$1{suffix}"))
-        .bind(digest(secret)?)
-        .fetch_optional(&mut *c)
-        .await?
-        .ok_or(IdentityError::Unauthorized)?;
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "{AUTH} AND c.digest=$1{suffix}"
+    )))
+    .bind(digest(secret)?)
+    .fetch_optional(&mut *c)
+    .await?
+    .ok_or(IdentityError::Unauthorized)?;
     principal_with_assurance_mode(
         c,
         row,

@@ -5,6 +5,7 @@ use crate::{
     identity::IdentityStore,
     payments::{Channel, PaymentsStore},
 };
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 

@@ -270,7 +270,7 @@ impl ValidatedRequest {
         self.usage
             .tool
             .map(|receipt| receipt.http_status)
-            .or_else(|| match self.usage.text_request {
+            .or(match self.usage.text_request {
                 Some(crate::billing::text_request_price::TextRequestUsage::Rejected {
                     http_status,
                     ..
@@ -592,7 +592,7 @@ impl UsageStore {
                 SELECT_REQUESTS.to_owned()
             };
             let selection = format!("DECLARE lmm_usage_reader NO SCROLL CURSOR FOR {selection}");
-            sqlx::query(&selection)
+            sqlx::query(sqlx::AssertSqlSafe::<&str>(&selection))
                 .bind(selected_user)
                 .bind((!administrator).then_some(owner))
                 .bind(f.start)
@@ -972,7 +972,7 @@ pub(crate) async fn read_oauth_usage(
         // One bounded SQL statement at a time: server-side statement timeout
         // does not include CPU time validating or serializing earlier batches.
         // The caller holds one REPEATABLE READ transaction for every batch.
-        let rows = sqlx::query(&query)
+        let rows = sqlx::query(sqlx::AssertSqlSafe::<&str>(&query))
             .bind(user)
             .bind(account)
             .bind(start)
@@ -1089,7 +1089,7 @@ pub(crate) async fn assistant_summary_in_transaction(
         )
     );
     {
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe::<&str>(&sql))
             .bind(target)
             .bind(owner)
             .bind(start)

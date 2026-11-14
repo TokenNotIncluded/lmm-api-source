@@ -35,7 +35,10 @@ print(json.dumps({'sql':m.ACCOUNT_IMPORT_SQL,'records':records}))
         "DO $fixture$ DECLARE payload jsonb := current_setting('lmm.test_payload')::jsonb; BEGIN {} END $fixture$",
         fixture["sql"].as_str().unwrap()
     );
-    sqlx::query(&statement).execute(&mut *tx).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe::<&str>(&statement))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     let rows: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT id,extract(epoch FROM created_at)::bigint FROM core_identity.accounts ORDER BY id",
     )

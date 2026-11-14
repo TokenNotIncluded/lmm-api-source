@@ -6,6 +6,7 @@ const TARGET: &str = include_str!("core59_to62_target.json");
 const PRE_MANIFEST: &str = "cd54e4a35500c482ad0385b625edefc160e5dfdeb554b2e0038c00ff81df320c";
 const PRE_CATALOG: &str = "38df997ce287e5bfe31b05a50cc1c7a831189b719e3690b7127a3d6080ad5640";
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::CORE59_TO62,
     procedure: PROCEDURE,
     predecessor_count: 59,
     target_count: 62,
@@ -74,13 +75,13 @@ fn parse_captured(raw: &str) -> Result<(String, String), UpgradeError> {
         return Err(reject("CORE62_CAPTURE_BINDING_INVALID"));
     }
     for (path, bytes) in GRANTS {
-        if grants.get(*path) != Some(&hex(&Sha256::digest(bytes.as_bytes()))) {
+        if grants.get(*path) != Some(&hex(Sha256::digest(bytes.as_bytes()))) {
             return Err(reject("CORE62_REVIEWED_GRANTS_CHANGED"));
         }
     }
     for (name, bytes) in SQL {
         if t.frozen_sql_sha256.get(*name).and_then(|v| v.as_deref())
-            != Some(hex(&Sha256::digest(bytes.as_bytes())).as_str())
+            != Some(hex(Sha256::digest(bytes.as_bytes())).as_str())
         {
             return Err(reject("CORE62_REVIEWED_SQL_CHANGED"));
         }
@@ -153,14 +154,16 @@ pub(super) async fn grant_runtime(c: &mut PgConnection, role: &str) -> Result<()
     captured_target()?;
     for raw in [auth_fragment(GRANTS[0].1)?, GRANTS[1].1, GRANTS[2].1] {
         let sql = raw.replace(":\"runtime_role\"", &quote(role));
-        sqlx::raw_sql(&sql).execute(&mut *c).await?;
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
+            .execute(&mut *c)
+            .await?;
     }
     // Match root's new metadata read baseline only on the NEW receipt. Do not
     // repair permissions on any predecessor table inside this upgrade.
-    sqlx::raw_sql(&format!(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "GRANT SELECT ON core_meta.core59_to62_upgrades TO {}",
         quote(role)
-    ))
+    )))
     .execute(&mut *c)
     .await?;
     Ok(())
@@ -205,12 +208,12 @@ mod tests {
         value["runtime_grants_sha256"] = serde_json::json!(
             GRANTS
                 .iter()
-                .map(|(p, b)| ((*p).to_owned(), hex(&Sha256::digest(b.as_bytes()))))
+                .map(|(p, b)| ((*p).to_owned(), hex(Sha256::digest(b.as_bytes()))))
                 .collect::<BTreeMap<_, _>>()
         );
         value["frozen_sql_sha256"] = serde_json::json!(
             SQL.iter()
-                .map(|(p, b)| ((*p).to_owned(), hex(&Sha256::digest(b.as_bytes()))))
+                .map(|(p, b)| ((*p).to_owned(), hex(Sha256::digest(b.as_bytes()))))
                 .collect::<BTreeMap<_, _>>()
         );
         value["successor"]["manifest_sha256"] = serde_json::json!("ab".repeat(32));

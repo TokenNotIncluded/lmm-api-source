@@ -3,6 +3,7 @@ use super::*;
 pub(super) const PROCEDURE: &str = "core-subscription-epay-v1";
 const TARGET: &str = include_str!("subscription_epay_target.json");
 const ENGINE: suffix::Suffix = suffix::Suffix {
+    hooks: &registry::SUBSCRIPTION_EPAY,
     procedure: PROCEDURE,
     predecessor_count: 58,
     target_count: 59,
@@ -29,6 +30,8 @@ pub(super) async fn connected(
 pub(super) async fn grant_runtime(c: &mut PgConnection, role: &str) -> Result<(), UpgradeError> {
     let grants = include_str!("../../../schema/subscription_epay_grants.sql")
         .replace(":\"runtime_role\"", &quote(role));
-    sqlx::raw_sql(&grants).execute(c).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(c)
+        .await?;
     Ok(())
 }

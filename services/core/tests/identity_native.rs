@@ -44,7 +44,7 @@ async fn fresh(pool: PgPool) -> IdentityStore {
     let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
     // Explicit installer-owned fixture: management/user projection reads abuse.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();
@@ -686,7 +686,7 @@ async fn registration_is_explicit_and_forwarded_headers_cannot_bypass_auth_limit
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
     // Explicit installer-owned fixture: management/user projection reads abuse.
-    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(lmm_core::abuse::SCHEMA))
         .execute(&pool)
         .await
         .unwrap();

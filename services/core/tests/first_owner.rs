@@ -350,7 +350,7 @@ async fn explicit_set_role_to_nologin_database_and_relation_owner_is_supported(p
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
     );
-    sqlx::raw_sql(&format!("CREATE ROLE {name} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; GRANT {name} TO \"{original}\"; ALTER DATABASE \"{database}\" OWNER TO {name}; GRANT USAGE,CREATE ON SCHEMA public TO {name}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {name} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; GRANT {name} TO \"{original}\"; ALTER DATABASE \"{database}\" OWNER TO {name}; GRANT USAGE,CREATE ON SCHEMA public TO {name}")))
         .execute(&pool).await.unwrap();
     let mut url = owner_url(&pool);
     url.query_pairs_mut()
@@ -366,7 +366,7 @@ async fn explicit_set_role_to_nologin_database_and_relation_owner_is_supported(p
     let success = output.status.success();
     installer.close().await;
     drop(config);
-    sqlx::raw_sql(&format!("ALTER DATABASE \"{database}\" OWNER TO \"{original}\"; DROP OWNED BY {name}; REVOKE {name} FROM \"{original}\"; DROP ROLE {name}"))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("ALTER DATABASE \"{database}\" OWNER TO \"{original}\"; DROP OWNED BY {name}; REVOKE {name} FROM \"{original}\"; DROP ROLE {name}")))
         .execute(&pool).await.unwrap();
     assert!(success, "explicit NOLOGIN installer owner was rejected");
 }

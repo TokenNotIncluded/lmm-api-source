@@ -16,14 +16,13 @@ pub(crate) struct LegacyBalance {
 
 impl LegacyBalance {
     pub(crate) fn validate(&self) -> Result<(), ManagementError> {
-        if let Some(rate) = &self.cny_per_usd {
-            if !matches!(self.channel_type, 25 | 43)
+        if let Some(rate) = &self.cny_per_usd
+            && (!matches!(self.channel_type, 25 | 43)
                 || rate.len() > 32
                 || rate.trim() != rate
-                || !rate.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0)
-            {
-                return Err(ManagementError::Invalid);
-            }
+                || !rate.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0))
+        {
+            return Err(ManagementError::Invalid);
         }
         Ok(())
     }

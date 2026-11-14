@@ -190,7 +190,8 @@ fn text_pattern(value: Option<&str>) -> String {
 }
 impl Selection<'_> {
     fn bind<'a>(&'a self, sql: &'a str) -> Query<'a, Postgres, PgArguments> {
-        sqlx::query(sql)
+        // Only fixed projections and enum-selected ordering form this SQL; all request values bind below.
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(self.user)
             .bind(self.owner)
             .bind(self.key)

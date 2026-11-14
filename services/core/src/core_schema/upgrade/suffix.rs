@@ -8,6 +8,7 @@ use super::{
 use std::collections::BTreeSet;
 
 pub(super) struct Suffix {
+    pub hooks: &'static registry::Registration,
     pub procedure: &'static str,
     pub predecessor_count: usize,
     pub target_count: usize,
@@ -22,52 +23,38 @@ struct Target {
     manifest_sha256: String,
     catalog_sha256: String,
 }
-// Keep the existing procedures' public rejection codes stable while sharing logic.
-macro_rules! reject_suffix {
-    ($spec:expr, $code:literal) => {
-        reject(match $spec.procedure {
-            "core-functional-completion-v1" => concat!("COMPLETION_", $code),
-            "core-account-appeals-v1" => concat!("ACCOUNT_APPEALS_", $code),
-            "core-channel-accounting-v1" => concat!("CHANNEL_ACCOUNTING_", $code),
-            "core-navigation-options-v1" => concat!("NAVIGATION_OPTIONS_", $code),
-            "core-channel-observations-v1" => concat!("CHANNEL_OBSERVATIONS_", $code),
-            "core-trust-policy-edit-v1" => concat!("TRUST_POLICY_EDIT_", $code),
-            "core-commerce-display-rate-v1" => concat!("COMMERCE_DISPLAY_RATE_", $code),
-            "core-59-to-62-v1" => concat!("CORE62_", $code),
-            "core-payment-discount-management-v1" => concat!("PAYMENT_DISCOUNT_MANAGEMENT_", $code),
-            "core-payment-discounts-v1" => concat!("PAYMENT_DISCOUNTS_", $code),
-            "core-subscription-epay-v1" => concat!("SUBSCRIPTION_EPAY_", $code),
-            "core-subscription-pancake-language-optional-v1" => concat!("PANCAKE_LANGUAGE_", $code),
-            _ => concat!("CHANNEL_PROJECTION_", $code),
-        })
-    };
-}
-
 impl Suffix {
+    fn error(&self, error: registry::SuffixError) -> UpgradeError {
+        reject((self.hooks.suffix().error)(error))
+    }
+
     pub(super) fn target_manifest(&self) -> Result<String, UpgradeError> {
         if self.target_count > COMPONENTS.len() || self.target_count < 44 {
-            return Err(reject_suffix!(self, "COMPILED_COMPONENTS_CHANGED"));
+            return Err(self.error(registry::SuffixError::CompiledComponentsChanged));
         }
         let mut manifest = schema_manifest();
         manifest.components.truncate(self.target_count);
         let mut bytes = serde_json::to_vec(&manifest).map_err(|_| UpgradeError::Storage)?;
         bytes.push(b'\n');
-        Ok(hex(&Sha256::digest(bytes)))
+        Ok(hex(Sha256::digest(bytes)))
     }
 
     fn target(&self) -> Result<Target, UpgradeError> {
-        let target: Target = if self.procedure == super::core59_to62::PROCEDURE {
-            let (manifest_sha256, catalog_sha256) = super::core59_to62::captured_target()?;
-            Target {
-                manifest_sha256,
-                catalog_sha256,
+        let target: Target = match self.hooks.suffix().policy.target {
+            registry::TargetSource::Captured(parse) => {
+                let (manifest_sha256, catalog_sha256) = parse()?;
+                Target {
+                    manifest_sha256,
+                    catalog_sha256,
+                }
             }
-        } else {
-            serde_json::from_str(self.target_json).map_err(|_| UpgradeError::Storage)?
+            registry::TargetSource::FrozenJson => {
+                serde_json::from_str(self.target_json).map_err(|_| UpgradeError::Storage)?
+            }
         };
         if target.manifest_sha256 != self.target_manifest()? || !digest_hex(&target.catalog_sha256)
         {
-            return Err(reject_suffix!(self, "COMPILED_TARGET_CHANGED"));
+            return Err(self.error(registry::SuffixError::CompiledTargetChanged));
         }
         Ok(target)
     }
@@ -109,7 +96,7 @@ impl Suffix {
             || r.predecessor_catalog_sha256 != self.predecessor_catalog
             || r.successor_manifest_sha256 != self.target_manifest()?
         {
-            return Err(reject_suffix!(self, "UPGRADE_CONTRACT_INVALID"));
+            return Err(self.error(registry::SuffixError::UpgradeContractInvalid));
         }
         Ok(())
     }
@@ -121,14 +108,14 @@ impl Suffix {
             || COMPONENTS[42].0 != "channel-accounting"
             || COMPONENTS[43].0 != "channel-projection"
         {
-            return Err(reject_suffix!(self, "COMPILED_COMPONENTS_CHANGED"));
+            return Err(self.error(registry::SuffixError::CompiledComponentsChanged));
         }
         let mut prior = schema_manifest();
         prior.components.truncate(self.predecessor_count);
         let mut bytes = serde_json::to_vec(&prior).map_err(|_| UpgradeError::Storage)?;
         bytes.push(b'\n');
-        if hex(&Sha256::digest(bytes)) != self.predecessor_manifest {
-            return Err(reject_suffix!(self, "COMPILED_PREDECESSOR_CHANGED"));
+        if hex(Sha256::digest(bytes)) != self.predecessor_manifest {
+            return Err(self.error(registry::SuffixError::CompiledPredecessorChanged));
         }
         self.target()?;
         Ok(())
@@ -144,27 +131,24 @@ impl Suffix {
         .fetch_one(&mut *c)
         .await?;
         if saved != super::super::catalog(c).await? {
-            return Err(reject_suffix!(self, "RUNTIME_RECEIPT_CONFLICT"));
+            return Err(self.error(registry::SuffixError::RuntimeReceiptConflict));
         }
         Ok(())
     }
 
-    async fn receipt_privileges(
+    pub(super) async fn receipt_owner_only(
         &self,
         c: &mut PgConnection,
-        r: &UpgradeRequest,
+        _r: &UpgradeRequest,
     ) -> Result<(), UpgradeError> {
-        if self.procedure == super::core59_to62::PROCEDURE {
-            return super::core59_to62::receipt_privileges(c, &r.roles.runtime).await;
-        }
-        let safe:bool=sqlx::query_scalar(&format!(r#"
+        let safe:bool=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(r#"
 SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
  WHERE c.oid='{receipt}'::regclass AND a.grantee<>c.relowner)
  AND NOT EXISTS(SELECT FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid CROSS JOIN LATERAL aclexplode(a.attacl) acl
  WHERE c.oid='{receipt}'::regclass AND acl.grantee<>c.relowner)
-"#, receipt=self.receipt)).fetch_one(c).await?;
+"#, receipt=self.receipt))).fetch_one(c).await?;
         if !safe {
-            return Err(reject_suffix!(self, "RECEIPT_PRIVILEGES_INVALID"));
+            return Err(self.error(registry::SuffixError::ReceiptPrivilegesInvalid));
         }
         Ok(())
     }
@@ -175,34 +159,34 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
     ) -> Result<UpgradeReport, UpgradeError> {
         let target = self.target()?;
         let (mut tx, backend_pid, tables) = begin_offline_upgrade(c, r).await?;
-        let exists: bool = sqlx::query_scalar(&format!(
+        let exists: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT to_regclass('{}') IS NOT NULL",
             self.receipt
-        ))
+        )))
         .fetch_one(&mut *tx)
         .await?;
         if exists {
-            let row=sqlx::query(&format!("SELECT request_sha256,request,successor_catalog_sha256 FROM {receipt} WHERE upgrade_id=$1", receipt=self.receipt))
-            .bind(&r.upgrade_id).fetch_optional(&mut *tx).await?.ok_or_else(||reject_suffix!(self, "ORIGINAL_RECEIPT_ABSENT"))?;
+            let row=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT request_sha256,request,successor_catalog_sha256 FROM {receipt} WHERE upgrade_id=$1", receipt=self.receipt)))
+            .bind(&r.upgrade_id).fetch_optional(&mut *tx).await?.ok_or_else(||self.error(registry::SuffixError::OriginalReceiptAbsent))?;
             let request: sqlx::types::Json<serde_json::Value> = row.try_get("request")?;
             if row.try_get::<Vec<u8>, _>("request_sha256")? != r.digest()?
                 || request.0 != serde_json::to_value(r).map_err(|_| UpgradeError::Storage)?
                 || hex(&row.try_get::<Vec<u8>, _>("successor_catalog_sha256")?)
                     != target.catalog_sha256
-                || hex(&fingerprint(&definitions(&mut tx).await?)) != target.catalog_sha256
+                || hex(fingerprint(&definitions(&mut tx).await?)) != target.catalog_sha256
             {
-                return Err(reject_suffix!(self, "RECEIPT_OR_CATALOG_CONFLICT"));
+                return Err(self.error(registry::SuffixError::ReceiptOrCatalogConflict));
             }
             self.check_target(&mut tx).await?;
             if self.predecessor_count < 44 {
                 super::channel_projection::check_ready(&mut tx).await?;
             }
-            self.receipt_privileges(&mut tx, r).await?;
+            (self.hooks.hooks.receipt_privileges)(self, &mut tx, r).await?;
             tx.rollback().await?;
             return self.report(r, "already_committed", target.catalog_sha256);
         }
-        if hex(&fingerprint(&definitions(&mut tx).await?)) != self.predecessor_catalog {
-            return Err(reject_suffix!(self, "PREDECESSOR_CATALOG_MISMATCH"));
+        if hex(fingerprint(&definitions(&mut tx).await?)) != self.predecessor_catalog {
+            return Err(self.error(registry::SuffixError::PredecessorCatalogMismatch));
         }
         let recorded: Vec<u8> = sqlx::query_scalar(
             "SELECT catalog_fingerprint FROM core_meta.runtime_contract WHERE singleton",
@@ -210,7 +194,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         .fetch_one(&mut *tx)
         .await?;
         if hex(&recorded) != self.predecessor_catalog {
-            return Err(reject_suffix!(self, "PREDECESSOR_RECEIPT_MISMATCH"));
+            return Err(self.error(registry::SuffixError::PredecessorReceiptMismatch));
         }
         let expected: BTreeMap<String, Vec<u8>> = COMPONENTS[..self.predecessor_count]
             .iter()
@@ -224,7 +208,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
                 .map(|row| Ok((row.try_get("name")?, row.try_get("fingerprint")?)))
                 .collect::<Result<_, sqlx::Error>>()?;
         if actual != expected {
-            return Err(reject_suffix!(self, "PREDECESSOR_COMPONENTS_MISMATCH"));
+            return Err(self.error(registry::SuffixError::PredecessorComponentsMismatch));
         }
         let rels = object_ids(&mut tx, "relation").await?;
         let types = object_ids(&mut tx, "type").await?;
@@ -236,43 +220,23 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             }
         }
         let sequences:Vec<String>=sqlx::query_scalar("SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_' AND c.relkind='S' ORDER BY n.nspname COLLATE \"C\",c.relname COLLATE \"C\"").fetch_all(&mut *tx).await?;
-        let subscription = self.procedure == super::subscription_epay::PROCEDURE;
+        let subscription =
+            self.hooks.suffix().policy.projection == registry::DataProjection::SubscriptionEpay;
         let old_data = data_projected(&mut tx, &tables, &sequences, subscription).await?;
         for (name, ddl) in &COMPONENTS[self.predecessor_count..self.target_count] {
-            sqlx::raw_sql(ddl).execute(&mut *tx).await?;
+            sqlx::raw_sql(*ddl).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES($1,$2)")
                 .bind(name)
                 .bind(Sha256::digest(ddl.as_bytes()).to_vec())
                 .execute(&mut *tx)
                 .await?;
         }
-        if self.procedure == super::payment_discount_management::PROCEDURE {
-            super::payment_discount_management::grant_runtime(&mut tx, &r.roles.runtime).await?;
+        #[cfg(test)]
+        if let Err(error) = (self.hooks.suffix().policy.after_ddl)() {
+            tx.rollback().await?;
+            return Err(error);
         }
-        if self.procedure == super::payment_discounts::PROCEDURE {
-            super::payment_discounts::grant_runtime(&mut tx, &r.roles.runtime).await?;
-        }
-        if self.procedure == super::core59_to62::PROCEDURE {
-            super::core59_to62::grant_runtime(&mut tx, &r.roles.runtime).await?;
-        }
-        if self.procedure == super::commerce_display_rate::PROCEDURE {
-            // Only this new closed options writer is granted. Existing table,
-            // sequence and function permissions remain covered by preservation.
-            sqlx::raw_sql(&format!(
-                "GRANT EXECUTE ON FUNCTION core_console.write_display_exchange_rate(text) TO {}",
-                quote(&r.roles.runtime)
-            ))
-            .execute(&mut *tx)
-            .await?;
-        }
-        if subscription {
-            let unexpected: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_payments.provider_identifiers WHERE subscription_order_id IS NOT NULL)")
-                .fetch_one(&mut *tx).await?;
-            if unexpected {
-                return Err(reject_suffix!(self, "PREDECESSOR_DATA_CHANGED"));
-            }
-            super::subscription_epay::grant_runtime(&mut tx, &r.roles.runtime).await?;
-        }
+        (self.hooks.hooks.grant_runtime)(&mut tx, r).await?;
         // One explicit owner-only backfill, inside the existing migration fence
         // and transaction. Failure rolls back the new DDL as well as projection.
         if self.predecessor_count < 44 {
@@ -284,14 +248,14 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
                 != old_permissions
             || data_projected(&mut tx, &tables, &sequences, subscription).await? != old_data
         {
-            return Err(reject_suffix!(self, "PRESERVATION_OR_TARGET_MISMATCH"));
+            return Err(self.error(registry::SuffixError::PreservationOrTargetMismatch));
         }
-        self.receipt_privileges(&mut tx, r).await?;
+        (self.hooks.hooks.receipt_privileges)(self, &mut tx, r).await?;
         let changed=sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1 WHERE singleton AND catalog_fingerprint=$2").bind(&catalog).bind(&recorded).execute(&mut *tx).await?;
         if changed.rows_affected() != 1 {
-            return Err(reject_suffix!(self, "RUNTIME_RECEIPT_CONFLICT"));
+            return Err(self.error(registry::SuffixError::RuntimeReceiptConflict));
         }
-        sqlx::query(&format!("INSERT INTO {receipt}(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256) VALUES($1,$2,$3,$4,$5,$6)", receipt=self.receipt))
+        sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {receipt}(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256) VALUES($1,$2,$3,$4,$5,$6)", receipt=self.receipt)))
         .bind(&r.upgrade_id).bind(r.digest()?).bind(sqlx::types::Json(serde_json::to_value(r).map_err(|_|UpgradeError::Storage)?))
         .bind(data_hash(&old_data)).bind(Sha256::digest(serde_json::to_vec(&old_permissions).map_err(|_|UpgradeError::Storage)?).to_vec()).bind(catalog).execute(&mut *tx).await?;
         self.check_target(&mut tx).await?;

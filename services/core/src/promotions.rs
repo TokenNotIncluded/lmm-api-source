@@ -12,9 +12,11 @@ use crate::{
     identity::{self, CredentialKind, Principal},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
 pub use http::router;
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng as _;
+use rand::rngs::SysRng;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, types::Json};
@@ -104,8 +106,8 @@ async fn now(c: &mut PgConnection) -> Result<i64> {
 use crate::hex_codec::encode as hex;
 fn random_id() -> String {
     let mut b = [0; 32];
-    OsRng.fill_bytes(&mut b);
-    hex(&b)
+    rand::rand_core::UnwrapErr(SysRng).fill_bytes(&mut b);
+    hex(b)
 }
 /// Native codes are `lmmr_` + 43 URL-safe characters. Imported legacy codes
 /// keep their original 32 lowercase hex characters; both store only SHA-256.
@@ -304,11 +306,10 @@ pub(crate) async fn post_grant(
         },
     };
     ledger.validate().map_err(|_| Error::Invalid)?;
-    let Json(outcome): Json<Outcome> =
-        sqlx::query_scalar("SELECT core_billing.post_ledger($1)")
-            .bind(Json(ledger))
-            .fetch_one(&mut *c)
-            .await?;
+    let Json(outcome): Json<Outcome> = sqlx::query_scalar("SELECT core_billing.post_ledger($1)")
+        .bind(Json(ledger))
+        .fetch_one(&mut *c)
+        .await?;
     let Outcome::Posted { journal_id, .. } = outcome else {
         return Err(Error::Conflict);
     };

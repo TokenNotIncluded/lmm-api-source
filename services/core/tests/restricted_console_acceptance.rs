@@ -74,7 +74,7 @@ async fn request(
     (status, response.json().await.expect("JSON response"))
 }
 
-async fn denied_sql(pool: &PgPool, sql: &str, expected: &str) {
+async fn denied_sql(pool: &PgPool, sql: &'static str, expected: &str) {
     let err = sqlx::query(sql)
         .execute(pool)
         .await

@@ -163,7 +163,10 @@ fn request(now: i64) -> Request {
 #[sqlx::test(migrations = false)]
 async fn outbox_dispatches_once_and_recovers_uncertain_attempt_without_resending(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
-    sqlx::raw_sql(humangrant::DDL).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(humangrant::DDL))
+        .execute(&pool)
+        .await
+        .unwrap();
     let (port, capture) = smtp(Some(true)).await;
     let mut engine = HumanGrantEngine::new(
         HumanGrantStore::new(pool.clone()),
