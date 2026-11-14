@@ -1,6 +1,7 @@
 //! Passkey ceremonies use the unmodified MPL-2.0 webauthn-rs 0.5.5 verifier.
 //! <https://docs.rs/webauthn-rs/0.5.5/webauthn_rs/>
 //! Only public browser options leave Core; challenge state remains in PostgreSQL.
+mod rp_id;
 use super::*;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
@@ -30,7 +31,7 @@ pub struct PasskeyConfig {
 impl PasskeyConfig {
     pub fn new(rp_id: &str, origin: &str) -> Result<Self> {
         let url = Url::parse(origin).map_err(|_| IdentityError::Invalid)?;
-        if url.host_str() != Some(rp_id)
+        if !rp_id::valid(rp_id, &url)
             || !url.username().is_empty()
             || url.password().is_some()
             || url.query().is_some()
@@ -791,5 +792,57 @@ mod legacy_handle_tests {
             &handle,
             None
         ));
+    }
+}
+
+#[cfg(test)]
+mod rp69_tests {
+    use super::*;
+
+    #[test]
+    fn parent_rp_keeps_both_verifiers_on_the_exact_origin() {
+        let config = PasskeyConfig::new("example.com", "https://api.example.com:8443").unwrap();
+        let expected = Url::parse("https://api.example.com:8443").unwrap();
+        assert_eq!(config.origin(), "https://api.example.com:8443");
+        assert_eq!(config.webauthn.get_allowed_origins(), &[expected.clone()]);
+        assert_eq!(
+            config.source_policy_verifier.get_allowed_origins(),
+            &[expected]
+        );
+    }
+
+    #[test]
+    fn parent_rp_still_rejects_sibling_subdomain_scheme_and_port_origins() {
+        let allowed = Url::parse("https://api.example.com:8443").unwrap();
+        for request in [
+            "https://example.com:8443",
+            "https://other.example.com:8443",
+            "https://sub.api.example.com:8443",
+            "https://api.example.com:9443",
+            "http://api.example.com:8443",
+        ] {
+            assert!(!WebauthnCore::origins_match(
+                false,
+                false,
+                &Url::parse(request).unwrap(),
+                &allowed
+            ));
+        }
+    }
+
+    #[test]
+    fn parent_rp_does_not_relax_origin_validation() {
+        for origin in [
+            "https://api.example.com/path",
+            "https://api.example.com?x=1",
+            "https://api.example.com#x",
+            "https://user@api.example.com",
+            "http://api.example.com",
+        ] {
+            assert!(
+                PasskeyConfig::new("example.com", origin).is_err(),
+                "{origin}"
+            );
+        }
     }
 }

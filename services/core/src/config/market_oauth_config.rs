@@ -262,6 +262,7 @@ mod tests {
     fn web(origin: &str, local: bool) -> WebFile {
         WebFile {
             origin: origin.into(),
+            passkey_rp_id: None,
             refresh_key_file: "/nonexistent-market-secrets/web".into(),
             local_http: local,
             user_agreement_enabled: false,

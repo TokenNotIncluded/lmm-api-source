@@ -77,6 +77,8 @@ totp-rs = { version = "=6.0.0", default-features = false, features = ["std", "ot
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 webauthn-rs = { version = "=0.5.5", default-features = false, features = ["danger-allow-state-serialisation", "conditional-ui"] }
 webauthn-rs-core = "=0.5.5"
+# Static Mozilla PSL (ICANN and private suffixes); no runtime network updates.
+psl = "=2.1.184"
 tokio-stream = { version = "=0.1.19", features = ["net"] }
 toml = { version = "=1.2.1", default-features = false, features = ["std", "serde", "parse"] }
 tonic = "=0.14.9"

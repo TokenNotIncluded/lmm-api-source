@@ -215,6 +215,7 @@ struct OAuth2File {
 #[serde(deny_unknown_fields)]
 struct WebFile {
     origin: String,
+    passkey_rp_id: Option<String>,
     refresh_key_file: PathBuf,
     #[serde(default)]
     local_http: bool,
@@ -780,6 +781,9 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     if let Some(web) = file.identity.web {
         put("LMM_CORE_WEB_ORIGIN", web.origin);
+        if let Some(rp_id) = web.passkey_rp_id {
+            put("LMM_CORE_WEB_PASSKEY_RP_ID", rp_id);
+        }
         put("LMM_CORE_WEB_LOCAL_HTTP", web.local_http.to_string());
         put(
             "LMM_CORE_WEB_USER_AGREEMENT_ENABLED",
@@ -2930,8 +2934,17 @@ pub fn legacy_auth() -> io::Result<Option<WebAuthConfig>> {
     let key_file = setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE");
     let local_http = bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?;
     let turnstile = turnstile_config::load()?;
+    let passkey_rp_id = match setting("LMM_CORE_WEB_PASSKEY_RP_ID") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err(invalid_config("Passkey RP ID must be valid Unicode")),
+    };
     match (origin, key_file) {
-        (Err(env::VarError::NotPresent), None) if !local_http && turnstile.is_none() => Ok(None),
+        (Err(env::VarError::NotPresent), None)
+            if !local_http && turnstile.is_none() && passkey_rp_id.is_none() =>
+        {
+            Ok(None)
+        }
         (Ok(origin), Some(path)) => {
             let agreement = setting("LMM_CORE_WEB_USER_AGREEMENT_ENABLED");
             let privacy = setting("LMM_CORE_WEB_PRIVACY_POLICY_ENABLED");
@@ -2954,15 +2967,19 @@ pub fn legacy_auth() -> io::Result<Option<WebAuthConfig>> {
                 || (rp_origin.scheme() == "http" && rp_origin.host_str() == Some("localhost"))
             {
                 let passkeys = crate::identity::PasskeyConfig::new(
-                    rp_origin
-                        .host_str()
-                        .ok_or_else(|| invalid_config("invalid Passkey origin"))?,
+                    passkey_rp_id.as_deref().unwrap_or(
+                        rp_origin
+                            .host_str()
+                            .ok_or_else(|| invalid_config("invalid Passkey origin"))?,
+                    ),
                     &rp_origin.origin().ascii_serialization(),
                 )
                 .map_err(|_| invalid_config("invalid Passkey configuration"))?;
                 config = config
                     .with_passkeys(passkeys)
                     .map_err(|_| invalid_config("Passkey origin must match Web origin"))?;
+            } else if passkey_rp_id.is_some() {
+                return Err(invalid_config("Passkey RP ID requires a DNS Web origin"));
             }
             Ok(Some(WebAuthConfig {
                 auth: config.with_legal_acceptance_required(
@@ -5359,5 +5376,25 @@ rules=[{{id=1,model='model',group='allowed',speed='standard',rates={{input=20000
                 .to_string()
                 .contains("do-not-log-this-secret")
         );
+    }
+}
+
+#[cfg(test)]
+mod rp69_config_tests {
+    use super::*;
+
+    #[test]
+    fn web_rp_id_is_optional_and_strictly_named() {
+        let source = r#"origin='https://api.example.com'
+refresh_key_file='/private/refresh'
+user_agreement_enabled=false
+privacy_policy_enabled=false
+"#;
+        let default: WebFile = toml::from_str(source).unwrap();
+        assert!(default.passkey_rp_id.is_none());
+        let explicit: WebFile =
+            toml::from_str(&format!("{source}passkey_rp_id='example.com'\n")).unwrap();
+        assert_eq!(explicit.passkey_rp_id.as_deref(), Some("example.com"));
+        assert!(toml::from_str::<WebFile>(&format!("{source}rp_id='example.com'\n")).is_err());
     }
 }
