@@ -302,7 +302,7 @@ test('system info page displays native resources and instance heartbeats togethe
   )
   for (let attempt = 0; attempt < 100; attempt++) {
     const content = container.textContent ?? ''
-    if (content.includes('Core process') && content.includes('worker-a')) {
+    if (content.includes('PID123') && content.includes('worker-a')) {
       break
     }
     await act(async () => {
