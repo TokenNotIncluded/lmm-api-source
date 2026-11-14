@@ -248,3 +248,62 @@ async fn error_endpoint_requires_authenticated_internal_marker_and_preserves_451
         assert_eq!(app.clone().oneshot(request).await.unwrap().status(), status);
     }
 }
+
+#[test]
+fn expanded_policy_lists_ranges_negation_and_versions() {
+    let rules = "# management first\nip(192.0.2.0/24, 2001:db8::/32) -> direct\ndip(198.51.100.10-198.51.100.20) -> reject\n!dip(geoip:cn, geoip:jp) -> direct\nipversion(6) -> reject\nfallback: reject";
+    for (ip, country, action, line) in [
+        ("192.0.2.4", None, "direct", 2),
+        ("::ffff:192.0.2.4", None, "direct", 2),
+        ("2001:db8::4", None, "direct", 2),
+        ("198.51.100.10", Some("us"), "reject", 3),
+        ("198.51.100.20", Some("US"), "reject", 3),
+        ("198.51.100.21", Some("US"), "direct", 4),
+        ("2001:db9::1", Some("JP"), "reject", 5),
+        ("198.51.100.21", None, "unavailable", 4),
+    ] {
+        let value = preview_policy(rules, ip, country).unwrap();
+        assert_eq!(value["action"], action, "{ip}");
+        assert_eq!(value["matched_line"], line, "{ip}");
+    }
+    let mapped = preview_policy("dip(::ffff:192.0.2.0/120) -> reject", "192.0.2.1", None).unwrap();
+    assert_eq!(mapped["action"], "reject");
+}
+
+#[test]
+fn unknown_region_is_explicit_and_preview_uses_runtime_evaluation() {
+    for rules in [
+        "dip(geoip:unknown) -> reject\nfallback: direct",
+        "dip(geoip:cn) -> direct\nunknown-country: reject\nfallback: reject",
+        "!dip(geoip:cn) -> direct\nfallback: reject",
+        "dip(geoip:cn, 192.0.2.1) -> direct\nfallback: reject",
+    ] {
+        let policy = Policy::parse(rules).unwrap();
+        let ip = "192.0.2.1".parse().unwrap();
+        for country in [None, Some("CN"), Some("US")] {
+            let preview = preview_policy(rules, "192.0.2.1", country).unwrap();
+            match policy.evaluate(ip, country) {
+                Ok(Action::Direct) => assert_eq!(preview["action"], "direct"),
+                Ok(Action::Reject) => assert_eq!(preview["action"], "reject"),
+                Err(_) => assert_eq!(preview["action"], "unavailable"),
+            }
+        }
+    }
+    for invalid in [
+        "dip(192.0.2.1,) -> direct",
+        "dip(192.0.2.2-192.0.2.1) -> direct",
+        "dip(192.0.2.1-::1) -> direct",
+        "dip(::ffff:192.0.2.1/80) -> direct",
+        "ipversion(5) -> direct",
+        "!!dip(192.0.2.1) -> direct",
+        "routing {\nfallback: direct",
+        "}\nfallback: direct",
+        "routing {\nfallback: direct\n}\nfallback: reject",
+        "unknown-country: direct",
+        "fallback: direct\nunknown-country: direct\nunknown-country: reject",
+    ] {
+        assert!(validate_policy(invalid).is_err(), "{invalid}");
+    }
+    assert!(preview_policy("fallback: direct", "invalid", None).is_err());
+    assert!(preview_policy("fallback: direct", "192.0.2.1", Some("China")).is_err());
+}

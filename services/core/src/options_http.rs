@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
 mod exchange_rate;
+mod ip_access;
 pub mod trust_policy;
 mod writes;
 
@@ -67,6 +68,7 @@ pub fn router(state: OptionsHttp) -> Router {
         .route("/api/option/bulk", post(writes::bulk))
         .route("/api/option/validate", post(writes::validate))
         .route("/api/option/exchange-rate", get(exchange_rate::read))
+        .route("/api/option/ip-access/preview", post(ip_access::preview))
         .with_state(state);
     match editor {
         Some(editor) => routes.merge(trust_policy::http::router(editor)),
@@ -149,7 +151,7 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     // @context-fold begin runtime-settings-projection
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT key,value FROM core_console.options
-         WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate')
+         WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate','IPAccessRoutingRules')
          ORDER BY key",
     )
     .fetch_all(&state.pool)
@@ -183,6 +185,13 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         .cloned()
         .unwrap_or_else(|| "[]".into());
     data.extend([
+        SystemOption {
+            key: "IPAccessRoutingRules".into(),
+            value: stored
+                .get("IPAccessRoutingRules")
+                .cloned()
+                .unwrap_or_default(),
+        },
         SystemOption {
             key: "USDExchangeRate".into(),
             value: stored.get("USDExchangeRate").cloned().unwrap_or_default(),
@@ -305,6 +314,7 @@ mod tests {
             ("PUT", "/api/option/"),
             ("POST", "/api/option/bulk"),
             ("GET", "/api/option/exchange-rate?currency=CNY"),
+            ("POST", "/api/option/ip-access/preview"),
         ] {
             let (status, _) = call(&app, method, path, None).await;
             assert_eq!(status, StatusCode::UNAUTHORIZED);

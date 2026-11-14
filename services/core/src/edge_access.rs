@@ -13,7 +13,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use ipnet::IpNet;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -338,92 +337,28 @@ impl Eligibility {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Action {
-    Direct,
-    Reject,
+mod policy;
+use policy::{Action, Policy};
+
+pub(crate) fn validate_policy(source: &str) -> Result<(), SetupError> {
+    Policy::parse(source).map(|_| ())
 }
-enum Matcher {
-    Prefix(IpNet),
-    Country(String),
-}
-struct Policy {
-    rules: Vec<(Matcher, Action)>,
-    fallback: Action,
-}
-impl Policy {
-    fn parse(source: &str) -> Result<Self, SetupError> {
-        if source.len() > 16384 {
-            return Err(SetupError);
-        }
-        let mut rules = Vec::new();
-        let mut fallback = None;
-        for raw in source.lines() {
-            if raw.len() > 1024 {
-                return Err(SetupError);
-            }
-            let line = raw.split('#').next().unwrap_or("").trim();
-            if line.is_empty() || line == "routing {" || line == "}" {
-                continue;
-            }
-            if let Some(value) = line.strip_prefix("fallback:") {
-                if fallback.is_some() {
-                    return Err(SetupError);
-                }
-                fallback = Some(action(value)?);
-                continue;
-            }
-            if rules.len() >= 256 {
-                return Err(SetupError);
-            }
-            let (predicate, result) = line.split_once("->").ok_or(SetupError)?;
-            let argument = predicate
-                .trim()
-                .strip_prefix("dip(")
-                .and_then(|s| s.strip_suffix(')'))
-                .ok_or(SetupError)?
-                .trim();
-            let matcher = if let Some(code) = argument.strip_prefix("geoip:") {
-                if code.len() != 2 || !code.bytes().all(|b| b.is_ascii_alphabetic()) {
-                    return Err(SetupError);
-                }
-                Matcher::Country(code.to_ascii_uppercase())
-            } else {
-                let net = argument
-                    .parse::<IpNet>()
-                    .or_else(|_| argument.parse::<IpAddr>().map(IpNet::from))
-                    .map_err(|_| SetupError)?;
-                Matcher::Prefix(net)
-            };
-            rules.push((matcher, action(result)?));
-        }
-        if rules.is_empty() && fallback.is_none() {
-            return Err(SetupError);
-        }
-        Ok(Self {
-            rules,
-            fallback: fallback.unwrap_or(Action::Direct),
-        })
+
+pub(crate) fn preview_policy(
+    source: &str,
+    ip: &str,
+    country: Option<&str>,
+) -> Result<serde_json::Value, SetupError> {
+    let policy = Policy::parse(source)?;
+    let ip = canonical_ip(ip).ok_or(SetupError)?;
+    let country = country.filter(|value| !value.is_empty());
+    if country
+        .is_some_and(|value| value.len() != 2 || !value.bytes().all(|b| b.is_ascii_alphabetic()))
+    {
+        return Err(SetupError);
     }
-    fn evaluate(&self, ip: IpAddr, country: Option<&str>) -> Result<Action, SetupError> {
-        for (matcher, result) in &self.rules {
-            let matched = match matcher {
-                Matcher::Prefix(prefix) => prefix.contains(&ip),
-                Matcher::Country(expected) => country.ok_or(SetupError)? == expected,
-            };
-            if matched {
-                return Ok(*result);
-            }
-        }
-        Ok(self.fallback)
-    }
-}
-fn action(raw: &str) -> Result<Action, SetupError> {
-    match raw.trim() {
-        "direct" => Ok(Action::Direct),
-        "reject" => Ok(Action::Reject),
-        _ => Err(SetupError),
-    }
+    let country = country.map(str::to_ascii_uppercase);
+    Ok(policy.preview(ip, country.as_deref()))
 }
 
 #[derive(Default)]
