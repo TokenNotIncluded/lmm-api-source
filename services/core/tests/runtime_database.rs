@@ -932,6 +932,121 @@ async fn missing_ledger_execute_is_rejected_and_check_never_changes_grants(pool:
 }
 
 #[sqlx::test(migrations = false)]
+async fn model_continuation_requires_each_execute_grant(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_charging").await;
+    role.optional("core_model").await;
+    let required = RequiredCapabilities {
+        models: true,
+        ..RequiredCapabilities::default()
+    };
+    runtime_database::check(&role.pool, required).await.unwrap();
+    for function in [
+        "resolve_continuation(text,text)",
+        "record_continuation(text,bytea,text,text,text,bytea,bigint)",
+        "activate_continuation(text)",
+        "activate_continuations_after(integer,text)",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE EXECUTE ON FUNCTION core_model.{function} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges),
+            "missing continuation EXECUTE accepted: {function}"
+        );
+        let executable: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT has_function_privilege('core_model.{function}','EXECUTE')"
+        )))
+        .fetch_one(&role.pool)
+        .await
+        .unwrap();
+        assert!(!executable, "checker must not restore EXECUTE: {function}");
+        runtime_database::check(&role.pool, RequiredCapabilities::default())
+            .await
+            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT EXECUTE ON FUNCTION core_model.{function} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        runtime_database::check(&role.pool, required).await.unwrap();
+    }
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn payment_discount_management_rejects_table_and_column_update_grants(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_payments").await;
+    let requirements = [
+        RequiredCapabilities::default(),
+        RequiredCapabilities {
+            payments: true,
+            ..RequiredCapabilities::default()
+        },
+    ];
+    for required in requirements {
+        runtime_database::check(&role.pool, required).await.unwrap();
+    }
+    for (table, column) in [
+        ("discount_code_tombstones", "deleted_by"),
+        ("discount_management_batches", "result"),
+    ] {
+        // No rows or immutable triggers are needed to test effective UPDATE
+        // authority. PostgreSQL checks permissions even when no row matches.
+        let update = format!("UPDATE core_payments.{table} SET {column}={column} WHERE false");
+        let denied = sqlx::query(sqlx::AssertSqlSafe::<&str>(&update))
+            .execute(&role.pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            denied.as_database_error().unwrap().code().as_deref(),
+            Some("42501")
+        );
+        for privilege in ["UPDATE".to_owned(), format!("UPDATE({column})")] {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "GRANT {privilege} ON core_payments.{table} TO {}",
+                role.name
+            )))
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(sqlx::AssertSqlSafe::<&str>(&update))
+                .execute(&role.pool)
+                .await
+                .unwrap();
+            for required in requirements {
+                assert_eq!(
+                    runtime_database::check(&role.pool, required).await,
+                    Err(Error::UnsafePrivileges),
+                    "unexpected update accepted: {privilege} ON {table}"
+                );
+            }
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "REVOKE {privilege} ON core_payments.{table} FROM {}",
+                role.name
+            )))
+            .execute(&pool)
+            .await
+            .unwrap();
+            for required in requirements {
+                runtime_database::check(&role.pool, required).await.unwrap();
+            }
+        }
+    }
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn noinherit_set_role_cannot_hide_a_nonowner_groups_ledger_authority(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
