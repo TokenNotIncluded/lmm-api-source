@@ -162,6 +162,13 @@ def build_sql(material,*,reconcile=False,online=False):
  COMMIT;
 """
     if reconcile:
+        current_check=""" IF (SELECT count(*) FROM core_billing.ledger_accounts a JOIN core_billing.balance_state b ON b.ledger_account_id=a.id WHERE a.owner_account_id=(p->>'account_id')::bigint AND ((a.bucket='wallet' AND b.balance_units=greatest((p->>'available_units')::bigint,0)) OR (a.bucket='debt' AND b.balance_units=least((p->>'available_units')::bigint,0))))<>2
+ THEN RAISE EXCEPTION 'source quota wallet debt exact readback mismatch'; END IF;"""
+        opening_delta_check=""" IF coalesce((SELECT sum(e.delta_units) FROM core_billing.opening_imports o JOIN core_billing.ledger_entries e ON e.journal_id=(o.result->>'journal_id')::bigint JOIN core_billing.ledger_accounts a ON a.id=e.ledger_account_id WHERE o.request=p AND a.bucket='wallet'),0)<>greatest((p->>'available_units')::bigint,0)
+ OR coalesce((SELECT sum(e.delta_units) FROM core_billing.opening_imports o JOIN core_billing.ledger_entries e ON e.journal_id=(o.result->>'journal_id')::bigint JOIN core_billing.ledger_accounts a ON a.id=e.ledger_account_id WHERE o.request=p AND a.bucket='debt'),0)<>least((p->>'available_units')::bigint,0)
+ THEN RAISE EXCEPTION 'immutable opening wallet debt delta mismatch'; END IF;"""
+        require(body.count(current_check)==1,'readback_guard_construction_mismatch')
+        body=body.replace(current_check,opening_delta_check,1)
         return "SELECT pg_advisory_lock(741803121);\nBEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY;\nSET LOCAL timezone='UTC';\n"+body
     return "BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL synchronous_commit=on;\nSET LOCAL standard_conforming_strings=on;\nSET LOCAL timezone='UTC';\nSET LOCAL lock_timeout='5s';\nSET LOCAL statement_timeout='120s';\nSELECT pg_advisory_xact_lock(741803121);\nLOCK TABLE core_billing.opening_import_runs,core_billing.opening_imports,core_billing.ledger_accounts,core_billing.balance_state,core_billing.ledger_journals,core_billing.ledger_entries,core_billing.ledger_operations IN SHARE ROW EXCLUSIVE MODE;\n"+body
 
