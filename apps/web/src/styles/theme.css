@@ -102,7 +102,7 @@ For commercial licensing, please contact support@quantumnous.com
 :root {
   color-scheme: light;
   /* Soft default corners; presets and explicit radius preferences win. */
-  --radius: 0.85rem;
+  --radius: 0.625rem;
   /* Signature 45° corner cut used by brand marks and key surfaces. */
   --cut-size: 0.625rem;
   --app-header-height: 3rem;
@@ -114,7 +114,7 @@ For commercial licensing, please contact support@quantumnous.com
    * in theme-presets.css. Default mirrors `--font-sans` so behavior is
    * identical when no font preference is set. */
   --font-body: var(--font-sans);
-  --background: #f8fafd;
+  --background: #ffffff;
   --foreground: #1f1f1f;
   --card: #ffffff;
   --card-foreground: #1f1f1f;
@@ -122,10 +122,10 @@ For commercial licensing, please contact support@quantumnous.com
   --popover-foreground: oklch(0.145 0 0);
   --primary: #0b57d0;
   --primary-foreground: #ffffff;
-  --secondary: #d3e3fd;
+  --secondary: #e8f0fe;
   --secondary-foreground: #0842a0;
-  --muted: #edf2fa;
-  --muted-foreground: #526074;
+  --muted: #f4f5f7;
+  --muted-foreground: #5f6368;
   --accent: #e8f0fe;
   --accent-foreground: #0842a0;
   --destructive: oklch(0.577 0.245 27.325);
@@ -138,8 +138,8 @@ For commercial licensing, please contact support@quantumnous.com
   --info-foreground: oklch(0.985 0 0);
   --neutral: oklch(0.708 0 0);
   --neutral-foreground: oklch(0.145 0 0);
-  --border: #dce3ed;
-  --input: #9aa7b8;
+  --border: #e5e7eb;
+  --input: #bdc1c6;
   --ring: #0b57d0;
   --chart-1: #0b57d0;
   --chart-2: #146c2e;
@@ -192,18 +192,18 @@ For commercial licensing, please contact support@quantumnous.com
 .dark {
   color-scheme: dark;
   /* Tonal dark surfaces with lighter accents for readable emphasis. */
-  --background: #111318;
+  --background: #111214;
   --foreground: #e3e3e3;
-  --card: #1e2128;
+  --card: #191b1f;
   --card-foreground: #e3e3e3;
-  --popover: #252931;
+  --popover: #22252a;
   --popover-foreground: var(--foreground);
   --primary: #a8c7fa;
   --primary-foreground: #062e6f;
   --secondary: #283e60;
   --secondary-foreground: #d3e3fd;
-  --muted: #282d36;
-  --muted-foreground: #b8c2d2;
+  --muted: #24272c;
+  --muted-foreground: #aeb4bd;
   --accent: #283e60;
   --accent-foreground: #d3e3fd;
   --destructive: oklch(0.704 0.191 22.216);

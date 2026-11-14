@@ -891,9 +891,8 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--forge-destructive-dark);
 }
 
-/* Console shell — a warm paper workspace beside a deep-charcoal sidebar.
- * Both fields follow the shared radius scale, while semantic borders and
- * restrained shadows separate the navigation, header and working surface. */
+/* The console shell uses flat surfaces and spacing to separate navigation
+ * from the active workspace. Semantic colors follow the selected theme. */
 /* Mobile privacy controls share the console viewport instead of extending the
  * body below its 100dvh shell. Desktop and public page layouts keep their flow. */
 @media (max-width: 767px) {
@@ -935,7 +934,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-inner'] {
-  border-radius: calc(var(--radius) * 1.4);
+  border-radius: var(--radius);
 }
 
 .console-editorial [data-slot='sidebar-container'] {
@@ -1653,7 +1652,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial {
-  --sidebar: color-mix(in oklch, var(--primary) 3%, var(--background));
+  --sidebar: color-mix(in oklch, var(--foreground) 2%, var(--background));
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--secondary);
   --sidebar-primary-foreground: var(--secondary-foreground);
@@ -1663,10 +1662,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-inner'] {
-  border: 1px solid
-    color-mix(in oklch, var(--forge-paper-light) 7%, transparent);
-  box-shadow: 0 1rem 3rem -2.5rem
-    color-mix(in oklch, var(--forge-night) 65%, transparent);
+  border: 0;
+  box-shadow: none;
 }
 
 .console-editorial [data-slot='sidebar-menu-button'] {
@@ -1679,34 +1676,29 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-group-label'] {
-  color: color-mix(in oklch, var(--sidebar-foreground) 45%, transparent);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: var(--muted-foreground);
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 .console-editorial > [data-slot='sidebar-inset'] > header,
 .console-editorial [data-slot='sidebar-inset'] > header {
-  background: color-mix(in oklch, var(--background) 88%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--background);
+  backdrop-filter: none;
 }
 
 .console-editorial :where([data-slot='card']) {
-  border-color: color-mix(in oklch, var(--foreground) 8%, transparent);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 0.75rem 2.5rem -2.5rem
-    color-mix(in oklch, var(--foreground) 25%, transparent);
+  border-color: var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
 }
 
 .console-editorial :where([data-slot='card']):hover {
-  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  border-color: var(--border);
 }
 
 .console-editorial .console-section-header {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--card) 28%, var(--background)),
-    transparent
-  );
+  background: var(--background);
 }
 
 .console-editorial :where([data-slot='button'])[data-slot='button'] {
@@ -1715,8 +1707,8 @@ For commercial licensing, please contact support@quantumnous.com
 
 .console-mobile-dock {
   border-top: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
-  background: color-mix(in oklch, var(--background) 92%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--background);
+  backdrop-filter: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
