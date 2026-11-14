@@ -8,23 +8,16 @@
 
 .overview-summary {
   display: grid;
-  gap: 1.25rem;
+  gap: 2rem;
 }
 
 .overview-balance {
   min-width: 0;
   padding: clamp(1.5rem, 3.5cqi, 3rem);
-  border: 1px solid color-mix(in oklch, var(--foreground) 6%, transparent);
-  background:
-    radial-gradient(
-      circle at 100% 0,
-      color-mix(in oklch, var(--chart-1) 7%, transparent),
-      transparent 52%
-    ),
-    var(--card);
+  border: 0;
+  background: color-mix(in oklch, var(--primary) 4%, var(--card));
   border-radius: var(--radius-xl, var(--radius));
-  box-shadow: 0 1.25rem 3.5rem -2.75rem
-    color-mix(in oklch, var(--foreground) 18%, transparent);
+  box-shadow: none;
 }
 
 .overview-balance-heading {
@@ -113,15 +106,16 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
 }
 
 .overview-usage {
   align-self: stretch;
   min-width: 0;
   padding: clamp(1.5rem, 3.5cqi, 3rem);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl, var(--radius));
-  background: var(--card);
+  border: 0;
+  background: transparent;
 }
 
 .overview-metrics {
@@ -136,14 +130,9 @@
   padding-block: 1.75rem;
 }
 
-.overview-metric + .overview-metric {
-  border-block-start: 1px solid
-    color-mix(in oklch, var(--border) 65%, transparent);
-}
-
 .overview-metric-value {
   text-align: end;
-  font-size: 1.25rem;
+  font-size: clamp(1.25rem, 2.5cqi, 1.8rem);
   font-weight: 600;
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
@@ -151,8 +140,8 @@
 }
 
 .overview-site-statistics {
-  border-block-start: 1px solid var(--border);
-  padding-block-start: 1.75rem;
+  border-block-start: 0;
+  padding-block-start: 2.5rem;
 }
 
 .overview-ledger {
@@ -200,7 +189,8 @@
 }
 
 .overview-payment-row + .overview-payment-row {
-  border-block-start: 1px solid var(--border);
+  border-block-start: 1px solid
+    color-mix(in oklch, var(--border) 50%, transparent);
 }
 
 .overview-payment-currency {
@@ -245,8 +235,8 @@
 
 .overview-notes {
   grid-column: 1 / -1;
-  border-block-start: 1px solid var(--border);
-  padding-block-start: 0.5rem;
+  border-block-start: 0;
+  padding-block-start: 1rem;
 }
 
 .overview-disclosure > summary {
@@ -309,7 +299,7 @@
 @container (min-width: 32rem) {
   .overview-site-totals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 2rem;
+    gap: 3rem;
   }
 
   .overview-payment-row {
@@ -345,7 +335,7 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
     padding-inline-end: 2rem;
-    border-inline-end: 1px solid var(--border);
+    border-inline-end: 0;
   }
 }
 
@@ -380,16 +370,7 @@
 }
 
 .overview-dashboard > .overview-usage-charts {
-  padding: clamp(1.5rem, 3.5cqi, 3rem);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl, var(--radius));
-  background: var(--card);
-}
-.overview-balance-footer {
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--border);
-}
-.overview-metric-value {
-  font-size: clamp(1.25rem, 2.5cqi, 1.8rem);
+  padding-block: 1rem;
+  border: 0;
+  background: transparent;
 }

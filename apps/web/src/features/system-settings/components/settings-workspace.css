@@ -1,16 +1,19 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 .settings-workspace {
-  --settings-width: 74rem;
+  --settings-width: 68rem;
   font-family: var(--font-sans);
   background: var(--background);
 }
 .settings-workspace .console-section-header,
 .settings-workspace .console-section-content,
 .settings-workspace .console-section-footer {
-  padding-inline: max(1.25rem, calc((100% - var(--settings-width)) / 2));
+  padding-inline: max(
+    clamp(1.25rem, 3vw, 3rem),
+    calc((100% - var(--settings-width)) / 2)
+  );
 }
 .settings-workspace .console-section-header {
-  padding-block: 1.25rem 1rem;
+  padding-block: 2.5rem 1.75rem;
 }
 /* Administrative forms use a consistent sans face, independent of editorial headings. */
 .settings-workspace :is(h1, h2, h3) {
@@ -29,7 +32,7 @@
   padding-bottom: 2rem;
 }
 .settings-workspace .console-section-footer {
-  border-top: 1px solid var(--border);
+  border-top: 0;
   padding-block: 0.875rem;
   background: var(--background);
 }
@@ -105,9 +108,9 @@
 }
 .settings-workspace .settings-switch-row {
   border-bottom: 0;
-  padding: 1rem;
-  border-radius: 1rem;
-  background: color-mix(in oklch, var(--muted) 35%, transparent);
+  padding: 1.25rem 0;
+  border-radius: 0;
+  background: transparent;
 }
 .settings-workspace .settings-switch-row:last-child {
   border-bottom: 0;
@@ -154,12 +157,12 @@
   animation: settings-reveal 0.2s ease-out;
 }
 .settings-workspace .settings-disclosure + .settings-disclosure {
-  margin-top: -1px;
+  margin-top: 1.25rem;
 }
 .settings-workspace .settings-stack {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1.5rem;
 }
 .settings-workspace .settings-stack > .settings-switch-row {
   margin-bottom: 0;
@@ -170,12 +173,13 @@
   width: 100%;
 }
 .settings-starter {
-  border: 1px solid var(--border);
-  border-radius: 0.8rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--card);
   overflow: clip;
 }
 .settings-starter + .settings-starter {
-  margin-top: 0.65rem;
+  margin-top: 1rem;
 }
 .settings-starter > summary {
   padding: 0.9rem 1rem;
@@ -202,7 +206,7 @@
   gap: 1rem;
   padding: 1.1rem;
   margin-bottom: 1.5rem;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 0.9rem;
   background: color-mix(in oklch, var(--muted) 22%, var(--card));
 }
@@ -235,7 +239,7 @@
   .settings-workspace .console-section-header,
   .settings-workspace .console-section-content,
   .settings-workspace .console-section-footer {
-    padding-inline: 1rem;
+    padding-inline: 1.25rem;
   }
   .settings-workspace .console-section-header {
     padding-block: 1.25rem 1rem;
@@ -281,8 +285,8 @@
   gap: 2rem;
 }
 .settings-workspace .settings-disclosure-summary {
-  background: color-mix(in oklch, var(--muted) 36%, transparent);
-  padding-inline: 1rem;
+  background: transparent;
+  padding-inline: 0.25rem;
 }
 .settings-workspace .settings-disclosure-content {
   padding: 1.5rem 0.5rem;
@@ -319,34 +323,6 @@
   .settings-workspace .settings-section {
     gap: 1.5rem;
   }
-}
-
-.settings-workspace .console-section-header {
-  border-bottom: 1px solid var(--border);
-}
-.settings-workspace .console-page-title::before {
-  display: none;
-}
-.settings-workspace .console-section-content {
-  padding-top: 1.25rem;
-}
-.settings-workspace .settings-section {
-  gap: 1.5rem;
-}
-.settings-workspace .settings-disclosure-summary {
-  padding-block: 0.875rem;
-  border: 1px solid var(--border);
-  background: var(--card);
-}
-.settings-workspace .settings-disclosure[open] > .settings-disclosure-summary {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.settings-workspace .settings-disclosure-body {
-  padding: 1.25rem;
-  border: 1px solid var(--border);
-  border-top: 0;
-  border-radius: 0 0 0.6rem 0.6rem;
 }
 @media (max-width: 767px) {
   .settings-workspace .console-section-header {

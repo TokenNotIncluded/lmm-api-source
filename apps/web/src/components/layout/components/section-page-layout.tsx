@@ -83,9 +83,9 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
     <PageFooterProvider container={footerContainer}>
       <Main className={props.className}>
         <MobileScrollChrome>
-          <div className='console-section-header shrink-0 px-4 pt-5 pb-4 sm:px-6 sm:pt-7 sm:pb-5'>
+          <div className='console-section-header shrink-0 px-5 pt-6 pb-6 sm:px-8 sm:pt-9 sm:pb-8'>
             {breadcrumb != null && (
-              <div className='mb-2 sm:mb-3'>{breadcrumb}</div>
+              <div className='mb-3 sm:mb-4'>{breadcrumb}</div>
             )}
             <div className='console-page-heading flex flex-wrap items-center justify-between gap-x-4 gap-y-3'>
               <div className='w-full min-w-0 sm:w-auto sm:flex-1'>
@@ -104,8 +104,8 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
           data-mobile-scroll-root=''
           className={
             props.fixedContent
-              ? 'console-section-content min-h-0 min-w-0 flex-1 overflow-auto px-4 pt-2 pb-6 sm:overflow-hidden sm:px-6 sm:pb-8'
-              : 'console-section-content min-h-0 min-w-0 flex-1 overflow-auto px-4 pt-2 pb-6 sm:px-6 sm:pb-8'
+              ? 'console-section-content min-h-0 min-w-0 flex-1 overflow-auto px-5 pt-2 pb-8 sm:overflow-hidden sm:px-8 sm:pb-12'
+              : 'console-section-content min-h-0 min-w-0 flex-1 overflow-auto px-5 pt-2 pb-8 sm:px-8 sm:pb-12'
           }
         >
           {content}
@@ -114,7 +114,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
         <MobileScrollChrome>
           <div
             ref={setFooterContainer}
-            className='console-section-footer bg-background shrink-0 px-4 py-3 empty:hidden sm:px-6 sm:py-4'
+            className='console-section-footer bg-background shrink-0 px-5 py-4 empty:hidden sm:px-8 sm:py-5'
           />
         </MobileScrollChrome>
       </Main>

@@ -217,7 +217,7 @@ export function AppHeader({
                     variant='ghost'
                     size='icon'
                     className={cn(
-                      'relative h-11 w-auto min-w-11 gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 text-primary transition-colors hover:bg-primary/10 md:h-9',
+                      'relative h-11 w-auto min-w-11 gap-2 rounded-full bg-primary/5 px-3 text-primary transition-colors hover:bg-primary/10 md:h-9',
                       !showMobileAssistant && 'hidden md:inline-flex',
                       !assistantEnabled && 'md:hidden',
                       railOpen && 'bg-accent text-accent-foreground'
@@ -241,7 +241,7 @@ export function AppHeader({
                   {t('AI assistant')}
                 </span>
                 <kbd
-                  className='border-primary/15 text-muted-foreground hidden rounded border px-1.5 py-0.5 font-mono text-[10px] 2xl:inline'
+                  className='text-muted-foreground hidden px-1.5 py-0.5 font-mono text-[10px] 2xl:inline'
                   aria-hidden='true'
                 >
                   Ctrl / ⌘ ⇧ Space
