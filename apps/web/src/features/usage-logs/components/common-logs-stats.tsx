@@ -18,10 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { ChartNoAxesColumn, ChevronDown } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
+import { toIntlLocale } from '@/i18n/languages'
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 import {
   formatHistoricalRawQuota,
@@ -35,6 +39,8 @@ import {
   readUsageStatistics,
   readUsageStatisticsScope,
 } from '../lib/statistics'
+import { formatDurationMs } from '../lib/timing'
+import { buildUsageTrendBuckets } from '../lib/trend'
 import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
 import type { LogStatistics } from '../types'
 import { useLogsViewScope, useUsageLogsContext } from './usage-logs-provider'
@@ -50,11 +56,10 @@ function StatBadge(props: {
   return (
     <span
       title={props.title}
-      className='border-border/60 bg-muted/25 inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs'
+      className='inline-flex min-w-0 items-baseline gap-2 py-1 text-xs'
     >
-      <span className={cn('h-3.5 w-0.5 rounded-full', props.accent)} />
       <span className='text-muted-foreground'>{props.label}</span>
-      <span className='text-foreground/85 font-mono font-semibold tabular-nums'>
+      <span className='text-foreground font-medium tabular-nums'>
         {props.value}
       </span>
     </span>
@@ -89,7 +94,7 @@ function UsageTrend(props: {
   onRetry: () => void
   onSelect: (bucket: TrendBucket) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { formatHistoricalQuota, formatRawQuota } = useHistoricalQuotaMoney()
 
   if (props.loading) {
@@ -145,17 +150,20 @@ function UsageTrend(props: {
   }
 
   const formatBucket = (timestamp: number) =>
-    new Intl.DateTimeFormat(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-    }).format(new Date(timestamp))
+    new Intl.DateTimeFormat(
+      toIntlLocale(i18n.resolvedLanguage || i18n.language),
+      {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+      }
+    ).format(new Date(timestamp))
 
   return (
     <div className='min-w-[220px] flex-1'>
       <div
         className='flex h-16 items-end gap-1'
-        role='img'
+        role='group'
         aria-label={t('Usage trend for the selected time range')}
       >
         {buckets.map((bucket) => {
@@ -184,7 +192,11 @@ function UsageTrend(props: {
   )
 }
 
-export function CommonLogsStats() {
+export function CommonLogsStats({
+  refreshInterval = false,
+}: {
+  refreshInterval?: number | false
+}) {
   const { t, i18n } = useTranslation()
   const { formatHistoricalQuota, formatRawQuota } = useHistoricalQuotaMoney()
   const { isAdminView: isAdmin, historical } = useLogsViewScope()
@@ -194,6 +206,12 @@ export function CommonLogsStats() {
   const auth = useAuthStore((state) => state.auth)
   const scope = readUsageStatisticsScope(auth)
   const scopeKey = [scope?.userId, scope?.sessionId, scope?.role]
+  const [trendOpen, setTrendOpen] = useState(false)
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const number = (value: number | null | undefined) =>
+    value == null
+      ? '—'
+      : value.toLocaleString(locale, { maximumFractionDigits: 2 })
 
   const statsQuery = useQuery({
     queryKey: [
@@ -204,9 +222,7 @@ export function CommonLogsStats() {
       searchParams,
     ],
     queryFn: async ({ signal }) => {
-      if (!scope) {
-        throw new Error('Usage statistics session unavailable')
-      }
+      if (!scope) throw new Error('Usage statistics session unavailable')
       const params = buildApiParams({
         page: 1,
         pageSize: 1,
@@ -214,11 +230,13 @@ export function CommonLogsStats() {
         columnFilters: [],
         isAdmin,
       })
-
       return readUsageStatistics(scope, params, isAdmin, signal, historical)
     },
     enabled: !!scope,
     retry: false,
+    refetchInterval: (query) =>
+      query.state.status === 'error' ? false : refreshInterval,
+    refetchIntervalInBackground: false,
   })
 
   const trendQuery = useQuery({
@@ -230,24 +248,13 @@ export function CommonLogsStats() {
       searchParams,
     ],
     queryFn: async ({ signal }) => {
-      if (!scope) {
-        throw new Error('Usage statistics session unavailable')
-      }
+      if (!scope) throw new Error('Usage statistics session unavailable')
       const fallback = getDefaultTimeRange()
       const start = Number(searchParams.startTime) || fallback.start.getTime()
       const end = Number(searchParams.endTime) || Date.now()
-      const safeEnd = end > start ? end : start + 60 * 60 * 1000
-      const bucketCount = 12
-      const size = (safeEnd - start) / bucketCount
-      const trendBuckets = Array.from({ length: bucketCount }, (_, index) => ({
-        start: Math.round(start + index * size),
-        end: Math.round(
-          index === bucketCount - 1 ? safeEnd : start + (index + 1) * size
-        ),
-      }))
-
+      const buckets = buildUsageTrendBuckets(start, end)
       return Promise.all(
-        trendBuckets.map(async (bucket) => {
+        buckets.map(async (bucket) => {
           const params = buildApiParams({
             page: 1,
             pageSize: 1,
@@ -270,22 +277,13 @@ export function CommonLogsStats() {
         })
       )
     },
-    enabled: sensitiveVisible && !!scope,
+    enabled: trendOpen && sensitiveVisible && !!scope,
     retry: false,
   })
 
-  if (statsQuery.isLoading || statsQuery.isFetching) {
-    return (
-      <div className='flex items-center gap-2'>
-        <Skeleton className='h-7 w-[150px] rounded-md' />
-        <Skeleton className='h-7 w-[100px] rounded-md' />
-        <Skeleton className='h-7 w-[120px] rounded-md' />
-      </div>
-    )
-  }
-
   const stats = statsQuery.isError ? undefined : statsQuery.data
-  const statisticsUnavailable = !scope || !stats
+  const native = stats?.source !== 'legacy_log_only' ? stats : undefined
+  const statisticsUnavailable = !scope || (!stats && !statsQuery.isLoading)
   const quotaLabel = stats
     ? stats.quota !== null
       ? formatHistoricalQuota(stats.quota, statisticsProjection(stats))
@@ -295,160 +293,197 @@ export function CommonLogsStats() {
           getCurrencyFormattingLocale(i18n.resolvedLanguage || i18n.language)
         )
     : '—'
+  const secondaryMetrics = [
+    { label: t('Success'), value: native?.success_count },
+    { label: t('Pending'), value: native?.pending_count },
+    { label: t('Refunded'), value: native?.refunded_count },
+    { label: t('Total Tokens'), value: native?.total_tokens },
+    { label: t('Input Tokens'), value: native?.input_tokens },
+    { label: t('Output Tokens'), value: native?.output_tokens },
+    { label: t('Selected range RPM'), value: native?.requests_per_minute },
+    { label: t('Selected range TPM'), value: native?.tokens_per_minute },
+    { label: t('Cache read tokens'), value: native?.cache_read_tokens },
+    { label: t('Cache write tokens'), value: native?.cache_write_tokens },
+    { label: t('Cache Write (5m)'), value: native?.cache_write_5m_tokens },
+    { label: t('Cache Write (1h)'), value: native?.cache_write_1h_tokens },
+    {
+      label: t('Cache write (12 hours)'),
+      value: native?.cache_write_12h_tokens,
+    },
+    {
+      label: t('Images (billing quantity)'),
+      value: native?.output_image_count,
+    },
+    { label: t('Successful tool requests'), value: native?.tool_requests },
+    { label: t('Completed text requests'), value: native?.completed_requests },
+    { label: t('Grounded requests'), value: native?.grounded_requests },
+    { label: t('Incomplete'), value: native?.incomplete_count },
+  ].filter((metric) => metric.value !== undefined)
 
   return (
-    <div className='flex w-full flex-wrap items-center gap-2'>
-      <div className='flex flex-wrap items-center gap-2'>
-        <StatBadge
-          label={t('Usage')}
-          value={sensitiveVisible ? quotaLabel : '••••'}
-          title={
-            sensitiveVisible &&
-            historicalQuotaUSD(statisticsProjection(stats)) === null
-              ? t('Historical monetary value unavailable')
-              : undefined
-          }
-          accent='console-stat-accent-info'
-        />
-        <StatBadge
-          label={t('RPM')}
-          value={stats?.rpm ?? '—'}
-          accent='console-stat-accent-danger'
-        />
+    <section
+      className='min-w-0 space-y-3 py-1'
+      aria-label={t('Usage statistics')}
+      aria-busy={statsQuery.isFetching}
+    >
+      <div className='grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4'>
+        {[
+          {
+            label: t('Usage'),
+            value: sensitiveVisible ? quotaLabel : '••••',
+            title:
+              sensitiveVisible &&
+              historicalQuotaUSD(statisticsProjection(stats)) === null
+                ? t('Historical monetary value unavailable')
+                : undefined,
+          },
+          { label: t('Matching requests'), value: number(native?.total_count) },
+          {
+            label: t('Failed requests'),
+            value: number(native?.error_count),
+            danger: (native?.error_count ?? 0) > 0,
+          },
+          {
+            label: t('P95 duration'),
+            value: formatDurationMs(native?.p95_duration_ms),
+            title: t(
+              'Calculated from recorded request durations in the selected range.'
+            ),
+          },
+        ].map((metric) => (
+          <div
+            key={metric.label}
+            className='min-w-0 space-y-1'
+            title={metric.title}
+          >
+            <p className='text-muted-foreground text-xs'>{metric.label}</p>
+            {statsQuery.isLoading ? (
+              <Skeleton className='h-7 w-28' />
+            ) : (
+              <p
+                className={cn(
+                  'break-words text-lg font-medium tracking-tight tabular-nums sm:text-xl',
+                  metric.danger && 'text-destructive'
+                )}
+              >
+                {metric.value}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className='text-muted-foreground flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 text-xs'>
+        <span>{t('Last 60 seconds')}</span>
+        <StatBadge label={t('RPM')} value={stats?.rpm ?? '—'} accent='' />
         <StatBadge
           label={t('TPM')}
           value={stats?.tpm ?? '—'}
+          accent=''
           title={
-            stats?.source !== 'legacy_log_only' &&
-            stats?.token_count_scope === 'settled_text_requests'
+            native?.token_count_scope === 'settled_text_requests'
               ? t('Tokens cover settled text requests only.')
               : undefined
           }
-          accent='console-stat-accent-neutral'
         />
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.cache_read_tokens !== undefined && (
-            <>
-              <StatBadge
-                label={t('Cache read tokens')}
-                value={stats.cache_read_tokens.toLocaleString()}
-                accent='console-stat-accent-neutral'
-              />
-              <StatBadge
-                label={t('Cache write tokens')}
-                value={stats.cache_write_tokens?.toLocaleString() ?? '—'}
-                accent='console-stat-accent-neutral'
-              />
-              <StatBadge
-                label={t('Cache Write (5m)')}
-                value={stats.cache_write_5m_tokens?.toLocaleString() ?? '—'}
-                accent='console-stat-accent-neutral'
-              />
-              <StatBadge
-                label={t('Cache Write (1h)')}
-                value={stats.cache_write_1h_tokens?.toLocaleString() ?? '—'}
-                accent='console-stat-accent-neutral'
-              />
-              <StatBadge
-                label={t('Cache write (12 hours)')}
-                value={stats.cache_write_12h_tokens?.toLocaleString() ?? '—'}
-                accent='console-stat-accent-neutral'
-              />
-            </>
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.output_image_count !== undefined && (
-            <StatBadge
-              label={t('Images (billing quantity)')}
-              value={stats.output_image_count}
-              accent='console-stat-accent-neutral'
-            />
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.tool_requests !== undefined && (
-            <StatBadge
-              label={t('Successful tool requests')}
-              value={stats.tool_requests}
-              accent='console-stat-accent-neutral'
-            />
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.completed_requests !== undefined && (
-            <StatBadge
-              label={t('Completed text requests')}
-              value={stats.completed_requests}
-              accent='console-stat-accent-neutral'
-            />
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.grounded_requests !== undefined && (
-            <StatBadge
-              label={t('Grounded requests')}
-              value={stats.grounded_requests}
-              accent='console-stat-accent-neutral'
-            />
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.reserved_credits !== undefined && (
-            <StatBadge
-              label={t('Reserved funds')}
-              value={
-                sensitiveVisible
-                  ? formatRawQuota(stats.reserved_credits)
-                  : '••••'
-              }
-              accent='console-stat-accent-neutral'
-            />
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.incomplete_count !== undefined && (
-            <StatBadge
-              label={t('Incomplete')}
-              value={stats.incomplete_count}
-              accent='console-stat-accent-neutral'
-            />
-          )}
-        {stats?.source !== 'legacy_log_only' &&
-          stats?.platform_sponsored_quota !== undefined && (
-            <StatBadge
-              label={t('Platform-sponsored usage')}
-              value={
-                sensitiveVisible
-                  ? formatRawQuota(stats.platform_sponsored_quota)
-                  : '••••'
-              }
-              accent='console-stat-accent-neutral'
-            />
-          )}
-      </div>
-      {statisticsUnavailable ? (
-        <div
-          role='alert'
-          className='text-muted-foreground flex items-center gap-2 text-xs'
+        {statisticsUnavailable && (
+          <span role='alert' className='flex items-center gap-2'>
+            {t('Failed to load')}
+            <button
+              type='button'
+              className='text-foreground underline underline-offset-2'
+              disabled={!scope}
+              onClick={() => {
+                void statsQuery.refetch()
+                if (trendOpen && sensitiveVisible) void trendQuery.refetch()
+              }}
+            >
+              {t('Retry')}
+            </button>
+          </span>
+        )}
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          className='ms-auto gap-1.5'
+          aria-expanded={trendOpen}
+          disabled={!sensitiveVisible}
+          onClick={() => setTrendOpen((open) => !open)}
         >
-          <span>{t('Failed to load')}</span>
-          <button
-            type='button'
-            className='text-foreground underline underline-offset-2'
-            disabled={!scope}
-            onClick={() => {
-              void statsQuery.refetch()
-              if (sensitiveVisible) {
-                void trendQuery.refetch()
-              }
-            }}
-          >
-            {t('Retry')}
-          </button>
-        </div>
-      ) : (
-        sensitiveVisible && (
+          <ChartNoAxesColumn className='size-3.5' aria-hidden='true' />
+          {t('Usage trend')}
+          <ChevronDown
+            className={cn('size-3.5', trendOpen && 'rotate-180')}
+            aria-hidden='true'
+          />
+        </Button>
+      </div>
+      {secondaryMetrics.length > 0 && (
+        <details className='group min-w-0'>
+          <summary className='text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs focus-visible:outline-offset-4'>
+            {t('Usage breakdown')}
+          </summary>
+          <div className='mt-3 grid max-h-[30vh] grid-cols-2 gap-x-6 gap-y-1 overflow-y-auto md:grid-cols-3 xl:grid-cols-4'>
+            {secondaryMetrics.map((metric) => (
+              <StatBadge
+                key={metric.label}
+                label={metric.label}
+                value={number(metric.value)}
+                accent=''
+              />
+            ))}
+            {native?.average_duration_ms !== undefined && (
+              <StatBadge
+                label={t('Average duration')}
+                value={formatDurationMs(native.average_duration_ms)}
+                accent=''
+              />
+            )}
+            {native?.duration_sample_count !== undefined && (
+              <StatBadge
+                label={t('Recorded durations')}
+                value={number(native.duration_sample_count)}
+                accent=''
+              />
+            )}
+            {native?.reserved_credits !== undefined && (
+              <StatBadge
+                label={t('Reserved funds')}
+                value={
+                  sensitiveVisible
+                    ? formatRawQuota(native.reserved_credits)
+                    : '••••'
+                }
+                accent=''
+              />
+            )}
+            {native?.platform_sponsored_quota !== undefined && (
+              <StatBadge
+                label={t('Platform-sponsored usage')}
+                value={
+                  sensitiveVisible
+                    ? formatRawQuota(native.platform_sponsored_quota)
+                    : '••••'
+                }
+                accent=''
+              />
+            )}
+          </div>
+          <p className='text-muted-foreground mt-2 text-xs'>
+            {t(
+              'Range rates use the selected time window. Live rates use the last 60 seconds.'
+            )}
+          </p>
+        </details>
+      )}
+      {trendOpen && sensitiveVisible && !statisticsUnavailable && (
+        <div className='py-2'>
           <UsageTrend
             buckets={trendQuery.data ?? []}
             loading={trendQuery.isLoading || trendQuery.isFetching}
             error={trendQuery.isError}
             onRetry={() => void trendQuery.refetch()}
-            onSelect={(bucket) => {
+            onSelect={(bucket) =>
               void navigate({
                 to: '/usage-logs/$section',
                 params: { section: 'common' },
@@ -459,10 +494,10 @@ export function CommonLogsStats() {
                   page: 1,
                 }),
               })
-            }}
+            }
           />
-        )
+        </div>
       )}
-    </div>
+    </section>
   )
 }

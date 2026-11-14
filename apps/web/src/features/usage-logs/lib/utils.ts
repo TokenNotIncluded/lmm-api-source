@@ -152,8 +152,25 @@ export function buildApiParams(config: {
     ...(searchParams.requestId
       ? { request_id: String(searchParams.requestId) }
       : {}),
-    ...(isAdmin && searchParams.upstreamRequestId
+    ...(searchParams.upstreamRequestId
       ? { upstream_request_id: String(searchParams.upstreamRequestId) }
+      : {}),
+    ...(searchParams.status &&
+    ['success', 'error', 'pending', 'refunded'].includes(
+      String(searchParams.status)
+    )
+      ? { status: searchParams.status as GetLogsParams['status'] }
+      : {}),
+    ...(searchParams.minDurationMs !== undefined &&
+    searchParams.minDurationMs !== ''
+      ? { min_duration_ms: Number(searchParams.minDurationMs) }
+      : {}),
+    ...(searchParams.maxDurationMs !== undefined &&
+    searchParams.maxDurationMs !== ''
+      ? { max_duration_ms: Number(searchParams.maxDurationMs) }
+      : {}),
+    ...(searchParams.sortOrder === 'asc' || searchParams.sortOrder === 'desc'
+      ? { sort_order: searchParams.sortOrder }
       : {}),
     ...buildTimeRangeParams(searchParams, false),
   }

@@ -51,6 +51,8 @@ interface LogsFilterToolbarProps<TData extends RowData> {
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
   searchLoading?: boolean
+  searchDisabled?: boolean
+  validationMessage?: ReactNode
   onReset: () => void
   onSearch: () => void
   className?: string
@@ -60,6 +62,7 @@ interface LogsFilterFieldProps {
   children: ReactNode
   wide?: boolean
   className?: string
+  label?: string
 }
 
 export function LogsFilterField(props: LogsFilterFieldProps) {
@@ -71,6 +74,11 @@ export function LogsFilterField(props: LogsFilterFieldProps) {
         props.className
       )}
     >
+      {props.label && (
+        <div className='text-muted-foreground mb-1.5 text-xs'>
+          {props.label}
+        </div>
+      )}
       {props.children}
     </div>
   )
@@ -80,7 +88,8 @@ export function LogsFilterInput(props: ComponentProps<typeof Input>) {
   return (
     <Input
       {...props}
-      className={cn('h-8 min-w-0 text-sm leading-5', props.className)}
+      aria-label={props['aria-label'] ?? props.placeholder}
+      className={cn('h-9 min-w-0 text-sm leading-5', props.className)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' && event.nativeEvent.isComposing) return
         props.onKeyDown?.(event)
@@ -129,7 +138,7 @@ export function LogsFilterToolbar<TData extends RowData>(
           'text-primary hover:text-primary'
       )}
     >
-      {advancedOpen ? t('Collapse') : t('Expand')}
+      {advancedOpen ? t('Fewer filters') : t('More filters')}
       {activeAdvancedCount > 0 && (
         <Badge className='ml-0.5 size-5 justify-center p-0 text-[10px]'>
           {activeAdvancedCount}
@@ -149,7 +158,7 @@ export function LogsFilterToolbar<TData extends RowData>(
       <Drawer open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
         <div
           className={cn(
-            'console-log-toolbar bg-card/50 rounded-xl border p-3',
+            'console-log-toolbar min-w-0 space-y-3',
             props.className
           )}
         >
@@ -213,7 +222,7 @@ export function LogsFilterToolbar<TData extends RowData>(
               <Button
                 type='button'
                 onClick={props.onSearch}
-                disabled={props.searchLoading}
+                disabled={props.searchLoading || props.searchDisabled}
               >
                 {props.searchLoading && <Loader2 className='animate-spin' />}
                 {t('Search')}
@@ -246,12 +255,17 @@ export function LogsFilterToolbar<TData extends RowData>(
                 {t('Adjust filters, then search to refresh the logs.')}
               </DrawerDescription>
             </DrawerHeader>
-            <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-3'>
+            <div className='flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-4'>
               {props.mobileFilters ?? (
                 <>
                   {props.primaryFilters}
                   {props.advancedFilters}
                 </>
+              )}
+              {props.validationMessage && (
+                <p role='alert' className='text-destructive text-xs'>
+                  {props.validationMessage}
+                </p>
               )}
             </div>
             <DrawerFooter className='border-border/70 grid grid-cols-2 gap-2 border-t px-4 py-3'>
@@ -266,7 +280,7 @@ export function LogsFilterToolbar<TData extends RowData>(
               <Button
                 type='button'
                 onClick={handleMobileSearch}
-                disabled={props.searchLoading}
+                disabled={props.searchLoading || props.searchDisabled}
               >
                 {props.searchLoading && <Loader2 className='animate-spin' />}
                 {t('Search')}
@@ -280,13 +294,10 @@ export function LogsFilterToolbar<TData extends RowData>(
 
   return (
     <div
-      className={cn(
-        'console-log-toolbar bg-card/50 rounded-xl border p-3 sm:p-4',
-        props.className
-      )}
+      className={cn('console-log-toolbar min-w-0 space-y-4', props.className)}
     >
-      <div className='flex flex-wrap items-start gap-2'>
-        <div className='grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'>
+      <div className='flex flex-wrap items-end gap-3'>
+        <div className='grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'>
           {props.primaryFilters}
         </div>
         {advancedToggle && (
@@ -301,13 +312,18 @@ export function LogsFilterToolbar<TData extends RowData>(
           id={advancedPanelId}
           hidden={!advancedOpen}
           style={{ display: advancedOpen ? undefined : 'none' }}
-          className='mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'
+          className='grid max-h-[35vh] grid-cols-1 gap-4 overflow-y-auto py-1 sm:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]'
         >
           {props.advancedFilters}
         </div>
       )}
 
-      <div className='mt-2 flex flex-wrap items-center gap-2'>
+      {props.validationMessage && (
+        <p role='alert' className='text-destructive text-xs'>
+          {props.validationMessage}
+        </p>
+      )}
+      <div className='flex flex-wrap items-center gap-2'>
         {props.stats}
         <div className='ms-auto flex flex-wrap items-center justify-end gap-1.5 sm:gap-2'>
           {props.actionStart}
@@ -322,7 +338,7 @@ export function LogsFilterToolbar<TData extends RowData>(
           <Button
             type='button'
             onClick={props.onSearch}
-            disabled={props.searchLoading}
+            disabled={props.searchLoading || props.searchDisabled}
           >
             {props.searchLoading && <Loader2 className='animate-spin' />}
             {t('Search')}

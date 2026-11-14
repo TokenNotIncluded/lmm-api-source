@@ -24,7 +24,14 @@ import {
 } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import { Download, Eye, EyeOff } from 'lucide-react'
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -53,7 +60,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { exportHistoricalUsage, exportNativeUsage } from '../api'
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
-import { buildSearchParams } from '../lib/filter'
+import { buildSearchParams, validateCommonLogFilters } from '../lib/filter'
 import { readUsageStatisticsScope } from '../lib/statistics'
 import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
@@ -103,6 +110,10 @@ function buildSearchSourceKey(values: {
   requestId?: unknown
   upstreamRequestId?: unknown
   type?: unknown
+  status?: unknown
+  minDurationMs?: unknown
+  maxDurationMs?: unknown
+  sortOrder?: unknown
 }) {
   return [
     values.startTime,
@@ -114,6 +125,10 @@ function buildSearchSourceKey(values: {
     values.username,
     values.requestId,
     values.upstreamRequestId,
+    values.status,
+    values.minDurationMs,
+    values.maxDurationMs,
+    values.sortOrder,
     Array.isArray(values.type) ? values.type.join(',') : values.type,
   ]
     .map((value) => String(value ?? ''))
@@ -122,6 +137,8 @@ function buildSearchSourceKey(values: {
 
 interface CommonLogsFilterBarProps<TData extends RowData> {
   table: Table<TData>
+  refreshControls?: ReactNode
+  refreshInterval?: number | false
 }
 
 export function CommonLogsFilterBar<TData extends RowData>(
@@ -233,6 +250,10 @@ export function CommonLogsFilterBar<TData extends RowData>(
       requestId: searchParams.requestId,
       upstreamRequestId: searchParams.upstreamRequestId,
       type: searchParams.type,
+      status: searchParams.status,
+      minDurationMs: searchParams.minDurationMs,
+      maxDurationMs: searchParams.maxDurationMs,
+      sortOrder: searchParams.sortOrder,
     }
     const filters: CommonLogFilters = {
       startTime: searchParams.startTime
@@ -246,6 +267,14 @@ export function CommonLogsFilterBar<TData extends RowData>(
       username: searchParams.username || undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
+      status: ['success', 'error', 'pending', 'refunded'].includes(
+        searchParams.status ?? ''
+      )
+        ? (searchParams.status as CommonLogFilters['status'])
+        : undefined,
+      minDurationMs: searchParams.minDurationMs || undefined,
+      maxDurationMs: searchParams.maxDurationMs || undefined,
+      sortOrder: searchParams.sortOrder || 'desc',
     }
     return {
       sourceKey: buildSearchSourceKey(sourceValues),
@@ -263,12 +292,17 @@ export function CommonLogsFilterBar<TData extends RowData>(
     searchParams.requestId,
     searchParams.upstreamRequestId,
     searchParams.type,
+    searchParams.status,
+    searchParams.minDurationMs,
+    searchParams.maxDurationMs,
+    searchParams.sortOrder,
   ])
   const [draft, setDraft] = useState<CommonLogDraft>(() => searchState)
   const activeDraft =
     draft.sourceKey === searchState.sourceKey ? draft : searchState
   const filters = activeDraft.filters
   const logType = activeDraft.logType
+  const filterError = validateCommonLogFilters(filters, isAdmin, historical)
 
   const handleChange = useCallback(
     (field: keyof CommonLogFilters, value: Date | string | undefined) => {
@@ -286,7 +320,21 @@ export function CommonLogsFilterBar<TData extends RowData>(
   )
 
   const handleApply = useCallback(() => {
-    const filterParams = buildSearchParams(filters, 'common')
+    if (filterError) return
+    const filterParams = buildSearchParams(
+      {
+        ...filters,
+        channel: isAdmin ? filters.channel : undefined,
+        username: isAdmin ? filters.username : undefined,
+        upstreamRequestId:
+          !historical || isAdmin ? filters.upstreamRequestId : undefined,
+        status: historical ? undefined : filters.status,
+        minDurationMs: historical ? undefined : filters.minDurationMs,
+        maxDurationMs: historical ? undefined : filters.maxDurationMs,
+        sortOrder: historical ? undefined : filters.sortOrder,
+      },
+      'common'
+    )
     navigate({
       to: '/usage-logs/$section',
       params: { section: 'common' },
@@ -296,9 +344,24 @@ export function CommonLogsFilterBar<TData extends RowData>(
         page: 1,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['logs'] })
-    queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [filters, logType, navigate, queryClient])
+    if (
+      buildSearchSourceKey({ ...filterParams, type: [logType] }) ===
+      searchState.sourceKey
+    ) {
+      void queryClient.invalidateQueries({ queryKey: ['logs'] })
+      void queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+      void queryClient.invalidateQueries({ queryKey: ['usage-logs-trend'] })
+    }
+  }, [
+    filters,
+    logType,
+    filterError,
+    isAdmin,
+    historical,
+    navigate,
+    queryClient,
+    searchState.sourceKey,
+  ])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -322,9 +385,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
         ...resetSearch,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['logs'] })
-    queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [navigate, queryClient])
+  }, [navigate])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -333,24 +394,24 @@ export function CommonLogsFilterBar<TData extends RowData>(
     [handleApply]
   )
 
-  const hasExpandedFilters =
-    !!filters.token ||
-    !!filters.username ||
-    !!filters.channel ||
-    !!filters.requestId ||
-    !!filters.upstreamRequestId
-
   const hasTypeFilter = logType !== LOG_TYPE_ALL_VALUE
-  const hasAdditionalFilters =
-    !!filters.model || !!filters.group || hasTypeFilter || hasExpandedFilters
-
   const expandedFilterCount = [
+    filters.group,
     filters.token,
+    hasTypeFilter,
     isAdmin ? filters.username : undefined,
     isAdmin ? filters.channel : undefined,
-    filters.requestId,
-    isAdmin ? filters.upstreamRequestId : undefined,
+    !historical || isAdmin ? filters.upstreamRequestId : undefined,
+    !historical ? filters.minDurationMs : undefined,
+    !historical ? filters.maxDurationMs : undefined,
+    !historical && filters.sortOrder === 'asc',
   ].filter(Boolean).length
+  const hasExpandedFilters = expandedFilterCount > 0
+  const hasAdditionalFilters =
+    !!filters.model ||
+    !!filters.requestId ||
+    !!filters.status ||
+    hasExpandedFilters
   const sensitiveType = sensitiveVisible ? 'text' : 'password'
   const logTypeItems = useMemo(
     () =>
@@ -363,11 +424,6 @@ export function CommonLogsFilterBar<TData extends RowData>(
   const logTypeLabel =
     logTypeItems.find((type) => type.value === logType)?.label ?? t('All Types')
 
-  const statsBar = (
-    <div className='flex flex-wrap items-center gap-2'>
-      <CommonLogsStats />
-    </div>
-  )
   const sensitiveToggle = (
     <Tooltip>
       <TooltipTrigger
@@ -377,7 +433,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
             size='icon'
             onClick={() => setSensitiveVisible(!sensitiveVisible)}
             aria-label={sensitiveVisible ? t('Hide') : t('Show')}
-            className='text-muted-foreground hover:text-foreground size-7'
+            className='text-muted-foreground hover:text-foreground size-9'
           />
         }
       >
@@ -390,7 +446,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
   )
 
   const dateRangeFilter = (
-    <LogsFilterField wide>
+    <LogsFilterField wide label={t('Date Range')}>
       <CompactDateTimeRangePicker
         start={filters.startTime}
         end={filters.endTime}
@@ -402,7 +458,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
     </LogsFilterField>
   )
   const modelFilter = (
-    <LogsFilterField>
+    <LogsFilterField label={t('Model Name')}>
       <LogsFilterInput
         placeholder={t('Model Name')}
         value={filters.model || ''}
@@ -412,7 +468,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
     </LogsFilterField>
   )
   const groupFilter = (
-    <LogsFilterField>
+    <LogsFilterField label={t('Group')}>
       {sensitiveVisible ? (
         <Combobox
           options={groupOptions}
@@ -420,7 +476,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
           aria-label={t('Group')}
           emptyText={t('No group found.')}
           placeholder={t('Group')}
-          className='h-8 min-w-0 text-sm leading-5'
+          className='h-9 min-w-0 text-sm leading-5'
           value={filters.group || ''}
           onValueChange={(value) => handleChange('group', value ?? '')}
           onKeyDown={handleKeyDown}
@@ -463,7 +519,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
     </LogsFilterField>
   )
   const typeFilter = (
-    <LogsFilterField>
+    <LogsFilterField label={t('Type')}>
       <Select
         items={logTypeItems}
         value={logType}
@@ -498,113 +554,221 @@ export function CommonLogsFilterBar<TData extends RowData>(
       </Select>
     </LogsFilterField>
   )
+  const requestFilter = (
+    <LogsFilterField label={t('Request ID')}>
+      <LogsFilterInput
+        placeholder={t('Request ID')}
+        value={filters.requestId || ''}
+        onChange={(event) => handleChange('requestId', event.target.value)}
+        onKeyDown={handleKeyDown}
+      />
+    </LogsFilterField>
+  )
+  const statusItems = [
+    { value: 'all', label: t('All statuses') },
+    { value: 'success', label: t('Success') },
+    { value: 'error', label: t('Error') },
+    { value: 'pending', label: t('Pending') },
+    { value: 'refunded', label: t('Refunded') },
+  ]
+  const statusFilter = (
+    <LogsFilterField label={t('Status')}>
+      <Select
+        items={statusItems}
+        value={filters.status || 'all'}
+        onValueChange={(value) =>
+          handleChange(
+            'status',
+            value === 'all' || value === null ? undefined : value
+          )
+        }
+      >
+        <SelectTrigger aria-label={t('Status')}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {statusItems.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </LogsFilterField>
+  )
+  const sortItems = [
+    { value: 'desc', label: t('Newest first') },
+    { value: 'asc', label: t('Oldest first') },
+  ]
   const advancedFilters = (
     <>
-      <LogsFilterField>
+      {groupFilter}
+      {typeFilter}
+      <LogsFilterField label={t('Token Name')}>
         <LogsFilterInput
           placeholder={t('Token Name')}
           type={sensitiveType}
           value={filters.token || ''}
-          onChange={(e) => handleChange('token', e.target.value)}
+          onChange={(event) => handleChange('token', event.target.value)}
           onKeyDown={handleKeyDown}
         />
       </LogsFilterField>
       {isAdmin && (
-        <LogsFilterField>
-          <LogsFilterInput
-            placeholder={t('Username')}
-            type={sensitiveType}
-            value={filters.username || ''}
-            onChange={(e) => handleChange('username', e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-        </LogsFilterField>
+        <>
+          <LogsFilterField label={t('Username')}>
+            <LogsFilterInput
+              placeholder={t('Username')}
+              type={sensitiveType}
+              value={filters.username || ''}
+              onChange={(event) => handleChange('username', event.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </LogsFilterField>
+          <LogsFilterField label={t('Channel ID')}>
+            <LogsFilterInput
+              placeholder={t('Channel ID')}
+              inputMode='numeric'
+              value={filters.channel || ''}
+              onChange={(event) => handleChange('channel', event.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </LogsFilterField>
+        </>
       )}
-      {isAdmin && historical && (
-        <LogsFilterField>
-          <LogsFilterInput
-            placeholder={t('Channel ID')}
-            value={filters.channel || ''}
-            onChange={(e) => handleChange('channel', e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-        </LogsFilterField>
-      )}
-      <LogsFilterField>
-        <LogsFilterInput
-          placeholder={t('Request ID')}
-          value={filters.requestId || ''}
-          onChange={(e) => handleChange('requestId', e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-      </LogsFilterField>
-      {isAdmin && historical && (
-        <LogsFilterField>
+      {(!historical || isAdmin) && (
+        <LogsFilterField label={t('Upstream Request ID')}>
           <LogsFilterInput
             placeholder={t('Upstream Request ID')}
             value={filters.upstreamRequestId || ''}
-            onChange={(e) => handleChange('upstreamRequestId', e.target.value)}
+            onChange={(event) =>
+              handleChange('upstreamRequestId', event.target.value)
+            }
             onKeyDown={handleKeyDown}
           />
         </LogsFilterField>
+      )}
+      {!historical && (
+        <>
+          <LogsFilterField label={t('Minimum duration (ms)')}>
+            <LogsFilterInput
+              aria-label={t('Minimum duration (ms)')}
+              placeholder='0'
+              inputMode='decimal'
+              value={filters.minDurationMs || ''}
+              onChange={(event) =>
+                handleChange('minDurationMs', event.target.value)
+              }
+              onKeyDown={handleKeyDown}
+            />
+          </LogsFilterField>
+          <LogsFilterField label={t('Maximum duration (ms)')}>
+            <LogsFilterInput
+              aria-label={t('Maximum duration (ms)')}
+              placeholder={t('No limit')}
+              inputMode='decimal'
+              value={filters.maxDurationMs || ''}
+              onChange={(event) =>
+                handleChange('maxDurationMs', event.target.value)
+              }
+              onKeyDown={handleKeyDown}
+            />
+          </LogsFilterField>
+          <LogsFilterField label={t('Sort order')}>
+            <Select
+              items={sortItems}
+              value={filters.sortOrder || 'desc'}
+              onValueChange={(value) =>
+                handleChange('sortOrder', value || 'desc')
+              }
+            >
+              <SelectTrigger aria-label={t('Sort order')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sortItems.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </LogsFilterField>
+        </>
       )}
     </>
   )
 
   return (
-    <LogsFilterToolbar
-      table={props.table}
-      stats={statsBar}
-      actionStart={
-        <>
-          {sensitiveToggle}
-          {(!historical || isAdmin) && (
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              disabled={!scope || exporting}
-              onClick={() => void handleExport()}
-            >
-              <Download aria-hidden='true' />
-              {t(exporting ? 'Exporting usage...' : 'Export CSV')}
-            </Button>
-          )}
-          {exportFailed && (
-            <span role='alert' className='text-destructive text-xs'>
-              {t('Usage export failed. Narrow the time range or retry.')}
-            </span>
-          )}
-        </>
-      }
-      primaryFilters={
-        <>
-          {dateRangeFilter}
-          {modelFilter}
-          {groupFilter}
-          {typeFilter}
-        </>
-      }
-      advancedFilters={advancedFilters}
-      mobilePinnedFilters={dateRangeFilter}
-      mobileFilters={
-        <>
-          {modelFilter}
-          {groupFilter}
-          {typeFilter}
-          {advancedFilters}
-        </>
-      }
-      mobileFilterCount={
-        [filters.model, filters.group, hasTypeFilter].filter(Boolean).length +
-        expandedFilterCount
-      }
-      hasAdvancedActiveFilters={hasExpandedFilters}
-      advancedFilterCount={expandedFilterCount}
-      hasActiveFilters={hasAdditionalFilters}
-      onSearch={handleApply}
-      searchLoading={fetchingLogs > 0}
-      onReset={handleReset}
-    />
+    <div className='min-w-0 space-y-5'>
+      <LogsFilterToolbar
+        table={props.table}
+        stats={props.refreshControls}
+        actionStart={
+          <>
+            {sensitiveToggle}
+            {(!historical || isAdmin) && (
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                disabled={!scope || exporting}
+                onClick={() => void handleExport()}
+              >
+                <Download aria-hidden='true' />
+                {t(exporting ? 'Exporting usage...' : 'Export CSV')}
+              </Button>
+            )}
+            {exporting && (
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                onClick={() => exportController.current?.abort()}
+              >
+                {t('Cancel export')}
+              </Button>
+            )}
+            {exportFailed && (
+              <span role='alert' className='text-destructive text-xs'>
+                {t('Usage export failed. Narrow the time range or retry.')}
+              </span>
+            )}
+          </>
+        }
+        primaryFilters={
+          <>
+            {dateRangeFilter}
+            {requestFilter}
+            {modelFilter}
+            {!historical && statusFilter}
+          </>
+        }
+        advancedFilters={advancedFilters}
+        mobilePinnedFilters={dateRangeFilter}
+        mobileFilters={
+          <>
+            {requestFilter}
+            {modelFilter}
+            {!historical && statusFilter}
+            {advancedFilters}
+          </>
+        }
+        mobileFilterCount={
+          [filters.model, filters.requestId, filters.status].filter(Boolean)
+            .length + expandedFilterCount
+        }
+        hasAdvancedActiveFilters={hasExpandedFilters}
+        advancedFilterCount={expandedFilterCount}
+        hasActiveFilters={
+          hasAdditionalFilters || !!filters.startTime || !!filters.endTime
+        }
+        onSearch={handleApply}
+        searchLoading={fetchingLogs > 0}
+        searchDisabled={!!filterError}
+        validationMessage={filterError ? t(filterError) : undefined}
+        onReset={handleReset}
+      />
+      <CommonLogsStats refreshInterval={props.refreshInterval} />
+    </div>
   )
 }

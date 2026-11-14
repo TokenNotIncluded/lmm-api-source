@@ -58,6 +58,14 @@ export function buildSearchParams(
         ...(commonFilters.upstreamRequestId && {
           upstreamRequestId: commonFilters.upstreamRequestId,
         }),
+        ...(commonFilters.status && { status: commonFilters.status }),
+        ...(commonFilters.minDurationMs?.trim() && {
+          minDurationMs: commonFilters.minDurationMs.trim(),
+        }),
+        ...(commonFilters.maxDurationMs?.trim() && {
+          maxDurationMs: commonFilters.maxDurationMs.trim(),
+        }),
+        ...(commonFilters.sortOrder && { sortOrder: commonFilters.sortOrder }),
       }
     }
     case 'drawing': {
@@ -99,4 +107,46 @@ export function buildSearchParams(
  */
 export function getLogCategoryLabel(category: LogCategory): string {
   return LOG_CATEGORY_LABELS[category]
+}
+
+export function validateCommonLogFilters(
+  filters: CommonLogFilters,
+  isAdmin: boolean,
+  historical: boolean
+) {
+  if (
+    (filters.startTime && !Number.isFinite(filters.startTime.getTime())) ||
+    (filters.endTime && !Number.isFinite(filters.endTime.getTime())) ||
+    (filters.startTime &&
+      filters.endTime &&
+      filters.startTime > filters.endTime)
+  ) {
+    return 'Choose a valid time range with the start before the end.'
+  }
+  if (
+    isAdmin &&
+    filters.channel &&
+    (!/^\d+$/.test(filters.channel) ||
+      !Number.isSafeInteger(Number(filters.channel)) ||
+      Number(filters.channel) < 1)
+  ) {
+    return 'Channel ID must be a positive integer.'
+  }
+  if (!historical) {
+    const values = [
+      filters.minDurationMs?.trim(),
+      filters.maxDurationMs?.trim(),
+    ]
+    if (
+      values.some(
+        (value) =>
+          value &&
+          (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) > 86_400_000)
+      ) ||
+      (values[0] && values[1] && Number(values[0]) > Number(values[1]))
+    ) {
+      return 'Use milliseconds from 0 to 86400000, with minimum no greater than maximum.'
+    }
+  }
+  return undefined
 }

@@ -144,6 +144,10 @@ async function mount() {
     )
     await pause()
   })
+  await act(async () => {
+    button(container, 'Usage trend').click()
+    await pause()
+  })
   return { container, router, client }
 }
 

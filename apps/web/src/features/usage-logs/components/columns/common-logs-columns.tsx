@@ -56,6 +56,7 @@ import {
   type LogCurrencyFormatter,
 } from '../../lib/money'
 import { usageReceiptState } from '../../lib/receipt-state'
+import { getLogTiming } from '../../lib/timing'
 import {
   isDisplayableLogType,
   isTimingLogType,
@@ -367,6 +368,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           const log = row.original
 
           if (!isDisplayableLogType(log.type)) return null
+          if (log.channel == null || log.channel === 0) {
+            return <span className='text-muted-foreground'>—</span>
+          }
 
           const other = parseLogOther(log.other)
           const affinity = other?.admin_info?.channel_affinity
@@ -656,19 +660,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         if (!isTimingLogType(log.type)) return null
 
-        const useTime = row.getValue('use_time') as number
         const other = parseLogOther(log.other)
-        const tokensPerSecond =
-          useTime > 0 &&
-          log.completion_tokens !== null &&
-          log.completion_tokens > 0
-            ? log.completion_tokens / useTime
-            : null
+        const timing = getLogTiming(log, other)
 
         return (
           <StreamTpsCell
             isStream={log.is_stream}
-            tokensPerSecond={tokensPerSecond}
+            tokensPerSecond={timing.throughput}
+            generationSpeed={timing.generationSpeed}
             streamStatus={other?.stream_status}
           />
         )
@@ -742,14 +741,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         if (!isTimingLogType(log.type)) return null
 
-        const useTime = row.getValue('use_time') as number
         const other = parseLogOther(log.other)
+        const timing = getLogTiming(log, other)
 
         return (
           <TimingMetricsCell
-            useTimeSec={useTime}
+            durationMs={timing.durationMs}
             completionTokens={log.completion_tokens}
-            frtMs={other?.frt}
+            frtMs={timing.firstTokenMs}
             isStream={log.is_stream}
           />
         )
@@ -820,10 +819,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <>
             <button
               type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+              className='group flex min-h-9 max-w-[240px] items-center gap-1.5 text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
+              aria-label={t('View request details')}
             >
+              <span className='text-primary shrink-0'>{t('Details')}</span>
               {detailPreview}
             </button>
             <DetailsDialog

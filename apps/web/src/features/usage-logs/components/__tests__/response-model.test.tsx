@@ -17,6 +17,8 @@ for (const key of [
   'document',
   'navigator',
   'HTMLElement',
+  'customElements',
+  'CSSStyleSheet',
   'SVGElement',
   'Node',
   'Element',
@@ -132,7 +134,9 @@ test('desktop, mobile and details show the same dynamic warning and three names'
       assert.ok(scope.textContent?.includes('requested'))
     }
 
-    const trigger = rendered.container.querySelector('[data-slot=popover-trigger]')
+    const trigger = rendered.container.querySelector(
+      '[data-slot=popover-trigger]'
+    )
     assert.ok(trigger)
     await act(async () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -239,7 +243,9 @@ test('historical rows preserve mapping details and do not invent a returned mode
         rendered.container.querySelector('[data-response-model-warning]'),
         null
       )
-      const trigger = rendered.container.querySelector('[data-slot=popover-trigger]')
+      const trigger = rendered.container.querySelector(
+        '[data-slot=popover-trigger]'
+      )
       if ('is_model_mapped' in other) {
         assert.ok(trigger)
         await act(async () => {
