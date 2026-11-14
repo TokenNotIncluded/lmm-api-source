@@ -23,6 +23,7 @@ pub use account_lifecycle::{
 };
 pub use passkeys::{PASSKEY_SCHEMA, PasskeyChallenge, PasskeyConfig};
 mod password;
+mod reconcile;
 mod sessions;
 mod telegram;
 use super::*;

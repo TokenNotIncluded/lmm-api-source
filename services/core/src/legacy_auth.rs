@@ -10,6 +10,7 @@ mod federated;
 mod federated_admin;
 mod oauth2;
 mod passkeys;
+mod reconcile;
 mod sessions;
 mod telegram;
 use crate::identity::{
@@ -212,6 +213,7 @@ fn build_router(
         .route("/api/user/2fa/disable", post(mfa_disable))
         .route("/api/user/2fa/backup_codes", post(mfa_regenerate))
         .route("/api/user/auth/refresh", post(refresh))
+        .route(reconcile::PATH, post(reconcile::reconcile))
         .route("/api/user/auth/logout", post(logout))
         .route("/api/oauth/google", post(google_start).get(google_callback))
         .route("/api/oauth/google/callback", get(google_callback))
@@ -246,6 +248,10 @@ async fn security(State(state): State<AuthState>, request: Request, next: Next) 
             "AUTH_ORIGIN_FORBIDDEN",
             "Request origin is not allowed",
         )
+    } else if request.uri().path() == reconcile::PATH {
+        // This endpoint is strictly read-only, including peer-rate accounting.
+        // Its handler bounds concurrency in memory; Origin was checked above.
+        next.run(request).await
     } else if unsafe_method
         || matches!(
             request.uri().path(),
