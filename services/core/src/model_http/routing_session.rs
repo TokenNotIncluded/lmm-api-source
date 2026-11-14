@@ -349,17 +349,19 @@ impl Bridge {
         )
         .await
         .map_err(super::admission_error)?;
-        self.charging
-            .record_route_dispatch(
+        let wire_sha256 = contract::digest(body);
+        super::super::billing::retry(|| {
+            self.charging.record_route_dispatch(
                 &context.request_id,
                 &worker,
                 number,
                 &route.id,
                 selected.attempt.group(),
-                &contract::digest(body),
+                &wire_sha256,
             )
-            .await
-            .map_err(super::super::billing::error)
+        })
+        .await
+        .map_err(super::super::billing::error)
     }
 
     pub(super) async fn retry_selected_route(

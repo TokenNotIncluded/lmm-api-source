@@ -5,6 +5,143 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
+async fn dispatch_retry_pg_case(pool: PgPool, failures: u8) {
+    let f = fixture(pool, 10_000_000).await;
+    let runtime = crate::test_runtime::RuntimeRole::create(&f.pool).await;
+    runtime.optional("core_charging").await;
+    runtime.optional("core_model").await;
+    let runtime_fixture = Fixture {
+        pool: runtime.pool.clone(),
+        ledger: Ledger::from_pool(runtime.pool.clone()),
+        session: f.session.clone(),
+        key: f.key.clone(),
+        key_id: f.key_id,
+        account: f.account,
+    };
+    let supplier = CompatibilityProvider::start().await;
+    let g = gateway(&runtime_fixture, &supplier.endpoint, vec![]);
+    let id = crate::hex_codec::encode(Sha256::digest(format!("dispatch-retry-{failures}")));
+    let (context, request) = admit(&g, &runtime_fixture, &id, "small-model", 16).await;
+    let worker = g.bridge.active.lock().unwrap()[&id].worker;
+    let worker_digest = crate::hex_codec::encode(Sha256::digest(worker));
+    // Sequence increments survive rollback. All other writes use the real
+    // charging transaction, including the injected usage-event INSERT failure.
+    // SECURITY DEFINER grants no DDL/sequence authority to the runtime caller.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        r#"
+        CREATE SEQUENCE public.dispatch_retry_attempt;
+        CREATE FUNCTION public.inject_dispatch_retry() RETURNS trigger
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+        DECLARE attempt BIGINT; proof JSONB; stored_worker TEXT; actual_group TEXT;
+        BEGIN
+            IF NEW.event_id <> 'route-dispatch:1' THEN RETURN NEW; END IF;
+            attempt := nextval('public.dispatch_retry_attempt');
+            IF session_user <> TG_ARGV[0] OR NEW.request_id <> TG_ARGV[1] THEN
+                RAISE EXCEPTION 'unexpected dispatch caller or request' USING ERRCODE='22023';
+            END IF;
+            SELECT encode(worker_digest,'hex'),price->>'group' INTO STRICT stored_worker,actual_group
+                FROM core_charging.requests WHERE id=NEW.request_id;
+            SELECT detail INTO STRICT proof FROM core_charging.usage_events
+                WHERE request_id=NEW.request_id AND event_id='reservation-contract:v1';
+            IF stored_worker <> TG_ARGV[2] OR NEW.detail IS DISTINCT FROM
+                jsonb_build_object('kind','model_route_dispatch','number',1,
+                    'route_id',proof->'binding'->>'route_id','actual_group',actual_group,
+                    'wire_sha256',proof->>'wire_sha256') THEN
+                RAISE EXCEPTION 'dispatch changed frozen worker or payload' USING ERRCODE='22023';
+            END IF;
+            IF attempt <= TG_ARGV[3]::BIGINT THEN
+                RAISE EXCEPTION 'synthetic rolled-back dispatch' USING ERRCODE='40001';
+            END IF;
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER inject_dispatch_retry BEFORE INSERT ON core_charging.usage_events
+            FOR EACH ROW EXECUTE FUNCTION public.inject_dispatch_retry('{role}','{id}','{worker_digest}','{failures}');
+        "#,
+        role = runtime.name,
+    )))
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    let relay::Session {
+        head,
+        body,
+        completion,
+        ..
+    } = g.relay.start(request, context).unwrap();
+    let head = head.await.unwrap();
+    let output = axum::body::to_bytes(axum::body::Body::from_stream(body), 1 << 20).await;
+    let completed = completion.await.unwrap();
+    assert_eq!(completed.report.request_id, id);
+    assert_eq!(completed.settlement, relay::Settlement::Confirmed);
+    let succeeded = failures < 3;
+    if succeeded {
+        assert_eq!(head.unwrap().status, 200);
+        assert!(!output.unwrap().is_empty());
+        assert!(completed.error.is_none());
+        assert!(completed.report.upstream_attempted);
+    } else {
+        assert_eq!(head.unwrap_err(), RelayError::BillingUnavailable);
+        assert_eq!(completed.error, Some(RelayError::BillingUnavailable));
+        assert!(!completed.report.upstream_attempted);
+        assert_eq!(completed.report.delivery, routing::DeliveryState::NotSent);
+    }
+    let attempts: i64 = sqlx::query_scalar("SELECT last_value FROM public.dispatch_retry_attempt")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(attempts, i64::from((failures + 1).min(3)));
+    assert_eq!(
+        supplier.bodies.lock().unwrap().len(),
+        usize::from(succeeded)
+    );
+    assert_eq!(requests(&f.pool).await, 1);
+    let dispatches: i64 = sqlx::query_scalar("SELECT count(*) FROM core_charging.usage_events WHERE request_id=$1 AND event_id='route-dispatch:1'")
+        .bind(&id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(dispatches, i64::from(succeeded));
+    let persisted_worker: String = sqlx::query_scalar(
+        "SELECT encode(worker_digest,'hex') FROM core_charging.requests WHERE id=$1",
+    )
+    .bind(&id)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(persisted_worker, worker_digest);
+    let charge = receipt(&g, &id).await;
+    assert_eq!(charge.state, "settled");
+    assert_eq!(charge.settled, if succeeded { 2 } else { 0 });
+    assert_eq!(
+        charge.outcome.as_deref(),
+        Some(if succeeded { "completed" } else { "cancelled" })
+    );
+    let hold: (i64, i64, i64, bool) = sqlx::query_as("SELECT count(*),min(reserved),min(captured),bool_and(closed) FROM core_charging.ledger_holds WHERE request_id=$1")
+        .bind(&id).fetch_one(&f.pool).await.unwrap();
+    assert_eq!(hold, (1, charge.reserved, charge.settled, true));
+    for kind in ["reserve", "capture"] {
+        let journals: i64 = sqlx::query_scalar("SELECT count(*) FROM core_billing.ledger_journals WHERE scope='core-charging' AND kind=$1 AND reason=$2")
+            .bind(kind).bind(format!("Model request {id}")).fetch_one(&f.pool).await.unwrap();
+        assert_eq!(journals, 1, "{kind}");
+    }
+    assert_balance(&f, 10_000_000 - charge.settled, 0).await;
+    drop(g);
+    runtime.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn route_dispatch_retry_pg_first_rollback_sends_once(pool: PgPool) {
+    dispatch_retry_pg_case(pool, 1).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn route_dispatch_retry_pg_two_rollbacks_send_once(pool: PgPool) {
+    dispatch_retry_pg_case(pool, 2).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn route_dispatch_retry_pg_exhaustion_never_sends(pool: PgPool) {
+    dispatch_retry_pg_case(pool, 3).await;
+}
+
 #[derive(Clone, Copy)]
 enum FailureReply {
     Rejected,
