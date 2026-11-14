@@ -33,11 +33,16 @@ def main():
     risk={'source_archive_sha256':'a'*64,'mapping_sha256':'d'*64,'orders':[row,{**row,'source_topup_id':2,'source_user_id':99}]}
     m=M.prepare(risk,wallet,{'parent_binding':{'source_migration_id':'test-rebase','plan_sha256':'c'*64}},'qa-pending-rights')
     assert len(m['records'])==len(m['deferred'])==1 and m['records'][0]['amount_raw_json']['credit_facts']['pending_credit_rebase_effective_quota']==17
+    raw='{"id":42,"user_id":1,"status":"pending","money":1.2500000000001}'
+    subscriptions=M.prepare_subscription_orders({'source_archive_sha256':'a'*64,'observed_at':wallet['observed_at'],
+        'subscription_orders':{'count':1,'raw_rows':[raw]},'subscription_order_credit_rebases':{'raw_rows':[]}},wallet,'qa-pending-rights')
+    assert subscriptions['records'][0]['payload_json']['source_json_text']==raw
+    m['records']+=subscriptions['records']
     counts="SELECT jsonb_build_object('money',(SELECT jsonb_agg(to_jsonb(x) ORDER BY ledger_account_id) FROM core_billing.balance_state x),'journals',(SELECT count(*) FROM core_billing.ledger_journals),'rights',(SELECT count(*) FROM core_billing.legacy_pending_liabilities));"
     before=json.loads(query(conn,'before',counts,True));query(conn,'apply',M.build_sql(m));first=json.loads(query(conn,'after',counts,True))
-    assert first['money']==before['money'] and first['journals']==before['journals'] and first['rights']==1
+    assert first['money']==before['money'] and first['journals']==before['journals'] and first['rights']==2
     query(conn,'replay',M.build_sql(m));after=json.loads(query(conn,'after-replay',counts,True));assert first==after
-    result={'status':'PASS_REAL_PG_UNKNOWN_RIGHTS_NO_CREDIT_IDEMPOTENCY','rights':1,'unmapped_owner_deferred':1,'money_unchanged':True,'journals_unchanged':True,'database_retained':db,'new_pg_instance_started':False,'original_fixture_unchanged':template}
+    result={'status':'PASS_REAL_PG_UNKNOWN_RIGHTS_NO_CREDIT_IDEMPOTENCY','rights':2,'subscription_decimal_text_exact':True,'unmapped_owner_deferred':1,'money_unchanged':True,'journals_unchanged':True,'database_retained':db,'new_pg_instance_started':False,'original_fixture_unchanged':template}
     W.save(a.output,'result.private.json',result);print(W.canonical(result));return 0
 
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Preserve nonterminal legacy payment rights; never settle, credit or dispatch callbacks."""
 import argparse
+import hashlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -9,6 +11,36 @@ import uuid
 import migrate_legacy_available_wallet as W
 
 SCOPE='financial-nonspendable-pending-payment-rights-v1'
+
+
+def prepare_subscription_orders(facts,wallet,migration_id):
+    W.require(facts['source_archive_sha256']==wallet['source_archive_sha256']
+              and facts['observed_at']==wallet['observed_at'],'subscription_source_binding_mismatch')
+    owners={x['source_user_id']:x for x in wallet['positions']};records=[];deferred=[];involved=set()
+    rows=facts['subscription_orders']['raw_rows']
+    W.require(len(rows)==facts['subscription_orders']['count'],'subscription_source_count_mismatch')
+    for raw in rows:
+        row=json.loads(raw)
+        if row['status']!='pending':continue
+        owner=owners.get(row['user_id'])
+        if owner is None:
+            deferred.append({'reason':'unmapped_original_owner_no_reassignment','source_json_text':raw});continue
+        involved.add(row['user_id'])
+        records.append({'migration_id':migration_id,'source_archive_sha256':facts['source_archive_sha256'],
+            'mapping_sha256':wallet['source_plan_mapping_sha256'],'source_table':'legacy.subscription_orders',
+            'source_row_key':str(row['id']),'source_row_sha256':hashlib.sha256(raw.encode()).hexdigest(),
+            'source_parent_plan_sha256':None,'owner_user_id':owner['target_user_id'],
+            'owner_account_id':owner['account_id'],'status':'pending','settlement_state':'unknown',
+            'payload_json':{'source_json_text':raw,'source_row_hash_domain':'postgres-jsonb-text-utf8-sha256',
+                            'source_subscription_credit_rebases':facts['subscription_order_credit_rebases']['raw_rows']},
+            'amount_raw_json':{'source_json_text':raw},'currency_raw_json':row.get('settlement_currency'),
+            'spendable':False,'spendable_units':0,'observed_at':wallet['observed_at'],
+            'request':{'policy':'retain-pending-subscription-order-no-payment-no-entitlement-grant'},
+            'result':{'settlement':'unknown','payment_proven_absent':False}})
+    return {'scope':SCOPE,'migration_id':migration_id,'source_archive_sha256':wallet['source_archive_sha256'],
+            'target':wallet['target'],'connection':wallet['connection'],'wallet_migration_id':wallet['migration_id'],
+            'wallet_mapping_sha256':wallet['mapping_sha256'],'identities':[owners[i] for i in sorted(involved)],
+            'records':records,'deferred':deferred,'all_financial_rights_complete':False}
 
 
 def prepare(risk,wallet,policy,migration_id):
@@ -84,12 +116,15 @@ SELECT jsonb_build_object('status','COMMITTED_NONSPENDABLE_RIGHTS_MONEY_UNCHANGE
 def main():
     os.umask(0o077);p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--apply',action='store_true')
-    for key in ['risk','wallet-material','policy-evidence','material']:p.add_argument('--'+key,type=Path)
+    for key in ['risk','subscription-facts','wallet-material','policy-evidence','material']:p.add_argument('--'+key,type=Path)
     p.add_argument('--migration-id');p.add_argument('--output',type=Path,required=True)
     a=p.parse_args();a.output.mkdir(mode=0o700);out={'target_write_attempted':False,'automatic_retry':False,'actual_exit':1}
     try:
         if not a.apply:
-            m=prepare(W.load(a.risk),W.load(a.wallet_material),W.load(a.policy_evidence),a.migration_id)
+            if a.subscription_facts:
+                m=prepare_subscription_orders(W.load(a.subscription_facts),W.load(a.wallet_material),a.migration_id)
+            else:
+                m=prepare(W.load(a.risk),W.load(a.wallet_material),W.load(a.policy_evidence),a.migration_id)
             W.save(a.output,'material.private.json',m);W.save(a.output,'pending-rights.private.sql',build_sql(m))
             out.update(status='PREPARED_NOT_APPLIED',actual_exit=0,records=len(m['records']),deferred=len(m['deferred']))
         else:
