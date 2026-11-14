@@ -2,6 +2,8 @@ package webcompat
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +11,7 @@ import (
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/bounties"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/wallet"
 )
 
@@ -37,6 +40,53 @@ func (a *builtinWalletAuthority) Balance(_ context.Context, raw string) (wallet.
 type builtinWalletRecords struct{ wallet.Records }
 type builtinBountyRecords struct{ bounties.Repository }
 type builtinBountyFunds struct{ bounties.Funds }
+
+func TestBuiltinHTTPWalletWorksWhileBountyExecutionIsDeferred(t *testing.T) {
+	core := &builtinSessionCore{kind: pb.CredentialKind_CREDENTIAL_KIND_SESSION}
+	auth := newAuth(t, core)
+	authority := &builtinWalletAuthority{}
+	service, err := wallet.New(authority, builtinWalletRecords{}, "https://core.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers, err := NewBuiltinHTTP(auth, service, nil, "https://console.example.test", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	RegisterBuiltinHTTP(mux, handlers)
+	r := httptest.NewRequest(http.MethodGet, "https://console.example.test/api/wallet/balance", nil)
+	r.Header.Set("Authorization", "Bearer "+webToken)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || core.seen != webToken || authority.seen != webToken || authority.calls != 1 {
+		t.Fatalf("wallet unavailable without bounties: status=%d calls=%d", w.Code, authority.calls)
+	}
+	for _, path := range []string{"/api/bounties/projects", "/api/open-source-bounties/projects", "/api/bounties/projects/old/claims/old/pay"} {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"reward_quota":100}`))
+		r.Header.Set("Authorization", "Bearer "+webToken)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		var body struct {
+			Success bool   `json:"success"`
+			Code    string `json:"code"`
+			Data    any    `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != http.StatusServiceUnavailable || body.Success || body.Code != "BOUNTY_ERROR" || body.Data != nil || authority.calls != 1 || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("deferred bounty accepted %s: status=%d body=%s", path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestBuiltinHTTPStillRequiresWalletAuthority(t *testing.T) {
+	_, err := NewBuiltinHTTP(newAuth(t, &authCore{}), nil, nil, "https://console.example.test", false)
+	if !errors.Is(err, store.ErrUnavailable) {
+		t.Fatalf("missing wallet authority: %v", err)
+	}
+}
 
 func TestBuiltinHTTPPreservesVerifiedSessionAndRejectsOtherCredentials(t *testing.T) {
 	core := &builtinSessionCore{kind: pb.CredentialKind_CREDENTIAL_KIND_SESSION}

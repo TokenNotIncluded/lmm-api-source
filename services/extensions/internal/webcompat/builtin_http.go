@@ -2,6 +2,7 @@ package webcompat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -21,7 +22,7 @@ type BuiltinHTTP struct {
 // to interactive authority. Each downstream domain authenticates it again.
 func NewBuiltinHTTP(auth *Authenticator, walletService *wallet.Service, bountyService *bounties.Service, webOrigin string, localHTTP bool) (BuiltinHTTP, error) {
 	var out BuiltinHTTP
-	if auth == nil || walletService == nil || bountyService == nil {
+	if auth == nil || walletService == nil {
 		return out, store.ErrUnavailable
 	}
 	session := func(ctx context.Context, r *http.Request) (string, error) {
@@ -50,6 +51,16 @@ func NewBuiltinHTTP(auth *Authenticator, walletService *wallet.Service, bountySe
 	}, webOrigin, localHTTP)
 	if e != nil {
 		return out, e
+	}
+	if bountyService == nil {
+		// Keep deferred bounty records and funds out of the active runtime.
+		unavailable := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "code": "BOUNTY_ERROR", "message": bounties.ErrUnavailable.Error(), "data": nil})
+		})
+		return BuiltinHTTP{Wallet: walletHandler, Bounties: unavailable}, nil
 	}
 	bountyHandler, e := bounties.NewHTTP(bountyService, bounties.SessionExtractorFunc(func(r *http.Request) (string, error) {
 		raw, e := session(r.Context(), r)

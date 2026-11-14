@@ -35,8 +35,13 @@ func composeBuiltinDispatcher(ctx context.Context, in BuiltinDependencies) (*too
 	if in.Database == nil || in.ExpectedDatabase == "" || in.Gate == nil {
 		return nil, nil, errors.New("builtin records and authority unavailable")
 	}
-	tokens := [][]byte{in.WalletToken, in.BountyToken, in.ImageToken}
-	sockets := []string{in.WalletSocket, in.BountySocket, in.ImageSocket}
+	bountyConfigured := in.BountySocket != "" || len(in.BountyToken) != 0
+	tokens := [][]byte{in.WalletToken, in.ImageToken}
+	sockets := []string{in.WalletSocket, in.ImageSocket}
+	if bountyConfigured {
+		tokens = append(tokens, in.BountyToken)
+		sockets = append(sockets, in.BountySocket)
+	}
 	for i := range tokens {
 		validToken := len(tokens[i]) >= 32 && len(tokens[i]) <= 256
 		for _, b := range tokens[i] {
@@ -56,10 +61,6 @@ func composeBuiltinDispatcher(ctx context.Context, in BuiltinDependencies) (*too
 	if e := in.Database.QueryRowContext(ctx, `SELECT has_schema_privilege(current_user,'extension_wallet','USAGE') AND has_table_privilege(current_user,'extension_wallet.transfer_links','SELECT') AND has_table_privilege(current_user,'extension_wallet.transfer_links','INSERT')`).Scan(&walletReady); e != nil || !walletReady {
 		return nil, nil, errors.New("wallet records installation unavailable")
 	}
-	bountyRecords, e := bounties.NewPostgres(ctx, in.Database, in.ExpectedDatabase)
-	if e != nil {
-		return nil, nil, e
-	}
 	walletRecords, e := wallet.NewPostgresRecords(in.Database)
 	if e != nil {
 		return nil, nil, e
@@ -74,10 +75,19 @@ func composeBuiltinDispatcher(ctx context.Context, in BuiltinDependencies) (*too
 		closeWallet()
 		return nil, nil, e
 	}
-	bountyCore, e := bounties.NewCoreClient(in.BountySocket, string(in.BountyToken))
-	if e != nil {
-		closeWallet()
-		return nil, nil, e
+	var bountyService *bounties.Service
+	if bountyConfigured {
+		bountyRecords, err := bounties.NewPostgres(ctx, in.Database, in.ExpectedDatabase)
+		if err != nil {
+			closeWallet()
+			return nil, nil, err
+		}
+		bountyCore, err := bounties.NewCoreClient(in.BountySocket, string(in.BountyToken))
+		if err != nil {
+			closeWallet()
+			return nil, nil, err
+		}
+		bountyService = &bounties.Service{Store: bountyRecords, Funds: bountyCore}
 	}
 	drawing, e := rustbridge.NewDrawing(in.ImageSocket, in.ImageToken, in.CorePublicOrigin, in.LocalHTTP)
 	if e != nil {
@@ -85,7 +95,7 @@ func composeBuiltinDispatcher(ctx context.Context, in BuiltinDependencies) (*too
 		return nil, nil, e
 	}
 	close := func() { drawing.Close(); closeWallet() }
-	dispatcher := &toolmarket.BuiltinDispatcher{Gate: in.Gate, Wallet: walletService, Bounties: &bounties.Service{Store: bountyRecords, Funds: bountyCore}, Drawing: drawing, CorePublicOrigin: in.CorePublicOrigin}
+	dispatcher := &toolmarket.BuiltinDispatcher{Gate: in.Gate, Wallet: walletService, Bounties: bountyService, Drawing: drawing, CorePublicOrigin: in.CorePublicOrigin}
 	if e := dispatcher.CheckReadiness(ctx); e != nil {
 		close()
 		return nil, nil, errors.New("live Core builtin authorities or compiled registry unavailable")

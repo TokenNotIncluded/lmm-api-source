@@ -40,3 +40,24 @@ func TestBuiltinFactoryRejectsMissingOrSharedAuthorityBeforeDatabase(t *testing.
 		t.Fatal("valid shared-socket configuration did not reach storage readiness", err)
 	}
 }
+
+func TestBuiltinFactoryAllowsDeferredBountiesWithoutLosingWalletImageGuards(t *testing.T) {
+	db, err := sql.Open("postgres", "host=/nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	deps := BuiltinDependencies{Database: db, ExpectedDatabase: "synthetic_extensions", Gate: builtinFactoryGate{}, WalletSocket: "/tmp/private.sock", ImageSocket: "/tmp/private.sock", WalletToken: []byte(strings.Repeat("w", 32)), ImageToken: []byte(strings.Repeat("i", 32))}
+	if _, _, err := composeBuiltinDispatcher(context.Background(), deps); err == nil || err.Error() != "wallet records installation unavailable" {
+		t.Fatalf("deferred bounty unexpectedly needed authority: %v", err)
+	}
+	for _, change := range []func(*BuiltinDependencies){func(d *BuiltinDependencies) { d.BountySocket = "/tmp/private.sock" }, func(d *BuiltinDependencies) { d.BountyToken = []byte(strings.Repeat("b", 32)) }, func(d *BuiltinDependencies) { d.ImageToken = d.WalletToken }} {
+		bad := deps
+		change(&bad)
+		if _, _, err := composeBuiltinDispatcher(context.Background(), bad); err == nil || err.Error() == "wallet records installation unavailable" {
+			t.Fatalf("invalid purpose reached records: %v", err)
+		}
+	}
+}

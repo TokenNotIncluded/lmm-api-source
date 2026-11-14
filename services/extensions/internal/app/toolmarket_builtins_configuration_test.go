@@ -37,3 +37,17 @@ image_core_token_file="/private/image"
 		}
 	}
 }
+
+func TestToolMarketBuiltinAllowsWalletDrawingWithBountiesDeferred(t *testing.T) {
+	cfg := ToolMarketBuiltinsConfig{CorePublicOrigin: "https://api.example.test", WalletSocket: "/run/private.sock", WalletTokenFile: "/private/wallet", ImageSocket: "/run/private.sock", ImageTokenFile: "/private/image"}
+	if err := cfg.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*ToolMarketBuiltinsConfig){func(c *ToolMarketBuiltinsConfig) { c.BountySocket = "/run/private.sock" }, func(c *ToolMarketBuiltinsConfig) { c.BountyTokenFile = "/private/bounty" }, func(c *ToolMarketBuiltinsConfig) { c.WalletTokenFile = "" }, func(c *ToolMarketBuiltinsConfig) { c.ImageSocket = "" }} {
+		bad := cfg
+		change(&bad)
+		if bad.validate() == nil {
+			t.Fatal("incomplete configured authority accepted")
+		}
+	}
+}

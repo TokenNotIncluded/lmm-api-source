@@ -31,6 +31,9 @@ func (c ToolMarketBuiltinConfig) validate(cfg Config) error {
 		return errors.New("builtin authorities require the shared Core private Unix socket")
 	}
 	for i, p := range paths {
+		if i == 1 && p == "" && sockets[i] == "" {
+			continue // Bounties may remain unconfigured while their history is migrated.
+		}
 		if !filepath.IsAbs(p) || filepath.Clean(p) != p || strings.ContainsAny(p, "\x00\r\n") {
 			return errors.New("builtin purpose credentials require absolute private paths")
 		}
@@ -55,7 +58,11 @@ func loadToolMarketBuiltinTokens(cfg ToolMarketBuiltinConfig) ([][]byte, error) 
 		return nil, nil
 	}
 	var tokens [][]byte
-	for _, path := range []string{cfg.WalletTokenFile, cfg.BountyTokenFile, cfg.ImageTokenFile} {
+	for i, path := range []string{cfg.WalletTokenFile, cfg.BountyTokenFile, cfg.ImageTokenFile} {
+		if i == 1 && path == "" && cfg.BountySocket == "" {
+			tokens = append(tokens, nil) // Preserve wallet/bounty/image purpose positions.
+			continue
+		}
 		token, err := coreclient.ReadTokenFile(path)
 		if err != nil {
 			return nil, errors.New("private builtin purpose credential unavailable")

@@ -72,3 +72,29 @@ func TestBuiltinTokenContentAliasingIsRejectedBeforeDatabaseOpen(t *testing.T) {
 		t.Fatal("aliased purpose reached database", err)
 	}
 }
+
+func TestBuiltinPurposeConfigPreservesMissingBountySlot(t *testing.T) {
+	cfg := builtinHostConfig()
+	cfg.BountySocket = ""
+	cfg.BountyTokenFile = ""
+	base := Config{Socket: "/run/core.sock", ToolMarketSocket: "/run/toolmarket.sock"}
+	if err := cfg.validate(base); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cfg.WalletTokenFile = filepath.Join(dir, "wallet")
+	cfg.ImageTokenFile = filepath.Join(dir, "image")
+	for path, value := range map[string]string{cfg.WalletTokenFile: strings.Repeat("w", 32), cfg.ImageTokenFile: strings.Repeat("i", 32)} {
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tokens, err := loadToolMarketBuiltinTokens(cfg)
+	if err != nil || len(tokens) != 3 || len(tokens[1]) != 0 || string(tokens[0]) != strings.Repeat("w", 32) || string(tokens[2]) != strings.Repeat("i", 32) {
+		t.Fatalf("purpose positions changed: %v", err)
+	}
+	cfg.BountySocket = "/run/toolmarket.sock"
+	if cfg.validate(base) == nil {
+		t.Fatal("half-configured bounty accepted")
+	}
+}

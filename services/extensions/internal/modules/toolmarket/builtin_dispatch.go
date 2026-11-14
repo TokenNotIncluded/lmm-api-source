@@ -94,6 +94,9 @@ func (d *BuiltinDispatcher) InvokeBuiltin(ctx context.Context, session string, i
 	if in.Context.InputDigest != digest(args) {
 		return out, ErrConflict
 	}
+	if in.ServiceKey == "open_source_bounties" && d.Bounties == nil {
+		return out, ErrUnavailable
+	}
 	canonical, _ := json.Marshal(args)
 	auth, e := d.Gate.AuthorizeBuiltin(ctx, session, BuiltinAuthorizationRequest{in.Context, in.ServiceKey, in.ToolName, tool.InputSchemaDigest, canonical})
 	if e != nil {
@@ -389,7 +392,11 @@ func (d *BuiltinDispatcher) CheckReadiness(ctx context.Context) error {
 	if e := gate.ReadyBuiltins(ctx); e != nil {
 		return e
 	}
-	for _, port := range []any{d.Wallet, d.Bounties, d.Drawing} {
+	ports := []any{d.Wallet, d.Drawing}
+	if d.Bounties != nil {
+		ports = append(ports, d.Bounties)
+	}
+	for _, port := range ports {
 		probe, ok := port.(interface{ Ready(context.Context) error })
 		if !ok || missingInterface(port) {
 			return ErrUnavailable

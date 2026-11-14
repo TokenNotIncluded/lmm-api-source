@@ -159,3 +159,50 @@ func TestCompiledBuiltinReadinessCannotUseOnlyRegistryOrClientPresence(t *testin
 		t.Fatal("partial authority ACK advertised all builtins")
 	}
 }
+
+type configuredWalletReadiness struct {
+	wallet.Authority
+	probes int
+}
+
+func (a *configuredWalletReadiness) Ready(context.Context) error { a.probes++; return nil }
+
+type configuredDrawingReadiness struct {
+	retiredDrawingPort
+	probes int
+}
+
+func (a *configuredDrawingReadiness) Ready(context.Context) error { a.probes++; return nil }
+func TestBuiltinReadinessOnlyAcknowledgesConfiguredBountyAuthority(t *testing.T) {
+	authority := &configuredWalletReadiness{}
+	service, err := wallet.New(authority, builtinWalletLinks{}, "https://core.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	drawing := &configuredDrawingReadiness{}
+	gate := &builtinGateStub{}
+	d := &BuiltinDispatcher{Gate: gate, Wallet: service, Drawing: drawing}
+	if err := d.CheckReadiness(context.Background()); err != nil || !d.LegacyBuiltinReady() {
+		t.Fatalf("wallet/drawing not ready: %v", err)
+	}
+	if d.Bounties != nil || authority.probes != 1 || drawing.probes != 1 {
+		t.Fatal("unconfigured bounty acquired authority or configured authority not checked")
+	}
+	definition, tool, err := compiledBuiltin("open_source_bounties", "open_source_bounties.create_draft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"repository_url": "https://github.com/example/project", "title": "Example project", "description": strings.Repeat("d", 20), "rules": strings.Repeat("r", 20), "reward_quota": int64(1), "reward_slots": int64(1)}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := BuiltinInvocation{Context: BuiltinContext{CallID: "call", DispatchID: "dispatch", ToolID: tool.ToolID, VersionID: definition.VersionID, GrantID: "grant", InputDigest: digest(args)}, Owner: Principal{"7", "7"}, ServiceKey: "open_source_bounties", ToolName: tool.Name, Arguments: raw}
+	if _, err := d.InvokeBuiltin(context.Background(), "synthetic-personal-session", in); err != ErrUnavailable || gate.calls != 0 {
+		t.Fatalf("deferred bounty reached authorization or execution: %v, calls=%d", err, gate.calls)
+	}
+	d.Drawing = nil
+	if d.CheckReadiness(context.Background()) == nil || d.LegacyBuiltinReady() {
+		t.Fatal("missing drawing advertised readiness")
+	}
+}
