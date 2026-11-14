@@ -41,14 +41,17 @@ export function AffiliateRewardsCard({
   const { t } = useTranslation()
   if (loading) {
     return (
-      <Card data-card-hover='false' className='bg-muted/20 py-0'>
-        <CardContent className='grid gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,0.72fr)_minmax(320px,1.15fr)] lg:items-center'>
+      <Card
+        data-card-hover='false'
+        className='bg-muted/30 border-0 py-0 shadow-none'
+      >
+        <CardContent className='grid gap-8 p-6 sm:p-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-center'>
           <div>
             <Skeleton className='h-5 w-32' />
             <Skeleton className='mt-2 h-4 w-48' />
           </div>
           <Skeleton className='h-14 rounded-lg' />
-          <Skeleton className='h-10 rounded-lg' />
+          <Skeleton className='h-10 rounded-lg lg:col-span-2' />
         </CardContent>
       </Card>
     )
@@ -69,17 +72,20 @@ export function AffiliateRewardsCard({
   )
 
   return (
-    <Card data-card-hover='false' className='bg-muted/20 py-0'>
-      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(280px,1fr)] lg:items-center'>
-        <div className='flex min-w-0 items-center gap-2.5'>
+    <Card
+      data-card-hover='false'
+      className='bg-muted/30 border-0 py-0 shadow-none'
+    >
+      <CardContent className='grid gap-8 p-6 sm:p-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-center'>
+        <div className='flex min-w-0 items-start gap-4'>
           <IconBadge tone='chart-3'>
             <Share2 />
           </IconBadge>
           <div className='min-w-0'>
-            <h3 className='truncate text-sm font-semibold'>
+            <h3 className='text-base font-semibold tracking-tight'>
               {t('Referral Program')}
             </h3>
-            <p className='text-muted-foreground text-xs'>
+            <p className='text-muted-foreground mt-2 max-w-prose text-sm leading-6'>
               {t(
                 'Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance.'
               )}
@@ -87,7 +93,7 @@ export function AffiliateRewardsCard({
           </div>
         </div>
 
-        <div className='grid grid-cols-3 gap-1.5 text-center'>
+        <div className='grid grid-cols-3 gap-5'>
           {[
             [
               rewardDebt ? t('Reward debt') : t('Available Rewards'),
@@ -100,18 +106,18 @@ export function AffiliateRewardsCard({
               <div className='text-muted-foreground text-xs font-medium'>
                 {label}
               </div>
-              <div className='mt-1 text-sm font-semibold break-words tabular-nums'>
+              <div className='mt-3 text-base font-medium break-words tabular-nums'>
                 {value}
               </div>
             </div>
           ))}
         </div>
 
-        <div className='flex flex-wrap items-center justify-end gap-2'>
+        <div className='flex flex-wrap items-center justify-end gap-3 lg:col-span-2'>
           {complianceConfirmed ? (
             <Button
               render={<a href='/core/v1/affiliate/claim' />}
-              className='h-9 shrink-0 px-3'
+              className='min-h-11 shrink-0 px-4'
               size='sm'
               variant='outline'
             >
@@ -120,7 +126,7 @@ export function AffiliateRewardsCard({
           ) : (
             <Button
               disabled
-              className='h-9 shrink-0 px-3'
+              className='min-h-11 shrink-0 px-4'
               size='sm'
               variant='outline'
             >
@@ -129,7 +135,7 @@ export function AffiliateRewardsCard({
           )}
         </div>
         {!complianceConfirmed ? (
-          <p className='text-muted-foreground text-xs lg:col-span-3'>
+          <p className='text-muted-foreground text-xs leading-6 lg:col-span-2'>
             {t(
               'Referral reward transfer is disabled until the administrator confirms compliance terms.'
             )}

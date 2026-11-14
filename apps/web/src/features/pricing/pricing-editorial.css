@@ -9,18 +9,6 @@
   text-transform: uppercase;
 }
 
-.pricing-eyebrow::before {
-  content: '';
-  width: 1.75rem;
-  height: 2px;
-  flex-shrink: 0;
-  background: var(--forge-extra-honey-light);
-}
-
-.dark .pricing-eyebrow::before {
-  background: var(--forge-extra-honey-dark);
-}
-
 .pricing-options h2 {
   font-weight: 550;
   letter-spacing: -0.025em;
@@ -49,7 +37,9 @@
 }
 
 .pricing-filter-option[aria-pressed='true'] {
-  box-shadow: inset 2px 0 0 var(--foreground);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  box-shadow: none;
 }
 
 .pricing-segment {
@@ -62,7 +52,7 @@
 }
 
 .pricing-toolbar {
-  padding-block: 0.5rem 0.75rem;
+  padding-block: 0.75rem 1rem;
 }
 
 .pricing-table-surface {
@@ -77,18 +67,12 @@
 }
 
 .pricing-table [data-slot='table-cell'] {
-  padding: 1.1rem 1rem;
+  padding: 1.35rem 1rem;
   font-variant-numeric: tabular-nums;
 }
 
 .pricing-table [data-slot='table-row'] {
-  border-color: color-mix(in oklch, var(--foreground) 9%, transparent);
-}
-
-@media (min-width: 1024px) {
-  .pricing-options {
-    border-inline-start: 1px solid var(--border);
-  }
+  border-color: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
 @media (max-width: 639px) {

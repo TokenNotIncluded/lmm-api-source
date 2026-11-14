@@ -1,13 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+
 import { Button } from '@/components/ui/button'
 
 export function L0UpgradePanel({ preview = false }: { preview?: boolean }) {
   const { t } = useTranslation()
   return (
     <section
-      className='border-primary/20 bg-primary/5 rounded-xl border p-5 sm:p-8'
+      className='bg-primary/5 rounded-2xl p-6 sm:p-8'
       aria-labelledby='l0-wallet-title'
     >
       <p className='text-primary text-xs font-semibold tracking-wide'>

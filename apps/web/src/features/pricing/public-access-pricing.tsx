@@ -107,8 +107,8 @@ export function PublicAccessPricing() {
               </p>
             </div>
 
-            <div className='pricing-options divide-border/60 divide-y px-1 lg:ps-10'>
-              <div className='py-7'>
+            <div className='pricing-options space-y-4 px-1 lg:ps-10'>
+              <div className='py-5'>
                 <div className='mb-3 flex items-center gap-3'>
                   <Coins className='size-5' aria-hidden='true' />
                   <h2 className='text-lg font-semibold'>
@@ -121,7 +121,7 @@ export function PublicAccessPricing() {
                   )}
                 </p>
               </div>
-              <div className='py-7'>
+              <div className='py-5'>
                 <div className='mb-3 flex items-center gap-3'>
                   <ReceiptText className='size-5' aria-hidden='true' />
                   <h2 className='text-lg font-semibold'>

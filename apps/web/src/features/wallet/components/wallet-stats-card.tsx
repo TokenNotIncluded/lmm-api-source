@@ -45,15 +45,13 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const financialAvailable = projection.available !== null
   if (props.loading) {
     return (
-      <div className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'>
+      <div className='bg-muted/40 grid grid-cols-3 overflow-hidden rounded-2xl'>
         {['balance', 'usage', 'requests', 'trust'].map((key, index) => (
           <div
             key={key}
             className={cn(
-              'min-w-0 p-3.5 sm:px-6 sm:py-4',
-              index === 0
-                ? 'bg-primary/5 col-span-3 min-h-32 border-b sm:min-h-36'
-                : 'border-e last:border-e-0'
+              'min-w-0 p-4 sm:p-6',
+              index === 0 && 'col-span-3 min-h-48 p-6 sm:p-8'
             )}
           >
             <Skeleton className='h-3.5 w-full' />
@@ -123,19 +121,24 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     <div
       id='wallet-balance'
       tabIndex={-1}
-      className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'
+      className='bg-muted/40 grid grid-cols-3 overflow-hidden rounded-2xl'
     >
       {stats.map((item, index) => (
         <div
           key={item.label}
           className={cn(
-            'min-w-0 p-3 sm:p-5',
+            'min-w-0 p-4 sm:p-6',
             index === 0
-              ? 'bg-primary/5 relative isolate col-span-3 overflow-hidden border-b p-5 sm:p-6'
-              : 'border-e last:border-e-0'
+              ? 'relative isolate col-span-3 overflow-hidden p-6 sm:p-8'
+              : ''
           )}
         >
-          <div className='pointer-events-none relative z-10 flex items-center gap-2'>
+          <div
+            className={cn(
+              'pointer-events-none relative z-10 flex gap-2',
+              index === 0 ? 'items-center' : 'flex-col items-start'
+            )}
+          >
             <IconBadge tone={item.tone} size='stat'>
               <item.icon />
             </IconBadge>
@@ -154,28 +157,28 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
 
           <div
             className={cn(
-              'text-foreground pointer-events-none relative z-10 mt-2.5 font-semibold tracking-tight break-words tabular-nums',
+              'text-foreground pointer-events-none relative z-10 mt-4 font-medium tracking-tight break-words tabular-nums',
               index === 0
-                ? 'text-3xl sm:text-4xl [overflow-wrap:anywhere]'
+                ? 'text-3xl leading-tight sm:text-4xl [overflow-wrap:anywhere]'
                 : 'text-sm sm:text-xl'
             )}
           >
             {item.value}
           </div>
           {index === 0 ? (
-            <div className='relative z-10 mt-1 flex items-end justify-between gap-4'>
+            <div className='relative z-10 mt-3 flex items-end justify-between gap-4'>
               <div className='text-muted-foreground pointer-events-none text-xs'>
                 {item.description}
               </div>
             </div>
           ) : (
-            <div className='text-muted-foreground pointer-events-none relative z-10 mt-1 hidden text-xs sm:block'>
+            <div className='text-muted-foreground pointer-events-none relative z-10 mt-2 hidden text-xs leading-5 sm:block'>
               {item.description}
             </div>
           )}
           {index === 0 && <NativeWalletDetails user={props.user} />}
           {index === 0 && props.balanceAction && (
-            <div className='mt-5 flex justify-end'>{props.balanceAction}</div>
+            <div className='mt-6 flex justify-end'>{props.balanceAction}</div>
           )}
         </div>
       ))}

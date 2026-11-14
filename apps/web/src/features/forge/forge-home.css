@@ -10,7 +10,7 @@
 }
 .lmm-home {
   --home-gutter: clamp(1.25rem, 4vw, 4rem);
-  --home-rule: color-mix(in oklch, var(--foreground) 12%, transparent);
+  --home-rule: color-mix(in oklch, var(--foreground) 8%, transparent);
   --home-accent: var(--forge-clay);
   --home-stage-wire: var(--muted-foreground);
   color: var(--foreground);
@@ -348,7 +348,6 @@
   width: min(calc(100% - 2 * var(--home-gutter)), 76rem);
   margin: 1.5rem auto 0;
   padding: 1.2rem 0;
-  border-block: 1px solid var(--home-rule);
   color: var(--muted-foreground);
   font-size: 0.79rem;
   letter-spacing: -0.02em;
@@ -388,7 +387,7 @@
   margin: 0;
   max-width: 42rem;
   font-size: clamp(2.1rem, 3.8vw, 3.4rem);
-  font-weight: 750;
+  font-weight: 550;
   line-height: 1.06;
   letter-spacing: -0.035em;
   text-wrap: balance;
@@ -397,17 +396,6 @@
   scroll-margin-top: calc(
     var(--public-header-height) + env(safe-area-inset-top) + 1rem
   );
-}
-/* Cut mark: the logo's 45° base cut, set as a solid block above each
- * section heading. Monochrome so it reads as identity, not decoration. */
-.lmm-section h2::before {
-  content: '';
-  display: block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-bottom: 1.1rem;
-  background: currentColor;
-  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
 }
 .lmm-section-intro {
   display: flex;
@@ -437,7 +425,6 @@
   align-content: center;
   min-height: 13rem;
   padding: 2rem 0;
-  border-top: 1px solid var(--home-rule);
   transition: opacity 180ms ease;
 }
 .lmm-story-step h3 {
@@ -519,10 +506,9 @@
   transform: rotateY(calc(5deg - var(--story-progress) * 10deg))
     rotateX(calc(3deg - var(--story-progress) * 6deg));
   transform-origin: center;
-  border: 1px solid var(--home-rule);
-  border-radius: 0.85rem;
-  box-shadow: 0 1.8rem 4rem -2.8rem
-    color-mix(in oklch, var(--foreground) 38%, transparent);
+  border: 0;
+  border-radius: var(--radius-xl);
+  box-shadow: none;
   background: var(--card);
 }
 .lmm-home .forge-home-code-card {
@@ -533,8 +519,7 @@
   display: flex;
   gap: 0.3rem;
   flex-wrap: wrap;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--home-rule);
+  padding-bottom: 1.25rem;
 }
 .lmm-home .forge-home-code-tabs button {
   border: 0;
@@ -586,8 +571,9 @@
   max-width: 100%;
   margin-top: 1.75rem;
   padding: 0.3rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 1.75rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--muted);
 }
 .lmm-connection-method [data-slot='button'] {
   min-height: 2.75rem;
@@ -609,8 +595,7 @@
   gap: 0;
 }
 .lmm-provider-item {
-  padding: 1.25rem 0;
-  border-bottom: 1px solid var(--home-rule);
+  padding: 1.75rem 0;
 }
 .lmm-provider-item:last-of-type {
   border-bottom: 0;
@@ -641,8 +626,8 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 0.65rem;
+  border: 0;
+  border-radius: var(--radius);
   background: color-mix(in oklch, var(--foreground) 2%, transparent);
   margin-top: 1.7rem;
   padding: 0.5rem 0.7rem;
@@ -658,9 +643,8 @@
   flex-shrink: 0;
 }
 .lmm-webmcp-note {
-  border-top: 1px solid var(--home-rule);
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
+  margin-top: 2rem;
+  padding-top: 0.5rem;
   color: var(--muted-foreground);
   font-size: 0.75rem;
   line-height: 1.9;
@@ -734,8 +718,7 @@
   gap: 1rem;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--home-rule);
-  min-height: 3rem;
+  min-height: 3.25rem;
   padding-block: 0.5rem;
   color: var(--muted-foreground);
   font-size: 0.8rem;
@@ -808,7 +791,7 @@
   align-content: center;
   min-height: 20rem;
   padding: 2rem;
-  border-left: 1px solid var(--home-rule);
+  border: 0;
   background: transparent;
 }
 .lmm-explore-preview-index {
@@ -821,7 +804,7 @@
   margin-top: 0;
   font-family: var(--font-body);
   font-size: clamp(1.9rem, 3.4vw, 2.9rem);
-  font-weight: 750;
+  font-weight: 550;
   line-height: 1.08;
   letter-spacing: -0.045em;
 }
@@ -874,8 +857,7 @@
   overflow: hidden;
 }
 .lmm-home-footer > div {
-  border-top: 1px solid var(--home-rule);
-  padding-block: 1.6rem;
+  padding-block: 2.25rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -913,9 +895,9 @@
   object-fit: contain;
 }
 .lmm-copy-button {
-  border: 1px solid var(--home-rule);
-  border-radius: 0.4rem;
-  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--foreground);
   padding: 0.4rem 0.65rem;
   min-width: 2.75rem;
@@ -979,8 +961,9 @@
   place-items: center;
   width: 2.6rem;
   height: 2.6rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 0.55rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--muted-foreground);
   font-family: var(--font-serif);
   font-size: 1.3rem;
@@ -1105,7 +1088,7 @@
 }
 @media (max-width: 680px) {
   .lmm-home {
-    --home-gutter: 1rem;
+    --home-gutter: 1.25rem;
   }
   .lmm-cinema .lmm-intro-actions [data-slot='button'] {
     max-width: 100%;

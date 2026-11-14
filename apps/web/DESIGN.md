@@ -11,34 +11,36 @@ colors:
 
 ## Visual Theme & Atmosphere
 
-- [observed] Authenticated product surfaces use a compact console shell with Material-inspired tonal surfaces, distinct semantic accents, and theme-aware tonal navigation.
+- [observed] Authenticated product surfaces use open spacing, neutral tonal surfaces, and theme-aware navigation. The default light canvas is white with pale gray working surfaces; dark mode uses deep charcoal with lighter surfaces.
 - [observed] Public and authentication surfaces may use the warmer Forge editorial palette; authenticated utilities remain in the console semantic-token layer unless an existing route explicitly opts into an editorial preset.
-- [inferred confidence=high] New operational pages should feel direct, quiet, and information-dense rather than promotional. One workflow region leads; secondary history and metadata recede.
+- [inferred confidence=high] New operational pages should feel direct and quiet. Use whitespace, alignment and type hierarchy to separate work; one workflow region leads while secondary history and metadata recede.
 
 ## Color Palette & Roles
 
 - [observed] Components consume semantic variables: `--background`, `--foreground`, `--card`, `--muted`, `--primary`, `--border`, `--success`, `--warning`, `--info`, `--destructive`, and their foreground pairs.
 - [observed] Both light and dark modes define complete semantic roles. State is never encoded by a literal page-local color alone.
+- [observed] Default canvas/card pairs are `#ffffff` / `#f7f8fa` in light mode and `#111214` / `#1b1d21` in dark mode. Components consume the semantic variables so named palettes and user preferences remain effective.
 - [observed] Forge raw identity tokens use warm paper/ink, cactus, clay, and sage values, but they are mapped through shared theme variables before components consume them.
 - [inferred confidence=high] Third-party providers do not introduce their own palette. Use a provider mark only when an approved shared identity token already exists.
 
 ## Typography Rules
 
 - [observed] The default authenticated body face is Public Sans through `--font-body`; the optional Lora editorial axis belongs to declared editorial presets, not routine settings or utility screens.
-- [observed] `SectionPageLayout` uses compact page titles (`text-base` to `text-lg`) with bold weight and tight tracking.
-- [inferred confidence=high] Use hierarchy, spacing, tabular numerals, and weight before increasing type scale. Reserve display/serif treatments for established editorial scenes.
+- [observed] Console page titles use `clamp(1.5rem, 2.5cqi, 2rem)`, weight 600, a 1.25 line height and tight tracking. Shared card titles use medium weight; page and section headings have no decorative cut marker.
+- [inferred confidence=high] Let a clear title and readable text measure lead the page. Use tabular numerals for comparable values and generous gaps between sections; reserve display/serif treatments for established editorial scenes and explicit typography preferences.
 
 ## Component Stylings
 
 - [observed] shadcn/ui is configured as `base-luma`, neutral, CSS-variable driven, with Hugeicons and an inverted subtle menu.
 - [observed] Existing primitives carry hover, focus, disabled, error, loading, light/dark, and reduced-motion behavior. Prefer them over page-local replacements.
+- [observed] `Card` defaults to the `paper` variant: a tonal surface with no border, ring or shadow. Shared card padding is 20px on compact screens and 28px from `sm`; small cards retain 16px padding. The explicit `outlined` variant remains available where a boundary serves the interaction.
 - [observed] Settings forms use a two-column desktop grid, full-span switch/textarea rows, shared-radius grouped controls, and a consistent vertical rhythm.
 - [observed] Error states combine a named icon, title, optional description, and an explicit retry/action; toast is not the only recovery path.
 - [inferred confidence=high] Cards represent true grouped tools or independently actionable objects, not every row or section. Badges represent state/count only; filters use controls with real selection semantics.
 
 ### Component foundation
 
-Luma recipes are applied to the owned primitive source files on Base UI 1.8.0. Preserve existing exports, custom sizing, semantic colors, keyboard behavior, menu event adapters and page-level class overrides. `src/components/ui/luma-migration.json` records the component inventory and upstream CSS checksum; `src/components/ui/LUMA-LICENSE.txt` preserves source attribution.
+Luma recipes are applied to the owned primitive source files on the Base UI version pinned in `package.json`. Preserve existing exports, custom sizing, semantic colors, keyboard behavior, menu event adapters and page-level class overrides. `src/components/ui/luma-migration.json` records the component inventory and upstream CSS checksum; `src/components/ui/LUMA-LICENSE.txt` preserves source attribution.
 
 Drawer composes Base UI Portal, Backdrop, Viewport, Popup, Content and VirtualKeyboardProvider. Its trigger uses `render` instead of `asChild`. OTP renders actual Base UI inputs; its authentication consumer maps React Hook Form's value/onChange/ref, keeps numeric validation and backup-code mode, and sets `autoSubmit={false}`. OTPField is project-specific rather than the Luma registry's input-otp recipe. `vaul` and `input-otp` are not direct runtime dependencies.
 
@@ -60,10 +62,16 @@ Also run the console page, interaction and navigation scripts and frontend quali
 ## Layout Principles
 
 - [observed] The authenticated shell is height-bounded, responsive, safe-area aware, sidebar-based at desktop widths, and reserves bottom navigation space on compact screens.
-- [observed] `SectionPageLayout` owns a compact header/action row, scrollable content region, and optional footer portal with `px-3` mobile / `px-4` desktop rhythm.
+- [observed] `SectionPageLayout` owns the title/action row, scrollable content region, and optional footer portal. Its base horizontal gutters are 20px on mobile and 32px from `sm`; wider content containers expand them to 48px. The header and footer use spacing without decorative separators, and actions wrap below the title on compact screens.
 - [observed] Product forms become two columns at `lg`; mobile content remains a single readable column with 16px inputs to avoid focus zoom.
 - [inferred confidence=high] Lists and tables should preserve comparison hierarchy on desktop and switch to deliberate mobile cards or stacked rows instead of horizontal overflow.
-- [inferred confidence=high] Avoid nested decorative frames. Separate regions with spacing, dividers, muted bands, and one interaction-owned border.
+- [inferred confidence=high] Avoid nested decorative frames. Separate regions with spacing and muted surfaces. Keep a divider only when it helps compare rows or defines an interaction boundary; preserve input affordances and keyboard focus rings.
+
+### Developer and wallet workspaces
+
+The developer page uses a sticky reference navigation column beside its integration workspace. Below 1024px, navigation becomes a horizontal scrollable row. A copyable API base URL precedes the request builder; protocol tabs span the builder, with model/prompt fields beside the code preview from 640px and stacked below that width. Language selection and copying sit in the preview header. Fine rules separate workspace groups and endpoint rows, while the pricing and OAuth references retain their source links and expandable integration prompts.
+
+The wallet separates balance, payment, subscriptions and rewards with wider gaps. Balance and quote figures use larger tabular numerals; the quote groups the exact charge, discount code and wallet credit on one muted surface. Payment methods, quote review, explicit confirmation, order recovery and status refresh retain their existing behavior. Visual grouping does not add financial data or authorize a payment.
 
 ## Motion & Interaction
 
@@ -80,7 +88,7 @@ Also run the console page, interaction and navigation scripts and frontend quali
 
 ## Frontend behavior boundaries
 
-These rules describe retained browser behavior, not completed server integration. The current core HTTP host and extension host do not expose the legacy assistant, tool-market, store or ranked-game APIs. Pages, mocks, fixtures and browser receipts cannot establish backend availability, payment settlement or production acceptance. Current server contracts live in the module READMEs, including [tool market](../lmm-extensions/internal/modules/toolmarket/README.md); financial safeguards belong to the [payment contract](../../docs/payment-money-contract.md).
+These rules describe retained browser behavior, not completed server integration. The current core HTTP host and extension host do not expose the legacy assistant, tool-market, store or ranked-game APIs. Pages, mocks, fixtures and browser receipts cannot establish backend availability, payment settlement or production acceptance. Current server contracts live in the module READMEs, including [tool market](../../services/extensions/internal/modules/toolmarket/README.md); financial safeguards belong to the [payment contract](../../docs/payment-money-contract.md).
 
 ### Navigation, motion and optional experiences
 
@@ -110,14 +118,20 @@ This section consolidates the useful browser constraints from sixteen former gui
 
 - `components.json`
 - `src/styles/index.css`, `src/styles/theme.css`, `src/styles/forge-tokens.css`
+- `src/styles/console-editorial.css`, `src/styles/console-pages.css`
+- `src/components/ui/card.tsx`
 - `src/components/layout/components/authenticated-layout.tsx`
 - `src/components/layout/components/section-page-layout.tsx`
 - `src/features/system-settings/components/settings-form-layout.tsx`
 - `src/components/error-state.tsx`
+- `src/features/developers/page.tsx`, `src/features/developers/request-builder.css`
+- `src/features/wallet/index.tsx`, `src/features/wallet/components/native-wallet-checkout.tsx`
+- `src/features/auth/auth-layout.tsx`, `src/features/auth/auth-mobile.css`
+- `src/features/pricing/index.tsx`, `src/features/pricing/pricing-editorial.css`
 
 ## Known Gaps & Exceptions
 
-- [inferred confidence=medium] Runtime contrast, touch targets, text expansion, focus restoration, reduced motion, and both declared target viewports require rendered verification for each new surface.
+- [inferred confidence=medium] The source-level observations in this guide do not record a visual acceptance result. Runtime contrast, touch targets, text expansion, focus restoration, reduced motion, and target viewports require rendered verification for each changed surface.
 - [inferred confidence=medium] A feature may depart from console density only when its own confirmed product declaration or first-party reference explicitly introduces a different visual world.
 
 ### Language Model Mesh logo
@@ -126,18 +140,18 @@ This section consolidates the useful browser constraints from sixteen former gui
 - [observed] React components inherit `currentColor`, with neutral opacity/gradients for the folds. No external image or font request is needed for built-in branding. Public headers, sidebars and footers retain their existing compact-symbol or wordmark layout.
 - [observed] Built-in cached names and logo URLs normalize to LMM API. Tenant-defined names and logos remain configured. Favicon and touch icon derive from the same symbol on a light square.
 
-### Cut system in the application
+### Shape, navigation and surfaces
 
-- [observed] The default preset uses a soft `--radius` (0.85rem) and a shared `--cut-size` token. A solid 45° cut mark — the logo's base cut — precedes console page titles (`.console-page-title::before`) and homepage section headings (`.lmm-section h2::before`), and replaces round bullets in the homepage protocol and access-note lists. The mark inherits `currentColor`; it adds no new palette entry.
+- [observed] The default preset uses a soft `--radius` of 0.75rem. The shared `--cut-size` token remains available to brand geometry; console page titles and homepage section headings use plain type without a prefixed cut mark. Named presets and the user's radius axis continue to override the default.
 - [observed] The console sidebar uses a theme-derived tonal surface in both modes. The selected destination uses the secondary container/foreground pair and rounded corners, with an unclipped keyboard focus ring.
-- [observed] Display headings on the homepage and console titles use medium-heavy weights (520–650) with tight tracking. The homepage primary call to action is a compact warm-coral block with a small control radius and a visible keyboard focus ring.
-- [observed] `--font-sans` names the bundled family `'Public Sans Variable'` first, followed by a deterministic CJK sans stack. The previous stack named only `'Public Sans'`, which never matched the Fontsource face, so the app silently rendered the platform sans.
-- [observed] Cards use low, diffuse shadows and semantic borders to establish hierarchy without lifting during reading. Named presets and the user's radius axis continue to override these defaults.
+- [observed] Homepage display headings use weight 550 and console titles use 600, with tight tracking. The homepage cinema uses a light primary action against its charcoal ground, a muted tonal account action, and visible keyboard focus rings; warm coral remains in the particle artwork.
+- [observed] `--font-sans` names the bundled family `'Public Sans Variable'` first, followed by a deterministic CJK sans stack. The user's font axis selects the body face through `--font-body`.
+- [observed] Console cards and the sidebar shell use flat tonal surfaces without decorative borders or shadows. Passive cards stay still on hover; selection and focus remain attached to the relevant controls.
 
 ### Public homepage pointillist poster exception
 
 - [confirmed] The public homepage uses the user's [Oriku video reference](https://x.com/Oriku175/status/2065701075202806030/video/1) as a code-led poster direction. Its runtime marker is `data-poster-direction="oriku-pointillist-sculpture"`; no approved composition or randomly selected concept is claimed.
-- [observed] The homepage leads with the tool market inside an AI community hub, not with API relay terminology. Its primary action opens the tool market; the account-aware next step and pricing remain secondary actions. The cinema uses a deep-charcoal ground (`--forge-night`) in both color modes, warm-coral particles, compact technical branding and a large left-aligned display heading. The public header and directory entry overlay the scene; the bottom chapter controls put the tool market before the store and use fine rules and numeric indices. The following content sections return to warm paper, with grouped connection, assistant and exploration surfaces. This exception belongs to the homepage cinema, not every public or authenticated page.
+- [observed] The homepage leads with the tool market inside an AI community hub, not with API relay terminology. Its primary action opens the tool market; the account-aware next step and pricing remain secondary actions. The cinema uses a deep-charcoal ground (`--forge-night`) in both color modes, warm-coral particles, restrained branding and a large left-aligned display heading. The public header and directory entry overlay the scene; the bottom chapter controls use text labels and tonal selection, putting the tool market before the store. The following connection, assistant and exploration sections use the active public theme, broad gaps and open layouts. The cinema palette remains a homepage exception.
 - [observed] Intro → store → tool market → Pi/dsh/directory ecosystem → future makes four native-scroll transitions. Pointer strokes advect nearby points with vertical scatter; time-based critical damping restores their grid after release. Image samples morph into shop, socket and planet sculptures.
 - [observed] The renderer budgets 60fps desktop/30fps mobile and uses cached typed buffers. Mobile, short viewports and reduced motion retain five readable chapters; static imagery, passive pointer/scroll listeners, offscreen/hidden pausing and owned cleanup support fallback behavior. Lotus provenance and the font's SIL OFL remain beside their assets.
 
@@ -151,7 +165,9 @@ The public homepage adds an interactive connection diagram between the existing 
 
 The scene redraws in the canvas `paint` event; resize uses physical pixel dimensions and avoids resetting an unchanged backing store. Pointer feedback pauses when hidden, outside the viewport, explicitly paused or under reduced motion. The established five homepage chapters and account-aware calls to action retain their existing behavior. Financial forms and authentication continue to use their native controls.
 
-The login page pairs its existing form with a dark Signal Path panel on desktop and keeps the optional game disclosure on mobile. Public pricing emphasizes the actual model data, filters and units; the guide uses open sections and a readable text measure. These changes affect presentation without changing their request or confirmation paths.
+The login page centers a single form column with a maximum width of 25rem and generous vertical spacing. Branding, language and theme controls remain in the header; 52px tonal inputs and a contrasting submit button establish the form hierarchy. Optional games open from a footer disclosure on both desktop and mobile. Authentication, consent and recovery actions retain their existing paths.
+
+Public pricing gives the title, model count and funding action room above a sticky search and filter toolbar. Model tables use tabular numerals, taller rows and quiet separators; filter selection uses semantic tonal fills. The public access explanation uses open columns, a muted journey section and a readable question-and-answer area. Model data, price units, visibility rules and payment links retain their existing sources and behavior.
 
 Implementation: `src/features/home/html-canvas-mesh.tsx`, `homepage-canvas.css`, the shared primitives and semantic theme files. The API choice follows [Chrome's stable HTML-in-Canvas announcement](https://developer.chrome.com/blog/html-in-canvas), published 2026-10-26. Native rendering and ordinary DOM fallback are separate verification targets; source support alone is not a browser result.
 
