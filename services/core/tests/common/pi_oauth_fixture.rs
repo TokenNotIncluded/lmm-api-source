@@ -646,8 +646,8 @@ where
 
 pub(super) async fn with_magpie_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
 where
-    F: FnOnce(Fixture) -> Fut,
-    Fut: Future<Output = ()>,
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
 {
     with_fixture_applications(pool, developer, FixtureApplications::PiAndAllManaged, case).await;
 }

@@ -1,7 +1,14 @@
 //! Magpie uses its own managed refresh lineage, including lost-response recovery.
-#![allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "Shared provider fixtures also serve other managed-client targets."
+)]
 #[path = "common/model_fixture.rs"]
-mod model;
+mod model_fixture;
+#[expect(
+    dead_code,
+    reason = "Only managed refresh helpers are used by this target."
+)]
 #[path = "common/pi_oauth_fixture.rs"]
 mod pi;
 #[path = "common/runtime.rs"]
@@ -40,21 +47,6 @@ async fn magpie_retries_same_rotation_without_new_credentials_or_budget(pool: Pg
         assert!(issued.refresh_token == recovered.refresh_token);
         assert_eq!(issued.grant_id, original.grant_id);
         assert_eq!(recovered.grant_id, original.grant_id);
-        for (installation, rotation) in [
-            (installation.clone(), "1".repeat(64)),
-            ("2".repeat(64), "f".repeat(64)),
-        ] {
-            assert!(
-                f.issuer
-                    .token_managed(
-                        request(installation, rotation)
-                            .validate(f.issuer.profile())
-                            .unwrap()
-                    )
-                    .await
-                    .is_err()
-            );
-        }
         let before = f
             .issuer
             .managed_application_budget(&issued.access_token)
@@ -77,6 +69,29 @@ async fn magpie_retries_same_rotation_without_new_credentials_or_budget(pool: Pg
         assert_eq!(after["reserved_credits"], 50);
         assert_eq!(after["remaining_credits"], 30);
         f.charging.release(&charge.id, &[7; 32]).await.unwrap();
+        // A new rotation on an already-consumed refresh is a genuine replay:
+        // preserve the existing family-revocation policy after checking recovery.
+        for (installation, rotation) in [
+            ("2".repeat(64), "f".repeat(64)),
+            (installation.clone(), "1".repeat(64)),
+        ] {
+            assert!(
+                f.issuer
+                    .token_managed(
+                        request(installation, rotation)
+                            .validate(f.issuer.profile())
+                            .unwrap()
+                    )
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(
+            f.issuer
+                .managed_application_budget(&issued.access_token)
+                .await
+                .is_err()
+        );
     })
     .await;
 }
