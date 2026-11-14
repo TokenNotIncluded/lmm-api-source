@@ -5,7 +5,7 @@
     {
       "id": "QD-001",
       "kind": "debt",
-      "status": "open",
+      "status": "resolved",
       "paths": [
         "services/core/src/lib.rs",
         "services/core/tests/routing.rs",
@@ -13,7 +13,7 @@
         "services/extensions/internal/modules/store/pgtest/postgres_test.go"
       ],
       "owner": "LIghtJUNction",
-      "reviewer": "pending",
+      "reviewer": "codex-independent-web-receipt-auditor (01a1d819-7f59-7fd1-8c6f-84eea381fd62)",
       "issue": "https://github.com/TokenNotIncluded/lmm-api/pull/675",
       "opened": "2026-10-10",
       "expires": "2026-10-24",
@@ -21,7 +21,7 @@
       "risk": "critical",
       "alternative_validation": "Keep the existing Rust routing, charging and ledger tests, the Go module race tests, and the isolated PostgreSQL tests. They are component evidence only, not a waiver for funds acceptance.",
       "exit_condition": "Wire the real host and funds path. Independently verify permissions, wallet and ledger results, duplicate requests, concurrent settlement, failure and stream cancellation through real application code. Link the exact source and logs before resolving this record.",
-      "evidence": ""
+      "evidence": ".quality/evidence/qd001-native-host-funds-20261114.json; exact sources, local logs and independent signoff are linked and SHA-256 bound there"
     }
   ]
 }

@@ -1,0 +1,42 @@
+{
+  "debt_id": "QD-001",
+  "scope": "Six original real-host/funds exit conditions on the exact synthetic local pair; independent evidence re-review, not a new execution",
+  "core_binary_sha256": "2a672921bdb445b75456bc8cab152fbce63f6200f8dfffd5bb48025f8adcdeb4",
+  "go_binary_sha256": "5ef2e13f2f0d504a3cf370de40f854252e1f7e8b231ca90573726f3cec60e4de",
+  "original_core_source_revision": "22bc79c7092e6bd5f90a9e474377c9bd04a41826",
+  "original_go_source_revision": "9a69229095b88821d1cc06a77e9a65fc442e2ed9",
+  "current_docs_source_revision": "277ac23d41f0e10a373cf044292c950a070ce2f3",
+  "execution_result": "PASS_SCOPED_QD001_NOT_DEBT_CLOSURE",
+  "independent_review": {
+    "reviewer": "codex-independent-web-receipt-auditor (01a1d819-7f59-7fd1-8c6f-84eea381fd62)",
+    "result": "PASS_QD001_EXIT_SIX_CONDITIONS_ON_EXACT_PAIR",
+    "kind": "raw evidence re-review"
+  },
+  "conditions": [
+    "permissions",
+    "wallet-and-ledger",
+    "duplicate-requests",
+    "concurrent-settlement",
+    "failure",
+    "real-http-sse-cancellation"
+  ],
+  "evidence_root": "~/.cache/lmm-completion-20261113/qd001-real-host-funds-2a67-5ef-1794633387",
+  "evidence_sha256": {
+    "attempt02/execution-manifest.json": "afe46c69ce829ecaaf431e5ce4bb306c0e5c73b5fc9779bcf630de5db2534da5",
+    "attempt02/driver-at-execution.py": "27e269864d65e61d2b4449ce09548ca95b2d59ac694b94b36725eb9f76eac130",
+    "attempt02/result.json": "8bac837a5e234cf78f01fcaf819229ba75b215aa550f55ac82f04947dd002b4a",
+    "attempt02/six-conditions-result.json": "c508e993f9cb0f1a2ff54aa8eb10c68ffef81745861b9155c2cdf46258b18531",
+    "evidence-index.json": "86262ddcdba5dd661a15a61f6bc93a02f7a66b9c90ec5e2d1b3bf4896f123558",
+    "independent-web-audit/SIGNOFF.md": "73d0994e0c5d83b098b5a8c6b86e0cb237b15592dec5c66f99f060089ce30ed7",
+    "independent-web-audit/AUDIT-CHECKS.json": "e5446f15f8a0d9fb184973fc3a68aa49de932f50d41f110b4d0406289b66b8b5"
+  },
+  "preserved_failures": [
+    "attempt01 config-mount failure; no funds case passed there"
+  ],
+  "cancellation_contract": "Without trustworthy final usage, dispatched requests retain their original hold and become reconcile after natural expiry; no guessed free capture/refund",
+  "limits": [
+    "not production or a real paid supplier",
+    "not a performance/retry-fault result",
+    "not fresh69 admission, full migration, browser/Auth acceptance, package installation, release or deployment"
+  ]
+}
