@@ -51,7 +51,7 @@
   margin-bottom: 2.5rem;
 }
 
-.auth-form-stage [data-slot='input'] {
+.auth-form-stage input:not([type='checkbox'], [type='radio'], [type='hidden']) {
   min-width: 0;
   min-height: 3.25rem;
   border-radius: var(--radius);
@@ -61,7 +61,9 @@
 }
 
 .auth-form-stage
-  [data-slot='input']:not(:focus-visible):not([aria-invalid='true']) {
+  input:not([type='checkbox'], [type='radio'], [type='hidden']):not(
+    :focus-visible
+  ):not([aria-invalid='true']) {
   box-shadow: none;
 }
 
@@ -74,7 +76,7 @@
   padding-inline-end: 3.5rem;
 }
 
-.auth-form-stage button:not([role='checkbox']):not([role='switch']) {
+.auth-form-stage :where(button:not([role='checkbox']):not([role='switch'])) {
   min-height: 2.75rem;
 }
 
@@ -121,6 +123,15 @@
   display: inline-flex;
   align-items: center;
   min-height: 2.75rem;
+}
+
+.auth-account-help > button {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.auth-account-help > form {
+  text-align: start;
 }
 
 .auth-footer {
