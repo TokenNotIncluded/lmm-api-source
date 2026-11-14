@@ -24,7 +24,6 @@ pub enum Error {
     Unsupported,
     Measurement,
     MissingClock,
-    #[cfg(test)]
     ClockRange,
     Financial,
 }
