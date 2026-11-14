@@ -41,6 +41,7 @@ import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialo
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
+import { NativeChannelFields } from './native-channel-fields'
 import {
   NativeChannelSortFields,
   NativeChannelStatisticsRow,
@@ -56,6 +57,7 @@ type Editor = {
   modelEditing?: boolean
   secret?: boolean
   readOnly?: boolean
+  channel?: boolean
 }
 const sections: Array<[Section, string]> = [
   ['channels', 'Channels'],
@@ -169,6 +171,13 @@ function NativeRoutingWorkspace({
     balanceUnits: string[]
   }>({ anchor: null, balanceUnits: [] })
   const [editor, setEditor] = useState<Editor | null>(null)
+  const editorRef = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    editorRef.current?.scrollIntoView?.({ block: 'start' })
+    editorRef.current
+      ?.querySelector<HTMLInputElement>('input')
+      ?.focus({ preventScroll: true })
+  }, [editor?.path])
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -397,6 +406,7 @@ function NativeRoutingWorkspace({
       method: channel ? 'PUT' : 'POST',
       path: `${NATIVE_ROOT}/channels${channel ? `/${id}` : ''}`,
       secret: !channel,
+      channel: true,
       document: pretty({
         expected_version: configuration.version,
         id,
@@ -686,6 +696,92 @@ function NativeRoutingWorkspace({
           {t('Refresh')}
         </Button>
       </nav>
+      {editor && (
+        <form
+          className='bg-card space-y-4 rounded-lg border p-4'
+          aria-label={editor.title}
+          ref={editorRef}
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (editor.previewPath && !preview) void previewEditor()
+            else saveEditor()
+          }}
+        >
+          <h3 className='font-medium'>{editor.title}</h3>
+          {editor.channel && (
+            <NativeChannelFields
+              document={editor.document}
+              disabled={busy}
+              onChange={(document) => {
+                setEditor({ ...editor, document })
+                setPreview(null)
+              }}
+            />
+          )}
+          <details open={!editor.channel}>
+            <summary className='cursor-pointer py-2 text-sm font-medium'>
+              {t('Advanced Settings')}
+            </summary>
+            <label className='block space-y-2'>
+              <span className='text-sm'>{t('Configuration')}</span>
+              <Textarea
+                className='min-h-72 font-mono text-xs'
+                value={editor.document}
+                readOnly={editor.readOnly}
+                disabled={busy}
+                onChange={(event) => {
+                  setEditor({ ...editor, document: event.target.value })
+                  setPreview(null)
+                }}
+              />
+            </label>
+          </details>
+          {editor.secret && (
+            <label className='block space-y-2'>
+              <span className='text-sm'>{t('API key')}</span>
+              <Input
+                type='password'
+                autoComplete='off'
+                className='min-h-11'
+                value={secret}
+                disabled={busy}
+                required
+                onChange={(event) => setSecret(event.target.value)}
+              />
+            </label>
+          )}
+          {preview && (
+            <pre
+              className='max-h-80 overflow-auto border p-3 text-xs'
+              aria-label={t('Preview')}
+            >
+              {pretty(preview)}
+            </pre>
+          )}
+          <div className='flex flex-wrap gap-2'>
+            <Button type='submit' className='min-h-11' disabled={busy}>
+              {editor.previewPath
+                ? preview
+                  ? t('Confirm and apply')
+                  : t('Preview')
+                : t('Save')}
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              className='min-h-11'
+              disabled={busy}
+              onClick={() => {
+                setEditor(null)
+                setPreview(null)
+                setSecret('')
+              }}
+            >
+              {t('Cancel')}
+            </Button>
+          </div>
+        </form>
+      )}
       <label className='block space-y-2'>
         <span className='text-sm'>{t('Search')}</span>
         <Input
@@ -1231,75 +1327,6 @@ function NativeRoutingWorkspace({
           </Alert>
         )}
       </Dialog>
-      {editor && (
-        <form
-          className='space-y-3 border p-4'
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (editor.previewPath && !preview) void previewEditor()
-            else saveEditor()
-          }}
-        >
-          <h3 className='font-medium'>{editor.title}</h3>
-          <label className='block space-y-2'>
-            <span className='text-sm'>{t('Configuration')}</span>
-            <Textarea
-              className='min-h-72 font-mono text-xs'
-              value={editor.document}
-              readOnly={editor.readOnly}
-              disabled={busy}
-              onChange={(event) => {
-                setEditor({ ...editor, document: event.target.value })
-                setPreview(null)
-              }}
-            />
-          </label>
-          {editor.secret && (
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('API key')}</span>
-              <Input
-                type='password'
-                autoComplete='off'
-                className='min-h-11'
-                value={secret}
-                disabled={busy}
-                required
-                onChange={(event) => setSecret(event.target.value)}
-              />
-            </label>
-          )}
-          {preview && (
-            <pre
-              className='max-h-80 overflow-auto border p-3 text-xs'
-              aria-label={t('Preview')}
-            >
-              {pretty(preview)}
-            </pre>
-          )}
-          <div className='flex flex-wrap gap-2'>
-            <Button type='submit' className='min-h-11' disabled={busy}>
-              {editor.previewPath
-                ? preview
-                  ? t('Confirm and apply')
-                  : t('Preview')
-                : t('Save')}
-            </Button>
-            <Button
-              type='button'
-              variant='outline'
-              className='min-h-11'
-              disabled={busy}
-              onClick={() => {
-                setEditor(null)
-                setPreview(null)
-                setSecret('')
-              }}
-            >
-              {t('Cancel')}
-            </Button>
-          </div>
-        </form>
-      )}
       {keyChannel !== null && (
         <NativeKeyManageDialog
           key={`${scope.userId}:${scope.sessionId}:${keyChannel}`}

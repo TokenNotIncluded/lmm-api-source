@@ -27,7 +27,7 @@ import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
-import { NativeRoutingToggle } from './components/native-routing-management'
+import { NativeRoutingManagement } from './components/native-routing-management'
 import { ReadOnlyChannels } from './components/read-only-channels'
 import { useChannelOps } from './use-channel-ops'
 
@@ -80,22 +80,33 @@ export function Channels() {
               </Alert>
             )}
             {phase === 'fresh' &&
-              !channelOpsQuery.isError &&
-              channelOpsQuery.data?.data?.native_configuration === true && (
-                <NativeRoutingToggle />
-              )}
-            <ReadOnlyChannels
-              controlsEnabled={
-                phase === 'fresh' &&
-                !channelOpsQuery.isError &&
-                channelOpsQuery.data?.data?.native_control === true
-              }
-              keysEnabled={
-                phase === 'fresh' &&
-                !channelOpsQuery.isError &&
-                channelOpsQuery.data?.data?.native_secrets === true
-              }
-            />
+            !channelOpsQuery.isError &&
+            channelOpsQuery.data?.data?.native_configuration === true ? (
+              <NativeRoutingManagement />
+            ) : (
+              <>
+                <div className='mb-4 flex items-center gap-3'>
+                  <Button disabled title={t('Capability unavailable')}>
+                    {t('Configuration')}
+                  </Button>
+                  <span className='text-muted-foreground text-sm' role='status'>
+                    {t('Capability unavailable')}
+                  </span>
+                </div>
+                <ReadOnlyChannels
+                  controlsEnabled={
+                    phase === 'fresh' &&
+                    !channelOpsQuery.isError &&
+                    channelOpsQuery.data?.data?.native_control === true
+                  }
+                  keysEnabled={
+                    phase === 'fresh' &&
+                    !channelOpsQuery.isError &&
+                    channelOpsQuery.data?.data?.native_secrets === true
+                  }
+                />
+              </>
+            )}
           </>
         )}
       </SectionPageLayout.Content>

@@ -44,6 +44,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativeRoutingManagement } = await import('./native-routing-management')
+const { Channels } = await import('../index')
 const adapter = api.defaults.adapter
 const request = api.request
 const previous = useAuthStore.getState().auth
@@ -167,7 +168,8 @@ async function mount(
   initialSection: 'channels' | 'prices',
   nativeSecrets = true,
   accounting: Partial<typeof accountingCapabilities> = accountingCapabilities,
-  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  channelPage = false
 ) {
   api.defaults.adapter = async (config) => {
     assert.equal(config.url, '/api/channel/ops')
@@ -178,7 +180,11 @@ async function mount(
       statusText: 'OK',
       data: {
         success: true,
-        data: { native_secrets: nativeSecrets, ...accounting },
+        data: {
+          native_secrets: nativeSecrets,
+          ...(channelPage ? { native_configuration: true } : {}),
+          ...accounting,
+        },
       },
     }
   }
@@ -190,7 +196,13 @@ async function mount(
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <NativeRoutingManagement initialSection={initialSection} />
+          <>
+            {channelPage ? (
+              <Channels />
+            ) : (
+              <NativeRoutingManagement initialSection={initialSection} />
+            )}
+          </>
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -1328,7 +1340,7 @@ test('channel creation uses the permanent ID high water without publishing the r
       assert.deepEqual(options.data, {
         expected_version: { routing: 1, pricing: 1 },
         id: expectedId,
-        name: '',
+        name: 'New provider',
         tag: 'Launch',
         endpoint: 'https://new-provider.example/v1/',
         protocol: 'openai_chat',
@@ -1353,6 +1365,7 @@ test('channel creation uses the permanent ID high water without publishing the r
     assert.equal(draft.id, expectedId)
     assert.equal(Object.hasOwn(draft, 'channel_id_high_water'), false)
     assert.equal(draft.tag, '')
+    draft.name = 'New provider'
     draft.tag = 'Launch'
     draft.endpoint = 'https://new-provider.example/v1/'
     const textareaSetter = required(
@@ -1476,4 +1489,120 @@ test('native key manager enables a pooled key and changes polling with release C
     operation: 'set_polling',
     enabled: false,
   })
+})
+
+test('channel editing exposes common fields and preserves bindings, context metadata and the existing key', async () => {
+  const config: NativeConfiguration = fixture()
+  config.bindings.contexts = [
+    {
+      upstream_id: 1,
+      upstream_model: 'model-a',
+      protocol: 'openai_chat',
+      endpoint: 'https://private-provider.example/v1/',
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'synthetic-preserved-context',
+    },
+  ]
+  const writes: Record<string, unknown>[] = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.method, 'PUT')
+    assert.equal(options.url, '/core/v1/admin/routing/channels/1')
+    assert.ok(options.data)
+    writes.push(options.data)
+    return {
+      data: { success: true, data: { version: { routing: 2, pricing: 1 } } },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  assert.equal(container.querySelector('input[type=password]'), null)
+  assert.equal(required(form.querySelector('details')).open, false)
+  const setter = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+      ?.set
+  )
+  function field(label: string) {
+    const element = [...form.querySelectorAll('label')].find(
+      (item) => item.querySelector('span')?.textContent === label
+    )
+    return required(element?.querySelector('input'))
+  }
+  assert.equal(field('Name').value, 'Private provider')
+  await act(async () => {
+    setter.call(field('Name'), 'Edited provider')
+    field('Name').dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    setter.call(field('Base URL'), 'https://edited-provider.example/v1/')
+    field('Base URL').dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button(form, 'Save').click())
+  await until(() => writes.length === 1)
+  assert.equal(writes[0].name, 'Edited provider')
+  assert.equal(Object.hasOwn(writes[0], 'secret'), false)
+  assert.deepEqual(writes[0].expected_version, { routing: 1, pricing: 1 })
+  assert.deepEqual(writes[0].contexts, [
+    {
+      ...config.bindings.contexts[0],
+      endpoint: 'https://edited-provider.example/v1/',
+    },
+  ])
+  assert.deepEqual(writes[0].attachments, [
+    {
+      route_id: 1,
+      upstream_model: 'model-a',
+      priority: 0,
+      weight: 1,
+      speeds: ['standard'],
+      payload: 'adapt',
+      timeout_ms: 30000,
+    },
+  ])
+})
+
+test('the channel page exposes editing immediately without a configuration toggle or a duplicate read-only list', async () => {
+  const config = fixture()
+  api.request = (async (options: { method: string; url: string }) => {
+    assert.equal(options.method, 'GET')
+    assert.equal(options.url, '/core/v1/admin/routing/configuration')
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+  const container = await mount(
+    'channels',
+    false,
+    accountingCapabilities,
+    undefined,
+    true
+  )
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  assert.equal(
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Configuration'
+    ),
+    false
+  )
+  assert.equal(container.querySelectorAll('input').length, 1)
+  await act(async () => button(container, 'Edit').click())
+  assert.ok(container.querySelector('form[aria-label="Edit Channel"]'))
+  assert.equal(container.querySelector('input[type=password]'), null)
 })
