@@ -1135,7 +1135,7 @@ async fn oidc_http_discovery_jwks_bearer_and_disabled_mode(pool: PgPool) {
     for bad in ["", "a\nb", &"n".repeat(257)] {
         assert!(issuer.begin_oidc(oidc_request(Some(bad))).await.is_err());
     }
-    let app = lmm_core::oauth2_http::router(issuer);
+    let app = lmm_core::oauth2_http::router(issuer.clone());
     let discovery = app
         .clone()
         .oneshot(
@@ -1165,6 +1165,78 @@ async fn oidc_http_discovery_jwks_bearer_and_disabled_mode(pool: PgPool) {
         serde_json::from_slice(&to_bytes(jwks.into_body(), 16384).await.unwrap()).unwrap();
     assert_eq!(keys["keys"][0]["kid"], "active");
     assert!(keys["keys"][0].get("d").is_none());
+    let first = issuer
+        .begin_oidc(oidc_request(Some("http-nonce")))
+        .await
+        .unwrap();
+    let page = issuer
+        .continue_authorization(&first.binding, &first.csrf, Some(&f.session.refresh_token))
+        .await
+        .unwrap();
+    let redirect = issuer
+        .consent(
+            &page.binding,
+            &page.csrf,
+            Some(&f.session.refresh_token),
+            true,
+        )
+        .await
+        .unwrap();
+    let code = reqwest::Url::parse(&redirect.uri)
+        .unwrap()
+        .query_pairs()
+        .find(|(k, _)| k == "code")
+        .unwrap()
+        .1
+        .to_string();
+    let body = form_urlencoded::Serializer::new(String::new())
+        .extend_pairs([
+            ("grant_type", "authorization_code"),
+            ("client_id", "lmm"),
+            ("resource", RESOURCE),
+            ("code", code.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("code_verifier", VERIFIER),
+        ])
+        .finish();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/oauth2/token")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let wire: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    assert!(wire["id_token"].is_string());
+    for method in ["GET", "POST"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/api/oauth2/userinfo")
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", wire["access_token"].as_str().unwrap()),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let claims: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(claims, serde_json::json!({"sub":f.user.to_string()}));
+    }
     let response = app
         .oneshot(
             Request::builder()
