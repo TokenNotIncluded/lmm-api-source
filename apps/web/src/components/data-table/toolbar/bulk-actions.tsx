@@ -171,17 +171,16 @@ export function DataTableBulkActions<TData extends RowData>({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         className={cn(
-          'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl',
-          'transition-all delay-100 duration-300 ease-out hover:scale-105',
+          'fixed bottom-6 left-1/2 z-50 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl',
           'focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none'
         )}
       >
         <div
           className={cn(
-            'max-w-[calc(100vw-1rem)] overflow-x-auto p-2 shadow-xl',
+            'max-h-[50dvh] overflow-y-auto p-2 shadow-lg',
             'rounded-xl border',
-            'bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur-lg',
-            'flex items-center gap-x-2'
+            'bg-background',
+            'flex min-w-0 flex-wrap items-center gap-2 [&>button]:h-auto [&>button]:min-h-9 [&>button]:max-w-full [&>button]:whitespace-normal'
           )}
         >
           <Tooltip>
@@ -191,7 +190,7 @@ export function DataTableBulkActions<TData extends RowData>({
                   variant='outline'
                   size='icon'
                   onClick={handleClearSelection}
-                  className='size-6'
+                  className='size-9'
                   aria-label={t('Clear selection')}
                   title={t('Clear selection (Escape)')}
                 />
@@ -211,7 +210,10 @@ export function DataTableBulkActions<TData extends RowData>({
             aria-hidden='true'
           />
 
-          <div className='flex items-center gap-x-1 text-sm' id={descriptionId}>
+          <div
+            className='flex min-w-0 flex-wrap items-center gap-1 text-sm [overflow-wrap:anywhere]'
+            id={descriptionId}
+          >
             <Badge
               variant='default'
               className='min-w-8 rounded-lg'

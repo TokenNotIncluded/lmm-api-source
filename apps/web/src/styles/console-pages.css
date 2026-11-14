@@ -18,25 +18,34 @@ For commercial licensing, please contact support@quantumnous.com
 */
 /* Shared page rhythm; no color literals or marketing-page overrides. */
 .console-editorial .console-page {
-  --page-gutter: clamp(1.25rem, 4cqi, 3rem);
+  --page-gutter: clamp(1rem, 4cqi, 3rem);
+  --page-content-width: 80rem;
+  --page-inset: max(
+    var(--page-gutter),
+    calc((100% - var(--page-content-width)) / 2)
+  );
   --page-radius: var(--radius);
 }
 .console-editorial .console-page .console-section-header {
-  padding: clamp(1.75rem, 4cqi, 3rem) var(--page-gutter)
+  padding: clamp(1.75rem, 4cqi, 3rem) var(--page-inset)
     clamp(1.5rem, 3cqi, 2.5rem);
 }
 .console-editorial .console-page .console-section-content {
-  padding-inline: var(--page-gutter);
+  padding-inline: var(--page-inset);
+  padding-top: 0.5rem;
   padding-bottom: clamp(2.5rem, 5cqi, 4.5rem);
   scroll-padding-block: 1.5rem;
 }
 .console-editorial .console-page .console-section-footer {
-  padding: 1rem var(--page-gutter);
+  padding: 1rem var(--page-inset);
   border: 0;
 }
 .console-editorial .console-page-heading {
   align-items: center;
   gap: 1rem 1.5rem;
+}
+.console-editorial .console-page-title-slot {
+  flex: 1 1 16rem;
 }
 .console-editorial .console-page-title {
   font-size: clamp(1.5rem, 2.5cqi, 2rem);
@@ -45,7 +54,45 @@ For commercial licensing, please contact support@quantumnous.com
   font-weight: 600;
 }
 .console-editorial .console-page-actions {
+  flex: 0 1 auto;
+  justify-content: flex-end;
   gap: 0.5rem;
+}
+.console-editorial .console-page-actions > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.console-editorial .console-page-actions [data-slot='button'] {
+  height: auto;
+  min-height: 2.75rem;
+  padding-block: 0.5rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Base reflow on the workspace left after navigation and the assistant. */
+@container content (max-width: 40rem) {
+  .console-editorial .console-page-heading > .console-page-actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}
+
+/* Browser zoom also reduces height. Scroll the page heading and footer before
+ * fixed chrome can consume all the space available to the content. */
+@media (max-height: 36rem) {
+  .console-editorial .console-page[data-section-page] {
+    overflow-y: auto;
+  }
+  .console-editorial .console-page[data-section-page] .console-section-content {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .console-editorial
+    .console-page[data-fixed-content]
+    .console-section-content {
+    min-height: 24rem;
+  }
 }
 .console-editorial .console-page [data-slot='card'] {
   box-shadow: none;
@@ -338,7 +385,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 @media (max-width: 767px) {
   .console-editorial .console-page .console-section-header {
-    padding: 1.5rem var(--page-gutter) 1.5rem;
+    padding: 1.5rem var(--page-inset);
   }
   .console-editorial .console-page-heading {
     gap: 1rem;

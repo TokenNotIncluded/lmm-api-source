@@ -285,7 +285,7 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
           {t('Verify and Sign In')}
         </Button>
 
-        <div className='flex items-center justify-center gap-2 text-sm'>
+        <div className='flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm'>
           <Button
             type='button'
             variant='link'

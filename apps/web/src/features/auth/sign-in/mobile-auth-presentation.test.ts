@@ -31,7 +31,9 @@ describe('mobile sign-in presentation', () => {
     )
     const signIn = readFileSync(new URL('./index.tsx', import.meta.url), 'utf8')
 
-    assert.match(authLayout, /h-dvh/)
+    assert.match(authLayout, /min-h-dvh/)
+    assert.match(authLayout, /<main /)
+    assert.doesNotMatch(authLayout, /overflow-hidden|overflow-y-auto/)
     assert.match(authLayout, /max-w-md/)
     assert.match(authLayout, /<LanguageSwitcher \/>/)
     assert.match(providers, /IconGoogle/)

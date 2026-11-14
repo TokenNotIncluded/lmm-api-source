@@ -47,15 +47,15 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   }, [systemName])
 
   return (
-    <div className='auth-editorial flex min-h-dvh flex-col'>
-      <header className='auth-header flex shrink-0 items-center justify-between'>
+    <div className='auth-editorial flex min-h-dvh min-w-0 flex-col'>
+      <header className='auth-header flex min-w-0 shrink-0 flex-wrap items-center justify-between'>
         <Link
           to='/'
           reloadDocument={reloadDocument}
           className='auth-brand flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80'
         >
           <LmmBrandMark className='size-7 shrink-0' title={systemName} />
-          <h1 className='truncate text-sm font-semibold tracking-tight'>
+          <h1 className='min-w-0 text-sm font-semibold tracking-tight wrap-anywhere'>
             {systemName}
           </h1>
         </Link>
@@ -64,7 +64,7 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
           <ThemeSwitch />
         </div>
       </header>
-      <main className='auth-main flex flex-1 flex-col items-center'>
+      <main className='auth-main flex min-w-0 flex-1 flex-col items-center'>
         <div className='auth-form-stage w-full max-w-md'>{children}</div>
       </main>
       <footer className='auth-footer'>

@@ -327,8 +327,8 @@ export function DataTablePage<TData extends RowData>(
         tabIndex={-1}
         className={cn(
           props.fixedHeight !== false
-            ? 'flex h-full min-h-0 flex-col gap-2.5 sm:gap-3'
-            : 'space-y-2.5 sm:space-y-3',
+            ? 'flex h-full min-h-0 min-w-0 flex-col gap-4 sm:gap-5'
+            : 'min-w-0 space-y-4 sm:space-y-5',
           props.className
         )}
       >
@@ -389,7 +389,7 @@ function renderPagination<TData extends RowData>(
   return props.paginationInFooter !== false ? (
     <PageFooterPortal>{pagination}</PageFooterPortal>
   ) : (
-    <div className='pt-2'>{pagination}</div>
+    <div className='min-w-0 shrink-0 pt-3'>{pagination}</div>
   )
 }
 
@@ -472,11 +472,10 @@ function renderMobile<TData extends RowData>(
 
   return (
     <div
-      className={
-        props.fixedHeight !== false
-          ? 'min-h-0 flex-1 overflow-y-auto'
-          : undefined
-      }
+      className={cn(
+        'min-w-0',
+        props.fixedHeight !== false && 'min-h-0 flex-1 overflow-y-auto'
+      )}
     >
       {mobileContent}
     </div>
@@ -501,7 +500,7 @@ function renderDesktop<TData extends RowData>(
       <div
         className={cn(
           fixedHeight && 'min-h-0 flex-1 overflow-y-auto',
-          'transition-opacity duration-150',
+          'min-w-0 transition-opacity duration-150',
           isFetchingOnly && 'pointer-events-none opacity-60'
         )}
       >

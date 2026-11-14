@@ -231,7 +231,7 @@ export function DataTableToolbar<TData extends RowData>(
       onChange={handleSearchChange}
       onCompositionStart={handleSearchCompositionStart}
       onCompositionEnd={handleSearchCompositionEnd}
-      className='w-full sm:w-[200px] lg:w-[240px]'
+      className='w-full min-w-0 sm:w-[200px] lg:w-[240px]'
     />
   )
 
@@ -331,16 +331,21 @@ export function DataTableToolbar<TData extends RowData>(
   ) : null
 
   return (
-    <div className={cn('console-toolbar flex flex-col gap-3', props.className)}>
+    <div
+      className={cn(
+        'console-toolbar flex min-w-0 shrink-0 flex-col gap-3',
+        props.className
+      )}
+    >
       <div
         data-slot='table-toolbar-controls'
-        className='flex min-w-0 flex-wrap items-center gap-2'
+        className='flex min-w-0 flex-wrap items-center gap-2 [&>*]:max-w-full'
       >
         {props.customSearch !== undefined ? props.customSearch : searchInput}
         {expandToggle}
         {resetButton}
         {searchButton}
-        <div className='ms-auto flex min-w-0 flex-wrap items-center gap-2'>
+        <div className='flex w-full min-w-0 flex-wrap items-center gap-2 empty:hidden sm:ms-auto sm:w-auto sm:justify-end [&>*]:max-w-full'>
           {props.leftActions}
           {props.preActions}
           {viewToggleNode}
@@ -359,7 +364,7 @@ export function DataTableToolbar<TData extends RowData>(
           hidden={!expanded}
           role='region'
           aria-label={t('Filters')}
-          className='console-filter-panel bg-muted/20 flex flex-wrap items-end gap-3 rounded-xl border p-3'
+          className='console-filter-panel bg-muted/30 flex min-w-0 flex-wrap items-end gap-3 rounded-xl p-3 sm:p-4 [&>*]:max-w-full [&>*]:min-w-0'
         >
           {props.additionalSearch}
           {filterChips}
