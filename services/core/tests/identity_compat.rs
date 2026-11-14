@@ -451,6 +451,7 @@ async fn auto_inherits_current_global_order_without_rewriting_custom_keys(pool: 
         None,
     )
     .await;
+    assert!(all.1["data"].get("auto").is_some());
     assert!(all.1["data"].get("default").is_some());
     assert!(all.1["data"].get("private").is_some());
     assert!(all.1["data"].get("disabled").is_none());

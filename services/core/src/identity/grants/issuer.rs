@@ -45,6 +45,12 @@ pub struct BrowserGrantSummary {
     pub expires_at: i64,
     pub revoked_at: Option<i64>,
     pub active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_application: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
 }
 
 impl LmmIssuer {
@@ -108,15 +114,19 @@ impl LmmIssuer {
         let mut tx = transaction(&self.identity.pool).await?;
         let identity = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await?;
         let rows = sqlx::query(
-            "SELECT id,client_id,purpose,scopes,budget_credits,
-                    extract(epoch FROM created_at)::bigint AS created_at,
-                    extract(epoch FROM expires_at)::bigint AS expires_at,
-                    extract(epoch FROM revoked_at)::bigint AS revoked_at,
-                    revoked_at IS NULL AND expires_at>clock_timestamp() AS active
-             FROM core_oauth.families
-             WHERE user_id=$1 AND owner_account_id=$2 AND user_version=$3
-               AND issuance_kind='browser'
-             ORDER BY active DESC, created_at DESC
+            "SELECT f.id,f.client_id,f.purpose,f.scopes,f.budget_credits,
+                    extract(epoch FROM f.created_at)::bigint AS created_at,
+                    extract(epoch FROM f.expires_at)::bigint AS expires_at,
+                    extract(epoch FROM f.revoked_at)::bigint AS revoked_at,
+                    f.revoked_at IS NULL AND f.expires_at>clock_timestamp() AS active,
+                    b.application AS managed_application,
+                    b.installation_id,
+                    b.display_label
+             FROM core_oauth.families f
+             LEFT JOIN core_oauth.managed_family_bindings b ON b.family_id=f.id
+             WHERE f.user_id=$1 AND f.owner_account_id=$2 AND f.user_version=$3
+               AND f.issuance_kind='browser'
+             ORDER BY active DESC, f.created_at DESC
              LIMIT 100",
         )
         .bind(identity.user)
@@ -136,6 +146,9 @@ impl LmmIssuer {
                 expires_at: row.try_get("expires_at")?,
                 revoked_at: row.try_get("revoked_at")?,
                 active: row.try_get("active")?,
+                managed_application: row.try_get("managed_application")?,
+                installation_id: row.try_get("installation_id")?,
+                display_label: row.try_get("display_label")?,
             });
         }
         tx.commit().await?;

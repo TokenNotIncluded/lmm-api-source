@@ -762,7 +762,12 @@ impl IdentityStore {
         let allowed = if marked {
             vec!["auto".to_owned()]
         } else {
-            groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?
+            let mut allowed =
+                groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
+            if !allowed.is_empty() && !allowed.iter().any(|name| name == "auto") {
+                allowed.insert(0, "auto".to_owned());
+            }
+            allowed
         };
         tx.commit().await?;
         Ok(json!(allowed))

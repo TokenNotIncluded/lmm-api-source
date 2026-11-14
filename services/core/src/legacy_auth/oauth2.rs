@@ -96,15 +96,15 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     let pi = page.client_id == "lmm-pi";
     let managed = page.client_id == "lmm-cc-switch";
     let model = pi || managed;
+    let client_name = if pi {
+        "LMM Pi"
+    } else if managed {
+        "LMM CC Switch"
+    } else {
+        "LMM CLI"
+    };
     let mut body = format!(
-        "<!doctype html><meta charset=utf-8><title>LMM authorization</title><h1>{}</h1>",
-        if pi {
-            "LMM Pi"
-        } else if managed {
-            "LMM CC Switch"
-        } else {
-            "LMM CLI"
-        }
+        "<!doctype html><meta charset=utf-8><title>LMM authorization</title><h1>{client_name}</h1>"
     );
     if managed && let (Some(id), Some(label)) = (&page.installation_id, &page.display_label) {
         body.push_str(&format!(
@@ -124,7 +124,9 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
         }
         "/api/user/auth/oauth2/consent"
     } else {
-        body.push_str("<p>Sign in, then explicitly continue here. This does not authorize LMM CLI.</p><p><a href=\"/sign-in?reauth=1\" target=\"_blank\" rel=\"noopener noreferrer\">Open sign in</a></p>");
+        body.push_str(&format!(
+            "<p>Sign in, then explicitly continue here. This does not authorize {client_name}.</p><p><a href=\"/sign-in?reauth=1\" target=\"_blank\" rel=\"noopener noreferrer\">Open sign in</a></p>"
+        ));
         "/api/user/auth/oauth2/continue"
     };
     body.push_str(&format!(

@@ -163,3 +163,104 @@ test('managed and legacy grants use their actual purpose for model versus read-o
     api.defaults.adapter = originalAdapter
   }
 })
+
+test('managed cc-switch grants show device label and isolate cache by session', async () => {
+  const { useAuthStore } = await import('@/stores/auth-store')
+  const previousAuth = useAuthStore.getState().auth
+  const baseFields = {
+    scopes: ['catalog:read', 'balance:read', 'models:invoke'],
+    budget_credits: 500000,
+    created_at: 1_800_000_000,
+    expires_at: 1_900_000_000,
+    revoked_at: null,
+    active: true,
+  }
+  let currentGrants: OAuthGrantSummary[] = [
+    {
+      ...baseFields,
+      id: 'lmm_gr_device_a',
+      client_id: 'lmm-cc-switch',
+      purpose: 'normal_model',
+      managed_application: 'cc-switch',
+      installation_id: 'abcdef0123456789'.repeat(4),
+      display_label: 'Workstation A',
+    },
+  ]
+  let requests = 0
+  const originalAdapter = api.defaults.adapter
+  api.defaults.adapter = async (config) => {
+    requests++
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data: currentGrants },
+    }
+  }
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'tok-a',
+      token_type: 'Bearer',
+      access_expires_at: 2_000_000_000,
+      user: { id: 101, username: 'alice', role: 1 } as never,
+      session: { sid: 'sess-a' } as never,
+    })
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <OAuthGrantsCard />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+    )
+    for (
+      let i = 0;
+      i < 50 && !host.textContent?.includes('Workstation A');
+      i++
+    ) {
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    }
+    assert.ok(host.textContent?.includes('CC Switch · Workstation A (abcdef01)'))
+    assert.equal(requests, 1)
+
+    currentGrants = [
+      {
+        ...baseFields,
+        id: 'lmm_gr_device_b',
+        client_id: 'lmm-cc-switch',
+        purpose: 'normal_model',
+        managed_application: 'cc-switch',
+        installation_id: '9999888877776666'.repeat(4),
+        display_label: 'Laptop B',
+      },
+    ]
+    await act(async () => {
+      useAuthStore.getState().auth.setBundle({
+        access_token: 'tok-b',
+        token_type: 'Bearer',
+        access_expires_at: 2_000_000_000,
+        user: { id: 202, username: 'bob', role: 1 } as never,
+        session: { sid: 'sess-b' } as never,
+      })
+    })
+    for (let i = 0; i < 50 && !host.textContent?.includes('Laptop B'); i++) {
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+    }
+    assert.ok(host.textContent?.includes('CC Switch · Laptop B (99998888)'))
+    assert.equal(requests, 2)
+  } finally {
+    await act(async () => root.unmount())
+    useAuthStore.setState({ auth: previousAuth })
+    queryClient.clear()
+    host.remove()
+    api.defaults.adapter = originalAdapter
+  }
+})

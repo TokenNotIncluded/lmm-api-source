@@ -64,11 +64,17 @@ async fn begin_login(
     Path(provider): Path<String>,
     input: Result<Json<Start>, JsonRejection>,
 ) -> Response {
+    let Ok(Json(input)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    if state.config.require_legal_acceptance && !input.accepted_legal {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "AUTH_LEGAL_ACCEPTANCE_REQUIRED",
+            "Accept the published legal terms before signing in",
+        );
+    }
     let result = async {
-        let Json(input) = input.map_err(|_| IdentityError::Invalid)?;
-        if state.config.require_legal_acceptance && !input.accepted_legal {
-            return Err(IdentityError::Invalid.into());
-        }
         let name = cookie_name(&state.config, &provider, false)?;
         let binding = external_login::random_binding()?;
         let start = state

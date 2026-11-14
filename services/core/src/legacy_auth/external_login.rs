@@ -89,19 +89,28 @@ async fn start(
     Path(provider): Path<String>,
     input: Result<Json<Start>, JsonRejection>,
 ) -> Response {
+    let provider = match ExternalProvider::parse(&provider) {
+        Ok(provider) => provider,
+        Err(error) => return auth_failure(error.into()),
+    };
+    if state
+        .config
+        .external_client_id(&state.store, provider)
+        .is_none()
+    {
+        return auth_failure(IdentityError::Forbidden.into());
+    }
+    let Ok(Json(input)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    if state.config.require_legal_acceptance && !input.accepted_legal {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "AUTH_LEGAL_ACCEPTANCE_REQUIRED",
+            "Accept the published legal terms before signing in",
+        );
+    }
     let result = async {
-        let provider = ExternalProvider::parse(&provider)?;
-        if state
-            .config
-            .external_client_id(&state.store, provider)
-            .is_none()
-        {
-            return Err(IdentityError::Forbidden.into());
-        }
-        let Json(input) = input.map_err(|_| IdentityError::Invalid)?;
-        if state.config.require_legal_acceptance && !input.accepted_legal {
-            return Err(IdentityError::Invalid.into());
-        }
         let binding = random_binding()?;
         let url = state
             .browser

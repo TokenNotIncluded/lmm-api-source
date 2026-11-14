@@ -41,6 +41,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   getOAuthGrantSummaries,
@@ -48,8 +49,6 @@ import {
   revokeOAuthGrant,
   type OAuthGrantSummary,
 } from '../api'
-
-const grantsQueryKey = ['profile', 'oauth-grants'] as const
 
 function formatDate(value: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -67,6 +66,9 @@ function clientLabel(grant: OAuthGrantSummary, t: (value: string) => string) {
 export function OAuthGrantsCard() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const grantsQueryKey = ['profile', 'oauth-grants', userId, sessionId] as const
   const [revokeTarget, setRevokeTarget] = useState<OAuthGrantSummary | null>(
     null
   )
@@ -182,6 +184,19 @@ export function OAuthGrantsCard() {
                           ? t('Model access')
                           : t('Read-only account access')}
                       </p>
+                      {(grant.display_label || grant.managed_application) && (
+                        <p className='text-muted-foreground text-xs'>
+                          {grant.client_id === 'lmm-cc-switch'
+                            ? t('CC Switch')
+                            : (grant.managed_application ?? grant.client_id)}
+                          {grant.display_label
+                            ? ` · ${grant.display_label}`
+                            : ''}
+                          {grant.installation_id
+                            ? ` (${grant.installation_id.slice(0, 8)})`
+                            : ''}
+                        </p>
+                      )}
                     </div>
                     {grant.active ? (
                       <Button

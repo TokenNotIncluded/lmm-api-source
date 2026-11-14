@@ -54,6 +54,9 @@ export type OAuthGrantSummary = {
   expires_at: number
   revoked_at: number | null
   active: boolean
+  managed_application?: string
+  installation_id?: string
+  display_label?: string
 }
 
 export async function getOAuthGrantSummaries(): Promise<
