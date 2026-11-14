@@ -73,6 +73,43 @@ fn actual_core_chat_shapes_complete() {
     ));
 }
 #[test]
+fn role_only_start_preserves_all_complete_response_requirements() {
+    let mut complete = values();
+    complete[0]["choices"][0]["delta"] = json!({"role":"assistant"});
+    assert!(valid_complete_body(&stream(&complete), true, REQUEST_ID));
+    for delta in [
+        json!({}),
+        json!({"role":"user"}),
+        json!({"role":"assistant","content":null}),
+        json!({"role":"assistant","content":"unreviewed initial text"}),
+        json!({"role":"assistant","extra":"unreviewed"}),
+    ] {
+        let mut wrong = complete.clone();
+        wrong[0]["choices"][0]["delta"] = delta;
+        reject_sse("invalid role-only start", &stream(&wrong));
+    }
+    for removed in [1, 2, 3] {
+        let mut incomplete = complete.clone();
+        incomplete.remove(removed);
+        reject_sse(
+            "role-only start does not replace content/stop/usage",
+            &stream(&incomplete),
+        );
+    }
+    let mut wrong_content = complete.clone();
+    wrong_content[1]["choices"][0]["delta"]["content"] = json!("wrong answer");
+    reject_sse(
+        "role-only start does not excuse wrong content",
+        &stream(&wrong_content),
+    );
+    let without_done = complete.iter().map(frame).collect::<String>();
+    reject_sse(
+        "role-only start still requires DONE",
+        without_done.as_bytes(),
+    );
+}
+
+#[test]
 fn legal_content_fragments_and_json_escapes_are_decoded() {
     let parts = vec![
         start(),

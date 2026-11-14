@@ -85,10 +85,13 @@ impl Stream {
             return false;
         }
         if !self.started {
-            if delta.len() != 2
-                || choice["delta"]["role"] != "assistant"
-                || choice["delta"]["content"].as_str() != Some("")
-            {
+            // The locked writer emits role-only starts; explicit empty content
+            // is equivalent. Actual answer text must still arrive afterwards.
+            let empty_content = match delta.get("content") {
+                None => delta.len() == 1,
+                Some(content) => delta.len() == 2 && content.as_str() == Some(""),
+            };
+            if choice["delta"]["role"] != "assistant" || !empty_content {
                 return false;
             }
             self.started = true;

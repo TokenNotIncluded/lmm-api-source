@@ -147,7 +147,7 @@ async fn finish(
     .await;
     let response = match result {
         Ok(bundle) => bundle_response(bundle, &state.config),
-        Err(error) => auth_failure(error),
+        Err(error) => return auth_failure(error),
     };
     flow_cookie(response, &state.config, provider, None)
 }

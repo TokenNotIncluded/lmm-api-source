@@ -57,12 +57,22 @@ PROCESS_TESTS = {
     'stream_cases::independent_process_terminal_evidence_recovers_final_transaction_once',
     'stream_cases::independent_process_settlement_retry_without_redispatch',
 }
+# Shared hex codec is deliberately registered as a support unit test, not an
+# eighth process/business case. Keep discovery exact in both runners.
+PROCESS_SUPPORT_TESTS = {
+    'hex_codec::tests::preserves_hex_representation_and_input_errors',
+}
 PRODUCT_TREES = ('services/core/src', 'services/core/schema', 'contracts/proto')
 PRODUCT_FILES = ('services/core/Cargo.toml', 'services/core/Cargo.lock',
-                 'services/core/build.rs', 'deployment/postgres/grant-core-runtime.sql')
+                 'services/core/build.rs', 'deployment/postgres/grant-core-runtime.sql',
+                 'services/extensions/internal/modules/toolmarket/builtin_catalog.json')
 TEST_TREES = ('services/core/tests/common', 'services/core/tests/model_http', 'tests/model_process')
 TEST_FILES = ('services/core/tests/model_process.rs', 'services/core/tests/model_http.rs',
-              'scripts/verify_model_process.py', 'tests/architecture_completion/pg_fixture.py',
+              'services/core/tests/model_resource_response.rs',
+              'scripts/verify_model_process.py', 'deployment/postgres/grant-tool-market-credit.sql',
+              'contracts/core/v1/funding-cases.json', 'contracts/assistant-tools-v1.json',
+              'deployment/postgres/verify-channel-observations-owner.sql',
+              'tests/architecture_completion/pg_fixture.py',
               'tests/architecture_completion/build_lease.py', 'mise.toml',
               'services/core/rust-toolchain.toml')
 
@@ -368,8 +378,8 @@ def prepare(args) -> int:
                  for name in ('lmm-core', 'model_process', 'model_http')}
     lists = {name: test_list(artifacts_dir / name, env, args.output_root / (name + '-list.log'))
              for name in ('model_process', 'model_http')}
-    if set(lists['model_process']) != PROCESS_TESTS:
-        raise FixtureError('model_process must contain exactly the seven reviewed cases')
+    if set(lists['model_process']) != PROCESS_TESTS | PROCESS_SUPPORT_TESTS:
+        raise FixtureError('model_process must contain the seven reviewed cases and exact support tests')
     check_inputs(frozen)
     artifact_check(args.output_root, artifacts)
     reference_check(reference)
@@ -411,7 +421,7 @@ def run(args) -> int:
                 'LMM_MODEL_PROCESS_CORE_SHA256': artifacts['artifacts/lmm-core']})
     lists = {name: test_list(args.output_root / 'artifacts' / name, env, attempt / (name + '-list.log'))
              for name in ('model_process', 'model_http')}
-    if lists != prepared['test_lists'] or set(lists['model_process']) != PROCESS_TESTS:
+    if lists != prepared['test_lists'] or set(lists['model_process']) != PROCESS_TESTS | PROCESS_SUPPORT_TESTS:
         raise FixtureError('frozen test discovery differs from prepare')
     fixture = Fixture(attempt)
     # The fixture fixes the Docker host itself; preserve only its fresh private config.

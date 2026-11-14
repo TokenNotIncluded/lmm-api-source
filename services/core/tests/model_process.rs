@@ -344,12 +344,12 @@ async fn prepare_core(pool: &PgPool, provider: &Provider, keys: &[i64], label: &
     let role = restricted_runtime::RuntimeRole::create(pool).await;
     role.optional("core_charging").await;
     role.optional("core_model").await;
-    role.optional("core_checkins").await;
     lmm_core::runtime_database::check(
         &role.pool,
         lmm_core::runtime_database::RequiredCapabilities {
             models: true,
-            checkins: true,
+            // Fresh Core delegates checkins to Go, matching production startup.
+            checkins: false,
             ..Default::default()
         },
     )

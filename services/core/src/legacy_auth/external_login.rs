@@ -265,7 +265,7 @@ async fn callback(
             Some(&binding),
             &state.config,
         ),
-        Err(error) => mfa_failure(error),
+        Err(error) => return mfa_failure(error),
     };
     set_flow_cookie(
         response,

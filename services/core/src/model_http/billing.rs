@@ -71,52 +71,91 @@ where
 }
 
 #[derive(Clone, Copy, Debug)]
+struct RetryBackoff {
+    after_attempt: u8,
+    started_after: Duration,
+    requested: Duration,
+    planned: Duration,
+    actual: Duration,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct RetryObservation {
     attempt: u8,
+    started_after: Duration,
     duration: Duration,
     error: Option<charging::Error>,
     final_result: bool,
+    // Attached to the next completed attempt, or the final record if the
+    // unchanged deadline prevented that next attempt from starting.
+    backoff_before: Option<RetryBackoff>,
 }
 
-/// Observe the selected existing retry policy without broadening replayable errors.
+/// Observe the original three-linear/eight-bounded policies in one loop.
+/// Neither a deadline nor observation cancels an in-flight operation.
 async fn retry_observed<T, F, Fut, O>(
     deadline: Option<tokio::time::Instant>,
     mut operation: F,
-    observe: O,
+    mut observe: O,
 ) -> charging::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = charging::Result<T>>,
-    O: Fn(RetryObservation),
+    O: FnMut(RetryObservation),
 {
+    let limit = if deadline.is_some() { 8 } else { 3 };
     let mut attempts = 0u8;
     let started = tokio::time::Instant::now();
-    let observed = || {
+    let mut backoff_before = None;
+    let result = loop {
+        if deadline.is_some_and(|end| tokio::time::Instant::now() >= end) {
+            break Err(charging::Error::Retry);
+        }
         attempts += 1;
-        let attempt = attempts;
+        // Preserve the old measurement boundary: future construction is not
+        // included in the attempt's awaited duration.
         let operation = operation();
-        let observe = &observe;
-        async move {
-            let started = tokio::time::Instant::now();
-            let result = operation.await;
-            observe(RetryObservation {
-                attempt,
-                duration: started.elapsed(),
-                error: result.as_ref().err().copied(),
-                final_result: false,
-            });
-            result
+        let attempt_started = tokio::time::Instant::now();
+        let result = operation.await;
+        observe(RetryObservation {
+            attempt: attempts,
+            started_after: attempt_started.duration_since(started),
+            duration: attempt_started.elapsed(),
+            error: result.as_ref().err().copied(),
+            final_result: false,
+            backoff_before: backoff_before.take(),
+        });
+        match result {
+            Err(charging::Error::Retry) if attempts < limit => {
+                let requested = if deadline.is_some() {
+                    Duration::from_millis(10u64 << (attempts - 1))
+                } else {
+                    Duration::from_millis(10 * u64::from(attempts))
+                };
+                let sleep_started = tokio::time::Instant::now();
+                let next = sleep_started + requested;
+                let wake = deadline.map_or(next, |end| next.min(end));
+                let planned = wake.saturating_duration_since(sleep_started);
+                tokio::time::sleep_until(wake).await;
+                backoff_before = Some(RetryBackoff {
+                    after_attempt: attempts,
+                    started_after: sleep_started.duration_since(started),
+                    requested,
+                    planned,
+                    actual: sleep_started.elapsed(),
+                });
+            }
+            result => break result,
         }
     };
-    let result = match deadline {
-        Some(deadline) => retry_bounded(deadline, observed).await,
-        None => retry(observed).await,
-    };
+    let duration = started.elapsed();
     observe(RetryObservation {
         attempt: attempts,
-        duration: started.elapsed(),
+        started_after: duration,
+        duration,
         error: result.as_ref().err().copied(),
         final_result: true,
+        backoff_before,
     });
     result
 }
@@ -125,6 +164,90 @@ where
 enum FinalizeStage {
     ProviderFinal,
     Settle,
+}
+
+fn retry_category(error: Option<charging::Error>) -> &'static str {
+    use charging::Error::*;
+    match error {
+        None => "Ok",
+        Some(Invalid) => "Invalid",
+        Some(Unauthorized) => "Unauthorized",
+        Some(Forbidden) => "Forbidden",
+        Some(Conflict) => "Conflict",
+        Some(BudgetExceeded) => "BudgetExceeded",
+        Some(RequestRateLimited(_)) => "RequestRateLimited",
+        Some(NoFunds) => "NoFunds",
+        Some(NeedReservation) => "NeedReservation",
+        Some(StaleWorker) => "StaleWorker",
+        Some(WrongState) => "WrongState",
+        Some(NotFound) => "NotFound",
+        Some(Retry) => "Retry",
+        Some(Storage) => "Storage",
+        Some(Ledger) => "Ledger",
+        Some(CommitUnknown) => "CommitUnknown",
+    }
+}
+
+fn retry_trace(
+    request_id: &str,
+    stage: &'static str,
+    observations: &[RetryObservation],
+) -> Option<serde_json::Value> {
+    if !matches!(stage, "reserve" | "provider-final" | "settle")
+        || request_id.len() != 64
+        || !request_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let final_result = observations.last().filter(|value| value.final_result)?;
+    Some(serde_json::json!({
+        "version": 1,
+        "request_id": request_id,
+        "stage": stage,
+        "attempts": final_result.attempt,
+        "stage_elapsed_us": final_result.duration.as_micros(),
+        "category_source": "charging::Error",
+        "category": retry_category(final_result.error),
+        "helper_final": final_result.final_result,
+        "observations": observations.iter().map(|observation| serde_json::json!({
+            "kind": if observation.final_result { "return" } else { "attempt" },
+            "attempt": observation.attempt,
+            "started_after_us": observation.started_after.as_micros(),
+            "duration_us": observation.duration.as_micros(),
+            "category": retry_category(observation.error),
+            "helper_final": observation.final_result,
+            "backoff_before": observation.backoff_before.map(|backoff| serde_json::json!({
+                "after_attempt": backoff.after_attempt,
+                "started_after_us": backoff.started_after.as_micros(),
+                "requested_us": backoff.requested.as_micros(),
+                "planned_us": backoff.planned.as_micros(),
+                "actual_us": backoff.actual.as_micros(),
+            })),
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+async fn retry_stage<T, F, Fut>(
+    deadline: tokio::time::Instant,
+    request_id: &str,
+    stage: &'static str,
+    operation: F,
+) -> charging::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = charging::Result<T>>,
+{
+    // At most eight attempts plus one final observation. Buffering avoids
+    // synchronous stderr writes between attempts or during their backoff.
+    let mut observations = Vec::with_capacity(9);
+    let result = retry_observed(Some(deadline), operation, |value| observations.push(value)).await;
+    if let Some(trace) = retry_trace(request_id, stage, &observations) {
+        use std::io::Write as _;
+        // Diagnostics cannot turn an already completed financial operation into
+        // a different result if the stderr consumer closes its pipe.
+        let _ = writeln!(std::io::stderr().lock(), "model_billing_retry {trace}");
+    }
+    result
 }
 
 // @mark model.settlement-retry role=implementation
@@ -138,73 +261,23 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = charging::Result<T>>,
 {
-    // Never interpolate unchecked identifiers or database error descriptions.
-    let request_id =
-        if request_id.len() == 64 && request_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            request_id
-        } else {
-            "invalid_request_id"
-        };
     let stage = match stage {
         FinalizeStage::ProviderFinal => "provider-final",
         FinalizeStage::Settle => "settle",
     };
-    retry_observed(Some(deadline), operation, |observation| {
-        if observation.error.is_none()
-            && (!observation.final_result || observation.attempt == 1)
-        {
-            return;
-        }
-        // charging::Error is a payload-free enum, unlike an underlying SQL error.
-        let category = observation.error.map_or_else(|| "Ok".to_owned(), |error| format!("{error:?}"));
-        eprintln!(
-            "model_finalize request_id={request_id} stage={stage} attempt={} duration_ms={} final={} category={category}",
-            observation.attempt,
-            observation.duration.as_millis(),
-            observation.final_result,
-        );
-    })
-    .await
+    retry_stage(deadline, request_id, stage, operation).await
 }
 
-/// Retry only an explicitly rolled-back reservation, preserving its ID/spec/worker.
-/// The monotonic window limits when another attempt may START; it does not
-/// interrupt an in-flight transaction or change the enclosing hook timeout.
+/// Retry only an explicitly rolled-back reservation, preserving ID/spec/worker.
+/// The two-second window still limits starts, not an in-flight transaction.
 // @mark model.reservation-retry role=implementation
-async fn retry_reserve<T, F, Fut>(operation: F) -> charging::Result<T>
+async fn retry_reserve<T, F, Fut>(request_id: &str, operation: F) -> charging::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = charging::Result<T>>,
 {
-    retry_bounded(
-        tokio::time::Instant::now() + Duration::from_secs(2),
-        operation,
-    )
-    .await
-}
-
-/// Shared rollback-only policy: at most eight starts in the supplied monotonic window.
-async fn retry_bounded<T, F, Fut>(
-    deadline: tokio::time::Instant,
-    mut operation: F,
-) -> charging::Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = charging::Result<T>>,
-{
-    for attempt in 0..8 {
-        if tokio::time::Instant::now() >= deadline {
-            return Err(charging::Error::Retry);
-        }
-        match operation().await {
-            Err(charging::Error::Retry) if attempt < 7 => {
-                let next = tokio::time::Instant::now() + Duration::from_millis(10u64 << attempt);
-                tokio::time::sleep_until(next.min(deadline)).await;
-            }
-            result => return result,
-        }
-    }
-    unreachable!()
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    retry_stage(deadline, request_id, "reserve", operation).await
 }
 
 enum ReservationWire<'a> {
@@ -502,7 +575,7 @@ impl Bridge {
             lease_seconds: self.policy.lease_seconds,
             maximum_seconds: self.policy.lease_seconds,
         };
-        let charge = retry_reserve(|| async {
+        let charge = retry_reserve(&context.request_id, || async {
             self.charging
                 .reserve_prepared_model_with_context(
                     &secret,
@@ -1870,11 +1943,12 @@ pub(super) fn confirmed_settlement_amount(
 mod reserve_retry_tests {
     use super::*;
     use std::{cell::Cell, future, task::Poll};
+    const REQUEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     #[tokio::test]
     async fn explicit_rollbacks_beyond_three_attempts_preserve_success() {
         let calls = Cell::new(0);
-        let result = retry_reserve(|| {
+        let result = retry_reserve(REQUEST, || {
             calls.set(calls.get() + 1);
             future::ready(if calls.get() <= 4 {
                 Err(charging::Error::Retry)
@@ -1890,7 +1964,7 @@ mod reserve_retry_tests {
     #[tokio::test]
     async fn explicit_rollbacks_beyond_three_attempts_preserve_business_rejection() {
         let calls = Cell::new(0);
-        let result = retry_reserve(|| {
+        let result = retry_reserve(REQUEST, || {
             calls.set(calls.get() + 1);
             future::ready(Err::<(), _>(if calls.get() <= 4 {
                 charging::Error::Retry
@@ -1922,7 +1996,7 @@ mod reserve_retry_tests {
             CommitUnknown,
         ] {
             let calls = Cell::new(0);
-            let result = retry_reserve(|| {
+            let result = retry_reserve(REQUEST, || {
                 calls.set(calls.get() + 1);
                 future::ready(Err::<(), _>(original))
             })
@@ -1936,7 +2010,7 @@ mod reserve_retry_tests {
     // @mark model.reservation-retry role=test
     async fn permanent_retry_has_a_finite_attempt_limit() {
         let calls = Cell::new(0);
-        let result = retry_reserve(|| {
+        let result = retry_reserve(REQUEST, || {
             calls.set(calls.get() + 1);
             future::ready(Err::<(), _>(charging::Error::Retry))
         })
@@ -1948,7 +2022,7 @@ mod reserve_retry_tests {
     #[tokio::test]
     async fn elapsed_transaction_time_prevents_a_new_attempt_after_window() {
         let calls = Cell::new(0);
-        let result = retry_reserve(|| {
+        let result = retry_reserve(REQUEST, || {
             calls.set(calls.get() + 1);
             async {
                 tokio::time::sleep(Duration::from_millis(2050)).await;
@@ -1963,7 +2037,7 @@ mod reserve_retry_tests {
     #[tokio::test]
     async fn an_in_flight_transaction_result_is_not_interrupted_by_window() {
         let calls = Cell::new(0);
-        let result = retry_reserve(|| {
+        let result = retry_reserve(REQUEST, || {
             calls.set(calls.get() + 1);
             async {
                 tokio::time::sleep(Duration::from_millis(2050)).await;
@@ -1978,7 +2052,7 @@ mod reserve_retry_tests {
     #[tokio::test]
     async fn dropping_during_backoff_never_starts_another_operation() {
         let calls = Cell::new(0);
-        let mut pending = Box::pin(retry_reserve(|| {
+        let mut pending = Box::pin(retry_reserve(REQUEST, || {
             calls.set(calls.get() + 1);
             future::ready(Err::<(), _>(charging::Error::Retry))
         }));
@@ -2733,5 +2807,158 @@ mod a07_billing_tests {
         .await;
         assert_eq!(result, Err(charging::Error::Retry));
         assert_eq!(calls, 3);
+    }
+}
+
+#[cfg(test)]
+mod retry_timing_tests {
+    use super::*;
+    use std::{
+        cell::{Cell, RefCell},
+        future,
+        task::Poll,
+    };
+    const REQUEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[tokio::test]
+    async fn slow_first_success_has_attempt_and_return_timing() {
+        let mut observations = Vec::new();
+        let result = retry_observed(
+            None,
+            || async {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                Ok("original-value")
+            },
+            |value| observations.push(value),
+        )
+        .await;
+        assert_eq!(result, Ok("original-value"));
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[0].attempt, 1);
+        assert!(observations[0].duration >= Duration::from_millis(40));
+        assert!(observations[0].backoff_before.is_none());
+        assert!(observations[1].final_result);
+        assert!(observations[1].duration >= observations[0].duration);
+        for stage in ["reserve", "provider-final", "settle"] {
+            let trace = retry_trace(REQUEST, stage, &observations).unwrap();
+            assert_eq!(trace["category"], "Ok");
+            assert_eq!(trace["helper_final"], true);
+            assert_eq!(trace["attempts"], 1);
+            assert_eq!(trace["observations"][0]["kind"], "attempt");
+            assert!(trace["observations"][0]["duration_us"].as_u64().unwrap() >= 40_000);
+        }
+    }
+
+    #[tokio::test]
+    async fn both_existing_policies_measure_requested_planned_and_actual_backoff() {
+        for bounded in [false, true] {
+            let calls = Cell::new(0);
+            let mut observations = Vec::new();
+            let deadline = bounded.then(|| tokio::time::Instant::now() + Duration::from_secs(2));
+            let result = retry_observed(
+                deadline,
+                || {
+                    calls.set(calls.get() + 1);
+                    future::ready(if calls.get() < 3 {
+                        Err(charging::Error::Retry)
+                    } else {
+                        Ok(())
+                    })
+                },
+                |value| observations.push(value),
+            )
+            .await;
+            assert_eq!(result, Ok(()));
+            assert_eq!(calls.get(), 3);
+            assert_eq!(observations.len(), 4);
+            for (index, millis) in [(1, 10), (2, 20)] {
+                let backoff = observations[index].backoff_before.unwrap();
+                assert_eq!(usize::from(backoff.after_attempt), index);
+                assert_eq!(backoff.requested, Duration::from_millis(millis));
+                assert_eq!(backoff.planned, backoff.requested);
+                assert!(backoff.actual >= backoff.planned);
+                assert!(
+                    observations[index].started_after >= backoff.started_after + backoff.actual
+                );
+            }
+            assert!(observations[3].final_result);
+            assert!(observations[3].backoff_before.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn elapsed_window_retains_the_last_capped_backoff_without_another_start() {
+        let calls = Cell::new(0);
+        let mut observations = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
+        let result = retry_observed(
+            Some(deadline),
+            || {
+                calls.set(calls.get() + 1);
+                async {
+                    tokio::time::sleep_until(deadline).await;
+                    Err::<(), _>(charging::Error::Retry)
+                }
+            },
+            |value| observations.push(value),
+        )
+        .await;
+        assert_eq!(result, Err(charging::Error::Retry));
+        assert_eq!(calls.get(), 1);
+        assert_eq!(observations.len(), 2);
+        let last = observations.last().unwrap();
+        assert!(last.final_result);
+        assert_eq!(last.attempt, 1);
+        let backoff = last.backoff_before.unwrap();
+        assert_eq!(backoff.after_attempt, 1);
+        assert_eq!(backoff.requested, Duration::from_millis(10));
+        assert_eq!(backoff.planned, Duration::ZERO);
+        assert!(backoff.actual >= backoff.planned);
+    }
+
+    #[tokio::test]
+    async fn dropping_the_observed_future_never_starts_a_later_attempt_or_fakes_a_return() {
+        let calls = Cell::new(0);
+        let observations = RefCell::new(Vec::new());
+        let mut pending = Box::pin(retry_observed(
+            None,
+            || {
+                calls.set(calls.get() + 1);
+                future::ready(Err::<(), _>(charging::Error::Retry))
+            },
+            |value| observations.borrow_mut().push(value),
+        ));
+        let first = future::poll_fn(|cx| Poll::Ready(pending.as_mut().poll(cx))).await;
+        assert!(first.is_pending());
+        assert_eq!(calls.get(), 1);
+        drop(pending);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(calls.get(), 1);
+        let observations = observations.into_inner();
+        assert_eq!(observations.len(), 1);
+        assert!(!observations[0].final_result);
+        assert!(retry_trace(REQUEST, "reserve", &observations).is_none());
+    }
+
+    #[test]
+    fn trace_accepts_only_opaque_ids_and_static_stage_categories() {
+        let observations = [RetryObservation {
+            attempt: 0,
+            started_after: Duration::ZERO,
+            duration: Duration::ZERO,
+            error: Some(charging::Error::RequestRateLimited(123)),
+            final_result: true,
+            backoff_before: None,
+        }];
+        let trace = retry_trace(REQUEST, "reserve", &observations).unwrap();
+        assert_eq!(trace["category"], "RequestRateLimited");
+        assert_eq!(trace["category_source"], "charging::Error");
+        assert!(!trace.to_string().contains("123"));
+        assert!(!trace.to_string().contains("40001"));
+        for invalid in ["", "lmms_private", "bad\nlog", "sql:select *", "aaaaaaaa"] {
+            assert!(retry_trace(invalid, "reserve", &observations).is_none());
+        }
+        assert!(retry_trace(REQUEST, "unreviewed-stage", &observations).is_none());
+        assert!(retry_trace(REQUEST, "reserve", &[]).is_none());
     }
 }

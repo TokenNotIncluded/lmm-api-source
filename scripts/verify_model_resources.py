@@ -32,7 +32,7 @@ SELF = Path(__file__).resolve()
 
 
 def reviewed_tests(discovered):
-    expected = v.PROCESS_TESTS | set(CASES.values())
+    expected = v.PROCESS_TESTS | v.PROCESS_SUPPORT_TESTS | set(CASES.values())
     if (not isinstance(discovered, list)
             or any(not isinstance(name, str) for name in discovered)
             or len(discovered) != len(expected) or set(discovered) != expected):
@@ -65,7 +65,7 @@ def check(frozen):
 
 def env():
     result = v.environment()
-    result.update(MISE_DISABLE_TOOLS="rust", RUSTUP_TOOLCHAIN="1.99.1",
+    result.update(MISE_DISABLE_TOOLS="rust", RUSTUP_TOOLCHAIN="1.100.0",
                   RUSTUP_AUTO_INSTALL="0", CARGO_NET_OFFLINE="true", SQLX_OFFLINE="true")
     return result
 
@@ -93,19 +93,19 @@ def prepare(args):
         raise FixtureError("unsafe standard Core target")
     pin = v.tomllib.loads((v.REPO / "services/core/rust-toolchain.toml").read_text())["toolchain"]["channel"]
     mise_pin = v.tomllib.loads((v.REPO / "mise.toml").read_text())["tools"]["rust"]["version"]
-    if pin != "1.99.1" or mise_pin != pin:
+    if pin != "1.100.0" or mise_pin != pin:
         raise FixtureError("resource runner and exact repository Rust pins must agree")
     environment = env()
     compile_tmp = args.output / "compile-tmp"
     compile_tmp.mkdir(mode=0o700)
     environment["TMPDIR"] = str(compile_tmp)
-    rustup = subprocess.check_output(["rustup", "which", "--toolchain", "1.99.1", "cargo"],
+    rustup = subprocess.check_output(["rustup", "which", "--toolchain", "1.100.0", "cargo"],
                                      env=environment, text=True, timeout=30).strip()
     cargo = v.regular(Path(rustup).resolve())
     rustc = v.regular(cargo.parent / "rustc")
     version = subprocess.check_output([str(rustc), "--version"], env=environment,
                                       text=True, timeout=30).strip()
-    if version.split()[:2] != ["rustc", "1.99.1"]:
+    if version.split()[:2] != ["rustc", "1.100.0"]:
         raise FixtureError("installed Rust differs from frozen repository pin")
     environment["RUSTC"] = str(rustc)
     command = ["mise", "exec", "--", str(cargo), "test", "--locked", "--offline",

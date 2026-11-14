@@ -913,7 +913,7 @@ async fn google_callback(
         Ok(BrowserLoginOutcome::Challenge(challenge)) => {
             external_login::direct_mfa_redirect(&challenge, &mfa_binding, &state.config)
         }
-        Err(error) => mfa_failure(error),
+        Err(error) => return mfa_failure(error),
     };
     google_flow_cookie(response, None, &state.config)
 }

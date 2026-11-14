@@ -163,7 +163,7 @@ async fn finish_login(
                 &state.config,
             )
         }
-        Err(error) => mfa_failure(error),
+        Err(error) => return mfa_failure(error),
     };
     cookie(response, &state.config, &name, None)
 }
@@ -236,7 +236,7 @@ pub(super) async fn finish_bind(
         Ok(FederatedBindOutcome::Denied(message)) => {
             failure(StatusCode::FORBIDDEN, "OAUTH_ACCESS_DENIED", &message)
         }
-        Err(error) => auth_failure(error),
+        Err(error) => return auth_failure(error),
     };
     cookie(response, &state.config, &name, None)
 }

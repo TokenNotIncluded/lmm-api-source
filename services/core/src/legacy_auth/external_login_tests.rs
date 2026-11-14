@@ -102,3 +102,82 @@ fn direct_mfa_redirect_keeps_proof_in_private_cookies() {
             .contains(&token)
     );
 }
+
+#[tokio::test]
+async fn rejected_callbacks_preserve_newer_flow_cookies() {
+    use axum::body::Body;
+    use tower::ServiceExt;
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(Duration::from_millis(50))
+        .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+        .unwrap();
+    let store = IdentityStore::from_pool(pool);
+    let config = LegacyAuthConfig::new("https://app.example", &[41; 32]).unwrap();
+    let state = AuthState {
+        email: None,
+        browser: BrowserAuth::new(store.clone(), &[41; 32]).unwrap(),
+        store,
+        config,
+    };
+    // Isolate callback response policy from the database-backed peer throttle.
+    // The independent browser regression covers the complete routed flow.
+    let app = Router::new()
+        .merge(super::routes())
+        .merge(super::super::federated::routes())
+        .merge(super::super::account_links::routes())
+        .route("/api/oauth/google", get(super::super::google_callback))
+        .with_state(state);
+    for (method, path, cookie, body, expected) in [
+        (
+            "GET",
+            "/api/oauth/google?error=access_denied",
+            "__Host-lmm_google_flow",
+            "",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "GET",
+            "/api/oauth/github?error=access_denied",
+            "__Host-lmm_external_github_flow",
+            "",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "POST",
+            "/api/oauth/federated/2/finish",
+            "__Host-lmm_federated_2_login",
+            "{",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/api/user/account-links/github/finish",
+            "__Host-lmm_account_bind_github",
+            "{",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "POST",
+            "/api/user/account-links/federated:2/finish",
+            "__Host-lmm_federated_2_bind",
+            "{",
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::ORIGIN, "https://app.example")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, format!("{cookie}={}", "b".repeat(64)))
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), expected, "{path}");
+        assert!(
+            !response.headers().contains_key(header::SET_COOKIE),
+            "rejected callback must not clear a newer browser binding: {path}"
+        );
+    }
+}
