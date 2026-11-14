@@ -197,21 +197,26 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 		Respond(w, value, err)
 	}))
 
-	mux.HandleFunc("POST /api/store/extore/authorize", func(w http.ResponseWriter, r *http.Request) {
-		self, err := auth.Verify(r.Context(), r)
-		if err != nil {
-			Respond(w, nil, err)
-			return
+	withExtore := func(fn func(http.ResponseWriter, *http.Request, int64, storeExtoreService)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			self, err := auth.Verify(r.Context(), r)
+			if err != nil {
+				Respond(w, nil, err)
+				return
+			}
+			if store.Missing(service) {
+				Respond(w, nil, store.ErrUnavailable)
+				return
+			}
+			port, ok := service.(storeExtoreService)
+			if !ok {
+				Respond(w, nil, store.ErrUnavailable)
+				return
+			}
+			fn(w, r, self.GetUserId(), port)
 		}
-		if store.Missing(service) {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
-		port, ok := service.(storeExtoreService)
-		if !ok {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
+	}
+	mux.HandleFunc("POST /api/store/extore/authorize", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
 		body, err := storeBody(w, r, 4<<10, true)
 		if err != nil {
 			Respond(w, nil, err)
@@ -227,24 +232,10 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		value, err := port.ExtoreAuthorize(r.Context(), bearer(r), self.GetUserId(), in.BaseURL, in.ClientID)
+		value, err := port.ExtoreAuthorize(r.Context(), bearer(r), actor, in.BaseURL, in.ClientID)
 		Respond(w, value, err)
-	})
-	mux.HandleFunc("POST /api/store/extore/catalog", func(w http.ResponseWriter, r *http.Request) {
-		self, err := auth.Verify(r.Context(), r)
-		if err != nil {
-			Respond(w, nil, err)
-			return
-		}
-		if store.Missing(service) {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
-		port, ok := service.(storeExtoreService)
-		if !ok {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
+	}))
+	mux.HandleFunc("POST /api/store/extore/catalog", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
 		body, err := storeBody(w, r, 16<<10, true)
 		if err != nil {
 			Respond(w, nil, err)
@@ -259,68 +250,26 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		value, err := port.ExtoreCatalog(r.Context(), bearer(r), self.GetUserId(), in.CallbackURL)
+		value, err := port.ExtoreCatalog(r.Context(), bearer(r), actor, in.CallbackURL)
 		Respond(w, value, err)
-	})
-	mux.HandleFunc("GET /api/store/extore/connections", func(w http.ResponseWriter, r *http.Request) {
-		self, err := auth.Verify(r.Context(), r)
-		if err != nil {
-			Respond(w, nil, err)
-			return
-		}
-		if store.Missing(service) {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
-		port, ok := service.(storeExtoreService)
-		if !ok {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
+	}))
+	mux.HandleFunc("GET /api/store/extore/connections", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
 		if _, err := supportQuery(r); err != nil {
 			Respond(w, nil, err)
 			return
 		}
-		value, err := port.ExtoreConnections(r.Context(), bearer(r), self.GetUserId())
+		value, err := port.ExtoreConnections(r.Context(), bearer(r), actor)
 		Respond(w, value, err)
-	})
-	mux.HandleFunc("GET /api/store/extore/connections/{id}/catalog", func(w http.ResponseWriter, r *http.Request) {
-		self, err := auth.Verify(r.Context(), r)
-		if err != nil {
-			Respond(w, nil, err)
-			return
-		}
-		if store.Missing(service) {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
-		port, ok := service.(storeExtoreService)
-		if !ok {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
+	}))
+	mux.HandleFunc("GET /api/store/extore/connections/{id}/catalog", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
 		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		value, err := port.ExtoreConnectionCatalog(r.Context(), bearer(r), self.GetUserId(), r.PathValue("id"))
+		value, err := port.ExtoreConnectionCatalog(r.Context(), bearer(r), actor, r.PathValue("id"))
 		Respond(w, value, err)
-	})
-	mux.HandleFunc("POST /api/store/extore/connections/{id}/sync", func(w http.ResponseWriter, r *http.Request) {
-		self, err := auth.Verify(r.Context(), r)
-		if err != nil {
-			Respond(w, nil, err)
-			return
-		}
-		if store.Missing(service) {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
-		port, ok := service.(storeExtoreService)
-		if !ok {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
+	}))
+	mux.HandleFunc("POST /api/store/extore/connections/{id}/sync", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
 		if !supportID(r.PathValue("id")) {
 			Respond(w, nil, store.ErrInvalid)
 			return
@@ -339,31 +288,17 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		value, err := port.ExtoreSyncProduct(r.Context(), bearer(r), self.GetUserId(), r.PathValue("id"), in.SourceID)
+		value, err := port.ExtoreSyncProduct(r.Context(), bearer(r), actor, r.PathValue("id"), in.SourceID)
 		Respond(w, value, err)
-	})
-	mux.HandleFunc("POST /api/store/extore/connections/{id}/disconnect", func(w http.ResponseWriter, r *http.Request) {
-		self, err := auth.Verify(r.Context(), r)
-		if err != nil {
-			Respond(w, nil, err)
-			return
-		}
-		if store.Missing(service) {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
-		port, ok := service.(storeExtoreService)
-		if !ok {
-			Respond(w, nil, store.ErrUnavailable)
-			return
-		}
+	}))
+	mux.HandleFunc("POST /api/store/extore/connections/{id}/disconnect", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
 		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
 			Respond(w, nil, store.ErrInvalid)
 			return
 		}
-		value, err := port.ExtoreDisconnect(r.Context(), bearer(r), self.GetUserId(), r.PathValue("id"))
+		value, err := port.ExtoreDisconnect(r.Context(), bearer(r), actor, r.PathValue("id"))
 		Respond(w, value, err)
-	})
+	}))
 
 	mux.HandleFunc("GET /api/store/products/{id}/likes", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
 		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {

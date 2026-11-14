@@ -81,9 +81,9 @@ func TestPancakeDualCurrencyStartupAndCanonicalCheckout(t *testing.T) {
 	if _, err = New(newMemory(), core, a, b); err != nil {
 		t.Fatal("unscoped dual currency rejected", err)
 	}
-	duplicate := *a
+	duplicate := &fakeAdapter{c: a.c}
 	duplicate.c.ID = 5004
-	if _, err = New(newMemory(), core, a, &duplicate); err == nil {
+	if _, err = New(newMemory(), core, a, duplicate); err == nil {
 		t.Fatal("same-currency merchant duplicate accepted")
 	}
 }

@@ -24,6 +24,7 @@ import (
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type stripeActualCoreFixture struct {
@@ -283,11 +284,9 @@ func TestStripeSubscriptionActualCoreTCPRecovery(t *testing.T) {
 	if err = db.QueryRowContext(ctx, `SELECT state FROM payment_stripe_subscription_inbox WHERE order_id=$1`, second.Order.OrderId).Scan(&pending); err != nil || pending != "pending" {
 		t.Fatal("permission denial lost original proof", pending, err)
 	}
-	unknown := *second
-	unknownOrder := *second.Order
-	unknownOrder.OrderId = "sub_" + strings.Repeat("f", 64)
-	unknown.Order = &unknownOrder
-	unknownRaw := invoice(&unknown, "evt_unknown_original", "in_unknown_original", "pi_unknown_original", current-30, current+86370)
+	unknown := proto.Clone(second).(*pb.StripeSubscriptionOrder)
+	unknown.Order.OrderId = "sub_" + strings.Repeat("f", 64)
+	unknownRaw := invoice(unknown, "evt_unknown_original", "in_unknown_original", "pi_unknown_original", current-30, current+86370)
 	if send(recovered, unknownRaw, signed(unknownRaw)) == 200 {
 		t.Fatal("unknown original order acknowledged")
 	}
