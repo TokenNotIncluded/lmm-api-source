@@ -244,6 +244,19 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
     let google_enabled = !google_client_id.is_empty();
     let mut data = json!({
             "system_name":"LMM API","version":env!("CARGO_PKG_VERSION"),
+            "currency_unit":"credit",
+            "credits_per_usd":crate::billing::CREDITS_PER_USD,
+            "credits_per_usd_exact":crate::billing::CREDITS_PER_USD.to_string(),
+            "quota_per_unit":crate::billing::CREDITS_PER_USD,
+            "legacy_pricing_units_per_usd":crate::billing::CREDITS_PER_USD,
+            "credit_unit_schema_version":2,
+            "quota_unit":"LEDGER_QUOTA",
+            "ledger_quota_per_usd":crate::billing::CREDITS_PER_USD,
+            "ledger_quota_per_usd_exact":crate::billing::CREDITS_PER_USD.to_string(),
+            "public_credit_unit":"CREDIT",
+            "public_credits_per_usd":crate::billing::CREDITS_PER_USD,
+            "public_credits_per_usd_exact":crate::billing::CREDITS_PER_USD.to_string(),
+            "legacy_credit_unit":"LEDGER_QUOTA",
             "server_address":status.server_address,
             "password_login_enabled":status.password_login_enabled,
             "register_enabled":status.registration_enabled,
@@ -482,6 +495,52 @@ mod tests {
     use super::*;
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn public_status_declares_authoritative_credit_units() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        let response = configured_router(pool, Capabilities::default())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 65_536)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let data = &body["data"];
+        assert_eq!(data["currency_unit"], "credit");
+        assert_eq!(data["credit_unit_schema_version"], 2);
+        assert_eq!(data["quota_unit"], "LEDGER_QUOTA");
+        assert_eq!(data["legacy_credit_unit"], "LEDGER_QUOTA");
+        assert_eq!(data["public_credit_unit"], "CREDIT");
+        for key in [
+            "credits_per_usd",
+            "quota_per_unit",
+            "legacy_pricing_units_per_usd",
+            "ledger_quota_per_usd",
+            "public_credits_per_usd",
+        ] {
+            assert_eq!(data[key], 500_000, "{key}");
+        }
+        for key in [
+            "credits_per_usd_exact",
+            "ledger_quota_per_usd_exact",
+            "public_credits_per_usd_exact",
+        ] {
+            assert_eq!(data[key], "500000", "{key}");
+        }
+        // Missing operator exchange-rate configuration must not invent a CNY rate.
+        assert!(data.get("cny_per_usd").is_none());
+        assert!(data.get("usd_exchange_rate").is_none());
+    }
 
     #[tokio::test]
     async fn process_health_does_not_advertise_billing_readiness() {
