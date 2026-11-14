@@ -45,7 +45,7 @@ const NODES = [
   { label: 'Code', path: 'm8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16', x: 85, y: 71 },
   {
     label: 'Reasoning',
-    path: 'm12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z',
+    path: 'M12 3v6m0 0-6 5m6-5 6 5M6 14v7m12-7v7M3 14h6m6 0h6',
     x: 50,
     y: 12,
   },
@@ -81,10 +81,8 @@ export function HtmlCanvasMesh({
   const stageRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [native, setNative] = useState(false)
+  const [native, setNative] = useState(supportsHtmlCanvas)
   const [paused, setPaused] = useState(false)
-
-  useEffect(() => setNative(supportsHtmlCanvas()), [])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -100,7 +98,6 @@ export function HtmlCanvasMesh({
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
     const home = stage.closest<HTMLElement>('.lmm-home')
     let visible = false
-    let pointer: { x: number; y: number } | null = null
     let width = 0
     let height = 0
     const canMove = () =>
@@ -116,9 +113,6 @@ export function HtmlCanvasMesh({
       }
     }
     const resetPointer = () => {
-      pointer = null
-      stage.style.removeProperty('--mesh-pointer-x')
-      stage.style.removeProperty('--mesh-pointer-y')
       stage.removeAttribute('data-pointer')
       requestPaint()
     }
@@ -129,13 +123,6 @@ export function HtmlCanvasMesh({
     }
     const onPointer = (event: PointerEvent) => {
       if (!canMove() || event.pointerType === 'touch') return
-      const bounds = stage.getBoundingClientRect()
-      pointer = {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      }
-      stage.style.setProperty('--mesh-pointer-x', `${pointer.x}px`)
-      stage.style.setProperty('--mesh-pointer-y', `${pointer.y}px`)
       stage.dataset.pointer = ''
       requestPaint()
     }
@@ -148,25 +135,6 @@ export function HtmlCanvasMesh({
         // Explicit destination size avoids mixing CSS pixels with canvas pixels.
         // The browser updates the live HTML hit targets and accessibility bounds.
         ctx.drawElementImage(scene, 0, 0, canvas.width, canvas.height)
-        if (pointer && canMove()) {
-          const sx = canvas.width / width
-          const sy = canvas.height / height
-          ctx.save()
-          ctx.scale(sx, sy)
-          const light = ctx.createRadialGradient(
-            pointer.x,
-            pointer.y,
-            0,
-            pointer.x,
-            pointer.y,
-            150
-          )
-          light.addColorStop(0, 'rgba(194, 160, 101, 0.09)')
-          light.addColorStop(1, 'rgba(194, 160, 101, 0)')
-          ctx.fillStyle = light
-          ctx.fillRect(0, 0, width, height)
-          ctx.restore()
-        }
       } catch {
         // A failed DOM snapshot must leave the real links and text usable.
         setNative(false)
@@ -234,9 +202,6 @@ export function HtmlCanvasMesh({
       ref={sceneRef}
       {...(native ? { drawable: '' } : {})}
     >
-      <div className='lmm-mesh-atmosphere' aria-hidden='true' />
-      <div className='lmm-mesh-orbit lmm-mesh-orbit-one' aria-hidden='true' />
-      <div className='lmm-mesh-orbit lmm-mesh-orbit-two' aria-hidden='true' />
       <svg
         className='lmm-mesh-wires'
         viewBox='0 0 1000 560'
@@ -251,7 +216,7 @@ export function HtmlCanvasMesh({
         ))}
         <circle cx='500' cy='280' r='4' />
       </svg>
-      {NODES.map(({ label, path, x, y }, index) => {
+      {NODES.map(({ label, path, x, y }) => {
         const href = label === 'Code' ? guideHref : pricingHref
         const Node = href ? 'a' : 'span'
         return (
@@ -261,9 +226,6 @@ export function HtmlCanvasMesh({
             href={href ?? undefined}
             style={{ left: `${x}%`, top: `${y}%` }}
           >
-            <span className='lmm-mesh-node-number' aria-hidden='true'>
-              0{index + 1}
-            </span>
             <svg
               viewBox='0 0 24 24'
               fill='none'
@@ -283,18 +245,6 @@ export function HtmlCanvasMesh({
         <span className='lmm-mesh-core-name'>{brandName}</span>
         <span className='lmm-mesh-core-caption'>{t('One endpoint')}</span>
       </CoreNode>
-      <span
-        className='lmm-mesh-coordinate lmm-mesh-coordinate-left'
-        aria-hidden='true'
-      >
-        01 / 06
-      </span>
-      <span
-        className='lmm-mesh-coordinate lmm-mesh-coordinate-right'
-        aria-hidden='true'
-      >
-        ↗
-      </span>
     </div>
   )
 

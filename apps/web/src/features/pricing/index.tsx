@@ -185,7 +185,7 @@ export function Pricing() {
               <button
                 type='button'
                 onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                className='border-foreground/25 hover:bg-muted/70 focus-visible:ring-ring/50 h-11 rounded-none border px-8 text-sm font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none'
+                className='bg-muted/60 hover:bg-muted focus-visible:ring-ring/50 h-11 rounded-lg px-8 text-sm font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none'
               >
                 {t('Load more')}
               </button>
@@ -228,14 +228,13 @@ export function Pricing() {
             compareModels.length > 0 ? 'pb-32' : 'pb-20'
           )}
         >
-          <div className='border-border/70 mb-6 border-b pt-10 pb-7 sm:mb-10 sm:pt-16 sm:pb-10'>
+          <div className='pt-10 pb-8 sm:pt-16 sm:pb-12'>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
-                <div className='forge-kicker mb-4'>{t('API Endpoints')}</div>
-                <h1 className='font-sans text-4xl leading-[1.02] font-semibold tracking-[-0.055em] text-balance sm:text-6xl lg:text-7xl'>
+                <h1 className='font-sans text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl'>
                   {t('Models and pricing')}
                 </h1>
-                <p className='text-muted-foreground mt-3 max-w-2xl text-base leading-6 sm:mt-4 sm:leading-7'>
+                <p className='text-muted-foreground mt-3 max-w-2xl text-sm leading-6 sm:text-base'>
                   {t('This site currently has {{count}} models enabled', {
                     count: models?.length || 0,
                   })}
@@ -244,7 +243,7 @@ export function Pricing() {
               {/* The single most-asked question on this page: how do I pay? */}
               <Button
                 size='lg'
-                className='h-auto min-h-11 w-full shrink-0 px-6 py-3 text-base sm:min-h-12 sm:w-auto'
+                className='h-auto min-h-11 w-full shrink-0 px-5 py-3 text-sm sm:w-auto'
                 render={
                   <Link
                     to={funding.to}
@@ -263,7 +262,7 @@ export function Pricing() {
             </div>
           </div>
 
-          <div className='bg-background/92 border-border/70 sticky top-16 z-40 -mx-5 mb-6 border-b py-4 backdrop-blur-md sm:mb-10 sm:py-5 md:-mx-10'>
+          <div className='bg-background border-border/50 sticky top-16 z-40 -mx-5 mb-8 border-b py-4 sm:mb-12 sm:py-5 md:-mx-10'>
             <div className='flex min-w-0 flex-col gap-3 px-5 sm:gap-4 md:px-10'>
               <SearchBar
                 value={searchInput}

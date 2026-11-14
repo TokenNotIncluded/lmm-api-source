@@ -21,7 +21,7 @@
 }
 .overview-greeting-quote {
   display: block;
-  padding: clamp(2rem, 3.5cqi, 3rem) 0;
+  padding-block: 0.75rem 1.25rem;
 }
 .overview-greeting-mark {
   display: none;
@@ -30,10 +30,10 @@
   min-width: 0;
   max-width: 36ch;
   margin: 0;
-  font-size: clamp(1.5rem, 3cqi, 2.5rem);
+  font-size: clamp(1.35rem, 2.5cqi, 2rem);
   font-weight: 500;
   letter-spacing: -0.04em;
-  line-height: 1.35;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   text-wrap: balance;
@@ -54,10 +54,8 @@
 }
 .overview-chart-eyebrow {
   margin-bottom: 0.4rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
   color: var(--muted-foreground);
-  text-transform: uppercase;
 }
 .overview-chart-grid {
   display: grid;

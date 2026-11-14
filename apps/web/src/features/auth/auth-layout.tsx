@@ -50,8 +50,8 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   }, [systemName])
 
   return (
-    <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]'>
-      <header className='auth-header relative z-20 flex min-h-16 shrink-0 items-center justify-between px-5 sm:min-h-20 sm:px-8 lg:absolute lg:top-0 lg:left-0 lg:min-h-24 lg:w-[46%]'>
+    <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-2'>
+      <header className='auth-header relative z-20 flex min-h-16 shrink-0 items-center justify-between px-5 sm:min-h-20 sm:px-8 lg:absolute lg:top-0 lg:left-0 lg:min-h-24 lg:w-1/2 lg:px-10'>
         <Link
           to='/'
           reloadDocument={reloadDocument}
@@ -69,30 +69,19 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
       </header>
       <div className='grid min-h-0 flex-1 lg:col-start-1 lg:h-full'>
         <div className='no-scrollbar container min-h-0 overflow-y-auto lg:pt-24'>
-          <div className='auth-form-stage mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
-            <div className='auth-signal' aria-hidden='true'>
-              <span />
-              <span />
-              <span />
-            </div>
+          <div className='auth-form-stage mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-10 sm:px-8 sm:py-14'>
             {children}
             <details
               className='auth-game-disclosure mt-8 w-full lg:hidden'
               onToggle={(event) => setMobileGameOpen(event.currentTarget.open)}
             >
-              <summary className='text-muted-foreground cursor-pointer py-3 text-center text-sm underline underline-offset-4'>
-                {t('Play a round')}
-              </summary>
+              <summary>{t('Play a round')}</summary>
               {!desktop && mobileGameOpen && <AuthArcade />}
             </details>
           </div>
         </div>
       </div>
       <div className='auth-art-stage hidden lg:col-start-2 lg:row-start-1 lg:flex lg:h-dvh lg:min-h-0 lg:flex-col lg:overflow-y-auto'>
-        <div className='auth-art-masthead' aria-hidden='true'>
-          <span>{systemName}</span>
-          <span>{t('One endpoint')}</span>
-        </div>
         {desktop && <AuthArcade />}
       </div>
     </div>

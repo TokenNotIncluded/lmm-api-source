@@ -78,7 +78,7 @@ export function VendorModelSections(props: VendorModelSectionProps) {
   if (groups.length === 0) return null
 
   return (
-    <div className='min-w-0 space-y-12'>
+    <div className='min-w-0 space-y-14 sm:space-y-16'>
       {groups.map((group, index) => {
         const vendorIcon = group.icon ? getLobeIcon(group.icon, 28) : null
         const headingId = getVendorSectionId(group.name, index)
@@ -112,7 +112,7 @@ export function VendorModelSections(props: VendorModelSectionProps) {
               </div>
             </div>
 
-            <div className='grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
+            <div className='grid grid-cols-1 gap-5 sm:gap-6 md:grid-cols-2 xl:grid-cols-3'>
               {group.models.map((model) => (
                 <ModelCard
                   key={model.id ?? model.model_name}

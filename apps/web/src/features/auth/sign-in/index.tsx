@@ -42,7 +42,7 @@ export function SignIn() {
             {t('Sign in')}
           </h2>
           {!status?.self_use_mode_enabled && canRegister && (
-            <p className='text-muted-foreground text-left text-sm sm:text-base'>
+            <p className='text-muted-foreground text-left text-sm leading-6'>
               {t("Don't have an account?")}{' '}
               <Link
                 to='/sign-up'
@@ -61,7 +61,7 @@ export function SignIn() {
         <TermsFooter
           variant='sign-in'
           status={status}
-          className='text-center'
+          className='text-left leading-6'
         />
       </div>
     </AuthLayout>

@@ -62,8 +62,8 @@ export function SearchBar(props: SearchBarProps) {
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
         className={cn(
-          'border-border bg-background placeholder:text-muted-foreground',
-          'hover:border-border',
+          'border-transparent bg-muted/45 placeholder:text-muted-foreground',
+          'hover:bg-muted/65',
           'focus:border-primary/50 focus:ring-primary/20 focus:ring-2',
           'h-11 w-full rounded-lg border pr-16 pl-10 text-base transition-colors outline-none sm:h-10 sm:text-sm motion-reduce:transition-none'
         )}
@@ -81,7 +81,7 @@ export function SearchBar(props: SearchBarProps) {
             <X className='size-4' />
           </Button>
         ) : (
-          <kbd className='bg-muted text-muted-foreground pointer-events-none hidden rounded border px-1.5 py-0.5 font-mono text-[10px] sm:inline-block'>
+          <kbd className='text-muted-foreground pointer-events-none hidden px-1.5 py-0.5 font-mono text-[10px] sm:inline-block'>
             ⌘K
           </kbd>
         )}
