@@ -55,6 +55,8 @@ async fn personal_token_rotation_is_session_only_and_never_native_authority(pool
     );
     let value: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(value["scope"], SCOPE);
+    assert_eq!(value["generation"], "1");
     let issued = RotatedToken {
         token: value["token"].as_str().unwrap().into(),
         generation: value["generation"].as_str().unwrap().into(),
