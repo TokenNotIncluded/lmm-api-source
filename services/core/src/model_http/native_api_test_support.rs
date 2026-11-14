@@ -10,6 +10,24 @@ use crate::{
 };
 use sqlx::PgPool;
 
+pub(crate) async fn performance_sample(
+    pool: &PgPool,
+    request_id: &str,
+) -> crate::history_read::performance::Sample {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if let Some(value) = sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='performance-v1'",
+            ).bind(request_id).fetch_optional(pool).await.unwrap() {
+                let sample: crate::history_read::performance::Sample = serde_json::from_value(value).unwrap();
+                assert!(sample.valid());
+                return sample;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }).await.expect("native request observation did not persist")
+}
+
 pub(crate) struct Fixture {
     pub(crate) pool: PgPool,
     pub(crate) key: String,

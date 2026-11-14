@@ -228,6 +228,7 @@ async fn serve(
             test_gate("reserved").await;
             let mut report = Report {
                 request_id: reservation.id.clone(),
+                is_stream: true,
                 route_id: Some(turn.route.id.clone()),
                 price_version: Some(turn.route.price_version),
                 outcome: Outcome::Failed,
@@ -239,6 +240,7 @@ async fn serve(
                 rejection_receipt_sha256: None,
                 attempts: 1,
                 upstream_status: None,
+                upstream_request_id: None,
                 upstream_bytes: 0,
                 emitted_bytes: 0,
                 timings: Default::default(),

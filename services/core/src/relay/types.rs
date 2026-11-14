@@ -1236,6 +1236,7 @@ pub enum Settlement {
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
     pub request_id: String,
+    pub is_stream: bool,
     pub route_id: Option<String>,
     pub price_version: Option<u64>,
     pub outcome: Outcome,
@@ -1252,6 +1253,9 @@ pub struct Report {
     pub rejection_receipt_sha256: Option<[u8; 32]>,
     pub attempts: u8,
     pub upstream_status: Option<u16>,
+    /// A bounded identifier from an allowlisted response header of the final
+    /// attempt. Never inferred from response bodies or client-supplied headers.
+    pub upstream_request_id: Option<String>,
     pub upstream_bytes: usize,
     pub emitted_bytes: usize,
     /// Monotonic relay observations; never authority for money or recovery.

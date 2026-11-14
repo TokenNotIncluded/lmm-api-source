@@ -643,6 +643,7 @@ fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
     relay::Report {
         timings: Default::default(),
         request_id: id.into(),
+        is_stream: true,
         route_id: Some(route.id.clone()),
         price_version: Some(route.price_version),
         outcome: relay::Outcome::Completed,
@@ -654,6 +655,7 @@ fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
         rejection_receipt_sha256: None,
         attempts: 1,
         upstream_status: Some(200),
+        upstream_request_id: None,
         upstream_bytes: 128,
         emitted_bytes: 0,
     }

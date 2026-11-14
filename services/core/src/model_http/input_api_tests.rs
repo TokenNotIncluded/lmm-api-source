@@ -41,7 +41,7 @@ async fn reply(
     State(state): State<SupplierState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Json<Value> {
+) -> Response {
     assert_eq!(
         headers[header::AUTHORIZATION],
         "Bearer input-only-synthetic-provider"
@@ -75,7 +75,7 @@ async fn reply(
             }
         }
     }
-    Json(response)
+    ([("x-request-id", "req_input_native")], Json(response)).into_response()
 }
 impl Supplier {
     async fn start(mode: Reply, paused: bool) -> Self {
@@ -257,6 +257,17 @@ async fn input_api_pg_native_key_restricted_runtime_settles_exact_usage_once(poo
         assert_eq!(charge.usage.output, 0);
         assert_eq!(charge.settled, tokens);
         assert_eq!(charge.reserved, 2000);
+        let sample = native_http::test_support::performance_sample(&f.pool, id).await;
+        assert!(sample.success);
+        assert_eq!(sample.is_stream, Some(false));
+        assert_eq!(
+            sample.upstream_request_id.as_deref(),
+            Some("req_input_native")
+        );
+        assert_eq!(sample.status_code, Some(200));
+        assert!(sample.elapsed_us > 0);
+        assert_eq!(sample.first_output_us, None);
+        assert_eq!(sample.output_tokens, None);
         let (_, contract) = gateway
             .bridge
             .charging
@@ -296,15 +307,20 @@ async fn input_api_pg_unknown_usage_keeps_original_hold_and_never_replays(pool: 
             call(&gateway, http_request(&f.key, &key, Kind::Embeddings)).await;
         assert!(!status.is_success(), "{output}");
         assert!(output.get("data").is_none());
-        let charge = gateway
-            .bridge
-            .charging
-            .resolve(headers["x-request-id"].to_str().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
+        let id = headers["x-request-id"].to_str().unwrap();
+        let charge = gateway.bridge.charging.resolve(id).await.unwrap().unwrap();
         assert_eq!(charge.state, "reconcile");
         assert_eq!((charge.reserved, charge.settled), (2000, 0));
+        let sample = native_http::test_support::performance_sample(&f.pool, id).await;
+        assert!(!sample.success);
+        assert_eq!(sample.is_stream, Some(false));
+        assert_eq!(
+            sample.upstream_request_id.as_deref(),
+            Some("req_input_native")
+        );
+        assert_eq!(sample.status_code, Some(200));
+        assert!(sample.elapsed_us > 0);
+        assert_eq!(sample.first_output_us, None);
         assert_eq!(gateway.reconcile_completed_streams(10).await.unwrap(), 0);
         assert_eq!(
             call(&gateway, http_request(&f.key, &key, Kind::Embeddings))

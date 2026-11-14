@@ -437,9 +437,9 @@ pub(super) async fn read_usage(
 }
 
 #[derive(Deserialize)]
-struct AttemptEvent {
-    event_id: String,
-    detail: Value,
+pub(super) struct AttemptEvent {
+    pub(super) event_id: String,
+    pub(super) detail: Value,
 }
 #[derive(Deserialize)]
 struct Dispatch {
@@ -458,7 +458,10 @@ struct Failure {
 
 /// A dispatch is written before send; earlier attempts must have durable proof
 /// of no acceptance before a later attempt can own the logical settlement.
-fn final_channel(proof: &contract::ReservationContract, events: &[AttemptEvent]) -> Option<u64> {
+pub(super) fn final_channel(
+    proof: &contract::ReservationContract,
+    events: &[AttemptEvent],
+) -> Option<u64> {
     let mut dispatches = BTreeMap::new();
     let mut failures = BTreeMap::new();
     for event in events {

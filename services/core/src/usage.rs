@@ -1,12 +1,13 @@
 //! Read-only Web projections of immutable model requests.
 //! Self means actor + personal key owner, NOT wallet payer: team-funded personal
-//! keys are included, team-owned keys are not. No provider/channel evidence is
-//! exposed. Core credits are exact (500,000/USD); holds are never consumption.
+//! keys are included, team-owned keys are not. Route/channel evidence requires
+//! an administrator. Core credits are exact (500,000/USD); holds are never consumption.
 //! Administrator data includes all actors/accounts and marks historical imports
 //! as uncovered; neither opening counters nor archived quota become native usage.
 mod channel;
 pub(crate) mod channel_projection;
 mod export;
+mod log_details;
 pub(crate) mod receipts;
 pub(crate) use channel::{ChannelUsage, ChannelUsageError, channel_totals, channel_usage};
 pub mod task_log;
@@ -39,7 +40,8 @@ use sqlx::{PgPool, Row, postgres::PgRow};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio_stream::StreamExt;
 
-const WINDOW: i64 = 31 * 86400;
+const DEFAULT_WINDOW: i64 = 31 * 86400;
+const MAX_WINDOW: i64 = 365 * 86400;
 const MAX_OFFSET: i64 = 100_000;
 const MAX_BUCKETS: usize = 10_000;
 
@@ -60,6 +62,7 @@ enum Error {
     Storage,
     Collision,
     TooManyBuckets,
+    NotFound,
 }
 impl From<sqlx::Error> for Error {
     fn from(_: sqlx::Error) -> Self {
@@ -93,6 +96,10 @@ struct UsageQuery {
     username: Option<String>,
     channel: Option<i64>,
     upstream_request_id: Option<String>,
+    status: Option<String>,
+    min_duration_ms: Option<f64>,
+    max_duration_ms: Option<f64>,
+    sort_order: Option<String>,
 }
 struct Filter {
     start: i64,
@@ -113,7 +120,7 @@ impl UsageQuery {
         let end = self.end_timestamp.unwrap_or(now);
         let start = self
             .start_timestamp
-            .unwrap_or(end.saturating_sub(WINDOW).max(0));
+            .unwrap_or(end.saturating_sub(DEFAULT_WINDOW).max(0));
         let page = self.p.unwrap_or(1);
         let size = self.page_size.unwrap_or(20);
         let offset = page
@@ -123,7 +130,7 @@ impl UsageQuery {
         if start < 0
             || end < start
             || end > 253402300799
-            || end - start > WINDOW
+            || end - start > MAX_WINDOW
             || page < 1
             || !(1..=100).contains(&size)
             || !(0..=MAX_OFFSET).contains(&offset)
@@ -132,12 +139,29 @@ impl UsageQuery {
                 .default_time
                 .as_deref()
                 .is_some_and(|t| !matches!(t, "hour" | "day" | "week" | "month"))
-            || self.channel.is_some_and(|c| c != 0)
+            || self.channel.is_some_and(|c| {
+                !(0..=receipts::JS_SAFE).contains(&c) || (!administrator && c != 0)
+            })
             || (!administrator && self.username.as_deref().is_some_and(|v| !v.is_empty()))
+            || self
+                .status
+                .as_deref()
+                .is_some_and(|s| !matches!(s, "" | "success" | "error" | "pending" | "refunded"))
+            || self
+                .sort_order
+                .as_deref()
+                .is_some_and(|s| !matches!(s, "asc" | "desc"))
+            || self
+                .min_duration_ms
+                .is_some_and(|v| !v.is_finite() || !(0.0..=86_400_000.0).contains(&v))
+            || self
+                .max_duration_ms
+                .is_some_and(|v| !v.is_finite() || !(0.0..=86_400_000.0).contains(&v))
+            || matches!((self.min_duration_ms, self.max_duration_ms), (Some(min), Some(max)) if min > max)
             || self
                 .upstream_request_id
                 .as_deref()
-                .is_some_and(|v| !v.is_empty())
+                .is_some_and(|v| v.len() > 256 || v.chars().any(char::is_control))
             || [
                 &self.username,
                 &self.model_name,
@@ -160,6 +184,39 @@ impl UsageQuery {
             size,
             offset,
         })
+    }
+
+    fn matches(&self, request: &ValidatedRequest, details: &log_details::LogDetails) -> bool {
+        let status = match self.status.as_deref().unwrap_or_default() {
+            "success" => request.settled() && request.outcome.as_deref() == Some("completed"),
+            "error" => {
+                !request.held()
+                    && (!request.settled() || request.outcome.as_deref() != Some("completed"))
+            }
+            "pending" => request.held(),
+            "refunded" => request.settled() && request.amounts.refunded > 0,
+            _ => true,
+        };
+        status
+            && self
+                .channel
+                .filter(|c| *c != 0)
+                .is_none_or(|c| details.channel == Some(c))
+            && self
+                .upstream_request_id
+                .as_deref()
+                .filter(|v| !v.is_empty())
+                .is_none_or(|v| details.upstream_request_id() == Some(v))
+            && self.min_duration_ms.is_none_or(|min| {
+                details
+                    .duration_ms()
+                    .is_some_and(|duration| duration >= min)
+            })
+            && self.max_duration_ms.is_none_or(|max| {
+                details
+                    .duration_ms()
+                    .is_some_and(|duration| duration <= max)
+            })
     }
 }
 
@@ -353,6 +410,13 @@ struct Summary {
     completed_requests: i64,
     grounded_requests: i64,
     cache: CacheSummary,
+    total_count: i64,
+    success_count: i64,
+    error_count: i64,
+    pending_count: i64,
+    refunded_count: i64,
+    input_tokens: i64,
+    output_tokens: i64,
 }
 #[derive(Default)]
 struct CacheSummary {
@@ -401,6 +465,17 @@ fn recent(at: i64, now: i64) -> bool {
 }
 impl Summary {
     fn include(&mut self, r: &ValidatedRequest, now: i64) -> Result<(), Error> {
+        add(&mut self.total_count, 1)?;
+        if r.held() {
+            add(&mut self.pending_count, 1)?;
+        } else if r.settled() && r.outcome.as_deref() == Some("completed") {
+            add(&mut self.success_count, 1)?;
+        } else {
+            add(&mut self.error_count, 1)?;
+        }
+        if r.settled() && r.amounts.refunded > 0 {
+            add(&mut self.refunded_count, 1)?;
+        }
         self.session_sources |=
             matches!(r.credential_source, "drawing_session" | "assistant_session");
         if r.held() {
@@ -410,6 +485,8 @@ impl Summary {
         if r.settled() {
             if r.measured_text() {
                 self.cache.include(r.usage)?;
+                add(&mut self.input_tokens, r.usage.input)?;
+                add(&mut self.output_tokens, r.usage.output)?;
             }
             if let Some(tool) = r.usage.tool {
                 add(&mut self.tool_requests, i64::from(tool.successful_requests))?;
@@ -449,6 +526,9 @@ impl Summary {
     }
     fn project(&self) -> Value {
         let mut data = json!({"rpm":self.rpm,"tpm":self.tpm,"reserved_credits":self.reserved,"incomplete_count":self.incomplete,
+            "rate_window_seconds":60,"total_count":self.total_count,"success_count":self.success_count,
+            "error_count":self.error_count,"pending_count":self.pending_count,"refunded_count":self.refunded_count,
+            "input_tokens":self.input_tokens,"output_tokens":self.output_tokens,"total_tokens":self.tokens,
             "usage_scope":if self.session_sources {"actor_personal_usage"}else{"actor_personal_key"},"settlement_scope":"settled_requests","spending_scope":"all_payers","team_funded_quota":self.team_net,
             "output_image_count":self.images,"token_count_scope":"settled_text_requests",
             "tool_requests":self.tool_requests,"grounded_requests":self.grounded_requests,
@@ -486,6 +566,8 @@ enum Projection {
     AdministratorStats,
     Export,
     AdministratorExport,
+    Request,
+    AdministratorRequest,
 }
 impl Projection {
     fn administrator(self) -> bool {
@@ -495,10 +577,14 @@ impl Projection {
                 | Self::AdministratorLogs
                 | Self::AdministratorStats
                 | Self::AdministratorExport
+                | Self::AdministratorRequest
         )
     }
     fn export(self) -> bool {
         matches!(self, Self::Export | Self::AdministratorExport)
+    }
+    fn detail(self) -> bool {
+        matches!(self, Self::Request | Self::AdministratorRequest)
     }
 }
 enum ReadOutput {
@@ -549,9 +635,32 @@ impl UsageStore {
             sqlx::query_scalar("SELECT floor(extract(epoch FROM transaction_timestamp()))::bigint")
                 .fetch_one(&mut *tx)
                 .await?;
-        let f = q.validate(now, administrator)?;
+        let mut f = q.validate(now, administrator)?;
         if projection.export() {
             q.validate_export()?;
+        }
+        if projection.detail() {
+            q.validate_export()?;
+            if q.request_id.as_deref().is_none_or(|id| id.is_empty())
+                || q.start_timestamp.is_some()
+                || q.end_timestamp.is_some()
+                || q.r#type.is_some()
+                || q.model_name.is_some()
+                || q.token_name.is_some()
+                || q.group.is_some()
+                || q.username.is_some()
+                || q.channel.is_some()
+                || q.upstream_request_id.is_some()
+                || q.status.is_some()
+                || q.min_duration_ms.is_some()
+                || q.max_duration_ms.is_some()
+                || q.sort_order.is_some()
+                || q.default_time.is_some()
+            {
+                return Err(Error::Invalid);
+            }
+            f.start = 0;
+            f.end = 253402300799;
         }
         let selected_user = if administrator {
             if let Some(username) = q.username.as_deref().filter(|name| !name.is_empty()) {
@@ -571,9 +680,10 @@ impl UsageStore {
             Some(actor.user_id)
         };
         let mut summary = Summary::default();
+        let mut performance = log_details::PerformanceSummary::default();
         let mut csv = projection
             .export()
-            .then(export::NativeCsv::new)
+            .then(|| export::NativeCsv::new_for_scope(administrator))
             .transpose()?;
         let mut total = 0;
         let mut items = Vec::new();
@@ -590,6 +700,14 @@ impl UsageStore {
                 )
             } else {
                 SELECT_REQUESTS.to_owned()
+            };
+            let selection = if q.sort_order.as_deref() == Some("asc") {
+                selection.replace(
+                    "ORDER BY r.authorized_at DESC,r.id DESC",
+                    "ORDER BY r.authorized_at ASC,r.id ASC",
+                )
+            } else {
+                selection
             };
             let selection = format!("DECLARE lmm_usage_reader NO SCROLL CURSOR FOR {selection}");
             sqlx::query(sqlx::AssertSqlSafe::<&str>(&selection))
@@ -609,18 +727,28 @@ impl UsageStore {
                     .fetch_all(&mut *tx)
                     .await?;
                 let count = rows.len();
-                for r in validate_usage_batch(&mut tx, rows).await? {
+                let requests = validate_usage_batch(&mut tx, rows).await?;
+                let mut details = log_details::load(&mut tx, &requests, administrator).await?;
+                for r in requests {
+                    let detail = details.remove(&r.id).ok_or(Error::Storage)?;
+                    if !q.matches(&r, &detail) {
+                        continue;
+                    }
                     add(&mut total, 1)?;
                     // Validate every selected request, including the other pages.
                     summary.include(&r, now)?;
+                    performance.include(&detail)?;
                     if let Some(csv) = &mut csv {
-                        csv.include(&r)?;
+                        csv.include_with_details(&r, &detail)?;
                     }
                     match projection {
-                        Projection::Logs | Projection::AdministratorLogs
+                        Projection::Logs
+                        | Projection::AdministratorLogs
+                        | Projection::Request
+                        | Projection::AdministratorRequest
                             if total > f.offset && total <= f.offset + f.size =>
                         {
-                            let item = r.log();
+                            let item = detail.project(&r, administrator);
                             if !ids.insert(presentation_id(&r.id)) {
                                 return Err(Error::Collision);
                             }
@@ -694,10 +822,21 @@ impl UsageStore {
             }
             Projection::Stats | Projection::AdministratorStats => {
                 let mut result = summary.project();
+                performance.project(&mut result);
+                result["window_start"] = json!(f.start);
+                let rate_end = f.end.min(now);
+                result["window_end"] = json!(rate_end);
+                result["rate_basis"] = json!("selected_window");
+                let seconds = (rate_end - f.start + 1).max(1) as f64;
+                result["requests_per_minute"] = json!(summary.total_count as f64 * 60.0 / seconds);
+                result["tokens_per_minute"] = json!(summary.tokens as f64 * 60.0 / seconds);
                 if administrator {
                     result["usage_scope"] = json!("administrator_all_accounts");
                 }
                 result
+            }
+            Projection::Request | Projection::AdministratorRequest => {
+                items.into_iter().next().ok_or(Error::NotFound)?
             }
             Projection::Export | Projection::AdministratorExport => {
                 unreachable!("CSV returned above")
@@ -722,6 +861,14 @@ impl UsageStore {
                 if q.token_name.as_deref().unwrap_or_default().is_empty()
                     && q.request_id.as_deref().unwrap_or_default().is_empty()
                     && matches!(q.r#type.unwrap_or(0), 0 | 2)
+                    && q.status.as_deref().unwrap_or_default().is_empty()
+                    && q.channel.unwrap_or(0) == 0
+                    && q.upstream_request_id
+                        .as_deref()
+                        .unwrap_or_default()
+                        .is_empty()
+                    && q.min_duration_ms.is_none()
+                    && q.max_duration_ms.is_none()
                 {
                     let legacy = crate::history_read::quota_aggregates::buckets(
                         &mut tx,
@@ -756,6 +903,8 @@ pub fn router(store: UsageStore) -> Router {
     Router::new()
         .route("/core/v1/usage/admin/logs", get(administrator_logs))
         .route("/core/v1/usage/admin/stats", get(administrator_stats))
+        .route("/core/v1/usage/admin/request", get(administrator_request))
+        .route("/core/v1/usage/self/request", get(self_request))
         .route("/core/v1/usage/admin/export.csv", get(administrator_export))
         .route("/core/v1/usage/self/export.csv", get(self_export))
         .route("/api/log/self", get(logs))
@@ -857,6 +1006,11 @@ async fn respond(
                     "USAGE_WINDOW_TOO_DENSE",
                     "Use a smaller usage window or fewer receipts",
                 ),
+                Error::NotFound => (
+                    StatusCode::NOT_FOUND,
+                    "USAGE_NOT_FOUND",
+                    "The request was not found",
+                ),
                 _ => (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "USAGE_UNAVAILABLE",
@@ -928,6 +1082,20 @@ async fn self_export(
 ) -> Response {
     respond(s, h, q, Projection::Export).await
 }
+async fn administrator_request(
+    State(s): State<UsageStore>,
+    h: HeaderMap,
+    q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    respond(s, h, q, Projection::AdministratorRequest).await
+}
+async fn self_request(
+    State(s): State<UsageStore>,
+    h: HeaderMap,
+    q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    respond(s, h, q, Projection::Request).await
+}
 
 const MAX_OAUTH_ITEMS_BYTES: usize = 16 * 1024 * 1024;
 
@@ -953,7 +1121,7 @@ pub(crate) async fn read_oauth_usage(
             .fetch_one(&mut *c)
             .await
             .map_err(|_| ())?;
-    let start = (now - WINDOW).max(0);
+    let start = (now - DEFAULT_WINDOW).max(0);
     // This endpoint returns every item, rather than a page. Bound its serialized
     // item payload without silently truncating or retaining an unlimited result.
     let query = format!(
