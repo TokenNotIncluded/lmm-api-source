@@ -13,8 +13,8 @@ pub use permissions::{
     permission_read_router, policy_sha256,
 };
 mod auth;
-pub(crate) mod registration_policy;
 mod browser;
+pub(crate) mod registration_policy;
 pub(crate) use browser::FederatedCallbackInput;
 pub use browser::{
     ACCOUNT_APPEALS_SCHEMA, ACCOUNT_LIFECYCLE_SCHEMA, AccountAppealContext, AccountAppealGrant,

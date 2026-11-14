@@ -63,6 +63,13 @@ impl ProviderNetwork {
     }
 
     #[cfg(test)]
+    pub(super) fn local_for_test() -> Self {
+        let mut network = Self::new();
+        network.local = true;
+        network
+    }
+
+    #[cfg(test)]
     pub(super) fn trusted_ca_for_test(ca: reqwest::Certificate) -> Self {
         let mut network = Self::new();
         assert!(!network.local);

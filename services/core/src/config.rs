@@ -1279,9 +1279,11 @@ fn validate_registration_policy(
     oauth_enabled: Option<bool>,
     disabled_methods: Option<&[String]>,
 ) -> io::Result<()> {
-    if disabled_methods.is_some_and(|methods| methods.iter().any(|method| {
-        !crate::identity::registration_policy::valid_method(&method.trim().to_ascii_lowercase())
-    })) {
+    if disabled_methods.is_some_and(|methods| {
+        methods.iter().any(|method| {
+            !crate::identity::registration_policy::valid_method(&method.trim().to_ascii_lowercase())
+        })
+    }) {
         return Err(invalid_config("unknown registration disabled method"));
     }
     if enabled

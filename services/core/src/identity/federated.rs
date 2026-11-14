@@ -10,6 +10,8 @@ mod network;
 mod policy;
 mod protocol;
 mod provider;
+#[cfg(test)]
+mod registration_tests;
 mod service;
 
 pub(crate) use crypto::FederatedKeys;

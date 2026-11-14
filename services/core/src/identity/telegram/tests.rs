@@ -154,6 +154,39 @@ async fn login(f: &Fixture, proof: &TelegramAuthorization, binding: &str) -> Bro
 }
 
 #[sqlx::test(migrations = false)]
+async fn telegram_registration_policy_closure_preserves_binding_and_existing_login(pool: PgPool) {
+    let mut f = fixture(pool).await;
+    f.store = f
+        .store
+        .clone()
+        .with_registration_enabled(false)
+        .with_oauth_register_enabled(false)
+        .with_oauth_registration_disabled_methods(&["telegram".into()])
+        .unwrap();
+    f.browser = BrowserAuth::new(f.store.clone(), &[43; 32]).unwrap();
+    bind(&f, &f.owner, SUBJECT, "closed-registration-bind").await;
+    let proof = signed(&f, SUBJECT, "closed-registration-login").await;
+    let bundle = login(&f, &proof, OTHER_BINDING).await;
+    assert_eq!(user(&bundle), user(&f.owner));
+    let before = count(&f.pool, "core_identity.users").await;
+    let flow = f.browser.begin_telegram_login(BINDING).await.unwrap();
+    let unknown = signed(&f, "42", "closed-registration-unknown").await;
+    assert!(
+        f.browser
+            .finish_telegram_login(
+                &flow.flow_token,
+                BINDING,
+                &unknown,
+                &metadata(),
+                MFA_BINDING
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(count(&f.pool, "core_identity.users").await, before);
+}
+
+#[sqlx::test(migrations = false)]
 async fn telegram_explicit_binding_preserves_64_bit_subject_and_logs_into_exact_owner(
     pool: PgPool,
 ) {

@@ -325,7 +325,7 @@ impl IdentityStore {
         }
         if !self.oauth_registration_policy().allows_federated(
             exchange.provider_id(),
-            exchange.kind(),
+            exchange.kind().as_str(),
             &exchange.flow.provider.slug,
         ) {
             return Err(IdentityError::Forbidden);

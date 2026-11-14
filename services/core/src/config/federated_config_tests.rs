@@ -6,6 +6,39 @@ const WEB: &str = "[identity.web]\norigin='https://auth.example.test'\nrefresh_k
 const DATABASE: &str = "[database]\nurl_file='/nonexistent-test/database-url'\n";
 
 #[test]
+fn registration_policy_toml_validates_precise_and_legacy_selectors_even_when_closed() {
+    for selector in [
+        "google",
+        "custom_oauth",
+        "custom:example",
+        "federated:42",
+        " FEDERATED:42 ",
+    ] {
+        let document = format!(
+            "version=1\n{DATABASE}[identity]\nregistration_enabled=false\nregistration_disabled_methods=['{selector}']\n"
+        );
+        assert!(parse_core_file(document.as_bytes()).is_ok(), "{selector}");
+    }
+    for selector in [
+        "unknown",
+        "federated:0",
+        "federated:01",
+        "federated:9223372036854775808",
+    ] {
+        let document = format!(
+            "version=1\n{DATABASE}[identity]\nregistration_enabled=false\nregistration_disabled_methods=['{selector}']\n"
+        );
+        assert!(
+            parse_core_file(document.as_bytes())
+                .unwrap_err()
+                .to_string()
+                .contains("unknown registration disabled method"),
+            "{selector}"
+        );
+    }
+}
+
+#[test]
 fn federated_enable_requires_database_native_web_and_keyring() {
     for (database, web, keyring, enabled, expected) in [
         (false, false, false, false, true),

@@ -168,12 +168,23 @@ impl IdentityStore {
     pub fn oauth_register_enabled(&self) -> bool {
         self.oauth_register_enabled
     }
+    pub(crate) fn oauth_registration_policy(
+        &self,
+    ) -> super::registration_policy::OAuthRegistrationPolicy<'_> {
+        super::registration_policy::OAuthRegistrationPolicy {
+            enabled: self.registration_enabled && self.oauth_register_enabled,
+            disabled_methods: &self.oauth_registration_disabled_methods,
+        }
+    }
     pub fn with_oauth_registration_disabled_methods(mut self, methods: &[String]) -> Result<Self> {
         let mut methods: Vec<_> = methods
             .iter()
             .map(|method| method.trim().to_ascii_lowercase())
             .collect();
-        if methods.iter().any(|method| !super::registration_policy::valid_method(method)) {
+        if methods
+            .iter()
+            .any(|method| !super::registration_policy::valid_method(method))
+        {
             return Err(IdentityError::Invalid);
         }
         methods.sort();
@@ -799,6 +810,40 @@ mod tests {
             Err(IdentityError::Invalid)
         ));
     }
+    #[tokio::test]
+    async fn oauth_registration_precise_selectors_are_normalized_and_deduplicated() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        let store = IdentityStore::from_pool(pool)
+            .with_registration_enabled(true)
+            .with_oauth_register_enabled(true)
+            .with_oauth_registration_disabled_methods(&[
+                " FEDERATED:42 ".into(),
+                "federated:42".into(),
+                " Custom:Example ".into(),
+                "CUSTOM_OAUTH".into(),
+            ])
+            .unwrap();
+        assert_eq!(
+            store.oauth_registration_disabled_methods(),
+            &["custom:example", "custom_oauth", "federated:42"]
+        );
+        let policy = store.oauth_registration_policy();
+        assert!(!policy.allows_federated(42, "oidc", "oidc"));
+        assert!(policy.allows_federated(43, "oidc", "oidc"));
+        assert!(!policy.allows_federated(43, "custom_oauth", "other"));
+        assert!(store.require_oauth_registration("google").is_ok());
+        for selector in ["federated:0", "federated:01", "custom:"] {
+            assert!(
+                store
+                    .clone()
+                    .with_oauth_registration_disabled_methods(&[selector.into()])
+                    .is_err()
+            );
+        }
+    }
+
     #[tokio::test]
     async fn password_registration_requires_both_switches() {
         let pool = PgPoolOptions::new()
