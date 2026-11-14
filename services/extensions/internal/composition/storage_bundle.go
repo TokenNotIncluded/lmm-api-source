@@ -88,7 +88,7 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 	}
 
 	if component == "assistant" {
-		policy.contracts = []storageContract{{"lmm_assistant.contract", 2}}
+		policy.contracts = []storageContract{{"lmm_assistant.contract", 3}}
 		policy.updateColumns = []storageColumnGrant{{"lmm_assistant.preset_stats", []string{"clicks"}}}
 		policy.sequences = []string{"lmm_assistant.conversations_id_seq", "lmm_assistant.history_messages_id_seq"}
 		if bundle == assistantDelegationBundle || bundle == assistantAgentBundle {

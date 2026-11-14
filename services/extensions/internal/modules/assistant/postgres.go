@@ -36,7 +36,7 @@ func NewPostgres(ctx context.Context, db *sql.DB, expectedDatabase string) (*Pos
 	if database != expectedDatabase || hasCore {
 		return nil, access.ErrForbidden
 	}
-	if e := db.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.contract WHERE singleton`).Scan(&version); e != nil || version != 2 {
+	if e := db.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.contract WHERE singleton`).Scan(&version); e != nil || version != 3 {
 		return nil, access.ErrUnavailable
 	}
 	return &Postgres{db}, nil

@@ -125,7 +125,7 @@ func (p *Postgres) ListHistory(ctx context.Context, userID int64, archived bool,
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	rows, err := p.db.QueryContext(ctx, `SELECT `+conversationColumns+` FROM lmm_assistant.conversations WHERE user_id=$1 AND (archived_at<>0)=$2 AND ($3::bigint=0 OR (updated_at,id)<($3,$4)) ORDER BY updated_at DESC,id DESC LIMIT $5`,
+	rows, err := p.db.QueryContext(ctx, `SELECT `+conversationColumns+` FROM lmm_assistant.conversations WHERE user_id=$1 AND (NOT legacy_list_hidden OR EXISTS(SELECT FROM lmm_assistant.history_messages m WHERE m.conversation_id=conversations.id)) AND (archived_at<>0)=$2 AND ($3::bigint=0 OR (updated_at,id)<($3,$4)) ORDER BY updated_at DESC,id DESC LIMIT $5`,
 		userID, archived, after.UpdatedAt, after.ID, limit)
 	if err != nil {
 		return nil, access.ErrUnavailable
@@ -160,8 +160,8 @@ func (p *Postgres) ReadHistory(ctx context.Context, userID, id int64, limit int)
 	if err != nil {
 		return item, nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,role,content,created_at FROM (
-        SELECT id,sequence,role,content,created_at FROM lmm_assistant.history_messages
+	rows, err := tx.QueryContext(ctx, `SELECT id,conversation_id,sequence,actor_user_id,role,content,created_at FROM (
+        SELECT id,conversation_id,sequence,actor_user_id,role,content,created_at FROM lmm_assistant.history_messages
         WHERE conversation_id=$1 ORDER BY sequence DESC LIMIT $2
       ) recent ORDER BY sequence`, id, limit)
 	if err != nil {
@@ -170,7 +170,7 @@ func (p *Postgres) ReadHistory(ctx context.Context, userID, id int64, limit int)
 	messages := []HistoryMessage{}
 	for rows.Next() {
 		var m HistoryMessage
-		if rows.Scan(&m.ID, &m.Role, &m.Content, &m.CreatedAt) != nil {
+		if rows.Scan(&m.ID, &m.ConversationID, &m.Sequence, &m.ActorUserID, &m.Role, &m.Content, &m.CreatedAt) != nil {
 			rows.Close()
 			return item, nil, access.ErrUnavailable
 		}

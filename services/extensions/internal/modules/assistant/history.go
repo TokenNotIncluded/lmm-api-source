@@ -30,10 +30,13 @@ type Conversation struct {
 	PrivacyNotice      string `json:"privacy_notice"`
 }
 type HistoryMessage struct {
-	ID        int64  `json:"id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	CreatedAt int64  `json:"created_at"`
+	ID             int64  `json:"id"`
+	ConversationID int64  `json:"conversation_id"`
+	Sequence       int64  `json:"sequence"`
+	ActorUserID    *int64 `json:"actor_user_id"`
+	Role           string `json:"role"`
+	Content        string `json:"content"`
+	CreatedAt      int64  `json:"created_at"`
 }
 type HistoryPage struct {
 	Conversations []Conversation `json:"conversations"`
